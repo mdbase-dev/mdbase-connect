@@ -9,12 +9,12 @@ msgstr ""
 
 #: src/AppSwitcher.tsx
 msgid "(opens in a new tab)"
-msgstr ""
+msgstr "（在新标签页中打开）"
 
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
-msgstr ""
+msgstr "{0, plural, one {还有 # 行更改} other {还有 # 行更改}}"
 
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
@@ -24,183 +24,183 @@ msgstr ""
 #. placeholder {0}: signIn.accountLogin
 #: src/collections/model.ts
 msgid "{0} on GitHub"
-msgstr ""
+msgstr "GitHub 上的 {0}"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} can't open collections here"
-msgstr ""
+msgstr "{app} 无法在此处打开集合"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} doesn't have access to any collections yet. Choose one you have, or create a new one."
-msgstr ""
+msgstr "{app} 尚无权访问任何集合。请选择已有集合，或新建一个。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} has stopped"
-msgstr ""
+msgstr "{app} 已停止"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} needs to add a few things to this collection before it can use it."
-msgstr ""
+msgstr "{app} 需要先向此集合添加一些内容，才能使用它。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} needs your approval in mdbase before it can open it."
-msgstr ""
+msgstr "{app} 需要先在 mdbase 中获得你的批准，才能打开集合。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
-msgstr ""
+msgstr "{app} 将不再在此设备上显示该集合。集合内容不会被删除，且 {app} 仍保有访问权限。如需撤销访问权限，请使用“管理访问权限”。"
 
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
-msgstr ""
+msgstr "{count, plural, one {已应用 # 处标记。} other {已应用 # 处标记。}}"
 
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
-msgstr ""
+msgstr "发生了问题。你可以通过“发送反馈”进行报告。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Access wasn't given."
-msgstr ""
+msgstr "未授予访问权限。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Access wasn't given. You can try again or choose a different collection."
-msgstr ""
+msgstr "未授予访问权限。你可以重试或选择其他集合。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Add a collection…"
-msgstr ""
+msgstr "添加集合…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Add a Private collection"
-msgstr ""
+msgstr "添加私有集合"
 
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
-msgstr ""
+msgstr "应用更改"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Applying collection updates…"
-msgstr ""
+msgstr "正在应用集合更新…"
 
 #: src/FeedbackMarkup.tsx
 msgid "Applying…"
-msgstr ""
+msgstr "正在应用…"
 
 #: src/Feedback.tsx
 msgid "Attach screenshot"
-msgstr ""
+msgstr "附加屏幕截图"
 
 #: src/Feedback.tsx
 msgid "Back to your work"
-msgstr ""
+msgstr "返回工作"
 
 #: src/FeedbackMarkup.tsx
 msgid "Blackout"
-msgstr ""
+msgstr "遮盖"
 
 #: src/apps.ts
 msgid "Browse and edit records"
-msgstr ""
+msgstr "浏览和编辑记录"
 
 #: src/Feedback.tsx
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
-msgstr ""
+msgstr "浏览器、操作系统、视口和近期错误代码。不包含笔记内容、路径或凭据。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Can edit"
-msgstr ""
+msgstr "可编辑"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Can view"
-msgstr ""
+msgstr "可查看"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Can't continue"
-msgstr ""
+msgstr "无法继续"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Can't open {collection}"
-msgstr ""
+msgstr "无法打开 {collection}"
 
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "取消"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Cancel"
-msgstr ""
+msgstr "取消"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Checking collection setup…"
-msgstr ""
+msgstr "正在检查集合设置…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Checking the collection is readable…"
-msgstr ""
+msgstr "正在检查集合是否可读…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Checking what setup will change…"
-msgstr ""
+msgstr "正在检查设置将带来的更改…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Choose a collection"
-msgstr ""
+msgstr "选择集合"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Choose a different collection"
-msgstr ""
+msgstr "选择其他集合"
 
 #: src/feedback-data.ts
 msgid "Choose a PNG or JPEG screenshot."
-msgstr ""
+msgstr "请选择 PNG 或 JPEG 屏幕截图。"
 
 #: src/feedback-data.ts
 msgid "Choose a screenshot smaller than 16 megapixels."
-msgstr ""
+msgstr "请选择小于 1600 万像素的屏幕截图。"
 
 #: src/feedback-data.ts
 msgid "Choose a screenshot smaller than 3 MB."
-msgstr ""
+msgstr "请选择小于 3 MB 的屏幕截图。"
 
 #: src/Feedback.tsx
 msgid "Choose an image"
-msgstr ""
+msgstr "选择图片"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
-msgstr ""
+msgstr "在那里选择或创建集合。"
 
 #: src/Dialog.tsx
 msgid "Close"
-msgstr ""
+msgstr "关闭"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Close"
-msgstr ""
+msgstr "关闭"
 
 #. placeholder {0}: label.toLowerCase()
 #: src/CommandPalette.tsx
@@ -209,187 +209,187 @@ msgstr ""
 
 #: src/CommandPalette.tsx
 msgid "Close {label}"
-msgstr ""
+msgstr "关闭 {label}"
 
 #: src/Feedback.tsx
 msgid "Close feedback"
-msgstr ""
+msgstr "关闭反馈"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Collection"
-msgstr ""
+msgstr "集合"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Collections"
-msgstr ""
+msgstr "集合"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "Color theme"
-msgstr ""
+msgstr "颜色主题"
 
 #: src/CommandPalette.tsx
 msgid "Commands"
-msgstr ""
+msgstr "命令"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connecting to sync…"
-msgstr ""
+msgstr "正在连接同步服务…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connecting your collection…"
-msgstr ""
+msgstr "正在连接你的集合…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Continue"
-msgstr ""
+msgstr "继续"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Continue in the mdbase window"
-msgstr ""
+msgstr "在 mdbase 窗口中继续"
 
 #: src/AppSwitcher.tsx
 msgid "Current"
-msgstr ""
+msgstr "当前"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "Dark"
-msgstr ""
+msgstr "深色"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Delete {collection}?"
-msgstr ""
+msgstr "删除 {collection}？"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Delete collection"
-msgstr ""
+msgstr "删除集合"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Delete collection…"
-msgstr ""
+msgstr "删除集合…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Deleting…"
-msgstr ""
+msgstr "正在删除…"
 
 #: src/screens.tsx
 msgid "Details"
-msgstr ""
+msgstr "详情"
 
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
-msgstr ""
+msgstr "拖动以标记。键盘操作：使用方向键移动；按空格键开始或完成。遮盖会移除像素。"
 
 #: src/FeedbackMarkup.tsx
 msgid "Draw"
-msgstr ""
+msgstr "绘制"
 
 #: src/CommandPalette.tsx
 msgid "Esc"
-msgstr ""
+msgstr "Esc"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
-msgstr ""
+msgstr "你和其他所有人都将立即无法在任何设备或应用中访问此集合。此操作无法撤销。"
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
-msgstr ""
+msgstr "无法发送反馈。请检查网络连接后重试。"
 
 #: src/feedback-data.ts
 #: src/Feedback.tsx
 msgid "Feedback could not be sent. Please try again."
-msgstr ""
+msgstr "无法发送反馈。请重试。"
 
 #: src/Feedback.tsx
 msgid "Feedback type"
-msgstr ""
+msgstr "反馈类型"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Find a collection"
-msgstr ""
+msgstr "查找集合"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Give {app} a collection"
-msgstr ""
+msgstr "为 {app} 授予集合访问权限"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Give {app} access to {collection}?"
-msgstr ""
+msgstr "允许 {app} 访问 {collection}？"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Give {app} access to this collection?"
-msgstr ""
+msgstr "允许 {app} 访问此集合？"
 
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"
-msgstr ""
+msgstr "高亮"
 
 #: src/feedback-data.ts
 msgid "How would it help you?"
-msgstr ""
+msgstr "这会如何帮助你？"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "ID {id}"
-msgstr ""
+msgstr "ID {id}"
 
 #: src/Feedback.tsx
 msgid "Images: PNG or JPEG, up to 3 MB. Blackout replaces pixels; only the final image is attached."
-msgstr ""
+msgstr "图片格式：PNG 或 JPEG，最大 3 MB。遮盖会替换像素；仅附加最终图片。"
 
 #: src/Feedback.tsx
 msgid "Include collection name:"
-msgstr ""
+msgstr "包含集合名称："
 
 #: src/Feedback.tsx
 msgid "Include screenshot"
-msgstr ""
+msgstr "包含屏幕截图"
 
 #: src/Feedback.tsx
 msgid "Include technical diagnostics"
-msgstr ""
+msgstr "包含技术诊断信息"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Kept on your computers, not stored by mdbase"
-msgstr ""
+msgstr "保存在你的电脑上，不由 mdbase 存储"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "Light"
-msgstr ""
+msgstr "浅色"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
-msgstr ""
+msgstr "正在加载集合快照…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Manage access"
-msgstr ""
+msgstr "管理访问权限"
 
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "Mark up screenshot"
-msgstr ""
+msgstr "标记屏幕截图"
 
 #: src/FeedbackMarkup.tsx
 #~ msgid "marks applied."
@@ -397,508 +397,508 @@ msgstr ""
 
 #: src/Feedback.tsx
 msgid "Markup discarded. Screenshot excluded."
-msgstr ""
+msgstr "已丢弃标记，未包含屏幕截图。"
 
 #: src/AppSwitcher.tsx
 msgid "mdbase {current}: open this collection in another app"
-msgstr ""
+msgstr "mdbase {current}：在其他应用中打开此集合"
 
 #: src/AppSwitcher.tsx
 msgid "mdbase apps"
-msgstr ""
+msgstr "mdbase 应用"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "More for {collection}"
-msgstr ""
+msgstr "{collection} 的更多内容"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
-msgstr ""
+msgstr "需要决定"
 
 #: src/SaveNotice.tsx
 msgid "Needs attention"
-msgstr ""
+msgstr "需要处理"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "No collection was added."
-msgstr ""
+msgstr "未添加集合。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "No collections match “{query}”."
-msgstr ""
+msgstr "没有匹配“{query}”的集合。"
 
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
-msgstr ""
+msgstr "未截取屏幕截图。你仍可以发送反馈。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Nothing in your collection will change."
-msgstr ""
+msgstr "集合中的内容不会发生变化。"
 
 #: src/CommandPalette.tsx
 msgid "Nothing matches"
-msgstr ""
+msgstr "没有匹配项"
 
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
-msgstr ""
+msgstr "在其他 mdbase 应用中打开"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Open now"
-msgstr ""
+msgstr "立即打开"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Open the mdbase window again"
-msgstr ""
+msgstr "重新打开 mdbase 窗口"
 
 #: src/AppSwitcher.tsx
 msgid "Open this collection in"
-msgstr ""
+msgstr "在此处打开此集合"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Open your collections in {app}"
-msgstr ""
+msgstr "在 {app} 中打开你的集合"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Opening {collection}"
-msgstr ""
+msgstr "正在打开 {collection}"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Opening mdbase…"
-msgstr ""
+msgstr "正在打开 mdbase…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Opening the local collection…"
-msgstr ""
+msgstr "正在打开本地集合…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Opening your collection"
-msgstr ""
+msgstr "正在打开你的集合"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Opening…"
-msgstr ""
+msgstr "正在打开…"
 
 #: src/AppSwitcher.tsx
 msgid "Opens in a new tab"
-msgstr ""
+msgstr "在新标签页中打开"
 
 #: src/Feedback.tsx
 msgid "Optional"
-msgstr ""
+msgstr "可选"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
-msgstr ""
+msgstr "所有者"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Private"
-msgstr ""
+msgstr "私有"
 
 #: src/Feedback.tsx
 msgid "Private feedback to the mdbase team."
-msgstr ""
+msgstr "发送给 mdbase 团队的私密反馈。"
 
 #: src/apps.ts
 msgid "Read and annotate sources"
-msgstr ""
+msgstr "阅读和注释来源"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload"
-msgstr ""
+msgstr "重新加载"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload to continue."
-msgstr ""
+msgstr "请重新加载以继续。"
 
 #: src/Feedback.tsx
 msgid "Remove"
-msgstr ""
+msgstr "移除"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove"
-msgstr ""
+msgstr "移除"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove {collection} from this list?"
-msgstr ""
+msgstr "要从此列表中移除 {collection} 吗？"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove from this list"
-msgstr ""
+msgstr "从此列表中移除"
 
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
-msgstr ""
+msgstr "我们无法保证会回复。请勿用于安全问题报告或紧急支持。"
 
 #: src/Feedback.tsx
 msgid "Reply email"
-msgstr ""
+msgstr "回复邮箱"
 
 #: src/feedback-data.ts
 #: src/Feedback.tsx
 msgid "Report a problem"
-msgstr ""
+msgstr "报告问题"
 
 #: src/CommandPalette.tsx
 msgid "Results"
-msgstr ""
+msgstr "结果"
 
 #: src/Feedback.tsx
 msgid "Retake screenshot"
-msgstr ""
+msgstr "重新截取屏幕截图"
 
 #: src/FeedbackVerification.tsx
 msgid "Retry verification"
-msgstr ""
+msgstr "重试验证"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Review access"
-msgstr ""
+msgstr "查看访问权限"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Review access to {collection} there."
-msgstr ""
+msgstr "在那里查看对 {collection} 的访问权限。"
 
 #: src/Feedback.tsx
 msgid "Review for private information before sending."
-msgstr ""
+msgstr "发送前请检查是否包含私人信息。"
 
 #: src/SaveNotice.tsx
 msgid "Saved"
-msgstr ""
+msgstr "已保存"
 
 #: src/SaveNotice.tsx
 msgid "Saving"
-msgstr ""
+msgstr "正在保存"
 
 #: src/feedback-data.ts
 msgid "Screen capture isn’t available in this browser. You can attach an image instead."
-msgstr ""
+msgstr "此浏览器不支持屏幕捕获。你可以改为附加图片。"
 
 #: src/feedback-data.ts
 msgid "Screen sharing ended before a screenshot was taken."
-msgstr ""
+msgstr "屏幕共享在截取屏幕截图前已结束。"
 
 #: src/Feedback.tsx
 msgid "Screenshot"
-msgstr ""
+msgstr "屏幕截图"
 
 #: src/FeedbackMarkup.tsx
 msgid "Screenshot annotation canvas"
-msgstr ""
+msgstr "屏幕截图标注画布"
 
 #: src/Feedback.tsx
 msgid "Screenshot attached to your feedback"
-msgstr ""
+msgstr "已将屏幕截图附加到反馈"
 
 #: src/Feedback.tsx
 msgid "Screenshot captured. Sharing has stopped."
-msgstr ""
+msgstr "已截取屏幕截图。共享已停止。"
 
 #: src/FeedbackMarkup.tsx
 msgid "Screenshot tools"
-msgstr ""
+msgstr "屏幕截图工具"
 
 #: src/CommandPalette.tsx
 msgid "Search commands"
-msgstr ""
+msgstr "搜索命令"
 
 #: src/Feedback.tsx
 msgid "Send feedback"
-msgstr ""
+msgstr "发送反馈"
 
 #: src/Feedback.tsx
 msgid "Sending timed out. Please try again."
-msgstr ""
+msgstr "发送超时。请重试。"
 
 #: src/Feedback.tsx
 msgid "Sending…"
-msgstr ""
+msgstr "正在发送…"
 
 #: src/Feedback.tsx
 msgid "Sent privately to the mdbase team."
-msgstr ""
+msgstr "已私密发送给 mdbase 团队。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Set up"
-msgstr ""
+msgstr "设置"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Set up {collection} for {app}"
-msgstr ""
+msgstr "为 {app} 设置 {collection}"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Setting up…"
-msgstr ""
+msgstr "正在设置…"
 
 #: src/feedback-data.ts
 msgid "Share something you like"
-msgstr ""
+msgstr "分享你喜欢的内容"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in"
-msgstr ""
+msgstr "登录"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in and choose a collection there."
-msgstr ""
+msgstr "登录并在那里选择集合。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in with your mdbase account. You'll choose which collection {app} can use."
-msgstr ""
+msgstr "使用 mdbase 账户登录。你可以选择 {app} 可使用的集合。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign out"
-msgstr ""
+msgstr "退出登录"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign out anyway"
-msgstr ""
+msgstr "仍要退出登录"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Signed in as {account}"
-msgstr ""
+msgstr "已以 {account} 身份登录"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Signing out…"
-msgstr ""
+msgstr "正在退出登录…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
-msgstr ""
+msgstr "正在启动 {app}…"
 
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
-msgstr ""
+msgstr "提出改进建议"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Switch collection, current: {collection}"
-msgstr ""
+msgstr "切换集合，当前：{collection}"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Syncing your collection…"
-msgstr ""
+msgstr "正在同步你的集合…"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "System"
-msgstr ""
+msgstr "系统"
 
 #: src/Feedback.tsx
 msgid "Taking screenshot…"
-msgstr ""
+msgstr "正在截取屏幕截图…"
 
 #: src/feedback-data.ts
 msgid "Thanks for the idea."
-msgstr ""
+msgstr "感谢你的想法。"
 
 #: src/feedback-data.ts
 msgid "Thanks for the kind words."
-msgstr ""
+msgstr "感谢你的赞许。"
 
 #: src/feedback-data.ts
 msgid "Thanks for the report."
-msgstr ""
+msgstr "感谢你的反馈。"
 
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
-msgstr ""
+msgstr "无法截取屏幕截图。"
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be captured. Try again."
-msgstr ""
+msgstr "无法截取屏幕截图。请重试。"
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be cleaned in this browser."
-msgstr ""
+msgstr "无法在此浏览器中清理屏幕截图。"
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be created in this browser."
-msgstr ""
+msgstr "无法在此浏览器中创建屏幕截图。"
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be created."
-msgstr ""
+msgstr "无法创建屏幕截图。"
 
 #: src/FeedbackMarkup.tsx
 msgid "The screenshot could not be opened for markup."
-msgstr ""
+msgstr "无法打开屏幕截图以添加标记。"
 
 #: src/Feedback.tsx
 msgid "The screenshot could not be read."
-msgstr ""
+msgstr "无法读取屏幕截图。"
 
 #: src/FeedbackMarkup.tsx
 msgid "The screenshot could not be saved."
-msgstr ""
+msgstr "无法保存屏幕截图。"
 
 #: src/feedback-data.ts
 msgid "The screenshot does not contain a valid PNG or JPEG image."
-msgstr ""
+msgstr "屏幕截图不是有效的 PNG 或 JPEG 图片。"
 
 #: src/feedback-data.ts
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
-msgstr ""
+msgstr "屏幕截图大于 3 MB。请选择较小的图片。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "this collection"
-msgstr ""
+msgstr "此集合"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "This device is still listed under your account until you remove it there."
-msgstr ""
+msgstr "在账户中移除此设备之前，它仍会显示在设备列表中。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
-msgstr ""
+msgstr "这比平时花费的时间更长。"
 
 #: src/CommandPalette.tsx
 msgid "to close"
-msgstr ""
+msgstr "关闭"
 
 #: src/CommandPalette.tsx
 msgid "to move"
-msgstr ""
+msgstr "移动"
 
 #: src/CommandPalette.tsx
 msgid "to open"
-msgstr ""
+msgstr "打开"
 
 #: src/screens.tsx
 msgid "Try again"
-msgstr ""
+msgstr "重试"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Try again"
-msgstr ""
+msgstr "重试"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Type {collection} to confirm"
-msgstr ""
+msgstr "输入 {collection} 以确认"
 
 #: src/text-diff.ts
 msgid "Unchanged lines"
-msgstr ""
+msgstr "未更改的行"
 
 #: src/FeedbackMarkup.tsx
 msgid "Undo"
-msgstr ""
+msgstr "撤销"
 
 #: src/SaveNotice.tsx
 msgid "Unsaved"
-msgstr ""
+msgstr "未保存"
 
 #: src/FeedbackMarkup.tsx
 msgid "Up to 100 marks can be applied. Undo or reset to make another mark."
-msgstr ""
+msgstr "最多可以添加 100 处标记。撤销或重置后可继续添加。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Use {app}'s version"
-msgstr ""
+msgstr "使用 {app} 的版本"
 
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be completed. Try again."
-msgstr ""
+msgstr "无法完成验证。请重试。"
 
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be loaded. Check your connection and try again."
-msgstr ""
+msgstr "无法加载验证。请检查网络连接后重试。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Waiting for the collection key…"
-msgstr ""
+msgstr "正在等待集合密钥…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "What changes"
-msgstr ""
+msgstr "更改内容"
 
 #: src/Feedback.tsx
 msgid "What gets sent"
-msgstr ""
+msgstr "将发送的内容"
 
 #: src/feedback-data.ts
 msgid "What happened?"
-msgstr ""
+msgstr "发生了什么？"
 
 #: src/feedback-data.ts
 msgid "What made a difference?"
-msgstr ""
+msgstr "什么带来了改变？"
 
 #: src/feedback-data.ts
 msgid "What were you trying to do?"
-msgstr ""
+msgstr "你当时想做什么？"
 
 #: src/feedback-data.ts
 msgid "What would you like to improve?"
-msgstr ""
+msgstr "你希望改进什么？"
 
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
-msgstr ""
+msgstr "哪些方面对你很有帮助？"
 
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"
-msgstr ""
+msgstr "撰写引用来源的手稿"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "You've signed out of {app} on this device."
-msgstr ""
+msgstr "你已在此设备上退出 {app}。"
 
 #. Example email address, not user data.
 #: src/Feedback.tsx
 msgid "you@example.com"
-msgstr ""
+msgstr "例如：you@example.com"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Your collections"
-msgstr ""
+msgstr "你的集合"
 
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
-msgstr ""
+msgstr "你的消息、回复邮箱、附加的屏幕截图，以及这些应用和构建信息。"
