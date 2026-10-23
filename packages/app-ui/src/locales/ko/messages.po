@@ -563,7 +563,7 @@ msgstr "문제 신고"
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"
 msgid "Reset"
-msgstr ""
+msgstr "초기화"
 
 #: src/CommandPalette.tsx
 msgid "Results"
