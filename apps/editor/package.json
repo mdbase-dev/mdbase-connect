@@ -14,7 +14,7 @@
     "check:styles": "node scripts/check-style-tokens.mjs",
     "i18n:extract": "mdbase-i18n extract",
     "i18n:compile": "mdbase-i18n compile",
-    "i18n:check": "mdbase-i18n check",
+    "i18n:check": "mdbase-i18n check --compose 'node_modules/@mdbase-dev/ui/dist/locales/{locale}/messages.json' 'node_modules/@mdbase/connect-ui/dist/locales/{locale}/messages.json'",
     "i18n:source": "mdbase-i18n source",
     "typecheck": "pnpm i18n:source && tsc -b --pretty false",
     "test": "pnpm i18n:source && pnpm check:styles && node --test scripts/write-manifest.test.mjs scripts/check-style-tokens.test.mjs && node ../../scripts/ci/vitest.mjs",
