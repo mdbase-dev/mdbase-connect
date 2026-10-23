@@ -250,7 +250,7 @@ msgstr "Resultados hasta ahora: {0} · buscando en {1} de {2}"
 #. placeholder {0}: person.path
 #: src/person-records.ts
 msgid "{0} implements Person through multiple types. Resolve its mappings in Types before linking."
-msgstr "{0} implementa Persona mediante varios tipos. Resuelve sus asignaciones en Tipos antes de vincularlo."
+msgstr "{0} implementa Person mediante varios tipos. Resuelve sus asignaciones en Tipos antes de vincularlo."
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
@@ -850,7 +850,7 @@ msgstr "Añade una propiedad para guardar con esta nota detalles como etiquetas,
 
 #: src/TypeBrowser.tsx
 msgid "Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself."
-msgstr "Añade un tipo listo para usar y obtén compatibilidad con las aplicaciones, o instala un contrato antes de conectar este tipo por tu cuenta."
+msgstr "Añade un tipo listo para usar para obtener compatibilidad con aplicaciones, o instala un contrato antes de conectar este tipo por tu cuenta."
 
 #: src/TypeBrowser.tsx
 msgid "Add a type"
@@ -3828,7 +3828,7 @@ msgstr "person o any"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type"
-msgstr "Tipo de persona"
+msgstr "Tipo Person"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type kept as it is"
@@ -3918,7 +3918,7 @@ msgstr "Últimos 7 días"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
-msgstr "Abierta anteriormente en mdbase editor"
+msgstr "Abierta anteriormente en el editor de mdbase"
 
 #: src/SdkEditorRoot.tsx
 msgid "Private collections"
@@ -4480,7 +4480,7 @@ msgstr "Guardando…"
 
 #: src/type-schema.ts
 msgid "Schema settings"
-msgstr "Configuración del esquema"
+msgstr "Ajustes del esquema"
 
 #: src/TypeBrowser.tsx
 msgid "Schema-managed fields"
@@ -4583,12 +4583,12 @@ msgstr "Configura los registros de persona más abajo antes de revisar este cont
 
 #: src/EditorRail.tsx
 msgid "Settings"
-msgstr "Configuración"
+msgstr "Ajustes"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Settings"
-msgstr "Configuración"
+msgstr "Ajustes"
 
 #: src/TypeBrowser.tsx
 msgid "Setup required"
@@ -4695,7 +4695,7 @@ msgstr "Empieza una lista ordenada"
 
 #: src/TypeBrowser.tsx
 msgid "Start blank or from a ready-made type"
-msgstr "Empieza desde cero o con un tipo predefinido"
+msgstr "Empieza desde cero o elige un tipo listo para usar"
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition and add your own fields."
@@ -4703,7 +4703,7 @@ msgstr "Empieza con una definición vacía y añade tus propios campos."
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition, or choose a ready-made type and adapt its fields and contract mapping to fit your collection."
-msgstr "Empieza con una definición vacía o elige un tipo predefinido y adapta sus campos y su asignación de contrato a tu colección."
+msgstr "Empieza con una definición vacía o elige un tipo listo para usar y adapta sus campos y su asignación de contrato a tu colección."
 
 #: src/TypeBrowser.tsx
 msgid "Start with app compatibility"
@@ -5367,7 +5367,7 @@ msgstr "Esta colección está vacía."
 #: src/native-note-observation.ts
 #: src/next-editor-records.ts
 msgid "This collection is no longer open in mdbase editor."
-msgstr "Esta colección ya no está abierta en mdbase editor."
+msgstr "Esta colección ya no está abierta en el editor de mdbase."
 
 #: src/gateway.ts
 msgid "This collection needs authorization again. Choose the collection to continue."
@@ -5506,7 +5506,7 @@ msgstr "Se eliminará lo siguiente: {0}."
 
 #: src/App.tsx
 msgid "This removes the saved connection from this browser. It does not delete the collection or its files, and it does not revoke mdbase editor’s access in mdbase connect."
-msgstr "Esto quita la conexión guardada de este navegador. No elimina la colección ni sus archivos, ni revoca el acceso de mdbase editor en mdbase connect."
+msgstr "Esto quita la conexión guardada de este navegador. No elimina la colección ni sus archivos, ni revoca el acceso del editor de mdbase en mdbase connect."
 
 #: src/Toasts.tsx
 msgid "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
@@ -5786,7 +5786,7 @@ msgstr "Actualizar definiciones y continuar"
 
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
-msgstr "¿Actualizar el tipo Persona?"
+msgstr "¿Actualizar el tipo Person?"
 
 #: src/TypeBrowser.tsx
 msgid "Update this type?"
@@ -5960,7 +5960,7 @@ msgstr "Puedes cerrar esta ventana."
 
 #: src/YourPersonPanel.tsx
 msgid "You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type."
-msgstr "Puedes vincular directamente una persona existente o revisar la conversión de un solo contacto sin cambiar el resto de tu libreta de direcciones. Las correspondencias avanzadas de Persona están disponibles en Tipos; allí, los campos obligatorios afectan a todos los registros de ese tipo."
+msgstr "Puedes vincular directamente una persona existente o revisar la conversión de un solo contacto sin cambiar el resto de tu libreta de direcciones. Las asignaciones avanzadas de Person están disponibles en Tipos; allí, los campos obligatorios afectan a todos los registros de ese tipo."
 
 #: src/YourPersonPanel.tsx
 msgid "You can still use it, or compare it with the current starter in Types."
@@ -5972,7 +5972,7 @@ msgstr "No tienes permiso para subir {name}."
 
 #: src/ConnectionScreens.tsx
 msgid "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."
-msgstr "Continuarás en mdbase. Inicia sesión si se te pide, elige una colección y aprueba mdbase editor. Volverás aquí automáticamente; tus archivos se quedan donde están."
+msgstr "Continuarás en mdbase. Inicia sesión si se te pide, elige una colección y aprueba el editor de mdbase. Volverás aquí automáticamente; tus archivos se quedan donde están."
 
 #: src/YourPersonPanel.tsx
 msgid "Your account"
