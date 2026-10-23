@@ -3131,35 +3131,35 @@ msgstr "Geändert"
 
 #: src/note-list-view.ts
 msgid "modified newest"
-msgstr ""
+msgstr "neueste Änderung zuerst"
 
 #: src/note-list-view.ts
 msgid "Modified newest"
-msgstr ""
+msgstr "Neueste Änderung zuerst"
 
 #: src/note-list-view.ts
 msgid "modified oldest"
-msgstr ""
+msgstr "älteste Änderung zuerst"
 
 #: src/note-list-view.ts
 msgid "Modified oldest"
-msgstr ""
+msgstr "Älteste Änderung zuerst"
 
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
-msgstr ""
+msgstr "Weiteres Sammlungsverhalten in YAML"
 
 #: src/TypeBrowser.tsx
 msgid "More inferred rules in YAML"
-msgstr ""
+msgstr "Weitere abgeleitete Regeln in YAML"
 
 #: src/App.tsx
 msgid "More note actions"
-msgstr ""
+msgstr "Weitere Notizaktionen"
 
 #: src/code-editor-note-embeds.ts
 msgid "More than one note matches this transclusion."
-msgstr ""
+msgstr "Mehr als eine Notiz passt zu dieser Einbettung."
 
 #: src/MoveNoteDialog.tsx
 msgid "Move"
@@ -3167,86 +3167,86 @@ msgstr "Verschieben"
 
 #: src/FolderChangeDialog.tsx
 msgid "Move ‘{basename}’"
-msgstr ""
+msgstr "„{basename}“ verschieben"
 
 #. placeholder {0}: plan.moves.length
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "{0, plural, one {# Notiz} other {# Notizen}} verschieben und {1, plural, one {# Link} other {# Links}} aktualisieren?"
 
 #. placeholder {0}: paths.length
 #: src/MoveNoteDialog.tsx
 msgid "Move {0} notes"
-msgstr ""
+msgstr "{0} Notizen verschieben"
 
 #: src/FolderChangeDialog.tsx
 msgid "Move folder"
-msgstr ""
+msgstr "Ordner verschieben"
 
 #: src/RailDropTarget.tsx
 msgid "Move here"
-msgstr ""
+msgstr "Hierher verschieben"
 
 #: src/MoveNoteDialog.tsx
 msgid "Move note"
-msgstr ""
+msgstr "Notiz verschieben"
 
 #: src/ConnectionScreens.tsx
 msgid "move notes"
-msgstr ""
+msgstr "Notizen verschieben"
 
 #: src/QuickOpen.tsx
 msgid "Move through the note list"
-msgstr ""
+msgstr "Durch die Notizliste navigieren"
 
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
 msgid "Move to…"
-msgstr ""
+msgstr "Verschieben nach…"
 
 #. placeholder {0}: progress.completed
 #. placeholder {1}: progress.total
 #. placeholder {2}: progress.path
 #: src/FolderChangeDialog.tsx
 msgid "Moved {0} of {1} notes. {2}"
-msgstr ""
+msgstr "{0} von {1} Notizen verschoben. {2}"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Moving"
-msgstr ""
+msgstr "Wird verschoben"
 
 #: src/note-mutation-presentation.ts
 msgid "Moving note"
-msgstr ""
+msgstr "Notiz wird verschoben"
 
 #: src/App.tsx
 msgid "Moving notes is not available with this collection’s current access."
-msgstr ""
+msgstr "Mit den aktuellen Zugriffsrechten dieser Sammlung können Notizen nicht verschoben werden."
 
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 msgid "Moving…"
-msgstr ""
+msgstr "Wird verschoben…"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Name"
-msgstr ""
+msgstr "Name"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Name"
-msgstr ""
+msgstr "Name"
 
 #: src/TypeBrowser.tsx
 msgid "Name field"
-msgstr ""
+msgstr "Namensfeld"
 
 #: src/NewNoteComposer.tsx
 msgid "Name the folder to create it."
-msgstr ""
+msgstr "Geben Sie dem Ordner einen Namen, um ihn zu erstellen."
 
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
@@ -3256,20 +3256,20 @@ msgstr "Aufmerksamkeit erforderlich"
 
 #: src/type-schema.ts
 msgid "nested fields"
-msgstr ""
+msgstr "verschachtelte Felder"
 
 #: src/TypeBrowser.tsx
 msgid "Nested fields"
-msgstr ""
+msgstr "Verschachtelte Felder"
 
 #: src/type-schema.ts
 msgid "nested required fields"
-msgstr ""
+msgstr "verschachtelte erforderliche Felder"
 
 #: src/CollectionRail.tsx
 #: src/NewNoteComposer.tsx
 msgid "New folder"
-msgstr ""
+msgstr "Neuer Ordner"
 
 #: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
@@ -3280,190 +3280,190 @@ msgstr "Neue Notiz"
 
 #: src/CollectionRail.tsx
 msgid "New note here"
-msgstr ""
+msgstr "Neue Notiz hier"
 
 #: src/editor-commands.ts
 msgid "New note in current folder"
-msgstr ""
+msgstr "Neue Notiz im aktuellen Ordner"
 
 #: src/YourPersonPanel.tsx
 msgid "New person record"
-msgstr ""
+msgstr "Neuer Personendatensatz"
 
 #: src/CollectionRail.tsx
 msgid "New subfolder"
-msgstr ""
+msgstr "Neuer Unterordner"
 
 #: src/TypeBrowser.tsx
 msgid "New type"
-msgstr ""
+msgstr "Neuer Typ"
 
 #: src/type-schema.ts
 msgid "New type definition"
-msgstr ""
+msgstr "Neue Typdefinition"
 
 #: src/QuickOpen.tsx
 msgid "Next or previous note"
-msgstr ""
+msgstr "Nächste oder vorherige Notiz"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts installed"
-msgstr ""
+msgstr "Keine App-Verträge installiert"
 
 #: src/TypeBrowser.tsx
 msgid "No application contracts are installed"
-msgstr ""
+msgstr "Keine App-Verträge installiert"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
-msgstr ""
+msgstr "Keine automatischen Abgleichregeln"
 
 #: src/TypeBrowser.tsx
 msgid "No connections"
-msgstr ""
+msgstr "Keine Verbindungen"
 
 #: src/TypeBrowser.tsx
 msgid "No cross-record uniqueness rules."
-msgstr ""
+msgstr "Keine sammlungsweiten Eindeutigkeitsregeln."
 
 #: src/type-presentation.ts
 msgid "No custom behaviour"
-msgstr ""
+msgstr "Kein benutzerdefiniertes Verhalten"
 
 #: src/SchemaValueEditor.tsx
 msgid "No declared values."
-msgstr ""
+msgstr "Keine deklarierten Werte."
 
 #: src/App.tsx
 msgid "No earlier note"
-msgstr ""
+msgstr "Keine frühere Notiz"
 
 #: src/SchemaValueEditor.tsx
 msgid "No entries yet."
-msgstr ""
+msgstr "Noch keine Einträge."
 
 #: src/TypeBrowser.tsx
 msgid "No entries."
-msgstr ""
+msgstr "Keine Einträge."
 
 #: src/TypeBrowser.tsx
 msgid "No fields are declared yet."
-msgstr ""
+msgstr "Noch keine Felder deklariert."
 
 #: src/CollectionRail.tsx
 msgid "No folders"
-msgstr ""
+msgstr "Keine Ordner"
 
 #: src/WorkspaceChrome.tsx
 msgid "No headings yet."
-msgstr ""
+msgstr "Noch keine Überschriften."
 
 #: src/TypeBrowser.tsx
 msgid "No inferred rules. Records must declare this type explicitly."
-msgstr ""
+msgstr "Keine abgeleiteten Regeln. Datensätze müssen diesen Typ ausdrücklich deklarieren."
 
 #: src/code-editor-file-embeds.ts
 msgid "No inline preview is available for {filename}."
-msgstr ""
+msgstr "Für {filename} ist keine integrierte Vorschau verfügbar."
 
 #: src/SchemaValueEditor.tsx
 msgid "No items yet."
-msgstr ""
+msgstr "Noch keine Elemente."
 
 #: src/App.tsx
 msgid "No later note"
-msgstr ""
+msgstr "Keine spätere Notiz"
 
 #: src/SelectionControls.tsx
 msgid "No matches."
-msgstr ""
+msgstr "Keine Treffer."
 
 #: src/QuickOpen.tsx
 msgid "No matching actions."
-msgstr ""
+msgstr "Keine passenden Aktionen."
 
 #: src/NoteSearchField.tsx
 msgid "No matching filters"
-msgstr ""
+msgstr "Keine passenden Filter"
 
 #: src/TypeBrowser.tsx
 msgid "No matching icons."
-msgstr ""
+msgstr "Keine passenden Symbole."
 
 #: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching notes."
-msgstr ""
+msgstr "Keine passenden Notizen."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching schema properties."
-msgstr ""
+msgstr "Keine passenden Schemaeigenschaften."
 
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
-msgstr ""
+msgstr "Noch keine verschachtelten Felder."
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "No note or file matches “{0}”."
-msgstr ""
+msgstr "Keine Notiz oder Datei passt zu „{0}“."
 
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
-msgstr ""
+msgstr "Noch keine Notizen hierher verlinkt."
 
 #: src/NoteList.tsx
 msgid "No notes or files found."
-msgstr ""
+msgstr "Keine Notizen oder Dateien gefunden."
 
 #: src/NewNoteComposer.tsx
 msgid "No optional properties selected."
-msgstr ""
+msgstr "Keine optionalen Eigenschaften ausgewählt."
 
 #: src/TypeBrowser.tsx
 msgid "No properties are marked as links."
-msgstr ""
+msgstr "Keine Eigenschaften als Links markiert."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
-msgstr ""
+msgstr "Noch keine Eigenschaften."
 
 #: src/NotePreview.tsx
 msgid "No text preview."
-msgstr ""
+msgstr "Keine Textvorschau."
 
 #: src/PropertiesPanel.tsx
 msgid "No type"
-msgstr ""
+msgstr "Kein Typ"
 
 #: src/TypeBrowser.tsx
 msgid "No types found."
-msgstr ""
+msgstr "Keine Typen gefunden."
 
 #: src/WorkspaceChrome.tsx
 msgid "No unlinked mentions."
-msgstr ""
+msgstr "Keine unverknüpften Erwähnungen."
 
 #: src/use-note-actions.ts
 msgid "No validation issues."
-msgstr ""
+msgstr "Keine Validierungsprobleme."
 
 #: src/App.tsx
 msgid "Not attempted because an earlier move needs recovery."
-msgstr ""
+msgstr "Nicht versucht, weil eine frühere Verschiebung wiederhergestellt werden muss."
 
 #: src/bulk-note-actions.ts
 msgid "Not changed because an earlier note's change isn't confirmed yet."
-msgstr ""
+msgstr "Nicht geändert, weil eine frühere Notizänderung noch nicht bestätigt ist."
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Not confirmed yet"
-msgstr ""
+msgstr "Noch nicht bestätigt"
 
 #: src/type-contracts.ts
 msgid "Not exposed"
-msgstr ""
+msgstr "Nicht bereitgestellt"
 
 #: src/catalog-pack-installation.tsx
 #: src/YourPersonPanel.tsx
@@ -3472,38 +3472,38 @@ msgstr "Jetzt nicht"
 
 #: src/QuickOpen.tsx
 msgid "Note actions, in the list"
-msgstr ""
+msgstr "Notizaktionen in der Liste"
 
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 msgid "Note body"
-msgstr ""
+msgstr "Notizinhalt"
 
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
-msgstr ""
+msgstr "Notiz an anderer Stelle geändert"
 
 #: src/App.tsx
 msgid "Note editor"
-msgstr ""
+msgstr "Notizeditor"
 
 #: src/App.tsx
 msgid "Note history"
-msgstr ""
+msgstr "Notizverlauf"
 
 #: src/App.tsx
 msgid "note link"
-msgstr ""
+msgstr "Notizlink"
 
 #: src/App.tsx
 msgid "note path"
-msgstr ""
+msgstr "Notizpfad"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/PropertiesPanel.tsx
 msgid "Note properties"
-msgstr ""
+msgstr "Notizeigenschaften"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Note title"
@@ -3511,11 +3511,11 @@ msgstr "Notiztitel"
 
 #: src/NotePreview.tsx
 msgid "Note types"
-msgstr ""
+msgstr "Notiztypen"
 
 #: src/NoteListViewOptions.tsx
 msgid "Note view options"
-msgstr ""
+msgstr "Notizansichtsoptionen"
 
 #: src/QuickOpen.tsx
 msgid "Notes"
@@ -3524,101 +3524,101 @@ msgstr "Notizen"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Notes"
-msgstr ""
+msgstr "Notizen"
 
 #: src/NoteList.tsx
 msgid "Notes and files"
-msgstr ""
+msgstr "Notizen und Dateien"
 
 #: src/WorkspaceChrome.tsx
 msgid "Notes are ready. Allow type-definition access only if you want to inspect or manage collection types."
-msgstr ""
+msgstr "Notizen sind bereit. Erlauben Sie Zugriff auf Typdefinitionen nur, wenn Sie Sammlungstypen einsehen oder verwalten möchten."
 
 #: src/TypeBrowser.tsx
 msgid "Notes belong to this type when every configured condition group below matches."
-msgstr ""
+msgstr "Notizen gehören zu diesem Typ, wenn jede der unten konfigurierten Bedingungsgruppen erfüllt ist."
 
 #. placeholder {0}: definition.name
 #. placeholder {1}: explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)
 #: src/TypeBrowser.tsx
 msgid "Notes can name <0>{0}</0> through {1}. When any configured key is present, automatic rules are skipped."
-msgstr ""
+msgstr "Notizen können <0>{0}</0> über {1} benennen. Wenn einer der konfigurierten Schlüssel vorhanden ist, werden automatische Regeln übersprungen."
 
 #: src/NoteList.tsx
 msgid "Notes could not finish loading."
-msgstr ""
+msgstr "Das Laden der Notizen konnte nicht abgeschlossen werden."
 
 #: src/FolderChangeDialog.tsx
 msgid "Notes in subfolders move too. Links to these notes will be updated."
-msgstr ""
+msgstr "Notizen in Unterordnern werden ebenfalls verschoben. Links zu diesen Notizen werden aktualisiert."
 
 #: src/read-only-markdown.tsx
 msgid "Notes larger than 1 MiB are read-only at launch."
-msgstr ""
+msgstr "Notizen über 1 MiB sind beim Start schreibgeschützt."
 
 #: src/TypeBrowser.tsx
 msgid "Notes use this field to declare their type. Edit it in YAML if you need to change it."
-msgstr ""
+msgstr "Notizen verwenden dieses Feld, um ihren Typ zu deklarieren. Bearbeiten Sie es bei Bedarf in YAML."
 
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
-msgstr ""
+msgstr "Notizen ohne explizite Zuweisung gehören zu diesem Typ, wenn jede der unten konfigurierten Bedingungsgruppen erfüllt ist."
 
 #: src/Toasts.tsx
 msgid "Notifications"
-msgstr ""
+msgstr "Benachrichtigungen"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
-msgstr ""
+msgstr "Null"
 
 #: src/type-presentation.ts
 msgid "number"
-msgstr ""
+msgstr "Zahl"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Number"
-msgstr ""
+msgstr "Zahl"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Number"
-msgstr ""
+msgstr "Zahl"
 
 #: src/code-editor-completions.ts
 msgid "Numbered list"
-msgstr ""
+msgstr "Nummerierte Liste"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Object"
-msgstr ""
+msgstr "Objekt"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Object"
-msgstr ""
+msgstr "Objekt"
 
 #: src/TypeBrowser.tsx
 msgid "Objects and lists can contain fields at any depth."
-msgstr ""
+msgstr "Objekte und Listen können Felder in beliebiger Verschachtelungstiefe enthalten."
 
 #: src/CollectionRail.tsx
 msgid "Offline"
-msgstr ""
+msgstr "Offline"
 
 #: src/collection-browser.ts
 msgid "Older"
-msgstr ""
+msgstr "Älter"
 
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
-msgstr ""
+msgstr "Nur deklarierte Felder sind zulässig"
 
 #: src/BulkNoteProperties.tsx
 msgid "Only properties declared by every selected note’s type can be set."
-msgstr ""
+msgstr "Nur Eigenschaften, die durch die Typen aller ausgewählten Notizen deklariert sind, können festgelegt werden."
 
 #: src/embed-actions.ts
 msgid "Open"
@@ -3626,19 +3626,19 @@ msgstr "Öffnen"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open {filename}"
-msgstr ""
+msgstr "{filename} öffnen"
 
 #: src/embed-actions.ts
 msgid "Open {name}"
-msgstr ""
+msgstr "{name} öffnen"
 
 #: src/TypeBrowser.tsx
 msgid "Open {primaryTypeLabel}"
-msgstr ""
+msgstr "{primaryTypeLabel} öffnen"
 
 #: src/ConnectionScreens.tsx
 msgid "open and search notes"
-msgstr ""
+msgstr "Notizen öffnen und durchsuchen"
 
 #: src/editor-commands.ts
 msgid "Open Connect"
