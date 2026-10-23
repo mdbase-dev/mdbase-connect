@@ -3248,250 +3248,250 @@ msgstr "Коллекция"
 
 #: src/authorization-view.tsx
 msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
-msgstr ""
+msgstr "Эта коллекция не может одновременно предоставить все обязательные разрешения для записей и файлов. Выберите другую коллекцию."
 
 #: src/authorization-view.tsx
 msgid "The collection requested by this application is not available."
-msgstr ""
+msgstr "Коллекция, запрошенная этим приложением, недоступна."
 
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
-msgstr ""
+msgstr "компьютер, на котором хранится эта коллекция"
 
 #: src/authority-workflows.tsx
 msgid "The desktop app will finish securely. No connector token was displayed or copied."
-msgstr ""
+msgstr "Настольное приложение безопасно завершит процесс. Токен подключения не показывался и не копировался."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "The editor can reach this collection through {0}."
-msgstr ""
+msgstr "Редактор может получить доступ к этой коллекции через {0}."
 
 #: src/authority-workflows.tsx
 msgid "The folder on {mirrorName} is now the main copy. Hosted access has stopped and previous application connections were revoked."
-msgstr ""
+msgstr "Папка на {mirrorName} теперь основная копия. Доступ к хранилищу прекращён, а прежние подключения приложений отозваны."
 
 #: src/ConnectApp.tsx
 msgid "The folder remains the authority for this collection."
-msgstr ""
+msgstr "Папка остаётся основным источником данных этой коллекции."
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "the hosted authority"
-msgstr ""
+msgstr "сервер, на котором размещена коллекция"
 
 #: src/ConnectApp.tsx
 msgid "The hosted collection is available to the editor."
-msgstr ""
+msgstr "Размещённая в mdbase коллекция доступна редактору."
 
 #: src/LanguageSetting.tsx
 msgid "The language could not be loaded or saved. Try choosing it again."
-msgstr ""
+msgstr "Не удалось загрузить или сохранить язык. Попробуйте выбрать его снова."
 
 #: src/main.tsx
 msgid "The language could not be loaded. Choose it again using the language setting."
-msgstr ""
+msgstr "Не удалось загрузить язык. Выберите его снова в настройке языка."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "the latest release"
-msgstr ""
+msgstr "последнюю версию"
 
 #: src/auth-view.tsx
 msgid "The link is invalid, expired, already used, or account setup is temporarily unavailable."
-msgstr ""
+msgstr "Ссылка недействительна, просрочена, уже использована или настройка учётной записи временно недоступна."
 
 #: src/auth-view.tsx
 msgid "The link is invalid, expired, already used, or password sign-in is temporarily unavailable."
-msgstr ""
+msgstr "Ссылка недействительна, просрочена, уже использована или вход по паролю временно недоступен."
 
 #: src/ConnectApp.tsx
 msgid "The main copy has moved away from hosted storage."
-msgstr ""
+msgstr "Основная копия перенесена из хранилища mdbase."
 
 #: src/authority-workflows.tsx
 msgid "The main copy stayed hosted."
-msgstr ""
+msgstr "Основная копия осталась в хранилище mdbase."
 
 #: src/authority-workflows.tsx
 msgid "The main copy was not moved to mdbase."
-msgstr ""
+msgstr "Основная копия не была перенесена в mdbase."
 
 #: src/portal-model.ts
 msgid "The mdbase connect app on this computer needs to be updated before you can continue."
-msgstr ""
+msgstr "Прежде чем продолжить, обновите приложение mdbase connect на этом компьютере."
 
 #: src/authority-workflows.tsx
 msgid "The original app approval changed."
-msgstr ""
+msgstr "Первоначальное одобрение приложения изменилось."
 
 #: src/authority-workflows.tsx
 msgid "The original sign-in changed."
-msgstr ""
+msgstr "Первоначальный вход изменился."
 
 #: src/authorization-view.tsx
 msgid "The page will notice when the request is approved."
-msgstr ""
+msgstr "Страница обнаружит одобрение запроса."
 
 #: src/authorization-review.tsx
 msgid "The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed."
-msgstr ""
+msgstr "Правила выполняются внутри коллекции. Уведомление сообщает {applicationName}, что что-то изменилось, но не раскрывает что именно."
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "the selected computer"
-msgstr ""
+msgstr "выбранный компьютер"
 
 #: src/authority-workflows.tsx
 msgid "The signed-in account changed. Start sign-in again from the app."
-msgstr ""
+msgstr "Учётная запись, в которую выполнен вход, изменилась. Начните вход заново из приложения."
 
 #: src/authority-workflows.tsx
 msgid "The synced Markdown folder becomes the main copy."
-msgstr ""
+msgstr "Синхронизируемая папка Markdown станет основной копией."
 
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
-msgstr ""
+msgstr "Для этой учётной записи новые устройства одобряются в настольном приложении mdbase. Добавьте устройство там, затем снова войдите в {app}."
 
 #: src/AccountManagement.tsx
 msgid "This account is managed by your tailnet and cannot be deleted here."
-msgstr ""
+msgstr "Этой учётной записью управляет ваша сеть Tailscale; удалить её здесь нельзя."
 
 #: src/auth-view.tsx
 msgid "This account setup link can’t be opened"
-msgstr ""
+msgstr "Не удаётся открыть ссылку настройки учётной записи"
 
 #: src/authorization-capabilities.ts
 msgid "This app needs an update before it can connect. Try again after it updates."
-msgstr ""
+msgstr "Это приложение нужно обновить перед подключением. Попробуйте снова после обновления."
 
 #: src/authorization-view.tsx
 msgid "This application needs a collection hosted by mdbase, and none is ready yet."
-msgstr ""
+msgstr "Этому приложению нужна коллекция, размещённая в mdbase, но подходящей пока нет."
 
 #: src/compatibility.ts
 msgid "This application needs a collection hosted by mdbase."
-msgstr ""
+msgstr "Этому приложению нужна коллекция, размещённая в mdbase."
 
 #: src/portal-model.ts
 msgid "This application request has expired. Return to the application and start again."
-msgstr ""
+msgstr "Срок запроса приложения истёк. Вернитесь в приложение и начните заново."
 
 #: src/authorization-review.tsx
 msgid "This application uses advanced behavior settings, so an existing type cannot be connected during approval."
-msgstr ""
+msgstr "Это приложение использует расширенные настройки поведения, поэтому во время одобрения нельзя подключить существующий тип."
 
 #: src/ConnectApp.tsx
 msgid "This browser could not keep your creation request. No request was sent."
-msgstr ""
+msgstr "Браузеру не удалось сохранить ваш запрос на создание. Запрос не отправлен."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "This browser, active now"
-msgstr ""
+msgstr "Этот браузер, активен сейчас"
 
 #: src/authorization-view.tsx
 msgid "this collection"
-msgstr ""
+msgstr "эта коллекция"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "this collection"
-msgstr ""
+msgstr "эта коллекция"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "this collection"
-msgstr ""
+msgstr "эта коллекция"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "This collection"
-msgstr ""
+msgstr "Эта коллекция"
 
 #. placeholder {0}: new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(unavailable.map(contractLabel))
 #: src/compatibility.ts
 msgid "This collection does not provide {0}."
-msgstr ""
+msgstr "Эта коллекция не поддерживает {0}."
 
 #: src/authority-workflows.tsx
 msgid "This collection is no longer available. Choose a collection again."
-msgstr ""
+msgstr "Эта коллекция больше недоступна. Выберите коллекцию заново."
 
 #: src/authority-workflows.tsx
 msgid "This collection stays on your computer. It can connect when a computer signed in to this account is available."
-msgstr ""
+msgstr "Эта коллекция остаётся на вашем компьютере. Она сможет подключиться, когда будет доступен компьютер, вошедший в вашу учётную запись."
 
 #: src/ConnectApp.tsx
 msgid "This deployment has not configured a feedback destination."
-msgstr ""
+msgstr "Для этого экземпляра сервиса не настроен адрес для обратной связи."
 
 #: src/authority-workflows.tsx
 msgid "This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow."
-msgstr ""
+msgstr "Это устройство может хранить автономные копии разрешённых коллекций, включая их файлы и текущие сведения об учётной записи и участниках. Доступ распространяется только на разрешённые вами коллекции."
 
 #: src/authority-workflows.tsx
 msgid "This folder will receive Markdown from mdbase and will not upload local edits."
-msgstr ""
+msgstr "Эта папка будет получать Markdown из mdbase, но не отправлять локальные правки."
 
 #: src/ApplicationAccess.tsx
 msgid "This installation has no approved collections."
-msgstr ""
+msgstr "У этой установки нет разрешённых коллекций."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "This is a Private collection: it stays on your computer. {0} can use it while a computer that has it is running mdbase and is signed in to your account."
-msgstr ""
+msgstr "Это закрытая коллекция: она остаётся на вашем компьютере. {0} сможет использовать её, пока компьютер с этой коллекцией работает с mdbase и вошёл в вашу учётную запись."
 
 #: src/authorization-view.tsx
 msgid "This is taking longer than usual. Keep this page open; it continues automatically when setup finishes."
-msgstr ""
+msgstr "Это занимает больше времени, чем обычно. Оставьте страницу открытой: процесс продолжится автоматически после настройки."
 
 #: src/AccountManagement.tsx
 msgid "This is your only sign-in method."
-msgstr ""
+msgstr "Это ваш единственный способ входа."
 
 #: src/AccountManagement.tsx
 msgid "This method is used by the current session."
-msgstr ""
+msgstr "Этот способ используется текущим сеансом."
 
 #: src/AccountManagement.tsx
 msgid "This permanently deletes:"
-msgstr ""
+msgstr "Будет безвозвратно удалено:"
 
 #: src/authorization-view.tsx
 msgid "This request has expired or was already answered."
-msgstr ""
+msgstr "Срок действия запроса истёк или на него уже ответили."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {0}."
-msgstr ""
+msgstr "Этот запрос останется открытым, пока вы подключаете компьютер или добавляете коллекцию. Одобрите его в настольном приложении, затем вернитесь сюда, чтобы продолжить в {0}."
 
 #: src/auth-view.tsx
 msgid "This reset link can’t be opened"
-msgstr ""
+msgstr "Не удаётся открыть ссылку для сброса"
 
 #: src/auth-view.tsx
 msgid "This unsubscribe link can’t be opened"
-msgstr ""
+msgstr "Не удаётся открыть ссылку для отписки"
 
 #: src/authority-workflows.tsx
 msgid "Transfer approved"
-msgstr ""
+msgstr "Перенос одобрен"
 
 #: src/authority-workflows.tsx
 msgid "Transfer complete"
-msgstr ""
+msgstr "Перенос завершён"
 
 #: src/authority-workflows.tsx
 msgid "Transfer ended"
-msgstr ""
+msgstr "Перенос остановлен"
 
 #: src/ConnectApp.tsx
 msgid "Try a different name, registration ID or status. Filtering does not revoke access."
-msgstr ""
+msgstr "Попробуйте другое название, регистрационный ID или состояние. Фильтрация не отзывает доступ."
 
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
@@ -3499,183 +3499,183 @@ msgstr ""
 #: src/onboarding-view.tsx
 #: src/portal-ui.tsx
 msgid "Try again"
-msgstr ""
+msgstr "Повторить попытку"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Two-way sync"
-msgstr ""
+msgstr "Двусторонняя синхронизация"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"
-msgstr ""
+msgstr "Введите DELETE для подтверждения"
 
 #: src/CollectionPicker.tsx
 msgid "Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice."
-msgstr ""
+msgstr "Введите текст для фильтрации. Стрелки выделяют варианты, Enter выбирает. Ввод текста не меняет ваш выбор."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Unavailable"
-msgstr ""
+msgstr "Недоступно"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Unnamed collection"
-msgstr ""
+msgstr "Коллекция без названия"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Unsubscribe"
-msgstr ""
+msgstr "Отписаться"
 
 #: src/auth-view.tsx
 msgid "Unsubscribe from mdbase email"
-msgstr ""
+msgstr "Отписаться от писем mdbase"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Unsubscribing…"
-msgstr ""
+msgstr "Отписка…"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Update mdbase connect on {0} before using this collection."
-msgstr ""
+msgstr "Обновите mdbase connect на {0}, прежде чем использовать эту коллекцию."
 
 #: src/ConnectApp.tsx
 msgid "Update recommended for current policy protection"
-msgstr ""
+msgstr "Рекомендуется обновить для защиты текущих правил"
 
 #: src/ConnectApp.tsx
 msgid "Update required"
-msgstr ""
+msgstr "Требуется обновление"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Update required"
-msgstr ""
+msgstr "Требуется обновление"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Updating access…"
-msgstr ""
+msgstr "Обновление доступа…"
 
 #: src/authorization-view.tsx
 msgid "Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade."
-msgstr ""
+msgstr "Обновляет начальные типы, добавленные этим приложением ранее, сохраняя ваши настройки и заметки. Типы, которые нельзя связать с этими начальными типами, останутся без изменений. При конфликтах или если другие типы всё ещё используют старый контракт, обновление полностью остановится."
 
 #: src/AccountManagement.tsx
 msgid "Usage temporarily unavailable"
-msgstr ""
+msgstr "Данные об использовании временно недоступны"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Usage unavailable"
-msgstr ""
+msgstr "Данные об использовании недоступны"
 
 #: src/auth-view.tsx
 msgid "Use a connected account to get started."
-msgstr ""
+msgstr "Чтобы начать, используйте подключённую учётную запись."
 
 #: src/auth-view.tsx
 msgid "Use a connected account, or verify your email to get started."
-msgstr ""
+msgstr "Чтобы начать, используйте подключённую учётную запись или подтвердите адрес электронной почты."
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"
-msgstr ""
+msgstr "Использовать папку на этом компьютере"
 
 #: src/authorization-view.tsx
 msgid "Use a local folder"
-msgstr ""
+msgstr "Использовать локальную папку"
 
 #: src/ConnectApp.tsx
 msgid "Use a single-line collection name."
-msgstr ""
+msgstr "Введите название коллекции в одну строку."
 
 #: src/ConnectApp.tsx
 msgid "Use an existing person or create a note"
-msgstr ""
+msgstr "Использовать существующую запись о пользователе или создать заметку"
 
 #: src/authorization-review.tsx
 msgid "Use an existing type"
-msgstr ""
+msgstr "Использовать существующий тип"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
-msgstr ""
+msgstr "Введите не менее 15 символов. Пробелы разрешены."
 
 #: src/ConnectApp.tsx
 msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
-msgstr ""
+msgstr "Используйте настольное приложение, чтобы хранить обычную папку Markdown на компьютере."
 
 #: src/authority-workflows.tsx
 msgid "Use the folder on {mirrorName} as the main copy?"
-msgstr ""
+msgstr "Сделать папку на {mirrorName} основной копией?"
 
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."
-msgstr ""
+msgstr "Используйте этот вариант, если вам не могут отправить приглашение на подтверждённый адрес электронной почты."
 
 #: src/AccountManagement.tsx
 msgid "Used by hosted collections"
-msgstr ""
+msgstr "Используется размещёнными коллекциями"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "v"
-msgstr ""
+msgstr "вер."
 
 #: src/AccountManagement.tsx
 msgid "Verification and messages about your account. These are always sent."
-msgstr ""
+msgstr "Подтверждение и сообщения о вашей учётной записи. Они отправляются всегда."
 
 #: src/ConnectApp.tsx
 msgid "Verified email"
-msgstr ""
+msgstr "Подтверждённый адрес электронной почты"
 
 #: src/AccountManagement.tsx
 msgid "Verify with GitHub"
-msgstr ""
+msgstr "Подтвердить через GitHub"
 
 #: src/AccountManagement.tsx
 msgid "Verify with Google"
-msgstr ""
+msgstr "Подтвердить через Google"
 
 #. placeholder {0}: connector.minimum_connector_version
 #: src/ConnectApp.tsx
 msgid "version {0} or later"
-msgstr ""
+msgstr "версия {0} или новее"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Viewer"
-msgstr ""
+msgstr "Наблюдатель"
 
 #: src/authorization-view.tsx
 msgid "Waiting for mdbase connect"
-msgstr ""
+msgstr "Ожидание mdbase connect"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Waiting for the app"
-msgstr ""
+msgstr "Ожидание приложения"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Waiting for the computer"
-msgstr ""
+msgstr "Ожидание компьютера"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Waiting to sync"
-msgstr ""
+msgstr "Ожидает синхронизации"
 
 #: src/authority-workflows.tsx
 msgid "We couldn't confirm collection creation finished. Please try again."
-msgstr ""
+msgstr "Не удалось подтвердить завершение создания коллекции. Попробуйте снова."
 
 #: src/authority-workflows.tsx
 msgid "We couldn't identify your account. Sign in again to continue."
