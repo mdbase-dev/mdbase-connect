@@ -61,17 +61,29 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
       text,
     });
   const tag = (node) => node.tagName?.getText(ast);
+  // Core macros may bind an explicit instance: t(i18n)`...` / t(i18n)({...}).
+  const macroName = (expression) => {
+    if (ts.isIdentifier(expression)) return expression.text;
+    if (ts.isCallExpression(expression) && expression.arguments.length === 1 &&
+      ["t", "translate"].includes(expression.expression.getText(ast)))
+      return expression.expression.getText(ast);
+    return undefined;
+  };
+  const isTranslation = (node) => {
+    if (ts.isTaggedTemplateExpression(node))
+      return ["t", "translate"].includes(macroName(node.tag));
+    if (!ts.isCallExpression(node) ||
+      !["t", "translate", "plural", "select", "selectOrdinal"].includes(macroName(node.expression))) return false;
+    // The inner t(i18n) selects an instance; it is not itself a translation.
+    return !((ts.isTaggedTemplateExpression(node.parent) && node.parent.tag === node) ||
+      (ts.isCallExpression(node.parent) && node.parent.expression === node));
+  };
   function covered(node) {
     let expression = ts.isJsxExpression(node);
     for (let p = node.parent; p; p = p.parent) {
       if (ts.isJsxExpression(p)) expression = true;
-      if (ts.isCallExpression(p) && macros.has(p.expression.getText(ast)))
-        return true;
-      if (
-        ts.isTaggedTemplateExpression(p) &&
-        ["t", "translate"].includes(p.tag.getText(ast))
-      )
-        return true;
+      if (isTranslation(p) ||
+        (ts.isCallExpression(p) && macros.has(macroName(p.expression)))) return true;
       if (
         ts.isJsxElement(p) &&
         ["Trans", "Plural", "Select", "SelectOrdinal"].includes(
@@ -98,6 +110,35 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
     "role",
     "type",
   ]);
+  const stateBindings = new Map();
+  const owner = (node) => {
+    for (let p = node.parent; p; p = p.parent) if (ts.isFunctionLike(p)) return p;
+  };
+  function collectState(node) {
+    if (ts.isVariableDeclaration(node) && ts.isArrayBindingPattern(node.name) &&
+      node.initializer && ts.isCallExpression(node.initializer) &&
+      /^(React\.)?useState$/.test(node.initializer.expression.getText(ast))) {
+      const [value, setter] = node.name.elements;
+      if (value && ts.isBindingElement(value) && ts.isIdentifier(value.name) &&
+        (!setter || (ts.isBindingElement(setter) && ts.isIdentifier(setter.name)))) {
+        const scope = owner(node);
+        if (!stateBindings.has(scope)) stateBindings.set(scope, []);
+        stateBindings.get(scope).push({ value: value.name.text, setter: setter?.name.text, declaration: node });
+      }
+    }
+    ts.forEachChild(node, collectState);
+  }
+  collectState(ast);
+  const visibleState = new Set();
+  function stateFor(node, name) {
+    for (let p = node; p; p = p.parent) {
+      const binding = stateBindings.get(p)?.find((binding) => binding.value === name || binding.setter === name);
+      if (binding) return binding;
+    }
+  }
+  const isStateSetter = (node) => ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+    visibleState.has(stateFor(node, node.expression.text)) &&
+    stateFor(node, node.expression.text)?.setter === node.expression.text;
   function output(node) {
     let property = false;
     for (let p = node.parent; p; p = p.parent) {
@@ -109,7 +150,8 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
         p.condition.end >= node.end
       )
         return false;
-      if (ts.isCallExpression(p)) return false;
+      if (ts.isCallExpression(p)) return isStateSetter(p) ||
+        [...visibleState].some((binding) => binding.declaration.initializer === p);
       if (ts.isPropertyAssignment(p))
         property = visibleProperties.has(p.name.getText(ast));
       if (ts.isJsxAttribute(p))
@@ -118,10 +160,23 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
         if (ts.isJsxElement(p.parent) || ts.isJsxFragment(p.parent))
           return true;
       }
-      if (ts.isFunctionLike(p)) return false;
+      if (ts.isVariableDeclaration(p) &&
+        [...visibleState].some((binding) => binding.declaration === p)) return true;
+      if (ts.isFunctionLike(p) && !isStateSetter(p.parent)) return false;
     }
     return false;
   }
+  // Follow local React state only when its value is actually rendered as copy.
+  // Enum comparisons, input values, protocol state and arbitrary calls stay opaque.
+  function collectVisibleState(node) {
+    if (ts.isIdentifier(node) && !ts.isPropertyAccessExpression(node.parent) &&
+      !ts.isElementAccessExpression(node.parent) && output(node)) {
+      const binding = stateFor(node, node.text);
+      if (binding?.value === node.text) visibleState.add(binding);
+    }
+    ts.forEachChild(node, collectVisibleState);
+  }
+  collectVisibleState(ast);
   function visit(node) {
     if (ts.isJsxText(node) && human(node.text.trim()) && !covered(node))
       add(node, "unmarked JSX text", node.text.trim());
@@ -141,14 +196,7 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
       output(node)
     )
       add(node, "unmarked visible interpolation", node.getText(ast));
-    if (
-      (ts.isCallExpression(node) &&
-        ["t", "translate", "plural", "selectOrdinal"].includes(
-          node.expression.getText(ast),
-        )) ||
-      (ts.isTaggedTemplateExpression(node) &&
-        ["t", "translate"].includes(node.tag.getText(ast)))
-    ) {
+    if (isTranslation(node)) {
       const parent = node.parent;
       if (
         ts.isBinaryExpression(parent) &&
@@ -171,14 +219,17 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
       for (let p = node.parent; p; p = p.parent) {
         if (
           ts.isTaggedTemplateExpression(p) &&
-          ["t", "translate"].includes(p.tag.getText(ast))
+          ["t", "translate"].includes(macroName(p.tag)) &&
+          // Lingui folds plural/select helpers into the enclosing ICU descriptor.
+          !(ts.isCallExpression(node) &&
+            ["plural", "select", "selectOrdinal"].includes(macroName(node.expression)))
         ) {
           add(node, "uncompiled nested translation macro", node.getText(ast));
           break;
         }
         if (ts.isJsxAttribute(p) && identifiers.has(p.name.getText(ast)))
           add(node, "translation in identifier attribute", p.name.getText(ast));
-        if (ts.isPropertyAssignment(p) && identifiers.has(p.name.getText(ast)))
+        if ((ts.isPropertyAssignment(p) || ts.isPropertyDeclaration(p)) && identifiers.has(p.name.getText(ast)))
           add(node, "translation in identifier property", p.name.getText(ast));
         if (
           ts.isVariableDeclaration(p) &&
@@ -188,7 +239,9 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
         if (ts.isFunctionLike(p)) break;
       }
       let fn = node.parent;
-      while (fn && !ts.isFunctionLike(fn)) fn = fn.parent;
+      while (fn && !ts.isFunctionLike(fn) &&
+        !(ts.isPropertyDeclaration(fn) &&
+          !fn.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword))) fn = fn.parent;
       if (!fn) add(node, "eager module-level translation", node.getText(ast));
     }
     ts.forEachChild(node, visit);

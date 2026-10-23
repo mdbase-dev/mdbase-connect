@@ -101,6 +101,13 @@ describe("library catalogue composition", () => {
     expect(Object.keys(mergeCatalogues([app, library]).messages)).toHaveLength(3);
     expect(() => mergeCatalogues([app, { messages: { z: ["Shut"] } }])).toThrow("Conflicting compiled translation");
   });
+  it("reports every conflicting ID and both values without last-wins overrides", () => {
+    expect(() => mergeCatalogues([
+      { messages: { cancel: ["Annuler"], saved: ["Enregistré"] } },
+      { messages: { cancel: ["Abandonner"], saved: ["Sauvegardé"] } },
+    ])).toThrow('Conflicting compiled translation for message ID: cancel — ["Annuler"] vs ["Abandonner"]\n' +
+      'Conflicting compiled translation for message ID: saved — ["Enregistré"] vs ["Sauvegardé"]');
+  });
   it("renders app and library English immediately, then activates all target catalogues atomically", async () => {
     const library = deferred<{ messages: object }>();
     let libraryLoads = 0;
