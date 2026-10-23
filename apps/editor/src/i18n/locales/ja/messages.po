@@ -4255,11 +4255,11 @@ msgstr "指定した比較範囲内でプロパティ値の一意性を求めま
 
 #: src/TypeBrowser.tsx
 msgid "Require an existing target"
-msgstr ""
+msgstr "既存の対象を必須にする"
 
 #: src/TypeBrowser.tsx
 msgid "Require unique items"
-msgstr ""
+msgstr "項目の一意性を必須にする"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4270,68 +4270,68 @@ msgstr "必須"
 
 #: src/TypeBrowser.tsx
 msgid "Required fields covered"
-msgstr ""
+msgstr "必須フィールドの対応付け済み"
 
 #: src/TypeBrowser.tsx
 msgid "Required match field"
-msgstr ""
+msgstr "照合に必須のフィールド"
 
 #: src/NewNoteComposer.tsx
 msgid "Required properties"
-msgstr ""
+msgstr "必須プロパティ"
 
 #: src/App.tsx
 msgid "Resize collections sidebar"
-msgstr ""
+msgstr "コレクションのサイドバーのサイズを変更"
 
 #: src/App.tsx
 msgid "Resize note inspector"
-msgstr ""
+msgstr "ノートの詳細パネルのサイズを変更"
 
 #: src/App.tsx
 msgid "Resize notes sidebar"
-msgstr ""
+msgstr "ノートのサイドバーのサイズを変更"
 
 #: src/App.tsx
 msgid "Resize types sidebar"
-msgstr ""
+msgstr "型のサイドバーのサイズを変更"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
-msgstr ""
+msgstr "このノートを変更する前に、保護された編集を解決してください。"
 
 #: src/TypeBrowser.tsx
 msgid "resources"
-msgstr ""
+msgstr "リソース"
 
 #: src/contract-catalog.ts
 msgid "resources[{index}].document is too large."
-msgstr ""
+msgstr "resources[{index}].documentはサイズが大きすぎます。"
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
-msgstr ""
+msgstr "未保存の編集を復元"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
 msgid "Restored “{0}”."
-msgstr ""
+msgstr "「{0}」を復元しました。"
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."
-msgstr ""
+msgstr "ノートのパスを復元しました。"
 
 #: src/use-note-actions.ts
 msgid "Restored selected notes."
-msgstr ""
+msgstr "選択したノートを復元しました。"
 
 #: src/use-note-actions.ts
 msgid "Restored unlinked mention."
-msgstr ""
+msgstr "リンクされていないメンションを復元しました。"
 
 #: src/Toasts.tsx
 msgid "Resume rename"
-msgstr ""
+msgstr "名前の変更を再開"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
@@ -4341,7 +4341,7 @@ msgstr "再試行"
 
 #: src/WorkspaceChrome.tsx
 msgid "Retry backlinks"
-msgstr ""
+msgstr "バックリンクを再試行"
 
 #: src/CollectionRail.tsx
 msgid "Retry connection"
@@ -4349,19 +4349,19 @@ msgstr "接続を再試行"
 
 #: src/NoteList.tsx
 msgid "Retry files"
-msgstr ""
+msgstr "ファイルを再試行"
 
 #: src/App.tsx
 msgid "Retry note"
-msgstr ""
+msgstr "ノートを再試行"
 
 #: src/NoteList.tsx
 msgid "Retry notes"
-msgstr ""
+msgstr "ノートを再試行"
 
 #: src/App.tsx
 msgid "Retry opening editor"
-msgstr ""
+msgstr "エディターを開き直す"
 
 #: src/PropertiesPanel.tsx
 #: src/WorkspaceChrome.tsx
@@ -4374,7 +4374,7 @@ msgstr "検索を再試行"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
-msgstr ""
+msgstr "元に戻す"
 
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
@@ -4388,78 +4388,78 @@ msgstr "アクセスを確認"
 #: src/FolderChangeDialog.tsx
 #: src/TypeBrowser.tsx
 msgid "Review changes"
-msgstr ""
+msgstr "変更を確認"
 
 #: src/YourPersonPanel.tsx
 msgid "Review contact conversion"
-msgstr ""
+msgstr "連絡先の変換を確認"
 
 #: src/YourPersonPanel.tsx
 msgid "Review definition files"
-msgstr ""
+msgstr "定義ファイルを確認"
 
 #: src/ConflictResolver.tsx
 msgid "Review differences"
-msgstr ""
+msgstr "差分を確認"
 
 #: src/YourPersonPanel.tsx
 msgid "Review fields to write"
-msgstr ""
+msgstr "書き込むフィールドを確認"
 
 #: src/YourPersonPanel.tsx
 msgid "Review its Person mappings in Types before creating a person record."
-msgstr ""
+msgstr "人物レコードを作成する前に、「型」で Person の対応付けを確認してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Review mapping"
-msgstr ""
+msgstr "対応付けを確認"
 
 #: src/YourPersonPanel.tsx
 msgid "Review person setup"
-msgstr ""
+msgstr "人物の設定を確認"
 
 #: src/YourPersonPanel.tsx
 msgid "Review Person type update"
-msgstr ""
+msgstr "Person 型の更新を確認"
 
 #: src/TypeBrowser.tsx
 msgid "Review recommended"
-msgstr ""
+msgstr "推奨項目を確認"
 
 #: src/App.tsx
 msgid "Review recovered text"
-msgstr ""
+msgstr "復元したテキストを確認"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
-msgstr ""
+msgstr "YAML の差分を確認"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Route"
-msgstr ""
+msgstr "経路"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Runtime"
-msgstr ""
+msgstr "ランタイム"
 
 #: src/TypeBrowser.tsx
 msgid "Runtime path handling"
-msgstr ""
+msgstr "ランタイムでのパス処理"
 
 #: src/note-mutation-presentation.ts
 msgid "Save failed"
-msgstr ""
+msgstr "保存に失敗しました"
 
 #: src/PropertiesPanel.tsx
 msgid "Save source"
-msgstr ""
+msgstr "ソースを保存"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Saved access"
-msgstr ""
+msgstr "保存済みのアクセス"
 
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
@@ -4469,7 +4469,7 @@ msgstr "このデバイスに保存済みです。同期を待っています。
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
 msgid "Saved type “{0}”."
-msgstr ""
+msgstr "型「{0}」を保存しました。"
 
 #: src/note-mutation-presentation.ts
 msgid "Saving"
@@ -4477,12 +4477,12 @@ msgstr "保存中"
 
 #: src/TypeBrowser.tsx
 msgid "Saving affects every matching note"
-msgstr ""
+msgstr "保存すると一致するすべてのノートに影響します"
 
 #. placeholder {0}: type!.name
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
-msgstr ""
+msgstr "保存すると<0>{0}</0>型のすべてのノートに影響します"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4492,11 +4492,11 @@ msgstr "保存中…"
 
 #: src/type-schema.ts
 msgid "Schema settings"
-msgstr ""
+msgstr "スキーマ設定"
 
 #: src/TypeBrowser.tsx
 msgid "Schema-managed fields"
-msgstr ""
+msgstr "スキーマで管理されるフィールド"
 
 #: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
@@ -4509,52 +4509,52 @@ msgstr "検索"
 
 #: src/NoteSearchField.tsx
 msgid "Search filters"
-msgstr ""
+msgstr "検索フィルター"
 
 #: src/NoteList.tsx
 msgid "Search is incomplete."
-msgstr ""
+msgstr "検索はまだ完了していません。"
 
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
-msgstr ""
+msgstr "ノートとファイルを検索"
 
 #: src/TypeBrowser.tsx
 msgid "Search types"
-msgstr ""
+msgstr "型を検索"
 
 #: src/NoteList.tsx
 msgid "Searching"
-msgstr ""
+msgstr "検索中"
 
 #: src/code-editor-completions.ts
 msgid "Section heading"
-msgstr ""
+msgstr "セクション見出し"
 
 #: src/code-editor-completions.ts
 msgid "Section in note"
-msgstr ""
+msgstr "ノート内のセクション"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."
-msgstr ""
+msgstr "ノートを選択するか、新規作成してください。"
 
 #: src/YourPersonPanel.tsx
 msgid "Select a person record."
-msgstr ""
+msgstr "人物レコードを選択してください。"
 
 #: src/YourPersonPanel.tsx
 msgid "Select a Person-compatible type."
-msgstr ""
+msgstr "Person と互換性のある型を選択してください。"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Selected notes"
-msgstr ""
+msgstr "選択したノート"
 
 #: src/App.tsx
 msgid "Selection actions"
-msgstr ""
+msgstr "選択範囲の操作"
 
 #: src/EditorRail.tsx
 msgid "Send feedback"
@@ -4562,36 +4562,36 @@ msgstr "フィードバックを送信"
 
 #: src/code-editor-completions.ts
 msgid "Separate sections"
-msgstr ""
+msgstr "セクションを区切る"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
-msgstr ""
+msgstr "値を設定"
 
 #: src/code-editor-completions.ts
 msgid "Set off quoted text"
-msgstr ""
+msgstr "引用文を区別する"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Set property"
-msgstr ""
+msgstr "プロパティを設定"
 
 #: src/TypeBrowser.tsx
 msgid "Set the contract’s required behavior choices before saving this type."
-msgstr ""
+msgstr "この型を保存する前に、契約で必須の動作の選択肢を設定してください。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set to null"
-msgstr ""
+msgstr "null に設定"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records"
-msgstr ""
+msgstr "人物レコードを設定"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records below before reviewing this contact."
-msgstr ""
+msgstr "この連絡先を確認する前に、以下で人物レコードを設定してください。"
 
 #: src/EditorRail.tsx
 msgid "Settings"
@@ -4600,23 +4600,23 @@ msgstr "設定"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Settings"
-msgstr ""
+msgstr "設定"
 
 #: src/TypeBrowser.tsx
 msgid "Setup required"
-msgstr ""
+msgstr "設定が必要です"
 
 #: src/YourPersonPanel.tsx
 msgid "Several person records are linked to your account. Edit them so exactly one record represents you:"
-msgstr ""
+msgstr "複数の人物レコードがアカウントにリンクされています。自分を表すレコードがちょうど1件になるよう編集してください："
 
 #: src/QuickOpen.tsx
 msgid "Shortcuts"
-msgstr ""
+msgstr "ショートカット"
 
 #: src/TypeBrowser.tsx
 msgid "Show affected notes"
-msgstr ""
+msgstr "影響を受けるノートを表示"
 
 #. placeholder {0}: mentions.length
 #: src/WorkspaceChrome.tsx
@@ -4625,7 +4625,7 @@ msgstr "{0}をすべて表示"
 
 #: src/App.tsx
 msgid "Show collections sidebar"
-msgstr ""
+msgstr "コレクションのサイドバーを表示"
 
 #: src/WorkspaceChrome.tsx
 msgid "Show fewer"
@@ -4635,23 +4635,23 @@ msgstr "表示を減らす"
 #. placeholder {1}: node.count
 #: src/CollectionRail.tsx
 msgid "Show notes in {0}, {1} or more notes"
-msgstr ""
+msgstr "{0}内のノートを表示、{1}件以上"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
-msgstr ""
+msgstr "ノートのサイドバーを表示"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
-msgstr ""
+msgstr "ノートのサイドバーを表示／非表示"
 
 #: src/App.tsx
 msgid "Show types sidebar"
-msgstr ""
+msgstr "型のサイドバーを表示"
 
 #: src/App.tsx
 msgid "Sidebar layout controls"
-msgstr ""
+msgstr "サイドバーの配置を調整"
 
 #: src/App.tsx
 msgid "Sign out"
@@ -4659,20 +4659,20 @@ msgstr "サインアウト"
 
 #: src/App.tsx
 msgid "Sign out?"
-msgstr ""
+msgstr "サインアウトしますか？"
 
 #: src/PropertiesPanel.tsx
 msgid "Size"
-msgstr ""
+msgstr "サイズ"
 
 #: src/code-editor-completions.ts
 msgid "Small section heading"
-msgstr ""
+msgstr "小さなセクション見出し"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Soften punctuation away from the active line and make tasks checkable."
-msgstr ""
+msgstr "現在の行以外の句読点を目立たなくし、タスクをチェック可能にします。"
 
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
@@ -4680,77 +4680,77 @@ msgstr "並べ替え"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."
-msgstr ""
+msgstr "ソースを保存できませんでした。編集は保持されています。"
 
 #: src/TypeBrowser.tsx
 msgid "Source field"
-msgstr ""
+msgstr "ソースフィールド"
 
 #: src/PropertiesPanel.tsx
 msgid "Source saves when focus leaves the editor"
-msgstr ""
+msgstr "エディターからフォーカスが外れるとソースが保存されます"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Specification"
-msgstr ""
+msgstr "仕様"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"
-msgstr ""
+msgstr "チェック可能なタスクを開始"
 
 #: src/code-editor-completions.ts
 msgid "Start a list"
-msgstr ""
+msgstr "リストを開始"
 
 #: src/code-editor-completions.ts
 msgid "Start an ordered list"
-msgstr ""
+msgstr "番号付きリストを開始"
 
 #: src/TypeBrowser.tsx
 msgid "Start blank or from a ready-made type"
-msgstr ""
+msgstr "空の状態または既成の型から開始"
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition and add your own fields."
-msgstr ""
+msgstr "空の定義から始めて、独自のフィールドを追加します。"
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition, or choose a ready-made type and adapt its fields and contract mapping to fit your collection."
-msgstr ""
+msgstr "空の定義から始めるか、既成の型を選び、コレクションに合わせてフィールドと契約の対応付けを調整してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Start with app compatibility"
-msgstr ""
+msgstr "アプリとの互換性から始める"
 
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 msgid "Start writing"
-msgstr ""
+msgstr "入力を開始"
 
 #: src/TypeBrowser.tsx
 msgid "Starting contract"
-msgstr ""
+msgstr "最初の契約"
 
 #: src/TypeBrowser.tsx
 msgid "status"
-msgstr ""
+msgstr "状態"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
-msgstr ""
+msgstr "安全に停止中"
 
 #: src/TypeBrowser.tsx
 msgid "Structured frontmatter conditions"
-msgstr ""
+msgstr "構造化フロントマターの条件"
 
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
-msgstr ""
+msgstr "フィールド名と構造のみから推奨しています。意味が一致するか確認してください。"
 
 #: src/NewNoteComposer.tsx
 msgid "Suggested path"
-msgstr ""
+msgstr "候補パス"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -4759,23 +4759,23 @@ msgstr "コレクションを切り替え"
 
 #: src/App.tsx
 msgid "Switch collections?"
-msgstr ""
+msgstr "コレクションを切り替えますか？"
 
 #: src/editor-commands.ts
 msgid "Switch theme"
-msgstr ""
+msgstr "テーマを切り替え"
 
 #: src/ConnectionScreens.tsx
 msgid "sync changes"
-msgstr ""
+msgstr "変更を同期"
 
 #: src/CollectionRail.tsx
 msgid "Sync stopped"
-msgstr ""
+msgstr "同期を停止しました"
 
 #: src/editor-commands.ts
 msgid "System → Light → Dark"
-msgstr ""
+msgstr "システム → ライト → ダーク"
 
 #: src/code-editor-completions.ts
 msgid "Table"
@@ -4783,16 +4783,16 @@ msgstr "表"
 
 #: src/BulkNoteProperties.tsx
 msgid "Tag"
-msgstr ""
+msgstr "タグ"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Tag · #{0}"
-msgstr ""
+msgstr "タグ · #{0}"
 
 #: src/bulk-note-actions.ts
 msgid "Tags must be text or a list of text before they can be changed together."
-msgstr ""
+msgstr "タグをまとめて変更するには、テキストまたはテキストのリストにしてください。"
 
 #: src/code-editor-completions.ts
 msgid "Task"
@@ -4800,11 +4800,11 @@ msgstr "タスク"
 
 #: src/TypeBrowser.tsx
 msgid "tasks"
-msgstr ""
+msgstr "タスク"
 
 #: src/TypeBrowser.tsx
 msgid "tasks/{id}.md"
-msgstr ""
+msgstr "tasks/{id}.md"
 
 #: src/TypeBrowser.tsx
 msgid "Technical details"
@@ -4812,42 +4812,42 @@ msgstr "技術的な詳細"
 
 #: src/TypeBrowser.tsx
 msgid "Tell compatible apps what this type’s fields mean."
-msgstr ""
+msgstr "対応アプリにこの型のフィールドの意味を伝えます。"
 
 #: src/TypeBrowser.tsx
 msgid "Template"
-msgstr ""
+msgstr "テンプレート"
 
 #: src/type-presentation.ts
 msgid "text"
-msgstr ""
+msgstr "テキスト"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
-msgstr ""
+msgstr "テキスト"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Text"
-msgstr ""
+msgstr "テキスト"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Text size"
-msgstr ""
+msgstr "文字サイズ"
 
 #: src/TypeBrowser.tsx
 msgid "That field could not be changed."
-msgstr ""
+msgstr "そのフィールドは変更できませんでした。"
 
 #: src/code-editor-note-embeds.ts
 msgid "That heading or block does not exist in this note."
-msgstr ""
+msgstr "その見出しまたはブロックはこのノートに存在しません。"
 
 #: src/App.tsx
 msgid "That link does not point to a Markdown note that can be created."
-msgstr ""
+msgstr "そのリンクは作成可能な Markdown ノートを指していません。"
 
 #: src/use-note-actions.ts
 msgid "That note changed after linking. Undo would overwrite its newer text."
