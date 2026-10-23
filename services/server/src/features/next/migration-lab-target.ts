@@ -54,13 +54,6 @@ export function migrationJobEnvironment(environment: string | undefined): Migrat
   return !localBuild() && (environment === "lab" || environment === "staging" || environment === "production") ? environment : undefined;
 }
 
-/** Deployment-owned job selection; callers cannot opt into the fixture contract. */
-export function migrationJobForEnvironment(environment: string | undefined): "lab" | "managed" | undefined {
-  if (localBuild()) return environment === "local" ? "lab" : undefined;
-  const admitted = migrationJobEnvironment(environment);
-  return admitted === "lab" ? "lab" : admitted ? "managed" : undefined;
-}
-
 /** Pure target admission, also run by the CLI before opening either database,
  * including resume/status invocations which do not create a fresh target. */
 export function requireMigrationTargetOrigin(environment: string | undefined, url: string): URL {

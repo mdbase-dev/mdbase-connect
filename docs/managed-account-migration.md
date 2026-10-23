@@ -1,14 +1,21 @@
 # Managed whole-account migration
 
 The managed account driver supports 1–16 held hosted collections for beta.142.
-Deployment configuration selects managed orchestration for staging and production;
-`lab-run` is the existing entry point. No caller flag selects this capability.
-Live ordinary-path LAB qualification, independent SQL/durability review, and
-production qualification remain pending.
+`lab-run` is the existing entry point. The account's one recorded
+`next_migration.start`, written only by the control plane's start transition,
+selects the job; no caller flag, subcommand or environment alone selects it. An
+ordinary archived start (no profile) uses managed orchestration in LAB, staging
+and production. The deployment's own environment, origin and credentials still
+admit the job independently. Live ordinary-path LAB qualification, independent
+SQL/durability review, and production qualification remain pending.
 
 The driver reads the complete sorted distinct set of owned hosted rows except
 `transferred`. Transferred rows remain history and are never migrated or cleaned
-up by this driver. Importing, transferring, quarantined, or deleted held members
+up by this driver. An ordinary hosted→local promotion leaves the same id as the
+owner's active local collection under a connector. Start, capture, flip and
+completion do not read or change that local row, and migration routing serves
+only held members, so the local collection and any later cloud copy of it keep
+the control plane's default route. Importing, transferring, quarantined, or deleted held members
 block the entire account. An empty held set, including an all-transferred
 account, returns `managed_inventory_empty`: the separately admitted zero-hosted
 archive/start/flip path remains responsible for those accounts. The hosted driver
@@ -80,18 +87,29 @@ arrays. Ops must consume this managed completion shape, retaining its fixed
 pre-hold multi-collection gate until the product implementation ships and its
 separate qualification is accepted.
 
-LAB fixture output remains `{done:{account_id,collection_id,backend:"next",
-lab_complete:true}}`; fixture preflight still requires exactly one settled
-collection and a `lab-fixture-v1` start. Local rehearsal builds retain that
-fixture contract. Ordinary managed starts cannot use it as an archive bypass.
-Guarded ordinary-path LAB admission must be coordinated separately; current LAB
-fixture admission is not real managed-array qualification.
+A `lab-fixture-v1` start keeps the singleton fixture job only in a LAB
+deployment or the explicit local build. Its output remains
+`{done:{account_id,collection_id,backend:"next",lab_complete:true}}`, and its
+preflight still requires exactly one settled collection. A missing, repeated or
+unrecognized start, or a fixture start in staging or production, stops with
+`start_profile_invalid`. Run binding and each original dispatch reservation
+re-read the same recorded start under the account row lock. Ordinary starts
+already required the cohort's current accepted archive, and their completion
+readback accepts only that archive: the LAB completion event applies only to a
+bound fixture start. Ops' ordinary LAB start and admission are coordinated
+separately; a fixture run is not managed-array qualification.
 
 Hermetic coverage uses the real PostgreSQL adapter, archive/start intake, timer
 snapshot importer, cutover/retention, combined flip SQL and strict terminal
 readback with synthetic archive metadata and a scripted Worker. It covers two
 active members, transferred history, all-transferred refusal, second-member
 failure/UNKNOWN, no launch replay, partial-cutover resume, subset/duplicate
-refusal, pause/resume, timer-source changes and the 16/17 boundary. It proves
+refusal, pause/resume, timer-source changes and the 16/17 boundary. The
+two-member, transferred-history, all-transferred and 16/17 cases also run as
+ordinary LAB starts. Fixture and ordinary LAB accounts share one adapter, and
+missing, repeated, unknown and cross-environment starts refuse. Transferred
+history has the promoted local row and connector an ordinary promotion leaves,
+and routing is checked for held members, that history, a later cloud copy of it
+and a native cloud copy, after start, at the pause and after the flip. It proves
 these control-plane contracts, not native/Worker execution, cloud custody,
 archive signature verification, deployed provider parity or live qualification.

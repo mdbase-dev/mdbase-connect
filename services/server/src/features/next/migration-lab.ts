@@ -1,6 +1,7 @@
 // Shared orchestration of one account's hosted migration (`lab-run`) and
 // of its pre-cutover route-back (`route-back`), for the operator CLI
-// (migration-lab-cli.ts). Staging and production share the ordinary archived path.
+// (migration-lab-cli.ts). Ordinary archived starts share the managed path in
+// LAB, staging and production; recorded fixture starts keep their singleton.
 //
 // The hosted Worker's migration run (POST /internal/v1/migration/run|status on
 // the next hosted service) fences, drains, imports, revokes and cuts the
@@ -21,7 +22,7 @@ import { audit } from "../../platform/audit-events.js";
 import { flipEvidenceDigest } from "./account-backend-flip.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { claim } from "./migration-provider.js";
-import { labTargetSubCause, labTargetUnavailable, migrationJobForEnvironment } from "./migration-lab-target.js";
+import { labTargetSubCause, labTargetUnavailable, migrationJobEnvironment } from "./migration-lab-target.js";
 import { cutOverCollection, flipAccountBackend, RolloutRefused } from "./migration-rollout.js";
 import { requireCompletedAccountMigration } from "./migration-sharing.js";
 import { cleanUpRolledBackTimerImport } from "./migration-timer-cleanup.js";
@@ -251,6 +252,22 @@ async function readManagedRun(db: DatabaseQueryable, account: string): Promise<M
   if (rows.length !== 1 || !parsed.success) throw new RolloutRefused("managed_run_invalid", "The original managed run binding is unavailable.");
   return parsed.data;
 }
+
+/** Only the authenticated start transition writes this contract. Read every
+ * matching event (bounded at two), never filter by the desired profile first.
+ * Bind/claim callers hold the same account lock as startAccountMigration. */
+async function recordedStartContract(db: DatabaseQueryable, account: string, deployment: string): Promise<"lab" | "managed"> {
+  const starts = (await db.query<{ metadata: unknown }>(
+    `SELECT metadata FROM audit_events WHERE user_id=$1 AND event_type='next_migration.start'
+       AND subject_id=$1::text LIMIT 2`, [account])).rows;
+  const metadata = starts[0]?.metadata;
+  const refuse = () => new RolloutRefused("start_profile_invalid", "Exactly one recognized recorded migration start is required.");
+  if (starts.length !== 1 || !metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw refuse();
+  if (!Object.hasOwn(metadata, "profile")) return "managed";
+  // The fixture profile is admissible only in a LAB (or explicit local) deployment.
+  if ((metadata as { profile: unknown }).profile === "lab-fixture-v1" && deployment === "lab") return "lab";
+  throw refuse();
+}
 /** The control-plane port over the Connect database and the legacy provider. */
 export function postgresLabConnect(options: {
   db: DatabasePool; source: DatabasePool; actor: string; timers: boolean; environment?: string;
@@ -259,11 +276,9 @@ export function postgresLabConnect(options: {
   prepareTarget?: (collection: string) => Promise<void>;
 }): LabConnect {
   const { db, provider } = options;
-  // Staging and production use the SAME ordinary archived start and completion;
-  // only LAB (and an explicit local deployment) keeps the LAB fixture profile.
-  const job = migrationJobForEnvironment(options.environment);
-  if (!job) throw new RolloutRefused("lab_only", "The migration job is unavailable in this build/environment.", 503);
-  const rolloutEnvironment = job === "lab" ? "lab" : options.environment;
+  // Deployment admission, independent of each account's recorded start contract.
+  const deployment = localBuild() ? (options.environment === "local" ? "lab" : undefined) : migrationJobEnvironment(options.environment);
+  if (!deployment) throw new RolloutRefused("lab_only", "The migration job is unavailable in this build/environment.", 503);
   return {
     async preflight(account) {
       const row = (await db.query<{ backend: string; member: boolean; released: boolean; frozen: boolean; started: boolean; excluded: boolean }>(
@@ -276,13 +291,7 @@ export function postgresLabConnect(options: {
       if (row.excluded) throw new RolloutRefused("account_deletion_accepted", "The account's deletion was accepted.");
       if (!row.frozen) throw new RolloutRefused("cohort_not_frozen", "The account's cohort is not frozen.");
       if (!row.started) throw new RolloutRefused("account_not_started", "The account's migration has not started.");
-      // LAB requires the fixture-profile start; managed runs require the ordinary archived start (no profile).
-      const start = await db.query(
-        `SELECT 1 FROM audit_events WHERE user_id=$1 AND event_type='next_migration.start' AND subject_id=$1::text
-           AND metadata->>'profile' IS NOT DISTINCT FROM $2::text LIMIT 1`, [account, job === "lab" ? "lab-fixture-v1" : null]);
-      if (!start.rows.length) throw job === "lab"
-        ? new RolloutRefused("lab_profile_missing", "The account did not start with the LAB fixture profile.")
-        : new RolloutRefused("start_profile_invalid", "The account did not start with the ordinary archived start.");
+      const job = await recordedStartContract(db, account, deployment);
       const hosted = (await db.query<{ id: string; state: string; quarantined: boolean; deleted: boolean; cut_over: boolean }>(
         `SELECT h.id::text AS id, h.authority_state AS state, h.quarantined_at IS NOT NULL AS quarantined,
            EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id=h.id) AS deleted,
@@ -304,9 +313,10 @@ export function postgresLabConnect(options: {
       return { collection: hosted[0]!.id, backend: row.backend === "next" ? "next" : "legacy" };
     },
     async bindRun(account, collections, hold, pause) {
-      if (job !== "managed") throw new Error("Managed run binding used by a fixture job.");
       await inTransaction(db, async client => {
         await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [account]);
+        if (await recordedStartContract(client, account, deployment) !== "managed")
+          throw new RolloutRefused("start_profile_invalid", "The recorded start is not an ordinary archived migration.");
         const member = (await client.query<{ started_us: string }>(
           `SELECT (extract(epoch FROM started_at)*1000000)::bigint::text AS started_us FROM next_migration_cohort_members
            WHERE account_id=$1 AND started_at IS NOT NULL AND terminal_excluded_at IS NULL`, [account])).rows[0];
@@ -323,9 +333,10 @@ export function postgresLabConnect(options: {
       });
     },
     async claimWorkerRun(account, collection) {
-      if (job !== "managed") throw new Error("Managed dispatch used by a fixture job.");
       return inTransaction(db, async client => {
         await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [account]);
+        if (await recordedStartContract(client, account, deployment) !== "managed")
+          throw new RolloutRefused("start_profile_invalid", "The recorded start is not an ordinary archived migration.");
         const run = await readManagedRun(client, account);
         if (!run?.collections.includes(collection)) throw new RolloutRefused("managed_run_missing", "No original run binding for this collection.");
         const current = await claim(client, collection, true);
@@ -375,7 +386,7 @@ export function postgresLabConnect(options: {
         "SELECT collection_id::text, barrier_f::text, final_digest FROM next_migration_collections WHERE collection_id=ANY($1::uuid[]) AND account_id=$2",
         [collections, account])).rows;
       if (rows.length !== collections.length) throw new RolloutRefused("cutover_not_recorded", "No cutover is recorded for every named collection.");
-      await flipAccountBackend(db, account, collections, flipEvidenceDigest(rows), { enabled: options.timers, provider }, rolloutEnvironment);
+      await flipAccountBackend(db, account, collections, flipEvidenceDigest(rows), { enabled: options.timers, provider }, deployment);
     },
     async completion(account, collection) {
       // A cohort completes on an accepted archive OR, without one, on the LAB
@@ -395,7 +406,7 @@ export function postgresLabConnect(options: {
     },
     async cleanupTimers(collection, migrationId) {
       const current = await claim(db, collection);
-      return cleanUpRolledBackTimerImport(db, provider, rolloutEnvironment, collection,
+      return cleanUpRolledBackTimerImport(db, provider, deployment, collection,
         { owner_account: current.account, started_us: current.started_us, migration_id: migrationId });
     }
   };

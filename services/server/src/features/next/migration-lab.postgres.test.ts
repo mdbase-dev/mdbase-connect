@@ -162,12 +162,10 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
     await expect(requireCompletedAccountMigration(db, f.collection, f.user, { suspendedOwner: true })).rejects.toMatchObject({ code: "collection_migrating" });
   });
 
-  it("each rehearsal deployment refuses the other's start profile at preflight", async () => {
+  it("a managed deployment still refuses the LAB fixture start profile", async () => {
     const labStart = await fixture(false, "staging", "lab");
     expect(await labRun(labStart.user, hold, deps(labStart, routed()))).toMatchObject({ stopped: { step: "preflight", reason: "start_profile_invalid" } });
-    const stagingStart = await fixture(false, "lab", "staging");
-    expect(await labRun(stagingStart.user, hold, deps(stagingStart, routed()))).toMatchObject({ stopped: { step: "preflight", reason: "lab_profile_missing" } });
-    expect(await backend(labStart.user)).toBe("legacy"); expect(await backend(stagingStart.user)).toBe("legacy");
+    expect(await backend(labStart.user)).toBe("legacy");
   });
 
   it("stops at the flip when the start's starter reservation drifted", async () => {

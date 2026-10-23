@@ -160,7 +160,7 @@ describe("lab-run", () => {
   });
 
   it.each<[keyof LabConnect, string, string]>([
-    ["preflight", "lab_profile_missing", "preflight"],
+    ["preflight", "start_profile_invalid", "preflight"],
     ["importTimers", "timer_grant_unbound", "import_timers"],
     ["importTimers", "timer_import_mismatch", "import_timers"],
     ["cutover", "cutover_not_recorded", "cutover"],

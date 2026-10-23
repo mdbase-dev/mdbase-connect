@@ -1,13 +1,16 @@
 # LAB migration run and route-back
 
 `next-migration-lab` (`services/server/src/features/next/migration-lab-cli.ts`) drives one
-[tiny LAB fixture](lab-fixture-migration-start.md) account through its hosted migration,
-or routes it back before cutover. It refuses to start unless the deployment's own
-`MDBASE_CONNECT_ENVIRONMENT` is exactly `lab`, `staging` or `production`, with its fixed
-Connect origin. Local deployments require the separate explicit local build. In LAB the
-account must have started with the `lab-fixture-v1` profile. Staging and production use
-the SAME ordinary archived start (no profile), and the flip completes the cohort only
-on its accepted archive (managed runs never write the LAB completion event).
+account through its hosted migration, or routes it back before cutover. It refuses to
+start unless the deployment's own `MDBASE_CONNECT_ENVIRONMENT` is exactly `lab`, `staging`
+or `production`, with its fixed Connect origin. Local deployments require the separate
+explicit local build. The account's single recorded `next_migration.start` selects the
+job. A [tiny LAB fixture](lab-fixture-migration-start.md) start (`lab-fixture-v1`, LAB or
+the explicit local build only) keeps the singleton fixture job. An ordinary archived start
+(no profile) uses the [managed whole-account job](managed-account-migration.md) in LAB,
+staging and production, and the flip completes the cohort only on its accepted archive
+(managed runs never write the LAB completion event). A missing, repeated or unrecognized
+start, or a fixture start outside LAB, stops with `start_profile_invalid`.
 Production admission here is not deployment readiness: the independent authenticated
 Worker target/publication, archive, custody and migration-routing gates must also admit
 the deployment. Missing or unresolved production bindings remain a refusal.
