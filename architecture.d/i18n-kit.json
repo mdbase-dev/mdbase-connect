@@ -1,10 +1,10 @@
 {
-  "reason": "One shared i18n package replaces duplicated product runtime and pilot validation code. Separate React/tooling entry points keep Node tooling out of browser bundles; nine CodeMirror dictionaries provide true per-language lazy chunks. A dedicated unconditional bin imports CLI main so npm-style symlinks cannot silently bypass validation. CLI composition reuses runtime merge semantics rather than adding a second collision implementation; the source guard follows rendered React state and valid Lingui macro forms. No application adopts it in this change. One executable catalogue-union module is shared by the runtime and clean-checkout CLI without requiring generated dist; its runtime re-export preserves the public API (one file, two relative imports, one export declaration).",
+  "reason": "One shared i18n package replaces duplicated product runtime and pilot validation code. Separate React/tooling entry points keep Node tooling out of browser bundles; nine CodeMirror dictionaries provide true per-language lazy chunks. A dedicated unconditional bin imports CLI main so npm-style symlinks cannot silently bypass validation. CLI composition reuses runtime merge semantics rather than adding a second collision implementation; the source guard follows rendered React state and valid Lingui macro forms. No application adopts it in this change. One executable catalogue-union module and its type declaration are shared by the runtime and clean-checkout CLI without requiring generated dist or publishing src; the runtime re-export preserves the public API (two files, two relative imports, two export declarations).",
   "growth": {
-    "productionFiles": 21,
+    "productionFiles": 22,
     "relativeImports": 18,
     "workspacePackages": 1,
-    "typeScriptExportDeclarations": 38,
-    "packages/i18n": 21
+    "typeScriptExportDeclarations": 39,
+    "packages/i18n": 22
   }
 }

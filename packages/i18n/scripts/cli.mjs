@@ -8,7 +8,7 @@ import { assertCompleteCatalogue } from "./checks.mjs";
 import { inspectUiSource } from "./source.mjs";
 import { locales } from "./config.mjs";
 // Shared with the runtime, but executable before the workspace has any dist.
-import { mergeCatalogues } from "../src/catalogues.mjs";
+import { mergeCatalogues } from "./catalogues.mjs";
 
 const require = createRequire(import.meta.url);
 const lingui = resolve(dirname(require.resolve("@lingui/cli")), "lingui.js");

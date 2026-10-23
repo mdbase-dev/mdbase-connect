@@ -1,6 +1,6 @@
 import { setupI18n, type I18n, type Messages } from "@lingui/core";
-import { mergeCatalogues } from "./catalogues.mjs";
-export { mergeCatalogues } from "./catalogues.mjs";
+import { mergeCatalogues } from "../scripts/catalogues.mjs";
+export { mergeCatalogues } from "../scripts/catalogues.mjs";
 
 export const locales = ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh"] as const;
 export type Locale = (typeof locales)[number];
