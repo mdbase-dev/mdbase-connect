@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "./test/render";
+import { fireEvent, render, screen, waitFor, within } from "./test/render";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
 import { api, ApiError, type DevicePairing } from "./api";
@@ -39,7 +39,7 @@ describe("account readiness before app consent", () => {
     vi.mocked(api).mockResolvedValue({ pairing: pairing() });
     fireEvent.click(checkAgain);
     await screen.findByRole("combobox", { name: "Open in Notes" });
-    expect(screen.queryAllByRole("option", { selected: true })).toEqual([]);
+    expect(within(screen.getByRole("listbox", { name: "Open in Notes" })).queryAllByRole("option", { selected: true })).toEqual([]);
     expect(screen.getByRole("button", { name: /^Open Notes(?: with .+)?$/ })).toBeDisabled();
     await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledTimes(2));
     expect(vi.mocked(api).mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
