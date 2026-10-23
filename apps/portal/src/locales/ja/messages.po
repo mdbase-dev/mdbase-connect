@@ -10,88 +10,88 @@ msgstr ""
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid " · current session"
-msgstr ""
+msgstr " · 現在のセッション"
 
 #: src/authority-workflows.tsx
 msgid " (already allowed)"
-msgstr ""
+msgstr "（すでに許可済み）"
 
 #: src/authorization-review.tsx
 msgid " (higher impact)"
-msgstr ""
+msgstr "（影響が大きい）"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid " {0} can also create new collections for you."
-msgstr ""
+msgstr " {0} は新しいコレクションを作成することもできます。"
 
 #. placeholder {0}: host(request.project_url)
 #: src/authorization-view.tsx
 msgid " {0} does not verify its origin."
-msgstr ""
+msgstr " {0} はその出所を証明するものではありません。"
 
 #. placeholder {0}: adoption.mirror_name ?? adoption.source_name
 #: src/authority-workflows.tsx
 msgid " {0} will continue as a synced folder, with edits syncing both ways."
-msgstr ""
+msgstr " {0} は同期フォルダーとして継続し、編集内容は双方向に同期されます。"
 
 #. placeholder {0}: request.user_code
 #: src/authorization-view.tsx
 msgid " and it shows <0>{0}</0>"
-msgstr ""
+msgstr " また、<0>{0}</0> と表示されています"
 
 #: src/authorization-review.tsx
 msgid " File actions are included in the collection permissions above."
-msgstr ""
+msgstr " ファイル操作は上記のコレクション権限に含まれます。"
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
 msgid " from <0>{0}</0>"
-msgstr ""
+msgstr " <0>{0}</0> から"
 
 #: src/authorization-view.tsx
 msgid " Permissions this application does not already have are marked New."
-msgstr ""
+msgstr " このアプリケーションにまだない権限には「新規」と表示されます。"
 
 #: src/authority-workflows.tsx
 msgid " Previously approved collections stay available."
-msgstr ""
+msgstr " 以前に承認したコレクションは引き続き利用できます。"
 
 #: src/authority-workflows.tsx
 msgid " The original local files are no longer the main copy."
-msgstr ""
+msgstr " 元のローカルファイルは正本ではなくなります。"
 
 #: src/authorization-review.tsx
 msgid " These actions are approved together."
-msgstr ""
+msgstr " これらの操作はまとめて承認されます。"
 
 #. placeholder {0}: unavailable.length
 #: src/authorization-view.tsx
 msgid "{0, plural, one {# collection is unavailable} other {# collections are unavailable}}"
-msgstr ""
+msgstr "{0, plural, one {# 件のコレクションを利用できません} other {# 件のコレクションを利用できません}}"
 
 #. placeholder {0}: grant.operations.length
 #. placeholder {0}: operations.size
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "{0, plural, one {# permission} other {# permissions}}"
-msgstr ""
+msgstr "{0, plural, one {# 件の権限} other {# 件の権限}}"
 
 #. placeholder {0}: notifications.criteria.length
 #: src/authorization-review.tsx
 msgid "{0, plural, one {this rule} other {these # rules}}"
-msgstr ""
+msgstr "{0, plural, one {このルール} other {これら # 件のルール}}"
 
 #. placeholder {0}: import { t, plural } from "@lingui/core/macro"; import { Trans } from "@lingui/react/macro"; import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n"; import { provisionedContract, type SetupType } from "@mdbase/connect-ui/contract-setup"; import React, { useEffect, useMemo, useRef, useState } from "react"; import { APPLICATION_SETUP_OPERATIONS } from "@mdbase-dev/connect-protocol"; import { api, ApiError, type ApplicationFileAction, type AvailableCollection, type ContractSetupChoice as ContractSetupRequestChoice, type HostedCollection, type PendingAuthorization, type UnavailableConnector } from "./api"; import { collectionCompatibility, lostCollectionNotice } from "./compatibility"; import { authorizationCapabilityGroups, authorizationRequirementsError, nextAuthorizationGroups, selectedNextAuthorizationOperations, toggleAuthorizationGroup, selectedFileActions, selectedPeoplePermissions, selectedOperationsForCapabilityGroups, type AuthorizationCapabilityGroup } from "./authorization-capabilities"; import { configurationSetupSummary, initialContractSetupChoice } from "./application-setup"; import { clearAuthorizationReview, disambiguatedCollectionLocations, initialAuthorizationSelection, saveAuthorizationReview, storedAuthorizationReview } from "./authorization-review-state"; import { ContractSetupEditor, contractSetupProblem, NotificationAccess, PermissionList, RequestedAccessSummary, type ContractSetupChoice } from "./authorization-review"; import { formatDeviceCode, host, initials, message, neededProvisions, provisionNames, relativeTime } from "./portal-model"; import { Loading, PageBrand } from "./portal-ui"; export function DeviceAuthorization() { useLocaleRevision(); const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? ""); const [code, setCode] = useState(initialCode); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const automaticallyClaimed = useRef(false); async function openRequest(value: string) { const userCode = formatDeviceCode(value); if (userCode.replace("-", "").length !== 8) { setError(t(i18n)({ message: "Enter the eight-character code shown by the application." })); return; } setBusy(true); setError(""); try { const result = await api<{ request_id: string }>( "/v1/device-authorization-requests/lookup", { method: "POST", body: JSON.stringify({ user_code: userCode }) } ); location.replace(`/authorize/${result.request_id}`); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) { location.href = `/login?return_to=${encodeURIComponent(location.href)}`; return; } setError(message(reason)); setBusy(false); } } useEffect(() => { if (!initialCode || automaticallyClaimed.current) return; automaticallyClaimed.current = true; void openRequest(initialCode); }, [initialCode]); return ( <main className="center-page"> <PageBrand label={t(i18n)({ message: "Application connection", context: "Application access approval" })} busy={busy} error={error} /> <form className="decision-panel device-panel" onSubmit={(event) => { event.preventDefault(); void openRequest(code); }}> <p className="eyebrow"><Trans>Short approval code</Trans></p> <h1><Trans>Check the application.</Trans></h1> <p><Trans>Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed.</Trans></p> <label className="device-code-field"> <span><Trans>Approval code</Trans></span> <input autoFocus={!initialCode} autoComplete="one-time-code" inputMode="text" maxLength={9} value={code} onChange={(event) => setCode(formatDeviceCode(event.target.value))} placeholder="ABCD-EFGH" /> </label> <p className="field-note"><Trans>Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application.</Trans></p> {error && <div className="message error" role="alert">{error}</div>} <button className="button primary" disabled={busy || code.replace("-", "").length !== 8}> {busy ? t(i18n)({ message: "Checking…", context: "Application access approval" }) : t(i18n)({ message: "Review request", context: "Application access approval" })} </button> </form> </main> ); } type RequestStatus = "pending" | "setting_up" | "approved" | "denied" | "expired"; export function Authorization({ requestId }: { requestId: string }) { useLocaleRevision(); const [request, setRequest] = useState<{ authorization: PendingAuthorization; collections: AvailableCollection[]; hosted_collections_available?: boolean; unavailable_connectors: UnavailableConnector[]; } | null>(null); const [status, setStatus] = useState<RequestStatus>("pending"); const [returnUrl, setReturnUrl] = useState(""); const [structuralSetupRequested, setStructuralSetupRequested] = useState(false); const [continuingInDesktop, setContinuingInDesktop] = useState( () => new URLSearchParams(location.search).get("continue_in_desktop") === "1" ); const [error, setError] = useState(""); const [decisionError, setDecisionError] = useState(""); const returning = useRef(false); const loaded = useRef(false); useEffect(() => { let active = true; async function refreshCollections() { try { const next = await api<{ authorization: PendingAuthorization; collections: AvailableCollection[]; hosted_collections_available?: boolean; unavailable_connectors: UnavailableConnector[]; }>(`/v1/authorization-requests/${requestId}`); if (active) { loaded.current = true; setRequest(next); setError(""); } } catch (reason) { if (!active) return; if (reason instanceof ApiError && reason.status === 401) { location.href = `/login?return_to=${encodeURIComponent(location.href)}`; } else if (reason instanceof ApiError && reason.status === 404) { // The request is no longer pending. Once loaded, the status poll owns // the outcome; before that, nothing on this page can be decided. if (!loaded.current) setStatus("expired"); } else { setError(message(reason)); } } } void refreshCollections(); const timer = window.setInterval(() => void refreshCollections(), 10_000); return () => { active = false; window.clearInterval(timer); }; }, [requestId]); useEffect(() => { async function checkStatus() { try { const value = await api<{ status: "pending" | "setting_up" | "approved" | "denied"; redirect_uri?: string; }>(`/v1/authorization-requests/${requestId}/status`); if (returning.current) return; if (decisionError && value.status === "setting_up") return; setStatus(value.status); if (value.redirect_uri) { returning.current = true; setReturnUrl(value.redirect_uri); location.replace(value.redirect_uri); } } catch (reason) { // The status route answers 404 only for an expired or unknown request. // Other polling failures are transient and keep the pending decision. if (reason instanceof ApiError && reason.status === 404 && !returning.current) setStatus("expired"); } } void checkStatus(); const timer = window.setInterval(() => void checkStatus(), 1_000); return () => window.clearInterval(timer); }, [decisionError, requestId]); if (!request) { if (status !== "expired") return <Loading error={error} />; return ( <main className="center-page approval-page"> <PageBrand label={t(i18n)({ message: "Application request", context: "Application access approval" })} /> <section className="decision-panel authorization-panel"> <RequestOutcome status="expired" applicationName={t(i18n)({ message: "the application", context: "Application access approval" })} standalone /> </section> </main> ); } const authorization = request.authorization; const preparingStructure = structuralSetupRequested || authorizationNeedsSetup( authorization, request.collections ); const setupMotionActive = status === "setting_up" || (status === "pending" && structuralSetupRequested); function continueInDesktop(value: boolean) { const url = new URL(location.href); if (value) url.searchParams.set("continue_in_desktop", "1"); else url.searchParams.delete("continue_in_desktop"); history.replaceState(history.state, "", url); setContinuingInDesktop(value); } return ( <main className="center-page approval-page"> <PageBrand label={t(i18n)({ message: "Application request", context: "Application access approval" })} markMotion={setupMotionActive ? (preparingStructure ? "sort" : "stream") : undefined} error={error} /> <section className="decision-panel authorization-panel"> <RequestIdentity request={authorization} showClientKey={!request.collections.some((collection) => collection.kind === "private")} /> {status === "pending" && continuingInDesktop ? ( <DesktopContinuation request={authorization} onReviewHere={() => continueInDesktop(false)} /> ) : status === "pending" ? <> {(decisionError || error) && <div className="message error" role="alert">{decisionError || error}</div>} <ApprovalForm request={authorization} canCreateHosted={request.hosted_collections_available !== false} collections={request.collections} unavailableConnectors={request.unavailable_connectors} onContinueInDesktop={() => continueInDesktop(true)} onDecision={(decision) => setStatus(decision)} onDecisionError={(detail) => { setDecisionError(detail); setStatus("pending"); }} onSetupActivityChange={setStructuralSetupRequested} onCollectionCreated={(collection) => setRequest((current) => current ? { ...current, collections: current.collections.some((existing) => existing.id === collection.id) ? current.collections : [...current.collections, collection] } : current)} /> </> : <RequestOutcome status={status} applicationName={authorization.application_name} portable={authorization.distribution === "portable"} returnUrl={returnUrl} />} </section> </main> ); } const RETURN_LINK_DELAY_MS = 4_000; const SLOW_SETUP_MS = 20_000; export function RequestOutcome({ status, applicationName, portable = false, returnUrl = "", standalone = false }: { status: Exclude<RequestStatus, "pending">; applicationName: string; portable?: boolean; returnUrl?: string; // Without a loaded request there is no application heading above the outcome. standalone?: boolean; }) { useLocaleRevision(); const Heading = standalone ? "h1" : "h2"; // Show a manual return link or a slow-setup note only if the automatic step // has not already taken the user away. const [late, setLate] = useState(false); useEffect(() => { setLate(false); const delay = status === "setting_up" ? SLOW_SETUP_MS : RETURN_LINK_DELAY_MS; const timer = window.setTimeout(() => setLate(true), delay); return () => window.clearTimeout(timer); }, [status]); const returnLink = late && returnUrl ? <a className="button secondary link-button outcome-return" href={returnUrl}><Trans>Return to {applicationName}</Trans></a> : null; if (status === "expired") return <div className="request-outcome" role="status"> <p className="eyebrow outcome-label"><Trans>Request unavailable</Trans></p> <Heading>{t(i18n)({ message: "This request has expired or was already answered." })}</Heading> <p><Trans>Return to {applicationName} and connect again to start a new request.</Trans></p> </div>; if (status === "setting_up") return <div className="request-outcome" role="status"> <p className="eyebrow outcome-label"><Trans>Approval recorded</Trans></p> <h2><Trans>Finishing collection setup…</Trans></h2> <p><Trans>Your choices are being checked with the collection’s main copy. The application does not have access yet.</Trans></p> {late && <p><Trans>This is taking longer than usual. Keep this page open; it continues automatically when setup finishes.</Trans></p>} </div>; const approved = status === "approved"; return <div className="request-outcome" role="status"> <p className="eyebrow outcome-label">{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</p> <h2>{portable ? t(i18n)`Return to ${applicationName}.` : t(i18n)`Returning to ${applicationName}…`}</h2> <p>{portable ? approved ? t(i18n)({ message: "The application will finish connecting with its one-time device code. You can close this window." }) : t(i18n)({ message: "The application will learn that access was not granted. You can close this window." }) : approved ? t(i18n)({ message: "Your approved collection and permissions will follow you back." }) : t(i18n)({ message: "The application will show that access was not granted." })}</p> {returnLink} </div>; } export function RequestIdentity({ request, showClientKey = true }: { request: PendingAuthorization; showClientKey?: boolean }) { useLocaleRevision(); const [failedIcon, setFailedIcon] = useState<string | null>(null); const portable = request.distribution === "portable"; return ( <header className="request-identity"> <span className="request-identity-mark" aria-hidden="true">{request.icon && request.icon !== failedIcon ? <img src={request.icon} alt="" referrerPolicy="no-referrer" onError={() => setFailedIcon(request.icon)} /> : initials(request.application_name)}</span> <div> <h1>{request.application_name}</h1> <p className="request-origin">{portable ? <>{t(i18n)({ message: "Application using a device code" })}{request.project_url && <> · <code>{host(request.project_url)}</code></>}</> : <code>{host(request.homepage)}</code>}</p> {portable ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null}</Trans></p> : <p className="request-guidance"><Trans>Only continue if you recognize this exact site.</Trans></p>} {showClientKey && request.client_fingerprint ? <p className="request-fingerprint"><Trans>App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</Trans></p> : null} <p className="request-expiry"><Trans>Request expires {relativeTime(request.expires_at)}</Trans></p> </div> </header> ); } function DesktopContinuation({ request, onReviewHere }: { request: PendingAuthorization; onReviewHere(): void; }) { useLocaleRevision(); const desktopUrl = `mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`; return ( <section className="desktop-continuation" aria-live="polite"> <h2><Trans>Choose the folder in mdbase connect.</Trans></h2> <p><Trans>This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {request.application_name}.</Trans></p> <div className="desktop-continuation-status"> <span className="status-dot connecting" aria-hidden="true" /> <div><strong><Trans>Waiting for mdbase connect</Trans></strong><small><Trans>The page will notice when the request is approved.</Trans></small></div> </div> <div className="approval-actions"> <button className="button secondary" type="button" onClick={onReviewHere}><Trans>Review in this browser</Trans></button> <a className="button primary link-button" href={desktopUrl}><Trans>Open mdbase connect</Trans></a> </div> <p className="field-note"><Trans>If the desktop app does not open, <a href="https://mdbase.dev/downloads/" target="_blank" rel="noreferrer">install the current Connect release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</Trans></p> </section> ); } export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprovalForm>) { useLocaleRevision(); const error = authorizationRequirementsError(props.request.requirements) ?? (props.request.account_backend === "next" ? nextAuthorizationGroups(props.request.requirements, props.request.requested_operations).error : undefined); if (error) return <div className="message error" role="alert">{error}</div>; return <SupportedApprovalForm {...props} />; } function SupportedApprovalForm({ request, collections, canCreateHosted, unavailableConnectors = [], onContinueInDesktop, onDecision, onDecisionError, onSetupActivityChange, onCollectionCreated }: { request: PendingAuthorization; collections: AvailableCollection[]; canCreateHosted: boolean; unavailableConnectors?: UnavailableConnector[]; onContinueInDesktop?(): void; onDecision(decision: "approved" | "denied"): void | Promise<void>; onDecisionError(detail: string): void; onSetupActivityChange?(active: boolean): void; onCollectionCreated(collection: AvailableCollection): void; }) { const localeRevision = useLocaleRevision(); const [createdCollections, setCreatedCollections] = useState<AvailableCollection[]>([]); const choices = useMemo(() => { const combined = new Map(collections.map((collection) => [collection.id, collection])); for (const collection of createdCollections) { if (!combined.has(collection.id)) combined.set(collection.id, collection); } return [...combined.values()].map((collection) => ({ collection, compatibility: collectionCompatibility(request, collection) })); }, [collections, createdCollections, request, localeRevision]); const visibleChoices = useMemo( () => request.collection_id ? choices.filter((choice) => choice.collection.id === request.collection_id) : choices, [choices, request.collection_id] ); const compatible = useMemo( () => visibleChoices.filter((choice) => choice.compatibility.compatible), [visibleChoices] ); const collectionLocations = useMemo( () => disambiguatedCollectionLocations( compatible.map((choice) => choice.collection) ), [compatible] ); const unavailable = useMemo( () => visibleChoices.filter((choice) => !choice.compatibility.compatible), [visibleChoices] ); const savedReview = useMemo(() => storedAuthorizationReview(request.id), [request.id]); const jointPermissions = request.account_backend === "next"; const requestedPermissionGroups = useMemo( () => jointPermissions ? nextAuthorizationGroups(request.requirements, request.requested_operations).groups : authorizationCapabilityGroups(request.requirements, request.requested_operations), [jointPermissions, request.requirements, request.requested_operations, localeRevision] ); const initialSelection = initialAuthorizationSelection( compatible.map((choice) => choice.collection.id), savedReview ); const [collectionId, setCollectionId] = useState(initialSelection.collectionId); const [collectionConfirmed, setCollectionConfirmed] = useState( Boolean(initialSelection.collectionId) ); const [reviewing, setReviewing] = useState(initialSelection.reviewing); const [chosenOperations, setOperations] = useState(() => { const selected = jointPermissions ? selectedNextAuthorizationOperations(requestedPermissionGroups, savedReview?.operations, savedReview?.fileActions) : selectedOperationsForCapabilityGroups(requestedPermissionGroups, savedReview?.operations); const grouped = new Set(requestedPermissionGroups.flatMap((group) => group.operations)); for (const operation of request.requested_operations) { if (!grouped.has(operation) && (!savedReview?.operations || request.requirements.capabilities?.contract_version === 2 || savedReview.operations.includes(operation))) selected.add(operation); } return selected; }); const people = "people" in request.requirements ? request.requirements.people : undefined; const [peoplePermissions, setPeoplePermissions] = useState(() => people ? selectedPeoplePermissions(people, savedReview?.peoplePermissions) : new Set<string>()); const [chosenFileActions, setFileActions] = useState(() => request.requirements.files ? selectedFileActions(request.requirements.files, savedReview?.fileActions) : new Set<string>() ); const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null); const [creatingHosted, setCreatingHosted] = useState(false); const [showAlternateCollections, setShowAlternateCollections] = useState(false); const [collectionName, setCollectionName] = useState(""); const [error, setError] = useState(""); const [lostCollection, setLostCollection] = useState(""); const collectionChoicesRef = useRef<HTMLFieldSetElement>(null); const createHostedTriggerRef = useRef<HTMLButtonElement>(null); const focusCollectionOnReturn = useRef(false); const focusHostedTriggerOnCancel = useRef(false); const lastSelected = useRef<AvailableCollection | undefined>(undefined); const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection; const selectedName = selected?.display_name ?? t(i18n)`this collection`; const approval = selected?.authorization; const allowedOperations = approval?.available ? approval.operations : undefined; const allowedFiles = approval?.available ? approval.file_actions : undefined; const permissionGroups = useMemo(() => requestedPermissionGroups.filter((group) => (!allowedOperations || group.operations.every((operation) => allowedOperations.includes(operation))) && (!jointPermissions || !allowedFiles || (group.fileActions ?? []).every(action => allowedFiles.includes(action))) ), [allowedOperations, allowedFiles, jointPermissions, requestedPermissionGroups]); const operations = useMemo(() => { if (!jointPermissions) return new Set([...chosenOperations].filter(operation => !allowedOperations || allowedOperations.includes(operation))); const enabled = permissionGroups.filter(group => group.operations.every(operation => chosenOperations.has(operation))); const selected = new Set(enabled.flatMap(group => group.operations)); if (enabled.some(group => group.id === "definitions.manage")) { for (const operation of APPLICATION_SETUP_OPERATIONS) { if (request.requested_operations.includes(operation) && (!allowedOperations || allowedOperations.includes(operation))) selected.add(operation); } } return selected; }, [allowedOperations, chosenOperations, jointPermissions, permissionGroups, request.requested_operations]); const fileActions = useMemo(() => jointPermissions ? new Set(permissionGroups.filter(group => group.operations.every(operation => operations.has(operation))).flatMap(group => group.fileActions ?? [])) : new Set([...chosenFileActions].filter(action => !allowedFiles || allowedFiles.includes(action as ApplicationFileAction))), [allowedFiles, chosenFileActions, jointPermissions, operations, permissionGroups]); const existingOperations = useMemo(() => new Set(request.existing_access?.find((access) => access.collection_id === collectionId)?.operations ?? []), [collectionId, request.existing_access]); // A Private collection is end-to-end encrypted: the application sets up its // types itself once connected, and a device of the account approves access. const privateCollection = selected?.kind === "private"; const setup = selected && !privateCollection ? neededProvisions(request, selected) : []; const configurationSetup = privateCollection ? [] : request.provisions.configuration ?? []; const hasSetup = setup.length > 0 || configurationSetup.length > 0; const requestSetupSummary = [ ...(request.provisions.type_packs.length > 0 ? [t(i18n)`Adds ${provisionNames(request.provisions.type_packs)} to the collection`] : []), ...(configurationSetup.length > 0 ? [t(i18n)({ message: "Changes collection settings" })] : []) ]; const setupContracts = useMemo(() => selected ? request.requirements.contracts.flatMap((required) => { if (selected.contracts.some((contract) => contract.id === required.id && contract.version === required.version && contract.digest === required.digest)) return []; const contract = provisionedContract(required, request.provisions.type_packs); return contract ? [contract] : []; }) : [], [request.provisions.type_packs, request.requirements.contracts, selected]); const setupTypes = useMemo<SetupType[]>( () => selected?.types ?? [], [selected] ); const setupIdentity = [ collectionId, ...setupContracts.map((contract) => `${contract.id}@${contract.version}`), ...setupTypes.map((type) => `${type.name}@${type.revision ?? ""}`) ].join("|"); const [setupChoices, setSetupChoices] = useState<Record<string, ContractSetupChoice>>({}); const selectedPermissionGroups = permissionGroups.filter((group) => group.operations.every((operation) => operations.has(operation)) ); const selectedPermissionCount = selectedPermissionGroups.length + (!jointPermissions && fileActions.size > 0 ? 1 : 0); const higherImpactLabels = [ ...selectedPermissionGroups.flatMap((group) => group.higherImpact ? [group.label.toLocaleLowerCase()] : [] ), ...(!jointPermissions && fileActions.has("delete") ? [t(i18n)({ message: "delete files", context: "Application access approval" })] : []), ...(peoplePermissions.has("members") ? [t(i18n)({ message: "see collection members", context: "Application access approval" })] : []), ...(hasSetup ? [t(i18n)({ message: "changes to collection setup" })] : []) ]; const approvalBlocker = jointPermissions && requestedPermissionGroups.some(group => group.required && !permissionGroups.includes(group)) ? t(i18n)({ message: "The collection cannot allow all required record and file permissions together. Choose another collection." }) : selectedPermissionCount === 0 && (jointPermissions || !request.requirements.files) ? t(i18n)({ message: "Allow at least one permission to continue." }) : setupContracts.map((contract) => contractSetupProblem( contract, setupChoices[`${contract.id}@${contract.version}`], setupTypes )).find(Boolean); const blockerId = `approval-blocker-${request.id}`; useEffect(() => { if (selected) lastSelected.current = selected; }, [selected]); useEffect(() => { if (collectionId && !compatible.some((choice) => choice.collection.id === collectionId)) { if (lastSelected.current?.id === collectionId) { setLostCollection(lostCollectionNotice(lastSelected.current, unavailable, unavailableConnectors)); } setCollectionId(""); setCollectionConfirmed(false); setReviewing(false); } }, [collectionId, compatible, unavailable, unavailableConnectors]); useEffect(() => { saveAuthorizationReview(request.id, { collectionId, collectionConfirmed, operations: [...operations], fileActions: [...fileActions], peoplePermissions: [...peoplePermissions], reviewing }); }, [collectionConfirmed, collectionId, fileActions, operations, peoplePermissions, request.id, reviewing]); useEffect(() => { if (!reviewing && focusCollectionOnReturn.current) { focusCollectionOnReturn.current = false; collectionChoicesRef.current?.querySelector<HTMLInputElement>("input:checked")?.focus(); } }, [reviewing]); useEffect(() => { if (!creatingHosted && focusHostedTriggerOnCancel.current) { focusHostedTriggerOnCancel.current = false; createHostedTriggerRef.current?.focus(); } }, [creatingHosted]); useEffect(() => { setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [ `${contract.id}@${contract.version}`, initialContractSetupChoice(contract, setupTypes) ]))); }, [setupIdentity]); const contractSetups = setupContracts.flatMap<ContractSetupRequestChoice>((contract) => { const choice = setupChoices[`${contract.id}@${contract.version}`]; if (!choice) return []; if (choice.mode === "starter") return [{ contract: { id: contract.id, version: contract.version, digest: contract.digest }, mode: "starter" as const }]; const type = setupTypes.find((candidate) => candidate.name === choice.typeName); if (!type?.revision) return []; return [{ contract: { id: contract.id, version: contract.version, digest: contract.digest }, mode: "existing" as const, type_name: type.name, type_revision: type.revision, fields: choice.fields, ...(Object.keys(choice.binding).length ? { binding: choice.binding } : {}) }]; }); function toggleCapability(group: AuthorizationCapabilityGroup) { if (group.required) return; setOperations((current) => toggleAuthorizationGroup(current, group)); } function togglePeoplePermission(permission: string) { if (!people?.optional?.some((candidate) => candidate === permission)) return; setPeoplePermissions((current) => { const next = new Set(current); if (!next.delete(permission)) next.add(permission); return next; }); } function toggleFileAction(action: ApplicationFileAction) { setFileActions((current) => { const next = new Set(current); if (next.has(action)) next.delete(action); else next.add(action); return next; }); } function chooseCollection(id: string) { setCollectionId(id); setCollectionConfirmed(true); setLostCollection(""); } async function decide(decision: "approved" | "denied") { const preparingSetup = decision === "approved" && hasSetup; if (preparingSetup) onSetupActivityChange?.(true); setSubmitting(decision); setError(""); onDecisionError(""); try { await api(`/v1/authorization-requests/${request.id}/${decision === "approved" ? "approve" : "deny"}`, { method: "POST", ...(decision === "approved" ? { body: JSON.stringify({ collection_id: collectionId, ...(selected?.offer_id ? { offer_id: selected.offer_id } : {}), operations: [...operations], ...(request.requirements.files ? { file_actions: [...fileActions] } : {}), ...(people ? { people_permissions: [...peoplePermissions] } : {}), contract_setups: privateCollection ? [] : contractSetups }) } : {}) }); clearAuthorizationReview(request.id); await onDecision(decision); } catch (decisionError) { if (preparingSetup) onSetupActivityChange?.(false); onDecisionError(message(decisionError)); setSubmitting(null); } } async function createHostedCollection(event: React.FormEvent) { event.preventDefault(); const displayName = collectionName.trim(); if (!displayName) return; setSubmitting("creating"); setError(""); try { const created = await api<{ collection: HostedCollection }>("/v1/hosted/collections", { method: "POST", body: JSON.stringify({ display_name: displayName, template: "mdbase", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }) }); const collection: AvailableCollection = { id: created.collection.id, display_name: created.collection.display_name, connector_name: t(i18n)`Hosted by mdbase`, spec_version: created.collection.spec_version ?? "0.3.0", contracts: [], types: [], kind: "hosted" }; setCreatedCollections((current) => [...current, collection]); onCollectionCreated(collection); chooseCollection(collection.id); setReviewing(true); setCollectionName(""); setCreatingHosted(false); } catch (creationError) { setError(message(creationError)); } finally { setSubmitting(null); } } const denyButton = <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? t(i18n)({ message: "Denying…", context: "Application access approval" }) : t(i18n)({ message: "Deny", context: "Application access approval" })}</button>; return ( <div className="approval-form" aria-busy={submitting !== null}> {!reviewing && <section className="approval-section" aria-labelledby={`requested-${request.id}`}> <h2 className="approval-section-title" id={`requested-${request.id}`}><Trans>Requests</Trans></h2> <RequestedAccessSummary groups={requestedPermissionGroups} files={request.requirements.files} people={people} /> {requestSetupSummary.length > 0 && <p className="approval-section-note">{requestSetupSummary.join(". ")}.</p>} </section>} <section className="approval-section" aria-labelledby={`collection-${request.id}`}> <h2 className="approval-section-title" id={`collection-${request.id}`}>{reviewing ? t(i18n)({ message: "Collection", context: "Application access approval" }) : t(i18n)({ message: "Choose a collection", context: "Application access approval" })}</h2> {lostCollection && <p className="message error compact" role="alert">{lostCollection}</p>} {reviewing && selected ? <div className="selected-collection-summary"> <div> <strong>{selected.display_name}</strong> <small>{collectionLocations.get(selected.id)}</small> </div> {existingOperations.size > 0 && <span className="collection-status"><Trans><i aria-hidden="true" />Already connected</Trans></span>} {!request.collection_id && <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => { focusCollectionOnReturn.current = true; setReviewing(false); }}><Trans>Change</Trans></button>} </div> : <> {compatible.length > 0 && <fieldset className="collection-choice-field" ref={collectionChoicesRef}> <legend className="sr-only"><Trans>Collection</Trans></legend> <div className="collection-choice-list"> {compatible.map(({ collection }) => { const connected = request.existing_access?.some((access) => access.collection_id === collection.id); return <label className={collection.id === collectionId ? "selected" : undefined} key={collection.id}> <input type="radio" name={`collection-${request.id}`} value={collection.id} checked={collection.id === collectionId} disabled={submitting !== null} onChange={() => chooseCollection(collection.id)} /> <span className="collection-choice-copy"> <strong>{collection.display_name}</strong> <small>{collectionLocations.get(collection.id)}</small> </span> {connected && <span className="collection-status"><Trans><i aria-hidden="true" />Already connected</Trans></span>} </label>; })} </div> </fieldset>} {compatible.length === 0 && <p className="field-note">{request.collection_id ? t(i18n)({ message: "The collection requested by this application is not available." }) : request.requirements.collection_kind === "hosted" ? t(i18n)({ message: "This application needs a collection hosted by mdbase, and none is ready yet." }) : t(i18n)({ message: "No compatible collection is ready." })}</p>} {(unavailable.length > 0 || unavailableConnectors.length > 0 || (request.requirements.collection_kind !== "hosted" && !request.collection_id) || (canCreateHosted && !request.collection_id)) && <details className="alternate-collection-options" open={compatible.length === 0 || creatingHosted || showAlternateCollections} onToggle={(event) => { if (compatible.length > 0 && !creatingHosted) { setShowAlternateCollections(event.currentTarget.open); } }} > <summary>{compatible.length > 0 ? t(i18n)({ message: "Add or connect another collection" }) : t(i18n)({ message: "Choose another way", context: "Application access approval" })}</summary> <div> {unavailable.length > 0 && <div className="collection-compatibility"> <strong><Trans>{plural(unavailable.length, { one: "# collection is unavailable", other: "# collections are unavailable" })}</Trans></strong> <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul> </div>} {unavailableConnectors.length > 0 && <p className="field-note" role="status"><Trans> {unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available. </Trans></p>} {request.requirements.collection_kind !== "hosted" && !request.collection_id && <div className="alternate-collection-row"> <div> <strong><Trans>Use a folder on this computer</Trans></strong> <small><Trans>Open the desktop app to connect this computer, add a folder, and continue this same request.</Trans></small> </div> <a className="button secondary link-button" href={`mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`} onClick={onContinueInDesktop} ><Trans>Use a local folder</Trans></a> </div>} {canCreateHosted && !request.collection_id && (creatingHosted ? ( <form className="authorization-collection-create" id={`create-hosted-${request.id}`} onSubmit={(event) => void createHostedCollection(event)} > <label> <span><Trans>New collection name</Trans></span> <input autoFocus maxLength={200} value={collectionName} disabled={submitting !== null} placeholder={t(i18n)`Workouts`} onChange={(event) => setCollectionName(event.target.value)} /> </label> <small><Trans>Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately.</Trans></small> <div> <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => { focusHostedTriggerOnCancel.current = true; setCreatingHosted(false); setCollectionName(""); setError(""); }} ><Trans>Cancel</Trans></button> <button className="button secondary" disabled={submitting !== null || !collectionName.trim()}> {submitting === "creating" ? t(i18n)({ message: "Creating…", context: "Application access approval" }) : t(i18n)({ message: "Create collection", context: "Application access approval" })} </button> </div> </form> ) : ( <div className="alternate-collection-row"> <div> <strong><Trans>Create a hosted collection</Trans></strong> <small><Trans>A new collection stored by mdbase, available from any computer.</Trans></small> </div> <button className="button secondary" type="button" ref={createHostedTriggerRef} aria-controls={`create-hosted-${request.id}`} disabled={submitting !== null} onClick={() => { setCreatingHosted(true); setError(""); }} ><Trans>Create hosted collection</Trans></button> </div> ))} </div> </details>} {error && <div className="message error compact" role="alert">{error}</div>} <footer className="approval-footer"> <p className="approval-receipt" id={`collection-selection-help-${request.id}`}> {!collectionId && compatible.length > 0 ? t(i18n)({ message: "Select a collection to continue." }) : t(i18n)({ message: "Nothing is allowed until you review access." })} </p> <div className="approval-actions"> {denyButton} <button className="button primary" type="button" aria-describedby={`collection-selection-help-${request.id}`} disabled={submitting !== null || !collectionId || !collectionConfirmed} onClick={() => setReviewing(true)} ><Trans>Review access</Trans></button> </div> </footer> </>} </section> {reviewing && <section className="approval-section" aria-labelledby={`permissions-${request.id}`}> <h2 className="approval-section-title" id={`permissions-${request.id}`}><Trans>What it can do</Trans></h2> <p className="approval-section-note"><Trans> Covers every record in {selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })}. {existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""} </Trans></p> <PermissionList groups={permissionGroups} selected={operations} existingOperations={existingOperations} files={request.requirements.files} selectedFiles={fileActions} allowedFileActions={allowedFiles} people={people} selectedPeople={peoplePermissions} disabled={submitting !== null} onToggleGroup={toggleCapability} onToggleFile={toggleFileAction} onTogglePeople={togglePeoplePermission} /> </section>} {reviewing && hasSetup && <section className="approval-section" aria-labelledby={`changes-${request.id}`}> <h2 className="approval-section-title" id={`changes-${request.id}`}><Trans>Collection changes</Trans></h2> <div className="contract-setup-list"> {setup.length > 0 && <ul className="configuration-setup-list"> {setup.map((provision) => ( <li className="configuration-setup-item" key={provision.manifest.id}> <span aria-hidden="true">+</span> <div> <strong>{provision.manifest.name ?? provision.manifest.id} <code>{provision.manifest.version}</code></strong> <small>{provision.manifest.description ?? t(i18n)({ message: "Install or update the application definitions declared by this version." })}</small> {provision.manifest.resources.some((resource) => resource.upgrade_from) && <small><Trans>Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade.</Trans></small>} </div> </li> ))} </ul>} {setupContracts.map((contract) => { const key = `${contract.id}@${contract.version}`; const choice = setupChoices[key]; return choice && <ContractSetupEditor key={key} applicationName={request.application_name} contract={contract} types={setupTypes} value={choice} disabled={submitting !== null} onChange={(next) => setSetupChoices((current) => ({ ...current, [key]: next }))} />; })} {configurationSetup.length > 0 && <ul className="configuration-setup-list"> {configurationSetup.map((provision) => { const summary = configurationSetupSummary(provision); return <li className="configuration-setup-item" key={`${provision.requirement}:${provision.path}`}> <span aria-hidden="true">+</span> <div> <strong><Trans>Ensure <code>{summary.setting}</code> includes <code>{summary.value}</code></Trans></strong> <small><Trans>If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy.</Trans></small> </div> </li>; })} </ul>} </div> </section>} {reviewing && <NotificationAccess applicationName={request.application_name} notifications={request.notifications} />} {reviewing && error && <div className="message error compact" role="alert">{error}</div>} {reviewing && <footer className="approval-footer"> <div className="approval-receipt"> <p>{request.distribution === "portable" ? t(i18n)`${request.application_name} can use ${selectedName} while it remains connected. You can revoke access in mdbase connect.` : t(i18n)`${request.application_name} can use ${selectedName} until you revoke access in mdbase connect.`}</p> {privateCollection && <p><Trans>This is a Private collection: it stays on your computer. {request.application_name} can use it while a computer that has it is running mdbase and is signed in to your account.</Trans></p>} {higherImpactLabels.length > 0 && <p className="receipt-impact"><Trans><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</Trans></p>} {approvalBlocker && <p className="receipt-blocker" id={blockerId}>{approvalBlocker}</p>} </div> <div className="approval-actions"> {denyButton} <button className="button primary" type="button" aria-describedby={approvalBlocker ? blockerId : undefined} disabled={submitting !== null || !collectionId || !collectionConfirmed || Boolean(approvalBlocker)} onClick={() => void decide("approved")} >{submitting === "approved" ? (hasSetup ? t(i18n)({ message: "Setting up and allowing…", context: "Application access approval" }) : t(i18n)({ message: "Allowing…", context: "Application access approval" })) : hasSetup ? t(i18n)({ message: "Set up and allow access", context: "Application access approval" }) : t(i18n)({ message: "Allow access", context: "Application access approval" })}</button> </div> </footer>} </div> ); } function authorizationNeedsSetup( request: PendingAuthorization, collections: AvailableCollection[] ): boolean { if (!request.collection_id) return false; const collection = collections.find((candidate) => candidate.id === request.collection_id); if (!collection) return false; return (request.provisions.configuration?.length ?? 0) > 0 || request.provisions.type_packs.length > 0 || request.requirements.contracts.some((required) => !collection.contracts.some((contract) => contract.id === required.id && contract.version === required.version && contract.digest === required.digest ) && Boolean(provisionedContract(required, request.provisions.type_packs)) ); } 
 #: src/authorization-view.tsx
 msgid "{0}"
-msgstr ""
+msgstr "{0}"
 
 #. placeholder {0}: import { formatters } from "@mdbase-dev/i18n"; import { countLabel } from "./count-label"; import { t, plural } from "@lingui/core/macro"; import { Trans } from "@lingui/react/macro"; import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n"; import { ConnectManagementClient, type ManagementOverview, type ManagementRequestOptions } from "@mdbase/connect-management"; import { groupApplicationAccess, authorizationOperationLabel, applicationAccessOriginLabel } from "@mdbase/connect-ui/access"; import { usePermissionSelection } from "@mdbase-dev/ui/permission-selection"; import { ConfirmAction, ConnectPage as Page, ConnectSectionTitle as SectionTitle, ConnectEmpty as Empty } from "./ConnectPrimitives"; type Grant = ManagementOverview["grants"][number]; type Installation = NonNullable<ManagementOverview["installation_access"]>[number]; type BusyOperations = ReadonlySet<string>; type PerformOperation = (id: string, action: (options: ManagementRequestOptions) => Promise<void>) => Promise<boolean>; const allOperations = [ "describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "apply_type_pack", "list_timers", "put_timer", "cancel_timer", "reconcile_timers" ]; export function applicationGroups(grants: Grant[], installations: Installation[]) { const groups = new Map(groupApplicationAccess(grants).map(group => [group.applicationId, { ...group, installations: [] as Installation[] }])); for (const entry of installations) { let group = groups.get(entry.application_family_id); if (!group) { group = { applicationId: entry.application_family_id, applicationName: entry.application_name, collectionCount: 0, grants: [], installations: [] }; groups.set(group.applicationId, group); } group.installations.push(entry); } return [...groups.values()].map(group => ({ ...group, collectionCount: new Set([...group.grants.map(g => g.collection_id), ...group.installations.flatMap(i => i.collection_id ? [i.collection_id] : [])]).size })).sort((a, b) => a.applicationName.localeCompare(b.applicationName)); } function installationScopes(installations: Installation[]) { const scopes = new Map<string | null, Installation[]>(); for (const entry of installations) { const entries = scopes.get(entry.collection_id) ?? []; entries.push(entry); scopes.set(entry.collection_id, entries); } return [...scopes].map(([collectionId, entries]) => ({ collectionId, entries })); } export function AppAccess({ groups, client, busy, perform, collectionName }: { groups: ReturnType<typeof applicationGroups>; client: ConnectManagementClient; busy: BusyOperations; perform: PerformOperation; collectionName?: string; }) { useLocaleRevision(); return <Page title={collectionName ? t(i18n)({ message: "Application access", context: "Connect interface" }) : t(i18n)({ message: "Applications", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each application has to ${collectionName}.` : t(i18n)({ message: "Review applications connected to your account. Your browser sign-in is never shared with them." })}> <section><SectionTitle title={collectionName ? t(i18n)({ message: "Connected applications", context: "Connect interface" }) : t(i18n)({ message: "Application access", context: "Connect interface" })} count={groups.length} /> {groups.map(group => <details className="connect-application" key={group.applicationId}> <summary><span><strong>{group.applicationName}</strong><small>{countLabel(group.collectionCount, "collection")}</small></span><b>{t(i18n)({ message: "Review", context: "Connect interface" })}</b></summary> <div className="connect-application-body"> {installationScopes(group.installations).map(({ collectionId, entries }) => <div className="connect-grant connect-row" key={collectionId ?? "creation"}> <div><strong>{entries[0]!.collection_name ?? t(i18n)({ message: "No collection access", context: "Connect interface" })}</strong><small>{countLabel(entries.length, "installation")}</small> <details className="connect-installation-details"><summary><Trans>Installation details</Trans></summary> {entries.map(entry => <div key={entry.connector_id}> <small><Trans>{entry.application_origin} · {entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })} · ID {entry.installation_id.slice(-8)}</Trans></small> <small><Trans>Registered <time dateTime={entry.created_at}>{formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })}</time></Trans></small> <small>{entry.collection_id ? entry.available ? t(i18n)`Entire collection · Access as your account (${entry.role})` : t(i18n)({ message: "Previously approved · Collection no longer visible to your account" }) : t(i18n)({ message: "This installation has no approved collections." })}</small> {entry.create_collections && <small><Trans>Can create collections for your account</Trans></small>} {entry.approved_optional_file_actions.length > 0 && <small><Trans>Additional file actions approved: {entry.approved_optional_file_actions.join(", ")}</Trans></small>} </div>)} </details> </div> {collectionId && <ConfirmAction className="danger" label={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} question={t(i18n)`Revoke ${group.applicationName} access to ${entries[0]!.collection_name} across all its installations?`} confirmLabel={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} busy={busy.has(`scope-${group.applicationId}-${collectionId}`)} onConfirm={() => void perform(`scope-${group.applicationId}-${collectionId}`, async options => { for (const applicationId of new Set(entries.map(entry => entry.application_id))) await client.removeInstallationAccess(applicationId, collectionId, options); })} />} </div>)} {group.grants.map(grant => <GrantEditor key={grant.id} grant={grant} client={client} busy={busy} perform={perform} />)} <ConfirmAction className="danger connect-revoke-application" label={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} question={collectionName ? t(i18n)`Revoke ${group.applicationName} access to ${collectionName}?` : t(i18n)`Revoke all ${group.applicationName} access and collection creation permission?`} confirmLabel={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => void perform(`application-${group.applicationId}`, async options => { if (collectionName) { for (const { collectionId, entries } of installationScopes(group.installations)) { if (collectionId) for (const applicationId of new Set(entries.map(entry => entry.application_id))) await client.removeInstallationAccess(applicationId, collectionId, options); } } else { for (const connector of new Set(group.installations.map(i => i.connector_id))) await client.revokeInstallation(connector, options); } if (group.grants.length) await client.revokeApplication(group.grants.map(g => g.id), options); })} /> </div> </details>)} {groups.length === 0 && <Empty title={t(i18n)({ message: "No connected applications" })} body={t(i18n)({ message: "Applications appear here after you approve access." })} />} </section> </Page>; } function GrantEditor({ grant, client, busy, perform }: { client: ConnectManagementClient; grant: Grant; busy: BusyOperations; perform: PerformOperation; }) { useLocaleRevision(); const { selected, setSelected, needsReview, acknowledge } = usePermissionSelection(grant.id, grant.operations); const operations = new Set(selected); if (grant.revocation_status === "revoking") { return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small><Trans>Revocation is pending. Waiting for {grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })} to confirm enforcement.</Trans></small></span><b>{t(i18n)({ message: "Revoking…", context: "Connect interface" })}</b></div>; } if (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0) { return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small><Trans>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</Trans></small></span><b>{t(i18n)({ message: "Reauthorization required", context: "Connect interface" })}</b></div>; } const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))]; const changed = ordered.some((operation) => operations.has(operation) !== grant.operations.includes(operation)); return <details className="connect-grant"> <summary><span><strong>{grant.collection_name}</strong><small><Trans>{plural(grant.operations.length, { one: "# permission", other: "# permissions" })} · {applicationAccessOriginLabel(grant.application_origin)}</Trans></small></span><b>{t(i18n)({ message: "Permissions", context: "Connect interface" })}</b></summary> <div className="connect-grant-body"> {needsReview && <p role="status"><Trans>Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></Trans></p>} <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input className="mdbase-checkbox" type="checkbox" checked={operations.has(operation)} onChange={() => setSelected((current) => current.includes(operation) ? current.filter((value) => value !== operation) : [...current, operation])} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div> <div className="connect-grant-meta"><span><Trans>Collection ID</Trans></span><strong>{grant.collection_id}</strong><span><Trans>Scope</Trans></span><strong><Trans>Entire collection</Trans></strong><span><Trans>Origin</Trans></span><strong>{grant.application_origin}</strong></div> <div className="connect-row-actions"><button className="connect-primary-action mdbase-button is-primary" disabled={needsReview || !changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => client.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}><Trans>Save narrower access</Trans></button><ConfirmAction className="danger" label={t(i18n)({ message: "Revoke", context: "Connect interface" })} question={t(i18n)`Revoke access to ${grant.collection_name}?`} confirmLabel={t(i18n)({ message: "Revoke", context: "Connect interface" })} busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => client.revokeGrant(grant.id, options))} /></div> </div> </details>; } 
 #. placeholder {1}: applicationAccessOriginLabel(grant.application_origin)
 #: src/ApplicationAccess.tsx
 msgid "{0} · {1}"
-msgstr ""
+msgstr "{0} · {1}"
 
 #. placeholder {0}: countLabel(usage.record_count, "record")
 #. placeholder {1}: countLabel(usage.file_count, "file")
@@ -99,31 +99,31 @@ msgstr ""
 #. placeholder {3}: formatBytes(usage.file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} · {1} · {2} Markdown · {3} files"
-msgstr ""
+msgstr "{0} · {1} · {2} 件の Markdown · {3} 件のファイル"
 
 #. placeholder {0}: entry.application_origin
 #. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
 #. placeholder {2}: entry.installation_id.slice(-8)
 #: src/ApplicationAccess.tsx
 msgid "{0} · {1} · ID {2}"
-msgstr ""
+msgstr "{0} · {1} · ID {2}"
 
 #. placeholder {0}: invitation.role === "editor" ? t(i18n)({ message: "Editor", context: "Connect interface" }) : t(i18n)({ message: "Viewer", context: "Connect interface" })
 #. placeholder {1}: relativeTime(invitation.expires_at)
 #: src/ConnectApp.tsx
 msgid "{0} · Expires {1}"
-msgstr ""
+msgstr "{0} · 有効期限 {1}"
 
 #. placeholder {0}: collection.connector_name
 #. placeholder {1}: uniqueIdSuffix( collection.id, group.map((candidate) => candidate.id) )
 #: src/authorization-review-state.ts
 msgid "{0} · ID …{1}"
-msgstr ""
+msgstr "{0} · ID …{1}"
 
 #. placeholder {0}: suggestion.type.name
 #: src/authorization-review.tsx
 msgid "{0} · suggested"
-msgstr ""
+msgstr "{0} · 推奨"
 
 #. placeholder {0}: verbs.slice(0, -1).join(", ")
 #. placeholder {0}: words[0]
@@ -132,708 +132,708 @@ msgstr ""
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "{0} and {1}"
-msgstr ""
+msgstr "{0} と {1}"
 
 #. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
 #: src/AccountManagement.tsx
 msgid "{0} and their stored data"
-msgstr ""
+msgstr "{0} と保存されているデータ"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: incompatible.detail
 #: src/compatibility.ts
 msgid "{0} can no longer be used: {1} Choose another collection."
-msgstr ""
+msgstr "{0} は利用できなくなりました: {1} 別のコレクションを選んでください。"
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "{0} can use {selectedName} until you revoke access in mdbase connect."
-msgstr ""
+msgstr "アクセスを取り消すまで、{0} は {selectedName} を利用できます。アクセスは mdbase connect で取り消せます。"
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "{0} can use {selectedName} while it remains connected. You can revoke access in mdbase connect."
-msgstr ""
+msgstr "接続中は {0} が {selectedName} を利用できます。アクセスは mdbase connect で取り消せます。"
 
 #. placeholder {0}: providerLabel(provider)
 #: src/AccountManagement.tsx
 msgid "{0} disconnected."
-msgstr ""
+msgstr "{0} の接続が解除されました。"
 
 #. placeholder {0}: connector.connector_name
 #: src/authorization-view.tsx
 msgid "{0} has remote access paused."
-msgstr ""
+msgstr "{0} のリモートアクセスは一時停止中です。"
 
 #. placeholder {0}: collection.display_name
 #: src/compatibility.ts
 msgid "{0} is no longer available. Choose another collection."
-msgstr ""
+msgstr "{0} は利用できなくなりました。別のコレクションを選んでください。"
 
 #. placeholder {0}: providerLabel(linked)
 #: src/AccountManagement.tsx
 msgid "{0} is now connected."
-msgstr ""
+msgstr "{0} が接続されました。"
 
 #. placeholder {0}: adoption.display_name
 #: src/authority-workflows.tsx
 msgid "{0} is now hosted."
-msgstr ""
+msgstr "{0} はホスト型になりました。"
 
 #. placeholder {0}: connector.connector_name
 #: src/authorization-view.tsx
 msgid "{0} is offline."
-msgstr ""
+msgstr "{0} はオフラインです。"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "{0} is stored in mdbase replicas on your devices."
-msgstr ""
+msgstr "{0} はデバイス上の mdbase レプリカに保存されています。"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
 msgid "{0} is unavailable because {1} has remote access paused. Choose another collection."
-msgstr ""
+msgstr "{1} のリモートアクセスが一時停止中のため、{0} を利用できません。別のコレクションを選んでください。"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
 msgid "{0} is unavailable because {1} is offline. Choose another collection."
-msgstr ""
+msgstr "{1} がオフラインのため、{0} を利用できません。別のコレクションを選んでください。"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "{0} is waiting"
-msgstr ""
+msgstr "{0} は待機中です"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "{0} keeps its main copy in a folder on a connected computer."
-msgstr ""
+msgstr "{0} の正本は接続済みコンピューターのフォルダーにあります。"
 
 #. placeholder {0}: formatBytes(liveContentBytes)
 #. placeholder {1}: formatBytes(liveFileBytes)
 #: src/AccountManagement.tsx
 msgid "{0} Markdown · {1} files"
-msgstr ""
+msgstr "{0} 件の Markdown · {1} 件のファイル"
 
 #. placeholder {0}: formatBytes(liveStorageBytes)
 #. placeholder {1}: formatBytes(limit)
 #: src/AccountManagement.tsx
 msgid "{0} of {1}"
-msgstr ""
+msgstr "{1} 件中 {0} 件"
 
 #. placeholder {0}: formatBytes(subscription.usage.retained_file_bytes)
 #. placeholder {1}: formatBytes(subscription.limits.retained_file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} of {1} retained file storage"
-msgstr ""
+msgstr "保持されているファイルストレージ {1} 中 {0}"
 
 #. placeholder {0}: formatBytes(liveStorageBytes)
 #. placeholder {1}: formatBytes(limit)
 #: src/AccountManagement.tsx
 msgid "{0} of {1} used"
-msgstr ""
+msgstr "{1} 中 {0} を使用"
 
 #. placeholder {0}: joinWords(verbs)
 #: src/ConnectApp.tsx
 msgid "{0} records"
-msgstr ""
+msgstr "{0} 件のレコード"
 
 #. placeholder {0}: formatBytes(subscription.limits.retained_file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} retained file storage included"
-msgstr ""
+msgstr "保持されているファイルストレージ {0} を含む"
 
 #. placeholder {0}: unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")
 #: src/authorization-view.tsx
 msgid "{0} Those local collections cannot be selected until their computer is available."
-msgstr ""
+msgstr "{0} これらのローカルコレクションは、コンピューターが利用可能になるまで選択できません。"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: collection.spec_version
 #: src/compatibility.ts
 msgid "{0} uses mdbase {1}. Upgrade a copy to mdbase 0.3 and verify it before approving access; the original can stay untouched."
-msgstr ""
+msgstr "{0} は mdbase {1} を使用しています。アクセスを承認する前にコピーを mdbase 0.3 に更新して検証してください。元のデータはそのまま残せます。"
 
 #. placeholder {0}: contract.id
 #. placeholder {1}: contract.version
 #: src/compatibility.ts
 msgid "{0} v{1}"
-msgstr ""
+msgstr "{0} v{1}"
 
 #. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "{0} will begin syncing automatically. You can close this page."
-msgstr ""
+msgstr "{0} の同期が自動的に始まります。このページは閉じてもかまいません。"
 
 #. placeholder {0}: pairing.connector_name
 #. placeholder {1}: pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "{0} will lose access to {1} on all its devices. Previously downloaded data cannot be erased."
-msgstr ""
+msgstr "{0} はすべてのデバイスで {1} にアクセスできなくなります。以前にダウンロードしたデータは消去できません。"
 
 #. placeholder {0}: words.slice(0, -1).join(", ")
 #. placeholder {1}: words.at(-1)
 #: src/ConnectApp.tsx
 msgid "{0}, and {1}"
-msgstr ""
+msgstr "{0}、{1}"
 
 #. placeholder {0}: Math.floor(seconds / 86_400)
 #: src/AccountManagement.tsx
 msgid "{0}d ago"
-msgstr ""
+msgstr "{0} 日前"
 
 #. placeholder {0}: Math.floor(seconds / 3_600)
 #: src/AccountManagement.tsx
 msgid "{0}h ago"
-msgstr ""
+msgstr "{0} 時間前"
 
 #. placeholder {0}: Math.floor(seconds / 60)
 #: src/AccountManagement.tsx
 msgid "{0}m ago"
-msgstr ""
+msgstr "{0} 分前"
 
 #. placeholder {0}: fileAccessVerbs(request.approved_actions ?? request.actions)
 #: src/authority-workflows.tsx
 msgid "{app} can now {0} files in {collection}. Return to {app} to continue."
-msgstr ""
+msgstr "{app} は {collection} 内のファイルを{0}できるようになりました。{app} に戻って続行してください。"
 
 #. placeholder {0}: request.reason
 #: src/authority-workflows.tsx
 msgid "{app} says: {0}"
-msgstr ""
+msgstr "{app} からのメッセージ: {0}"
 
 #. placeholder {0}: fileAccessVerbs(request.actions)
 #: src/authority-workflows.tsx
 msgid "{app} won't {0} files in {collection}. Return to {app}; everything else works as before."
-msgstr ""
+msgstr "{app} は {collection} 内のファイルを{0}しません。{app} に戻ってください。その他の機能はこれまでどおり使えます。"
 
 #. placeholder {0}: import { t, plural } from "@lingui/core/macro"; import { Trans } from "@lingui/react/macro"; import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n"; import { assessMapping, contractFields, guidedBindingSupported, propertyFields, setupLabel, suggestTypes, typeFields, type SetupContract, type SetupType } from "@mdbase/connect-ui/contract-setup"; import { useMemo } from "react"; import { initialContractSetupChoice } from "./application-setup"; import type { ApplicationFileAction, PendingAuthorization } from "./api"; import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities"; import { Select } from "@mdbase-dev/ui/select"; type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>; type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement; const PEOPLE_PERMISSION_LABELS: Record<string, string> = { get identity() { return t(i18n)({ message: "See your account identity and display name" }); }, get members() { return t(i18n)({ message: "See collection members' account identities, names and roles" }); } }; const FILE_ACTION_LABELS: Record<ApplicationFileAction, string> = { get list() { return t(i18n)({ message: "List file names and metadata" }); }, get read() { return t(i18n)({ message: "Read file contents", context: "Application access approval" }); }, get add() { return t(i18n)({ message: "Add new files", context: "Application access approval" }); }, get replace() { return t(i18n)({ message: "Replace existing files", context: "Application access approval" }); }, get move() { return t(i18n)({ message: "Move and rename files", context: "Application access approval" }); }, get delete() { return t(i18n)({ message: "Delete files", context: "Application access approval" }); } }; function fileScopeDescription(files: FileRequirements): string { return files.scope.kind === "collection" ? t(i18n)({ message: "Every visible folder. Hidden folders are always excluded." }) : t(i18n)`Only ${files.scope.folders.join(", ")}. Hidden folders are always excluded.`; } function groupSelected(group: AuthorizationCapabilityGroup, selected: ReadonlySet<string>) { return group.operations.every((operation) => selected.has(operation)); } // A compact, read-only statement of what the request asks for, shown before a // collection is chosen so the user can deny without choosing anything. export function RequestedAccessSummary({ groups, files, people }: { groups: AuthorizationCapabilityGroup[]; files?: FileRequirements; people?: PeopleRequirement; }) { useLocaleRevision(); const items = groups.map((group) => ({ id: group.id, label: group.label, higherImpact: group.higherImpact })); if (files && !groups.some(group => group.fileActions !== undefined)) { const actions = "actions" in files ? files.actions : [...files.required, ...(files.optional ?? [])]; const deletes = actions.some((action) => HIGHER_IMPACT_FILE_ACTIONS.has(action)); items.push({ id: "files", label: deletes ? t(i18n)({ message: "Manage and delete files", context: "Application access approval" }) : t(i18n)({ message: "Work with files", context: "Application access approval" }), higherImpact: deletes }); } for (const permission of [...(people?.required ?? []), ...(people?.optional ?? [])]) { items.push({ id: `people.${permission}`, label: PEOPLE_PERMISSION_LABELS[permission], higherImpact: HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission) }); } return ( <ul className="requested-access" aria-label={t(i18n)({ message: "Requested access", context: "Application access approval" })}> {items.map((item) => <li className={item.higherImpact ? "higher-impact" : undefined} key={item.id}> {item.label} {item.higherImpact && <span className="sr-only"><Trans> (higher impact)</Trans></span>} </li>)} </ul> ); } // A locked row has no control: it is either required by the application or, // for exact v1 file actions, approved together with the rest of the request. function PermissionRow({ id, label, description, locked, required, checked, higherImpact, isNew, disabled, onToggle }: { id: string; label: string; description?: string; locked: boolean; required: boolean; checked: boolean; higherImpact: boolean; isNew: boolean; disabled: boolean; onToggle?(): void; }) { useLocaleRevision(); const content = <> {locked ? <span className="permission-fixed" aria-hidden="true">✓</span> : <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />} <span className="permission-copy"> <strong>{label}</strong> {description && <small>{description}</small>} </span> <span className="permission-tags"> {isNew && <span className="permission-tag new"><Trans>New</Trans></span>} {higherImpact && <span className="permission-tag impact"><Trans><i aria-hidden="true" />Higher impact</Trans></span>} {required && <span className="permission-tag"><Trans>Required</Trans></span>} </span> </>; return <li className={`permission-row${higherImpact ? " higher-impact" : ""}`} data-permission={id}> {locked ? <div>{content}</div> : <label>{content}</label>} </li>; } export function PermissionList({ groups, selected, existingOperations, files, selectedFiles, allowedFileActions, people, selectedPeople, disabled, onToggleGroup, onToggleFile, onTogglePeople }: { groups: AuthorizationCapabilityGroup[]; selected: ReadonlySet<string>; existingOperations?: ReadonlySet<string>; files?: FileRequirements; selectedFiles: ReadonlySet<string>; allowedFileActions?: readonly ApplicationFileAction[]; people?: PeopleRequirement; selectedPeople: ReadonlySet<string>; disabled: boolean; onToggleGroup(group: AuthorizationCapabilityGroup): void; onToggleFile(action: ApplicationFileAction): void; onTogglePeople(permission: string): void; }) { useLocaleRevision(); const reauthorizing = Boolean(existingOperations && existingOperations.size > 0); const jointPermissions = groups.some(group => group.fileActions !== undefined); const fileRows = files ? "actions" in files ? files.actions.map((action) => ({ action, locked: true, required: false })) : [ ...files.required.map((action) => ({ action, locked: true, required: true })), ...(files.optional ?? []) .filter((action) => !allowedFileActions || allowedFileActions.includes(action)) .map((action) => ({ action, locked: false, required: false })) ] : []; return <> {groups.length > 0 && <ul className="permission-list" aria-label={t(i18n)({ message: "Collection permissions", context: "Application access approval" })}> {groups.map((group) => <PermissionRow key={group.id} id={group.id} label={group.label} description={group.description} locked={group.required} required={group.required} checked={groupSelected(group, selected)} higherImpact={group.higherImpact} isNew={reauthorizing && !group.operations.every((operation) => existingOperations!.has(operation))} disabled={disabled} onToggle={() => onToggleGroup(group)} />)} </ul>} {files && <div className="permission-files"> <p className="permission-files-heading"> <strong>{jointPermissions ? t(i18n)({ message: "File scope", context: "Application access approval" }) : t(i18n)({ message: "Files", context: "Application access approval" })}</strong> <small>{fileScopeDescription(files)}{jointPermissions ? t(i18n)({ message: " File actions are included in the collection permissions above." }) : "actions" in files ? t(i18n)({ message: " These actions are approved together." }) : ""}</small> </p> {!jointPermissions && <ul className="permission-list" aria-label={t(i18n)({ message: "File permissions", context: "Application access approval" })}> {fileRows.map(({ action, locked, required }) => <PermissionRow key={action} id={`files.${action}`} label={FILE_ACTION_LABELS[action]} locked={locked} required={required} checked={selectedFiles.has(action)} higherImpact={HIGHER_IMPACT_FILE_ACTIONS.has(action)} isNew={false} disabled={disabled} onToggle={() => onToggleFile(action)} />)} </ul>} </div>} {people && <div className="permission-files"> <p className="permission-files-heading"> <strong><Trans>People</Trans></strong> <small><Trans>Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</Trans></small> </p> <ul className="permission-list" aria-label={t(i18n)({ message: "People permissions", context: "Application access approval" })}> {[...(people.required ?? []).map((permission) => ({ permission, required: true })), ...(people.optional ?? []).map((permission) => ({ permission, required: false }))] .map(({ permission, required }) => <PermissionRow key={permission} id={`people.${permission}`} label={PEOPLE_PERMISSION_LABELS[permission]} locked={required} required={required} checked={selectedPeople.has(permission)} higherImpact={HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission)} isNew={false} disabled={disabled} onToggle={() => onTogglePeople(permission)} />)} </ul> </div>} </>; } export function NotificationAccess({ applicationName, notifications }: { applicationName: string; notifications: PendingAuthorization["notifications"]; }) { useLocaleRevision(); if (notifications.criteria.length === 0) return null; return ( <details className="notification-access"> <summary> <span> <strong><Trans>Change notifications</Trans></strong> <small><Trans>{applicationName} can turn on {plural(notifications.criteria.length, { one: "this rule", other: "these # rules" })} after access is allowed. Notifications never contain record content.</Trans></small> </span> <b>{t(i18n)({ message: "Details", context: "Application access approval" })}</b> </summary> <ul>{notifications.criteria.map((criterion) => ( <li key={criterion.id}> <span>{criterion.presentation.title}</span> <code>{criterion.event.id} {t(i18n)({ message: "v", context: "Application access approval" })}{criterion.event.version}</code> </li> ))}</ul> <p><Trans>The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed.</Trans></p> </details> ); } export type ContractSetupChoice = ReturnType<typeof initialContractSetupChoice>; export function ContractSetupEditor({ applicationName, contract, types, value, disabled, onChange }: { applicationName: string; contract: SetupContract; types: SetupType[]; value: ContractSetupChoice; disabled: boolean; onChange(value: ContractSetupChoice): void; }) { useLocaleRevision(); const suggestions = useMemo(() => suggestTypes(contract, types), [contract, types]); const canGuideExistingType = guidedBindingSupported(contract); const canChooseExistingType = suggestions.length > 0 && canGuideExistingType; const selectedType = types.find((type) => type.name === value.typeName); const availableFields = selectedType ? typeFields(selectedType) : []; const fields = contractFields(contract); const bindingFields = contract.binding_schema ? propertyFields(contract.binding_schema) : []; const requiredBinding = new Set( Array.isArray(contract.binding_schema?.required) ? contract.binding_schema.required.filter((field): field is string => typeof field === "string") : [] ); function selectType(typeName: string) { const suggestion = suggestions.find((candidate) => candidate.type.name === typeName); onChange({ ...value, typeName, fields: suggestion?.fields ?? {} }); } if (!canChooseExistingType) { return ( <div className="contract-setup-consequence"> <span className="setup-change-mark" aria-hidden="true">+</span> <div> <strong><Trans>{applicationName} needs a {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong> <small><Trans>Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged.</Trans></small> <details className="contract-expert-details"> <summary><Trans>Expert details</Trans></summary> <code>{contract.id} · {contract.version}</code> {contract.description && <p>{contract.description}</p>} {!canGuideExistingType && suggestions.length > 0 && <p><Trans>This application uses advanced behavior settings, so an existing type cannot be connected during approval.</Trans></p>} </details> </div> </div> ); } return ( <div className="contract-setup-editor"> <div className="contract-setup-heading"> <div> <strong><Trans>Help {applicationName} understand {setupLabel(contract).toLocaleLowerCase()}</Trans></strong> <small>{contract.description ?? t(i18n)`Choose whether to add a new ${setupLabel(contract).toLocaleLowerCase()} type or use one you already have.`}</small> </div> <details className="contract-expert-details"> <summary><Trans>Expert details</Trans></summary> <code>{contract.id} · {contract.version}</code> </details> </div> <div className="contract-setup-mode" role="radiogroup" aria-label={t(i18n)`Setup for ${setupLabel(contract)}`}> <label className={value.mode === "starter" ? "selected" : undefined}> <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "starter"} disabled={disabled} onChange={() => onChange({ ...value, mode: "starter" })} /> <span><strong><Trans>Add a new {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong><small><Trans>Create a separate type supplied by {applicationName}.</Trans></small></span> </label> <label className={value.mode === "existing" ? "selected" : undefined}> <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "existing"} disabled={disabled} onChange={() => onChange({ ...value, mode: "existing" })} /> <span><strong><Trans>Use an existing type</Trans></strong><small><Trans>Keep your current records and explain which fields mean the same thing.</Trans></small></span> </label> </div> {value.mode === "existing" && canGuideExistingType && <div className="contract-mapping"> <label className="contract-type-choice"> <span><Trans>Existing type</Trans></span> <Select aria-label={t(i18n)({ message: "Existing type", context: "Application access approval" })} value={value.typeName} disabled={disabled} options={suggestions.map((suggestion, index) => ({ value: suggestion.type.name, label: index === 0 && suggestion.requiredMatched === suggestion.requiredTotal ? t(i18n)`${suggestion.type.name} · suggested` : suggestion.type.name }))} onChange={selectType} /> </label> <div className="contract-field-list">{fields.map((field) => { const mapped = value.fields[field.reference] ?? ""; const typeField = availableFields.find((candidate) => candidate.reference === mapped); const assessment = assessMapping(field, typeField); return <label key={field.reference}> <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? t(i18n)`The application’s ${field.label.toLocaleLowerCase()} value.`}</small></span> <Select aria-label={field.label} value={mapped} disabled={disabled} aria-invalid={assessment.level === "error"} options={[ { value: "", label: field.required ? t(i18n)`Choose a field` : t(i18n)`Do not share` }, ...availableFields.map((candidate) => ({ value: candidate.reference, label: candidate.label })) ]} onChange={(chosen) => { const next = { ...value.fields }; if (chosen) next[field.reference] = chosen; else delete next[field.reference]; onChange({ ...value, fields: next }); }} /> <small className={`mapping-assessment ${assessment.level}`}>{assessment.label} · {assessment.message}</small> </label>; })}</div> {bindingFields.length > 0 && <fieldset className="contract-binding"> <legend><Trans>How this type behaves in {applicationName}</Trans></legend> {bindingFields.map((field) => <SchemaInput key={field.name} field={field} required={requiredBinding.has(field.name)} value={value.binding[field.name]} disabled={disabled} onChange={(next) => onChange({ ...value, binding: { ...value.binding, [field.name]: next } })} />)} </fieldset>} <p className="field-note"><Trans>Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active.</Trans></p> </div>} </div> ); } function SchemaInput({ field, required, value, disabled, onChange }: { field: ReturnType<typeof propertyFields>[number]; required: boolean; value: unknown; disabled: boolean; onChange(value: unknown): void; }) { useLocaleRevision(); const options = Array.isArray(field.schema.enum) ? field.schema.enum : undefined; return <label> <span>{field.label}{required ? " *" : ""}</span> {options ? <Select aria-label={field.label} value={value === undefined ? "" : String(value)} disabled={disabled} placeholder={t(i18n)({ message: "Choose", context: "Application access approval" })} options={options.map((option) => ({ value: String(option), label: String(option) }))} onChange={(chosen) => onChange(options.find((option) => String(option) === chosen))} /> : field.kind === "boolean" ? <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input type={field.kind === "number" || field.kind === "integer" ? "number" : "text"} value={typeof value === "string" || typeof value === "number" ? value : ""} disabled={disabled} onChange={(event) => onChange(field.kind === "number" || field.kind === "integer" ? event.target.value === "" ? undefined : Number(event.target.value) : event.target.value)} />} {field.description && <small>{field.description}</small>} </label>; } export function contractSetupProblem( contract: SetupContract, choice: ContractSetupChoice | undefined, types: SetupType[] ): string | undefined { const label = setupLabel(contract); if (!choice) return t(i18n)`Choose how to set up ${label}.`; if (choice.mode === "starter") return undefined; const type = types.find((candidate) => candidate.name === choice.typeName); if (!type?.revision) return t(i18n)`Choose an existing type for ${label}.`; const available = typeFields(type); const unmapped = contractFields(contract).find((field) => { const candidate = available.find((value) => value.reference === choice.fields[field.reference]); return assessMapping(field, candidate).level === "error"; }); if (unmapped) return t(i18n)`Choose a matching field for ${unmapped.label} in ${label}.`; const requiredBinding = Array.isArray(contract.binding_schema?.required) ? contract.binding_schema.required.filter((field): field is string => typeof field === "string") : []; const missing = requiredBinding.find((field) => { const value = choice.binding[field]; return value === undefined || value === null || value === ""; }); if (missing) { const field = contract.binding_schema ? propertyFields(contract.binding_schema).find((candidate) => candidate.name === missing) : undefined; return t(i18n)`Fill in ${field?.label ?? missing} in ${label}.`; } return undefined; } 
 #: src/authorization-review.tsx
 msgid "{applicationName} can turn on {0} after access is allowed. Notifications never contain record content."
-msgstr ""
+msgstr "アクセスが許可されると、{applicationName} は {0} を有効にできます。通知にレコードの内容は含まれません。"
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "{applicationName} needs a {0} type"
-msgstr ""
+msgstr "{applicationName} には {0} 型が必要です"
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} now lives on your computer."
-msgstr ""
+msgstr "{collectionName} はコンピューター上に移動しました。"
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} remains hosted. Its main copy did not move."
-msgstr ""
+msgstr "{collectionName} は引き続きホストされています。正本は移動していません。"
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} will stop being hosted and become a computer-owned collection. This changes where every future edit is accepted."
-msgstr ""
+msgstr "{collectionName} はホスト型を終了し、コンピューターが管理するコレクションになります。今後の編集を受け付ける場所が変わります。"
 
 #: src/AccountManagement.tsx
 msgid "{collections} · {records} · {fileCount}"
-msgstr ""
+msgstr "{collections} · {records} · {fileCount}"
 
 #: src/AccountManagement.tsx
 msgid "{collections} · {records} · {fileCount} · partial usage"
-msgstr ""
+msgstr "{collections} · {records} · {fileCount} · 使用量は一部のみ"
 
 #: src/AccountManagement.tsx
 msgid "{collections} · usage temporarily unavailable"
-msgstr ""
+msgstr "{collections} · 使用量を一時的に取得できません"
 
 #: src/ConnectApp.tsx
 msgid "{count} access requests are waiting"
-msgstr ""
+msgstr "{count} 件のアクセス要求が待機中です"
 
 #: src/AccountManagement.tsx
 msgid "{label} turned off."
-msgstr ""
+msgstr "{label} をオフにしました。"
 
 #: src/AccountManagement.tsx
 msgid "{label} turned on."
-msgstr ""
+msgstr "{label} をオンにしました。"
 
 #: src/AccountManagement.tsx
 msgid "{tier} hosted storage"
-msgstr ""
+msgstr "{tier} のホスト型ストレージ"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# application installation} other {# application installations}}"
-msgstr ""
+msgstr "{value, plural, one {# 件のアプリケーションのインストール} other {# 件のアプリケーションのインストール}}"
 
 #: src/AccountManagement.tsx
 msgid "{value, plural, one {# byte} other {# bytes}}"
-msgstr ""
+msgstr "{value, plural, one {# バイト} other {# バイト}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# collection} other {# collections}}"
-msgstr ""
+msgstr "{value, plural, one {# 件のコレクション} other {# 件のコレクション}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# connected computer} other {# connected computers}}"
-msgstr ""
+msgstr "{value, plural, one {# 台の接続済みコンピューター} other {# 台の接続済みコンピューター}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# file} other {# files}}"
-msgstr ""
+msgstr "{value, plural, one {# 件のファイル} other {# 件のファイル}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# hosted collection} other {# hosted collections}}"
-msgstr ""
+msgstr "{value, plural, one {# 件のホスト型コレクション} other {# 件のホスト型コレクション}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# installation} other {# installations}}"
-msgstr ""
+msgstr "{value, plural, one {# 件のインストール} other {# 件のインストール}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# record} other {# records}}"
-msgstr ""
+msgstr "{value, plural, one {# 件のレコード} other {# 件のレコード}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
-msgstr ""
+msgstr "{value, plural, one {# 件の同期フォルダー} other {# 件の同期フォルダー}}"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Add collection"
-msgstr ""
+msgstr "<0/>コレクションを追加"
 
 #: src/authorization-view.tsx
 msgid "<0/>Already connected"
-msgstr ""
+msgstr "<0/>接続済み"
 
 #: src/authorization-review.tsx
 msgid "<0/>Higher impact"
-msgstr ""
+msgstr "<0/>影響が大きい"
 
 #. placeholder {0}: higherImpactLabels.join(", ")
 #: src/authorization-view.tsx
 msgid "<0/>Includes {0}."
-msgstr ""
+msgstr "<0/>{0} を含みます。"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Invite person"
-msgstr ""
+msgstr "<0/>ユーザーを招待"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Sync a folder"
-msgstr ""
+msgstr "<0/>フォルダーを同期"
 
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
 #. placeholder {3}: request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
 msgid "<0>Application origin unverified.</0> Continue only if you started this connection intentionally{1}.{3}"
-msgstr ""
+msgstr "<0>アプリケーションの出所は未確認です。</0> ご自身で意図して接続を開始した場合にのみ続行してください{1}。{3}"
 
 #: src/ConnectApp.tsx
 msgid "A cloud copy helps your replicas sync. This page does not report their connection status."
-msgstr ""
+msgstr "クラウド上のコピーはレプリカの同期に役立ちます。このページにはレプリカの接続状態は表示されません。"
 
 #: src/ConnectApp.tsx
 msgid "A collection was shared with you"
-msgstr ""
+msgstr "コレクションが共有されました"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "a new collection"
-msgstr ""
+msgstr "新しいコレクション"
 
 #: src/authorization-view.tsx
 msgid "A new collection stored by mdbase, available from any computer."
-msgstr ""
+msgstr "どのコンピューターからも利用できる、mdbase がホストする新しいコレクションです。"
 
 #: src/AccountManagement.tsx
 msgid "A new one-use sharing code is ready."
-msgstr ""
+msgstr "新しい一回限りの共有コードを用意しました。"
 
 #: src/auth-view.tsx
 msgid "A verified primary email is required. Verify your primary email with GitHub, or sign up using another method."
-msgstr ""
+msgstr "確認済みのメインメールアドレスが必要です。GitHub でメインメールアドレスを確認するか、別の方法で登録してください。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Accept"
-msgstr ""
+msgstr "承諾"
 
 #: src/ConnectApp.tsx
 msgid "Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access."
-msgstr ""
+msgstr "承諾すると、このアカウントのコレクションに追加されます。招待はこのアカウントに紐付いています。他のメンバーのアプリが「ユーザーへのアクセス」を承認した場合、あなたのアカウント名と固定識別子が共有されることがあります。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Accepting…"
-msgstr ""
+msgstr "承諾中…"
 
 #: src/authority-workflows.tsx
 msgid "Access approved"
-msgstr ""
+msgstr "アクセスを承認しました"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Access approved"
-msgstr ""
+msgstr "アクセスを承認しました"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Access as your account"
-msgstr ""
+msgstr "アカウントとしてアクセス"
 
 #: src/ApplicationAccess.tsx
 msgid "Access changed elsewhere. Review the current permissions before saving. <0>Review current access</0>"
-msgstr ""
+msgstr "アクセス権が別の場所で変更されました。保存前に現在の権限を確認してください。<0>現在のアクセス権を確認</0>"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Access denied"
-msgstr ""
+msgstr "アクセスを拒否しました"
 
 #. placeholder {0}: createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : ""
 #. placeholder {1}: pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""
 #: src/authority-workflows.tsx
 msgid "Access includes the notes and files in the collection you pick.{0}{1}"
-msgstr ""
+msgstr "選択したコレクションのノートとファイルへのアクセスを含みます。{0}{1}"
 
 #: src/ConnectApp.tsx
 msgid "Access to this collection is paused on its computer."
-msgstr ""
+msgstr "このコレクションへのアクセスは、そのコンピューターで一時停止中です。"
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "Account"
-msgstr ""
+msgstr "アカウント"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account"
-msgstr ""
+msgstr "アカウント"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Account & sessions"
-msgstr ""
+msgstr "アカウントとセッション"
 
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
-msgstr ""
+msgstr "サービスの修正作業中のため、アカウントの削除は一時的に利用できません。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account details"
-msgstr ""
+msgstr "アカウントの詳細"
 
 #: src/AccountManagement.tsx
 msgid "Account email"
-msgstr ""
+msgstr "アカウントのメールアドレス"
 
 #: src/authorization-review.tsx
 msgid "Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership."
-msgstr ""
+msgstr "アカウント識別子はすべてのコレクションで共通のため、このアプリケーションは別の場所でも同じユーザーだと認識できます。メールアドレスや保留中の招待は共有されず、メンバーの管理も許可されません。"
 
 #: src/portal-model.ts
 msgid "Account upgrade in progress"
-msgstr ""
+msgstr "アカウントのアップグレード中"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade needed"
-msgstr ""
+msgstr "アカウントのアップグレードが必要です"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade paused"
-msgstr ""
+msgstr "アカウントのアップグレードを一時停止しました"
 
 #: src/portal-model.ts
 msgid "Account upgrade scheduled"
-msgstr ""
+msgstr "アカウントのアップグレードを予定しました"
 
 #. placeholder {0}: installationAccountLabel(pairing)
 #: src/authority-workflows.tsx
 msgid "Account: {0}"
-msgstr ""
+msgstr "アカウント: {0}"
 
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
-msgstr ""
+msgstr "まずコレクションを追加してください。"
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Add a new {0} type"
-msgstr ""
+msgstr "新しい {0} 型を追加"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Add collection"
-msgstr ""
+msgstr "コレクションを追加"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Add new files"
-msgstr ""
+msgstr "新しいファイルを追加"
 
 #: src/authorization-capabilities.ts
 msgid "Add new records and files to this collection."
-msgstr ""
+msgstr "このコレクションに新しいレコードとファイルを追加します。"
 
 #: src/authorization-capabilities.ts
 msgid "Add new records to this collection."
-msgstr ""
+msgstr "このコレクションに新しいレコードを追加します。"
 
 #: src/authorization-view.tsx
 msgid "Add or connect another collection"
-msgstr ""
+msgstr "別のコレクションを追加または接続"
 
 #: src/authority-workflows.tsx
 msgid "Additional collection access"
-msgstr ""
+msgstr "追加のコレクションへのアクセス"
 
 #. placeholder {0}: entry.approved_optional_file_actions.join(", ")
 #: src/ApplicationAccess.tsx
 msgid "Additional file actions approved: {0}"
-msgstr ""
+msgstr "承認された追加のファイル操作: {0}"
 
 #. placeholder {0}: provisionNames(request.provisions.type_packs)
 #: src/authorization-view.tsx
 msgid "Adds {0} to the collection"
-msgstr ""
+msgstr "コレクションに {0} を追加します"
 
 #: src/authority-workflows.tsx
 msgid "Advanced: allow more collections"
-msgstr ""
+msgstr "詳細設定: さらに多くのコレクションを許可"
 
 #. placeholder {0}: adoption.mirror_name ?? adoption.source_name
 #: src/authority-workflows.tsx
 msgid "After the move, {0} stays as a synced folder. It will not be a second main copy."
-msgstr ""
+msgstr "移動後、{0} は同期フォルダーとして残ります。二つ目の正本にはなりません。"
 
 #: src/authority-workflows.tsx
 msgid "After the move, the original local files are no longer the main copy."
-msgstr ""
+msgstr "移動後、元のローカルファイルは正本ではなくなります。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "All collections"
-msgstr ""
+msgstr "すべてのコレクション"
 
 #: src/ConnectApp.tsx
 msgid "All statuses"
-msgstr ""
+msgstr "すべての状態"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Allow"
-msgstr ""
+msgstr "許可"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Allow {0} to create new collections"
-msgstr ""
+msgstr "{0} に新しいコレクションの作成を許可"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Allow {0} to send you reminders"
-msgstr ""
+msgstr "{0} にリマインダーの送信を許可"
 
 #. placeholder {0}: fileAccessVerbs(request.actions)
 #: src/authority-workflows.tsx
 msgid "Allow {app} to {0} files?"
-msgstr ""
+msgstr "{app} にファイルの{0}を許可しますか？"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Allow access"
-msgstr ""
+msgstr "アクセスを許可"
 
 #: src/authorization-view.tsx
 msgid "Allow at least one permission to continue."
-msgstr ""
+msgstr "続行するには権限を少なくとも一つ許可してください。"
 
 #: src/authority-workflows.tsx
 msgid "Allow mdbase on this computer to use your account. This is needed after installing or updating the desktop app, even on a computer you used before. It will publish collection names and route application requests, but not local folder paths."
-msgstr ""
+msgstr "このコンピューター上の mdbase にアカウントの使用を許可します。以前使用したコンピューターでも、デスクトップアプリのインストールや更新後に必要です。コレクション名の公開とアプリケーション要求の中継は行いますが、ローカルフォルダーのパスは公開しません。"
 
 #: src/authority-workflows.tsx
 msgid "Allowed"
-msgstr ""
+msgstr "許可済み"
 
 #: src/authorization-review.tsx
 msgid "Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged."
-msgstr ""
+msgstr "アクセスを許可すると、{applicationName} が提供する別の型が追加されます。既存のレコードは変更されません。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Allowing…"
-msgstr ""
+msgstr "許可中…"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Allowing…"
-msgstr ""
+msgstr "許可中…"
 
 #: src/authority-workflows.tsx
 msgid "Already allowed collection (currently unavailable)"
-msgstr ""
+msgstr "許可済みのコレクション（現在利用不可）"
 
 #: src/auth-view.tsx
 msgid "Already have an account? <0>Sign in</0>"
-msgstr ""
+msgstr "アカウントをお持ちですか？ <0>ログイン</0>"
 
 #: src/authority-workflows.tsx
 msgid "Already-allowed access stays in place. Remove access separately if you no longer want it."
-msgstr ""
+msgstr "許可済みのアクセスは維持されます。不要な場合は別途アクセスを削除してください。"
 
 #: src/AccountManagement.tsx
 msgid "Always on"
-msgstr ""
+msgstr "常にオン"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Announcements"
-msgstr ""
+msgstr "お知らせ"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "App access"
-msgstr ""
+msgstr "アプリへのアクセス"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "App installation"
-msgstr ""
+msgstr "アプリのインストール"
 
 #. placeholder {0}: request.client_fingerprint
 #: src/authorization-view.tsx
 msgid "App key <0>{0}</0>. Your computer will show this key when you approve the app."
-msgstr ""
+msgstr "アプリのキー <0>{0}</0>。アプリを承認する際、コンピューターにこのキーが表示されます。"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Application access"
-msgstr ""
+msgstr "アプリケーションへのアクセス"
 
 #. placeholder {0}: countLabel(account.deletion.computers, "computer")
 #: src/AccountManagement.tsx
 msgid "Application access and {0}"
-msgstr ""
+msgstr "アプリケーションへのアクセスと {0}"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Application connection"
-msgstr ""
+msgstr "アプリケーションの接続"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Application request"
-msgstr ""
+msgstr "アプリケーションの要求"
 
 #: src/authorization-view.tsx
 msgid "Application using a device code"
-msgstr ""
+msgstr "デバイスコードを使うアプリケーション"
 
 #: src/authority-workflows.tsx
 msgid "Applications"
-msgstr ""
+msgstr "アプリケーション"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Applications"
-msgstr ""
+msgstr "アプリケーション"
 
 #: src/ConnectApp.tsx
 msgid "Applications appear after you approve access to this collection."
-msgstr ""
+msgstr "このコレクションへのアクセスを承認すると、アプリケーションが表示されます。"
 
 #: src/ApplicationAccess.tsx
 msgid "Applications appear here after you approve access."
-msgstr ""
+msgstr "アクセスを承認すると、ここにアプリケーションが表示されます。"
 
 #: src/authority-workflows.tsx
 msgid "Applies to the collection you chose to open and any new collections selected here. Other collections are not included."
-msgstr ""
+msgstr "開くことを選んだコレクションと、ここで新たに選んだコレクションに適用されます。その他のコレクションは含まれません。"
 
 #: src/authorization-view.tsx
 msgid "Approval code"
-msgstr ""
+msgstr "承認コード"
 
 #: src/authorization-view.tsx
 msgid "Approval recorded"
-msgstr ""
+msgstr "承認を記録しました"
 
 #: src/authority-workflows.tsx
 msgid "Approve computer"
-msgstr ""
+msgstr "コンピューターを承認"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Approve will create this collection and open it in {0}."
-msgstr ""
+msgstr "承認すると、このコレクションを作成して {0} で開きます。"
 
 #. placeholder {0}: adoption.source_name
 #: src/authority-workflows.tsx
 msgid "Approving uploads the complete collection from {0}, validates it as one snapshot, and then makes the hosted version the main copy."
-msgstr ""
+msgstr "承認すると、{0} からコレクション全体がアップロードされ、一つのスナップショットとして検証された後、ホスト側が正本になります。"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Approving…"
-msgstr ""
+msgstr "承認中…"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
-msgstr ""
+msgstr "認証"
 
 #: src/FeedbackPage.tsx
 msgid "Back to Connect"
-msgstr ""
+msgstr "Connect に戻る"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Beta"
-msgstr ""
+msgstr "ベータ版"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "browser extension"
-msgstr ""
+msgstr "ブラウザー拡張機能"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser session"
-msgstr ""
+msgstr "ブラウザーセッション"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser session actions"
-msgstr ""
+msgstr "ブラウザーセッションの操作"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser sessions"
-msgstr ""
+msgstr "ブラウザーセッション"
 
 #: src/ApplicationAccess.tsx
 msgid "Can create collections for your account"
-msgstr ""
+msgstr "アカウント用のコレクションを作成できます"
 
 #: src/ConnectApp.tsx
 msgid "Can edit notes and manage types"
-msgstr ""
+msgstr "ノートの編集と型の管理ができます"
 
 #: src/ConnectApp.tsx
 msgid "Can edit notes, manage types, rename this collection, and connect apps."
-msgstr ""
+msgstr "ノートの編集、型の管理、このコレクションの名前変更、アプリの接続ができます。"
 
 #: src/ConnectApp.tsx
 msgid "Can read this collection and connect read-only apps or folders."
-msgstr ""
+msgstr "このコレクションの読み取りと、読み取り専用アプリやフォルダーの接続ができます。"
 
 #: src/ConnectApp.tsx
 msgid "Can view and connect read-only apps"
-msgstr ""
+msgstr "読み取り専用アプリの表示と接続ができます"
 
 #: src/AccountManagement.tsx
 #: src/authority-workflows.tsx
@@ -841,593 +841,593 @@ msgstr ""
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "キャンセル"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Cancel"
-msgstr ""
+msgstr "キャンセル"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cancel"
-msgstr ""
+msgstr "キャンセル"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cancel invitation"
-msgstr ""
+msgstr "招待を取り消す"
 
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
-msgstr ""
+msgstr "このコレクションへの招待を取り消しますか？"
 
 #: src/authority-workflows.tsx
 msgid "Cancel transfer"
-msgstr ""
+msgstr "転送をキャンセル"
 
 #: src/authorization-view.tsx
 msgid "Change"
-msgstr ""
+msgstr "変更"
 
 #: src/authorization-review.tsx
 msgid "Change notifications"
-msgstr ""
+msgstr "通知を変更"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Change password"
-msgstr ""
+msgstr "パスワードを変更"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Change password"
-msgstr ""
+msgstr "パスワードを変更"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename existing records."
-msgstr ""
+msgstr "既存のレコードを変更、移動、名前変更します。"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename records; replace, move, and rename existing files."
-msgstr ""
+msgstr "レコードを変更、移動、名前変更し、既存のファイルを置換、移動、名前変更します。"
 
 #: src/authorization-view.tsx
 msgid "Changes collection settings"
-msgstr ""
+msgstr "コレクションの設定を変更します"
 
 #: src/authorization-view.tsx
 msgid "changes to collection setup"
-msgstr ""
+msgstr "コレクション設定の変更"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Changing password…"
-msgstr ""
+msgstr "パスワードを変更中…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Changing password…"
-msgstr ""
+msgstr "パスワードを変更中…"
 
 #: src/authority-workflows.tsx
 msgid "Check again"
-msgstr ""
+msgstr "再確認"
 
 #: src/authorization-view.tsx
 msgid "Check the application."
-msgstr ""
+msgstr "アプリケーションを確認してください。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
-msgstr ""
+msgstr "メールを確認してください"
 
 #: src/AccountManagement.tsx
 msgid "Checking active sessions…"
-msgstr ""
+msgstr "有効なセッションを確認中…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Checking…"
-msgstr ""
+msgstr "確認中…"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Choose"
-msgstr ""
+msgstr "選択"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Choose a collection"
-msgstr ""
+msgstr "コレクションを選択"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Choose a collection to use in {0}."
-msgstr ""
+msgstr "{0} で使用するコレクションを選んでください。"
 
 #: src/authorization-review.tsx
 msgid "Choose a field"
-msgstr ""
+msgstr "フィールドを選択"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Choose a location"
-msgstr ""
+msgstr "場所を選択"
 
 #. placeholder {0}: unmapped.label
 #: src/authorization-review.tsx
 msgid "Choose a matching field for {0} in {label}."
-msgstr ""
+msgstr "{label} で {0} に対応するフィールドを選んでください。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Choose a new password"
-msgstr ""
+msgstr "新しいパスワードを設定"
 
 #: src/authorization-review.tsx
 msgid "Choose an existing type for {label}."
-msgstr ""
+msgstr "{label} に既存の型を選んでください。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Choose another way"
-msgstr ""
+msgstr "別の方法を選択"
 
 #: src/authorization-review.tsx
 msgid "Choose how to set up {label}."
-msgstr ""
+msgstr "{label} の設定方法を選んでください。"
 
 #: src/ConnectApp.tsx
 msgid "Choose or create a folder in the desktop app. Collection files stay on this computer."
-msgstr ""
+msgstr "デスクトップアプリでフォルダーを選択または作成してください。コレクションのファイルはこのコンピューターに残ります。"
 
 #: src/ConnectApp.tsx
 msgid "Choose or create my person record"
-msgstr ""
+msgstr "自分のユーザーレコードを選択または作成"
 
 #: src/authorization-view.tsx
 msgid "Choose the folder in mdbase connect."
-msgstr ""
+msgstr "mdbase connect でフォルダーを選んでください。"
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Choose whether to add a new {0} type or use one you already have."
-msgstr ""
+msgstr "新しい {0} 型を追加するか、既存の型を使うか選んでください。"
 
 #: src/ConnectApp.tsx
 msgid "Close"
-msgstr ""
+msgstr "閉じる"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Close menu"
-msgstr ""
+msgstr "メニューを閉じる"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Closed registration"
-msgstr ""
+msgstr "新規登録を停止中"
 
 #: src/compatibility.ts
 msgid "Cloud collection required"
-msgstr ""
+msgstr "クラウドコレクションが必要です"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy configured"
-msgstr ""
+msgstr "クラウド上のコピーを設定済み"
 
 #: src/authorization-view.tsx
 msgid "Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application."
-msgstr ""
+msgstr "コードは大文字と小文字を区別せず、10 分後に期限切れになります。承認できるのは、そのアプリケーションが作成したキーだけです。"
 
 #: src/authorization-view.tsx
 msgid "Collection"
-msgstr ""
+msgstr "コレクション"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Collection"
-msgstr ""
+msgstr "コレクション"
 
 #: src/authorization-view.tsx
 msgid "Collection changes"
-msgstr ""
+msgstr "コレクションの変更"
 
 #: src/ConnectApp.tsx
 msgid "Collection content remains in your replicas; no cloud copy is configured."
-msgstr ""
+msgstr "コレクションの内容はレプリカに残ります。クラウド上のコピーは設定されていません。"
 
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
-msgstr ""
+msgstr "コレクション ID"
 
 #: src/ConnectApp.tsx
 msgid "Collection invitation link"
-msgstr ""
+msgstr "コレクションへの招待リンク"
 
 #: src/ConnectApp.tsx
 msgid "Collection name"
-msgstr ""
+msgstr "コレクション名"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collection owner"
-msgstr ""
+msgstr "コレクションの所有者"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Collection permissions"
-msgstr ""
+msgstr "コレクションの権限"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"
-msgstr ""
+msgstr "コレクション"
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
-msgstr ""
+msgstr "コンピューターを承認しました"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer filter results"
-msgstr ""
+msgstr "コンピューターの絞り込み結果"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer not connected"
-msgstr ""
+msgstr "コンピューターは未接続です"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Computer pairing"
-msgstr ""
+msgstr "コンピューターのペアリング"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer status"
-msgstr ""
+msgstr "コンピューターの状態"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computers"
-msgstr ""
+msgstr "コンピューター"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Configured"
-msgstr ""
+msgstr "設定済み"
 
 #: src/AccountManagement.tsx
 msgid "Confirm new password"
-msgstr ""
+msgstr "新しいパスワードを確認"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Confirm new password"
-msgstr ""
+msgstr "新しいパスワードを確認"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Confirm password"
-msgstr ""
+msgstr "パスワードを確認"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Confirm removal"
-msgstr ""
+msgstr "削除を確認"
 
 #: src/AccountManagement.tsx
 msgid "Confirm your identity"
-msgstr ""
+msgstr "本人確認"
 
 #: src/ConnectApp.tsx
 msgid "Connect a computer to add a collection."
-msgstr ""
+msgstr "コレクションを追加するにはコンピューターを接続してください。"
 
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
-msgstr ""
+msgstr "Connect の管理画面は閉じています"
 
 #: src/AccountManagement.tsx
 msgid "Connect more than one method so you always have a way back into your account."
-msgstr ""
+msgstr "アカウントに戻れる方法を確保するため、複数のログイン方法を接続してください。"
 
 #: src/auth-view.tsx
 msgid "Connect this device to your tailnet, then reload the page."
-msgstr ""
+msgstr "このデバイスを tailnet に接続してからページを再読み込みしてください。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Connected"
-msgstr ""
+msgstr "接続済み"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Connected"
-msgstr ""
+msgstr "接続済み"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Connected applications"
-msgstr ""
+msgstr "接続済みアプリケーション"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Connection"
-msgstr ""
+msgstr "接続"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
-msgstr ""
+msgstr "この mdbase connect 環境の管理者にお問い合わせください。"
 
 #: src/auth-view.tsx
 msgid "Continue"
-msgstr ""
+msgstr "続行"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Continue with GitHub"
-msgstr ""
+msgstr "GitHub で続行"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Continue with Google"
-msgstr ""
+msgstr "Google で続行"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Continue with Google"
-msgstr ""
+msgstr "Google で続行"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Copied"
-msgstr ""
+msgstr "コピーしました"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Copy link"
-msgstr ""
+msgstr "リンクをコピー"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Couldn’t connect"
-msgstr ""
+msgstr "接続できませんでした"
 
 #. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })
 #. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
 msgid "Covers every record in {0}.{1}"
-msgstr ""
+msgstr "{0} のすべてのレコードが対象です。{1}"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create"
-msgstr ""
+msgstr "作成"
 
 #: src/authorization-view.tsx
 msgid "Create a hosted collection"
-msgstr ""
+msgstr "ホスト型コレクションを作成"
 
 #: src/authority-workflows.tsx
 msgid "Create a hosted collection before approving this folder."
-msgstr ""
+msgstr "このフォルダーを承認する前にホスト型コレクションを作成してください。"
 
 #: src/CollectionPicker.tsx
 msgid "Create a new collection…"
-msgstr ""
+msgstr "新しいコレクションを作成…"
 
 #: src/authorization-review.tsx
 msgid "Create a separate type supplied by {applicationName}."
-msgstr ""
+msgstr "{applicationName} が提供する別の型を作成します。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Create account"
-msgstr ""
+msgstr "アカウントを作成"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Create an account"
-msgstr ""
+msgstr "アカウントを作成"
 
 #: src/authorization-capabilities.ts
 msgid "Create and maintain timers that run while the application is closed."
-msgstr ""
+msgstr "アプリケーションが閉じている間も動くタイマーを作成・管理します。"
 
 #: src/authorization-capabilities.ts
 msgid "Create and update record types and apply declared type packs."
-msgstr ""
+msgstr "レコード型を作成・更新し、指定された型パックを適用します。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Create collection"
-msgstr ""
+msgstr "コレクションを作成"
 
 #: src/authorization-view.tsx
 msgid "Create hosted collection"
-msgstr ""
+msgstr "ホスト型コレクションを作成"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create invitation"
-msgstr ""
+msgstr "招待を作成"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Create records"
-msgstr ""
+msgstr "レコードを作成"
 
 #: src/authorization-capabilities.ts
 msgid "Create records and add files"
-msgstr ""
+msgstr "レコードの作成とファイルの追加"
 
 #: src/authorization-capabilities.ts
 msgid "Create, change, and delete saved view definitions."
-msgstr ""
+msgstr "保存済みビューの定義を作成、変更、削除します。"
 
 #: src/ConnectApp.tsx
 msgid "Created, but this browser could not clear its request. Retrying will use the same collection."
-msgstr ""
+msgstr "作成は完了しましたが、このブラウザーでは要求を消去できませんでした。再試行しても同じコレクションを使用します。"
 
 #: src/authorization-view.tsx
 msgid "Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately."
-msgstr ""
+msgstr "mdbase がホストする通常の mdbase コレクションを作成します。アプリケーションのアクセスは別途承認が必要です。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Creating account…"
-msgstr ""
+msgstr "アカウントを作成中…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Creating…"
-msgstr ""
+msgstr "作成中…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Creating…"
-msgstr ""
+msgstr "作成中…"
 
 #: src/authority-workflows.tsx
 msgid "Creation hasn't finished. Approve continues the same named collection."
-msgstr ""
+msgstr "作成はまだ完了していません。承認すると、同じ名前のコレクションで続行します。"
 
 #: src/AccountManagement.tsx
 msgid "Current"
-msgstr ""
+msgstr "現在"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Current allowance"
-msgstr ""
+msgstr "現在の許容量"
 
 #: src/AccountManagement.tsx
 msgid "Current password"
-msgstr ""
+msgstr "現在のパスワード"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Delete"
-msgstr ""
+msgstr "削除"
 
 #. placeholder {0}: collection.display_name
 #: src/ConnectApp.tsx
 msgid "Delete {0} and all of its hosted data? This cannot be undone."
-msgstr ""
+msgstr "{0} とそのホスト型データをすべて削除しますか？ この操作は元に戻せません。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Delete account"
-msgstr ""
+msgstr "アカウントを削除"
 
 #: src/AccountManagement.tsx
 msgid "Delete account permanently"
-msgstr ""
+msgstr "アカウントを完全に削除"
 
 #: src/AccountManagement.tsx
 msgid "Delete account…"
-msgstr ""
+msgstr "アカウントを削除…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "delete files"
-msgstr ""
+msgstr "ファイルを削除"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Delete files"
-msgstr ""
+msgstr "ファイルを削除"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Delete permanently"
-msgstr ""
+msgstr "完全に削除"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Delete records"
-msgstr ""
+msgstr "レコードを削除"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Delete records and files"
-msgstr ""
+msgstr "レコードとファイルを削除"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Deleting account…"
-msgstr ""
+msgstr "アカウントを削除中…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Deny"
-msgstr ""
+msgstr "拒否"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Denying…"
-msgstr ""
+msgstr "拒否中…"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Desktop approval needed"
-msgstr ""
+msgstr "デスクトップでの承認が必要です"
 
 #: src/authority-workflows.tsx
 msgid "Details"
-msgstr ""
+msgstr "詳細"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Details"
-msgstr ""
+msgstr "詳細"
 
 #: src/auth-view.tsx
 msgid "Development authentication is enabled."
-msgstr ""
+msgstr "開発用認証が有効です。"
 
 #. placeholder {0}: pairing.fingerprint
 #: src/authority-workflows.tsx
 msgid "Device key: <0>{0}</0>"
-msgstr ""
+msgstr "デバイスキー: <0>{0}</0>"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Disconnect"
-msgstr ""
+msgstr "接続を解除"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Disconnect"
-msgstr ""
+msgstr "接続を解除"
 
 #. placeholder {0}: replica.name
 #: src/ConnectApp.tsx
 msgid "Disconnect {0}?"
-msgstr ""
+msgstr "{0} の接続を解除しますか？"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Disconnecting…"
-msgstr ""
+msgstr "接続を解除中…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Disconnecting…"
-msgstr ""
+msgstr "接続を解除中…"
 
 #: src/ConnectApp.tsx
 msgid "Dismiss"
-msgstr ""
+msgstr "閉じる"
 
 #: src/authorization-review.tsx
 msgid "Do not share"
-msgstr ""
+msgstr "共有しない"
 
 #. placeholder {0}: formatBytes(subscription.limits.max_document_bytes)
 #. placeholder {1}: formatBytes(subscription.limits.max_single_file_bytes)
@@ -1435,2063 +1435,2063 @@ msgstr ""
 #. placeholder {3}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
 #: src/AccountManagement.tsx
 msgid "Documents up to {0} · files up to {1} · {2} · {3} per collection"
-msgstr ""
+msgstr "ドキュメントは最大 {0} · ファイルは最大 {1} · {2} · コレクションあたり {3}"
 
 #: src/authority-workflows.tsx
 msgid "Don't allow"
-msgstr ""
+msgstr "許可しない"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Downloads only"
-msgstr ""
+msgstr "ダウンロードのみ"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
-msgstr ""
+msgstr "レコードを編集"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records and files"
-msgstr ""
+msgstr "レコードとファイルを編集"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Editor"
-msgstr ""
+msgstr "エディター"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Edits sync both ways"
-msgstr ""
+msgstr "編集内容を双方向に同期"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Email"
-msgstr ""
+msgstr "メール"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Email"
-msgstr ""
+msgstr "メール"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Email address"
-msgstr ""
+msgstr "メールアドレス"
 
 #: src/AccountManagement.tsx
 msgid "Email and password"
-msgstr ""
+msgstr "メールとパスワード"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Email and password"
-msgstr ""
+msgstr "メールとパスワード"
 
 #. placeholder {0}: summary.setting
 #. placeholder {1}: summary.value
 #: src/authorization-view.tsx
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
-msgstr ""
+msgstr "<0>{0}</0> に <1>{1}</1> が含まれるようにする"
 
 #: src/authorization-view.tsx
 msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
-msgstr ""
+msgstr "アプリケーションに表示されるコードを入力してください。許可する前に、アプリケーション、コレクション、正確な権限を確認できます。"
 
 #: src/authorization-view.tsx
 msgid "Enter the eight-character code shown by the application."
-msgstr ""
+msgstr "アプリケーションに表示される 8 文字のコードを入力してください。"
 
 #: src/ApplicationAccess.tsx
 msgid "Entire collection"
-msgstr ""
+msgstr "コレクション全体"
 
 #. placeholder {0}: entry.role
 #: src/ApplicationAccess.tsx
 msgid "Entire collection · Access as your account ({0})"
-msgstr ""
+msgstr "コレクション全体 · アカウントとしてアクセス（{0}）"
 
 #: src/AccountManagement.tsx
 msgid "Every browser session and sign-in method"
-msgstr ""
+msgstr "すべてのブラウザーセッションとログイン方法"
 
 #: src/authorization-review.tsx
 msgid "Every visible folder. Hidden folders are always excluded."
-msgstr ""
+msgstr "表示されるすべてのフォルダー。隠しフォルダーは常に除外されます。"
 
 #: src/authority-workflows.tsx
 msgid "Existing access is revoked. Connect applications again to use the local collection."
-msgstr ""
+msgstr "既存のアクセスを取り消しました。ローカルコレクションを使用するには、Connect アプリケーションを再接続してください。"
 
 #: src/authority-workflows.tsx
 msgid "Existing Markdown is checked before upload. Collection paths and device credentials stay off the control plane."
-msgstr ""
+msgstr "アップロード前に既存の Markdown を確認します。コレクションのパスとデバイスの認証情報は制御サービスに送信されません。"
 
 #: src/authorization-review.tsx
 msgid "Existing type"
-msgstr ""
+msgstr "既存の型"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Existing type"
-msgstr ""
+msgstr "既存の型"
 
 #: src/authorization-review.tsx
 msgid "Expert details"
-msgstr ""
+msgstr "詳細情報"
 
 #: src/FeedbackPage.tsx
 msgid "Feedback goes privately to the mdbase team."
-msgstr ""
+msgstr "フィードバックは mdbase チームに非公開で送られます。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Feedback is unavailable"
-msgstr ""
+msgstr "フィードバックを利用できません"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Feedback unavailable"
-msgstr ""
+msgstr "フィードバックを利用できません"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "File permissions"
-msgstr ""
+msgstr "ファイルの権限"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "File scope"
-msgstr ""
+msgstr "ファイルの対象範囲"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Files"
-msgstr ""
+msgstr "ファイル"
 
 #. placeholder {0}: field?.label ?? missing
 #: src/authorization-review.tsx
 msgid "Fill in {0} in {label}."
-msgstr ""
+msgstr "{label} の {0} を入力してください。"
 
 #: src/ConnectApp.tsx
 msgid "Find a computer"
-msgstr ""
+msgstr "コンピューターを探す"
 
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
-msgstr ""
+msgstr "コレクションの設定を完了中…"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Finishing the move"
-msgstr ""
+msgstr "移動を完了中"
 
 #: src/authority-workflows.tsx
 msgid "Folder"
-msgstr ""
+msgstr "フォルダー"
 
 #: src/authority-workflows.tsx
 msgid "Folder approved"
-msgstr ""
+msgstr "フォルダーを承認しました"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Folder sync"
-msgstr ""
+msgstr "フォルダーの同期"
 
 #: src/auth-view.tsx
 msgid "Forgot your password?"
-msgstr ""
+msgstr "パスワードをお忘れですか？"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generate a new code"
-msgstr ""
+msgstr "新しいコードを生成"
 
 #: src/AccountManagement.tsx
 msgid "Generate a private code, then send it to the collection owner."
-msgstr ""
+msgstr "非公開のコードを生成してコレクションの所有者に送ってください。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generate code"
-msgstr ""
+msgstr "コードを生成"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generating…"
-msgstr ""
+msgstr "生成中…"
 
 #: src/portal-model.ts
 msgid "GitHub account @{login}"
-msgstr ""
+msgstr "GitHub アカウント @{login}"
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
-msgstr ""
+msgstr "Google ログインを読み込めませんでした。"
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in did not load correctly."
-msgstr ""
+msgstr "Google ログインが正しく読み込まれませんでした。"
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Help {applicationName} understand {0}"
-msgstr ""
+msgstr "{applicationName} が {0} を理解できるようにする"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Hosted"
-msgstr ""
+msgstr "ホスト型"
 
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
-msgstr ""
+msgstr "ホスト型のアクセスは直ちに削除されました。ホスト型データの削除はバックグラウンドで自動的に続きます。ローカルコレクションとミラーファイルはコンピューター上に残ります。"
 
 #: src/authorization-view.tsx
 msgid "Hosted by mdbase"
-msgstr ""
+msgstr "mdbase がホスト"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Hosted by mdbase"
-msgstr ""
+msgstr "mdbase がホスト"
 
 #. placeholder {0}: countLabel(replicas.length, "folder")
 #: src/ConnectApp.tsx
 msgid "Hosted by mdbase · {0}"
-msgstr ""
+msgstr "mdbase がホスト · {0}"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
-msgstr ""
+msgstr "ホスト型コレクション"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Hosted collection"
-msgstr ""
+msgstr "ホスト型コレクション"
 
 #: src/ConnectApp.tsx
 msgid "Hosted creation is unavailable on this server."
-msgstr ""
+msgstr "このサーバーではホスト型コレクションを作成できません。"
 
 #: src/authority-workflows.tsx
 msgid "Hosted service"
-msgstr ""
+msgstr "ホストサービス"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Hosted storage"
-msgstr ""
+msgstr "ホスト型ストレージ"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Hosted writes are paused"
-msgstr ""
+msgstr "ホスト型への書き込みは一時停止中"
 
 #: src/authorization-review.tsx
 msgid "How this type behaves in {applicationName}"
-msgstr ""
+msgstr "この型の {applicationName} での動作"
 
 #: src/auth-view.tsx
 msgid "I agree to the <0>Terms of Service</0> and have read the <1>Privacy Policy</1>."
-msgstr ""
+msgstr "<0>利用規約</0>に同意し、<1>プライバシーポリシー</1>を読みました。"
 
 #: src/AccountManagement.tsx
 msgid "Identity"
-msgstr ""
+msgstr "本人確認"
 
 #: src/AccountManagement.tsx
 msgid "Identity and service configuration."
-msgstr ""
+msgstr "本人確認とサービスの設定。"
 
 #: src/AccountManagement.tsx
 msgid "Identity confirmed for this deletion."
-msgstr ""
+msgstr "この削除の本人確認が完了しました。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Identity unavailable"
-msgstr ""
+msgstr "本人確認が利用できません"
 
 #: src/auth-view.tsx
 msgid "If an mdbase connect account uses that address, its one-time reset link is on the way."
-msgstr ""
+msgstr "そのアドレスを使う mdbase connect アカウントがあれば、一回限りのリセットリンクを送信します。"
 
 #: src/auth-view.tsx
 msgid "If that address can be used, its one-time verification link is on the way."
-msgstr ""
+msgstr "そのアドレスが利用できる場合、一回限りの確認リンクを送信します。"
 
 #: src/ConnectApp.tsx
 msgid "If the desktop app does not open when you {action}, <0>install the latest release</0> and try again."
-msgstr ""
+msgstr "{action}してもデスクトップアプリが開かない場合は、<0>最新版をインストール</0>して再試行してください。"
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "If the desktop app does not open, <0>install the current Connect release</0>, then return to this page. The request expires {0}."
-msgstr ""
+msgstr "デスクトップアプリが開かない場合は、<0>現行の Connect リリースをインストール</0>してからこのページに戻ってください。要求は {0} に期限切れになります。"
 
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
-msgstr ""
+msgstr "値がすでに含まれている場合、mdbase はコレクションを変更しません。設定が競合する場合、ポリシーを上書きせずに設定を中止します。"
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
-msgstr ""
+msgstr "検証に失敗した場合や要求が期限切れになった場合は、ホスト型への書き込みを再開します。"
 
 #: src/authority-workflows.tsx
 msgid "In {collection}. Allow only if you just asked for this in {app}."
-msgstr ""
+msgstr "{collection} 内。この操作を {app} で直前に要求した場合のみ許可してください。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Included storage"
-msgstr ""
+msgstr "含まれるストレージ"
 
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
-msgstr ""
+msgstr "{0} をインストール"
 
 #: src/authorization-view.tsx
 msgid "Install or update the application definitions declared by this version."
-msgstr ""
+msgstr "このバージョンで指定されたアプリケーション定義をインストールまたは更新します。"
 
 #: src/ConnectApp.tsx
 msgid "Install the latest release"
-msgstr ""
+msgstr "最新版をインストール"
 
 #: src/ApplicationAccess.tsx
 msgid "Installation details"
-msgstr ""
+msgstr "インストールの詳細"
 
 #: src/ConnectApp.tsx
 msgid "Invitation ready"
-msgstr ""
+msgstr "招待の準備ができました"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Invitation required"
-msgstr ""
+msgstr "招待が必要です"
 
 #: src/ConnectApp.tsx
 msgid "Invite using"
-msgstr ""
+msgstr "招待方法"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Invite using"
-msgstr ""
+msgstr "招待方法"
 
 #: src/auth-view.tsx
 msgid "Invited? Open the link in your invitation email. "
-msgstr ""
+msgstr "招待されていますか？ 招待メールのリンクを開いてください。 "
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Invitee code"
-msgstr ""
+msgstr "招待されたユーザーのコード"
 
 #: src/auth-view.tsx
 msgid "Join the signup waitlist"
-msgstr ""
+msgstr "新規登録の順番待ちに参加"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Just a moment…"
-msgstr ""
+msgstr "少々お待ちください…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "just now"
-msgstr ""
+msgstr "たった今"
 
 #: src/authority-workflows.tsx
 msgid "Keep access"
-msgstr ""
+msgstr "アクセスを維持"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Keep an offline replica"
-msgstr ""
+msgstr "オフラインのレプリカを保持"
 
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
-msgstr ""
+msgstr "ホスト型のままにする"
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
-msgstr ""
+msgstr "現在のレコードを残し、同じ意味を持つフィールドを指定してください。"
 
 #: src/LanguageSetting.tsx
 msgid "Language"
-msgstr ""
+msgstr "言語"
 
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
 msgid "Last used {0}"
-msgstr ""
+msgstr "最終使用 {0}"
 
 #: src/ApplicationAccess.tsx
 msgid "Legacy scoped access is revoked. Reauthorize this application for the entire collection."
-msgstr ""
+msgstr "旧形式の範囲限定アクセスは取り消されました。このアプリケーションにコレクション全体へのアクセスを再承認してください。"
 
 #: src/ConnectApp.tsx
 msgid "Link your account to an editable record in this collection. Collection access is approved separately."
-msgstr ""
+msgstr "アカウントをこのコレクション内の編集可能なレコードに紐付けます。コレクションへのアクセスは別途承認が必要です。"
 
 #: src/authorization-review.tsx
 msgid "List file names and metadata"
-msgstr ""
+msgstr "ファイル名とメタデータを一覧表示"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Loading account details…"
-msgstr ""
+msgstr "アカウントの詳細を読み込み中…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Loading Google sign-in…"
-msgstr ""
+msgstr "Google ログインを読み込み中…"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Loading Google sign-in…"
-msgstr ""
+msgstr "Google ログインを読み込み中…"
 
 #: src/ConnectApp.tsx
 msgid "Loading people…"
-msgstr ""
+msgstr "ユーザーを読み込み中…"
 
 #: src/ConnectApp.tsx
 msgid "Loading your account and collections…"
-msgstr ""
+msgstr "アカウントとコレクションを読み込み中…"
 
 #: src/AccountManagement.tsx
 msgid "Local collection and mirror files remain on your computers."
-msgstr ""
+msgstr "ローカルコレクションとミラーファイルはコンピューター上に残ります。"
 
 #: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
-msgstr ""
+msgstr "ローカルコレクションのファイルはコンピューター上に残り、ここでは使用量を計測しません。"
 
 #: src/ConnectApp.tsx
 msgid "Location"
-msgstr ""
+msgstr "場所"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Location"
-msgstr ""
+msgstr "場所"
 
 #: src/ConnectApp.tsx
 msgid "Main copy"
-msgstr ""
+msgstr "正本"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
-msgstr ""
+msgstr "正本"
 
 #: src/authority-workflows.tsx
 msgid "Main copy hosted by mdbase"
-msgstr ""
+msgstr "mdbase がホストする正本"
 
 #: src/ConnectApp.tsx
 msgid "Main copy moved to a computer"
-msgstr ""
+msgstr "正本をコンピューターに移動しました"
 
 #: src/authority-workflows.tsx
 msgid "Main copy on {mirrorName}"
-msgstr ""
+msgstr "{mirrorName} 上の正本"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Manage"
-msgstr ""
+msgstr "管理"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Manage and delete files"
-msgstr ""
+msgstr "ファイルの管理と削除"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
-msgstr ""
+msgstr "定義を管理"
 
 #: src/auth-view.tsx
 msgid "Manage email preferences"
-msgstr ""
+msgstr "メールの受信設定を管理"
 
 #: src/AccountManagement.tsx
 msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr ""
+msgstr "ホスト型ストレージ、ログイン方法、ブラウザーセッションを管理します。"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage saved views"
-msgstr ""
+msgstr "保存済みビューを管理"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Manage the main copy of {0} and its synced Markdown folders."
-msgstr ""
+msgstr "{0} の正本と同期する Markdown フォルダーを管理します。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "manage timers"
-msgstr ""
+msgstr "タイマーを管理"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "manage types"
-msgstr ""
+msgstr "型を管理"
 
 #: src/ConnectApp.tsx
 msgid "Manage where this collection lives and which applications can use it."
-msgstr ""
+msgstr "このコレクションの保存場所と、利用できるアプリケーションを管理します。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Managed by your tailnet"
-msgstr ""
+msgstr "tailnet が管理"
 
 #: src/ConnectApp.tsx
 msgid "Management access does not give applications access to collection content. Each application needs its own collection approval."
-msgstr ""
+msgstr "管理画面へのアクセスだけでは、アプリケーションにコレクションの内容へのアクセスは与えられません。各アプリケーションには個別のコレクション承認が必要です。"
 
 #: src/AccountManagement.tsx
 msgid "Markdown and file usage is temporarily unavailable."
-msgstr ""
+msgstr "Markdown とファイルの使用量を一時的に取得できません。"
 
 #: src/authority-workflows.tsx
 msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
-msgstr ""
+msgstr "Markdown の編集内容は双方向に同期されます。同時編集は、バージョンを選択するまで別々に保持されます。"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "mdbase connect could not be reached. Check your connection and try again."
-msgstr ""
+msgstr "mdbase connect に接続できませんでした。接続を確認して再試行してください。"
 
 #: src/portal-model.ts
 msgid "mdbase connect could not reach the service. Check your connection and try again."
-msgstr ""
+msgstr "mdbase connect からサービスに接続できませんでした。接続を確認して再試行してください。"
 
 #: src/authority-workflows.tsx
 msgid "mdbase connect is checking the latest hosted changes, registering the folder, and making it the main copy."
-msgstr ""
+msgstr "mdbase connect がホスト側の最新の変更を確認し、フォルダーを登録して正本にしています。"
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect is unavailable"
-msgstr ""
+msgstr "mdbase connect を利用できません"
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "mdbase connect navigation"
-msgstr ""
+msgstr "mdbase connect のナビゲーション"
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect needs to restart"
-msgstr ""
+msgstr "mdbase connect の再起動が必要です"
 
 #. placeholder {0}: adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." })
 #: src/authority-workflows.tsx
 msgid "mdbase now keeps the main copy of this collection.{0}"
-msgstr ""
+msgstr "mdbase がこのコレクションの正本を保持するようになりました。{0}"
 
 #: src/authority-workflows.tsx
 msgid "mdbase remembers your choice and {app} follows it. {app} keeps its copy of this collection either way."
-msgstr ""
+msgstr "mdbase は選択を記憶し、{app} はそれに従います。いずれの場合も {app} はこのコレクションのコピーを保持します。"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "Missing required types"
-msgstr ""
+msgstr "必要な型がありません"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "mobile app"
-msgstr ""
+msgstr "モバイルアプリ"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Mobile app"
-msgstr ""
+msgstr "モバイルアプリ"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "More access required"
-msgstr ""
+msgstr "追加のアクセス権が必要です"
 
 #: src/AccountManagement.tsx
 msgid "More regular updates about new features and improvements."
-msgstr ""
+msgstr "新機能や改善についての定期的なお知らせを増やします。"
 
 #: src/authority-workflows.tsx
 msgid "Move a local collection to mdbase"
-msgstr ""
+msgstr "ローカルコレクションを mdbase に移動"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Move and rename files"
-msgstr ""
+msgstr "ファイルの移動と名前変更"
 
 #: src/authority-workflows.tsx
 msgid "Move approved"
-msgstr ""
+msgstr "移動を承認しました"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move collection online"
-msgstr ""
+msgstr "コレクションをオンラインに移動"
 
 #: src/authority-workflows.tsx
 msgid "Move complete"
-msgstr ""
+msgstr "移動が完了しました"
 
 #: src/authority-workflows.tsx
 msgid "Move ended"
-msgstr ""
+msgstr "移動が終了しました"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move main copy"
-msgstr ""
+msgstr "正本を移動"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "move or rename"
-msgstr ""
+msgstr "移動または名前変更"
 
 #: src/authority-workflows.tsx
 msgid "Move the main copy"
-msgstr ""
+msgstr "正本を移動"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move this collection"
-msgstr ""
+msgstr "このコレクションを移動"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved"
-msgstr ""
+msgstr "移動済み"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved to newer runtime"
-msgstr ""
+msgstr "新しいランタイムに移行済み"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moving to a computer"
-msgstr ""
+msgstr "コンピューターに移動中"
 
 #: src/ConnectApp.tsx
 msgid "My collection"
-msgstr ""
+msgstr "自分のコレクション"
 
 #: src/AccountManagement.tsx
 msgid "Name"
-msgstr ""
+msgstr "名前"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Name"
-msgstr ""
+msgstr "名前"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Name or registration ID"
-msgstr ""
+msgstr "名前または登録 ID"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "Needs mdbase 0.3"
-msgstr ""
+msgstr "mdbase 0.3 が必要です"
 
 #: src/authorization-review.tsx
 msgid "New"
-msgstr ""
+msgstr "新規"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "New collection name"
-msgstr ""
+msgstr "新しいコレクション名"
 
 #: src/AccountManagement.tsx
 msgid "New password"
-msgstr ""
+msgstr "新しいパスワード"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "New password"
-msgstr ""
+msgstr "新しいパスワード"
 
 #: src/AccountManagement.tsx
 msgid "New passwords do not match."
-msgstr ""
+msgstr "新しいパスワードが一致しません。"
 
 #: src/authority-workflows.tsx
 msgid "New synced folder"
-msgstr ""
+msgstr "新しい同期フォルダー"
 
 #: src/auth-view.tsx
 msgid "New to mdbase? <0>Create an account</0>"
-msgstr ""
+msgstr "mdbase は初めてですか？ <0>アカウントを作成</0>"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "No active code shown"
-msgstr ""
+msgstr "有効なコードは表示されていません"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
-msgstr ""
+msgstr "コレクションへのアクセス権なし"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"
-msgstr ""
+msgstr "コレクションなし"
 
 #: src/CollectionPicker.tsx
 msgid "No collections are available."
-msgstr ""
+msgstr "利用できるコレクションはありません。"
 
 #: src/CollectionPicker.tsx
 msgid "No collections match. Try another name."
-msgstr ""
+msgstr "一致するコレクションはありません。別の名前を試してください。"
 
 #: src/authorization-view.tsx
 msgid "No compatible collection is ready."
-msgstr ""
+msgstr "使用できる互換コレクションはありません。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No computers connected"
-msgstr ""
+msgstr "接続済みコンピューターはありません"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No computers match"
-msgstr ""
+msgstr "一致するコンピューターはありません"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "No connected applications"
-msgstr ""
+msgstr "接続済みアプリケーションはありません"
 
 #: src/AccountManagement.tsx
 msgid "No supported reauthentication method is connected."
-msgstr ""
+msgstr "対応する再認証方法が接続されていません。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No synced folders"
-msgstr ""
+msgstr "同期フォルダーはありません"
 
 #: src/authority-workflows.tsx
 msgid "Not allowed"
-msgstr ""
+msgstr "許可されていません"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Not configured"
-msgstr ""
+msgstr "未設定"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Not connected"
-msgstr ""
+msgstr "未接続"
 
 #: src/ConnectApp.tsx
 msgid "Not connected yet"
-msgstr ""
+msgstr "まだ接続されていません"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Not connected yet"
-msgstr ""
+msgstr "まだ接続されていません"
 
 #: src/ConnectApp.tsx
 msgid "Not now"
-msgstr ""
+msgstr "後で"
 
 #: src/authorization-view.tsx
 msgid "Nothing is allowed until you review access."
-msgstr ""
+msgstr "アクセスを確認するまで何も許可されません。"
 
 #: src/AccountManagement.tsx
 msgid "Occasional news about significant changes to mdbase Connect and new mdbase applications."
-msgstr ""
+msgstr "mdbase Connect の重要な変更や新しい mdbase アプリケーションについて、ときどきお知らせします。"
 
 #: src/ConnectApp.tsx
 msgid "Offline"
-msgstr ""
+msgstr "オフライン"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Offline"
-msgstr ""
+msgstr "オフライン"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
 msgid "On {0}"
-msgstr ""
+msgstr "{0} 上"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
 msgid "On {0}: offline"
-msgstr ""
+msgstr "{0} 上: オフライン"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "On this computer"
-msgstr ""
+msgstr "このコンピューター上"
 
 #. placeholder {0}: relativeTime(sharingCode.expiresAt)
 #: src/AccountManagement.tsx
 msgid "One use · expires {0}"
-msgstr ""
+msgstr "一回限り · 有効期限 {0}"
 
 #: src/ConnectApp.tsx
 msgid "Online"
-msgstr ""
+msgstr "オンライン"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Online"
-msgstr ""
+msgstr "オンライン"
 
 #. placeholder {0}: files.scope.folders.join(", ")
 #: src/authorization-review.tsx
 msgid "Only {0}. Hidden folders are always excluded."
-msgstr ""
+msgstr "{0} のみ。隠しフォルダーは常に除外されます。"
 
 #: src/authorization-view.tsx
 msgid "Only continue if you recognize this exact site."
-msgstr ""
+msgstr "このサイトに確実に心当たりがある場合のみ続行してください。"
 
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
-msgstr ""
+msgstr "変更されるのはこの型定義だけです。既存のレコードはそのまま残ります。アクセスが有効になる前に設定が検証されます。"
 
 #: src/ConnectApp.tsx
 msgid "Open"
-msgstr ""
+msgstr "開く"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0}"
-msgstr ""
+msgstr "{0} を開く"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0} with {selectedName}"
-msgstr ""
+msgstr "{selectedName} で {0} を開く"
 
 #: src/ConnectApp.tsx
 msgid "Open a collection in the editor or manage where its main copy lives."
-msgstr ""
+msgstr "エディターでコレクションを開くか、正本の場所を管理します。"
 
 #: src/ConnectApp.tsx
 msgid "Open account and sessions"
-msgstr ""
+msgstr "アカウントとセッションを開く"
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
-msgstr ""
+msgstr "デスクトップアプリを開く"
 
 #: src/ConnectApp.tsx
 msgid "Open editor"
-msgstr ""
+msgstr "エディターを開く"
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
-msgstr ""
+msgstr "エディターを開く <0>↗</0>"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open in {0}"
-msgstr ""
+msgstr "{0} で開く"
 
 #: src/ConnectApp.tsx
 msgid "Open in editor"
-msgstr ""
+msgstr "エディターで開く"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
-msgstr ""
+msgstr "mdbase connect を開く"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect on {0} to make this collection available."
-msgstr ""
+msgstr "このコレクションを利用できるようにするには、{0} で mdbase connect を開いてください。"
 
 #: src/onboarding-view.tsx
 msgid "Open mdbase Connect without it"
-msgstr ""
+msgstr "これを使わずに mdbase Connect を開く"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Open menu"
-msgstr ""
+msgstr "メニューを開く"
 
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Open navigation"
-msgstr ""
+msgstr "ナビゲーションを開く"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Open registration"
-msgstr ""
+msgstr "新規登録を開始"
 
 #: src/auth-view.tsx
 msgid "Open the complete password reset link from your email."
-msgstr ""
+msgstr "メールに記載された完全なパスワードリセットリンクを開いてください。"
 
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
-msgstr ""
+msgstr "デスクトップアプリを開き、このコンピューターを接続してフォルダーを追加すると、同じ要求を続行できます。"
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
-msgstr ""
+msgstr "メールのリンクをもう一度開くか、アカウント設定でメールの受信設定を変更してください。"
 
 #: src/ConnectApp.tsx
 msgid "Open the mdbase connect desktop app and choose Connect this computer."
-msgstr ""
+msgstr "mdbase connect デスクトップアプリを開き、「このコンピューターを接続」を選んでください。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "open this collection"
-msgstr ""
+msgstr "このコレクションを開く"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
-msgstr ""
+msgstr "Tailscale 経由で開く"
 
 #: src/auth-view.tsx
 msgid "Open your account"
-msgstr ""
+msgstr "アカウントを開く"
 
 #: src/authority-workflows.tsx
 msgid "Open your collections"
-msgstr ""
+msgstr "コレクションを開く"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow changes to records and saved views."
-msgstr ""
+msgstr "レコードと保存済みビューを開き、検索・検証し、変更を追跡します。"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow records and saved views; list file names and read file contents."
-msgstr ""
+msgstr "レコードと保存済みビューを開き、検索・検証して変更を追跡し、ファイル名の一覧とファイルの内容を読み取ります。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "mdbase connect を開いています"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "mdbase connect を開いています"
 
 #: src/main.tsx
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect…"
-msgstr ""
+msgstr "mdbase connect を開いています…"
 
 #: src/auth-view.tsx
 msgid "or"
-msgstr ""
+msgstr "または"
 
 #: src/ApplicationAccess.tsx
 msgid "Origin"
-msgstr ""
+msgstr "出所"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Overview"
-msgstr ""
+msgstr "概要"
 
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
-msgstr ""
+msgstr "所有者"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password"
-msgstr ""
+msgstr "パスワード"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password changed"
-msgstr ""
+msgstr "パスワードを変更しました"
 
 #: src/AccountManagement.tsx
 msgid "Password changed. Other browser sessions were signed out."
-msgstr ""
+msgstr "パスワードを変更しました。ほかのブラウザーセッションはログアウトしました。"
 
 #: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
-msgstr ""
+msgstr "パスワードの復元は一時的に利用できません。ログイン画面には戻れます。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Passwords do not match."
-msgstr ""
+msgstr "パスワードが一致しません。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Paused"
-msgstr ""
+msgstr "一時停止中"
 
 #: src/ConnectApp.tsx
 msgid "Pending"
-msgstr ""
+msgstr "保留中"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Pending invitations"
-msgstr ""
+msgstr "保留中の招待"
 
 #: src/authorization-review.tsx
 msgid "People"
-msgstr ""
+msgstr "ユーザー"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "People & sharing"
-msgstr ""
+msgstr "ユーザーと共有"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "People permissions"
-msgstr ""
+msgstr "ユーザーの権限"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Permanent allowance"
-msgstr ""
+msgstr "無期限の許容量"
 
 #: src/AccountManagement.tsx
 msgid "Permanent for hosted data. Local files are never removed from your computers."
-msgstr ""
+msgstr "ホスト型データは完全に削除されます。コンピューター上のローカルファイルは削除されません。"
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records and files from this collection."
-msgstr ""
+msgstr "このコレクションのレコードとファイルを完全に削除します。"
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records from this collection."
-msgstr ""
+msgstr "このコレクションのレコードを完全に削除します。"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Permissions"
-msgstr ""
+msgstr "権限"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "person@example.com"
-msgstr ""
+msgstr "taro@example.com"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Preparing {0}…"
-msgstr ""
+msgstr "{0} を準備中…"
 
 #: src/onboarding-view.tsx
 msgid "Preparing a place to start."
-msgstr ""
+msgstr "開始の準備をしています。"
 
 #: src/ApplicationAccess.tsx
 msgid "Previously approved · Collection no longer visible to your account"
-msgstr ""
+msgstr "承認済み · アカウントからコレクションを表示できなくなりました"
 
 #: src/auth-view.tsx
 msgid "Privacy"
-msgstr ""
+msgstr "プライバシー"
 
 #: src/CollectionPicker.tsx
 msgid "Private"
-msgstr ""
+msgstr "プライベート"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
-msgstr ""
+msgstr "プライベートコレクション"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "product updates"
-msgstr ""
+msgstr "製品のお知らせ"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Product updates"
-msgstr ""
+msgstr "製品のお知らせ"
 
 #: src/auth-view.tsx
 msgid "Public account creation is temporarily unavailable."
-msgstr ""
+msgstr "一般向けのアカウント作成は一時的に利用できません。"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Read file contents"
-msgstr ""
+msgstr "ファイルの内容を読み取る"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read records and files"
-msgstr ""
+msgstr "レコードとファイルを読み取る"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read this collection"
-msgstr ""
+msgstr "このコレクションを読み取る"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Reauthorization required"
-msgstr ""
+msgstr "再承認が必要です"
 
 #: src/CollectionPicker.tsx
 msgid "Recently used"
-msgstr ""
+msgstr "最近使用"
 
 #: src/authority-workflows.tsx
 msgid "Recovery"
-msgstr ""
+msgstr "復元"
 
 #. placeholder {0}: new Date(connector.created_at).toLocaleString()
 #. placeholder {1}: connector.id.slice(-8)
 #: src/ConnectApp.tsx
 msgid "Registered {0} · ID {1}"
-msgstr ""
+msgstr "登録日 {0} · ID {1}"
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
-msgstr ""
+msgstr "登録済み <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Registered computers"
-msgstr ""
+msgstr "登録済みコンピューター"
 
 #: src/ConnectApp.tsx
 msgid "Registered computers stay listed when offline. Revoking one also invalidates grants routed through it."
-msgstr ""
+msgstr "登録済みのコンピューターはオフラインでも一覧に残ります。取り消すと、そのコンピューターを経由する許可も無効になります。"
 
 #: src/AccountManagement.tsx
 msgid "Registration"
-msgstr ""
+msgstr "登録"
 
 #: src/ConnectApp.tsx
 msgid "Reload Connect"
-msgstr ""
+msgstr "Connect を再読み込み"
 
 #: src/authority-workflows.tsx
 msgid "Reminders are off. You can turn them on in the app by approving reminders again."
-msgstr ""
+msgstr "リマインダーはオフです。アプリ内で再びリマインダーを承認するとオンにできます。"
 
 #: src/authority-workflows.tsx
 msgid "Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged."
-msgstr ""
+msgstr "リマインダーはオフになります。設定を完了し、後からアプリ内でオンにできます。コレクションへのアクセスは変わりません。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove"
-msgstr ""
+msgstr "削除"
 
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from {1}? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "{0} を {1} から削除しますか？ そのユーザーのアプリとフォルダーへのアクセスも取り消されます。"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "{0} を名前のないコレクションから削除しますか？ そのユーザーのアプリとフォルダーへのアクセスも取り消されます。"
 
 #: src/authority-workflows.tsx
 msgid "Remove access"
-msgstr ""
+msgstr "アクセスを削除"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove access"
-msgstr ""
+msgstr "アクセスを削除"
 
 #. placeholder {0}: pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
-msgstr ""
+msgstr "{0} へのアクセスを削除中…"
 
 #: src/ConnectApp.tsx
 msgid "Removing application and folder access…"
-msgstr ""
+msgstr "アプリとフォルダーへのアクセスを削除中…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Removing…"
-msgstr ""
+msgstr "削除中…"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Rename"
-msgstr ""
+msgstr "名前を変更"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Rename {0}"
-msgstr ""
+msgstr "{0} の名前を変更"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Replace existing files"
-msgstr ""
+msgstr "既存のファイルを置換"
 
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
-msgstr ""
+msgstr "パスワードを変更すると、このアカウントのほかのブラウザーセッションはすべてログアウトします。"
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "Request expires {0}"
-msgstr ""
+msgstr "要求の有効期限 {0}"
 
 #. placeholder {0}: response.status
 #: src/api.ts
 msgid "Request failed with HTTP {0}."
-msgstr ""
+msgstr "要求が失敗しました（HTTP {0}）。"
 
 #: src/authorization-view.tsx
 msgid "Request unavailable"
-msgstr ""
+msgstr "要求を利用できません"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Requested access"
-msgstr ""
+msgstr "要求されたアクセス"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Requested by {0}. No requesting origin is available."
-msgstr ""
+msgstr "{0} からの要求です。要求元の出所は確認できません。"
 
 #. placeholder {0}: pairing.connector_name
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr ""
+msgstr "{0}{1}{2} からの要求です。このアプリでログインを開始した場合のみ承認してください。"
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
-msgstr ""
+msgstr "<0>{0}</0> から要求されました。ここに表示される出所は要求者の身元の証明にはなりません。"
 
 #: src/authorization-view.tsx
 msgid "Requests"
-msgstr ""
+msgstr "要求"
 
 #: src/authorization-review.tsx
 msgid "Required"
-msgstr ""
+msgstr "必須"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Reset your password"
-msgstr ""
+msgstr "パスワードをリセット"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Retry creation"
-msgstr ""
+msgstr "作成を再試行"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "Google ログインを再試行"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "Google ログインを再試行"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}"
-msgstr ""
+msgstr "{0} に戻る"
 
 #. placeholder {0}: adoption.source_name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
-msgstr ""
+msgstr "{0} に戻ってください。"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}"
-msgstr ""
+msgstr "{applicationName} に戻る"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName} and connect again to start a new request."
-msgstr ""
+msgstr "{applicationName} に戻り、再度接続して新しい要求を開始してください。"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}."
-msgstr ""
+msgstr "{applicationName} に戻ってください。"
 
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
-msgstr ""
+msgstr "{mirrorName} に戻ってください。"
 
 #: src/authority-workflows.tsx
 msgid "Return to mdbase connect."
-msgstr ""
+msgstr "mdbase connect に戻ってください。"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Return to sign in"
-msgstr ""
+msgstr "ログインに戻る"
 
 #: src/authority-workflows.tsx
 msgid "Return to your account"
-msgstr ""
+msgstr "アカウントに戻る"
 
 #: src/authority-workflows.tsx
 msgid "Return to your computer."
-msgstr ""
+msgstr "コンピューターに戻ってください。"
 
 #: src/authorization-view.tsx
 msgid "Returning to {applicationName}…"
-msgstr ""
+msgstr "{applicationName} に戻っています…"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
-msgstr ""
+msgstr "確認"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "Review {0}’s collection access request."
-msgstr ""
+msgstr "{0} のコレクションへのアクセス要求を確認してください。"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "Review {0}’s request for {collectionName}."
-msgstr ""
+msgstr "{collectionName} に対する {0} の要求を確認してください。"
 
 #: src/authorization-view.tsx
 msgid "Review access"
-msgstr ""
+msgstr "アクセスを確認"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review all"
-msgstr ""
+msgstr "すべて確認"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
-msgstr ""
+msgstr "アカウントに接続されたアプリケーションを確認します。ブラウザーのログイン情報はアプリケーションには共有されません。"
 
 #: src/authorization-view.tsx
 msgid "Review in this browser"
-msgstr ""
+msgstr "このブラウザーで確認"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review next request"
-msgstr ""
+msgstr "次の要求を確認"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Review request"
-msgstr ""
+msgstr "要求を確認"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review request"
-msgstr ""
+msgstr "要求を確認"
 
 #: src/ApplicationAccess.tsx
 msgid "Review the access each application has to {collectionName}."
-msgstr ""
+msgstr "各アプリケーションの {collectionName} へのアクセス権を確認します。"
 
 #. placeholder {0}: grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })
 #: src/ApplicationAccess.tsx
 msgid "Revocation is pending. Waiting for {0} to confirm enforcement."
-msgstr ""
+msgstr "アクセスの取り消しは保留中です。{0} による適用確認を待っています。"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke"
-msgstr ""
+msgstr "取り消す"
 
 #. placeholder {0}: group.applicationName
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {1} across all its installations?"
-msgstr ""
+msgstr "すべてのインストールで {0} の {1} へのアクセスを取り消しますか？"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
-msgstr ""
+msgstr "{0} の {collectionName} へのアクセスを取り消しますか？"
 
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0} and the application grants routed through it?"
-msgstr ""
+msgstr "{0} と、それを経由するアプリケーションの許可を取り消しますか？"
 
 #. placeholder {0}: replica.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0}?"
-msgstr ""
+msgstr "{0} を取り消しますか？"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
-msgstr ""
+msgstr "アクセスを取り消す"
 
 #. placeholder {0}: grant.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke access to {0}?"
-msgstr ""
+msgstr "{0} へのアクセスを取り消しますか？"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke all {0} access and collection creation permission?"
-msgstr ""
+msgstr "{0} のすべてのアクセス権とコレクション作成権限を取り消しますか？"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke application"
-msgstr ""
+msgstr "アプリケーションの許可を取り消す"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke collection access"
-msgstr ""
+msgstr "コレクションへのアクセスを取り消す"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke computer"
-msgstr ""
+msgstr "コンピューターの許可を取り消す"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoking…"
-msgstr ""
+msgstr "取り消し中…"
 
 #: src/ConnectApp.tsx
 msgid "Role"
-msgstr ""
+msgstr "役割"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Role"
-msgstr ""
+msgstr "役割"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Role for {0}"
-msgstr ""
+msgstr "{0} の役割"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Save"
-msgstr ""
+msgstr "保存"
 
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
-msgstr ""
+msgstr "アクセス範囲を狭めて保存"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Saving…"
-msgstr ""
+msgstr "保存中…"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Schedule background work"
-msgstr ""
+msgstr "バックグラウンド作業を予定"
 
 #: src/ApplicationAccess.tsx
 msgid "Scope"
-msgstr ""
+msgstr "対象範囲"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
-msgstr ""
+msgstr "名前でコレクションを検索"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "see collection members"
-msgstr ""
+msgstr "コレクションのメンバーを表示"
 
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
-msgstr ""
+msgstr "コレクションのメンバーのアカウント識別子、名前、役割を表示"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "see the list of"
-msgstr ""
+msgstr "一覧を表示"
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"
-msgstr ""
+msgstr "アカウントの識別子と表示名を表示"
 
 #. placeholder {0}: relativeTime(connector.last_seen_at)
 #. placeholder {0}: relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)
 #: src/ConnectApp.tsx
 msgid "Seen {0}"
-msgstr ""
+msgstr "最終確認 {0}"
 
 #: src/authorization-view.tsx
 msgid "Select a collection to continue."
-msgstr ""
+msgstr "続行するにはコレクションを選んでください。"
 
 #. placeholder {0}: selected.name
 #: src/CollectionPicker.tsx
 msgid "Selected: <0>{0}</0>"
-msgstr ""
+msgstr "選択中: <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 #: src/FeedbackPage.tsx
 msgctxt "Connect interface"
 msgid "Send feedback"
-msgstr ""
+msgstr "フィードバックを送信"
 
 #: src/auth-view.tsx
 msgid "Send me occasional product updates. You can change this at any time."
-msgstr ""
+msgstr "製品のお知らせをときどき受け取ります。いつでも変更できます。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send reset link"
-msgstr ""
+msgstr "リセットリンクを送信"
 
 #: src/ConnectApp.tsx
 msgid "Send this private link to the invited person. Email invitations require an already registered, verified account. If they have just signed up, create a new invitation."
-msgstr ""
+msgstr "この非公開リンクを招待先のユーザーに送ってください。メールでの招待には、登録済みかつ確認済みのアカウントが必要です。相手が登録したばかりの場合は、新しい招待を作成してください。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send verification link"
-msgstr ""
+msgstr "確認リンクを送信"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sending link…"
-msgstr ""
+msgstr "リンクを送信中…"
 
 #. placeholder {0}: account.user.email
 #: src/AccountManagement.tsx
 msgid "Sent to {0}."
-msgstr ""
+msgstr "{0} に送信しました。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Set up and allow access"
-msgstr ""
+msgstr "設定してアクセスを許可"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Setting up and allowing…"
-msgstr ""
+msgstr "設定して許可中…"
 
 #. placeholder {0}: setupLabel(contract)
 #: src/authorization-review.tsx
 msgid "Setup for {0}"
-msgstr ""
+msgstr "{0} の設定"
 
 #: src/authority-workflows.tsx
 msgid "Shared with you"
-msgstr ""
+msgstr "共有されたコレクション"
 
 #: src/ConnectApp.tsx
 msgid "Sharing code"
-msgstr ""
+msgstr "共有コード"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sharing code"
-msgstr ""
+msgstr "共有コード"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sharing code"
-msgstr ""
+msgstr "共有コード"
 
 #: src/authorization-view.tsx
 msgid "Short approval code"
-msgstr ""
+msgstr "短い承認コード"
 
 #. placeholder {0}: visible.length
 #. placeholder {1}: data.connectors.length
 #: src/ConnectApp.tsx
 msgid "Showing {0} of {1} registered computers."
-msgstr ""
+msgstr "登録済みコンピューター {1} 台中 {0} 台を表示しています。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
-msgstr ""
+msgstr "ログイン"
 
 #: src/authority-workflows.tsx
 msgid "Sign in again"
-msgstr ""
+msgstr "再度ログイン"
 
 #: src/authority-workflows.tsx
 msgid "Sign in on a computer"
-msgstr ""
+msgstr "コンピューターでログイン"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in to continue"
-msgstr ""
+msgstr "ログインして続行"
 
 #: src/auth-view.tsx
 msgid "Sign in with the method connected to your invited account."
-msgstr ""
+msgstr "招待されたアカウントに接続されている方法でログインしてください。"
 
 #: src/auth-view.tsx
 msgid "Sign in, review the request, and return to the application."
-msgstr ""
+msgstr "ログインして要求を確認し、アプリケーションに戻ってください。"
 
 #: src/AccountManagement.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "ログアウト"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sign out of this browser"
-msgstr ""
+msgstr "このブラウザーからログアウト"
 
 #: src/AccountManagement.tsx
 msgid "Sign out other sessions"
-msgstr ""
+msgstr "ほかのセッションをログアウト"
 
 #: src/authority-workflows.tsx
 msgid "Sign-in cancelled"
-msgstr ""
+msgstr "ログインをキャンセルしました"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sign-in methods"
-msgstr ""
+msgstr "ログイン方法"
 
 #: src/AccountManagement.tsx
 msgid "Sign-in methods for this account are controlled by Tailscale."
-msgstr ""
+msgstr "このアカウントのログイン方法は Tailscale で管理されています。"
 
 #: src/auth-view.tsx
 msgid "Sign-in was cancelled. You can try again or choose another method."
-msgstr ""
+msgstr "ログインをキャンセルしました。再試行するか、別の方法を選んでください。"
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })
 #. placeholder {1}: session.id.slice(-8)
 #: src/AccountManagement.tsx
 msgid "Signed in <0>{0}</0> · ID {1}"
-msgstr ""
+msgstr "ログイン中 <0>{0}</0> · ID {1}"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
-msgstr ""
+msgstr "Google でログイン中…"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Signing in with Google…"
-msgstr ""
+msgstr "Google でログイン中…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in…"
-msgstr ""
+msgstr "ログイン中…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Signing out…"
-msgstr ""
+msgstr "ログアウト中…"
 
 #: src/auth-view.tsx
 msgid "Start signup again"
-msgstr ""
+msgstr "新規登録をやり直す"
 
 #: src/ConnectApp.tsx
 msgid "Status"
-msgstr ""
+msgstr "状態"
 
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
-msgstr ""
+msgstr "このリンクが届いた種類のメールの受信を停止します。アカウントに関するメッセージは引き続き送信されます。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Storage"
-msgstr ""
+msgstr "ストレージ"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Storage & sync"
-msgstr ""
+msgstr "ストレージと同期"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Stored by mdbase"
-msgstr ""
+msgstr "mdbase に保存"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Stored on {0}"
-msgstr ""
+msgstr "{0} に保存"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Stored on your devices"
-msgstr ""
+msgstr "デバイス上に保存"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sync"
-msgstr ""
+msgstr "同期"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "sync a folder"
-msgstr ""
+msgstr "フォルダーを同期"
 
 #: src/ConnectApp.tsx
 msgid "Sync folder"
-msgstr ""
+msgstr "フォルダーを同期"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Sync this collection"
-msgstr ""
+msgstr "このコレクションを同期"
 
 #: src/ConnectApp.tsx
 msgid "Synced folders"
-msgstr ""
+msgstr "同期フォルダー"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
-msgstr ""
+msgstr "同期フォルダー"
 
 #: src/authorization-capabilities.ts
 msgid "Synchronize an application-controlled local copy of this collection."
-msgstr ""
+msgstr "このコレクションのアプリケーション管理下のローカルコピーを同期します。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Tailscale identity"
-msgstr ""
+msgstr "Tailscale の本人確認"
 
 #: src/auth-view.tsx
 msgid "Terms"
-msgstr ""
+msgstr "規約"
 
 #: src/authority-workflows.tsx
 msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
-msgstr ""
+msgstr "アプリが最終的なコレクションのスナップショットをアップロードして確認しています。そのスナップショットが完全に揃うまで正本は移動しません。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "the application"
-msgstr ""
+msgstr "アプリケーション"
 
 #: src/authorization-view.tsx
 msgid "The application will finish connecting with its one-time device code. You can close this window."
-msgstr ""
+msgstr "アプリケーションが一回限りのデバイスコードで接続を完了します。このウィンドウは閉じてもかまいません。"
 
 #: src/authorization-view.tsx
 msgid "The application will learn that access was not granted. You can close this window."
-msgstr ""
+msgstr "アクセスが許可されなかったことがアプリケーションに通知されます。このウィンドウは閉じてもかまいません。"
 
 #: src/authorization-view.tsx
 msgid "The application will show that access was not granted."
-msgstr ""
+msgstr "アクセスが許可されなかったことがアプリケーションに表示されます。"
 
 #. placeholder {0}: field.label.toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "The application’s {0} value."
-msgstr ""
+msgstr "アプリケーションの {0} の値。"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "The collection"
-msgstr ""
+msgstr "コレクション"
 
 #: src/authorization-view.tsx
 msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
-msgstr ""
+msgstr "このコレクションでは、必要なレコードとファイルの権限をまとめて許可できません。別のコレクションを選んでください。"
 
 #: src/authorization-view.tsx
 msgid "The collection requested by this application is not available."
-msgstr ""
+msgstr "このアプリケーションが要求したコレクションは利用できません。"
 
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
-msgstr ""
+msgstr "このコレクションを保持するコンピューター"
 
 #: src/authority-workflows.tsx
 msgid "The desktop app will finish securely. No connector token was displayed or copied."
-msgstr ""
+msgstr "デスクトップアプリで安全に完了します。コネクタートークンは表示もコピーもされていません。"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "The editor can reach this collection through {0}."
-msgstr ""
+msgstr "エディターは {0} 経由でこのコレクションにアクセスできます。"
 
 #: src/authority-workflows.tsx
 msgid "The folder on {mirrorName} is now the main copy. Hosted access has stopped and previous application connections were revoked."
-msgstr ""
+msgstr "{mirrorName} のフォルダーが正本になりました。ホスト型のアクセスは停止され、以前のアプリケーション接続は取り消されました。"
 
 #: src/ConnectApp.tsx
 msgid "The folder remains the authority for this collection."
-msgstr ""
+msgstr "フォルダーは引き続きこのコレクションの正本です。"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "the hosted authority"
-msgstr ""
+msgstr "ホスト型の管理元"
 
 #: src/ConnectApp.tsx
 msgid "The hosted collection is available to the editor."
-msgstr ""
+msgstr "ホスト型コレクションはエディターで利用できます。"
 
 #: src/LanguageSetting.tsx
 msgid "The language could not be loaded or saved. Try choosing it again."
-msgstr ""
+msgstr "言語を読み込むか保存する際に失敗しました。もう一度選んでください。"
 
 #: src/main.tsx
 msgid "The language could not be loaded. Choose it again using the language setting."
-msgstr ""
+msgstr "言語を読み込めませんでした。言語設定から選び直してください。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "the latest release"
-msgstr ""
+msgstr "最新版"
 
 #: src/auth-view.tsx
 msgid "The link is invalid, expired, already used, or account setup is temporarily unavailable."
-msgstr ""
+msgstr "リンクが無効、期限切れ、使用済み、またはアカウントの設定が一時的に利用できません。"
 
 #: src/auth-view.tsx
 msgid "The link is invalid, expired, already used, or password sign-in is temporarily unavailable."
-msgstr ""
+msgstr "リンクが無効、期限切れ、使用済み、またはパスワードログインが一時的に利用できません。"
 
 #: src/ConnectApp.tsx
 msgid "The main copy has moved away from hosted storage."
-msgstr ""
+msgstr "正本はホスト型ストレージから移動しました。"
 
 #: src/authority-workflows.tsx
 msgid "The main copy stayed hosted."
-msgstr ""
+msgstr "正本はホスト型のままです。"
 
 #: src/authority-workflows.tsx
 msgid "The main copy was not moved to mdbase."
-msgstr ""
+msgstr "正本は mdbase に移動されませんでした。"
 
 #: src/portal-model.ts
 msgid "The mdbase connect app on this computer needs to be updated before you can continue."
-msgstr ""
+msgstr "続行するには、このコンピューターの mdbase connect アプリを更新する必要があります。"
 
 #: src/authority-workflows.tsx
 msgid "The original app approval changed."
-msgstr ""
+msgstr "元のアプリ承認が変更されました。"
 
 #: src/authority-workflows.tsx
 msgid "The original sign-in changed."
-msgstr ""
+msgstr "元のログイン状態が変更されました。"
 
 #: src/authorization-view.tsx
 msgid "The page will notice when the request is approved."
-msgstr ""
+msgstr "要求が承認されると、このページで検知されます。"
 
 #: src/authorization-review.tsx
 msgid "The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed."
-msgstr ""
+msgstr "ルールはコレクション内で実行されます。通知は {applicationName} に変更があったことだけを伝え、変更内容は伝えません。"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "the selected computer"
-msgstr ""
+msgstr "選択したコンピューター"
 
 #: src/authority-workflows.tsx
 msgid "The signed-in account changed. Start sign-in again from the app."
-msgstr ""
+msgstr "ログイン中のアカウントが変わりました。アプリからログインをやり直してください。"
 
 #: src/authority-workflows.tsx
 msgid "The synced Markdown folder becomes the main copy."
-msgstr ""
+msgstr "同期する Markdown フォルダーが正本になります。"
 
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
-msgstr ""
+msgstr "このアカウントでは、mdbase デスクトップアプリで新しいデバイスを承認します。デスクトップアプリからこのデバイスを追加し、{app} で再度ログインしてください。"
 
 #: src/AccountManagement.tsx
 msgid "This account is managed by your tailnet and cannot be deleted here."
-msgstr ""
+msgstr "このアカウントは tailnet によって管理されているため、ここでは削除できません。"
 
 #: src/auth-view.tsx
 msgid "This account setup link can’t be opened"
-msgstr ""
+msgstr "このアカウント設定リンクは開けません"
 
 #: src/authorization-capabilities.ts
 msgid "This app needs an update before it can connect. Try again after it updates."
-msgstr ""
+msgstr "このアプリは接続前に更新が必要です。更新後に再試行してください。"
 
 #: src/authorization-view.tsx
 msgid "This application needs a collection hosted by mdbase, and none is ready yet."
-msgstr ""
+msgstr "このアプリケーションには mdbase がホストするコレクションが必要ですが、まだ準備できていません。"
 
 #: src/compatibility.ts
 msgid "This application needs a collection hosted by mdbase."
-msgstr ""
+msgstr "このアプリケーションには mdbase がホストするコレクションが必要です。"
 
 #: src/portal-model.ts
 msgid "This application request has expired. Return to the application and start again."
-msgstr ""
+msgstr "このアプリケーションの要求は期限切れです。アプリケーションに戻ってやり直してください。"
 
 #: src/authorization-review.tsx
 msgid "This application uses advanced behavior settings, so an existing type cannot be connected during approval."
-msgstr ""
+msgstr "このアプリケーションは高度な動作設定を使用するため、承認時に既存の型を接続できません。"
 
 #: src/ConnectApp.tsx
 msgid "This browser could not keep your creation request. No request was sent."
-msgstr ""
+msgstr "このブラウザーでは作成要求を保持できませんでした。要求は送信されていません。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "This browser, active now"
-msgstr ""
+msgstr "このブラウザー（現在使用中）"
 
 #: src/authorization-view.tsx
 msgid "this collection"
-msgstr ""
+msgstr "このコレクション"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "this collection"
-msgstr ""
+msgstr "このコレクション"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "this collection"
-msgstr ""
+msgstr "このコレクション"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "This collection"
-msgstr ""
+msgstr "このコレクション"
 
 #. placeholder {0}: new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(unavailable.map(contractLabel))
 #: src/compatibility.ts
 msgid "This collection does not provide {0}."
-msgstr ""
+msgstr "このコレクションには {0} がありません。"
 
 #: src/authority-workflows.tsx
 msgid "This collection is no longer available. Choose a collection again."
-msgstr ""
+msgstr "このコレクションは利用できなくなりました。コレクションを選び直してください。"
 
 #: src/authority-workflows.tsx
 msgid "This collection stays on your computer. It can connect when a computer signed in to this account is available."
-msgstr ""
+msgstr "このコレクションはコンピューター上に残ります。このアカウントでログイン中のコンピューターが利用可能になると接続できます。"
 
 #: src/ConnectApp.tsx
 msgid "This deployment has not configured a feedback destination."
-msgstr ""
+msgstr "この環境にはフィードバックの送信先が設定されていません。"
 
 #: src/authority-workflows.tsx
 msgid "This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow."
-msgstr ""
+msgstr "このデバイスは、承認されたコレクションのファイルや現在のアカウント・メンバー情報を含むオフラインコピーを保持できます。アクセス対象は許可したコレクションだけです。"
 
 #: src/authority-workflows.tsx
 msgid "This folder will receive Markdown from mdbase and will not upload local edits."
-msgstr ""
+msgstr "このフォルダーは mdbase から Markdown を受け取り、ローカルでの編集内容をアップロードしません。"
 
 #: src/ApplicationAccess.tsx
 msgid "This installation has no approved collections."
-msgstr ""
+msgstr "このインストールには承認済みのコレクションがありません。"
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "This is a Private collection: it stays on your computer. {0} can use it while a computer that has it is running mdbase and is signed in to your account."
-msgstr ""
+msgstr "これはプライベートコレクションです。コンピューター上に保持されます。保持しているコンピューターで mdbase が稼働し、アカウントにログインしている間、{0} が利用できます。"
 
 #: src/authorization-view.tsx
 msgid "This is taking longer than usual. Keep this page open; it continues automatically when setup finishes."
-msgstr ""
+msgstr "通常より時間がかかっています。このページを開いたままにしてください。設定完了後に自動的に続行します。"
 
 #: src/AccountManagement.tsx
 msgid "This is your only sign-in method."
-msgstr ""
+msgstr "これが唯一のログイン方法です。"
 
 #: src/AccountManagement.tsx
 msgid "This method is used by the current session."
-msgstr ""
+msgstr "この方法は現在のセッションで使用されています。"
 
 #: src/AccountManagement.tsx
 msgid "This permanently deletes:"
-msgstr ""
+msgstr "次のものが完全に削除されます:"
 
 #: src/authorization-view.tsx
 msgid "This request has expired or was already answered."
-msgstr ""
+msgstr "この要求は期限切れか、すでに回答済みです。"
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {0}."
-msgstr ""
+msgstr "コンピューターの接続またはコレクションの追加中も、この要求は開いたままです。デスクトップアプリで承認してからここに戻り、{0} に進んでください。"
 
 #: src/auth-view.tsx
 msgid "This reset link can’t be opened"
-msgstr ""
+msgstr "このリセットリンクは開けません"
 
 #: src/auth-view.tsx
 msgid "This unsubscribe link can’t be opened"
-msgstr ""
+msgstr "この配信停止リンクは開けません"
 
 #: src/authority-workflows.tsx
 msgid "Transfer approved"
-msgstr ""
+msgstr "転送を承認しました"
 
 #: src/authority-workflows.tsx
 msgid "Transfer complete"
-msgstr ""
+msgstr "転送が完了しました"
 
 #: src/authority-workflows.tsx
 msgid "Transfer ended"
-msgstr ""
+msgstr "転送が終了しました"
 
 #: src/ConnectApp.tsx
 msgid "Try a different name, registration ID or status. Filtering does not revoke access."
-msgstr ""
+msgstr "別の名前、登録 ID、状態で試してください。絞り込んでもアクセス権は取り消されません。"
 
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
@@ -3499,310 +3499,310 @@ msgstr ""
 #: src/onboarding-view.tsx
 #: src/portal-ui.tsx
 msgid "Try again"
-msgstr ""
+msgstr "再試行"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Two-way sync"
-msgstr ""
+msgstr "双方向同期"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"
-msgstr ""
+msgstr "確認のため DELETE と入力してください"
 
 #: src/CollectionPicker.tsx
 msgid "Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice."
-msgstr ""
+msgstr "入力して絞り込みます。矢印キーで候補を選び、Enter で確定します。入力だけでは選択は変わりません。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Unavailable"
-msgstr ""
+msgstr "利用できません"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Unnamed collection"
-msgstr ""
+msgstr "名前のないコレクション"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Unsubscribe"
-msgstr ""
+msgstr "配信停止"
 
 #: src/auth-view.tsx
 msgid "Unsubscribe from mdbase email"
-msgstr ""
+msgstr "mdbase のメール配信を停止"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Unsubscribing…"
-msgstr ""
+msgstr "配信停止中…"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Update mdbase connect on {0} before using this collection."
-msgstr ""
+msgstr "このコレクションを使う前に、{0} の mdbase connect を更新してください。"
 
 #: src/ConnectApp.tsx
 msgid "Update recommended for current policy protection"
-msgstr ""
+msgstr "現在のポリシーを保護するため更新を推奨します"
 
 #: src/ConnectApp.tsx
 msgid "Update required"
-msgstr ""
+msgstr "更新が必要です"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Update required"
-msgstr ""
+msgstr "更新が必要です"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Updating access…"
-msgstr ""
+msgstr "アクセスを更新中…"
 
 #: src/authorization-view.tsx
 msgid "Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade."
-msgstr ""
+msgstr "このアプリケーションが以前追加した初期型を、カスタマイズやノートを維持したまま更新します。初期型に由来することを確認できない型は変更しません。競合や、古い契約を使うほかの型がある場合は、更新全体を中止します。"
 
 #: src/AccountManagement.tsx
 msgid "Usage temporarily unavailable"
-msgstr ""
+msgstr "使用量を一時的に取得できません"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Usage unavailable"
-msgstr ""
+msgstr "使用量を取得できません"
 
 #: src/auth-view.tsx
 msgid "Use a connected account to get started."
-msgstr ""
+msgstr "接続済みアカウントを使用して開始してください。"
 
 #: src/auth-view.tsx
 msgid "Use a connected account, or verify your email to get started."
-msgstr ""
+msgstr "接続済みアカウントを使用するか、メールを確認して開始してください。"
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"
-msgstr ""
+msgstr "このコンピューターのフォルダーを使用"
 
 #: src/authorization-view.tsx
 msgid "Use a local folder"
-msgstr ""
+msgstr "ローカルフォルダーを使用"
 
 #: src/ConnectApp.tsx
 msgid "Use a single-line collection name."
-msgstr ""
+msgstr "コレクション名は一行で入力してください。"
 
 #: src/ConnectApp.tsx
 msgid "Use an existing person or create a note"
-msgstr ""
+msgstr "既存のユーザーを使用するか、ノートを作成"
 
 #: src/authorization-review.tsx
 msgid "Use an existing type"
-msgstr ""
+msgstr "既存の型を使用"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
-msgstr ""
+msgstr "15 文字以上で入力してください。スペースも使用できます。"
 
 #: src/ConnectApp.tsx
 msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
-msgstr ""
+msgstr "デスクトップアプリを使って、通常の Markdown フォルダーをコンピューター上に保持します。"
 
 #: src/authority-workflows.tsx
 msgid "Use the folder on {mirrorName} as the main copy?"
-msgstr ""
+msgstr "{mirrorName} のフォルダーを正本にしますか？"
 
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."
-msgstr ""
+msgstr "確認済みのメールアドレス宛てに招待してもらえない場合に使います。"
 
 #: src/AccountManagement.tsx
 msgid "Used by hosted collections"
-msgstr ""
+msgstr "ホスト型コレクションが使用"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "v"
-msgstr ""
+msgstr "v"
 
 #: src/AccountManagement.tsx
 msgid "Verification and messages about your account. These are always sent."
-msgstr ""
+msgstr "アカウントの確認と関連メッセージです。常に送信されます。"
 
 #: src/ConnectApp.tsx
 msgid "Verified email"
-msgstr ""
+msgstr "確認済みのメールアドレス"
 
 #: src/AccountManagement.tsx
 msgid "Verify with GitHub"
-msgstr ""
+msgstr "GitHub で確認"
 
 #: src/AccountManagement.tsx
 msgid "Verify with Google"
-msgstr ""
+msgstr "Google で確認"
 
 #. placeholder {0}: connector.minimum_connector_version
 #: src/ConnectApp.tsx
 msgid "version {0} or later"
-msgstr ""
+msgstr "バージョン {0} 以降"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Viewer"
-msgstr ""
+msgstr "閲覧者"
 
 #: src/authorization-view.tsx
 msgid "Waiting for mdbase connect"
-msgstr ""
+msgstr "mdbase connect を待機中"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Waiting for the app"
-msgstr ""
+msgstr "アプリを待機中"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Waiting for the computer"
-msgstr ""
+msgstr "コンピューターを待機中"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Waiting to sync"
-msgstr ""
+msgstr "同期待ち"
 
 #: src/authority-workflows.tsx
 msgid "We couldn't confirm collection creation finished. Please try again."
-msgstr ""
+msgstr "コレクションの作成完了を確認できませんでした。再試行してください。"
 
 #: src/authority-workflows.tsx
 msgid "We couldn't identify your account. Sign in again to continue."
-msgstr ""
+msgstr "アカウントを特定できませんでした。再度ログインして続行してください。"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "We couldn't prepare {0}."
-msgstr ""
+msgstr "{0} を準備できませんでした。"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "We couldn't prepare {0}. Keep the app open and try again."
-msgstr ""
+msgstr "{0} を準備できませんでした。アプリを開いたまま再試行してください。"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "We couldn't prepare {0}. Make sure the app is up to date."
-msgstr ""
+msgstr "{0} を準備できませんでした。アプリが最新の状態か確認してください。"
 
 #: src/auth-view.tsx
 msgid "We’ll email you a link to verify your address. Then you can choose a password."
-msgstr ""
+msgstr "メールアドレスを確認するためのリンクを送信します。その後、パスワードを設定できます。"
 
 #: src/auth-view.tsx
 msgid "We’ll email you a reset link. It expires in one hour."
-msgstr ""
+msgstr "リセットリンクをメールで送信します。有効期限は 1 時間です。"
 
 #: src/onboarding-view.tsx
 msgid "We’re creating a small private Markdown collection, then we’ll open it in the editor."
-msgstr ""
+msgstr "小さなプライベート Markdown コレクションを作成し、エディターで開きます。"
 
 #: src/authorization-view.tsx
 msgid "What it can do"
-msgstr ""
+msgstr "許可される操作"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Work with files"
-msgstr ""
+msgstr "ファイルを操作"
 
 #: src/authorization-view.tsx
 msgid "Workouts"
-msgstr ""
+msgstr "ワークアウト"
 
 #: src/authority-workflows.tsx
 msgid "Writes pause during verification, then hosted access is retired."
-msgstr ""
+msgstr "検証中は書き込みを一時停止し、その後ホスト型のアクセスを終了します。"
 
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."
-msgstr ""
+msgstr "選択したコレクションのリマインダーを許可しました。"
 
 #: src/auth-view.tsx
 msgid "You won’t receive {topic} from mdbase Connect. Messages about your account, such as verification and security email, are still sent."
-msgstr ""
+msgstr "mdbase Connect からの {topic} は届かなくなります。確認やセキュリティに関するメールなど、アカウントに関するメッセージは引き続き送信されます。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "You’re unsubscribed"
-msgstr ""
+msgstr "配信を停止しました"
 
 #: src/AccountManagement.tsx
 msgid "Your account has been deleted."
-msgstr ""
+msgstr "アカウントを削除しました。"
 
 #: src/authorization-view.tsx
 msgid "Your approved collection and permissions will follow you back."
-msgstr ""
+msgstr "承認したコレクションと権限は、アプリに戻った後も有効です。"
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."
-msgstr ""
+msgstr "変更は保存されましたが、アカウントの詳細を更新できませんでした。再読み込みして最新の詳細を確認してください。"
 
 #: src/authorization-view.tsx
 msgid "Your choices are being checked with the collection’s main copy. The application does not have access yet."
-msgstr ""
+msgstr "選択内容をコレクションの正本と照合しています。アプリケーションにはまだアクセス権がありません。"
 
 #: src/auth-view.tsx
 msgid "Your collections and account, in one place."
-msgstr ""
+msgstr "コレクションとアカウントを一か所で管理できます。"
 
 #: src/ConnectApp.tsx
 msgid "Your collections were not deleted."
-msgstr ""
+msgstr "コレクションは削除されていません。"
 
 #: src/auth-view.tsx
 msgid "Your email is verified. Choose a name and password to finish setting up your account."
-msgstr ""
+msgstr "メールアドレスを確認しました。名前とパスワードを設定してアカウントの登録を完了してください。"
 
 #: src/auth-view.tsx
 msgid "Your email is verified. Confirm your name to finish setting up your account. No password needed."
-msgstr ""
+msgstr "メールアドレスを確認しました。名前を確定してアカウントの登録を完了してください。パスワードは不要です。"
 
 #: src/onboarding-view.tsx
 msgid "Your first collection"
-msgstr ""
+msgstr "最初のコレクション"
 
 #: src/authority-workflows.tsx
 msgid "Your local collection was kept."
-msgstr ""
+msgstr "ローカルコレクションは保持されました。"
 
 #: src/portal-model.ts
 msgid "Your mdbase account hasn't been upgraded yet, so {app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to {app} to sign in with a different account."
-msgstr ""
+msgstr "mdbase アカウントがまだアップグレードされていないため、{app} では使用できません。support@mdbase.dev にメールしてアップグレードを依頼するか、{app} に戻って別のアカウントでログインしてください。"
 
 #: src/portal-model.ts
 msgid "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly."
-msgstr ""
+msgstr "mdbase アカウントをアップグレード中です。通常は数分で完了します。少し待ってから再試行してください。"
 
 #: src/portal-model.ts
 msgid "Your mdbase account will be upgraded soon, so {app} can't use it yet. Sign in again from {app} once it is."
-msgstr ""
+msgstr "mdbase アカウントはまもなくアップグレードされます。それまでは {app} で使用できません。完了後、{app} から再度ログインしてください。"
 
 #: src/portal-model.ts
 msgid "Your mdbase account's upgrade was paused, so {app} can't use it yet. Your account and collections still work with your current mdbase apps. Email support@mdbase.dev if you need help."
-msgstr ""
+msgstr "mdbase アカウントのアップグレードは一時停止中のため、{app} ではまだ使用できません。アカウントとコレクションは現在の mdbase アプリで引き続き使用できます。サポートが必要な場合は support@mdbase.dev にメールしてください。"
 
 #: src/ConnectApp.tsx
 msgid "Your original request is kept. Retry it to avoid creating another collection."
-msgstr ""
+msgstr "元の要求は保持されています。別のコレクションを作成しないよう、その要求を再試行してください。"
 
 #: src/auth-view.tsx
 msgid "Your other browser sessions have been signed out. This browser is now signed in with the new password."
-msgstr ""
+msgstr "ほかのブラウザーセッションはログアウトしました。このブラウザーでは新しいパスワードでログインしています。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Your person record"
-msgstr ""
+msgstr "自分のユーザーレコード"
