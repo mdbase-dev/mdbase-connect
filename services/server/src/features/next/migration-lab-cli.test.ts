@@ -15,7 +15,7 @@ vi.mock("./migration-lab.js", () => ({
 }));
 const account = "10000000-0000-4000-8000-000000000001", hold = "20000000-0000-4000-8000-000000000002";
 const sourceUrl = "postgres://synthetic:synthetic@source.invalid/source?sslmode=verify-full";
-const origins = { staging: "https://connect-staging.mdbase.dev", production: "https://connect.mdbase.dev" };
+const origins = { lab: "https://connect-lab.mdbase.dev", staging: "https://connect-staging.mdbase.dev", production: "https://connect.mdbase.dev" };
 const commands = ["lab-run", "resume", "route-back", "status"];
 const argv = process.argv, exitCode = process.exitCode;
 afterEach(() => {
@@ -23,7 +23,7 @@ afterEach(() => {
   vi.unstubAllEnvs(); vi.restoreAllMocks();
 });
 
-async function invoke(environment: keyof typeof origins, command: string, overrides: Record<string, string | undefined> = {}) {
+async function invoke(environment: keyof typeof origins, command: string, overrides: Record<string, string | undefined> = {}, flags: string[] = []) {
   vi.resetModules(); vi.resetAllMocks();
   effects.createDatabase.mockResolvedValue({ end: effects.controlEnd });
   effects.openDatabase.mockResolvedValue({ end: effects.sourceEnd });
@@ -39,7 +39,7 @@ async function invoke(environment: keyof typeof origins, command: string, overri
     MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN: "m".repeat(40), MDBASE_LEGACY_PROVIDER_LAB_OWNER_READONLY_ROLE: undefined,
     ...overrides
   })) vi.stubEnv(key, value);
-  process.argv = ["node", "next-migration-lab", command, account, ...(command === "lab-run" ? [hold] : [])];
+  process.argv = ["node", "next-migration-lab", command, account, ...(command === "lab-run" ? [hold] : []), ...flags];
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
   await import("./migration-lab-cli.js");
@@ -52,6 +52,25 @@ function noIO() {
   expect(effects.worker).not.toHaveBeenCalled(); expect(effects.connect).not.toHaveBeenCalled();
   for (const method of [effects.run, effects.resume, effects.routeBack, effects.status]) expect(method).not.toHaveBeenCalled();
 }
+
+describe("LAB owner-readonly CLI override", () => {
+  const source = "postgresql://synthetic_lab_owner:synthetic@dpg-dabpdaon74is7380br1g-a:5432/mdbase_lab_beta94_202609020323211110102?options=-cdefault_transaction_read_only%3Don";
+  const overrides = { MDBASE_LEGACY_PROVIDER_DATABASE_URL: source, MDBASE_LEGACY_PROVIDER_LAB_OWNER_READONLY_ROLE: "synthetic_lab_owner" };
+  it.each(["lab-run", "status", "route-back"])("allows %s with the same readonly source", async command => {
+    const { error } = await invoke("lab", command, overrides);
+    expect(error).not.toHaveBeenCalled();
+    expect(effects.openDatabase).toHaveBeenCalledExactlyOnceWith(source, { rejectUnauthorized: false });
+    const selected = command === "lab-run" ? effects.run : command === "status" ? effects.status : effects.routeBack;
+    expect(selected).toHaveBeenCalledOnce();
+    expect(effects.sourceEnd).toHaveBeenCalledOnce(); expect(effects.controlEnd).toHaveBeenCalledOnce();
+  });
+  it.each(["lab-run", "resume"])("still refuses %s pause/resume with the override", async command => {
+    const { error } = await invoke("lab", command, overrides, command === "lab-run" ? ["--stop-before-flip"] : []);
+    expect(error).toHaveBeenCalledExactlyOnceWith("migration_lab_owner_readonly_run_only");
+    expect(effects.createDatabase).not.toHaveBeenCalled(); expect(effects.openDatabase).not.toHaveBeenCalled();
+    for (const method of [effects.run, effects.resume, effects.routeBack, effects.status]) expect(method).not.toHaveBeenCalled();
+  });
+});
 
 describe.each(["staging", "production"] as const)("%s product CLI entry composition", environment => {
   it.each(commands)("uses the SAME ordinary %s implementation with the exact deployment environment", async command => {

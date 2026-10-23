@@ -53,7 +53,7 @@ async function main(argv: string[]): Promise<void> {
   // An explicit LAB-only owner identity, supplied by approved custody, not an
   // inferred URI role or a fallback to DATABASE_URL. Never applies to control DB.
   const ownerReadonlyRole = process.env.MDBASE_LEGACY_PROVIDER_LAB_OWNER_READONLY_ROLE;
-  if (ownerReadonlyRole !== undefined && (command !== "lab-run" || stopBeforeFlip)) {
+  if (ownerReadonlyRole !== undefined && (command === "resume" || stopBeforeFlip)) {
     throw new Error("migration_lab_owner_readonly_run_only");
   }
   const sourceConnection = labLegacySourceConnection(sourceUrl, process.env.MDBASE_CONNECT_ENVIRONMENT, ownerReadonlyRole);
