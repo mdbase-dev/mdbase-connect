@@ -2702,422 +2702,422 @@ msgstr "정수"
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Integer"
-msgstr ""
+msgstr "정수"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "Interface language"
-msgstr ""
+msgstr "인터페이스 언어"
 
 #: src/type-contracts.ts
 msgid "invalid JSON Schema"
-msgstr ""
+msgstr "잘못된 JSON Schema"
 
 #: src/PropertiesPanel.tsx
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
-msgstr ""
+msgstr "잘못된 JSON입니다."
 
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
-msgstr ""
+msgstr "추가된 이후 편집되지 않아 새 기본 유형으로 대체됩니다."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "item"
-msgstr ""
+msgstr "항목"
 
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
-msgstr ""
+msgstr "현재 구조 규칙이 대체됩니다."
 
 #: src/TypeBrowser.tsx
 msgid "Journal/**/*.md"
-msgstr ""
+msgstr "Journal/**/*.md"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Keep Markdown visible within the writing measure."
-msgstr ""
+msgstr "작성 영역 안에서 Markdown이 계속 보이도록 합니다."
 
 #: src/ConflictResolver.tsx
 msgid "Keep my edits"
-msgstr ""
+msgstr "내 편집 내용 유지"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Keep the caret line centred while writing in focus mode."
-msgstr ""
+msgstr "집중 모드에서 작성하는 동안 커서 줄을 화면 중앙에 유지합니다."
 
 #: src/SchemaValueEditor.tsx
 msgid "key"
-msgstr ""
+msgstr "키"
 
 #: src/SchemaValueEditor.tsx
 msgid "Key"
-msgstr ""
+msgstr "키"
 
 #: src/editor-commands.ts
 msgid "Keyboard shortcuts"
-msgstr ""
+msgstr "키보드 단축키"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "Language"
-msgstr ""
+msgstr "언어"
 
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Large"
-msgstr ""
+msgstr "크게"
 
 #: src/code-editor-completions.ts
 msgid "Large section heading"
-msgstr ""
+msgstr "큰 섹션 제목"
 
 #: src/ConflictResolver.tsx
 msgid "Latest title"
-msgstr ""
+msgstr "최신 제목"
 
 #: src/ConflictResolver.tsx
 msgid "Latest version"
-msgstr ""
+msgstr "최신 버전"
 
 #. placeholder {0}: pack.displayName
 #: src/catalog-pack-installation.tsx
 msgid "Let “{0}” manage these definitions?"
-msgstr ""
+msgstr "“{0}”이(가) 이 정의를 관리하도록 허용할까요?"
 
 #: src/type-schema.ts
 msgid "Lifecycle"
-msgstr ""
+msgstr "수명 주기"
 
 #: src/WorkspaceChrome.tsx
 msgid "Link"
-msgstr ""
+msgstr "링크"
 
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
-msgstr ""
+msgstr "이미 나를 나타내는 레코드를 연결하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Link and uniqueness rules can make matching records valid or invalid without changing their source files."
-msgstr ""
+msgstr "링크 및 고유성 규칙에 따라 원본 파일을 변경하지 않고도 일치하는 레코드가 유효하거나 무효가 될 수 있습니다."
 
 #: src/YourPersonPanel.tsx
 msgid "Link anyway"
-msgstr ""
+msgstr "그래도 연결"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Link field {0}"
-msgstr ""
+msgstr "링크 필드 {0}"
 
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
-msgstr ""
+msgstr "{0}의 언급 연결"
 
 #: src/type-schema.ts
 msgid "link rule"
-msgstr ""
+msgstr "링크 규칙"
 
 #: src/type-schema.ts
 msgid "Link rules"
-msgstr ""
+msgstr "링크 규칙"
 
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
-msgstr ""
+msgstr "이 레코드를 나에게 연결"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
-msgstr ""
+msgstr "노트 또는 파일에 링크"
 
 #: src/editor-commands.ts
 #: src/WorkspaceChrome.tsx
 msgid "Linked from"
-msgstr ""
+msgstr "링크됨"
 
 #: src/App.tsx
 msgid "Linked mention."
-msgstr ""
+msgstr "언급을 연결했습니다."
 
 #: src/TypeBrowser.tsx
 msgid "Linked schema field"
-msgstr ""
+msgstr "연결된 스키마 필드"
 
 #. placeholder {0}: linked.name
 #: src/YourPersonPanel.tsx
 msgid "Linked to {0}"
-msgstr ""
+msgstr "{0}에 연결됨"
 
 #: src/TypeBrowser.tsx
 msgid "Links"
-msgstr ""
+msgstr "링크"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
-msgstr ""
+msgstr "지원되지 않는 값이 있는 링크"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "List"
-msgstr ""
+msgstr "목록"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "List"
-msgstr ""
+msgstr "목록"
 
 #: src/ConnectionScreens.tsx
 msgid "list and search notes"
-msgstr ""
+msgstr "노트 목록 및 검색"
 
 #: src/ConnectionScreens.tsx
 msgid "list files"
-msgstr ""
+msgstr "파일 목록"
 
 #: src/type-schema.ts
 msgid "list item schema"
-msgstr ""
+msgstr "목록 항목 스키마"
 
 #: src/TypeBrowser.tsx
 msgid "List items"
-msgstr ""
+msgstr "목록 항목"
 
 #: src/App.tsx
 msgid "Loaded the latest version."
-msgstr ""
+msgstr "최신 버전을 불러왔습니다."
 
 #: src/TypeBrowser.tsx
 msgid "Loading available compatibility packs…"
-msgstr ""
+msgstr "사용 가능한 호환성 팩 불러오는 중…"
 
 #: src/TypeBrowser.tsx
 msgid "Loading contract catalog"
-msgstr ""
+msgstr "계약 카탈로그 불러오는 중"
 
 #: src/App.tsx
 msgid "Loading file viewer"
-msgstr ""
+msgstr "파일 뷰어 불러오는 중"
 
 #: src/App.tsx
 msgid "Loading folder composer"
-msgstr ""
+msgstr "폴더 작성기 불러오는 중"
 
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
-msgstr ""
+msgstr "폴더 불러오는 중…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
-msgstr ""
+msgstr "노트 불러오는 중"
 
 #: src/App.tsx
 msgid "Loading note composer"
-msgstr ""
+msgstr "노트 작성기 불러오는 중"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
-msgstr ""
+msgstr "노트 편집기 불러오는 중"
 
 #: src/NotePreview.tsx
 msgid "Loading preview"
-msgstr ""
+msgstr "미리보기 불러오는 중"
 
 #: src/NotePreview.tsx
 msgid "Loading preview…"
-msgstr ""
+msgstr "미리보기 불러오는 중…"
 
 #: src/App.tsx
 msgid "Loading properties…"
-msgstr ""
+msgstr "속성 불러오는 중…"
 
 #: src/LoadingScreens.tsx
 #: src/TypeBrowser.tsx
 msgid "Loading type definition"
-msgstr ""
+msgstr "유형 정의 불러오는 중"
 
 #: src/LoadingScreens.tsx
 msgid "Loading types"
-msgstr ""
+msgstr "유형 불러오는 중"
 
 #: src/YourPersonPanel.tsx
 msgid "Loading your identity and person records…"
-msgstr ""
+msgstr "ID 및 사람 레코드 불러오는 중…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Loading…"
-msgstr ""
+msgstr "불러오는 중…"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Local network access is blocked in this browser. Allow it in the site settings, then check again."
-msgstr ""
+msgstr "이 브라우저에서 로컬 네트워크 접근이 차단되었습니다. 사이트 설정에서 허용한 후 다시 확인하세요."
 
 #: src/App.tsx
 msgid "Local network access is blocked in this browser. Allow it in the site settings, then try again."
-msgstr ""
+msgstr "이 브라우저에서 로컬 네트워크 접근이 차단되었습니다. 사이트 설정에서 허용한 후 다시 시도하세요."
 
 #. placeholder {0}: Intl.DateTimeFormat().resolvedOptions().timeZone
 #: src/SchemaValueEditor.tsx
 msgid "Local time ({0})"
-msgstr ""
+msgstr "현지 시간 ({0})"
 
 #: src/TypeBrowser.tsx
 msgid "Loses"
-msgstr ""
+msgstr "잃음"
 
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
-msgstr ""
+msgstr "유형 정의 관리"
 
 #: src/contract-catalog.ts
 msgid "manifest.resources[{index}].kind is not supported."
-msgstr ""
+msgstr "manifest.resources[{index}].kind은(는) 지원되지 않습니다."
 
 #: src/contract-catalog.ts
 msgid "manifest.resources[{index}].mode is not supported."
-msgstr ""
+msgstr "manifest.resources[{index}].mode은(는) 지원되지 않습니다."
 
 #. placeholder {0}: field.reference
 #: src/type-contracts.ts
 msgid "Map required contract field {0}."
-msgstr ""
+msgstr "필수 계약 필드 {0}을(를) 매핑하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Mapping ready"
-msgstr ""
+msgstr "매핑 준비 완료"
 
 #: src/CodeEditor.tsx
 msgid "Mark task complete"
-msgstr ""
+msgstr "작업 완료로 표시"
 
 #: src/CodeEditor.tsx
 msgid "Mark task incomplete"
-msgstr ""
+msgstr "작업 미완료로 표시"
 
 #: src/QuickOpen.tsx
 msgid "Markdown commands"
-msgstr ""
+msgstr "Markdown 명령"
 
 #: src/TypeBrowser.tsx
 msgid "Markdown link"
-msgstr ""
+msgstr "Markdown 링크"
 
 #: src/App.tsx
 msgid "Markdown path"
-msgstr ""
+msgstr "Markdown 경로"
 
 #: src/FileViewer.tsx
 msgid "Markdown preview unavailable."
-msgstr ""
+msgstr "Markdown 미리보기를 사용할 수 없습니다."
 
 #: src/QuickOpen.tsx
 msgid "Matching actions"
-msgstr ""
+msgstr "일치하는 작업"
 
 #: src/TypeBrowser.tsx
 msgid "Matching notes"
-msgstr ""
+msgstr "일치하는 노트"
 
 #: src/QuickOpen.tsx
 msgid "Matching notes and actions"
-msgstr ""
+msgstr "일치하는 노트 및 작업"
 
 #: src/type-schema.ts
 msgid "Matching rules"
-msgstr ""
+msgstr "일치하는 규칙"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum"
-msgstr ""
+msgstr "최대"
 
 #: src/type-schema.ts
 msgid "maximum items"
-msgstr ""
+msgstr "최대 항목 수"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum items"
-msgstr ""
+msgstr "최대 항목 수"
 
 #: src/type-schema.ts
 msgid "maximum length"
-msgstr ""
+msgstr "최대 길이"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum length"
-msgstr ""
+msgstr "최대 길이"
 
 #: src/TypeBrowser.tsx
 msgid "mdbase catalog"
-msgstr ""
+msgstr "mdbase 카탈로그"
 
 #: src/App.tsx
 msgid "mdbase could not be reached on this computer. Editing will continue through mdbase."
-msgstr ""
+msgstr "이 컴퓨터에서 mdbase에 연결할 수 없습니다. mdbase를 통해 편집을 계속합니다."
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "mdbase could not be reached on this computer. You can keep editing through mdbase."
-msgstr ""
+msgstr "이 컴퓨터에서 mdbase에 연결할 수 없습니다. mdbase를 통해 계속 편집할 수 있습니다."
 
 #: src/next-editor-records.ts
 msgid "Mdbase did not return the complete note source. No source was reconstructed."
-msgstr ""
+msgstr "mdbase에서 완전한 노트 원본을 반환하지 않았습니다. 원본을 재구성하지 않았습니다."
 
 #: src/App.tsx
 msgid "mdbase editor can now use mdbase on this computer."
-msgstr ""
+msgstr "이제 mdbase editor에서 이 컴퓨터의 mdbase를 사용할 수 있습니다."
 
 #: src/SdkEditorRoot.tsx
 msgid "mdbase editor: {developerMessage}"
-msgstr ""
+msgstr "mdbase editor: {developerMessage}"
 
 #: src/ConnectionScreens.tsx
 msgid "mdbase keeps the access you already approved and shows only what needs to be added."
-msgstr ""
+msgstr "mdbase는 이미 승인한 접근 권한을 유지하고 추가해야 하는 항목만 표시합니다."
 
 #: src/TypeBrowser.tsx
 msgid "Minimum"
-msgstr ""
+msgstr "최소"
 
 #: src/type-schema.ts
 msgid "minimum items"
-msgstr ""
+msgstr "최소 항목 수"
 
 #: src/TypeBrowser.tsx
 msgid "Minimum items"
-msgstr ""
+msgstr "최소 항목 수"
 
 #: src/type-schema.ts
 msgid "minimum length"
-msgstr ""
+msgstr "최소 길이"
 
 #: src/TypeBrowser.tsx
 msgid "Minimum length"
-msgstr ""
+msgstr "최소 길이"
 
 #: src/TypeBrowser.tsx
 msgid "Missing field: {mapped}"
-msgstr ""
+msgstr "누락된 필드: {mapped}"
 
 #. placeholder {0}: record.path
 #: src/collection-index-controller.ts
 msgid "Missing frontmatter projections for {0}"
-msgstr ""
+msgstr "누락된 프런트매터 프로젝션: {0}"
 
 #: src/note-embeds.ts
 msgid "Missing note"
-msgstr ""
+msgstr "누락된 노트"
 
 #: src/TypeBrowser.tsx
 msgid "Missing properties have no type-specific read defaults."
-msgstr ""
+msgstr "누락된 속성에는 유형별 읽기 기본값이 없습니다."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Missing required properties"
-msgstr ""
+msgstr "누락된 필수 속성"
 
 #: src/PropertiesPanel.tsx
 msgid "Modified"
