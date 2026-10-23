@@ -161,7 +161,7 @@ msgstr "{0, plural, one {Renommer « {basename} » et déplacer # note ?} other 
 #. placeholder {2}: node.path
 #: src/CollectionRail.tsx
 msgid "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
-msgstr ""
+msgstr "{0, plural, one {Afficher les notes dans {1}, # note} other {Afficher les notes dans {2}, # notes}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
@@ -297,7 +297,7 @@ msgstr "{0} actuellement · {1} obtiennent ce type · {2} le perdent"
 #. placeholder {1}: suggestion.totalFields
 #: src/TypeBrowser.tsx
 msgid "{0} of {1} fields match"
-msgstr ""
+msgstr "{0} champ(s) sur {1} correspondent"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #. placeholder {1}: total?.toLocaleString(displayLocale()) ?? "…"
@@ -654,7 +654,7 @@ msgstr "{references, plural, one {Les liens de # note ont aussi été mis à jou
 #. placeholder {1}: fields.length
 #: src/TypeBrowser.tsx
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
-msgstr ""
+msgstr "{requiredMapped}/{0} obligatoires · {mappedCount}/{1} au total"
 
 #: src/NewNoteComposer.tsx
 msgid "{selectedOptional} set"
@@ -1530,11 +1530,11 @@ msgstr "La collection a changé avant la fin du pack de types."
 
 #: src/CollectionRail.tsx
 msgid "Collection changes saved on this device; waiting for sync"
-msgstr ""
+msgstr "Modifications de la collection enregistrées sur cet appareil ; en attente de synchronisation"
 
 #: src/CollectionRail.tsx
 msgid "Collection connected"
-msgstr ""
+msgstr "Connexion à la collection établie"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1560,7 +1560,7 @@ msgstr "Notes et fichiers de la collection"
 
 #: src/CollectionRail.tsx
 msgid "Collection offline"
-msgstr ""
+msgstr "Collection hors ligne"
 
 #: src/ConnectionScreens.tsx
 msgid "Collection options for {name}"
@@ -1568,7 +1568,7 @@ msgstr "Options de la collection {name}"
 
 #: src/CollectionRail.tsx
 msgid "Collection reconnecting"
-msgstr ""
+msgstr "Reconnexion à la collection en cours"
 
 #: src/TypeBrowser.tsx
 msgid "Collection resources"
@@ -1581,7 +1581,7 @@ msgstr "Racine de la collection"
 
 #: src/CollectionRail.tsx
 msgid "Collection stopped"
-msgstr ""
+msgstr "Collection arrêtée"
 
 #: src/EditorRail.tsx
 msgid "Collection tools"
@@ -3173,7 +3173,7 @@ msgstr "Déplacer « {basename} »"
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "Déplacer {0, plural, one {# note} other {# notes}} et mettre à jour {1, plural, one {# lien} other {# liens}} ?"
 
 #. placeholder {0}: paths.length
 #: src/MoveNoteDialog.tsx
@@ -4202,7 +4202,7 @@ msgstr "Renommer « {basename} »"
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’ and move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "Renommer « {basename} », déplacer {0, plural, one {# note} other {# notes}} et mettre à jour {1, plural, one {# lien} other {# liens}} ?"
 
 #: src/App.tsx
 msgid "Rename and update links"
@@ -4290,11 +4290,11 @@ msgstr "Redimensionner l’inspecteur de note"
 
 #: src/App.tsx
 msgid "Resize notes sidebar"
-msgstr ""
+msgstr "Redimensionner la barre latérale des notes"
 
 #: src/App.tsx
 msgid "Resize types sidebar"
-msgstr ""
+msgstr "Redimensionner la barre latérale des types"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
@@ -4482,7 +4482,7 @@ msgstr "L’enregistrement affecte toutes les notes correspondantes"
 #. placeholder {0}: type!.name
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
-msgstr ""
+msgstr "L’enregistrement affecte toutes les notes de type <0>{0}</0>"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4635,11 +4635,11 @@ msgstr "Afficher moins"
 #. placeholder {1}: node.count
 #: src/CollectionRail.tsx
 msgid "Show notes in {0}, {1} or more notes"
-msgstr ""
+msgstr "Afficher les notes dans {0}, au moins {1} notes"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
-msgstr ""
+msgstr "Afficher la barre latérale des notes"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
@@ -4647,7 +4647,7 @@ msgstr "Afficher ou masquer la barre latérale des notes"
 
 #: src/App.tsx
 msgid "Show types sidebar"
-msgstr ""
+msgstr "Afficher la barre latérale des types"
 
 #: src/App.tsx
 msgid "Sidebar layout controls"
@@ -4881,11 +4881,11 @@ msgstr "Le type <0>{0}</0> est un ancien modèle de départ Person. Examinez le 
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because additional YAML rules must be evaluated by the collection."
-msgstr ""
+msgstr "L’aperçu après enregistrement est indisponible, car la collection doit évaluer des règles YAML supplémentaires."
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because some matching rules must be evaluated by the collection."
-msgstr ""
+msgstr "L’aperçu après enregistrement est indisponible, car la collection doit évaluer certaines règles de correspondance."
 
 #: src/contract-catalog.ts
 msgid "The catalog contains duplicate {label} {identity}."
@@ -5813,7 +5813,7 @@ msgstr "mise à niveau"
 #. placeholder {0}: setup.upgrade.target
 #: src/YourPersonPanel.tsx
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
-msgstr ""
+msgstr "Mettre <0>{0}</0> à niveau vers le modèle de départ Person actuel. "
 
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
