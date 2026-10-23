@@ -1,6 +1,0 @@
-{
-  "reason": "syncEnableMessage in the desktop renderer's view-model turns a failed sync-enable into plain words for the Turn on sync dialog. It sits next to the existing message() helper it builds on and is exported so the renderer and its error-copy tests share one mapping.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}

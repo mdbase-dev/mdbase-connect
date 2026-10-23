@@ -4,6 +4,59 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.142
+
+### Added
+
+- Supply the original beta.141 production SDK packet to the Editor's existing target-aware publisher intake; publication still requires separate authorization.
+
+### Changed
+
+- After the desktop app takes over a collection from mdbase Connect, it turns on
+  Private sync for it automatically, so apps that used the collection keep
+  working without being approved again. Their grants carry over to the Private
+  collection when it is created (or the next time such an app connects). Files
+  are never changed by this; a failed attempt is retried when mdbase starts,
+  after sign-in and on a backoff, and the app and `mdbase doctor` say what it is
+  waiting for. Collections that were paused by hand stay paused until resumed.
+
+- Prepare the beta.141 production trust asset bound to its immutable image source, preserving existing production roots, certified policy keys and origins. Authenticated publication, tag push and production promotion remain separate gates.
+
+- Prepare the source-bound beta.141 staging trust asset with the existing independent staging roots and certified policy keys; authenticated publication and deployment remain separate gates.
+
+### Fixed
+
+- Desktop automatically retries moving local collections when an account upgrade becomes available, without restarting the daemon.
+- Preserve disabled and paused legacy collections during the move and leave their Private sync off.
+- Clarify that local collections remain safe on disk while waiting for an account upgrade, without claiming that the old connector is still syncing.
+
+- Desktop upgrades stop the legacy daemon through its existing private shutdown endpoint and automatically retry moves postponed while it is still exiting. No manual quit or migration retry is needed.
+
+- Keep the Editor’s last-open note collection-scoped and ignore pending note selections after leaving a collection.
+
+- Pin the Editor's default SDK archive to production beta.141 trust instead of staging trust.
+
+- Lower named query selections to string selections and projections so web clients can query local collections on desktop daemon beta.126; preserve application-facing selected value names.
+
+- The production desktop daemon now embeds the reviewed production trust asset
+  (`config/next-trust/production.json`), pinned by its SHA-256 and verified at
+  load, so synced collections and turning on sync no longer refuse with
+  `trust_missing`. LAB and local rehearsal builds are unchanged and still embed
+  no production trust.
+
+- After updating from mdbase Connect, the desktop app and `mdbase doctor` now say
+  that collections are waiting for this computer to sign in (or for the mdbase
+  server to be reachable), instead of waiting for an account upgrade or a
+  migration batch. The portal's sign-in page no longer calls an already-used
+  computer a "New computer".
+- The takeover is recorded in Activity for each collection that moved, and App
+  access explains that apps used with mdbase Connect reappear once Private sync
+  is on for the moved collections.
+- When turning on sync fails, the reason is shown inside the dialog in plain
+  words, and the dialog stays open to retry.
+- `mdbase doctor` reports a build without trust for synced collections and no
+  longer recommends `mdbase sync enable` when that cannot work.
+
 ## 0.1.0-beta.141
 
 ### Changed
