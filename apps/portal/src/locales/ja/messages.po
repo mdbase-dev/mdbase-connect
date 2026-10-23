@@ -68,19 +68,19 @@ msgstr " これらの操作はまとめて承認されます。"
 #. placeholder {0}: notifications.criteria.length
 #: src/authorization-review.tsx
 msgid "{0, plural, one {{applicationName} can turn on this rule after access is allowed. Notifications never contain record content.} other {{applicationName} can turn on these # rules after access is allowed. Notifications never contain record content.}}"
-msgstr ""
+msgstr "{0, plural, other {アクセスが許可されると、{applicationName} はこれら # 件のルールを有効にできます。通知にレコードの内容が含まれることはありません。}}"
 
 #. placeholder {0}: unavailable.length
 #: src/authorization-view.tsx
 msgid "{0, plural, one {# collection is unavailable} other {# collections are unavailable}}"
-msgstr "{0, plural, one {# 件のコレクションを利用できません} other {# 件のコレクションを利用できません}}"
+msgstr "{0, plural, other {# 件のコレクションを利用できません}}"
 
 #. placeholder {0}: grant.operations.length
 #. placeholder {0}: operations.size
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "{0, plural, one {# permission} other {# permissions}}"
-msgstr "{0, plural, one {# 件の権限} other {# 件の権限}}"
+msgstr "{0, plural, other {# 件の権限}}"
 
 #. placeholder {0}: countLabel(usage.record_count, "record")
 #. placeholder {1}: countLabel(usage.file_count, "file")
@@ -283,7 +283,7 @@ msgstr "{0} 分前"
 
 #: src/authority-workflows.tsx
 msgid "{app} now has this file access in {collection}. Return to {app} to continue."
-msgstr ""
+msgstr "{app} に {collection} でのこのファイルへのアクセスが許可されました。続行するには {app} に戻ってください。"
 
 #. placeholder {0}: request.reason
 #: src/authority-workflows.tsx
@@ -292,7 +292,7 @@ msgstr "{app} からのメッセージ: {0}"
 
 #: src/authority-workflows.tsx
 msgid "{app} was not given this file access in {collection}. Return to {app}; everything else works as before."
-msgstr ""
+msgstr "{app} に {collection} でのこのファイルへのアクセスは許可されませんでした。{app} に戻ってください。それ以外はこれまでどおり利用できます。"
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
@@ -341,43 +341,43 @@ msgstr "{tier} のホスト型ストレージ"
 
 #: src/auth-view.tsx
 msgid "{unsubscribed, select, product_updates {You won’t receive product updates from mdbase Connect. Messages about your account, such as verification and security email, are still sent.} other {You won’t receive announcements from mdbase Connect. Messages about your account, such as verification and security email, are still sent.}}"
-msgstr ""
+msgstr "{unsubscribed, select, product_updates {mdbase Connect の製品に関する最新情報は今後届きません。確認メールやセキュリティに関するメールなど、アカウントに関するメッセージは引き続き送信されます。} other {mdbase Connect からのお知らせは今後届きません。確認メールやセキュリティに関するメールなど、アカウントに関するメッセージは引き続き送信されます。}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# application installation} other {# application installations}}"
-msgstr "{value, plural, one {# 件のアプリケーションのインストール} other {# 件のアプリケーションのインストール}}"
+msgstr "{value, plural, other {# 件のアプリケーションのインストール}}"
 
 #: src/AccountManagement.tsx
 msgid "{value, plural, one {# byte} other {# bytes}}"
-msgstr "{value, plural, one {# バイト} other {# バイト}}"
+msgstr "{value, plural, other {# バイト}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# collection} other {# collections}}"
-msgstr "{value, plural, one {# 件のコレクション} other {# 件のコレクション}}"
+msgstr "{value, plural, other {# 件のコレクション}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# connected computer} other {# connected computers}}"
-msgstr "{value, plural, one {# 台の接続済みコンピューター} other {# 台の接続済みコンピューター}}"
+msgstr "{value, plural, other {# 台の接続済みコンピューター}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# file} other {# files}}"
-msgstr "{value, plural, one {# 件のファイル} other {# 件のファイル}}"
+msgstr "{value, plural, other {# 件のファイル}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# hosted collection} other {# hosted collections}}"
-msgstr "{value, plural, one {# 件のホスト型コレクション} other {# 件のホスト型コレクション}}"
+msgstr "{value, plural, other {# 件のホスト型コレクション}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# installation} other {# installations}}"
-msgstr "{value, plural, one {# 件のインストール} other {# 件のインストール}}"
+msgstr "{value, plural, other {# 件のインストール}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# record} other {# records}}"
-msgstr "{value, plural, one {# 件のレコード} other {# 件のレコード}}"
+msgstr "{value, plural, other {# 件のレコード}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
-msgstr "{value, plural, one {# 件の同期フォルダー} other {# 件の同期フォルダー}}"
+msgstr "{value, plural, other {# 件の同期フォルダー}}"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Add collection"
@@ -621,7 +621,7 @@ msgstr "{0} にリマインダーの送信を許可"
 
 #: src/authority-workflows.tsx
 msgid "Allow {app} this file access?"
-msgstr ""
+msgstr "{app} にこのファイルへのアクセスを許可しますか？"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
