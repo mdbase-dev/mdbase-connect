@@ -87,10 +87,10 @@ function browserSdkMethods(): string[] {
 }
 
 describe("mdbase connect server", () => {
-  it.each(["https://mdbase-l11-lab.pages.dev", "https://application.example"])("advertises every browser SDK method in unauthenticated preflight from %s", async (origin) => {
+  it.each(["https://mdbase-l11-lab.pages.dev", "https://application.example"])("advertises every browser SDK method in unauthenticated preflight from configured origin %s", async (origin) => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
-    const { app } = await buildApp({ db, publicUrl: "https://connect.example" });
+    const { app } = await buildApp({ db, publicUrl: "https://connect.example", managementOrigins: [origin] });
     resources.push(() => app.close());
     const sdkMethods = browserSdkMethods();
     expect(sdkMethods.length).toBeGreaterThan(0);
@@ -1421,7 +1421,8 @@ describe("mdbase connect server", () => {
       }).toString()
     });
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
-    expect(device.headers["access-control-allow-origin"]).toBe("null");
+    expect(device.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(device.headers["access-control-allow-credentials"]).toBeUndefined();
     expect(device.headers["cache-control"]).toContain("no-store");
     expect(device.json()).toMatchObject({
       verification_uri: "http://connect.test/device",
