@@ -140,6 +140,8 @@ interface CloudSetting {
 
 interface Window {
   mdbaseConnect: {
+    getLocale(): Promise<string>;
+    setLocale(locale: string): Promise<void>;
     status(): Promise<DaemonStatus>;
     updateStatus(): Promise<DesktopUpdateStatus>;
     checkForUpdates(): Promise<DesktopUpdateStatus>;

@@ -7,7 +7,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "pnpm i18n:check && pnpm -r build",
     "build:packages": "pnpm --filter \"./packages/**\" -r --if-present build",
     "check:architecture": "node scripts/check-architecture.mjs",
     "check:changelog": "node scripts/check-changelog.mjs",
@@ -84,13 +84,14 @@
     "test:all": "pnpm test:fast && pnpm test:integration && pnpm test:system",
     "test:accessibility": "pnpm build:packages && pnpm --filter @mdbase/connect-portal build && pnpm --filter @mdbase/connect-desktop build:renderer && pnpm --filter mdbase-editor build && node scripts/browser-accessibility.test.mjs && node --test apps/desktop/scripts/renderer-ux.test.mjs",
     "test:browser-storage": "pnpm --filter @mdbase-dev/connect test:browser-storage",
-    "pretypecheck": "pnpm build:packages",
+    "pretypecheck": "pnpm i18n:check && pnpm build:packages",
     "typecheck": "pnpm -r typecheck",
     "ci:local": "node scripts/ci-local.mjs",
     "pin:mdbase-rs": "node scripts/mdbase-rs-pin.mjs set",
     "version:check": "node scripts/check-release-version.mjs",
     "version:set": "node scripts/set-release-version.mjs",
-    "generate:icons": "node scripts/write-brand-icons.mjs"
+    "generate:icons": "node scripts/write-brand-icons.mjs",
+    "i18n:check": "pnpm --filter @mdbase-dev/ui i18n:check && pnpm --filter @mdbase/connect-ui i18n:check && pnpm --filter @mdbase/connect-portal i18n:check && pnpm --filter @mdbase/connect-desktop i18n:check"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

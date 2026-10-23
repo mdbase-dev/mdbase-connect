@@ -1,4 +1,7 @@
 import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
+import { t, plural } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { provisionedContract, type SetupType } from "@mdbase/connect-ui/contract-setup";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { APPLICATION_SETUP_OPERATIONS } from "@mdbase-dev/connect-protocol";
@@ -12,7 +15,7 @@ import {
   type PendingAuthorization,
   type UnavailableConnector
 } from "./api";
-import { collectionCompatibility } from "./compatibility";
+import { collectionCompatibility, lostCollectionNotice } from "./compatibility";
 import {
   authorizationCapabilityGroups,
   authorizationRequirementsError,
@@ -51,6 +54,7 @@ import {
 } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
 export function DeviceAuthorization() {
+  useLocaleRevision();
   const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? "");
   const [code, setCode] = useState(initialCode);
   const [busy, setBusy] = useState(false);
@@ -60,7 +64,7 @@ export function DeviceAuthorization() {
   async function openRequest(value: string) {
     const userCode = formatDeviceCode(value);
     if (userCode.replace("-", "").length !== 8) {
-      setError("Enter the eight-character code shown by the application.");
+      setError(t(i18n)({ message: "Enter the eight-character code shown by the application." }));
       return;
     }
     setBusy(true);
@@ -89,16 +93,16 @@ export function DeviceAuthorization() {
 
   return (
     <main className="center-page">
-      <PageBrand label="Application connection" busy={busy} error={error} />
+      <PageBrand label={t(i18n)({ message: "Application connection", context: "Application access approval" })} busy={busy} error={error} />
       <form className="decision-panel device-panel" onSubmit={(event) => {
         event.preventDefault();
         void openRequest(code);
       }}>
-        <p className="eyebrow">Short approval code</p>
-        <h1>Check the application.</h1>
-        <p>Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed.</p>
+        <p className="eyebrow"><Trans>Short approval code</Trans></p>
+        <h1><Trans>Check the application.</Trans></h1>
+        <p><Trans>Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed.</Trans></p>
         <label className="device-code-field">
-          <span>Approval code</span>
+          <span><Trans>Approval code</Trans></span>
           <input
             autoFocus={!initialCode}
             autoComplete="one-time-code"
@@ -109,10 +113,10 @@ export function DeviceAuthorization() {
             placeholder="ABCD-EFGH"
           />
         </label>
-        <p className="field-note">Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application.</p>
+        <p className="field-note"><Trans>Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application.</Trans></p>
         {error && <div className="message error" role="alert">{error}</div>}
         <button className="button primary" disabled={busy || code.replace("-", "").length !== 8}>
-          {busy ? "Checking…" : "Review request"}
+          {busy ? t(i18n)({ message: "Checking…", context: "Application access approval" }) : t(i18n)({ message: "Review request", context: "Application access approval" })}
         </button>
       </form>
     </main>
@@ -122,6 +126,7 @@ export function DeviceAuthorization() {
 type RequestStatus = "pending" | "setting_up" | "approved" | "denied" | "expired";
 
 export function Authorization({ requestId }: { requestId: string }) {
+  useLocaleRevision();
   const [request, setRequest] = useState<{
     authorization: PendingAuthorization;
     collections: AvailableCollection[];
@@ -205,9 +210,9 @@ export function Authorization({ requestId }: { requestId: string }) {
     if (status !== "expired") return <Loading error={error} />;
     return (
       <main className="center-page approval-page">
-        <PageBrand label="Application request" />
+        <PageBrand label={t(i18n)({ message: "Application request", context: "Application access approval" })} />
         <section className="decision-panel authorization-panel">
-          <RequestOutcome status="expired" applicationName="the application" standalone />
+          <RequestOutcome status="expired" applicationName={t(i18n)({ message: "the application", context: "Application access approval" })} standalone />
         </section>
       </main>
     );
@@ -229,7 +234,7 @@ export function Authorization({ requestId }: { requestId: string }) {
   return (
     <main className="center-page approval-page">
       <PageBrand
-        label="Application request"
+        label={t(i18n)({ message: "Application request", context: "Application access approval" })}
         markMotion={setupMotionActive ? (preparingStructure ? "sort" : "stream") : undefined}
         error={error}
       />
@@ -280,6 +285,7 @@ export function RequestOutcome({ status, applicationName, portable = false, retu
   // Without a loaded request there is no application heading above the outcome.
   standalone?: boolean;
 }) {
+  useLocaleRevision();
   const Heading = standalone ? "h1" : "h2";
   // Show a manual return link or a slow-setup note only if the automatic step
   // has not already taken the user away.
@@ -291,34 +297,35 @@ export function RequestOutcome({ status, applicationName, portable = false, retu
     return () => window.clearTimeout(timer);
   }, [status]);
   const returnLink = late && returnUrl
-    ? <a className="button secondary link-button outcome-return" href={returnUrl}>Return to {applicationName}</a>
+    ? <a className="button secondary link-button outcome-return" href={returnUrl}><Trans>Return to {applicationName}</Trans></a>
     : null;
   if (status === "expired") return <div className="request-outcome" role="status">
-    <p className="eyebrow outcome-label">Request unavailable</p>
-    <Heading>This request has expired or was already answered.</Heading>
-    <p>Return to {applicationName} and connect again to start a new request.</p>
+    <p className="eyebrow outcome-label"><Trans>Request unavailable</Trans></p>
+    <Heading>{t(i18n)({ message: "This request has expired or was already answered." })}</Heading>
+    <p><Trans>Return to {applicationName} and connect again to start a new request.</Trans></p>
   </div>;
   if (status === "setting_up") return <div className="request-outcome" role="status">
-    <p className="eyebrow outcome-label">Approval recorded</p>
-    <h2>Finishing collection setup…</h2>
-    <p>Your choices are being checked with the collection’s main copy. The application does not have access yet.</p>
-    {late && <p>This is taking longer than usual. Keep this page open; it continues automatically when setup finishes.</p>}
+    <p className="eyebrow outcome-label"><Trans>Approval recorded</Trans></p>
+    <h2><Trans>Finishing collection setup…</Trans></h2>
+    <p><Trans>Your choices are being checked with the collection’s main copy. The application does not have access yet.</Trans></p>
+    {late && <p><Trans>This is taking longer than usual. Keep this page open; it continues automatically when setup finishes.</Trans></p>}
   </div>;
   const approved = status === "approved";
   return <div className="request-outcome" role="status">
-    <p className="eyebrow outcome-label">{approved ? "Access approved" : "Access denied"}</p>
-    <h2>{portable ? `Return to ${applicationName}.` : `Returning to ${applicationName}…`}</h2>
+    <p className="eyebrow outcome-label">{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</p>
+    <h2>{portable ? t(i18n)`Return to ${applicationName}.` : t(i18n)`Returning to ${applicationName}…`}</h2>
     <p>{portable
       ? approved
-        ? "The application will finish connecting with its one-time device code. You can close this window."
-        : "The application will learn that access was not granted. You can close this window."
+        ? t(i18n)({ message: "The application will finish connecting with its one-time device code. You can close this window." })
+        : t(i18n)({ message: "The application will learn that access was not granted. You can close this window." })
       : approved
-        ? "Your approved collection and permissions will follow you back."
-        : "The application will show that access was not granted."}</p>
+        ? t(i18n)({ message: "Your approved collection and permissions will follow you back." })
+        : t(i18n)({ message: "The application will show that access was not granted." })}</p>
     {returnLink}
   </div>;
 }
 export function RequestIdentity({ request, showClientKey = true }: { request: PendingAuthorization; showClientKey?: boolean }) {
+  useLocaleRevision();
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
   const portable = request.distribution === "portable", native = request.platform === "native" && isNativeLoopbackOrigin(request.application_origin);
   return (
@@ -327,19 +334,19 @@ export function RequestIdentity({ request, showClientKey = true }: { request: Pe
         ? <img src={request.icon} alt="" referrerPolicy="no-referrer" onError={() => setFailedIcon(request.icon)} />
         : native ? null : initials(request.application_name)}</span>
       <div>
-        <h1>{native ? "Connect an app" : request.application_name}</h1>
-        <p className="request-origin">{native ? "an app running on this computer" : portable
-          ? <>Application using a device code{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
+        <h1>{native ? t(i18n)`Connect an app` : request.application_name}</h1>
+        <p className="request-origin">{native ? t(i18n)`an app running on this computer` : portable
+          ? <>{t(i18n)({ message: "Application using a device code" })}{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
           : <code>{host(request.application_origin ?? request.homepage)}</code>}</p>
         {native
-          ? <p className="request-guidance" role="note">Application identity unverified. This app calls itself {request.application_name}. Continue only if you started this connection intentionally.</p>
+          ? <p className="request-guidance" role="note"><Trans>Application identity unverified. This app calls itself {request.application_name}. Continue only if you started this connection intentionally.</Trans></p>
           : portable
-          ? <p className="request-guidance portable-authorization-warning" role="note"><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <> and it shows <code>{request.user_code}</code></> : null}.{request.project_url ? <> {host(request.project_url)} does not verify its origin.</> : null}</p>
-          : <p className="request-guidance">Only continue if you recognize this exact site.</p>}
+          ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null}</Trans></p>
+          : <p className="request-guidance"><Trans>Only continue if you recognize this exact site.</Trans></p>}
         {showClientKey && request.client_fingerprint
-          ? <p className="request-fingerprint">App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</p>
+          ? <p className="request-fingerprint"><Trans>App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</Trans></p>
           : null}
-        <p className="request-expiry">Request expires {relativeTime(request.expires_at)}</p>
+        <p className="request-expiry"><Trans>Request expires {relativeTime(request.expires_at)}</Trans></p>
       </div>
     </header>
   );
@@ -349,45 +356,31 @@ function DesktopContinuation({ request, onReviewHere }: {
   request: PendingAuthorization;
   onReviewHere(): void;
 }) {
+  useLocaleRevision();
   const desktopUrl = `mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`;
   return (
     <section className="desktop-continuation" aria-live="polite">
-      <h2>Choose the folder in mdbase connect.</h2>
-      <p>This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {request.application_name}.</p>
+      <h2><Trans>Choose the folder in mdbase connect.</Trans></h2>
+      <p><Trans>This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {request.application_name}.</Trans></p>
       <div className="desktop-continuation-status">
         <span className="status-dot connecting" aria-hidden="true" />
-        <div><strong>Waiting for mdbase connect</strong><small>The page will notice when the request is approved.</small></div>
+        <div><strong><Trans>Waiting for mdbase connect</Trans></strong><small><Trans>The page will notice when the request is approved.</Trans></small></div>
       </div>
       <div className="approval-actions">
-        <button className="button secondary" type="button" onClick={onReviewHere}>Review in this browser</button>
-        <a className="button primary link-button" href={desktopUrl}>Open mdbase connect</a>
+        <button className="button secondary" type="button" onClick={onReviewHere}><Trans>Review in this browser</Trans></button>
+        <a className="button primary link-button" href={desktopUrl}><Trans>Open mdbase connect</Trans></a>
       </div>
-      <p className="field-note">If the desktop app does not open, <a href="https://mdbase.dev/downloads/" target="_blank" rel="noreferrer">install the current Connect release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</p>
+      <p className="field-note"><Trans>If the desktop app does not open, <a href="https://mdbase.dev/downloads/" target="_blank" rel="noreferrer">install the current Connect release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</Trans></p>
     </section>
   );
 }
 
 export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprovalForm>) {
+  useLocaleRevision();
   const error = authorizationRequirementsError(props.request.requirements)
     ?? (props.request.account_backend === "next" ? nextAuthorizationGroups(props.request.requirements, props.request.requested_operations).error : undefined);
   if (error) return <div className="message error" role="alert">{error}</div>;
   return <SupportedApprovalForm {...props} />;
-}
-
-function lostCollectionNotice(
-  collection: AvailableCollection,
-  unavailable: Array<{ collection: AvailableCollection; compatibility: ReturnType<typeof collectionCompatibility> }>,
-  unavailableConnectors: UnavailableConnector[]
-): string {
-  const incompatible = unavailable.find((choice) => choice.collection.id === collection.id)?.compatibility;
-  if (incompatible && !incompatible.compatible) {
-    return `${collection.display_name} can no longer be used: ${incompatible.detail} Choose another collection.`;
-  }
-  const connector = unavailableConnectors.find((candidate) => candidate.connector_name === collection.connector_name);
-  if (connector) {
-    return `${collection.display_name} is unavailable because ${connector.connector_name} ${connector.reason === "paused" ? "has remote access paused" : "is offline"}. Choose another collection.`;
-  }
-  return `${collection.display_name} is no longer available. Choose another collection.`;
 }
 
 function SupportedApprovalForm({
@@ -411,6 +404,7 @@ function SupportedApprovalForm({
   onSetupActivityChange?(active: boolean): void;
   onCollectionCreated(collection: AvailableCollection): void;
 }) {
+  const localeRevision = useLocaleRevision();
   const [createdCollections, setCreatedCollections] = useState<AvailableCollection[]>([]);
   const choices = useMemo(() => {
     const combined = new Map(collections.map((collection) => [collection.id, collection]));
@@ -421,7 +415,7 @@ function SupportedApprovalForm({
       collection,
       compatibility: collectionCompatibility(request, collection)
     }));
-  }, [collections, createdCollections, request]);
+  }, [collections, createdCollections, request, localeRevision]);
   const visibleChoices = useMemo(
     () => request.collection_id
       ? choices.filter((choice) => choice.collection.id === request.collection_id)
@@ -448,7 +442,7 @@ function SupportedApprovalForm({
     () => jointPermissions
       ? nextAuthorizationGroups(request.requirements, request.requested_operations).groups
       : authorizationCapabilityGroups(request.requirements, request.requested_operations),
-    [jointPermissions, request.requirements, request.requested_operations]
+    [jointPermissions, request.requirements, request.requested_operations, localeRevision]
   );
   const initialSelection = initialAuthorizationSelection(
     compatible.map((choice) => choice.collection.id),
@@ -490,6 +484,7 @@ function SupportedApprovalForm({
   const focusHostedTriggerOnCancel = useRef(false);
   const lastSelected = useRef<AvailableCollection | undefined>(undefined);
   const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
+  const selectedName = selected?.display_name ?? t(i18n)`this collection`;
   const approval = selected?.authorization;
   const allowedOperations = approval?.available ? approval.operations : undefined;
   const allowedFiles = approval?.available ? approval.file_actions : undefined;
@@ -522,9 +517,9 @@ function SupportedApprovalForm({
   const hasSetup = setup.length > 0 || configurationSetup.length > 0;
   const requestSetupSummary = [
     ...(request.provisions.type_packs.length > 0
-      ? [`Adds ${provisionNames(request.provisions.type_packs)} to the collection`]
+      ? [t(i18n)`Adds ${provisionNames(request.provisions.type_packs)} to the collection`]
       : []),
-    ...(configurationSetup.length > 0 ? ["Changes collection settings"] : [])
+    ...(configurationSetup.length > 0 ? [t(i18n)({ message: "Changes collection settings" })] : [])
   ];
   const setupContracts = useMemo(() => selected
     ? request.requirements.contracts.flatMap((required) => {
@@ -555,14 +550,14 @@ function SupportedApprovalForm({
     ...selectedPermissionGroups.flatMap((group) =>
       group.higherImpact ? [group.label.toLocaleLowerCase()] : []
     ),
-    ...(!jointPermissions && fileActions.has("delete") ? ["delete files"] : []),
-    ...(peoplePermissions.has("members") ? ["see collection members"] : []),
-    ...(hasSetup ? ["changes to collection setup"] : [])
+    ...(!jointPermissions && fileActions.has("delete") ? [t(i18n)({ message: "delete files", context: "Application access approval" })] : []),
+    ...(peoplePermissions.has("members") ? [t(i18n)({ message: "see collection members", context: "Application access approval" })] : []),
+    ...(hasSetup ? [t(i18n)({ message: "changes to collection setup" })] : [])
   ];
   const approvalBlocker = jointPermissions && requestedPermissionGroups.some(group => group.required && !permissionGroups.includes(group))
-    ? "The collection cannot allow all required record and file permissions together. Choose another collection."
+    ? t(i18n)({ message: "The collection cannot allow all required record and file permissions together. Choose another collection." })
     : selectedPermissionCount === 0 && (jointPermissions || !request.requirements.files)
-    ? "Allow at least one permission to continue."
+    ? t(i18n)({ message: "Allow at least one permission to continue." })
     : setupContracts.map((contract) => contractSetupProblem(
         contract,
         setupChoices[`${contract.id}@${contract.version}`],
@@ -712,7 +707,7 @@ function SupportedApprovalForm({
       const collection: AvailableCollection = {
         id: created.collection.id,
         display_name: created.collection.display_name,
-        connector_name: "Hosted by mdbase",
+        connector_name: t(i18n)`Hosted by mdbase`,
         spec_version: created.collection.spec_version ?? "0.3.0",
         contracts: [],
         types: [],
@@ -731,31 +726,31 @@ function SupportedApprovalForm({
     }
   }
 
-  const denyButton = <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>;
+  const denyButton = <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? t(i18n)({ message: "Denying…", context: "Application access approval" }) : t(i18n)({ message: "Deny", context: "Application access approval" })}</button>;
 
   return (
     <div className="approval-form" aria-busy={submitting !== null}>
       {!reviewing && <section className="approval-section" aria-labelledby={`requested-${request.id}`}>
-        <h2 className="approval-section-title" id={`requested-${request.id}`}>Requests</h2>
+        <h2 className="approval-section-title" id={`requested-${request.id}`}><Trans>Requests</Trans></h2>
         <RequestedAccessSummary groups={requestedPermissionGroups} files={request.requirements.files} people={people} />
         {requestSetupSummary.length > 0 && <p className="approval-section-note">{requestSetupSummary.join(". ")}.</p>}
       </section>}
       <section className="approval-section" aria-labelledby={`collection-${request.id}`}>
-        <h2 className="approval-section-title" id={`collection-${request.id}`}>{reviewing ? "Collection" : "Choose a collection"}</h2>
+        <h2 className="approval-section-title" id={`collection-${request.id}`}>{reviewing ? t(i18n)({ message: "Collection", context: "Application access approval" }) : t(i18n)({ message: "Choose a collection", context: "Application access approval" })}</h2>
         {lostCollection && <p className="message error compact" role="alert">{lostCollection}</p>}
         {reviewing && selected ? <div className="selected-collection-summary">
           <div>
             <strong>{selected.display_name}</strong>
             <small>{collectionLocations.get(selected.id)}</small>
           </div>
-          {existingOperations.size > 0 && <span className="collection-status"><i aria-hidden="true" />Already connected</span>}
+          {existingOperations.size > 0 && <span className="collection-status"><Trans><i aria-hidden="true" />Already connected</Trans></span>}
           {!request.collection_id && <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => {
             focusCollectionOnReturn.current = true;
             setReviewing(false);
-          }}>Change</button>}
+          }}><Trans>Change</Trans></button>}
         </div> : <>
           {compatible.length > 0 && <fieldset className="collection-choice-field" ref={collectionChoicesRef}>
-            <legend className="sr-only">Collection</legend>
+            <legend className="sr-only"><Trans>Collection</Trans></legend>
             <div className="collection-choice-list">
               {compatible.map(({ collection }) => {
                 const connected = request.existing_access?.some((access) => access.collection_id === collection.id);
@@ -772,16 +767,16 @@ function SupportedApprovalForm({
                     <strong>{collection.display_name}</strong>
                     <small>{collectionLocations.get(collection.id)}</small>
                   </span>
-                  {connected && <span className="collection-status"><i aria-hidden="true" />Already connected</span>}
+                  {connected && <span className="collection-status"><Trans><i aria-hidden="true" />Already connected</Trans></span>}
                 </label>;
               })}
             </div>
           </fieldset>}
           {compatible.length === 0 && <p className="field-note">{request.collection_id
-            ? "The collection requested by this application is not available."
+            ? t(i18n)({ message: "The collection requested by this application is not available." })
             : request.requirements.collection_kind === "hosted"
-              ? "This application needs a collection hosted by mdbase, and none is ready yet."
-              : "No compatible collection is ready."}</p>}
+              ? t(i18n)({ message: "This application needs a collection hosted by mdbase, and none is ready yet." })
+              : t(i18n)({ message: "No compatible collection is ready." })}</p>}
           {(unavailable.length > 0
             || unavailableConnectors.length > 0
             || (request.requirements.collection_kind !== "hosted" && !request.collection_id)
@@ -794,29 +789,29 @@ function SupportedApprovalForm({
                 }
               }}
             >
-            <summary>{compatible.length > 0 ? "Add or connect another collection" : "Choose another way"}</summary>
+            <summary>{compatible.length > 0 ? t(i18n)({ message: "Add or connect another collection" }) : t(i18n)({ message: "Choose another way", context: "Application access approval" })}</summary>
             <div>
               {unavailable.length > 0 && <div className="collection-compatibility">
-                <strong>{unavailable.length} {unavailable.length === 1 ? "collection is" : "collections are"} unavailable</strong>
+                <strong><Trans>{plural(unavailable.length, { one: "# collection is unavailable", other: "# collections are unavailable" })}</Trans></strong>
                 <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
               </div>}
-              {unavailableConnectors.length > 0 && <p className="field-note" role="status">
+              {unavailableConnectors.length > 0 && <p className="field-note" role="status"><Trans>
                 {unavailableConnectors.map((connector) => connector.reason === "paused"
-                  ? `${connector.connector_name} has remote access paused.`
-                  : `${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available.
-              </p>}
+                  ? t(i18n)`${connector.connector_name} has remote access paused.`
+                  : t(i18n)`${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available.
+              </Trans></p>}
               {request.requirements.collection_kind !== "hosted"
                 && !request.collection_id
                 && <div className="alternate-collection-row">
                   <div>
-                    <strong>Use a folder on this computer</strong>
-                    <small>Open the desktop app to connect this computer, add a folder, and continue this same request.</small>
+                    <strong><Trans>Use a folder on this computer</Trans></strong>
+                    <small><Trans>Open the desktop app to connect this computer, add a folder, and continue this same request.</Trans></small>
                   </div>
                   <a
                     className="button secondary link-button"
                     href={`mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`}
                     onClick={onContinueInDesktop}
-                  >Use a local folder</a>
+                  ><Trans>Use a local folder</Trans></a>
                 </div>}
               {canCreateHosted && !request.collection_id && (creatingHosted ? (
                 <form
@@ -825,17 +820,17 @@ function SupportedApprovalForm({
                   onSubmit={(event) => void createHostedCollection(event)}
                 >
                   <label>
-                    <span>New collection name</span>
+                    <span><Trans>New collection name</Trans></span>
                     <input
                       autoFocus
                       maxLength={200}
                       value={collectionName}
                       disabled={submitting !== null}
-                      placeholder="Workouts"
+                      placeholder={t(i18n)`Workouts`}
                       onChange={(event) => setCollectionName(event.target.value)}
                     />
                   </label>
-                  <small>Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately.</small>
+                  <small><Trans>Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately.</Trans></small>
                   <div>
                     <button
                       className="quiet-action"
@@ -847,17 +842,17 @@ function SupportedApprovalForm({
                         setCollectionName("");
                         setError("");
                       }}
-                    >Cancel</button>
+                    ><Trans>Cancel</Trans></button>
                     <button className="button secondary" disabled={submitting !== null || !collectionName.trim()}>
-                      {submitting === "creating" ? "Creating…" : "Create collection"}
+                      {submitting === "creating" ? t(i18n)({ message: "Creating…", context: "Application access approval" }) : t(i18n)({ message: "Create collection", context: "Application access approval" })}
                     </button>
                   </div>
                 </form>
               ) : (
                 <div className="alternate-collection-row">
                   <div>
-                    <strong>Create a hosted collection</strong>
-                    <small>A new collection stored by mdbase, available from any computer.</small>
+                    <strong><Trans>Create a hosted collection</Trans></strong>
+                    <small><Trans>A new collection stored by mdbase, available from any computer.</Trans></small>
                   </div>
                   <button
                     className="button secondary"
@@ -869,7 +864,7 @@ function SupportedApprovalForm({
                       setCreatingHosted(true);
                       setError("");
                     }}
-                  >Create hosted collection</button>
+                  ><Trans>Create hosted collection</Trans></button>
                 </div>
               ))}
             </div>
@@ -877,7 +872,7 @@ function SupportedApprovalForm({
           {error && <div className="message error compact" role="alert">{error}</div>}
           <footer className="approval-footer">
             <p className="approval-receipt" id={`collection-selection-help-${request.id}`}>
-              {!collectionId && compatible.length > 0 ? "Select a collection to continue." : "Nothing is allowed until you review access."}
+              {!collectionId && compatible.length > 0 ? t(i18n)({ message: "Select a collection to continue." }) : t(i18n)({ message: "Nothing is allowed until you review access." })}
             </p>
             <div className="approval-actions">
               {denyButton}
@@ -887,17 +882,17 @@ function SupportedApprovalForm({
                 aria-describedby={`collection-selection-help-${request.id}`}
                 disabled={submitting !== null || !collectionId || !collectionConfirmed}
                 onClick={() => setReviewing(true)}
-              >Review access</button>
+              ><Trans>Review access</Trans></button>
             </div>
           </footer>
         </>}
       </section>
       {reviewing && <section className="approval-section" aria-labelledby={`permissions-${request.id}`}>
-        <h2 className="approval-section-title" id={`permissions-${request.id}`}>What it can do</h2>
-        <p className="approval-section-note">
-          Covers every record in {selected?.display_name ?? "this collection"}.
-          {existingOperations.size > 0 ? " Permissions this application does not already have are marked New." : ""}
-        </p>
+        <h2 className="approval-section-title" id={`permissions-${request.id}`}><Trans>What it can do</Trans></h2>
+        <p className="approval-section-note"><Trans>
+          Covers every record in {selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })}.
+          {existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""}
+        </Trans></p>
         <PermissionList
           groups={permissionGroups}
           selected={operations}
@@ -914,7 +909,7 @@ function SupportedApprovalForm({
         />
       </section>}
       {reviewing && hasSetup && <section className="approval-section" aria-labelledby={`changes-${request.id}`}>
-        <h2 className="approval-section-title" id={`changes-${request.id}`}>Collection changes</h2>
+        <h2 className="approval-section-title" id={`changes-${request.id}`}><Trans>Collection changes</Trans></h2>
         <div className="contract-setup-list">
           {setup.length > 0 && <ul className="configuration-setup-list">
             {setup.map((provision) => (
@@ -922,8 +917,8 @@ function SupportedApprovalForm({
                 <span aria-hidden="true">+</span>
                 <div>
                   <strong>{provision.manifest.name ?? provision.manifest.id} <code>{provision.manifest.version}</code></strong>
-                  <small>{provision.manifest.description ?? "Install or update the application definitions declared by this version."}</small>
-                  {provision.manifest.resources.some((resource) => resource.upgrade_from) && <small>Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade.</small>}
+                  <small>{provision.manifest.description ?? t(i18n)({ message: "Install or update the application definitions declared by this version." })}</small>
+                  {provision.manifest.resources.some((resource) => resource.upgrade_from) && <small><Trans>Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade.</Trans></small>}
                 </div>
               </li>
             ))}
@@ -947,8 +942,8 @@ function SupportedApprovalForm({
               return <li className="configuration-setup-item" key={`${provision.requirement}:${provision.path}`}>
                 <span aria-hidden="true">+</span>
                 <div>
-                  <strong>Ensure <code>{summary.setting}</code> includes <code>{summary.value}</code></strong>
-                  <small>If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy.</small>
+                  <strong><Trans>Ensure <code>{summary.setting}</code> includes <code>{summary.value}</code></Trans></strong>
+                  <small><Trans>If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy.</Trans></small>
                 </div>
               </li>;
             })}
@@ -960,10 +955,10 @@ function SupportedApprovalForm({
       {reviewing && <footer className="approval-footer">
         <div className="approval-receipt">
           <p>{request.distribution === "portable"
-            ? `${request.application_name} can use ${selected?.display_name ?? "this collection"} while it remains connected. You can revoke access in mdbase connect.`
-            : `${request.application_name} can use ${selected?.display_name ?? "this collection"} until you revoke access in mdbase connect.`}</p>
-          {privateCollection && <p>This is a Private collection: it stays on your computer. {request.application_name} can use it while a computer that has it is running mdbase and is signed in to your account.</p>}
-          {higherImpactLabels.length > 0 && <p className="receipt-impact"><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</p>}
+            ? t(i18n)`${request.application_name} can use ${selectedName} while it remains connected. You can revoke access in mdbase connect.`
+            : t(i18n)`${request.application_name} can use ${selectedName} until you revoke access in mdbase connect.`}</p>
+          {privateCollection && <p><Trans>This is a Private collection: it stays on your computer. {request.application_name} can use it while a computer that has it is running mdbase and is signed in to your account.</Trans></p>}
+          {higherImpactLabels.length > 0 && <p className="receipt-impact"><Trans><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</Trans></p>}
           {approvalBlocker && <p className="receipt-blocker" id={blockerId}>{approvalBlocker}</p>}
         </div>
         <div className="approval-actions">
@@ -974,7 +969,7 @@ function SupportedApprovalForm({
             aria-describedby={approvalBlocker ? blockerId : undefined}
             disabled={submitting !== null || !collectionId || !collectionConfirmed || Boolean(approvalBlocker)}
             onClick={() => void decide("approved")}
-          >{submitting === "approved" ? (hasSetup ? "Setting up and allowing…" : "Allowing…") : hasSetup ? "Set up and allow access" : "Allow access"}</button>
+          >{submitting === "approved" ? (hasSetup ? t(i18n)({ message: "Setting up and allowing…", context: "Application access approval" }) : t(i18n)({ message: "Allowing…", context: "Application access approval" })) : hasSetup ? t(i18n)({ message: "Set up and allow access", context: "Application access approval" }) : t(i18n)({ message: "Allow access", context: "Application access approval" })}</button>
         </div>
       </footer>}
     </div>

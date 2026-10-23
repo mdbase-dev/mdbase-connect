@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { i18n } from "@mdbase-dev/ui/i18n";
 import { DaemonCli, type DaemonProfile } from "./daemon-cli";
 import { CONTROL_PROTOCOL, DaemonConnection, daemonNotRunning, requestDaemon } from "./daemon-client";
 import { ensureNextDaemon, nextDaemonRunner } from "./next-daemon";
@@ -54,15 +56,15 @@ const READY_WAIT_MS = 30_000;
 export function healthLabel(state: SessionState): string {
   switch (state.phase) {
     case "starting":
-      return "mdbase starting";
+      return t(i18n)({ message: "mdbase starting", context: "Desktop application" });
     case "ready":
-      return state.status.account.signed_in ? "mdbase ready" : "mdbase ready (not signed in)";
+      return state.status.account.signed_in ? t(i18n)({ message: "mdbase ready", context: "Desktop application" }) : t(i18n)({ message: "mdbase ready (not signed in)", context: "Desktop application" });
     case "not_ready":
       return state.status.readiness.safe_reason === "credential_store_unavailable"
-        ? "Unlock your keychain to start mdbase"
-        : "mdbase needs attention";
+        ? t(i18n)({ message: "Unlock your keychain to start mdbase", context: "Desktop application" })
+        : t(i18n)({ message: "mdbase needs attention", context: "Desktop application" });
     case "disconnected":
-      return "mdbase is not running";
+      return t(i18n)({ message: "mdbase is not running", context: "Desktop application" });
   }
 }
 

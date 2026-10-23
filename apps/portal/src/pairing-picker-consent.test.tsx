@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "./test/render";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
 import { api, type DevicePairing } from "./api";

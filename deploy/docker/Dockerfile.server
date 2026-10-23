@@ -9,6 +9,7 @@ COPY patches patches
 COPY apps/editor/vendor/sdk-eaa4e697-production-beta141.tgz apps/editor/vendor/mdbase-dev-ui-dev-b2d7c464.tgz apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz apps/editor/vendor/
 COPY apps/portal/package.json apps/portal/package.json
 COPY packages/app-ui/package.json packages/app-ui/package.json
+COPY packages/i18n/package.json packages/i18n/package.json
 COPY packages/management/package.json packages/management/package.json
 COPY packages/protocol/package.json packages/protocol/package.json
 COPY packages/sync/package.json packages/sync/package.json
@@ -23,14 +24,20 @@ RUN pnpm install --frozen-lockfile \
 
 COPY apps/portal apps/portal
 COPY packages/app-ui packages/app-ui
+COPY packages/i18n packages/i18n
 COPY packages/management packages/management
 COPY packages/protocol packages/protocol
 COPY packages/sync packages/sync
 COPY packages/ui packages/ui
 COPY services/server services/server
 
-RUN pnpm --filter @mdbase-dev/connect-protocol build \
+RUN pnpm --filter @mdbase-dev/i18n build \
+ && pnpm --filter @mdbase-dev/ui i18n:check \
+ && pnpm --filter @mdbase/connect-ui i18n:check \
+ && pnpm --filter @mdbase/connect-portal i18n:check \
+ && pnpm --filter @mdbase-dev/connect-protocol build \
  && pnpm --filter @mdbase-dev/ui build \
+ && pnpm --filter @mdbase/connect-ui build \
  && pnpm --filter @mdbase-dev/connect-sync build \
  && pnpm --filter @mdbase/connect-portal build \
  && pnpm --filter @mdbase/connect-server build

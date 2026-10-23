@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopUpdateStatus } from "./update-coordinator";
 
 contextBridge.exposeInMainWorld("mdbaseConnect", {
+  getLocale: () => ipcRenderer.invoke("connect:locale:get"),
+  setLocale: (locale: string) => ipcRenderer.invoke("connect:locale:set", locale),
   status: () => ipcRenderer.invoke("connect:status"),
   updateStatus: () => ipcRenderer.invoke("connect:updates:status"),
   checkForUpdates: () => ipcRenderer.invoke("connect:updates:check"),

@@ -1,3 +1,6 @@
+import { t, msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
+import { i18n } from "@mdbase-dev/ui/i18n";
 import {
   compareVersions,
   decideUpdate,
@@ -60,15 +63,19 @@ export interface UpdateBackend {
   openExternal(url: string): Promise<void>;
 }
 
-const NEWEST = "This is the newest release on the selected channel.";
-const UNSUPPORTED = "This version of mdbase is no longer supported.";
+const NEWEST = msg({ message: "This is the newest release on the selected channel.", context: "Desktop application" });
+type UpdateCopy = string | MessageDescriptor;
+type UpdateState = Omit<DesktopUpdateStatus, "message" | "daemon_notice"> & {
+  message: UpdateCopy;
+  daemon_notice?: UpdateCopy;
+};
 
 export class UpdateCoordinator {
   private readonly listeners = new Set<(status: DesktopUpdateStatus) => void>();
-  private statusValue: DesktopUpdateStatus;
+  private statusValue: UpdateState;
   private candidate: { manifest: UpdateManifest; target: UpdateTarget } | null = null;
   private operation: Promise<DesktopUpdateStatus> | null = null;
-  private daemonNotice: string | null = null;
+  private daemonNotice: UpdateCopy | null = null;
 
   constructor(private readonly store: UpdateStateStore, private readonly backend: UpdateBackend) {
     this.statusValue = {
@@ -76,15 +83,20 @@ export class UpdateCoordinator {
       current_version: backend.currentVersion,
       channel: backend.channel,
       message: backend.packaged
-        ? "Updates have not been checked yet."
-        : "Updates are available in installed builds.",
+        ? msg({ message: "Updates have not been checked yet.", context: "Desktop application" })
+        : msg({ message: "Updates are available in installed builds.", context: "Desktop application" }),
       can_check: backend.packaged,
       can_install: false
     };
   }
 
   status(): DesktopUpdateStatus {
-    return structuredClone(this.statusValue);
+    const { message, daemon_notice, ...state } = structuredClone(this.statusValue);
+    return {
+      ...state,
+      message: typeof message === "string" ? message : i18n._(message),
+      ...(daemon_notice === undefined ? {} : { daemon_notice: typeof daemon_notice === "string" ? daemon_notice : i18n._(daemon_notice) }),
+    };
   }
 
   subscribe(listener: (status: DesktopUpdateStatus) => void): () => void {
@@ -100,7 +112,7 @@ export class UpdateCoordinator {
   }
 
   /** Shown with the update status while a rolled-back daemon version is held back. */
-  setDaemonNotice(notice: string | null): void {
+  setDaemonNotice(notice: UpdateCopy | null): void {
     this.daemonNotice = notice;
     this.setStatus({ phase: this.statusValue.phase, message: this.statusValue.message });
   }
@@ -117,20 +129,20 @@ export class UpdateCoordinator {
   }
 
   async install(): Promise<DesktopUpdateStatus> {
-    if (!this.candidate) throw new Error("No update is ready to install.");
+    if (!this.candidate) throw new Error(t(i18n)({ message: "No update is ready to install.", context: "Desktop application" }));
     if (this.candidate.target.mode !== "automatic") {
       if (this.statusValue.phase !== "external" || !this.statusValue.can_install) {
-        throw new Error("The external update is not ready to open.");
+        throw new Error(t(i18n)({ message: "The external update is not ready to open.", context: "Desktop application" }));
       }
       await this.backend.openExternal(this.candidate.target.action_url);
       return this.status();
     }
-    if (this.statusValue.phase !== "ready") throw new Error("The update has not finished downloading.");
+    if (this.statusValue.phase !== "ready") throw new Error(t(i18n)({ message: "The update has not finished downloading.", context: "Desktop application" }));
     const target = this.candidate.manifest.version;
     this.setStatus({
       phase: "installing",
       target_version: target,
-      message: `Installing version ${target}. mdbase keeps syncing while the app restarts.`,
+      message: msg`Installing version ${target}. mdbase keeps syncing while the app restarts.`,
       can_check: false,
       can_install: false
     });
@@ -141,7 +153,7 @@ export class UpdateCoordinator {
       this.setStatus({
         phase: "failed",
         target_version: target,
-        message: `The update was not installed: ${message(error)}`,
+        message: msg`The update was not installed: ${message(error)}`,
         can_check: true,
         can_install: false
       });
@@ -154,7 +166,7 @@ export class UpdateCoordinator {
     if (!this.backend.packaged) return this.status();
     this.setStatus({
       phase: "checking",
-      message: "Checking the signed release channel…",
+      message: msg({ message: "Checking the signed release channel…", context: "Desktop application" }),
       can_check: false,
       can_install: false
     });
@@ -196,13 +208,13 @@ export class UpdateCoordinator {
         this.setStatus({
           phase: "deferred",
           ...found,
-          message: `Version ${manifest.version} is rolling out to ${decision.percentage}% of installations.`,
+          message: msg`Version ${manifest.version} is rolling out to ${decision.percentage}% of installations.`,
           can_check: true,
           can_install: false
         });
       } else if (decision.target.mode === "automatic") {
         const required = decision.required ? { required: true as const } : {};
-        const downloading = `Downloading verified version ${manifest.version}…`;
+        const downloading = msg`Downloading verified version ${manifest.version}…`;
         this.setStatus({ phase: "downloading", ...found, progress: 0, message: downloading, can_check: false, can_install: false });
         await this.backend.stageAutomatic(manifest, decision.target, (progress) => {
           this.setStatus({ phase: "downloading", progress, message: downloading, can_check: false, can_install: false });
@@ -214,8 +226,8 @@ export class UpdateCoordinator {
           progress: 100,
           ...required,
           message: decision.required
-            ? `${UNSUPPORTED} Version ${manifest.version} is verified; install it now.`
-            : `Version ${manifest.version} is verified and ready to install.`,
+            ? msg`This version of mdbase is no longer supported. Version ${manifest.version} is verified; install it now.`
+            : msg`Version ${manifest.version} is verified and ready to install.`,
           can_check: true,
           can_install: true
         });
@@ -225,9 +237,13 @@ export class UpdateCoordinator {
           phase: "external",
           ...found,
           ...(decision.required ? { required: true as const } : {}),
-          message: (decision.required ? `${UNSUPPORTED} ` : "") + (decision.target.mode === "store"
-            ? `Version ${manifest.version} is available through the Microsoft Store.`
-            : `Version ${manifest.version} is available through the signed package channel.`),
+          message: decision.required
+            ? decision.target.mode === "store"
+              ? msg`This version of mdbase is no longer supported. Version ${manifest.version} is available through the Microsoft Store.`
+              : msg`This version of mdbase is no longer supported. Version ${manifest.version} is available through the signed package channel.`
+            : decision.target.mode === "store"
+              ? msg`Version ${manifest.version} is available through the Microsoft Store.`
+              : msg`Version ${manifest.version} is available through the signed package channel.`,
           can_check: true,
           can_install: true
         });
@@ -237,7 +253,7 @@ export class UpdateCoordinator {
       this.candidate = null;
       this.setStatus({
         phase: "failed",
-        message: `Could not verify updates: ${message(error)}`,
+        message: msg`Could not verify updates: ${message(error)}`,
         can_check: true,
         can_install: false
       });
@@ -245,7 +261,7 @@ export class UpdateCoordinator {
     }
   }
 
-  private setStatus(patch: Partial<DesktopUpdateStatus> & Pick<DesktopUpdateStatus, "phase" | "message">): void {
+  private setStatus(patch: Partial<UpdateState> & Pick<UpdateState, "phase" | "message">): void {
     const base = patch.phase === this.statusValue.phase
       ? this.statusValue
       : {
@@ -257,7 +273,7 @@ export class UpdateCoordinator {
           can_check: false,
           can_install: false
         };
-    const next: DesktopUpdateStatus = {
+    const next: UpdateState = {
       ...base,
       ...patch,
       current_version: this.backend.currentVersion,

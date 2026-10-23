@@ -1,3 +1,7 @@
+import { LanguageSetting } from "./LanguageSetting";
+import { t } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { MdbaseMark, type MdbaseMarkMotion, type MdbaseMarkSignal } from "@mdbase-dev/ui/brand";
 import {
   applyThemePreference,
@@ -25,6 +29,7 @@ export function ProductSidebar({ items, active, account, identity, editorHref, a
   accountHref?: string;
   onNavigate(id: string, href: string): void;
 }) {
+  useLocaleRevision();
   const follow = (event: MouseEvent<HTMLAnchorElement>, id: string, href: string) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -32,7 +37,7 @@ export function ProductSidebar({ items, active, account, identity, editorHref, a
   };
   return <aside id="product-navigation" className="product-sidebar">
     <div className="product-sidebar-brand"><Brand productLabel /></div>
-    <nav className="product-sidebar-nav" aria-label="mdbase connect navigation">
+    <nav className="product-sidebar-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
       {items.map((item) => <a
         key={item.id}
         className={`product-sidebar-link ${active === item.id ? "active" : ""}`}
@@ -41,7 +46,7 @@ export function ProductSidebar({ items, active, account, identity, editorHref, a
         onClick={(event) => follow(event, item.id, item.href ?? `/${item.id}`)}
       >
         <span>{item.label}</span>
-        {item.count !== undefined && <b className={`product-sidebar-count ${item.attention ? "attention" : ""}`}>{item.count}</b>}
+        {item.count !== undefined && <b className={`product-sidebar-count ${item.attention ? "attention" : ""}`}>{i18n.number(item.count)}</b>}
       </a>)}
     </nav>
     <footer className="product-sidebar-footer">
@@ -51,28 +56,31 @@ export function ProductSidebar({ items, active, account, identity, editorHref, a
           href={accountHref}
           aria-current={active === "account" ? "page" : undefined}
           onClick={(event) => follow(event, "account", accountHref)}
-        >Account</a>
+        ><Trans>Account</Trans></a>
       </div>
       <div className="product-sidebar-account">
         <span className="product-sidebar-account-copy"><strong>{account}</strong><small>{identity}</small></span>
         <ThemeMenu />
       </div>
       <div className="product-sidebar-utilities">
-        <a className="product-sidebar-utility" href={editorHref} target="_blank" rel="noreferrer">Open editor <span aria-hidden="true">↗</span></a>
+        <a className="product-sidebar-utility" href={editorHref} target="_blank" rel="noreferrer"><Trans>Open editor <span aria-hidden="true">↗</span></Trans></a>
       </div>
     </footer>
   </aside>;
 }
 
 export function MobileProductBar({ open, onOpen }: { open: boolean; onOpen(): void }) {
+  useLocaleRevision();
   return <header className="mobile-product-bar">
     <Brand productLabel />
-    <button className="mobile-navigation-button" aria-label="Open navigation" aria-controls="product-navigation" aria-expanded={open} onClick={onOpen}><span /></button>
+    <button className="mobile-navigation-button" aria-label={t(i18n)({ message: "Open navigation", context: "Connect interface" })} aria-controls="product-navigation" aria-expanded={open} onClick={onOpen}><span /></button>
   </header>;
 }
 
-export function AccountRow({ label, value, detail, mono = false }: { label: string; value: string; detail?: string; mono?: boolean }) { return <div className="account-row"><span>{label}</span><div><strong className={mono ? "mono" : ""}>{value}</strong>{detail && <small>{detail}</small>}</div></div>; }
+export function AccountRow({ label, value, detail, mono = false }: { label: string; value: string; detail?: string; mono?: boolean }) {
+  useLocaleRevision(); return <div className="account-row"><span>{label}</span><div><strong className={mono ? "mono" : ""}>{value}</strong>{detail && <small>{detail}</small>}</div></div>; }
 export function ThemeMenu() {
+  useLocaleRevision();
   const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
   useEffect(() => {
     applyThemePreference(preference);
@@ -82,25 +90,30 @@ export function ThemeMenu() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, [preference]);
-  return <ThemeSelect className="theme-select" value={preference} onChange={(next) => {
+  return <><LanguageSetting /><ThemeSelect className="theme-select" value={preference} onChange={(next) => {
     setPreference(next);
     saveThemePreference(next);
-  }} />;
+  }} /></>;
 }
 
 /** The page's mark loops while `busy` and shakes each time a new `error` appears. */
 export function PageBrand({ label, markMotion, busy = false, error = "" }: { label: string; markMotion?: MdbaseMarkMotion; busy?: boolean; error?: string }) {
+  useLocaleRevision();
   const signal = useErrorSignal(error);
   return <div className="page-brand-row"><div className="page-brand"><Brand markMotion={busy ? "bounce" : markMotion} markSignal={signal} /><span>{label}</span></div><ThemeMenu /></div>;
 }
-export function Brand({ productLabel = false, markMotion, markSignal }: { productLabel?: boolean; markMotion?: MdbaseMarkMotion; markSignal?: MdbaseMarkSignal | null }) { return <div className="product-brand"><MdbaseMark motion={markMotion} signal={markSignal} className="product-brand-mark" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
+export function Brand({ productLabel = false, markMotion, markSignal }: { productLabel?: boolean; markMotion?: MdbaseMarkMotion; markSignal?: MdbaseMarkSignal | null }) {
+  useLocaleRevision(); return <div className="product-brand"><MdbaseMark motion={markMotion} signal={markSignal} className="product-brand-mark" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
 function useErrorSignal(error: string): MdbaseMarkSignal | null {
   const [signal, setSignal] = useState<MdbaseMarkSignal | null>(null);
   useEffect(() => setSignal((current) => error ? { kind: "error", id: (current?.id ?? 0) + 1 } : null), [error]);
   return signal;
 }
 
-export function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) { return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{count}</span>}</div>; }
-export function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
-export function Loading({ error = "", onRetry }: { error?: string; onRetry?(): void }) { return <main className="loading" aria-busy={!error}><PageBrand label="connect" markMotion="orbit" error={error} /><p role={error ? "alert" : "status"}>{error || "Opening mdbase connect…"}</p>{error && onRetry && <button className="button primary" onClick={onRetry}>Try again</button>}</main>; }
+export function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) {
+  useLocaleRevision(); return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{i18n.number(count)}</span>}</div>; }
+export function Empty({ title, text }: { title: string; text: string }) {
+  useLocaleRevision(); return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
+export function Loading({ error = "", onRetry }: { error?: string; onRetry?(): void }) {
+  useLocaleRevision(); return <main className="loading" aria-busy={!error}><PageBrand label="connect" markMotion="orbit" error={error} /><p role={error ? "alert" : "status"}>{error || t(i18n)({ message: "Opening mdbase connect…", context: "Connect interface" })}</p>{error && onRetry && <button className="button primary" onClick={onRetry}><Trans>Try again</Trans></button>}</main>; }
 

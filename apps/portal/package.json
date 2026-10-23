@@ -4,12 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "i18n:extract": "node ../../packages/i18n/scripts/cli.mjs extract",
+    "i18n:compile": "node ../../packages/i18n/scripts/cli.mjs compile",
+    "i18n:check": "node ../../packages/i18n/scripts/cli.mjs check",
+    "build": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && vite build",
     "dev": "vite",
-    "test": "node --test *.test.mjs && node ../../scripts/ci/vitest.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test": "node --import ../../packages/app-ui/scripts/register-macros.mjs --test *.test.mjs && node ../../scripts/ci/vitest.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify:i18n-integration": "pnpm --filter @mdbase-dev/i18n build && pnpm --filter @mdbase-dev/connect-protocol build && pnpm --filter @mdbase-dev/ui build && pnpm --filter @mdbase/connect-ui build && (result=0; pnpm build || result=1; pnpm typecheck || result=1; pnpm test || result=1; pnpm --filter @mdbase/connect-desktop build || result=1; pnpm --filter @mdbase/connect-desktop typecheck || result=1; pnpm --filter @mdbase/connect-desktop test || result=1; exit $result)",
+    "pretest": "node ../../packages/app-ui/scripts/compile-catalogues.mjs"
   },
   "dependencies": {
+    "@lingui/core": "6.9.0",
+    "@lingui/react": "6.9.0",
+    "@mdbase-dev/i18n": "workspace:*",
     "@mdbase/connect-management": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "@mdbase/connect-ui": "workspace:*",
@@ -19,6 +27,9 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@lingui/vite-plugin": "6.9.0",
+    "@babel/core": "^7.29.7",
+    "@lingui/babel-plugin-lingui-macro": "6.9.0",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
