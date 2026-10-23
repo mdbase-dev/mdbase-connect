@@ -5221,426 +5221,426 @@ msgstr "삽입된 노트를 열지 못했습니다."
 
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
-msgstr ""
+msgstr "이 컬렉션에 {name} 유형이 정의되어 있지 않습니다."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "The type definition must be a YAML object."
-msgstr ""
+msgstr "유형 정의는 YAML 객체여야 합니다."
 
 #: src/type-contracts.ts
 msgid "the type field"
-msgstr ""
+msgstr "유형 필드"
 
 #: src/contract-catalog.ts
 msgid "The type pack"
-msgstr ""
+msgstr "유형 팩"
 
 #: src/contract-catalog.ts
 msgid "The type pack contains an unexpected resource {source}."
-msgstr ""
+msgstr "유형 팩에 예상하지 못한 리소스 {source}이(가) 있습니다."
 
 #: src/contract-catalog.ts
 msgid "The type pack contains duplicate source {source}."
-msgstr ""
+msgstr "유형 팩에 중복된 소스 {source}이(가) 있습니다."
 
 #: src/TypeBrowser.tsx
 msgid "The type pack could not be installed."
-msgstr ""
+msgstr "유형 팩을 설치하지 못했습니다."
 
 #: src/contract-catalog.ts
 msgid "The type pack does not contain every declared resource."
-msgstr ""
+msgstr "유형 팩에 선언된 리소스가 모두 포함되어 있지 않습니다."
 
 #: src/contract-catalog.ts
 msgid "The type pack does not match its catalog digest."
-msgstr ""
+msgstr "유형 팩이 카탈로그 다이제스트와 일치하지 않습니다."
 
 #: src/contract-catalog.ts
 msgid "The type pack does not provide the contracts declared by the catalog."
-msgstr ""
+msgstr "유형 팩이 카탈로그에 선언된 계약을 제공하지 않습니다."
 
 #: src/contract-catalog.ts
 msgid "The type pack is larger than the editor can install."
-msgstr ""
+msgstr "유형 팩이 편집기에서 설치할 수 있는 크기보다 큽니다."
 
 #: src/contract-catalog.ts
 msgid "The type pack is not valid JSON."
-msgstr ""
+msgstr "유형 팩이 올바른 JSON이 아닙니다."
 
 #. placeholder {0}: response.status
 #: src/contract-catalog.ts
 msgid "The type pack returned {0}."
-msgstr ""
+msgstr "유형 팩에서 {0}을(를) 반환했습니다."
 
 #: src/YourPersonPanel.tsx
 msgid "The type used when linking a record to you."
-msgstr ""
+msgstr "레코드를 나에게 연결할 때 사용하는 유형입니다."
 
 #: src/contract-catalog.ts
 msgid "The type-pack identity does not match the catalog."
-msgstr ""
+msgstr "유형 팩 ID가 카탈로그와 일치하지 않습니다."
 
 #: src/contract-catalog.ts
 msgid "The type-pack manifest"
-msgstr ""
+msgstr "유형 팩 매니페스트"
 
 #: src/contract-catalog.ts
 msgid "The type-pack manifest has an unsupported kind."
-msgstr ""
+msgstr "유형 팩 매니페스트의 종류가 지원되지 않습니다."
 
 #: src/contract-catalog.ts
 msgid "The type-pack resource count does not match the catalog."
-msgstr ""
+msgstr "유형 팩 리소스 수가 카탈로그와 일치하지 않습니다."
 
 #: src/App.tsx
 msgid "The unfinished folder hasn’t been created."
-msgstr ""
+msgstr "미완성 폴더는 생성되지 않았습니다."
 
 #: src/App.tsx
 msgid "The unfinished note hasn’t been created."
-msgstr ""
+msgstr "미완성 노트는 생성되지 않았습니다."
 
 #: src/App.tsx
 msgid "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
-msgstr ""
+msgstr "미완성 노트나 폴더를 취소합니다. 저장된 노트 및 속성 변경은 먼저 완료됩니다."
 
 #: src/TypeBrowser.tsx
 msgid "The YAML source could not be read."
-msgstr ""
+msgstr "YAML 원본을 읽지 못했습니다."
 
 #: src/TypeBrowser.tsx
 msgid "Their current structural rules will be replaced."
-msgstr ""
+msgstr "현재 구조 규칙이 대체됩니다."
 
 #: src/folder-change.ts
 msgid "There are no notes to move in this folder."
-msgstr ""
+msgstr "이 폴더에는 이동할 노트가 없습니다."
 
 #: src/person-setup.ts
 msgid "These definitions need review in Types. No files have been changed."
-msgstr ""
+msgstr "유형에서 이 정의를 검토해야 합니다. 파일은 변경되지 않았습니다."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties are not described by this note's type. Other apps may use them."
-msgstr ""
+msgstr "이 속성은 이 노트 유형에 설명되어 있지 않습니다. 다른 앱에서 사용할 수 있습니다."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties must be persisted before this record is valid."
-msgstr ""
+msgstr "이 레코드가 유효하려면 이러한 속성을 저장해야 합니다."
 
 #: src/App.tsx
 msgid "This application does not have permission to make that change."
-msgstr ""
+msgstr "이 애플리케이션에는 해당 변경을 수행할 권한이 없습니다."
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: conversion.typeName
 #: src/YourPersonPanel.tsx
 msgid "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."
-msgstr ""
+msgstr "Person과 Contact를 모두 구현하는 유형으로 <0>{0}</0>만 <1>{1}</1> 변경합니다. 연락처 정보와 Markdown 본문은 유지됩니다. 다른 연락처나 유형 정의는 변경되지 않습니다."
 
 #: src/App.tsx
 msgid "this collection"
-msgstr ""
+msgstr "이 컬렉션"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has explicit type assignment disabled. Every note is classified by automatic rules."
-msgstr ""
+msgstr "이 컬렉션에서는 유형을 명시적으로 할당하지 않습니다. 모든 노트는 자동 규칙으로 분류됩니다."
 
 #: src/YourPersonPanel.tsx
 msgid "This collection has no Connect account identity."
-msgstr ""
+msgstr "이 컬렉션에는 Connect 계정 ID가 없습니다."
 
 #: src/TypeBrowser.tsx
 msgid "This collection has no type definitions yet."
-msgstr ""
+msgstr "이 컬렉션에는 아직 유형 정의가 없습니다."
 
 #: src/TypeBrowser.tsx
 msgid "This collection has no type definitions."
-msgstr ""
+msgstr "이 컬렉션에는 유형 정의가 없습니다."
 
 #: src/NoteList.tsx
 msgid "This collection is empty."
-msgstr ""
+msgstr "이 컬렉션은 비어 있습니다."
 
 #: src/native-gateway.ts
 #: src/native-note-observation.ts
 #: src/next-editor-records.ts
 msgid "This collection is no longer open in mdbase editor."
-msgstr ""
+msgstr "이 컬렉션은 더 이상 mdbase editor에서 열려 있지 않습니다."
 
 #: src/gateway.ts
 msgid "This collection needs authorization again. Choose the collection to continue."
-msgstr ""
+msgstr "이 컬렉션은 다시 인증해야 합니다. 계속하려면 컬렉션을 선택하세요."
 
 #: src/YourPersonPanel.tsx
 msgid "This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval."
-msgstr ""
+msgstr "사람 레코드를 만들거나 연결하려면 이 컬렉션에 사람 정의가 필요합니다. 승인 없이는 추가되지 않습니다."
 
 #: src/person-records.ts
 msgid "This collection uses implicit type selection. Configure the contact's type explicitly in Types before linking."
-msgstr ""
+msgstr "이 컬렉션은 유형을 암묵적으로 선택합니다. 연결하기 전에 유형에서 연락처 유형을 명시적으로 설정하세요."
 
 #: src/YourPersonPanel.tsx
 msgid "This collection's Person type was not added from a Person starter that can be upgraded automatically, so it has not been changed. "
-msgstr ""
+msgstr "이 컬렉션의 Person 유형은 자동 업그레이드 가능한 Person 기본 유형에서 추가된 것이 아니므로 변경되지 않았습니다. "
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "This computer"
-msgstr ""
+msgstr "이 컴퓨터"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "This computer"
-msgstr ""
+msgstr "이 컴퓨터"
 
 #: src/person-records.ts
 msgid "This contact has another explicit type. Review its type declarations in the editor first."
-msgstr ""
+msgstr "이 연락처에는 다른 명시적 유형이 있습니다. 먼저 편집기에서 유형 선언을 검토하세요."
 
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
-msgstr ""
+msgstr "이 계약은 간단한 최상위 속성을 제공하지 않습니다. YAML에서 필드 참조를 설정하세요."
 
 #: src/use-session-lifecycle.ts
 msgid "This editor session has been closed."
-msgstr ""
+msgstr "이 편집기 세션이 종료되었습니다."
 
 #: src/TypeBrowser.tsx
 msgid "This exact contract is not available in the collection. Restore it or remove the implementation before saving."
-msgstr ""
+msgstr "이 정확한 계약은 컬렉션에서 사용할 수 없습니다. 저장하기 전에 복원하거나 구현에서 제거하세요."
 
 #: src/gateway.ts
 #: src/native-file-download.ts
 msgid "This file changed. Reload its preview."
-msgstr ""
+msgstr "이 파일이 변경되었습니다. 미리보기를 새로고침하세요."
 
 #: src/native-file-download.ts
 msgid "This file exceeds the download limit."
-msgstr ""
+msgstr "이 파일은 다운로드 제한을 초과합니다."
 
 #: src/native-gateway.ts
 msgid "This file has no native confirmation metadata. Reload its preview."
-msgstr ""
+msgstr "이 파일에는 네이티브 확인 메타데이터가 없습니다. 미리보기를 새로고침하세요."
 
 #: src/gateway.ts
 msgid "This file no longer exists."
-msgstr ""
+msgstr "이 파일은 더 이상 존재하지 않습니다."
 
 #: src/native-file-download.ts
 #: src/native-gateway.ts
 msgid "This file selection is no longer current."
-msgstr ""
+msgstr "이 파일 선택은 더 이상 최신 상태가 아닙니다."
 
 #: src/native-gateway.ts
 msgid "This file upload is not confirmed. Resolve its original operation before trying again."
-msgstr ""
+msgstr "이 파일 업로드는 확인되지 않았습니다. 다시 시도하기 전에 원래 작업을 해결하세요."
 
 #: src/folder-change.ts
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
-msgstr ""
+msgstr "이 폴더에는 첨부 파일이 있습니다. 이동하면 삽입된 파일 참조를 보존할 수 없습니다. 노트를 하나씩 이동하세요. 첨부 파일은 그대로 둡니다."
 
 #: src/App.tsx
 msgid "This note already moved elsewhere."
-msgstr ""
+msgstr "이 노트는 이미 다른 곳으로 이동했습니다."
 
 #: src/next-editor-records.ts
 msgid "This note change has a conflict. Resolve it before continuing."
-msgstr ""
+msgstr "이 노트 변경에 충돌이 있습니다. 계속하기 전에 해결하세요."
 
 #: src/next-editor-records.ts
 msgid "This note change is not confirmed. Check the interrupted operation before trying again."
-msgstr ""
+msgstr "이 노트 변경은 확인되지 않았습니다. 다시 시도하기 전에 중단된 작업을 확인하세요."
 
 #: src/next-editor-records.ts
 msgid "This note changed after it was opened. Reload before saving."
-msgstr ""
+msgstr "노트를 연 후 변경되었습니다. 저장하기 전에 새로고침하세요."
 
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
-msgstr ""
+msgstr "이 노트가 다른 곳에서 변경됨"
 
 #: src/use-note-actions.ts
 msgid "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record."
-msgstr ""
+msgstr "원본을 연 후 노트 저장이 완료되었습니다. 원본 초안은 보존되어 있습니다. 최신 레코드로 시작하려면 패널을 닫았다가 다시 여세요."
 
 #. placeholder {0}: reference.anchor
 #: src/code-editor-reference-diagnostics.ts
 msgid "This note has no “{0}” section or block."
-msgstr ""
+msgstr "이 노트에는 “{0}” 섹션이나 블록이 없습니다."
 
 #: src/use-note-actions.ts
 msgid "This note moved before the rename check could begin."
-msgstr ""
+msgstr "이름 변경을 확인하기 전에 노트가 이동했습니다."
 
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
-msgstr ""
+msgstr "이름을 바꾸기 전에 노트가 이동했습니다."
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
-msgstr ""
+msgstr "이 선택적 계약 필드는 노출되지 않습니다."
 
 #: src/catalog-pack-installation.tsx
 msgid "This pack conflicts with collection definitions."
-msgstr ""
+msgstr "이 팩은 컬렉션 정의와 충돌합니다."
 
 #: src/use-note-actions.ts
 msgid "This property is not declared by the note’s type."
-msgstr ""
+msgstr "이 속성은 노트 유형에 선언되어 있지 않습니다."
 
 #: src/YourPersonPanel.tsx
 msgid "This record is already a person record. Reload these settings."
-msgstr ""
+msgstr "이 레코드는 이미 사람 레코드입니다. 설정을 새로고침하세요."
 
 #: src/YourPersonPanel.tsx
 msgid "This record is already linked to another account. Linking it to yours means you will both see its assignments as your own. Only continue if this record really represents you."
-msgstr ""
+msgstr "이 레코드는 이미 다른 계정에 연결되어 있습니다. 내 계정에 연결하면 양쪽 모두 레코드 할당을 자신의 것으로 보게 됩니다. 이 레코드가 실제로 나를 나타내는 경우에만 계속하세요."
 
 #. placeholder {0}: formatList(conversionImpact)
 #. placeholder {0}: formatList(impact)
 #: src/TypeBrowser.tsx
 msgid "This removes {0}."
-msgstr ""
+msgstr "{0}을(를) 제거합니다."
 
 #: src/App.tsx
 msgid "This removes the saved connection from this browser. It does not delete the collection or its files, and it does not revoke mdbase editor’s access in mdbase connect."
-msgstr ""
+msgstr "이 브라우저에 저장된 연결을 제거합니다. 컬렉션이나 파일을 삭제하지 않으며 mdbase connect에서 mdbase editor의 접근 권한을 취소하지 않습니다."
 
 #: src/Toasts.tsx
 msgid "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
-msgstr ""
+msgstr "이름 변경이 시작된 후 중단되었습니다. 재개하여 컬렉션의 권위 있는 결과를 복구하세요."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "This required property is missing."
-msgstr ""
+msgstr "필수 속성이 누락되었습니다."
 
 #: src/code-editor-note-embeds.ts
 msgid "This transcluded note could not be resolved."
-msgstr ""
+msgstr "삽입된 노트를 확인할 수 없습니다."
 
 #: src/TypeBrowser.tsx
 msgid "This type"
-msgstr ""
+msgstr "이 유형"
 
 #: src/native-gateway.ts
 msgid "This type changed after it was saved. Reload it before editing again."
-msgstr ""
+msgstr "저장한 후 유형이 변경되었습니다. 다시 편집하기 전에 새로고침하세요."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "This value does not match the required format."
-msgstr ""
+msgstr "이 값은 필수 형식과 일치하지 않습니다."
 
 #: src/NewNoteComposer.tsx
 msgid "Title"
-msgstr ""
+msgstr "제목"
 
 #: src/note-list-view.ts
 msgid "Title A–Z"
-msgstr ""
+msgstr "제목 오름차순"
 
 #: src/ConflictResolver.tsx
 msgid "Title differences"
-msgstr ""
+msgstr "제목 차이"
 
 #: src/NewNoteComposer.tsx
 msgid "Title the first note to create the folder."
-msgstr ""
+msgstr "폴더를 만들려면 첫 노트의 제목을 입력하세요."
 
 #: src/YourPersonPanel.tsx
 msgid "to the current Person starter. "
-msgstr ""
+msgstr "현재 Person 기본 유형으로."
 
 #: src/collection-browser.ts
 msgid "Today"
-msgstr ""
+msgstr "오늘"
 
 #: src/editor-commands.ts
 msgid "Toggle Vim key bindings"
-msgstr ""
+msgstr "Vim 키 바인딩 전환"
 
 #: src/TypeBrowser.tsx
 msgid "total"
-msgstr ""
+msgstr "합계"
 
 #. placeholder {0}: file.path
 #: src/code-editor-completions.ts
 msgid "Transclude file · {0}"
-msgstr ""
+msgstr "파일 삽입 · {0}"
 
 #. placeholder {0}: suggestionDetail(suggestion, label)
 #: src/code-editor-completions.ts
 msgid "Transclude note · {0}"
-msgstr ""
+msgstr "노트 삽입 · {0}"
 
 #: src/code-editor-completions.ts
 msgid "Transclude note or file"
-msgstr ""
+msgstr "노트 또는 파일 삽입"
 
 #. placeholder {0}: reference.title
 #: src/code-editor-note-embeds.ts
 msgid "Transclusion of {0}"
-msgstr ""
+msgstr "{0} 삽입"
 
 #. placeholder {0}: target.trim()
 #: src/code-editor-note-embeds.ts
 msgid "Transclusion: {0}"
-msgstr ""
+msgstr "삽입: {0}"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "True"
-msgstr ""
+msgstr "참"
 
 #: src/FileViewer.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Try again"
-msgstr ""
+msgstr "다시 시도"
 
 #: src/NewNoteComposer.tsx
 msgid "Type"
-msgstr ""
+msgstr "유형"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Type · {0}"
-msgstr ""
+msgstr "유형 · {0}"
 
 #: src/WorkspaceChrome.tsx
 msgid "Type access"
-msgstr ""
+msgstr "유형 접근"
 
 #: src/WorkspaceChrome.tsx
 msgid "Type access needed"
-msgstr ""
+msgstr "유형 접근 필요"
 
 #: src/type-schema.ts
 msgid "Type definitions must declare kind: mdbase.type."
-msgstr ""
+msgstr "유형 정의는 kind: mdbase.type을 선언해야 합니다."
 
 #: src/CodeEditor.tsx
 msgid "Type definitions need a closing --- frontmatter marker."
-msgstr ""
+msgstr "유형 정의에는 닫는 --- 프런트매터 표시가 필요합니다."
 
 #: src/CodeEditor.tsx
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "Type definitions need YAML frontmatter between --- markers."
-msgstr ""
+msgstr "유형 정의에는 --- 표시 사이에 YAML 프런트매터가 필요합니다."
 
 #: src/TypeBrowser.tsx
 msgid "Type editor view"
-msgstr ""
+msgstr "유형 편집기 보기"
 
 #: src/TypeBrowser.tsx
 msgid "Type key"
-msgstr ""
+msgstr "유형 키"
 
 #: src/type-schema.ts
 msgid "Type name"
-msgstr ""
+msgstr "유형 이름"
 
 #: src/native-gateway.ts
 msgid "type pack install"
