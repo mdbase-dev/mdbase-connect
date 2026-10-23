@@ -13,7 +13,7 @@ import { claim, registerMigrationProviderRoutes } from "./migration-provider.js"
 import { registerMigrationReplicaRoutes } from "./migration-replicas.js";
 import { prearchiveInventory } from "./migration-prearchive-inventory.js";
 import { acceptCohortArchive, addToCohort, createCohort, readCohortCaptureSnapshot, releaseCohort,
-  setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
+  RolloutRefused, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -45,7 +45,7 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
     await admin?.end();
   });
 
-  async function fixture() {
+  async function fixture(options: { bind?: boolean; beforeFence?: boolean } = {}) {
     const account = randomUUID(), storage = randomUUID(), collections = [randomUUID(), randomUUID()].sort();
     const [first, second] = collections as [string, string], cohort = `routeback-${randomUUID()}`;
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Synthetic route-back')", [account, `${account}@example.test`]);
@@ -116,25 +116,36 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
     // No source DB/timer importer or target creator is exercised in this lane.
     // source=db is an unused required composition slot, not legacy source data.
     const connect = postgresLabConnect({ db, source: db, actor, timers: false, environment, provider, importTimers: unexpected, prepareTarget: unexpected });
-    await connect.bindRun!(account, collections, hold, false);
-    const states = new Map<string, WorkerStatus>();
+    if (options.bind !== false) await connect.bindRun!(account, collections, hold, false);
+    const states = new Map<string, WorkerStatus>(), nativeRollbackSources: LegacyMigrationDrain[][] = [];
     const worker: LabWorker = {
-      status: vi.fn(async id => ok(structuredClone(states.get(id) ?? empty()))),
-      run: vi.fn(async (id, backupHold, pause) => {
+      status: vi.fn(async (id: string): Promise<WorkerReply> => ok(structuredClone(states.get(id) ?? empty()))),
+      run: vi.fn(async (id: string, backupHold: string, pause?: boolean): Promise<WorkerReply> => {
         expect(backupHold).toBe(hold); expect(pause).toBe(true);
-        const fence = await cp("fence", id); expect(fence.statusCode, fence.body).toBe(200);
-        expect(fence.json().migration_id).toBe(sources.get(id)!.migration_id);
-        const state: WorkerStatus = { run: { state: "stopped", reason: "rollback_needs_operator", backup_hold: backupHold,
-          migration_id: sources.get(id)!.migration_id, stop_before_flip: true, resumed_run_sequence: null },
-          native: { run_sequence: 1, checkpoint: { step: STEP.drained, fenced: true }, outstanding: null } };
+        if (!options.beforeFence) {
+          const fence = await cp("fence", id); expect(fence.statusCode, fence.body).toBe(200);
+          expect(fence.json().migration_id).toBe(sources.get(id)!.migration_id);
+        }
+        // Native BackupHeld = 1: EnsureBackup settled, then prepare failed before
+        // Fence. Status reads NEVER progress or heal this stopped native run.
+        const state: WorkerStatus = { run: { state: "stopped", reason: options.beforeFence ? "native_unavailable" : "rollback_needs_operator", backup_hold: backupHold,
+          migration_id: options.beforeFence ? null : sources.get(id)!.migration_id!, stop_before_flip: true, resumed_run_sequence: null },
+          native: { run_sequence: 1, checkpoint: { step: options.beforeFence ? 1 : STEP.drained, fenced: !options.beforeFence }, outstanding: null } };
         states.set(id, state); return ok(structuredClone(state));
       }),
-      rollback: vi.fn(async (id, sequence) => {
+      rollback: vi.fn(async (id: string, sequence: number): Promise<WorkerReply> => {
         const state = states.get(id)!; expect(sequence).toBe(1);
-        const current = await claim(db, id);
-        const reply = await cp("rollback", id, { owner_account: current.account, started_us: current.started_us, migration_id: state.run!.migration_id,
-          fixed_head: 42, driver_id: hold, action_id: randomUUID(), replica_ids: [] });
-        expect(reply.statusCode, reply.body).toBe(200);
+        if (options.beforeFence) {
+          // Reachable native rollback with cp.fenced=false has no provider run
+          // context: RollingBack -> RolledBack, WITHOUT provider Unfence.
+          expect(state).toMatchObject({ run: { migration_id: null }, native: { checkpoint: { step: 1, fenced: false }, outstanding: null } });
+          nativeRollbackSources.push(structuredClone([...sources.values()]));
+        } else {
+          const current = await claim(db, id);
+          const reply = await cp("rollback", id, { owner_account: current.account, started_us: current.started_us, migration_id: state.run!.migration_id,
+            fixed_head: 42, driver_id: hold, action_id: randomUUID(), replica_ids: [] });
+          expect(reply.statusCode, reply.body).toBe(200);
+        }
         state.run!.reason = "rolled_back";
         state.native = { run_sequence: 1, checkpoint: { step: STEP.rolledBack, fenced: false }, outstanding: null };
         return ok(structuredClone(state));
@@ -146,7 +157,7 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
       expect(await worker.run(id, hold, true)).toHaveProperty("kind", "ok");
     };
     const deps = { connect, worker, sleep: async () => undefined, now: () => 0 };
-    return { account, cohort, collections, first, second, sources, originalSources, archive, provider, unexpected, connect, worker, states, dispatch, deps, cp };
+    return { account, cohort, collections, first, second, sources, originalSources, archive, provider, unexpected, connect, worker, states, nativeRollbackSources, dispatch, deps, cp };
   }
   type Fixture = Awaited<ReturnType<typeof fixture>>;
   const events = async (f: Fixture, type: string) => (await db.query("SELECT subject_id,metadata FROM audit_events WHERE user_id=$1 AND event_type=$2 ORDER BY subject_id", [f.account, type])).rows;
@@ -164,6 +175,104 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
       .toEqual(f.collections.map(id => ({ id, authority_state: "active" })));
     expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1", [f.cohort])).rows[0]!.verified_result).toEqual(f.archive);
   }
+
+  it("R3 P1-1: native BackupHeld rollback without provider Unfence still restores every ORIGINAL prearchive fence", async () => {
+    const f = await fixture({ beforeFence: true }); await f.dispatch(f.first);
+    expect(f.states.get(f.first)).toMatchObject({ run: { reason: "native_unavailable", migration_id: null },
+      native: { checkpoint: { step: 1, fenced: false }, outstanding: null } });
+    expect(await canonicalSources(f)).toEqual(f.originalSources);
+    const result = await routeBack(f.account, f.deps);
+    expect(f.nativeRollbackSources).toEqual([f.originalSources]); // Native rollback itself did NOT restore the provider.
+    expect(f.states.get(f.first)).toMatchObject({ run: { reason: "rolled_back", migration_id: null },
+      native: { checkpoint: { step: STEP.rolledBack, fenced: false }, outstanding: null } });
+    expect(f.worker.rollback).toHaveBeenCalledExactlyOnceWith(f.first, 1);
+    expect(f.provider.legacyMigrationRollback).not.toHaveBeenCalled();
+    expect.soft(result).toMatchObject({ done: { disposition: "legacy_post_bulk_follow_up",
+      collections: f.collections.map(collection_id => ({ collection_id, legacy_verified: true })) } });
+    expect.soft(await canonicalSources(f)).toEqual(f.originalSources.map(s => ({ ...s, state: "active", migration_id: null, started_at: null })));
+    expect.soft(f.provider.legacyMigrationUnfence.mock.calls.map(([id]) => id)).toEqual(f.collections);
+    expect(f.worker.run).toHaveBeenCalledTimes(1); await noForwardEffects(f);
+  });
+
+  it("R3 P2-1: immediate scoped route-back with NO binding, intent or Worker restores all sources without inventing a hold", async () => {
+    const f = await fixture({ bind: false });
+    expect(await f.connect.preflight(f.account)).toMatchObject({ run: null, intents: [], archive_scoped: true, phase_latch: null });
+    expect(f.states.size).toBe(0); expect(await canonicalSources(f)).toEqual(f.originalSources);
+    const result = await routeBack(f.account, f.deps);
+    expect.soft(result).toMatchObject({ done: { disposition: "legacy_post_bulk_follow_up", collection_ids: f.collections } });
+    expect.soft(await canonicalSources(f)).toEqual(f.originalSources.map(s => ({ ...s, state: "active", migration_id: null, started_at: null })));
+    const latch = await events(f, "next_migration.managed_route_back");
+    expect.soft(latch).toHaveLength(1);
+    for (const event of latch) expect(event.metadata).not.toHaveProperty("backup_hold");
+    expect(await events(f, "next_migration.managed_run")).toEqual([]);
+    expect(await events(f, "next_migration.worker_run_intent")).toEqual([]);
+    expect(f.worker.run).not.toHaveBeenCalled(); expect(f.worker.rollback).not.toHaveBeenCalled();
+    expect(f.provider.legacyMigrationRollback).not.toHaveBeenCalled(); await noForwardEffects(f);
+  });
+
+  it("R3 P2-2: BIND and dispatch reservation freshly refuse whole-set changes AFTER waiting for the user lock", async () => {
+    for (const phase of ["bind", "reserve"] as const) {
+      const f = await fixture({ bind: phase === "reserve" }), holder = await db.connect(), added = randomUUID();
+      expect(await f.connect.preflight(f.account)).toMatchObject({ collections: f.collections, intents: [] });
+      let pending: Promise<unknown> | undefined;
+      try {
+        await holder.query("BEGIN");
+        const pid = (await holder.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+        await holder.query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE", [f.account]);
+        pending = (phase === "bind" ? f.connect.bindRun!(f.account, f.collections, hold, false)
+          : f.connect.claimWorkerRun!(f.account, f.first)).then(value => ({ admitted: value }), (error: unknown) => error);
+        // Establish actual blocking by THIS test's account-lock holder, not a
+        // sleep/race assumption or another connection's unrelated wait.
+        let blocked = false;
+        for (let i = 0; i < 200; i++) {
+          if ((await admin.query("SELECT 1 FROM pg_stat_activity WHERE $1::int=ANY(pg_blocking_pids(pid)) AND query LIKE '%FOR NO KEY UPDATE%'", [pid])).rows.length) {
+            blocked = true; break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        expect(blocked).toBe(true);
+        if (phase === "bind") await holder.query("UPDATE hosted_collections SET quarantined_at=now() WHERE id=$1", [f.second]);
+        else await holder.query(`INSERT INTO hosted_collections(id,user_id,display_name,template,provider_url,authority_state)
+          VALUES($1,$2,'Added while reservation waits','mdbase','https://provider.example.test','active')`, [added, f.account]);
+        await holder.query("COMMIT");
+      } finally {
+        await holder.query("ROLLBACK"); holder.release();
+        // Always drain the attempt, including when a blocking assertion fails.
+        await pending;
+      }
+      expect.soft(await pending).toMatchObject(phase === "bind"
+        ? { code: "collections_unsettled", details: { unsettled: [{ collection_id: f.second, predicate: "quarantined" }] } }
+        : { code: "collections_mismatch", details: { added: [added], missing: [] } });
+      expect.soft(await events(f, "next_migration.managed_run")).toHaveLength(phase === "bind" ? 0 : 1);
+      expect.soft(await events(f, "next_migration.worker_run_intent")).toEqual([]);
+      expect(f.worker.run).not.toHaveBeenCalled(); expect(f.unexpected).not.toHaveBeenCalled();
+      expect(await canonicalSources(f)).toEqual(f.originalSources);
+      expect(await events(f, "next_migration.flip")).toEqual([]);
+    }
+  });
+
+  it("R3 P2-3: never-dispatched unfence refuses a replacement ORIGINAL run or malformed active source, never adopting it", async () => {
+    for (const drift of ["replacement-run", "active-identity", "active-run", "active-start", "active-retention", "valid-active"] as const) {
+      const f = await fixture(), source = f.sources.get(f.second)!;
+      if (drift === "replacement-run") source.migration_id = randomUUID();
+      else {
+        Object.assign(source, { state: "active", migration_id: null, started_at: null });
+        if (drift === "active-identity") source.collection_id = randomUUID();
+        if (drift === "active-run") source.migration_id = randomUUID();
+        if (drift === "active-start") source.started_at = f.originalSources[1]!.started_at;
+        if (drift === "active-retention") source.retain_until = "2030-01-01T00:00:00.000Z";
+      }
+      const observed = structuredClone(source);
+      expect(await events(f, "next_migration.worker_run_intent")).toEqual([]); expect(f.states.size).toBe(0);
+      const outcome = await f.connect.unfence!(f.account, f.second).then(() => null, (error: unknown) => error);
+      if (drift === "valid-active") expect(outcome).toBeNull();
+      else expect.soft(outcome, drift).toBeInstanceOf(RolloutRefused);
+      expect.soft(f.provider.legacyMigrationUnfence, drift).not.toHaveBeenCalled();
+      expect.soft((await f.provider.legacyMigrationSource(f.second)).drain, drift).toEqual(observed);
+      expect.soft(await events(f, "next_migration.unfence"), drift).toEqual([]);
+      expect(f.worker.run).not.toHaveBeenCalled(); expect(f.worker.rollback).not.toHaveBeenCalled(); await noForwardEffects(f);
+    }
+  });
 
   it("G2: C1 known pre-cutover + C2 NEVER DISPATCHED restores BOTH physical sources, without restart or archive weakening", async () => {
     const f = await fixture(); await f.dispatch(f.first);
