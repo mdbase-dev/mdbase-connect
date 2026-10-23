@@ -68,7 +68,7 @@ msgstr " Эти действия одобряются вместе."
 #. placeholder {0}: notifications.criteria.length
 #: src/authorization-review.tsx
 msgid "{0, plural, one {{applicationName} can turn on this rule after access is allowed. Notifications never contain record content.} other {{applicationName} can turn on these # rules after access is allowed. Notifications never contain record content.}}"
-msgstr ""
+msgstr "{0, plural, one {{applicationName} сможет включить это правило после предоставления доступа. Уведомления никогда не содержат данные записей.} few {{applicationName} сможет включить эти # правила после предоставления доступа. Уведомления никогда не содержат данные записей.} many {{applicationName} сможет включить эти # правил после предоставления доступа. Уведомления никогда не содержат данные записей.} other {{applicationName} сможет включить эти # правила после предоставления доступа. Уведомления никогда не содержат данные записей.}}"
 
 #. placeholder {0}: unavailable.length
 #: src/authorization-view.tsx
@@ -283,7 +283,7 @@ msgstr "{0} мин назад"
 
 #: src/authority-workflows.tsx
 msgid "{app} now has this file access in {collection}. Return to {app} to continue."
-msgstr ""
+msgstr "Приложению {app} теперь предоставлен этот доступ к файлам в коллекции {collection}. Вернитесь в {app}, чтобы продолжить."
 
 #. placeholder {0}: request.reason
 #: src/authority-workflows.tsx
@@ -292,7 +292,7 @@ msgstr "Сообщение от {app}: {0}"
 
 #: src/authority-workflows.tsx
 msgid "{app} was not given this file access in {collection}. Return to {app}; everything else works as before."
-msgstr ""
+msgstr "Приложению {app} не предоставлен этот доступ к файлам в коллекции {collection}. Вернитесь в {app}; всё остальное работает как прежде."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
@@ -341,7 +341,7 @@ msgstr "Хранилище на тарифе {tier}"
 
 #: src/auth-view.tsx
 msgid "{unsubscribed, select, product_updates {You won’t receive product updates from mdbase Connect. Messages about your account, such as verification and security email, are still sent.} other {You won’t receive announcements from mdbase Connect. Messages about your account, such as verification and security email, are still sent.}}"
-msgstr ""
+msgstr "{unsubscribed, select, product_updates {Вы больше не будете получать новости о продуктах mdbase Connect. Сообщения об учётной записи, например письма для подтверждения и уведомления о безопасности, по-прежнему будут приходить.} other {Вы больше не будете получать объявления от mdbase Connect. Сообщения об учётной записи, например письма для подтверждения и уведомления о безопасности, по-прежнему будут приходить.}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# application installation} other {# application installations}}"
@@ -621,7 +621,7 @@ msgstr "Разрешить {0} присылать вам напоминания"
 
 #: src/authority-workflows.tsx
 msgid "Allow {app} this file access?"
-msgstr ""
+msgstr "Предоставить {app} этот доступ к файлам?"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
