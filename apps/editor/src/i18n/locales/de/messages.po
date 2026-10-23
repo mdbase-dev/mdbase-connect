@@ -5663,41 +5663,41 @@ msgstr "Unterschiede im Typquelltext"
 #. placeholder {0}: note.types.join(", ")
 #: src/NoteList.tsx
 msgid "Type: {0}"
-msgstr ""
+msgstr "Typ: {0}"
 
 #. placeholder {0}: filter.value
 #: src/NoteSearchField.tsx
 msgid "type:{0}"
-msgstr ""
+msgstr "Typ:{0}"
 
 #: src/EditorRail.tsx
 #: src/LoadingScreens.tsx
 #: src/TypeBrowser.tsx
 msgid "Types"
-msgstr ""
+msgstr "Typen"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types"
-msgstr ""
+msgstr "Typen"
 
 #: src/EditorRail.tsx
 msgid "Types ({typeCount})"
-msgstr ""
+msgstr "Typen ({typeCount})"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types folder"
-msgstr ""
+msgstr "Typenordner"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Typewriter scrolling"
-msgstr ""
+msgstr "Schreibmaschinen-Scrollen"
 
 #: src/collection-browser.ts
 msgid "Undated"
-msgstr ""
+msgstr "Ohne Datum"
 
 #: src/Toasts.tsx
 msgid "Undo"
@@ -5705,41 +5705,41 @@ msgstr "Rückgängig"
 
 #: src/Toasts.tsx
 msgid "Undoing"
-msgstr ""
+msgstr "Wird rückgängig gemacht"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Unique field {0}"
-msgstr ""
+msgstr "Eindeutiges Feld {0}"
 
 #: src/type-schema.ts
 msgid "unique items"
-msgstr ""
+msgstr "eindeutige Elemente"
 
 #: src/type-schema.ts
 msgid "unique rules with unsupported values"
-msgstr ""
+msgstr "Eindeutigkeitsregeln mit nicht unterstützten Werten"
 
 #: src/TypeBrowser.tsx
 msgid "Uniqueness"
-msgstr ""
+msgstr "Eindeutigkeit"
 
 #: src/type-schema.ts
 msgid "Uniqueness rules"
-msgstr ""
+msgstr "Eindeutigkeitsregeln"
 
 #. placeholder {0}: mentions.length
 #: src/WorkspaceChrome.tsx
 msgid "Unlinked mentions ({0})"
-msgstr ""
+msgstr "Unverknüpfte Erwähnungen ({0})"
 
 #: src/editor-commands.ts
 msgid "Unpin"
-msgstr ""
+msgstr "Lösen"
 
 #: src/App.tsx
 msgid "Unsaved draft found"
-msgstr ""
+msgstr "Nicht gespeicherter Entwurf gefunden"
 
 #: src/App.tsx
 msgid "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."
@@ -5751,153 +5751,153 @@ msgstr "Nicht gespeicherte Änderungen aus einer früheren Sitzung sind verfügb
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
-msgstr ""
+msgstr "Nicht gespeicherte Änderungen an Typdefinitionen werden verworfen. Gespeicherte Notiz- und Eigenschaftsänderungen werden zuvor abgeschlossen."
 
 #: src/App.tsx
 msgid "Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first."
-msgstr ""
+msgstr "Nicht gespeicherte Typ- oder Erstellungsänderungen werden verworfen, wenn die neue Sammlung geöffnet wird. Notiz- und Eigenschaftsänderungen werden zuvor fertig gespeichert."
 
 #: src/App.tsx
 msgid "Unsaved type or creation changes will be discarded."
-msgstr ""
+msgstr "Nicht gespeicherte Typ- oder Erstellungsänderungen werden verworfen."
 
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 #: src/note.ts
 msgid "Untitled"
-msgstr ""
+msgstr "Ohne Titel"
 
 #: src/ConnectionScreens.tsx
 msgid "Untitled collection"
-msgstr ""
+msgstr "Sammlung ohne Titel"
 
 #: src/TypeBrowser.tsx
 msgid "Unversioned"
-msgstr ""
+msgstr "Ohne Versionsangabe"
 
 #: src/ConnectionScreens.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Update access"
-msgstr ""
+msgstr "Zugriff aktualisieren"
 
 #. placeholder {0}: accessSummary(missingCapabilities)
 #: src/ConnectionScreens.tsx
 msgid "Update access to {0} in this collection."
-msgstr ""
+msgstr "Zugriff auf {0} in dieser Sammlung aktualisieren."
 
 #: src/YourPersonPanel.tsx
 msgid "Update definitions and continue"
-msgstr ""
+msgstr "Definitionen aktualisieren und fortfahren"
 
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
-msgstr ""
+msgstr "Person-Typ aktualisieren?"
 
 #: src/TypeBrowser.tsx
 msgid "Update this type?"
-msgstr ""
+msgstr "Diesen Typ aktualisieren?"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"
-msgstr ""
+msgstr "Definitionen werden aktualisiert…"
 
 #: src/note-mutation-presentation.ts
 msgid "Updating properties"
-msgstr ""
+msgstr "Eigenschaften werden aktualisiert"
 
 #: src/YourPersonPanel.tsx
 msgid "upgrade"
-msgstr ""
+msgstr "Aktualisieren"
 
 #. placeholder {0}: setup.upgrade.target
 #: src/YourPersonPanel.tsx
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
-msgstr ""
+msgstr "<0>{0}</0> auf die aktuelle Person-Vorlage aktualisieren. "
 
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
-msgstr ""
+msgstr "„{0}“ hochgeladen. Die Sammlungsdatei ist gespeichert; der Notizlink wird separat gespeichert."
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading"
-msgstr ""
+msgstr "Wird hochgeladen"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "Uploading {0}…"
-msgstr ""
+msgstr "{0} wird hochgeladen…"
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading {name} took too long. Try again."
-msgstr ""
+msgstr "Das Hochladen von {name} dauerte zu lange. Versuchen Sie es erneut."
 
 #: src/folder-change.ts
 msgid "Use a collection-relative folder path without empty, . or .. segments."
-msgstr ""
+msgstr "Verwenden Sie einen sammlungsrelativen Ordnerpfad ohne leere Segmente, . oder ..."
 
 #: src/use-note-actions.ts
 msgid "Use a collection-relative path ending in .md."
-msgstr ""
+msgstr "Verwenden Sie einen sammlungsrelativen Pfad mit der Endung .md."
 
 #: src/NewNoteComposer.tsx
 msgid "Use a Markdown file path ending in .md."
-msgstr ""
+msgstr "Verwenden Sie einen Markdown-Dateipfad mit der Endung .md."
 
 #: src/TypeBrowser.tsx
 msgid "Use contract"
-msgstr ""
+msgstr "Vertrag verwenden"
 
 #: src/ConflictResolver.tsx
 msgid "Use latest"
-msgstr ""
+msgstr "Neueste Version verwenden"
 
 #. placeholder {0}: schema.maxItems
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use no more than {0} items."
-msgstr ""
+msgstr "Verwenden Sie höchstens {0} Elemente."
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Use normal, insert, visual, and command modes in the note editor."
-msgstr ""
+msgstr "Verwenden Sie im Notizeditor den Normal-, Einfüge-, visuellen und Befehlsmodus."
 
 #: src/ConnectionScreens.tsx
 msgid "use the editor"
-msgstr ""
+msgstr "Editor verwenden"
 
 #. placeholder {0}: formatValue(schema.const)
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use the required value {0}."
-msgstr ""
+msgstr "Verwenden Sie den erforderlichen Wert {0}."
 
 #: src/CollectionRail.tsx
 msgid "Use this computer"
-msgstr ""
+msgstr "Diesen Computer verwenden"
 
 #: src/TypeBrowser.tsx
 msgid "Validation"
-msgstr ""
+msgstr "Validierung"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Validation"
-msgstr ""
+msgstr "Validierung"
 
 #: src/TypeBrowser.tsx
 msgid "Validation may change"
-msgstr ""
+msgstr "Validierung kann sich ändern"
 
 #. placeholder {0}: type.version
 #: src/TypeBrowser.tsx
 msgid "Version {0}"
-msgstr ""
+msgstr "Version {0}"
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "Via mdbase"
-msgstr ""
+msgstr "Über mdbase"
 
 #: src/NoteListViewOptions.tsx
 msgid "View options"
@@ -5905,20 +5905,20 @@ msgstr "Ansichtsoptionen"
 
 #: src/TypeBrowser.tsx
 msgid "View pack JSON"
-msgstr ""
+msgstr "Paket-JSON anzeigen"
 
 #: src/TypeBrowser.tsx
 msgid "View settings"
-msgstr ""
+msgstr "Einstellungen anzeigen"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Vim key bindings"
-msgstr ""
+msgstr "Vim-Tastenbelegung"
 
 #: src/App.tsx
 msgid "Wait for the complete note and attachment index before changing a folder."
-msgstr ""
+msgstr "Warten Sie auf den vollständigen Notiz- und Anhangsindex, bevor Sie einen Ordner ändern."
 
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
@@ -5926,19 +5926,19 @@ msgstr "Warten auf Freigabe…"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"
-msgstr ""
+msgstr "Warten auf Ihren Computer…"
 
 #: src/TypeBrowser.tsx
 msgid "What belongs in this field?"
-msgstr ""
+msgstr "Was gehört in dieses Feld?"
 
 #: src/TypeBrowser.tsx
 msgid "Which notes use this type"
-msgstr ""
+msgstr "Welche Notizen diesen Typ verwenden"
 
 #: src/PropertiesPanel.tsx
 msgid "Words"
-msgstr ""
+msgstr "Wörter"
 
 #: src/Dialog.tsx
 msgid "Working…"
@@ -5946,16 +5946,16 @@ msgstr "Wird ausgeführt…"
 
 #: src/TypeBrowser.tsx
 msgid "Works with applications"
-msgstr ""
+msgstr "Funktioniert mit Apps"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Wrap long lines"
-msgstr ""
+msgstr "Lange Zeilen umbrechen"
 
 #: src/TypeBrowser.tsx
 msgid "YAML"
-msgstr ""
+msgstr "YAML"
 
 #: src/collection-browser.ts
 msgid "Yesterday"
@@ -5967,68 +5967,68 @@ msgstr "Sie können dieses Fenster schließen."
 
 #: src/YourPersonPanel.tsx
 msgid "You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type."
-msgstr ""
+msgstr "Sie können eine bestehende Person direkt verknüpfen oder die Umwandlung eines einzelnen Kontakts prüfen, ohne Ihr übriges Adressbuch zu ändern. Erweiterte Person-Zuordnungen finden Sie unter „Typen“; dortige Pflichtfelder betreffen alle Datensätze dieses Typs."
 
 #: src/YourPersonPanel.tsx
 msgid "You can still use it, or compare it with the current starter in Types."
-msgstr ""
+msgstr "Sie können ihn weiterverwenden oder unter „Typen“ mit der aktuellen Vorlage vergleichen."
 
 #: src/AttachmentUpload.tsx
 msgid "You don’t have permission to upload {name}."
-msgstr ""
+msgstr "Sie haben keine Berechtigung, {name} hochzuladen."
 
 #: src/ConnectionScreens.tsx
 msgid "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."
-msgstr ""
+msgstr "Sie werden zu mdbase weitergeleitet. Melden Sie sich bei Bedarf an, wählen Sie eine Sammlung aus und genehmigen Sie den mdbase-Editor. Anschließend kehren Sie automatisch hierher zurück; Ihre Dateien bleiben an ihrem Ort."
 
 #: src/YourPersonPanel.tsx
 msgid "Your account"
-msgstr ""
+msgstr "Ihr Konto"
 
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "Ihre Änderung vom {date} ist noch nicht bestätigt. Prüfen Sie sie erneut, um das Speichern abzuschließen."
 
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."
-msgstr ""
+msgstr "Ihre Sammlung wurde nicht gelöscht. Bereits vollständig gespeicherte Änderungen sind sicher."
 
 #: src/pending-note-mutation.ts
 msgid "Your deletion from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "Ihre Löschung vom {date} ist noch nicht bestätigt. Prüfen Sie sie erneut, um das Speichern abzuschließen."
 
 #: src/ConflictResolver.tsx
 msgid "Your edits"
-msgstr ""
+msgstr "Ihre Änderungen"
 
 #: src/YourPersonPanel.tsx
 msgid "Your edits to this type are kept; only the starter's own changes are merged in."
-msgstr ""
+msgstr "Ihre Änderungen an diesem Typ bleiben erhalten; nur die Änderungen der Vorlage selbst werden übernommen."
 
 #: src/pending-note-mutation.ts
 msgid "Your new note from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "Ihre neue Notiz vom {date} ist noch nicht bestätigt. Prüfen Sie sie erneut, um das Speichern abzuschließen."
 
 #: src/ConnectionScreens.tsx
 msgid "Your notes,"
-msgstr ""
+msgstr "Ihre Notizen,"
 
 #: src/YourPersonPanel.tsx
 msgid "Your person record"
-msgstr ""
+msgstr "Ihr Personendatensatz"
 
 #: src/next-editor-records.ts
 msgid "Your previous change is still being saved. Try again in a moment."
-msgstr ""
+msgstr "Ihre vorherige Änderung wird noch gespeichert. Versuchen Sie es gleich erneut."
 
 #: src/pending-note-mutation.ts
 msgid "Your rename from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "Ihre Umbenennung vom {date} ist noch nicht bestätigt. Prüfen Sie sie erneut, um das Speichern abzuschließen."
 
 #: src/ConflictResolver.tsx
 msgid "Your title"
-msgstr ""
+msgstr "Ihr Titel"
 
 #: src/App.tsx
 msgid "Your unsaved changes to this type definition won’t be kept."
-msgstr ""
+msgstr "Ihre nicht gespeicherten Änderungen an dieser Typdefinition gehen verloren."
