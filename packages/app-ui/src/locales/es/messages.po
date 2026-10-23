@@ -56,6 +56,7 @@ msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
 msgstr "{app} dejará de mostrarla en este dispositivo. No se elimina nada de la colección y {app} conserva el acceso. Para revocarlo, usa Gestionar acceso."
 
+#: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
 msgstr "{count, plural, one {Se aplicó # marca.} other {Se aplicaron # marcas.}}"

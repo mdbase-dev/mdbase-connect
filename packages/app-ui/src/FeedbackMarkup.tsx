@@ -29,7 +29,7 @@ export function paintFeedbackMarks(context: CanvasRenderingContext2D, image: Can
     context.restore();
   }
 }
-export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: FeedbackScreenshot; onApply(screenshot: FeedbackScreenshot): void; onClose(): void }) {
+export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: FeedbackScreenshot; onApply(screenshot: FeedbackScreenshot, count: number): void; onClose(): void }) {
   useLocaleRevision();
   const canvas = useRef<HTMLCanvasElement>(null);
   const image = useRef<HTMLImageElement | null>(null);
@@ -78,7 +78,7 @@ export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: F
     <div className="mdbase-feedback-canvas"><canvas ref={canvas} tabIndex={0} aria-label={t({ message: "Screenshot annotation canvas" })} aria-describedby={instructions}
       onPointerDown={(event) => {
         if (!ready || busy || event.button !== 0) return;
-        if (marks.current.length >= 100) { setError("Up to 100 marks can be applied. Undo or reset to make another mark."); return; }
+        if (marks.current.length >= 100) { setError(t({ message: "Up to 100 marks can be applied. Undo or reset to make another mark." })); return; }
         cursor.current = null; event.currentTarget.setPointerCapture(event.pointerId);
         current.current = { tool, points: [coordinate(event.clientX, event.clientY)] };
       }}
@@ -107,7 +107,8 @@ export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: F
     <div className="mdbase-feedback-actions"><button type="button" disabled={busy} onClick={onClose}>{t({ message: "Cancel" })}</button><button type="button" className="mdbase-feedback-primary" disabled={!ready || busy} onClick={() => {
       if (!canvas.current) return;
       finish(); paint(false); setBusy(true); setError("");
-      void screenshotFromCanvas(canvas.current).then(onApply).catch((reason: unknown) => { setBusy(false); setError(reason instanceof Error ? reason.message : t({ message: "The screenshot could not be saved." })); });
+      const count = marks.current.length;
+      void screenshotFromCanvas(canvas.current).then((screenshot) => onApply(screenshot, count)).catch((reason: unknown) => { setBusy(false); setError(reason instanceof Error ? reason.message : t({ message: "The screenshot could not be saved." })); });
     }}>{busy ? t({ message: "Applying…" }) : t({ message: "Apply changes" })}</button></div>
   </Dialog>;
 }

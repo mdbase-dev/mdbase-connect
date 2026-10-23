@@ -56,6 +56,7 @@ msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
 msgstr "{app}에서 이 기기에 컬렉션을 표시하지 않습니다. 컬렉션의 항목은 삭제되지 않으며 {app}의 접근 권한도 유지됩니다. 접근을 종료하려면 ‘접근 관리’를 사용하세요."
 
+#: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
 msgstr "{count, plural, other {표시 #개를 적용했습니다.}}"
