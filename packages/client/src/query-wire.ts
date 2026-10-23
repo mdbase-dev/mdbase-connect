@@ -30,7 +30,8 @@ function querySelections(input: QueryInput | QueryMetadataInput) {
     let alias = `connect_select_${index}`;
     while (occupied.has(alias)) alias += "_";
     occupied.add(alias);
-    projections[alias] = { expression: selection.expression };
+    // Selections run after filtering; don't evaluate them on rejected rows.
+    projections[alias] = { expression: input.where ? `(${input.where}) ? (${selection.expression}) : null` : selection.expression };
     aliases.set(alias, selection.name);
     return `projection.${alias}`;
   });

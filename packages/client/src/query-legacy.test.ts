@@ -31,7 +31,7 @@ describe("beta.126 typed query selections", () => {
       expect(wire).toMatchObject({
         where: input.where, types: ["task"], limit: 10,
         select: ["projection.connect_select_1", "projection.connect_select_1_", "projection.connect_select_2"],
-        projections: { connect_select_1_: { expr: "record.title" }, connect_select_2: { expr: "file.path" }, title: { expr: "record.title" } },
+        projections: { connect_select_1_: { expr: "(status == 'open') ? (record.title) : null" }, connect_select_2: { expr: "(status == 'open') ? (file.path) : null" }, title: { expr: "record.title" } },
         order_by: [{ field: "connect_select_1_", direction: "asc" }]
       });
       return { valid: true, diagnostics: [], result: {
