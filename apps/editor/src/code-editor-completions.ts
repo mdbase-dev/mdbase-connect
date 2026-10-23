@@ -174,7 +174,7 @@ function headingCompletions(
     .filter((anchor) => !fragmentQuery || anchor.label.toLocaleLowerCase().includes(fragmentQuery))
     .map((anchor) => ({
       label: anchor.label,
-      detail: anchor.kind === "heading" ? t`Section in note` : t`Block · ${anchor.preview}`,
+      detail: anchor.kind === "heading" ? t`Section in note` : t`Block · ${anchor.preview ?? ""}`,
       type: "text",
       apply: `${anchor.value}]]`
     }));

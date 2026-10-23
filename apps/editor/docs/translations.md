@@ -15,8 +15,13 @@ identifiers and authority diagnostics are not translated. English startup does
 not imply offline collection access.
 
 Shared controls use the workspace `@mdbase-dev/ui`, not the retired vendored UI.
-Their separately owned catalogues from `packages/app-ui/src/locales` and
-`packages/ui/locales` are composed with the editor catalogue at activation. All
+Their separately owned PO catalogues from `packages/app-ui/src/locales` and
+`packages/ui/locales` are compiled into editor-owned `src/i18n/shared/*.json` and
+composed with the editor catalogue at activation. `pnpm i18n:shared` reuses the
+kit checks on both shared packages before compilation. It never writes into the
+shared packages. During English source authoring only,
+`node scripts/compile-shared-locales.mjs --english-only` refreshes synchronous
+English; it is not an all-locale gate. All
 core macros, shared controls and the React provider use the same Lingui singleton.
 Locale changes do not remount forms or CodeMirror and do not discard drafts.
 CodeMirror's standard phrases come from the kit and are compartment-reconfigured.
@@ -49,6 +54,14 @@ sentences or compare translated labels to control behavior. Command IDs, sort
 values and field kinds remain stable. Late-bound command/option getters keep
 labels current without translating at module evaluation. Dates and counts use
 the active display locale; Portuguese uses pt-BR and Chinese zh-CN.
+
+The workspace UI has a different development SDK tarball from the editor’s
+production-pinned SDK. Editor TypeScript paths and Vite deduplication resolve
+shared UI SDK imports to the editor pin, avoiding two nominal client identities
+without repinning the SDK or changing shared package configuration.
+
+The literal `{field}` in path-template examples is syntax, not UI prose; its exact
+source-guard exemption is recorded in `i18n-policy.json`.
 
 React tests render through `src/test/locale.tsx`, exercising the real kit and
 Lingui provider rather than a translator mock. Target translation acceptance also

@@ -1,4 +1,6 @@
 import { useLingui } from "@lingui/react";
+import { i18n as editorI18n } from "@lingui/core";
+import { isLocale } from "@mdbase-dev/i18n";
 import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18n/codemirror";
 import { t } from "@lingui/core/macro";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
@@ -335,7 +337,7 @@ export function CodeEditor({
       if (!cancelled) viewRef.current?.dispatch({ effects: phraseMode.current.reconfigure(EditorState.phrases.of(phrases)) });
     };
     if (i18n.locale === "en") apply(englishCodeMirrorPhrases);
-    else void loadCodeMirrorPhrases(i18n.locale).then(apply).catch((error) => {
+    else if (isLocale(i18n.locale)) void loadCodeMirrorPhrases(i18n.locale).then(apply).catch((error) => {
       console.warn("CodeMirror language could not be loaded; retaining current phrases.", error);
     });
     return () => { cancelled = true; };
@@ -414,7 +416,7 @@ export function CodeEditor({
         variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []
       )
     });
-  }, [quietMarkdown, variant]);
+  }, [quietMarkdown, variant, i18n.locale]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -428,7 +430,7 @@ export function CodeEditor({
         ) : []
       )
     });
-  }, [embeddedFiles, language, canOpenEmbeddedFile, variant]);
+  }, [embeddedFiles, language, canOpenEmbeddedFile, variant, i18n.locale]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -442,7 +444,7 @@ export function CodeEditor({
         ) : []
       )
     });
-  }, [embeddedNotes, language, canOpenEmbeddedNote, variant]);
+  }, [embeddedNotes, language, canOpenEmbeddedNote, variant, i18n.locale]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -682,7 +684,7 @@ const quietMarkdownPresentation = ViewPlugin.fromClass(class {
   }
 
   update(update: ViewUpdate) {
-    if (update.docChanged || update.selectionSet || update.viewportChanged) {
+    if (update.docChanged || update.selectionSet || update.viewportChanged || update.transactions.some((transaction) => transaction.reconfigured)) {
       this.decorations = markdownDecorations(update.view);
     }
   }
@@ -691,18 +693,19 @@ const quietMarkdownPresentation = ViewPlugin.fromClass(class {
 });
 
 class TaskCheckboxWidget extends WidgetType {
+  readonly locale = editorI18n.locale;
   constructor(readonly from: number, readonly checked: boolean) {
     super();
   }
 
   eq(other: TaskCheckboxWidget) {
-    return this.from === other.from && this.checked === other.checked;
+    return this.from === other.from && this.checked === other.checked && this.locale === other.locale;
   }
 
   toDOM() {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = t`cm-task-checkbox mdbase-checkbox`;
+    button.className = "cm-task-checkbox mdbase-checkbox";
     button.dataset.taskFrom = String(this.from);
     button.setAttribute("role", "checkbox");
     button.setAttribute("aria-checked", String(this.checked));

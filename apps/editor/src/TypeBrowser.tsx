@@ -298,7 +298,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
             <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}><Trans>YAML</Trans></button>
           </div>
           <div className="type-editor-actions">
-            {dirty && <span className="type-change-scope" id="type-change-scope"><CircleAlert aria-hidden="true" />{creating ? t`Saving affects every matching note` : <><Trans>Saving affects every note of type </Trans><code>{type!.name}</code></>}</span>}
+            {dirty && <span className="type-change-scope" id="type-change-scope"><CircleAlert aria-hidden="true" />{creating ? t`Saving affects every matching note` : <Trans>Saving affects every note of type <code>{type!.name}</code></Trans>}</span>}
             <button className="type-secondary-action mdbase-button is-tertiary" onClick={creating ? onCancel : onRevert} disabled={readOnly || saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? t`Cancel` : t`Revert`}</button>
             <button className="save-type-button mdbase-button is-primary" aria-describedby={dirty ? "type-change-scope" : undefined} onClick={() => setReviewing(true)} disabled={readOnly || loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? t`Saving…` : t`Review changes`}</button>
           </div></>}
@@ -648,7 +648,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
             >
               <summary>
                 <span><Trans>Field mappings</Trans></span>
-                <small>{requiredMapped}/{requiredFields.length} <Trans>required · </Trans>{mappedCount}/{fields.length} <Trans>total</Trans>{warnings.length ? t` · ${warnings.length} to review` : ""}</small>
+                <small><Trans>{requiredMapped}/{requiredFields.length} required · {mappedCount}/{fields.length} total</Trans>{warnings.length ? t` · ${warnings.length} to review` : ""}</small>
                 <ChevronRight aria-hidden="true" />
               </summary>
               {fields.length ? <div className="contract-mapping-list">
@@ -816,7 +816,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
       <div className="contract-suggestion-heading"><div><strong><Trans>Possible app compatibility</Trans></strong><p><Trans>Suggested from field names and shapes only. Confirm that the meanings agree.</Trans></p></div></div>
       {suggestions.map((suggestion) => <div className="contract-suggestion" key={contractKey(suggestion.contract)}>
         <div><strong>{suggestion.contract.id}</strong><span>{suggestion.contract.version}</span></div>
-        <p>{suggestion.matchedFields} <Trans>of </Trans>{suggestion.totalFields} <Trans>fields match</Trans>{suggestion.requiredFields ? t`, ${suggestion.requiredMatched} of ${suggestion.requiredFields} required` : ""}.</p>
+        <p><Trans>{suggestion.matchedFields} of {suggestion.totalFields} fields match</Trans>{suggestion.requiredFields ? t`, ${suggestion.requiredMatched} of ${suggestion.requiredFields} required` : ""}.</p>
         <button onClick={() => addContract(suggestion.contract)}><Trans>Review mapping</Trans></button>
       </div>)}
     </div>}
@@ -1292,7 +1292,7 @@ function TypeMembershipPreview({ impact, advanced = false, afterUpdate = false }
   if (!impact.complete) return <div className="type-membership-preview incomplete">
     <div>
       <strong>{plural(impact.current, { one: "# currently indexed note matches", other: "# currently indexed notes match" })}</strong>
-      <p><Trans>The after-save preview is unavailable because </Trans>{advanced ? t`additional YAML rules` : t`some matching rules`} <Trans>must be evaluated by the collection.</Trans></p>
+      <p>{advanced ? <Trans>The after-save preview is unavailable because additional YAML rules must be evaluated by the collection.</Trans> : <Trans>The after-save preview is unavailable because some matching rules must be evaluated by the collection.</Trans>}</p>
     </div>
   </div>;
   const next = impact.next ?? 0;

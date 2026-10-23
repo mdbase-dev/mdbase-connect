@@ -1,4 +1,3 @@
-import { displayLocale } from "./i18n/format";
 import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useRef, useState } from "react";
