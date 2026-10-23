@@ -1,9 +1,9 @@
-//! The embedded environment: the LAB asset is exactly the authenticated one, the
-//! production build embeds none, and sign-in only reaches the build's control plane.
+//! The embedded environment: the LAB and production assets are exactly the
+//! authenticated ones, only their own builds embed them, and sign-in only reaches
+//! the build's control plane.
 //! (Payload verification itself is tested in `mdbn-trust`.)
 
 use super::*;
-#[cfg(feature = "lab")]
 use sha2::Digest;
 
 #[cfg(feature = "lab")]
@@ -34,7 +34,7 @@ fn absent_lab_feature_refuses_lab_trust_without_a_fallback() {
     );
     assert!(Environment::Lab.trust().is_err());
     assert_eq!(Environment::embedded(), Environment::Production);
-    assert!(authenticated().is_err());
+    assert_eq!(authenticated().unwrap().environment, "production");
 }
 
 #[test]
@@ -45,16 +45,71 @@ fn synthetic_fixture_pins_are_valid_and_do_not_authenticate_the_build() {
     assert_eq!(fixture.log_origin, "https://log.lab.example");
     assert_eq!(fixture.policy_pins.validate(), Ok(()));
     assert_eq!(fixture.roots.len(), 1);
-    assert!(Environment::Production.trust().is_err());
+    if let Ok(trust) = Environment::Production.trust() {
+        assert!(!trust.roots.iter().any(|root| fixture.roots.contains(root)));
+    }
 }
 
+#[cfg(not(any(feature = "lab", feature = "local-rehearsal")))]
 #[test]
-fn production_embeds_no_trust_yet() {
+fn production_embeds_exactly_the_reviewed_asset() {
     assert_eq!(Environment::Production.name(), "production");
     assert_eq!(
         Environment::Production.control_plane(),
         "https://connect.mdbase.dev"
     );
+    // The embedded bytes are the in-repo release input, pinned by digest.
+    let context = production_context().unwrap();
+    assert_eq!(PRODUCTION_ASSET.len(), 840);
+    assert_eq!(
+        sha2::Sha256::digest(PRODUCTION_ASSET).as_slice(),
+        context.sha256
+    );
+    assert_eq!(
+        PRODUCTION_ASSET,
+        std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../config/next-trust/production.json"
+        ))
+        .unwrap()
+    );
+    let trust = Environment::Production.trust().unwrap();
+    assert_eq!(trust.environment, "production");
+    assert_eq!(trust.cp_origin, "https://connect.mdbase.dev");
+    assert_eq!(trust.log_origin, "https://log.mdbase.dev");
+    assert_eq!(trust.roots.len(), 1);
+    assert_eq!(trust.policy_pins.validate(), Ok(()));
+    assert_eq!(authenticated().unwrap().cp_origin, trust.cp_origin);
+    // Before the asset was issued, nothing verifies.
+    assert!(Environment::Production.trust_at(0).is_err());
+}
+
+#[cfg(not(any(feature = "lab", feature = "local-rehearsal")))]
+#[test]
+fn production_refuses_any_other_asset_bytes_or_context() {
+    let now = 1_792_698_307_649 + 1;
+    let context = production_context().unwrap();
+    assert!(mdbn_trust::verify(PRODUCTION_ASSET, &context, now).is_ok());
+    let mut changed = PRODUCTION_ASSET.to_vec();
+    let at = changed.iter().position(|b| *b == b'7').unwrap();
+    changed[at] = b'8';
+    assert!(mdbn_trust::verify(&changed, &context, now).is_err());
+    let edits: [fn(&mut Context); 4] = [
+        |c: &mut Context| c.environment = "staging".into(),
+        |c: &mut Context| c.log_origin = "https://log-staging.mdbase.dev".into(),
+        |c: &mut Context| c.control_plane_origin = "https://connect-lab.mdbase.dev".into(),
+        |c: &mut Context| c.source.version = "0.1.0-beta.140".into(),
+    ];
+    for edit in edits {
+        let mut other = production_context().unwrap();
+        edit(&mut other);
+        assert!(mdbn_trust::verify(PRODUCTION_ASSET, &other, now).is_err());
+    }
+}
+
+#[cfg(any(feature = "lab", feature = "local-rehearsal"))]
+#[test]
+fn only_production_builds_embed_production_trust() {
     assert!(Environment::Production.trust().is_err());
 }
 

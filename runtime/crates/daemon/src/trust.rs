@@ -18,8 +18,10 @@
 //! build step). This module only supplies the embedded asset bytes and their
 //! independently authenticated context (from the authenticated release manifest,
 //! never from the payload; see `trust/lab-authentication.md`). The production
-//! build embeds no asset yet, so synced collections refuse with `trust_missing`
-//! there until one is published and embedded.
+//! build embeds the reviewed in-repo asset `config/next-trust/production.json`,
+//! pinned here by digest together with the context its authenticated release
+//! bundle binds (environment, origins, release source). LAB and local-rehearsal
+//! builds do not compile it.
 
 #[cfg(any(test, debug_assertions))]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,7 +29,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(all(feature = "lab", feature = "local-rehearsal"))]
 compile_error!("LAB and local-rehearsal are distinct artifacts; choose exactly one");
 
-#[cfg(any(feature = "lab", feature = "local-rehearsal"))]
 use mdbn_trust::{Context, REPOSITORY, Source};
 
 #[cfg(feature = "local-rehearsal")]
@@ -92,8 +93,6 @@ impl Environment {
     }
 
     fn trust_at(self, now_ms: u64) -> Result<Trust, Invalid> {
-        #[cfg(not(any(feature = "lab", feature = "local-rehearsal")))]
-        let _ = now_ms;
         match self {
             #[cfg(feature = "local-rehearsal")]
             Environment::Local => {
@@ -122,8 +121,13 @@ impl Environment {
             Environment::Lab => Err(Invalid(
                 "this build embeds no LAB trust asset; LAB requires --features lab and the authenticated release files".into(),
             )),
+            #[cfg(not(any(feature = "lab", feature = "local-rehearsal")))]
+            Environment::Production => {
+                mdbn_trust::verify(PRODUCTION_ASSET, &production_context()?, now_ms)
+            }
+            #[cfg(any(feature = "lab", feature = "local-rehearsal"))]
             Environment::Production => Err(Invalid(
-                "this build embeds no production trust asset".into(),
+                "this is not a production build; it embeds no production trust asset".into(),
             )),
         }
     }
@@ -141,6 +145,34 @@ pub const fn local_asset_digest() -> &'static str {
 pub fn authenticated() -> Result<Trust, Invalid> {
     Environment::embedded().trust()
 }
+
+/// The production asset: the reviewed, in-repo release input, byte for byte.
+/// [`production_context`] pins its digest; any other bytes refuse to verify.
+#[cfg(not(any(feature = "lab", feature = "local-rehearsal")))]
+const PRODUCTION_ASSET: &[u8] = include_bytes!("../../../../config/next-trust/production.json");
+
+/// The production asset's authenticated context, as the signed release trust
+/// bundle for it binds (docs/next-trust-release.md), never read from the payload.
+/// A trust rotation replaces the asset and these values in one reviewed change.
+#[cfg(not(any(feature = "lab", feature = "local-rehearsal")))]
+fn production_context() -> Result<Context, Invalid> {
+    Ok(Context {
+        sha256: mdbn_trust::hex_exact(PRODUCTION_ASSET_SHA256, "asset digest")?,
+        environment: Environment::Production.name().into(),
+        control_plane_origin: Environment::Production.control_plane().into(),
+        log_origin: "https://log.mdbase.dev".into(),
+        source: Source {
+            repository: REPOSITORY.into(),
+            commit: "36abd4b065be9495a7f5ae0808865a1f2279af04".into(),
+            version: "0.1.0-beta.141".into(),
+        },
+    })
+}
+
+/// SHA-256 of [`PRODUCTION_ASSET`] (beta.141 production trust, 840 bytes).
+#[cfg(not(any(feature = "lab", feature = "local-rehearsal")))]
+const PRODUCTION_ASSET_SHA256: &str =
+    "7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7";
 
 /// The LAB asset authenticated by Ops' guarded Sigstore/OIDC release verifier
 /// before embedding (trust/lab-authentication.md).
