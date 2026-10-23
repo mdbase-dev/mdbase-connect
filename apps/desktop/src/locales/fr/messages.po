@@ -213,7 +213,7 @@ msgstr "{safe} Elles seront déplacées automatiquement peu après la mise à ni
 
 #: src/renderer/main.tsx
 msgid "{synced} synced"
-msgstr "{synced} synchronisé(s)"
+msgstr "Collections synchronisées : {synced}"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {“{name}” syncs again{location}. # edit made in “{name}” before the move is added once it has caught up.{after}{oldFolder}} other {“{name}” syncs again{location}. # edits made in “{name}” before the move are added once it has caught up.{after}{oldFolder}}}"
@@ -251,7 +251,7 @@ msgstr "Un dossier nommé « {0} » existe déjà à cet emplacement. Choisissez
 
 #: src/renderer/device-requests.tsx
 msgid "A new {label} wants to open {name}"
-msgstr "Une nouvelle application {label} souhaite ouvrir {name}"
+msgstr "Un nouvel appareil ({label}) souhaite ouvrir {name}"
 
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
@@ -391,7 +391,7 @@ msgstr "Les applications que vous approuvez accèdent à vos collections par cet
 
 #: src/renderer/access-view.tsx
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
-msgstr "Les applications que vous avez utilisées avec mdbase Connect apparaissent ici une fois la synchronisation privée activée pour les {movedWaiting, plural, one {collection} other {collections}} déplacées sur cet ordinateur. mdbase l’active automatiquement ; vous n’avez pas à approuver ces applications de nouveau."
+msgstr "Les applications que vous avez utilisées avec mdbase Connect apparaissent ici une fois la synchronisation privée activée pour {movedWaiting, plural, one {la collection déplacée} other {les collections déplacées}} sur cet ordinateur. mdbase l’active automatiquement ; vous n’avez pas à approuver ces applications de nouveau."
 
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
@@ -750,7 +750,7 @@ msgstr "Saisissez un nom pour cet ordinateur."
 
 #: src/renderer/device-requests.tsx
 msgid "Enter the six-digit code shown on the new {label}"
-msgstr "Saisissez le code à six chiffres affiché sur le nouvel appareil {label}"
+msgstr "Saisissez le code à six chiffres affiché sur le nouvel appareil ({label})"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1528,7 +1528,7 @@ msgstr "Choisir l’autre version"
 
 #: src/renderer/device-requests.tsx
 msgid "That code does not match. Check the code on the new {label}. If you did not start this, decline."
-msgstr "Ce code ne correspond pas. Vérifiez le code sur le nouvel appareil {label}. Si vous n’êtes pas à l’origine de cette demande, refusez-la."
+msgstr "Ce code ne correspond pas. Vérifiez le code sur le nouvel appareil ({label}). Si vous n’êtes pas à l’origine de cette demande, refusez-la."
 
 #: src/main/boot-gate.ts
 msgctxt "Desktop application"
@@ -1614,11 +1614,11 @@ msgstr "Le déplacement est terminé, mais nécessite votre attention."
 
 #: src/renderer/device-requests.tsx
 msgid "The new {label} can now open {name}."
-msgstr "Le nouvel appareil {label} peut désormais ouvrir {name}."
+msgstr "Le nouvel appareil ({label}) peut désormais ouvrir {name}."
 
 #: src/renderer/device-requests.tsx
 msgid "The new {label} was not given access to {name}."
-msgstr "L’accès à {name} n’a pas été accordé au nouvel appareil {label}."
+msgstr "L’accès à {name} n’a pas été accordé au nouvel appareil ({label})."
 
 #: src/renderer/takeover-state.mts
 msgid "the old engine's mirror state could not be read"
