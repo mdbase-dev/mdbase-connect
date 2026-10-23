@@ -36,6 +36,27 @@ applyThemePreference(loadThemePreference());
   collection in another app. Lab and local builds pass their own URLs to
   `withAppUrls`.
 
+## Languages
+
+The `/i18n` entry exports `uiCatalogues: CatalogueSource` with synchronous
+English and lazy local-deployment JSON for `fr de es ja ko pt ru zh`.
+Compose it once with the app's catalogue using `@mdbase-dev/i18n`:
+
+```tsx
+import { i18n, uiCatalogues } from "@mdbase-dev/ui/i18n";
+const runtime = createI18nRuntime({ i18n, english: appEnglish, loadLocale, libraries: [uiCatalogues] });
+// Wrap the app once in LocaleProvider with this runtime.
+```
+
+Core-macro presentation helpers use the shared Lingui singleton; do not compose
+into an unrelated isolated instance. Keep React and Lingui deduplicated in app
+bundlers. No form is remounted on a locale switch. Build output includes all
+nine catalogues and transformed macros; consumers do not compile library source.
+PO files are the only authoring format. Run strict `i18n:check` before release:
+a fallback-capable development build does not prove a language is complete.
+Reviewed identical terms are Esc/ID, the literal example email, and French
+Collection/Collections (allowlisted per generated ID).
+
 ## Collections
 
 Import `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`.
