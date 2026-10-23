@@ -235,11 +235,11 @@ test.beforeEach(async ({ page }) => {
 
 async function expectSharedSelectControls(scope: Locator, languagePicker = false) {
   // Product choices use the shared Select. The kit language primitive is native.
-  const controls = scope.locator('[role="combobox"].mdbase-select');
+  const controls = scope.locator('button[role="combobox"].mdbase-select');
   await expect(controls.first()).toBeVisible();
   await expect(scope.locator("select")).toHaveCount(languagePicker ? 1 : 0);
   if (languagePicker) {
-    const language = scope.getByRole("combobox", { name: "Language", exact: true });
+    const language = scope.getByRole("combobox", { name: "Interface language", exact: true });
     await expect(language).toHaveJSProperty("tagName", "SELECT");
     await expect(language.locator("option")).toHaveCount(9);
   }
