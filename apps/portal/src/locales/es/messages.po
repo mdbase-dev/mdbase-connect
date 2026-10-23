@@ -1280,6 +1280,7 @@ msgid "Creation hasn't finished. Approve continues the same named collection."
 msgstr "La creación no ha terminado. Al aprobar, se continuará con la misma colección nombrada."
 
 #: src/AccountManagement.tsx
+msgctxt "Browser session status"
 msgid "Current"
 msgstr "Actual"
 
@@ -3466,7 +3467,7 @@ msgstr "Prueba con otro nombre, ID de registro o estado. Filtrar no revoca el ac
 #: src/onboarding-view.tsx
 #: src/portal-ui.tsx
 msgid "Try again"
-msgstr "Intentar de nuevo"
+msgstr "Volver a intentarlo"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"

@@ -9,7 +9,7 @@
   "scripts": {
     "i18n:extract": "mdbase-i18n extract",
     "i18n:compile": "mdbase-i18n compile",
-    "i18n:check": "mdbase-i18n check",
+    "i18n:check": "mdbase-i18n check --compose '../../packages/app-ui/src/locales/{locale}/messages.json' '../../packages/ui/locales/{locale}/messages.json'",
     "build": "pnpm build:main && pnpm build:renderer",
     "build:main": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && tsc -p tsconfig.main.json && node scripts/build-main.mjs",
     "build:renderer": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && vite build",

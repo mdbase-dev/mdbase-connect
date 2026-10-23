@@ -17,6 +17,8 @@ Run `pnpm --filter <package> i18n:extract` after marking English source.
 Translators author only target PO catalogues. `pnpm i18n:check` validates all four
 scopes before the normal root build/typecheck; it rejects missing/fuzzy entries,
 English placeholders, stale extraction and incompatible ICU/rich-text contracts.
+The app and private UI checks also use `check --compose` with every library's
+compiled JSON, so conflicting shared IDs fail before release.
 Reviewed identical examples/proper nouns need generated-ID allowlists in the
 scope's `i18n-policy.json`. The reviewed lists cover placeholder-only/version
 layouts, IDs and Esc, example addresses, Workouts, and genuine identical terms:
@@ -34,11 +36,11 @@ kit b4134d71), including real npm/workspace symlinks; no adapter is needed.
 ## Runtime
 
 Each app composes its catalogue with both independent library CatalogueSources.
-When an identical English message ID also occurs in an app, the library owns
-that ID in every language. App loaders omit those shared IDs, preventing an
-unfinished app fallback (or separately worded app translation) from conflicting
-with the library. English sources are validated for collisions before filtering;
-conflicting library sources still fail closed. PO sources stay intact for extraction.
+Identical compiled values deduplicate; conflicting app/library or library/library
+translations fail closed both in strict checks and at runtime. There is no
+shared-ID filtering or silent override. Shared retry actions use the library's
+authored wording; semantically distinct labels (for example the current browser
+session versus the current application) have their own source context.
 English is imported synchronously. Literal dynamic JSON imports let the web
 bundler emit per-locale local-deployment chunks. A failed chunk or conflicting
 library/app message retains the active locale. Application records, identifiers,

@@ -1280,6 +1280,7 @@ msgid "Creation hasn't finished. Approve continues the same named collection."
 msgstr "创建尚未完成。批准后将继续创建同名集合。"
 
 #: src/AccountManagement.tsx
+msgctxt "Browser session status"
 msgid "Current"
 msgstr "当前"
 

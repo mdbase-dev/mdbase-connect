@@ -94,7 +94,7 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
             await window.mdbaseConnect.removeCollection(collection.id);
             onNotice(t(i18n)`${collection.name} was removed. Its files were not touched.`);
           });
-        }}><Trans>Remove</Trans></button>
+        }}><Trans context="Remove a local collection connection">Remove</Trans></button>
       </div>
       {detailsOpen && <Details collection={collection} onDone={(saved) => { setDetailsOpen(false); if (saved) onNotice(t(i18n)`${saved.name} was saved.`); }} />}
       {holdsOpen && <Holds collection={collection} busy={busy} onAct={onAct} />}

@@ -1321,6 +1321,7 @@ msgid "Reminders"
 msgstr "리마인더"
 
 #: src/renderer/collections-view.tsx
+msgctxt "Remove a local collection connection"
 msgid "Remove"
 msgstr "제거"
 

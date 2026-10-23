@@ -1280,6 +1280,7 @@ msgid "Creation hasn't finished. Approve continues the same named collection."
 msgstr "Die Erstellung ist noch nicht abgeschlossen. Mit „Genehmigen“ fahren Sie mit derselben benannten Sammlung fort."
 
 #: src/AccountManagement.tsx
+msgctxt "Browser session status"
 msgid "Current"
 msgstr "Aktuell"
 

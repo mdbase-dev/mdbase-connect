@@ -1280,6 +1280,7 @@ msgid "Creation hasn't finished. Approve continues the same named collection."
 msgstr "생성이 아직 끝나지 않았습니다. 승인하면 이름을 지정한 동일한 컬렉션에서 계속됩니다."
 
 #: src/AccountManagement.tsx
+msgctxt "Browser session status"
 msgid "Current"
 msgstr "현재"
 

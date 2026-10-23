@@ -272,7 +272,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       {sessions?.map((session) => <div className="connect-row" key={session.id}>
         <div><strong>{session.client_name}</strong><small>{session.current ? t(i18n)({ message: "This browser, active now", context: "Account management" }) : t(i18n)`Last used ${relativeTime(session.last_seen_at)}`}</small><small><Trans>Signed in <time dateTime={session.created_at}>{formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })}</time> · ID {session.id.slice(-8)}</Trans></small></div>
         <span>{providerLabel(session.provider)}</span>
-        {session.current ? <span className="connect-current"><Trans>Current</Trans></span> : <button className="danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}><Trans>Sign out</Trans></button>}
+        {session.current ? <span className="connect-current"><Trans context="Browser session status">Current</Trans></span> : <button className="danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}><Trans>Sign out</Trans></button>}
       </div>)}
     </section>}
 
