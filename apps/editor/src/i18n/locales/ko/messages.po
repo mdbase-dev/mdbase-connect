@@ -161,7 +161,7 @@ msgstr "{0, plural, other {‘{basename}’ 이름을 바꾸고 노트 #개를 �
 #. placeholder {2}: node.path
 #: src/CollectionRail.tsx
 msgid "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
-msgstr ""
+msgstr "{0, plural, one {{1}에서 노트 #개 표시} other {{2}에서 노트 #개 표시}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
@@ -297,7 +297,7 @@ msgstr "현재 {0} · 이 유형을 얻는 항목 {1}개 · 잃는 항목 {2}개
 #. placeholder {1}: suggestion.totalFields
 #: src/TypeBrowser.tsx
 msgid "{0} of {1} fields match"
-msgstr ""
+msgstr "전체 {1}개 필드 중 {0}개가 일치합니다"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #. placeholder {1}: total?.toLocaleString(displayLocale()) ?? "…"
@@ -654,7 +654,7 @@ msgstr "{references, plural, other {노트 #개의 링크도 업데이트했습�
 #. placeholder {1}: fields.length
 #: src/TypeBrowser.tsx
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
-msgstr ""
+msgstr "필수 {requiredMapped}/{0}개 · 전체 {mappedCount}/{1}개"
 
 #: src/NewNoteComposer.tsx
 msgid "{selectedOptional} set"
@@ -1530,11 +1530,11 @@ msgstr "유형 팩이 완료되기 전에 컬렉션이 변경되었습니다."
 
 #: src/CollectionRail.tsx
 msgid "Collection changes saved on this device; waiting for sync"
-msgstr ""
+msgstr "컬렉션 변경사항이 이 기기에 저장되었습니다. 동기화를 기다리는 중입니다"
 
 #: src/CollectionRail.tsx
 msgid "Collection connected"
-msgstr ""
+msgstr "컬렉션 연결됨"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1560,7 +1560,7 @@ msgstr "컬렉션 노트 및 파일"
 
 #: src/CollectionRail.tsx
 msgid "Collection offline"
-msgstr ""
+msgstr "컬렉션 오프라인"
 
 #: src/ConnectionScreens.tsx
 msgid "Collection options for {name}"
@@ -1568,7 +1568,7 @@ msgstr "{name} 컬렉션 옵션"
 
 #: src/CollectionRail.tsx
 msgid "Collection reconnecting"
-msgstr ""
+msgstr "컬렉션 다시 연결 중"
 
 #: src/TypeBrowser.tsx
 msgid "Collection resources"
@@ -1581,7 +1581,7 @@ msgstr "컬렉션 루트"
 
 #: src/CollectionRail.tsx
 msgid "Collection stopped"
-msgstr ""
+msgstr "컬렉션 중지됨"
 
 #: src/EditorRail.tsx
 msgid "Collection tools"
@@ -3173,7 +3173,7 @@ msgstr "‘{basename}’ 이동"
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "{0, plural, one {노트 #개를 이동하고} other {노트 #개를 이동하고}} {1, plural, one {링크 #개를 업데이트하시겠습니까?} other {링크 #개를 업데이트하시겠습니까?}}"
 
 #. placeholder {0}: paths.length
 #: src/MoveNoteDialog.tsx
@@ -4202,7 +4202,7 @@ msgstr "‘{basename}’ 이름 바꾸기"
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’ and move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "‘{basename}’의 이름을 바꾸고 노트 {0, plural, one {#개} other {#개}}를 이동한 다음 링크 {1, plural, one {#개} other {#개}}를 업데이트하시겠습니까?"
 
 #: src/App.tsx
 msgid "Rename and update links"
@@ -4290,11 +4290,11 @@ msgstr "노트 검사기 크기 조정"
 
 #: src/App.tsx
 msgid "Resize notes sidebar"
-msgstr ""
+msgstr "노트 사이드바 크기 조절"
 
 #: src/App.tsx
 msgid "Resize types sidebar"
-msgstr ""
+msgstr "유형 사이드바 크기 조절"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
@@ -4482,7 +4482,7 @@ msgstr "저장하면 일치하는 모든 노트에 영향을 줍니다."
 #. placeholder {0}: type!.name
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
-msgstr ""
+msgstr "저장하면 <0>{0}</0> 유형의 모든 노트에 영향을 줍니다"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4635,11 +4635,11 @@ msgstr "간략히"
 #. placeholder {1}: node.count
 #: src/CollectionRail.tsx
 msgid "Show notes in {0}, {1} or more notes"
-msgstr ""
+msgstr "{0}에서 노트 {1}개 이상 표시"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
-msgstr ""
+msgstr "노트 사이드바 표시"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
@@ -4647,7 +4647,7 @@ msgstr "노트 사이드바 표시 또는 숨기기"
 
 #: src/App.tsx
 msgid "Show types sidebar"
-msgstr ""
+msgstr "유형 사이드바 표시"
 
 #: src/App.tsx
 msgid "Sidebar layout controls"
@@ -4881,11 +4881,11 @@ msgstr "<0>{0}</0> 유형은 이전 Person 기본 유형입니다. 레코드를 
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because additional YAML rules must be evaluated by the collection."
-msgstr ""
+msgstr "추가 YAML 규칙을 컬렉션에서 평가해야 하므로 저장 후 미리보기를 사용할 수 없습니다"
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because some matching rules must be evaluated by the collection."
-msgstr ""
+msgstr "일부 일치 규칙을 컬렉션에서 평가해야 하므로 저장 후 미리보기를 사용할 수 없습니다"
 
 #: src/contract-catalog.ts
 msgid "The catalog contains duplicate {label} {identity}."
@@ -5813,7 +5813,7 @@ msgstr "업그레이드"
 #. placeholder {0}: setup.upgrade.target
 #: src/YourPersonPanel.tsx
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
-msgstr ""
+msgstr "<0>{0}</0>을(를) 최신 Person 스타터로 업그레이드합니다. "
 
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
