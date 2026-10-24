@@ -1,3 +1,6 @@
+import { t } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useState } from "react";
 import { markPairingCompleted } from "./onboarding-state.mjs";
 import { StatusDot } from "./ui-components";
@@ -17,6 +20,7 @@ export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSign
   reason?: string | null;
   onSignedIn(): void;
 }) {
+  useLocaleRevision();
   const [account, setAccount] = useState<CloudSetting>(cloud);
   const [starting, setStarting] = useState(false);
   const [failure, setFailure] = useState("");
@@ -56,14 +60,14 @@ export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSign
 
   const problem = failure || (!waiting && account.lastError) || "";
   return (
-    <section className="pairing-panel" aria-label="Sign in">
+    <section className="pairing-panel" aria-label={t(i18n)({ message: "Sign in", context: "Connect interface" })}>
       <div className="pairing-intro">
-        <h2>{waiting ? "Finish in your browser." : "Sign in to mdbase on this computer"}</h2>
+        <h2>{waiting ? t(i18n)({ message: "Finish in your browser.", context: "Connect interface" }) : t(i18n)({ message: "Sign in to mdbase on this computer" })}</h2>
         <p>{waiting
-          ? "Approve this computer in your browser. This window updates automatically."
+          ? t(i18n)({ message: "Approve this computer in your browser. This window updates automatically." })
           : resumeAuthorization
-            ? "Your application request will keep waiting. Sign in so you can choose a folder on this computer, then continue the same request."
-            : "Sign in before adding collections, so your apps can reach them through this computer. Your folders stay on this computer and their locations stay private."}</p>
+            ? t(i18n)({ message: "Your application request will keep waiting. Sign in so you can choose a folder on this computer, then continue the same request." })
+            : t(i18n)({ message: "Sign in before adding collections, so your apps can reach them through this computer. Your folders stay on this computer and their locations stay private." })}</p>
       </div>
       <div>
         {reason && !waiting && <div className="message notice-message" role="status">{reason}</div>}
@@ -72,16 +76,16 @@ export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSign
           <div className="pairing-wait" role="status" aria-live="polite">
             <StatusDot state="connecting" />
             <div>
-              <strong>Waiting for browser approval</strong>
+              <strong><Trans>Waiting for browser approval</Trans></strong>
               <code>{waiting}</code>
             </div>
             <div>
-              <button className="quiet-action" onClick={() => void window.mdbaseConnect.reopenSignIn().catch((error) => setFailure(message(error)))}>Open browser again</button>
-              <button className="quiet-action" disabled={starting} onClick={() => void begin()}>Start again</button>
+              <button className="quiet-action" onClick={() => void window.mdbaseConnect.reopenSignIn().catch((error) => setFailure(message(error)))}><Trans>Open browser again</Trans></button>
+              <button className="quiet-action" disabled={starting} onClick={() => void begin()}><Trans>Start again</Trans></button>
             </div>
           </div>
         ) : (
-          <button className="button primary" disabled={starting} onClick={() => void begin()}>{starting ? "Opening browser…" : "Sign in with your browser"}</button>
+          <button className="button primary" disabled={starting} onClick={() => void begin()}>{starting ? t(i18n)({ message: "Opening browser…", context: "Connect interface" }) : t(i18n)({ message: "Sign in with your browser" })}</button>
         )}
       </div>
     </section>

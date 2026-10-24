@@ -1,3 +1,7 @@
+import { createNativeLocale } from "./i18n";
+import { isLocale, type I18nRuntime } from "@mdbase-dev/i18n";
+import { t, msg } from "@lingui/core/macro";
+import { i18n } from "@mdbase-dev/ui/i18n";
 import {
   app,
   autoUpdater,
@@ -34,8 +38,9 @@ guardDesktopProcessOutput();
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let nativeLocale: I18nRuntime;
 let bootGate: BootGate;
-let localHealthLabel = "mdbase starting";
+let startupFailed = false;
 let runtime: DaemonRuntime | null = null;
 let profile: DaemonProfile | null = null;
 let session: DaemonSession | null = null;
@@ -57,7 +62,7 @@ autoUpdater.on("before-quit-for-update", () => {
 
 async function openLocalPath(path: string): Promise<void> {
   const error = await shell.openPath(path);
-  if (error) throw new Error(`The folder or file could not be opened. ${error}`);
+  if (error) throw new Error(t(i18n)`The folder or file could not be opened. ${error}`);
 }
 
 async function registeredCollectionPath(collectionId: unknown): Promise<string> {
@@ -116,7 +121,7 @@ function approvalPolicy(current: AccountInfo) {
 /** The control plane this computer is signed in to, for the account page. */
 async function signedInServer(): Promise<string> {
   const current = await account();
-  if (!current.signed_in || !current.server) throw new Error("Sign in to mdbase on this computer first.");
+  if (!current.signed_in || !current.server) throw new Error(t(i18n)({ message: "Sign in to mdbase on this computer first.", context: "Desktop application" }));
   return checkApprovalUrl(current.server, approvalPolicy(current));
 }
 
@@ -154,7 +159,6 @@ async function initializeDaemon(): Promise<void> {
       removeOldRuntimeCopies(app.getPath("userData"))
         .catch((error) => console.warn("Could not remove the old connector's runtime copies:", error));
     }
-    localHealthLabel = healthLabel(state);
     refreshTrayMenu();
     mainWindow?.webContents.send("connect:daemon-state", state);
   });
@@ -184,8 +188,7 @@ async function ensureBundledDaemon(bundled: DaemonRuntime, current: DaemonProfil
   const holding = result.outcome === "rolled_back" ||
     (held?.version === bundled.version && result.version !== bundled.version);
   updater.setDaemonNotice(holding
-    ? `mdbase ${bundled.version} did not start on this computer, so mdbase ${result.version} keeps running. ` +
-      "The next app update tries again."
+    ? msg`mdbase ${bundled.version} did not start on this computer, so mdbase ${result.version} keeps running. The next app update tries again.`
     : null);
 }
 
@@ -206,7 +209,7 @@ function trustedIpc(event: Electron.IpcMainInvokeEvent): void {
   }
 }
 
-async function chooseFolder(title = "Choose a collection folder"): Promise<string | null> {
+async function chooseFolder(title = t(i18n)({ message: "Choose a collection folder", context: "Desktop application" })): Promise<string | null> {
   const options: Electron.OpenDialogOptions = {
     title,
     properties: ["openDirectory", "createDirectory"]
@@ -218,6 +221,17 @@ async function chooseFolder(title = "Choose a collection folder"): Promise<strin
 }
 
 function registerIpc(): void {
+  ipcMain.handle("connect:locale:get", (event) => {
+    trustedIpc(event);
+    return i18n.locale;
+  });
+  ipcMain.handle("connect:locale:set", async (event, locale: unknown) => {
+    trustedIpc(event);
+    if (!isLocale(locale)) throw new Error("Unsupported locale.");
+    await nativeLocale.selectLocale(locale);
+    refreshTrayMenu();
+    mainWindow?.webContents.send("connect:update-status", updater.status());
+  });
   ipcMain.handle("connect:status", async (event) => {
     trustedIpc(event);
     return requestReadyAgent("status");
@@ -249,26 +263,26 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:collections:add", async (event) => {
     trustedIpc(event);
-    const path = await chooseFolder("Choose a folder to add");
+    const path = await chooseFolder(t(i18n)({ message: "Choose a folder to add", context: "Desktop application" }));
     if (!path) return null;
     return requestReadyAgent("collection.add", { path }, 60_000);
   });
   ipcMain.handle("connect:collections:choose-create", async (event) => {
     trustedIpc(event);
-    return chooseFolder("Choose where to create the collection folder");
+    return chooseFolder(t(i18n)({ message: "Choose where to create the collection folder", context: "Desktop application" }));
   });
   // A new collection is a new, empty folder registered as a local collection.
   ipcMain.handle("connect:collections:create", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid collection input.");
     const name = collectionName(value.name);
-    if (typeof value.parent !== "string" || !value.parent) throw new Error("Choose where to create the folder.");
+    if (typeof value.parent !== "string" || !value.parent) throw new Error(t(i18n)({ message: "Choose where to create the folder.", context: "Desktop application" }));
     const folder = join(resolve(value.parent), folderName(name));
     try {
       await mkdir(folder);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new Error(`A folder named "${folderName(name)}" already exists there. Choose another name or use Add existing.`);
+        throw new Error(t(i18n)`A folder named "${folderName(name)}" already exists there. Choose another name or use Add existing.`);
       }
       throw error;
     }
@@ -306,7 +320,7 @@ function registerIpc(): void {
     trustedIpc(event);
     const value = asObject(input, "Invalid sync input.");
     const mode = value.mode;
-    if (mode !== "private" && mode !== "cloud-copy") throw new Error("Choose how to sync.");
+    if (mode !== "private" && mode !== "cloud-copy") throw new Error(t(i18n)({ message: "Choose how to sync.", context: "Desktop application" }));
     if (typeof value.acceptTakeoverHolds !== "boolean") throw new Error("Invalid sync input.");
     // A folder with files (for example a taken-over one) is adopted as the first
     // version. Files held at takeover are accepted only after the user has seen them.
@@ -385,7 +399,7 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:account:rename", async (event, name: unknown) => {
     trustedIpc(event);
-    if (typeof name !== "string") throw new Error("Enter a name for this computer.");
+    if (typeof name !== "string") throw new Error(t(i18n)({ message: "Enter a name for this computer.", context: "Desktop application" }));
     return requestReadyAgent("account.rename", { name }, 30_000);
   });
   ipcMain.handle("connect:activity:list", async (event) => {
@@ -426,7 +440,7 @@ function registerIpc(): void {
     trustedIpc(event);
     const value = asObject(input, "Invalid approval.");
     const code = typeof value.code === "string" ? value.code.replace(/\s/gu, "") : "";
-    if (!/^\d{6}$/u.test(code)) throw new Error("The code is six digits.");
+    if (!/^\d{6}$/u.test(code)) throw new Error(t(i18n)({ message: "The code is six digits.", context: "Desktop application" }));
     pendingDeviceCache = null;
     return bootGate.request(() => daemonCli().run([
       "device", "approve", collectionIdOf(value.collectionId), deviceIdOf(value.device), "--code", code
@@ -502,7 +516,7 @@ function grantIdOf(value: unknown): string {
 
 function collectionName(value: unknown): string {
   const name = typeof value === "string" ? value.trim() : "";
-  if (!name || [...name].length > 100) throw new Error("Collection name must be between 1 and 100 characters.");
+  if (!name || [...name].length > 100) throw new Error(t(i18n)({ message: "Collection name must be between 1 and 100 characters.", context: "Desktop application" }));
   return name;
 }
 
@@ -627,33 +641,33 @@ function refreshTrayMenu(): void {
   const updateReady = update?.can_install === true;
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Show mdbase connect", click: () => mainWindow?.show() },
+      { label: t(i18n)({ message: "Show mdbase connect", context: "Desktop application" }), click: () => mainWindow?.show() },
       { type: "separator" },
-      { label: localHealthLabel, enabled: false },
+      { label: startupFailed ? t(i18n)`mdbase needs attention` : healthLabel(session?.current ?? { phase: "starting" }), enabled: false },
       {
         label: updateReady
           ? update?.phase === "ready"
-            ? `Install ${update.target_version}`
-            : `Open ${update?.target_version ?? "update"}`
-          : "Check for updates",
+            ? t(i18n)`Install ${update.target_version}`
+            : update?.target_version ? t(i18n)`Open ${update.target_version}` : t(i18n)`Open update`
+          : t(i18n)({ message: "Check for updates", context: "Desktop application" }),
         enabled: update?.can_check === true || updateReady,
         click: () => {
           if (updateReady) {
             void bootGate.install(() => updater.install()).catch((error) => {
               dialog.showErrorBox(
-                "mdbase connect could not install the update",
+                t(i18n)({ message: "mdbase connect could not install the update", context: "Desktop application" }),
                 error instanceof Error ? error.message : String(error)
               );
             });
           } else {
             void bootGate.check(() => updater.check(true))
-              .catch((error) => dialog.showErrorBox("Could not check for updates", String(error)));
+              .catch((error) => dialog.showErrorBox(t(i18n)({ message: "Could not check for updates", context: "Desktop application" }), String(error)));
           }
         }
       },
       { type: "separator" },
       {
-        label: "Quit mdbase connect",
+        label: t(i18n)({ message: "Quit mdbase connect", context: "Desktop application" }),
         click: () => {
           quitting = true;
           app.quit();
@@ -664,6 +678,9 @@ function refreshTrayMenu(): void {
 }
 
 app.whenReady().then(async () => {
+  nativeLocale = createNativeLocale(app.getPath("userData"), app.getPreferredSystemLanguages());
+  try { await nativeLocale.initialize(); }
+  catch (error) { dialog.showErrorBox(t(i18n)`The language could not be loaded. Choose it again in Settings.`, String(error)); }
   app.on("web-contents-created", (_event, contents) => {
     contents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
       callback(false);
@@ -688,7 +705,7 @@ app.whenReady().then(async () => {
     await initializeDaemon();
   } catch (error) {
     dialog.showErrorBox(
-      "mdbase connect could not initialize",
+      t(i18n)({ message: "mdbase connect could not initialize", context: "Desktop application" }),
       error instanceof Error ? error.message : String(error)
     );
     app.quit();
@@ -711,10 +728,10 @@ app.whenReady().then(async () => {
     await bootGate.ready();
     void requestReadyAgent("migrate.status", { refresh_rollout: true }).catch(() => {});
   } catch (error) {
-    localHealthLabel = "mdbase needs attention";
+    startupFailed = true;
     refreshTrayMenu();
     dialog.showErrorBox(
-      "mdbase connect could not start",
+      t(i18n)({ message: "mdbase connect could not start", context: "Desktop application" }),
       error instanceof Error ? error.message : String(error)
     );
   }

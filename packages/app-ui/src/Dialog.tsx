@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { useLocaleRevision } from "./i18n.js";
 import { useLayoutEffect, useRef, type JSX, type ReactNode } from "react";
 
 /**
@@ -12,6 +14,7 @@ export function Dialog({ open, onClose, title, className, closeDisabled = false,
   readonly closeDisabled?: boolean;
   readonly children: ReactNode;
 }): JSX.Element {
+  useLocaleRevision();
   const ref = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -41,7 +44,7 @@ export function Dialog({ open, onClose, title, className, closeDisabled = false,
     {open && <div className="mdbase-dialog-body">
       <header className="mdbase-dialog-header">
         <h2>{title}</h2>
-        <button type="button" className="mdbase-icon-button" disabled={closeDisabled} onClick={onClose} aria-label="Close">
+        <button type="button" className="mdbase-icon-button" disabled={closeDisabled} onClick={onClose} aria-label={t({ message: "Close" })}>
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
             <path d="m6 6 12 12M18 6 6 18" />
           </svg>

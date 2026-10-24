@@ -11,9 +11,14 @@
   },
   "homepage": "https://mdbase.dev",
   "sideEffects": [
-    "*.css"
+    "*.css",
+    "./dist/i18n.js"
   ],
   "exports": {
+    "./i18n": {
+      "types": "./dist/i18n.d.ts",
+      "import": "./dist/i18n.js"
+    },
     "./app-switcher": {
       "types": "./dist/AppSwitcher.d.ts",
       "import": "./dist/AppSwitcher.js"
@@ -106,9 +111,14 @@
     "README.md"
   ],
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
-    "test": "node ../../scripts/ci/vitest.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "verify:shared": "pnpm --filter @mdbase-dev/i18n build && pnpm i18n:check && pnpm --filter @mdbase/connect-ui i18n:check && pnpm build && pnpm test && pnpm --filter @mdbase/connect-ui build && pnpm --filter @mdbase/connect-ui test && pnpm --filter @mdbase/connect-ui typecheck",
+    "i18n:extract": "mdbase-i18n extract",
+    "i18n:compile": "mdbase-i18n compile",
+    "i18n:check": "mdbase-i18n check",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && node scripts/compile-catalogues.mjs && tsc -p tsconfig.json && node scripts/compile-macros.mjs",
+    "test": "node scripts/compile-catalogues.mjs && node ../../scripts/ci/vitest.mjs",
+    "typecheck": "node scripts/compile-catalogues.mjs && tsc -p tsconfig.json --noEmit",
+    "prepack": "pnpm --filter @mdbase-dev/i18n build && pnpm i18n:check && pnpm build"
   },
   "dependencies": {
     "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
@@ -116,13 +126,26 @@
   },
   "peerDependencies": {
     "@codemirror/view": "^6.0.0",
+    "@lingui/core": "6.9.0",
+    "@lingui/react": "6.9.0",
+    "@mdbase-dev/i18n": "*",
     "@mdbase-dev/sdk": "*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/plugin-transform-react-jsx": "^7.29.7",
     "@codemirror/view": "^6.43.12",
+    "@lingui/babel-plugin-lingui-macro": "6.9.0",
+    "@lingui/cli": "6.9.0",
+    "@lingui/core": "6.9.0",
+    "@lingui/format-po": "6.9.0",
+    "@lingui/react": "6.9.0",
+    "@lingui/vite-plugin": "6.9.0",
+    "@mdbase-dev/i18n": "workspace:*",
     "@mdbase-dev/sdk": "file:vendor/sdk-0.0.0-bd131b16.tgz",
+    "@rolldown/plugin-babel": "^0.2.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "jsdom": "^29.1.1",

@@ -1,0 +1,307 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-23 22:26+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: ru\n"
+
+#. placeholder {0}: typeField.label
+#. placeholder {1}: contractField.label
+#: contract-setup.ts
+msgid "{0} can supply {1}."
+msgstr "{0} может предоставить значение для {1}."
+
+#. placeholder {0}: typeField.label
+#. placeholder {1}: kindLabel(typeField.kind)
+#. placeholder {2}: contractField.label
+#. placeholder {3}: kindLabel(contractField.kind)
+#: contract-setup.ts
+msgid "{0} is {1}, but {2} needs {3}."
+msgstr "Для {0} задано значение типа {1}, но полю {2} требуется тип {3}."
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a complex value"
+msgstr "сложное значение"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a date"
+msgstr "дата"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a date and time"
+msgstr "дата и время"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a group of values"
+msgstr "группа значений"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a list"
+msgstr "список"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a number"
+msgstr "число"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a whole number"
+msgstr "целое число"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a yes/no value"
+msgstr "логическое значение"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Add record types"
+msgstr "Добавлять типы записей"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Additional operations declared by this application."
+msgstr "Дополнительные операции, объявленные этим приложением."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Cancel this app's scheduled activity"
+msgstr "Отменять запланированные действия этого приложения"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change record types"
+msgstr "Изменять типы записей"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change records"
+msgstr "Изменять записи"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change saved views"
+msgstr "Изменять сохранённые представления"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check available record types"
+msgstr "Проверять доступные типы записей"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check collection validity"
+msgstr "Проверять корректность коллекции"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check what this app needs to set up"
+msgstr "Проверять, что нужно приложению для настройки"
+
+#. placeholder {0}: contractField.label
+#: contract-setup.ts
+msgid "Choose which field supplies {0}."
+msgstr "Выберите поле, из которого брать значение для {0}."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create and edit records"
+msgstr "Создавать и редактировать записи"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create or change saved views and type definitions."
+msgstr "Создавать и изменять сохранённые представления и определения типов."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create or update this app's scheduled activity"
+msgstr "Создавать и обновлять запланированные действия этого приложения"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create records"
+msgstr "Создавать записи"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create saved views"
+msgstr "Создавать сохранённые представления"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create, edit, rename, or move records."
+msgstr "Создавать, редактировать, переименовывать и перемещать записи."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Delete records"
+msgstr "Удалять записи"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Delete saved views"
+msgstr "Удалять сохранённые представления"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Describe the collection"
+msgstr "Описывать коллекцию"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Doesn’t match"
+msgstr "Не совпадает"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Inspect saved-view definitions"
+msgstr "Просматривать определения сохранённых представлений"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Install or update record types"
+msgstr "Устанавливать и обновлять типы записей"
+
+#. placeholder {0}: url.host
+#: access.ts
+msgid "Local development ({0})"
+msgstr "Локальная разработка ({0})"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Manage collection structure"
+msgstr "Управлять структурой коллекции"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Matches"
+msgstr "Совпадает"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Not shared"
+msgstr "Не предоставляется"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Other permissions"
+msgstr "Другие разрешения"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Permanently remove records from this collection."
+msgstr "Безвозвратно удалять записи из этой коллекции."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Read collection details, records, saved views, and type definitions."
+msgstr "Читать сведения о коллекции, записи, сохранённые представления и определения типов."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Read records"
+msgstr "Читать записи"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Rename or move records"
+msgstr "Переименовывать и перемещать записи"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Replace this app's scheduled activity"
+msgstr "Заменять запланированные действия этого приложения"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Required"
+msgstr "Обязательно"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Review"
+msgstr "Проверить"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Run saved views"
+msgstr "Запускать сохранённые представления"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Schedule app activity"
+msgstr "Планировать действия приложения"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Search and query"
+msgstr "Искать и выполнять запросы"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See collection changes"
+msgstr "Просматривать изменения коллекции"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See saved views"
+msgstr "Просматривать сохранённые представления"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See this app's scheduled activity"
+msgstr "Просматривать запланированные действия этого приложения"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Set up this app in the collection"
+msgstr "Настраивать приложение в коллекции"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Some existing records may not have this required value."
+msgstr "В некоторых существующих записях может отсутствовать это обязательное значение."
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Some existing values are outside the application’s accepted set."
+msgstr "Некоторые существующие значения не входят в допустимый для приложения набор."
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "The existing field allows values the application may not understand."
+msgstr "В существующем поле разрешены значения, которые приложение может не распознать."
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "The two fields allow different values."
+msgstr "Для этих двух полей разрешены разные значения."
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "This optional value will not be shared with the application."
+msgstr "Это необязательное значение не будет передано приложению."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View and find records"
+msgstr "Просматривать и находить записи"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View and manage timers owned by this application."
+msgstr "Просматривать таймеры этого приложения и управлять ими."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View record types"
+msgstr "Просматривать типы записей"

@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import "./i18n.js";
 export const FEEDBACK_MAX_MESSAGE_LENGTH = 5_000;
 export const FEEDBACK_MAX_SCREENSHOT_BYTES = 3 * 1024 * 1024;
 export const FEEDBACK_ERROR_CODES = ["cancelled", "http_error", "invalid_response", "outcome_unknown", "partial_failure", "timeout", "network_error", "unknown_error", "save_failed", "source_open_failed", "preview_failed"] as const;
@@ -36,9 +38,9 @@ export interface FeedbackSubmission {
   turnstile_token?: string;
 }
 export const feedbackTopics = {
-  problem: { label: "Report a problem", prompt: "What happened?", placeholder: "What were you trying to do?", thanks: "Thanks for the report." },
-  idea: { label: "Suggest an improvement", prompt: "What would you like to improve?", placeholder: "How would it help you?", thanks: "Thanks for the idea." },
-  appreciation: { label: "Share something you like", prompt: "What’s working well for you?", placeholder: "What made a difference?", thanks: "Thanks for the kind words." }
+  problem: { get label() { return t({ message: "Report a problem" }); }, get prompt() { return t({ message: "What happened?" }); }, get placeholder() { return t({ message: "What were you trying to do?" }); }, get thanks() { return t({ message: "Thanks for the report." }); } },
+  idea: { get label() { return t({ message: "Suggest an improvement" }); }, get prompt() { return t({ message: "What would you like to improve?" }); }, get placeholder() { return t({ message: "How would it help you?" }); }, get thanks() { return t({ message: "Thanks for the idea." }); } },
+  appreciation: { get label() { return t({ message: "Share something you like" }); }, get prompt() { return t({ message: "What’s working well for you?" }); }, get placeholder() { return t({ message: "What made a difference?" }); }, get thanks() { return t({ message: "Thanks for the kind words." }); } }
 } satisfies Record<FeedbackTopic, { label: string; prompt: string; placeholder: string; thanks: string }>;
 
 /** Each provider owns its bounded, short-lived error buffer; never accepts messages or request data. */
@@ -76,10 +78,10 @@ export async function sendFeedback(endpoint: string, submission: FeedbackSubmiss
     response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(submission), credentials: "omit", referrerPolicy: "no-referrer", signal });
   } catch (error) {
     if (signal.aborted) throw error;
-    throw new Error("Feedback could not be sent. Check your connection and try again.");
+    throw new Error(t({ message: "Feedback could not be sent. Check your connection and try again." }));
   }
   if (response.ok) return;
-  let message = "Feedback could not be sent. Please try again.";
+  let message = t({ message: "Feedback could not be sent. Please try again." });
   try {
     const result = await response.json() as { error?: { message?: unknown } };
     if (typeof result.error?.message === "string" && result.error.message.length <= 200) message = result.error.message;
@@ -93,16 +95,16 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 export async function screenshotFromCanvas(canvas: HTMLCanvasElement, type: "image/png" | "image/jpeg" = "image/png"): Promise<FeedbackScreenshot> {
-  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("The screenshot could not be created.")), type, type === "image/jpeg" ? 0.9 : undefined));
-  if (blob.size > FEEDBACK_MAX_SCREENSHOT_BYTES) throw new Error("The screenshot is larger than 3 MB. Choose a smaller image.");
+  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error(t({ message: "The screenshot could not be created." }))), type, type === "image/jpeg" ? 0.9 : undefined));
+  if (blob.size > FEEDBACK_MAX_SCREENSHOT_BYTES) throw new Error(t({ message: "The screenshot is larger than 3 MB. Choose a smaller image." }));
   return { media_type: type, filename: type === "image/png" ? "screenshot.png" : "screenshot.jpg", content_base64: bytesToBase64(new Uint8Array(await blob.arrayBuffer())) };
 }
 export async function readFeedbackScreenshot(file: File): Promise<FeedbackScreenshot> {
-  if (file.size > FEEDBACK_MAX_SCREENSHOT_BYTES) throw new Error("Choose a screenshot smaller than 3 MB.");
-  if (file.type !== "image/png" && file.type !== "image/jpeg") throw new Error("Choose a PNG or JPEG screenshot.");
+  if (file.size > FEEDBACK_MAX_SCREENSHOT_BYTES) throw new Error(t({ message: "Choose a screenshot smaller than 3 MB." }));
+  if (file.type !== "image/png" && file.type !== "image/jpeg") throw new Error(t({ message: "Choose a PNG or JPEG screenshot." }));
   const bytes = new Uint8Array(await file.arrayBuffer());
   const valid = file.type === "image/png" ? [137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => bytes[i] === v) : bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  if (!valid) throw new Error("The screenshot does not contain a valid PNG or JPEG image.");
+  if (!valid) throw new Error(t({ message: "The screenshot does not contain a valid PNG or JPEG image." }));
   const dimensions = rasterDimensions(bytes, file.type);
   assertImageSize(dimensions.width, dimensions.height); // Reject decompression bombs before browser decoding.
   const url = URL.createObjectURL(file);
@@ -112,13 +114,13 @@ export async function readFeedbackScreenshot(file: File): Promise<FeedbackScreen
     assertImageSize(image.naturalWidth, image.naturalHeight);
     const canvas = document.createElement("canvas"); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("The screenshot could not be cleaned in this browser.");
+    if (!context) throw new Error(t({ message: "The screenshot could not be cleaned in this browser." }));
     context.drawImage(image, 0, 0);
     return await screenshotFromCanvas(canvas, file.type);
   } finally { URL.revokeObjectURL(url); }
 }
 function assertImageSize(width: number, height: number) {
-  if (!width || !height || width > 8192 || height > 8192 || width * height > 16_000_000) throw new Error("Choose a screenshot smaller than 16 megapixels.");
+  if (!width || !height || width > 8192 || height > 8192 || width * height > 16_000_000) throw new Error(t({ message: "Choose a screenshot smaller than 16 megapixels." }));
 }
 function rasterDimensions(bytes: Uint8Array, type: "image/png" | "image/jpeg"): { width: number; height: number } {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -137,7 +139,7 @@ function rasterDimensions(bytes: Uint8Array, type: "image/png" | "image/jpeg"): 
       offset += length;
     }
   }
-  throw new Error("The screenshot does not contain a valid PNG or JPEG image.");
+  throw new Error(t({ message: "The screenshot does not contain a valid PNG or JPEG image." }));
 }
 async function bounded<T>(promise: Promise<T>, milliseconds: number, signal: AbortSignal): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -147,13 +149,13 @@ async function bounded<T>(promise: Promise<T>, milliseconds: number, signal: Abo
       abort = () => reject(new DOMException("Capture cancelled", "AbortError"));
       if (signal.aborted) { abort(); return; }
       signal.addEventListener("abort", abort, { once: true });
-      timer = setTimeout(() => reject(new Error("The screenshot could not be captured. Try again.")), milliseconds);
+      timer = setTimeout(() => reject(new Error(t({ message: "The screenshot could not be captured. Try again." }))), milliseconds);
     })]);
   } finally { clearTimeout(timer); if (abort) signal.removeEventListener("abort", abort); }
 }
 /** Caller closes the native dialog first. Media is always stopped, including cancellation/unmount. */
 export async function captureFeedbackScreenshot(signal: AbortSignal): Promise<FeedbackScreenshot> {
-  if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("Screen capture isn’t available in this browser. You can attach an image instead.");
+  if (!navigator.mediaDevices?.getDisplayMedia) throw new Error(t({ message: "Screen capture isn’t available in this browser. You can attach an image instead." }));
   await bounded(new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))), 1000, signal);
   if (signal.aborted) throw new DOMException("Capture cancelled", "AbortError");
   // The picker is intentionally not timed out: the user decides whether to grant capture.
@@ -167,11 +169,11 @@ export async function captureFeedbackScreenshot(signal: AbortSignal): Promise<Fe
     video.muted = true; video.playsInline = true; video.srcObject = stream;
     const frame = typeof video.requestVideoFrameCallback === "function" ? new Promise<void>((resolve) => { frameCallback = video.requestVideoFrameCallback(() => resolve()); }) : Promise.resolve();
     await bounded(Promise.all([video.play(), frame]), 5000, signal);
-    if (!video.videoWidth || !video.videoHeight || stream.getVideoTracks()[0]?.readyState === "ended") throw new Error("Screen sharing ended before a screenshot was taken.");
+    if (!video.videoWidth || !video.videoHeight || stream.getVideoTracks()[0]?.readyState === "ended") throw new Error(t({ message: "Screen sharing ended before a screenshot was taken." }));
     const scale = Math.min(1, 1600 / video.videoWidth, 1200 / video.videoHeight);
     const canvas = document.createElement("canvas"); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("The screenshot could not be created in this browser.");
+    if (!context) throw new Error(t({ message: "The screenshot could not be created in this browser." }));
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     stop(); // Do not leave sharing running during asynchronous PNG encoding.
     return await screenshotFromCanvas(canvas);

@@ -1,3 +1,6 @@
+import { t } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useCallback, useEffect, useState } from "react";
 import { presentTakeover, type TakeoverStatus } from "./takeover-state.mjs";
 import { message } from "./view-model";
@@ -6,15 +9,16 @@ const IDLE_POLL_MS = 10_000;
 const RUNNING_POLL_MS = 2_000;
 
 const stateLabels: Record<string, string> = {
-  pending: "Waiting",
-  postponed: "Postponed",
-  complete: "Moved",
-  held: "Moved, files kept for review",
-  rolled_back: "Returned to the old engine"
+  get pending() { return t(i18n)({ message: "Waiting", context: "Collection move recovery" }); },
+  get postponed() { return t(i18n)({ message: "Postponed", context: "Collection move recovery" }); },
+  get complete() { return t(i18n)({ message: "Moved", context: "Collection move recovery" }); },
+  get held() { return t(i18n)({ message: "Moved, files kept for review" }); },
+  get rolled_back() { return t(i18n)({ message: "Returned to the old engine" }); }
 };
 
 /** The move from the old Connect engine to mdbase: status, reasons and the explicit move. */
 export function TakeoverPanel({ names }: { names: Record<string, string> }) {
+  useLocaleRevision();
   const [status, setStatus] = useState<(TakeoverStatus & { running: boolean }) | null>(null);
   const [starting, setStarting] = useState(false);
   const [stopMirrors, setStopMirrors] = useState(false);
@@ -55,10 +59,10 @@ export function TakeoverPanel({ names }: { names: Record<string, string> }) {
   };
 
   return (
-    <section className={`takeover-panel ${view.tone}`} role="status" aria-live="polite" aria-label="Move to the new sync engine">
+    <section className={`takeover-panel ${view.tone}`} role="status" aria-live="polite" aria-label={t(i18n)({ message: "Move to the new sync engine" })}>
       {view.title && <strong>{view.title}</strong>}
       {view.detail && <p>{view.detail}</p>}
-      {view.advice && <p className="takeover-advice"><span>What to do: </span>{view.advice}</p>}
+      {view.advice && <p className="takeover-advice"><span><Trans>What to do: </Trans></span>{view.advice}</p>}
       {view.incidents.map((incident) => <p key={incident} className="takeover-incident">{incident}</p>)}
       {failure && <p className="takeover-incident">{failure}</p>}
       {view.notices.map((notice) => <p key={notice}>{notice}</p>)}
@@ -74,11 +78,11 @@ export function TakeoverPanel({ names }: { names: Record<string, string> }) {
         ))}
       </ul>}
       {view.canStart && <div className="collection-config-actions">
-        {view.offerStopMirrors && <label className="takeover-option">
+        {view.offerStopMirrors && <label className="takeover-option"><Trans>
           <input type="checkbox" checked={stopMirrors} onChange={(event) => setStopMirrors(event.target.checked)} />
           Allow hosted mirrors to stop until I join them again
-        </label>}
-        <button className="button primary" disabled={running} onClick={() => void start()}>Move to the new sync engine</button>
+        </Trans></label>}
+        <button className="button primary" disabled={running} onClick={() => void start()}><Trans>Move to the new sync engine</Trans></button>
       </div>}
     </section>
   );

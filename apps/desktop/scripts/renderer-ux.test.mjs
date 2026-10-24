@@ -48,6 +48,8 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
     };
     window.fixture = fixture;
     window.mdbaseConnect = {
+      getLocale: async () => localStorage.getItem("fixture:locale") ?? "en",
+      setLocale: async (locale) => { calls.push(["setLocale", locale]); localStorage.setItem("fixture:locale", locale); },
       status: async () => fixture.status(),
       updateStatus: async () => ({ phase: "unavailable", current_version: "test", channel: "beta", message: "Development build", can_check: false, can_install: false }),
       migrationStatus: async () => fixture.migration ?? { record: null, running: false },
@@ -97,6 +99,23 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
   const calls = (name) => page.evaluate((name) => window.fixture.calls.filter((call) => call[0] === name).map((call) => call.slice(1)), name);
   return { page, errors, calls };
 }
+
+test("renderer loads real locale chunks and restores the preload language preference", async () => {
+  const { page, errors, calls } = await desktop();
+  try {
+    await page.locator(".product-sidebar-link").filter({ hasText: "Settings" }).click();
+    const picker = page.locator('select:has(option[value="ja"])');
+    assert.equal(await picker.locator("option").count(), 9);
+    await picker.selectOption("ja");
+    await page.waitForFunction(() => document.documentElement.lang === "ja");
+    assert.deepEqual(await calls("setLocale"), [["ja"]]);
+    assert.equal(await page.getByRole("alert").count(), 0);
+    await page.reload();
+    await page.waitForFunction(() => document.documentElement.lang === "ja");
+    assert.equal(await page.getByRole("alert").count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
 
 const nav = (page, name) => page.locator(".product-sidebar-link").filter({ hasText: name });
 

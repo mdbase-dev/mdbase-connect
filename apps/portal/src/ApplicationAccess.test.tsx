@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "./test/render";
 import { ConnectManagementClient, type ManagementOverview } from "@mdbase/connect-management";
 import { describe, expect, it, vi } from "vitest";
 import { AppAccess, applicationGroups } from "./ApplicationAccess";

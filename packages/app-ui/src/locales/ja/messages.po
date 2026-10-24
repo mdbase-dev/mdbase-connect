@@ -1,0 +1,896 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-23 22:26+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: ja\n"
+
+#: src/AppSwitcher.tsx
+msgid "(opens in a new tab)"
+msgstr "（新しいタブで開きます）"
+
+#. placeholder {0}: changes - shownChanges
+#: src/text-diff.ts
+msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
+msgstr "{0, plural, other {変更された行があと#行}}"
+
+#. placeholder {0}: signIn.accountLogin
+#: src/collections/model.ts
+msgid "{0} on GitHub"
+msgstr "GitHubの{0}"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "{app} can't open collections here"
+msgstr "{app}ではここでコレクションを開けません"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "{app} doesn't have access to any collections yet. Choose one you have, or create a new one."
+msgstr "{app}にはまだコレクションへのアクセス権がありません。既存のコレクションを選ぶか、新しく作成してください。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "{app} has stopped"
+msgstr "{app}は停止しました"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "{app} needs to add a few things to this collection before it can use it."
+msgstr "{app}がこのコレクションを使うには、いくつかの項目を追加する必要があります。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "{app} needs your approval in mdbase before it can open it."
+msgstr "{app}が開くには、mdbaseでの承認が必要です。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
+msgstr "このデバイスで{app}に表示されなくなります。コレクション内のデータは削除されず、{app}のアクセス権も維持されます。アクセスを終了するには「アクセスを管理」を使ってください。"
+
+#: src/Feedback.tsx
+#: src/FeedbackMarkup.tsx
+msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
+msgstr "{count, plural, other {#件のマークを適用しました。}}"
+
+#: src/Feedback.tsx
+msgid "A problem occurred. You can use Send feedback to report it."
+msgstr "問題が発生しました。「フィードバックを送信」から報告できます。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Access wasn't given."
+msgstr "アクセスは許可されませんでした。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Access wasn't given. You can try again or choose a different collection."
+msgstr "アクセスは許可されませんでした。再試行するか、別のコレクションを選んでください。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Add a collection…"
+msgstr "コレクションを追加…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Add a Private collection"
+msgstr "プライベートコレクションを追加"
+
+#: src/FeedbackMarkup.tsx
+msgid "Apply changes"
+msgstr "変更を適用"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Applying collection updates…"
+msgstr "コレクションの更新を適用しています…"
+
+#: src/FeedbackMarkup.tsx
+msgid "Applying…"
+msgstr "適用中…"
+
+#: src/Feedback.tsx
+msgid "Attach screenshot"
+msgstr "スクリーンショットを添付"
+
+#: src/Feedback.tsx
+msgid "Back to your work"
+msgstr "作業に戻る"
+
+#: src/FeedbackMarkup.tsx
+msgid "Blackout"
+msgstr "黒塗り"
+
+#: src/apps.ts
+msgid "Browse and edit records"
+msgstr "レコードの閲覧と編集"
+
+#: src/Feedback.tsx
+msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
+msgstr "ブラウザー、OS、表示領域、最近のエラーコード。ノートの内容、パス、認証情報は含まれません。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Can edit"
+msgstr "編集可能"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Can view"
+msgstr "閲覧可能"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Can't continue"
+msgstr "続行できません"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Can't open {collection}"
+msgstr "{collection}を開けません"
+
+#: src/Feedback.tsx
+#: src/FeedbackMarkup.tsx
+msgid "Cancel"
+msgstr "キャンセル"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Cancel"
+msgstr "キャンセル"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Checking collection setup…"
+msgstr "コレクションの設定を確認しています…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Checking the collection is readable…"
+msgstr "コレクションを読み取れるか確認しています…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Checking what setup will change…"
+msgstr "設定による変更を確認しています…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Choose a collection"
+msgstr "コレクションを選択"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Choose a different collection"
+msgstr "別のコレクションを選択"
+
+#: src/feedback-data.ts
+msgid "Choose a PNG or JPEG screenshot."
+msgstr "PNGまたはJPEG形式のスクリーンショットを選択してください。"
+
+#: src/feedback-data.ts
+msgid "Choose a screenshot smaller than 16 megapixels."
+msgstr "16メガピクセル未満のスクリーンショットを選択してください。"
+
+#: src/feedback-data.ts
+msgid "Choose a screenshot smaller than 3 MB."
+msgstr "3 MB未満のスクリーンショットを選択してください。"
+
+#: src/Feedback.tsx
+msgid "Choose an image"
+msgstr "画像を選択"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Choose or create a collection there."
+msgstr "そこでコレクションを選択または作成してください。"
+
+#: src/Dialog.tsx
+msgid "Close"
+msgstr "閉じる"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Close"
+msgstr "閉じる"
+
+#: src/CommandPalette.tsx
+msgid "Close {label}"
+msgstr "{label}を閉じる"
+
+#: src/Feedback.tsx
+msgid "Close feedback"
+msgstr "フィードバックを閉じる"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Collection"
+msgstr "コレクション"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Collections"
+msgstr "コレクション"
+
+#: src/ThemeSelect.tsx
+msgctxt "Color theme"
+msgid "Color theme"
+msgstr "カラーテーマ"
+
+#: src/CommandPalette.tsx
+msgid "Commands"
+msgstr "コマンド"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Connecting to sync…"
+msgstr "同期に接続しています…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Connecting your collection…"
+msgstr "コレクションに接続しています…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Continue"
+msgstr "続行"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Continue in the mdbase window"
+msgstr "mdbaseのウィンドウで続行"
+
+#: src/AppSwitcher.tsx
+msgid "Current"
+msgstr "現在"
+
+#: src/ThemeSelect.tsx
+msgctxt "Color theme"
+msgid "Dark"
+msgstr "ダーク"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Delete {collection}?"
+msgstr "{collection}を削除しますか？"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Delete collection"
+msgstr "コレクションを削除"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Delete collection…"
+msgstr "コレクションを削除…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Deleting…"
+msgstr "削除中…"
+
+#: src/screens.tsx
+msgid "Details"
+msgstr "詳細"
+
+#: src/FeedbackMarkup.tsx
+msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
+msgstr "ドラッグしてマークします。キーボード：矢印キーで移動、スペースキーで開始または完了します。黒塗りはピクセルを消去します。"
+
+#: src/FeedbackMarkup.tsx
+msgid "Draw"
+msgstr "描画"
+
+#: src/CommandPalette.tsx
+msgid "Esc"
+msgstr "Esc"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
+msgstr "あなたを含む全員が、すべてのデバイスとアプリから直ちにアクセスできなくなります。この操作は取り消せません。"
+
+#: src/feedback-data.ts
+msgid "Feedback could not be sent. Check your connection and try again."
+msgstr "フィードバックを送信できませんでした。接続を確認して再試行してください。"
+
+#: src/feedback-data.ts
+#: src/Feedback.tsx
+msgid "Feedback could not be sent. Please try again."
+msgstr "フィードバックを送信できませんでした。再試行してください。"
+
+#: src/Feedback.tsx
+msgid "Feedback type"
+msgstr "フィードバックの種類"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Find a collection"
+msgstr "コレクションを検索"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Give {app} a collection"
+msgstr "{app}にコレクションを割り当てる"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Give {app} access to {collection}?"
+msgstr "{app}に{collection}へのアクセスを許可しますか？"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Give {app} access to this collection?"
+msgstr "{app}にこのコレクションへのアクセスを許可しますか？"
+
+#: src/FeedbackMarkup.tsx
+msgid "Highlight"
+msgstr "ハイライト"
+
+#: src/feedback-data.ts
+msgid "How would it help you?"
+msgstr "どのように役立ちますか？"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "ID {id}"
+msgstr "ID {id}"
+
+#: src/Feedback.tsx
+msgid "Images: PNG or JPEG, up to 3 MB. Blackout replaces pixels; only the final image is attached."
+msgstr "画像：PNGまたはJPEG、最大3 MB。黒塗りはピクセルを置き換え、最終画像のみが添付されます。"
+
+#: src/Feedback.tsx
+msgid "Include collection name:"
+msgstr "コレクション名を含める："
+
+#: src/Feedback.tsx
+msgid "Include screenshot"
+msgstr "スクリーンショットを含める"
+
+#: src/Feedback.tsx
+msgid "Include technical diagnostics"
+msgstr "技術診断情報を含める"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Kept on your computers, not stored by mdbase"
+msgstr "お使いのコンピューターに保存され、mdbaseには保存されません"
+
+#: src/ThemeSelect.tsx
+msgctxt "Color theme"
+msgid "Light"
+msgstr "ライト"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Loading the collection snapshot…"
+msgstr "コレクションのスナップショットを読み込んでいます…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Manage access"
+msgstr "アクセスを管理"
+
+#: src/Feedback.tsx
+#: src/FeedbackMarkup.tsx
+msgid "Mark up screenshot"
+msgstr "スクリーンショットに注釈"
+
+#: src/Feedback.tsx
+msgid "Markup discarded. Screenshot excluded."
+msgstr "注釈を破棄しました。スクリーンショットは含まれません。"
+
+#: src/AppSwitcher.tsx
+msgid "mdbase {current}: open this collection in another app"
+msgstr "mdbase {current}：このコレクションを別のアプリで開く"
+
+#: src/AppSwitcher.tsx
+msgid "mdbase apps"
+msgstr "mdbaseアプリ"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "More for {collection}"
+msgstr "{collection}のその他の操作"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Needs a decision"
+msgstr "判断が必要"
+
+#: src/SaveNotice.tsx
+msgid "Needs attention"
+msgstr "要確認"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "No collection was added."
+msgstr "コレクションは追加されませんでした。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "No collections match “{query}”."
+msgstr "「{query}」に一致するコレクションはありません。"
+
+#: src/Feedback.tsx
+msgid "No screenshot taken. You can still send feedback."
+msgstr "スクリーンショットは撮影されませんでした。フィードバックは送信できます。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Nothing in your collection will change."
+msgstr "コレクション内の内容は変更されません。"
+
+#: src/CommandPalette.tsx
+msgid "Nothing matches"
+msgstr "一致する項目はありません"
+
+#: src/AppSwitcher.tsx
+msgid "Open in another mdbase app"
+msgstr "別のmdbaseアプリで開く"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Open now"
+msgstr "今すぐ開く"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Open the mdbase window again"
+msgstr "mdbaseのウィンドウをもう一度開く"
+
+#: src/AppSwitcher.tsx
+msgid "Open this collection in"
+msgstr "このコレクションを開くアプリ"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Open your collections in {app}"
+msgstr "コレクションを{app}で開く"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Opening {collection}"
+msgstr "{collection}を開いています"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Opening mdbase…"
+msgstr "mdbaseを開いています…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Opening the local collection…"
+msgstr "ローカルコレクションを開いています…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Opening your collection"
+msgstr "コレクションを開いています"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Opening…"
+msgstr "開いています…"
+
+#: src/AppSwitcher.tsx
+msgid "Opens in a new tab"
+msgstr "新しいタブで開きます"
+
+#: src/Feedback.tsx
+msgid "Optional"
+msgstr "任意"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Owner"
+msgstr "所有者"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Private"
+msgstr "プライベート"
+
+#: src/Feedback.tsx
+msgid "Private feedback to the mdbase team."
+msgstr "mdbaseチームへの非公開フィードバックです。"
+
+#: src/apps.ts
+msgid "Read and annotate sources"
+msgstr "出典の閲覧と注釈"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Reload"
+msgstr "再読み込み"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Reload to continue."
+msgstr "続行するには再読み込みしてください。"
+
+#: src/Feedback.tsx
+msgid "Remove"
+msgstr "削除"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Remove"
+msgstr "削除"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Remove {collection} from this list?"
+msgstr "このリストから{collection}を削除しますか？"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Remove from this list"
+msgstr "このリストから削除"
+
+#: src/Feedback.tsx
+msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
+msgstr "返信を保証するものではありません。セキュリティ報告や緊急サポートには使用しないでください。"
+
+#: src/Feedback.tsx
+msgid "Reply email"
+msgstr "返信先メールアドレス"
+
+#: src/feedback-data.ts
+#: src/Feedback.tsx
+msgid "Report a problem"
+msgstr "問題を報告"
+
+#: src/FeedbackMarkup.tsx
+msgctxt "Screenshot annotations"
+msgid "Reset"
+msgstr "リセット"
+
+#: src/CommandPalette.tsx
+msgid "Results"
+msgstr "検索結果"
+
+#: src/Feedback.tsx
+msgid "Retake screenshot"
+msgstr "スクリーンショットを撮り直す"
+
+#: src/FeedbackVerification.tsx
+msgid "Retry verification"
+msgstr "確認を再試行"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Review access"
+msgstr "アクセスを確認"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Review access to {collection} there."
+msgstr "そこで{collection}へのアクセスを確認してください。"
+
+#: src/Feedback.tsx
+msgid "Review for private information before sending."
+msgstr "送信前に個人情報が含まれていないか確認してください。"
+
+#: src/SaveNotice.tsx
+msgid "Saved"
+msgstr "保存済み"
+
+#: src/SaveNotice.tsx
+msgid "Saving"
+msgstr "保存中"
+
+#: src/feedback-data.ts
+msgid "Screen capture isn’t available in this browser. You can attach an image instead."
+msgstr "このブラウザーでは画面キャプチャを利用できません。代わりに画像を添付できます。"
+
+#: src/feedback-data.ts
+msgid "Screen sharing ended before a screenshot was taken."
+msgstr "スクリーンショットを撮る前に画面共有が終了しました。"
+
+#: src/Feedback.tsx
+msgid "Screenshot"
+msgstr "スクリーンショット"
+
+#: src/FeedbackMarkup.tsx
+msgid "Screenshot annotation canvas"
+msgstr "スクリーンショット注釈キャンバス"
+
+#: src/Feedback.tsx
+msgid "Screenshot attached to your feedback"
+msgstr "スクリーンショットをフィードバックに添付しました"
+
+#: src/Feedback.tsx
+msgid "Screenshot captured. Sharing has stopped."
+msgstr "スクリーンショットを撮影しました。画面共有は停止しました。"
+
+#: src/FeedbackMarkup.tsx
+msgid "Screenshot tools"
+msgstr "スクリーンショットツール"
+
+#: src/CommandPalette.tsx
+msgid "Search commands"
+msgstr "コマンドを検索"
+
+#: src/Feedback.tsx
+msgid "Send feedback"
+msgstr "フィードバックを送信"
+
+#: src/Feedback.tsx
+msgid "Sending timed out. Please try again."
+msgstr "送信がタイムアウトしました。再試行してください。"
+
+#: src/Feedback.tsx
+msgid "Sending…"
+msgstr "送信中…"
+
+#: src/Feedback.tsx
+msgid "Sent privately to the mdbase team."
+msgstr "mdbaseチームに非公開で送信しました。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Set up"
+msgstr "設定"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Set up {collection} for {app}"
+msgstr "{app}用に{collection}を設定"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Setting up…"
+msgstr "設定中…"
+
+#: src/feedback-data.ts
+msgid "Share something you like"
+msgstr "気に入った点を教えてください"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Sign in"
+msgstr "サインイン"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Sign in and choose a collection there."
+msgstr "サインインして、そこでコレクションを選択してください。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Sign in with your mdbase account. You'll choose which collection {app} can use."
+msgstr "mdbaseアカウントでサインインしてください。{app}が使用するコレクションを選択できます。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Sign out"
+msgstr "サインアウト"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Sign out anyway"
+msgstr "サインアウトする"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Signed in as {account}"
+msgstr "{account}としてサインイン中"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Signing out…"
+msgstr "サインアウト中…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Starting {app}…"
+msgstr "{app}を起動しています…"
+
+#: src/feedback-data.ts
+msgid "Suggest an improvement"
+msgstr "改善を提案"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Switch collection, current: {collection}"
+msgstr "コレクションを切り替え、現在：{collection}"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Syncing your collection…"
+msgstr "コレクションを同期しています…"
+
+#: src/ThemeSelect.tsx
+msgctxt "Color theme"
+msgid "System"
+msgstr "システム"
+
+#: src/Feedback.tsx
+msgid "Taking screenshot…"
+msgstr "スクリーンショットを撮影しています…"
+
+#: src/feedback-data.ts
+msgid "Thanks for the idea."
+msgstr "ご提案ありがとうございます。"
+
+#: src/feedback-data.ts
+msgid "Thanks for the kind words."
+msgstr "温かいお言葉をありがとうございます。"
+
+#: src/feedback-data.ts
+msgid "Thanks for the report."
+msgstr "ご報告ありがとうございます。"
+
+#: src/Feedback.tsx
+msgid "The screenshot could not be captured."
+msgstr "スクリーンショットを撮影できませんでした。"
+
+#: src/feedback-data.ts
+msgid "The screenshot could not be captured. Try again."
+msgstr "スクリーンショットを撮影できませんでした。再試行してください。"
+
+#: src/feedback-data.ts
+msgid "The screenshot could not be cleaned in this browser."
+msgstr "このブラウザーではスクリーンショットを処理できませんでした。"
+
+#: src/feedback-data.ts
+msgid "The screenshot could not be created in this browser."
+msgstr "このブラウザーではスクリーンショットを作成できませんでした。"
+
+#: src/feedback-data.ts
+msgid "The screenshot could not be created."
+msgstr "スクリーンショットを作成できませんでした。"
+
+#: src/FeedbackMarkup.tsx
+msgid "The screenshot could not be opened for markup."
+msgstr "注釈用にスクリーンショットを開けませんでした。"
+
+#: src/Feedback.tsx
+msgid "The screenshot could not be read."
+msgstr "スクリーンショットを読み取れませんでした。"
+
+#: src/FeedbackMarkup.tsx
+msgid "The screenshot could not be saved."
+msgstr "スクリーンショットを保存できませんでした。"
+
+#: src/feedback-data.ts
+msgid "The screenshot does not contain a valid PNG or JPEG image."
+msgstr "スクリーンショットに有効なPNGまたはJPEG画像が含まれていません。"
+
+#: src/feedback-data.ts
+msgid "The screenshot is larger than 3 MB. Choose a smaller image."
+msgstr "スクリーンショットは3 MBを超えています。より小さい画像を選択してください。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "this collection"
+msgstr "このコレクション"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "This device is still listed under your account until you remove it there."
+msgstr "アカウントから削除するまで、このデバイスはアカウントに表示されます。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "This is taking longer than usual."
+msgstr "通常より時間がかかっています。"
+
+#: src/CommandPalette.tsx
+msgid "to close"
+msgstr "閉じる"
+
+#: src/CommandPalette.tsx
+msgid "to move"
+msgstr "移動"
+
+#: src/CommandPalette.tsx
+msgid "to open"
+msgstr "開く"
+
+#: src/screens.tsx
+msgid "Try again"
+msgstr "再試行"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Try again"
+msgstr "再試行"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Type {collection} to confirm"
+msgstr "確認のため{collection}と入力してください"
+
+#: src/text-diff.ts
+msgid "Unchanged lines"
+msgstr "変更されていない行"
+
+#: src/FeedbackMarkup.tsx
+msgid "Undo"
+msgstr "元に戻す"
+
+#: src/SaveNotice.tsx
+msgid "Unsaved"
+msgstr "未保存"
+
+#: src/FeedbackMarkup.tsx
+msgid "Up to 100 marks can be applied. Undo or reset to make another mark."
+msgstr "マークは最大100件まで適用できます。別のマークを追加するには、元に戻すかリセットしてください。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Use {app}'s version"
+msgstr "{app}のバージョンを使用"
+
+#: src/FeedbackVerification.tsx
+msgid "Verification could not be completed. Try again."
+msgstr "確認を完了できませんでした。再試行してください。"
+
+#: src/FeedbackVerification.tsx
+msgid "Verification could not be loaded. Check your connection and try again."
+msgstr "確認画面を読み込めませんでした。接続を確認して再試行してください。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Waiting for the collection key…"
+msgstr "コレクションキーを待っています…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "What changes"
+msgstr "変更内容"
+
+#: src/Feedback.tsx
+msgid "What gets sent"
+msgstr "送信される内容"
+
+#: src/feedback-data.ts
+msgid "What happened?"
+msgstr "何が起きましたか？"
+
+#: src/feedback-data.ts
+msgid "What made a difference?"
+msgstr "何が役立ちましたか？"
+
+#: src/feedback-data.ts
+msgid "What were you trying to do?"
+msgstr "何をしようとしていましたか？"
+
+#: src/feedback-data.ts
+msgid "What would you like to improve?"
+msgstr "どのような改善を希望しますか？"
+
+#: src/feedback-data.ts
+msgid "What’s working well for you?"
+msgstr "うまく機能している点を教えてください。"
+
+#: src/apps.ts
+msgid "Write manuscripts that cite your sources"
+msgstr "出典を引用した原稿を執筆"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "You've signed out of {app} on this device."
+msgstr "このデバイスで{app}からサインアウトしました。"
+
+#. Example email address, not user data.
+#: src/Feedback.tsx
+msgid "you@example.com"
+msgstr "you@example.jp"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your collections"
+msgstr "あなたのコレクション"
+
+#: src/Feedback.tsx
+msgid "Your message, any reply email and included screenshot, plus these app and build details."
+msgstr "メッセージ、返信先メールアドレス、添付したスクリーンショットに加え、次のアプリとビルド情報が送信されます。"

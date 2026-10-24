@@ -58,6 +58,7 @@ export function Select<Value extends string>({
   ...trigger
 }: SelectProps<Value>): JSX.Element {
   const id = useId();
+  const { "aria-label": ariaLabel, "aria-labelledby": ariaLabelledBy } = trigger;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const options = flattenOptions(items);
@@ -114,8 +115,8 @@ export function Select<Value extends string>({
         selected={selected}
         active={state.active}
         open={state.open}
-        label={trigger["aria-label"]}
-        labelledBy={trigger["aria-labelledby"]}
+        label={ariaLabel}
+        labelledBy={ariaLabelledBy}
         onActivate={state.setActive}
         onChoose={state.choose}
         onKeyDown={state.onListKey}

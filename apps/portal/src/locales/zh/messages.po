@@ -1,0 +1,3772 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-23 22:43+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: zh\n"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid " · current session"
+msgstr " · 当前会话"
+
+#: src/authority-workflows.tsx
+msgid " (already allowed)"
+msgstr "（已允许）"
+
+#: src/authorization-review.tsx
+msgid " (higher impact)"
+msgstr "（影响较大）"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid " {0} can also create new collections for you."
+msgstr " {0} 还可以为你创建新集合。"
+
+#. placeholder {0}: host(request.project_url)
+#: src/authorization-view.tsx
+msgid " {0} does not verify its origin."
+msgstr " {0} 无法验证其来源。"
+
+#. placeholder {0}: adoption.mirror_name ?? adoption.source_name
+#: src/authority-workflows.tsx
+msgid " {0} will continue as a synced folder, with edits syncing both ways."
+msgstr " {0} 将继续作为同步文件夹使用，修改会双向同步。"
+
+#. placeholder {0}: request.user_code
+#: src/authorization-view.tsx
+msgid " and it shows <0>{0}</0>"
+msgstr "，且显示 <0>{0}</0>"
+
+#: src/authorization-review.tsx
+msgid " File actions are included in the collection permissions above."
+msgstr " 文件操作已包含在上面的集合权限中。"
+
+#. placeholder {0}: pairing.app_origin
+#: src/authority-workflows.tsx
+msgid " from <0>{0}</0>"
+msgstr "，来自 <0>{0}</0>"
+
+#: src/authorization-view.tsx
+msgid " Permissions this application does not already have are marked New."
+msgstr " 此应用尚未拥有的权限标记为“新增”。"
+
+#: src/authority-workflows.tsx
+msgid " Previously approved collections stay available."
+msgstr " 之前批准的集合仍可使用。"
+
+#: src/authority-workflows.tsx
+msgid " The original local files are no longer the main copy."
+msgstr " 原始本地文件不再是主副本。"
+
+#: src/authorization-review.tsx
+msgid " These actions are approved together."
+msgstr " 这些操作会一并获得批准。"
+
+#. placeholder {0}: notifications.criteria.length
+#: src/authorization-review.tsx
+msgid "{0, plural, one {{applicationName} can turn on this rule after access is allowed. Notifications never contain record content.} other {{applicationName} can turn on these # rules after access is allowed. Notifications never contain record content.}}"
+msgstr "{0, plural, other {允许访问后，{applicationName} 可以启用这 # 条规则。通知绝不包含记录内容。}}"
+
+#. placeholder {0}: unavailable.length
+#: src/authorization-view.tsx
+msgid "{0, plural, one {# collection is unavailable} other {# collections are unavailable}}"
+msgstr "{0, plural, other {# 个集合不可用}}"
+
+#. placeholder {0}: grant.operations.length
+#. placeholder {0}: operations.size
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "{0, plural, one {# permission} other {# permissions}}"
+msgstr "{0, plural, other {# 项权限}}"
+
+#. placeholder {0}: countLabel(usage.record_count, "record")
+#. placeholder {1}: countLabel(usage.file_count, "file")
+#. placeholder {2}: formatBytes(usage.content_bytes)
+#. placeholder {3}: formatBytes(usage.file_bytes)
+#: src/AccountManagement.tsx
+msgid "{0} · {1} · {2} Markdown · {3} files"
+msgstr "{0} · {1} · {2} 个 Markdown 文件 · {3} 个文件"
+
+#. placeholder {0}: entry.application_origin
+#. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
+#. placeholder {2}: entry.installation_id.slice(-8)
+#: src/ApplicationAccess.tsx
+msgid "{0} · {1} · ID {2}"
+msgstr "{0} · {1} · ID {2}"
+
+#. placeholder {0}: invitation.role === "editor" ? t(i18n)({ message: "Editor", context: "Connect interface" }) : t(i18n)({ message: "Viewer", context: "Connect interface" })
+#. placeholder {1}: relativeTime(invitation.expires_at)
+#: src/ConnectApp.tsx
+msgid "{0} · Expires {1}"
+msgstr "{0} · 于 {1} 过期"
+
+#. placeholder {0}: collection.connector_name
+#. placeholder {1}: uniqueIdSuffix( collection.id, group.map((candidate) => candidate.id) )
+#: src/authorization-review-state.ts
+msgid "{0} · ID …{1}"
+msgstr "{0} · ID …{1}"
+
+#. placeholder {0}: suggestion.type.name
+#: src/authorization-review.tsx
+msgid "{0} · suggested"
+msgstr "{0} · 推荐"
+
+#. placeholder {0}: words[0]
+#. placeholder {1}: words[1]
+#: src/ConnectApp.tsx
+msgid "{0} and {1}"
+msgstr "{0} 和 {1}"
+
+#. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
+#: src/AccountManagement.tsx
+msgid "{0} and their stored data"
+msgstr "{0} 及其存储的数据"
+
+#. placeholder {0}: collection.display_name
+#. placeholder {1}: incompatible.detail
+#: src/compatibility.ts
+msgid "{0} can no longer be used: {1} Choose another collection."
+msgstr "{0} 已无法使用：{1} 请选择其他集合。"
+
+#. placeholder {0}: request.application_name
+#: src/authorization-view.tsx
+msgid "{0} can use {selectedName} until you revoke access in mdbase connect."
+msgstr "你撤销 mdbase connect 中的访问权限之前，{0} 可以使用 {selectedName}。"
+
+#. placeholder {0}: request.application_name
+#: src/authorization-view.tsx
+msgid "{0} can use {selectedName} while it remains connected. You can revoke access in mdbase connect."
+msgstr "只要 {selectedName} 保持连接，{0} 就可以使用它。你可以在 mdbase connect 中撤销访问权限。"
+
+#. placeholder {0}: providerLabel(provider)
+#: src/AccountManagement.tsx
+msgid "{0} disconnected."
+msgstr "{0} 已断开连接。"
+
+#. placeholder {0}: connector.connector_name
+#: src/authorization-view.tsx
+msgid "{0} has remote access paused."
+msgstr "{0} 已暂停远程访问。"
+
+#. placeholder {0}: collection.display_name
+#: src/compatibility.ts
+msgid "{0} is no longer available. Choose another collection."
+msgstr "{0} 已不可用。请选择其他集合。"
+
+#. placeholder {0}: providerLabel(linked)
+#: src/AccountManagement.tsx
+msgid "{0} is now connected."
+msgstr "{0} 现已连接。"
+
+#. placeholder {0}: adoption.display_name
+#: src/authority-workflows.tsx
+msgid "{0} is now hosted."
+msgstr "{0} 现已由云端托管。"
+
+#. placeholder {0}: connector.connector_name
+#: src/authorization-view.tsx
+msgid "{0} is offline."
+msgstr "{0} 已离线。"
+
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "{0} is stored in mdbase replicas on your devices."
+msgstr "{0} 存储在你设备上的 mdbase 副本中。"
+
+#. placeholder {0}: collection.display_name
+#. placeholder {1}: connector.connector_name
+#: src/compatibility.ts
+msgid "{0} is unavailable because {1} has remote access paused. Choose another collection."
+msgstr "{0} 不可用，因为 {1} 已暂停远程访问。请选择其他集合。"
+
+#. placeholder {0}: collection.display_name
+#. placeholder {1}: connector.connector_name
+#: src/compatibility.ts
+msgid "{0} is unavailable because {1} is offline. Choose another collection."
+msgstr "{0} 不可用，因为 {1} 已离线。请选择其他集合。"
+
+#. placeholder {0}: request.application_name
+#: src/ConnectApp.tsx
+msgid "{0} is waiting"
+msgstr "{0} 正在等待"
+
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "{0} keeps its main copy in a folder on a connected computer."
+msgstr "{0} 的主副本保存在已连接电脑上的文件夹中。"
+
+#. placeholder {0}: formatBytes(liveContentBytes)
+#. placeholder {1}: formatBytes(liveFileBytes)
+#: src/AccountManagement.tsx
+msgid "{0} Markdown · {1} files"
+msgstr "{0} 个 Markdown 文件 · {1} 个文件"
+
+#. placeholder {0}: formatBytes(liveStorageBytes)
+#. placeholder {1}: formatBytes(limit)
+#: src/AccountManagement.tsx
+msgid "{0} of {1}"
+msgstr "{0} / {1}"
+
+#. placeholder {0}: formatBytes(subscription.usage.retained_file_bytes)
+#. placeholder {1}: formatBytes(subscription.limits.retained_file_bytes)
+#: src/AccountManagement.tsx
+msgid "{0} of {1} retained file storage"
+msgstr "保留文件存储空间：{0} / {1}"
+
+#. placeholder {0}: formatBytes(liveStorageBytes)
+#. placeholder {1}: formatBytes(limit)
+#: src/AccountManagement.tsx
+msgid "{0} of {1} used"
+msgstr "已用 {0} / {1}"
+
+#. placeholder {0}: joinWords(verbs)
+#: src/ConnectApp.tsx
+msgid "{0} records"
+msgstr "{0} 条记录"
+
+#. placeholder {0}: formatBytes(subscription.limits.retained_file_bytes)
+#: src/AccountManagement.tsx
+msgid "{0} retained file storage included"
+msgstr "包含 {0} 保留文件存储空间"
+
+#. placeholder {0}: unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")
+#: src/authorization-view.tsx
+msgid "{0} Those local collections cannot be selected until their computer is available."
+msgstr "{0} 在这些本地集合所在的电脑可用之前，无法选择它们。"
+
+#. placeholder {0}: collection.display_name
+#. placeholder {1}: collection.spec_version
+#: src/compatibility.ts
+msgid "{0} uses mdbase {1}. Upgrade a copy to mdbase 0.3 and verify it before approving access; the original can stay untouched."
+msgstr "{0} 使用 mdbase {1}。请将一个副本升级到 mdbase 0.3 并验证后再批准访问；原件可以保持不变。"
+
+#. placeholder {0}: contract.id
+#. placeholder {1}: contract.version
+#: src/compatibility.ts
+msgid "{0} v{1}"
+msgstr "{0} v{1}"
+
+#. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" })
+#: src/authority-workflows.tsx
+msgid "{0} will begin syncing automatically. You can close this page."
+msgstr "{0} 将自动开始同步。你可以关闭此页面。"
+
+#. placeholder {0}: pairing.connector_name
+#. placeholder {1}: pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
+#: src/authority-workflows.tsx
+msgid "{0} will lose access to {1} on all its devices. Previously downloaded data cannot be erased."
+msgstr "{0} 的所有设备都将失去对 {1} 的访问权限。已下载的数据无法删除。"
+
+#. placeholder {0}: words.slice(0, -1).join(", ")
+#. placeholder {1}: words.at(-1)
+#: src/ConnectApp.tsx
+msgid "{0}, and {1}"
+msgstr "{0}，以及 {1}"
+
+#. placeholder {0}: Math.floor(seconds / 86_400)
+#: src/AccountManagement.tsx
+msgid "{0}d ago"
+msgstr "{0} 天前"
+
+#. placeholder {0}: Math.floor(seconds / 3_600)
+#: src/AccountManagement.tsx
+msgid "{0}h ago"
+msgstr "{0} 小时前"
+
+#. placeholder {0}: Math.floor(seconds / 60)
+#: src/AccountManagement.tsx
+msgid "{0}m ago"
+msgstr "{0} 分钟前"
+
+#: src/authority-workflows.tsx
+msgid "{app} now has this file access in {collection}. Return to {app} to continue."
+msgstr "{app} 现在已获得对 {collection} 的这项文件访问权限。请返回 {app} 继续操作。"
+
+#. placeholder {0}: request.reason
+#: src/authority-workflows.tsx
+msgid "{app} says: {0}"
+msgstr "{app} 提示：{0}"
+
+#: src/authority-workflows.tsx
+msgid "{app} was not given this file access in {collection}. Return to {app}; everything else works as before."
+msgstr "{app} 未获得对 {collection} 的这项文件访问权限。请返回 {app}；其他功能不受影响。"
+
+#. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
+#: src/authorization-review.tsx
+msgid "{applicationName} needs a {0} type"
+msgstr "{applicationName} 需要一种 {0} 类型"
+
+#: src/authority-workflows.tsx
+msgid "{collectionName} now lives on your computer."
+msgstr "{collectionName} 现在位于你的电脑上。"
+
+#: src/authority-workflows.tsx
+msgid "{collectionName} remains hosted. Its main copy did not move."
+msgstr "{collectionName} 仍由云端托管。其主副本没有迁移。"
+
+#: src/authority-workflows.tsx
+msgid "{collectionName} will stop being hosted and become a computer-owned collection. This changes where every future edit is accepted."
+msgstr "{collectionName} 将不再由云端托管，而改由电脑管理。这会改变所有后续编辑的接收位置。"
+
+#: src/AccountManagement.tsx
+msgid "{collections} · {records} · {fileCount}"
+msgstr "{collections} · {records} · {fileCount}"
+
+#: src/AccountManagement.tsx
+msgid "{collections} · {records} · {fileCount} · partial usage"
+msgstr "{collections} · {records} · {fileCount} · 用量数据不完整"
+
+#: src/AccountManagement.tsx
+msgid "{collections} · usage temporarily unavailable"
+msgstr "{collections} · 用量数据暂不可用"
+
+#: src/ConnectApp.tsx
+msgid "{count} access requests are waiting"
+msgstr "有 {count} 项访问请求待处理"
+
+#: src/AccountManagement.tsx
+msgid "{label} turned off."
+msgstr "已关闭{label}。"
+
+#: src/AccountManagement.tsx
+msgid "{label} turned on."
+msgstr "已开启{label}。"
+
+#: src/AccountManagement.tsx
+msgid "{tier} hosted storage"
+msgstr "{tier} 托管存储空间"
+
+#: src/auth-view.tsx
+msgid "{unsubscribed, select, product_updates {You won’t receive product updates from mdbase Connect. Messages about your account, such as verification and security email, are still sent.} other {You won’t receive announcements from mdbase Connect. Messages about your account, such as verification and security email, are still sent.}}"
+msgstr "{unsubscribed, select, product_updates {你将不再收到 mdbase Connect 的产品更新。与账户有关的邮件（如验证和安全邮件）仍会发送。} other {你将不再收到 mdbase Connect 的公告。与账户有关的邮件（如验证和安全邮件）仍会发送。}}"
+
+#: src/count-label.ts
+msgid "{value, plural, one {# application installation} other {# application installations}}"
+msgstr "{value, plural, other {# 个应用安装实例}}"
+
+#: src/AccountManagement.tsx
+msgid "{value, plural, one {# byte} other {# bytes}}"
+msgstr "{value, plural, other {# 字节}}"
+
+#: src/count-label.ts
+msgid "{value, plural, one {# collection} other {# collections}}"
+msgstr "{value, plural, other {# 个集合}}"
+
+#: src/count-label.ts
+msgid "{value, plural, one {# connected computer} other {# connected computers}}"
+msgstr "{value, plural, other {# 台已连接的电脑}}"
+
+#: src/count-label.ts
+msgid "{value, plural, one {# file} other {# files}}"
+msgstr "{value, plural, other {# 个文件}}"
+
+#: src/count-label.ts
+msgid "{value, plural, one {# hosted collection} other {# hosted collections}}"
+msgstr "{value, plural, other {# 个托管集合}}"
+
+#: src/count-label.ts
+msgid "{value, plural, one {# installation} other {# installations}}"
+msgstr "{value, plural, other {# 个安装实例}}"
+
+#: src/count-label.ts
+msgid "{value, plural, one {# record} other {# records}}"
+msgstr "{value, plural, other {# 条记录}}"
+
+#: src/count-label.ts
+msgid "{value, plural, one {# synced folder} other {# synced folders}}"
+msgstr "{value, plural, other {# 个同步文件夹}}"
+
+#: src/ConnectApp.tsx
+msgid "<0/>Add collection"
+msgstr "<0/>添加集合"
+
+#: src/authorization-view.tsx
+msgid "<0/>Already connected"
+msgstr "<0/>已连接"
+
+#: src/authorization-review.tsx
+msgid "<0/>Higher impact"
+msgstr "<0/>影响较大"
+
+#. placeholder {0}: higherImpactLabels.join(", ")
+#: src/authorization-view.tsx
+msgid "<0/>Includes {0}."
+msgstr "<0/>包括 {0}。"
+
+#: src/ConnectApp.tsx
+msgid "<0/>Invite person"
+msgstr "<0/>邀请成员"
+
+#: src/ConnectApp.tsx
+msgid "<0/>Sync a folder"
+msgstr "<0/>同步文件夹"
+
+#. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
+#. placeholder {3}: request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null
+#: src/authorization-view.tsx
+msgid "<0>Application origin unverified.</0> Continue only if you started this connection intentionally{1}.{3}"
+msgstr "<0>无法验证应用来源。</0>只有在你主动发起此连接时才继续{1}。{3}"
+
+#: src/ConnectApp.tsx
+msgid "A cloud copy helps your replicas sync. This page does not report their connection status."
+msgstr "云端副本有助于同步你的各个副本。此页面不显示它们的连接状态。"
+
+#: src/ConnectApp.tsx
+msgid "A collection was shared with you"
+msgstr "有人与你共享了一个集合"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "a new collection"
+msgstr "新集合"
+
+#: src/authorization-view.tsx
+msgid "A new collection stored by mdbase, available from any computer."
+msgstr "由 mdbase 存储的新集合，可从任何电脑访问。"
+
+#: src/AccountManagement.tsx
+msgid "A new one-use sharing code is ready."
+msgstr "新的单次使用共享代码已就绪。"
+
+#: src/auth-view.tsx
+msgid "A verified primary email is required. Verify your primary email with GitHub, or sign up using another method."
+msgstr "需要经过验证的主电子邮箱。请通过 GitHub 验证主邮箱，或使用其他方式注册。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Accept"
+msgstr "接受"
+
+#: src/ConnectApp.tsx
+msgid "Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access."
+msgstr "接受后即可将其添加到你的集合。邀请仅适用于此账户。当其他成员批准“人员”访问权限时，你的账户名称和稳定标识符可能与他们的应用共享。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Accepting…"
+msgstr "正在接受…"
+
+#: src/authority-workflows.tsx
+msgid "Access approved"
+msgstr "访问已批准"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Access approved"
+msgstr "访问已批准"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Access as your account"
+msgstr "以你的账户身份访问"
+
+#: src/ApplicationAccess.tsx
+msgid "Access changed elsewhere. Review the current permissions before saving. <0>Review current access</0>"
+msgstr "访问权限已在其他地方更改。保存前请检查当前权限。<0>查看当前访问权限</0>"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Access denied"
+msgstr "访问已拒绝"
+
+#. placeholder {0}: createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : ""
+#. placeholder {1}: pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""
+#: src/authority-workflows.tsx
+msgid "Access includes the notes and files in the collection you pick.{0}{1}"
+msgstr "访问范围包括你所选集合中的笔记和文件。{0}{1}"
+
+#: src/ConnectApp.tsx
+msgid "Access to this collection is paused on its computer."
+msgstr "此集合所在的电脑已暂停对其访问。"
+
+#: src/ConnectApp.tsx
+#: src/portal-ui.tsx
+msgid "Account"
+msgstr "账户"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Account"
+msgstr "账户"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Account & sessions"
+msgstr "账户与会话"
+
+#: src/AccountManagement.tsx
+msgid "Account deletion is temporarily unavailable while we complete a service correction."
+msgstr "我们正在完成服务修复，暂时无法删除账户。"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Account details"
+msgstr "账户详情"
+
+#: src/AccountManagement.tsx
+msgid "Account email"
+msgstr "账户电子邮箱"
+
+#: src/authorization-review.tsx
+msgid "Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership."
+msgstr "各集合中的账户标识符相同，因此此应用可以在其他地方识别同一个人。电子邮箱地址和待处理邀请绝不会共享，此权限也不允许它管理成员。"
+
+#: src/portal-model.ts
+msgid "Account upgrade in progress"
+msgstr "正在升级账户"
+
+#: src/portal-model.ts
+msgctxt "Connect interface"
+msgid "Account upgrade needed"
+msgstr "需要升级账户"
+
+#: src/portal-model.ts
+msgctxt "Connect interface"
+msgid "Account upgrade paused"
+msgstr "账户升级已暂停"
+
+#: src/portal-model.ts
+msgid "Account upgrade scheduled"
+msgstr "账户升级已安排"
+
+#. placeholder {0}: installationAccountLabel(pairing)
+#: src/authority-workflows.tsx
+msgid "Account: {0}"
+msgstr "账户：{0}"
+
+#: src/ConnectApp.tsx
+msgid "Add a collection to get started."
+msgstr "添加一个集合以开始使用。"
+
+#. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
+#: src/authorization-review.tsx
+msgid "Add a new {0} type"
+msgstr "添加新的 {0} 类型"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Add collection"
+msgstr "添加集合"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Add new files"
+msgstr "添加新文件"
+
+#: src/authorization-capabilities.ts
+msgid "Add new records and files to this collection."
+msgstr "向此集合添加新记录和文件。"
+
+#: src/authorization-capabilities.ts
+msgid "Add new records to this collection."
+msgstr "向此集合添加新记录。"
+
+#: src/authorization-view.tsx
+msgid "Add or connect another collection"
+msgstr "添加或连接其他集合"
+
+#: src/authority-workflows.tsx
+msgid "Additional collection access"
+msgstr "额外的集合访问权限"
+
+#. placeholder {0}: entry.approved_optional_file_actions.join(", ")
+#: src/ApplicationAccess.tsx
+msgid "Additional file actions approved: {0}"
+msgstr "已批准的额外文件操作：{0}"
+
+#. placeholder {0}: provisionNames(request.provisions.type_packs)
+#: src/authorization-view.tsx
+msgid "Adds {0} to the collection"
+msgstr "将 {0} 添加到集合"
+
+#: src/authority-workflows.tsx
+msgid "Advanced: allow more collections"
+msgstr "高级：允许访问更多集合"
+
+#. placeholder {0}: adoption.mirror_name ?? adoption.source_name
+#: src/authority-workflows.tsx
+msgid "After the move, {0} stays as a synced folder. It will not be a second main copy."
+msgstr "迁移后，{0} 会保留为同步文件夹，不会成为第二个主副本。"
+
+#: src/authority-workflows.tsx
+msgid "After the move, the original local files are no longer the main copy."
+msgstr "迁移后，原始本地文件不再是主副本。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "All collections"
+msgstr "所有集合"
+
+#: src/ConnectApp.tsx
+msgid "All statuses"
+msgstr "所有状态"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Allow"
+msgstr "允许"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Allow {0} to create new collections"
+msgstr "允许 {0} 创建新集合"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Allow {0} to send you reminders"
+msgstr "允许 {0} 向你发送提醒"
+
+#: src/authority-workflows.tsx
+msgid "Allow {app} this file access?"
+msgstr "允许 {app} 获得这项文件访问权限吗？"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Allow access"
+msgstr "允许访问"
+
+#: src/authorization-view.tsx
+msgid "Allow at least one permission to continue."
+msgstr "请至少允许一项权限以继续。"
+
+#: src/authority-workflows.tsx
+msgid "Allow mdbase on this computer to use your account. This is needed after installing or updating the desktop app, even on a computer you used before. It will publish collection names and route application requests, but not local folder paths."
+msgstr "允许此电脑上的 mdbase 使用你的账户。即使这台电脑之前使用过，安装或更新桌面应用后也需要此授权。它会发布集合名称并转发应用请求，但不会发布本地文件夹路径。"
+
+#: src/authority-workflows.tsx
+msgid "Allowed"
+msgstr "已允许"
+
+#: src/authorization-review.tsx
+msgid "Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged."
+msgstr "允许访问会添加由 {applicationName} 提供的独立类型。现有记录保持不变。"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Allowing…"
+msgstr "正在允许…"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Allowing…"
+msgstr "正在允许…"
+
+#: src/authority-workflows.tsx
+msgid "Already allowed collection (currently unavailable)"
+msgstr "已获准访问的集合（当前不可用）"
+
+#: src/auth-view.tsx
+msgid "Already have an account? <0>Sign in</0>"
+msgstr "已有账户？<0>登录</0>"
+
+#: src/authority-workflows.tsx
+msgid "Already-allowed access stays in place. Remove access separately if you no longer want it."
+msgstr "已允许的访问权限会保留。如果不再需要，请单独移除该权限。"
+
+#: src/AccountManagement.tsx
+msgid "Always on"
+msgstr "始终开启"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Announcements"
+msgstr "公告"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "App access"
+msgstr "应用访问权限"
+
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "App installation"
+msgstr "应用安装实例"
+
+#. placeholder {0}: request.client_fingerprint
+#: src/authorization-view.tsx
+msgid "App key <0>{0}</0>. Your computer will show this key when you approve the app."
+msgstr "应用密钥 <0>{0}</0>。你批准应用时，电脑会显示此密钥。"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Application access"
+msgstr "应用访问权限"
+
+#. placeholder {0}: countLabel(account.deletion.computers, "computer")
+#: src/AccountManagement.tsx
+msgid "Application access and {0}"
+msgstr "应用访问权限及{0}"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Application connection"
+msgstr "应用连接"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Application request"
+msgstr "应用请求"
+
+#: src/authorization-view.tsx
+msgid "Application using a device code"
+msgstr "使用设备代码的应用"
+
+#: src/authority-workflows.tsx
+msgid "Applications"
+msgstr "应用"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Applications"
+msgstr "应用"
+
+#: src/ConnectApp.tsx
+msgid "Applications appear after you approve access to this collection."
+msgstr "批准此集合的访问权限后，应用会显示在这里。"
+
+#: src/ApplicationAccess.tsx
+msgid "Applications appear here after you approve access."
+msgstr "批准访问权限后，应用会显示在这里。"
+
+#: src/authority-workflows.tsx
+msgid "Applies to the collection you chose to open and any new collections selected here. Other collections are not included."
+msgstr "适用于你选择打开的集合，以及在此选择的任何新集合。不包括其他集合。"
+
+#: src/authorization-view.tsx
+msgid "Approval code"
+msgstr "批准代码"
+
+#: src/authorization-view.tsx
+msgid "Approval recorded"
+msgstr "批准已记录"
+
+#: src/authority-workflows.tsx
+msgid "Approve computer"
+msgstr "批准电脑"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Approve will create this collection and open it in {0}."
+msgstr "批准后将创建此集合，并在 {0} 中打开。"
+
+#. placeholder {0}: adoption.source_name
+#: src/authority-workflows.tsx
+msgid "Approving uploads the complete collection from {0}, validates it as one snapshot, and then makes the hosted version the main copy."
+msgstr "批准后将从 {0} 上传整个集合，验证为一个快照，然后将托管版本设为主副本。"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Approving…"
+msgstr "正在批准…"
+
+#: src/AccountManagement.tsx
+msgid "Authentication"
+msgstr "身份验证"
+
+#: src/FeedbackPage.tsx
+msgid "Back to Connect"
+msgstr "返回 Connect"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Beta"
+msgstr "测试版"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "browser extension"
+msgstr "浏览器扩展"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Browser session"
+msgstr "浏览器会话"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Browser session actions"
+msgstr "浏览器会话操作"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Browser sessions"
+msgstr "浏览器会话"
+
+#: src/ApplicationAccess.tsx
+msgid "Can create collections for your account"
+msgstr "可以为你的账户创建集合"
+
+#: src/ConnectApp.tsx
+msgid "Can edit notes and manage types"
+msgstr "可以编辑笔记并管理类型"
+
+#: src/ConnectApp.tsx
+msgid "Can edit notes, manage types, rename this collection, and connect apps."
+msgstr "可以编辑笔记、管理类型、重命名此集合，以及连接应用。"
+
+#: src/ConnectApp.tsx
+msgid "Can read this collection and connect read-only apps or folders."
+msgstr "可以读取此集合，并连接只读应用或文件夹。"
+
+#: src/ConnectApp.tsx
+msgid "Can view and connect read-only apps"
+msgstr "可以查看和连接只读应用"
+
+#: src/AccountManagement.tsx
+#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
+#: src/ConnectPrimitives.tsx
+msgid "Cancel"
+msgstr "取消"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Cancel"
+msgstr "取消"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Cancel"
+msgstr "取消"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Cancel invitation"
+msgstr "取消邀请"
+
+#: src/ConnectApp.tsx
+msgid "Cancel this collection invitation?"
+msgstr "取消此集合邀请？"
+
+#: src/authority-workflows.tsx
+msgid "Cancel transfer"
+msgstr "取消迁移"
+
+#: src/authorization-view.tsx
+msgid "Change"
+msgstr "更改"
+
+#: src/authorization-review.tsx
+msgid "Change notifications"
+msgstr "更改通知设置"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Change password"
+msgstr "更改密码"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Change password"
+msgstr "更改密码"
+
+#: src/authorization-capabilities.ts
+msgid "Change, move, and rename existing records."
+msgstr "更改、移动和重命名现有记录。"
+
+#: src/authorization-capabilities.ts
+msgid "Change, move, and rename records; replace, move, and rename existing files."
+msgstr "更改、移动和重命名记录；替换、移动和重命名现有文件。"
+
+#: src/authorization-view.tsx
+msgid "Changes collection settings"
+msgstr "更改集合设置"
+
+#: src/authorization-view.tsx
+msgid "changes to collection setup"
+msgstr "对集合设置的更改"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Changing password…"
+msgstr "正在更改密码…"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Changing password…"
+msgstr "正在更改密码…"
+
+#: src/authority-workflows.tsx
+msgid "Check again"
+msgstr "再次检查"
+
+#: src/authorization-view.tsx
+msgid "Check the application."
+msgstr "检查应用。"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Check your email"
+msgstr "检查你的电子邮箱"
+
+#: src/AccountManagement.tsx
+msgid "Checking active sessions…"
+msgstr "正在检查活动会话…"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Checking…"
+msgstr "正在检查…"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Choose"
+msgstr "选择"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Choose a collection"
+msgstr "选择集合"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Choose a collection to use in {0}."
+msgstr "选择要在 {0} 中使用的集合。"
+
+#: src/authorization-review.tsx
+msgid "Choose a field"
+msgstr "选择字段"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Choose a location"
+msgstr "选择位置"
+
+#. placeholder {0}: unmapped.label
+#: src/authorization-review.tsx
+msgid "Choose a matching field for {0} in {label}."
+msgstr "为 {label} 中的 {0} 选择匹配字段。"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Choose a new password"
+msgstr "选择新密码"
+
+#: src/authorization-review.tsx
+msgid "Choose an existing type for {label}."
+msgstr "为 {label} 选择现有类型。"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Choose another way"
+msgstr "选择其他方式"
+
+#: src/authorization-review.tsx
+msgid "Choose how to set up {label}."
+msgstr "选择如何设置 {label}。"
+
+#: src/ConnectApp.tsx
+msgid "Choose or create a folder in the desktop app. Collection files stay on this computer."
+msgstr "在桌面应用中选择或创建文件夹。集合文件会保留在这台电脑上。"
+
+#: src/ConnectApp.tsx
+msgid "Choose or create my person record"
+msgstr "选择或创建我的个人记录"
+
+#: src/authorization-view.tsx
+msgid "Choose the folder in mdbase connect."
+msgstr "在 mdbase connect 中选择文件夹。"
+
+#. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
+#: src/authorization-review.tsx
+msgid "Choose whether to add a new {0} type or use one you already have."
+msgstr "选择添加新的 {0} 类型，或使用已有类型。"
+
+#: src/ConnectApp.tsx
+msgid "Close"
+msgstr "关闭"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Close menu"
+msgstr "关闭菜单"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Closed registration"
+msgstr "已关闭注册"
+
+#: src/compatibility.ts
+msgid "Cloud collection required"
+msgstr "需要云端集合"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Cloud copy configured"
+msgstr "已配置云端副本"
+
+#: src/authorization-view.tsx
+msgid "Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application."
+msgstr "代码不区分大小写，十分钟后过期，且只能授权该应用创建的密钥。"
+
+#: src/authorization-view.tsx
+msgid "Collection"
+msgstr "集合"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Collection"
+msgstr "集合"
+
+#: src/authorization-view.tsx
+msgid "Collection changes"
+msgstr "集合更改"
+
+#: src/ConnectApp.tsx
+msgid "Collection content remains in your replicas; no cloud copy is configured."
+msgstr "集合内容仍在你的副本中；尚未配置云端副本。"
+
+#: src/ApplicationAccess.tsx
+msgid "Collection ID"
+msgstr "集合 ID"
+
+#: src/ConnectApp.tsx
+msgid "Collection invitation link"
+msgstr "集合邀请链接"
+
+#: src/ConnectApp.tsx
+msgid "Collection name"
+msgstr "集合名称"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Collection owner"
+msgstr "集合所有者"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Collection permissions"
+msgstr "集合权限"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Collections"
+msgstr "集合"
+
+#: src/authority-workflows.tsx
+msgid "Computer approved"
+msgstr "电脑已获批准"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Computer filter results"
+msgstr "筛选电脑的结果"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Computer not connected"
+msgstr "电脑未连接"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Computer pairing"
+msgstr "电脑配对"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Computer status"
+msgstr "电脑状态"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Computers"
+msgstr "电脑"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Configured"
+msgstr "已配置"
+
+#: src/AccountManagement.tsx
+msgid "Confirm new password"
+msgstr "确认新密码"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Confirm new password"
+msgstr "确认新密码"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Confirm password"
+msgstr "确认密码"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Confirm removal"
+msgstr "确认移除"
+
+#: src/AccountManagement.tsx
+msgid "Confirm your identity"
+msgstr "确认你的身份"
+
+#: src/ConnectApp.tsx
+msgid "Connect a computer to add a collection."
+msgstr "连接一台电脑以添加集合。"
+
+#: src/ConnectApp.tsx
+msgid "Connect management closed"
+msgstr "Connect 管理功能已关闭"
+
+#: src/AccountManagement.tsx
+msgid "Connect more than one method so you always have a way back into your account."
+msgstr "连接多种登录方式，以便始终能重新访问账户。"
+
+#: src/auth-view.tsx
+msgid "Connect this device to your tailnet, then reload the page."
+msgstr "将此设备连接到你的 tailnet，然后重新加载页面。"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Connected"
+msgstr "已连接"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Connected"
+msgstr "已连接"
+
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Connected applications"
+msgstr "已连接的应用"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Connection"
+msgstr "连接"
+
+#: src/ConnectApp.tsx
+msgid "Contact the person who operates this mdbase connect deployment."
+msgstr "请联系此 mdbase connect 部署的管理员。"
+
+#: src/auth-view.tsx
+msgid "Continue"
+msgstr "继续"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Continue with GitHub"
+msgstr "使用 GitHub 继续"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Continue with Google"
+msgstr "使用 Google 继续"
+
+#: src/GoogleIdentityButton.tsx
+msgctxt "Connect interface"
+msgid "Continue with Google"
+msgstr "使用 Google 继续"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Copied"
+msgstr "已复制"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Copy link"
+msgstr "复制链接"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Couldn’t connect"
+msgstr "无法连接"
+
+#. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })
+#. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""
+#: src/authorization-view.tsx
+msgid "Covers every record in {0}.{1}"
+msgstr "涵盖 {0} 中的每条记录。{1}"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Create"
+msgstr "创建"
+
+#: src/authorization-view.tsx
+msgid "Create a hosted collection"
+msgstr "创建托管集合"
+
+#: src/authority-workflows.tsx
+msgid "Create a hosted collection before approving this folder."
+msgstr "批准此文件夹前，先创建一个托管集合。"
+
+#: src/CollectionPicker.tsx
+msgid "Create a new collection…"
+msgstr "创建新集合…"
+
+#: src/authorization-review.tsx
+msgid "Create a separate type supplied by {applicationName}."
+msgstr "创建由 {applicationName} 提供的独立类型。"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Create account"
+msgstr "创建账户"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Create an account"
+msgstr "创建账户"
+
+#: src/authorization-capabilities.ts
+msgid "Create and maintain timers that run while the application is closed."
+msgstr "创建并维护在应用关闭后仍会运行的定时任务。"
+
+#: src/authorization-capabilities.ts
+msgid "Create and update record types and apply declared type packs."
+msgstr "创建和更新记录类型，并应用声明的类型包。"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Create collection"
+msgstr "创建集合"
+
+#: src/authorization-view.tsx
+msgid "Create hosted collection"
+msgstr "创建托管集合"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Create invitation"
+msgstr "创建邀请"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Create records"
+msgstr "创建记录"
+
+#: src/authorization-capabilities.ts
+msgid "Create records and add files"
+msgstr "创建记录并添加文件"
+
+#: src/authorization-capabilities.ts
+msgid "Create, change, and delete saved view definitions."
+msgstr "创建、更改和删除已保存视图的定义。"
+
+#: src/ConnectApp.tsx
+msgid "Created, but this browser could not clear its request. Retrying will use the same collection."
+msgstr "已创建，但此浏览器无法清除其请求。重试将使用同一个集合。"
+
+#: src/authorization-view.tsx
+msgid "Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately."
+msgstr "创建由 mdbase 托管的普通 mdbase 集合。应用访问权限仍需另行批准。"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Creating account…"
+msgstr "正在创建账户…"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Creating…"
+msgstr "正在创建…"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Creating…"
+msgstr "正在创建…"
+
+#: src/authority-workflows.tsx
+msgid "Creation hasn't finished. Approve continues the same named collection."
+msgstr "创建尚未完成。批准后将继续创建同名集合。"
+
+#: src/AccountManagement.tsx
+msgctxt "Browser session status"
+msgid "Current"
+msgstr "当前"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Current allowance"
+msgstr "当前额度"
+
+#: src/AccountManagement.tsx
+msgid "Current password"
+msgstr "当前密码"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Delete"
+msgstr "删除"
+
+#. placeholder {0}: collection.display_name
+#: src/ConnectApp.tsx
+msgid "Delete {0} and all of its hosted data? This cannot be undone."
+msgstr "删除 {0} 及其所有托管数据？此操作无法撤销。"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Delete account"
+msgstr "删除账户"
+
+#: src/AccountManagement.tsx
+msgid "Delete account permanently"
+msgstr "永久删除账户"
+
+#: src/AccountManagement.tsx
+msgid "Delete account…"
+msgstr "删除账户…"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "delete files"
+msgstr "删除文件"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Delete files"
+msgstr "删除文件"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Delete permanently"
+msgstr "永久删除"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Delete records"
+msgstr "删除记录"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Delete records and files"
+msgstr "删除记录和文件"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Deleting account…"
+msgstr "正在删除账户…"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Deny"
+msgstr "拒绝"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Denying…"
+msgstr "正在拒绝…"
+
+#: src/portal-model.ts
+msgctxt "Connect interface"
+msgid "Desktop approval needed"
+msgstr "需要在桌面端批准"
+
+#: src/authority-workflows.tsx
+msgid "Details"
+msgstr "详情"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Details"
+msgstr "详情"
+
+#: src/auth-view.tsx
+msgid "Development authentication is enabled."
+msgstr "已启用开发身份验证。"
+
+#. placeholder {0}: pairing.fingerprint
+#: src/authority-workflows.tsx
+msgid "Device key: <0>{0}</0>"
+msgstr "设备密钥：<0>{0}</0>"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Disconnect"
+msgstr "断开连接"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Disconnect"
+msgstr "断开连接"
+
+#. placeholder {0}: replica.name
+#: src/ConnectApp.tsx
+msgid "Disconnect {0}?"
+msgstr "断开 {0} 的连接？"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Disconnecting…"
+msgstr "正在断开连接…"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Disconnecting…"
+msgstr "正在断开连接…"
+
+#: src/ConnectApp.tsx
+msgid "Dismiss"
+msgstr "关闭"
+
+#: src/authorization-review.tsx
+msgid "Do not share"
+msgstr "不要共享"
+
+#. placeholder {0}: formatBytes(subscription.limits.max_document_bytes)
+#. placeholder {1}: formatBytes(subscription.limits.max_single_file_bytes)
+#. placeholder {2}: countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")
+#. placeholder {3}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
+#: src/AccountManagement.tsx
+msgid "Documents up to {0} · files up to {1} · {2} · {3} per collection"
+msgstr "文档最多 {0} · 文件最多 {1} · {2} · 每个集合 {3}"
+
+#: src/authority-workflows.tsx
+msgid "Don't allow"
+msgstr "不允许"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Downloads only"
+msgstr "仅下载"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Edit records"
+msgstr "编辑记录"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Edit records and files"
+msgstr "编辑记录和文件"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Editor"
+msgstr "编辑者"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Edits sync both ways"
+msgstr "编辑内容双向同步"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Email"
+msgstr "电子邮箱"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Email"
+msgstr "电子邮箱"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Email address"
+msgstr "电子邮箱地址"
+
+#: src/AccountManagement.tsx
+msgid "Email and password"
+msgstr "电子邮箱和密码"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Email and password"
+msgstr "电子邮箱和密码"
+
+#. placeholder {0}: summary.setting
+#. placeholder {1}: summary.value
+#: src/authorization-view.tsx
+msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
+msgstr "确保 <0>{0}</0> 包含 <1>{1}</1>"
+
+#: src/authorization-view.tsx
+msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
+msgstr "输入应用显示的代码。允许任何操作前，你可以查看应用、集合及具体权限。"
+
+#: src/authorization-view.tsx
+msgid "Enter the eight-character code shown by the application."
+msgstr "输入应用显示的八位代码。"
+
+#: src/ApplicationAccess.tsx
+msgid "Entire collection"
+msgstr "整个集合"
+
+#. placeholder {0}: entry.role
+#: src/ApplicationAccess.tsx
+msgid "Entire collection · Access as your account ({0})"
+msgstr "整个集合 · 以你的账户身份访问（{0}）"
+
+#: src/AccountManagement.tsx
+msgid "Every browser session and sign-in method"
+msgstr "所有浏览器会话和登录方式"
+
+#: src/authorization-review.tsx
+msgid "Every visible folder. Hidden folders are always excluded."
+msgstr "所有可见文件夹。隐藏文件夹始终排除在外。"
+
+#: src/authority-workflows.tsx
+msgid "Existing access is revoked. Connect applications again to use the local collection."
+msgstr "现有访问权限已撤销。请重新连接 Connect 应用以使用本地集合。"
+
+#: src/authority-workflows.tsx
+msgid "Existing Markdown is checked before upload. Collection paths and device credentials stay off the control plane."
+msgstr "上传前会检查现有 Markdown。集合路径和设备凭据不会发送到控制平面。"
+
+#: src/authorization-review.tsx
+msgid "Existing type"
+msgstr "现有类型"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Existing type"
+msgstr "现有类型"
+
+#: src/authorization-review.tsx
+msgid "Expert details"
+msgstr "高级详情"
+
+#: src/FeedbackPage.tsx
+msgid "Feedback goes privately to the mdbase team."
+msgstr "反馈将私下发送给 mdbase 团队。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Feedback is unavailable"
+msgstr "反馈功能不可用"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Feedback unavailable"
+msgstr "反馈不可用"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "File permissions"
+msgstr "文件权限"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "File scope"
+msgstr "文件范围"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Files"
+msgstr "文件"
+
+#. placeholder {0}: field?.label ?? missing
+#: src/authorization-review.tsx
+msgid "Fill in {0} in {label}."
+msgstr "填写 {label} 中的 {0}。"
+
+#: src/ConnectApp.tsx
+msgid "Find a computer"
+msgstr "查找电脑"
+
+#: src/authorization-view.tsx
+msgid "Finishing collection setup…"
+msgstr "正在完成集合设置…"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Finishing the move"
+msgstr "正在完成迁移"
+
+#: src/authority-workflows.tsx
+msgid "Folder"
+msgstr "文件夹"
+
+#: src/authority-workflows.tsx
+msgid "Folder approved"
+msgstr "文件夹已获批准"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Folder sync"
+msgstr "文件夹同步"
+
+#: src/auth-view.tsx
+msgid "Forgot your password?"
+msgstr "忘记密码？"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Generate a new code"
+msgstr "生成新代码"
+
+#: src/AccountManagement.tsx
+msgid "Generate a private code, then send it to the collection owner."
+msgstr "生成私人代码，然后发送给集合所有者。"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Generate code"
+msgstr "生成代码"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Generating…"
+msgstr "正在生成…"
+
+#: src/portal-model.ts
+msgid "GitHub account @{login}"
+msgstr "GitHub 账户 @{login}"
+
+#: src/auth-view.tsx
+#: src/GoogleIdentityButton.tsx
+msgid "Google sign-in could not be loaded."
+msgstr "无法加载 Google 登录。"
+
+#: src/auth-view.tsx
+#: src/GoogleIdentityButton.tsx
+msgid "Google sign-in did not load correctly."
+msgstr "Google 登录未正确加载。"
+
+#. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
+#: src/authorization-review.tsx
+msgid "Help {applicationName} understand {0}"
+msgstr "帮助 {applicationName} 理解 {0}"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Hosted"
+msgstr "已托管"
+
+#: src/AccountManagement.tsx
+msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
+msgstr "托管访问权限已立即移除。托管数据会继续在后台自动删除。电脑上的所有本地集合及镜像文件都会保留。"
+
+#: src/authorization-view.tsx
+msgid "Hosted by mdbase"
+msgstr "由 mdbase 托管"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Hosted by mdbase"
+msgstr "由 mdbase 托管"
+
+#. placeholder {0}: countLabel(replicas.length, "folder")
+#: src/ConnectApp.tsx
+msgid "Hosted by mdbase · {0}"
+msgstr "由 mdbase 托管 · {0}"
+
+#: src/authority-workflows.tsx
+msgid "Hosted collection"
+msgstr "托管集合"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Hosted collection"
+msgstr "托管集合"
+
+#: src/ConnectApp.tsx
+msgid "Hosted creation is unavailable on this server."
+msgstr "此服务器不支持创建托管集合。"
+
+#: src/authority-workflows.tsx
+msgid "Hosted service"
+msgstr "托管服务"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Hosted storage"
+msgstr "托管存储空间"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Hosted writes are paused"
+msgstr "托管写入已暂停"
+
+#: src/authorization-review.tsx
+msgid "How this type behaves in {applicationName}"
+msgstr "此类型在 {applicationName} 中的作用"
+
+#: src/auth-view.tsx
+msgid "I agree to the <0>Terms of Service</0> and have read the <1>Privacy Policy</1>."
+msgstr "我同意<0>服务条款</0>并已阅读<1>隐私政策</1>。"
+
+#: src/AccountManagement.tsx
+msgid "Identity"
+msgstr "身份"
+
+#: src/AccountManagement.tsx
+msgid "Identity and service configuration."
+msgstr "身份与服务配置。"
+
+#: src/AccountManagement.tsx
+msgid "Identity confirmed for this deletion."
+msgstr "此删除操作的身份验证已完成。"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Identity unavailable"
+msgstr "无法获取身份信息"
+
+#: src/auth-view.tsx
+msgid "If an mdbase connect account uses that address, its one-time reset link is on the way."
+msgstr "如果有 mdbase connect 账户使用此地址，重置密码的一次性链接正在发送。"
+
+#: src/auth-view.tsx
+msgid "If that address can be used, its one-time verification link is on the way."
+msgstr "如果此地址可用，验证用的一次性链接正在发送。"
+
+#: src/ConnectApp.tsx
+msgid "If the desktop app does not open when you {action}, <0>install the latest release</0> and try again."
+msgstr "如果你{action}时桌面应用未打开，请<0>安装最新版本</0>后重试。"
+
+#. placeholder {0}: relativeTime(request.expires_at)
+#: src/authorization-view.tsx
+msgid "If the desktop app does not open, <0>install the current Connect release</0>, then return to this page. The request expires {0}."
+msgstr "如果桌面应用未打开，请<0>安装当前版本的 Connect</0>，然后返回此页面。请求将于 {0} 过期。"
+
+#: src/authorization-view.tsx
+msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
+msgstr "如果该值已存在，mdbase 不会更改集合。设置冲突会中止配置，而不会覆盖策略。"
+
+#: src/authority-workflows.tsx
+msgid "If verification fails or this request expires, hosted writes resume."
+msgstr "如果验证失败或此请求过期，托管写入将恢复。"
+
+#: src/authority-workflows.tsx
+msgid "In {collection}. Allow only if you just asked for this in {app}."
+msgstr "位于 {collection}。只有在你刚刚通过 {app} 发起此请求时才允许。"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Included storage"
+msgstr "包含的存储空间"
+
+#. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
+#: src/ConnectApp.tsx
+msgid "Install {0}"
+msgstr "安装 {0}"
+
+#: src/authorization-view.tsx
+msgid "Install or update the application definitions declared by this version."
+msgstr "安装或更新此版本声明的应用定义。"
+
+#: src/ConnectApp.tsx
+msgid "Install the latest release"
+msgstr "安装最新版本"
+
+#: src/ApplicationAccess.tsx
+msgid "Installation details"
+msgstr "安装详情"
+
+#: src/ConnectApp.tsx
+msgid "Invitation ready"
+msgstr "邀请已就绪"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Invitation required"
+msgstr "需要邀请"
+
+#: src/ConnectApp.tsx
+msgid "Invite using"
+msgstr "邀请方式"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Invite using"
+msgstr "邀请方式"
+
+#: src/auth-view.tsx
+msgid "Invited? Open the link in your invitation email. "
+msgstr "收到邀请？请打开邀请邮件中的链接。 "
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Invitee code"
+msgstr "受邀者代码"
+
+#: src/auth-view.tsx
+msgid "Join the signup waitlist"
+msgstr "加入注册候补名单"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Just a moment…"
+msgstr "请稍候…"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "just now"
+msgstr "刚刚"
+
+#: src/authority-workflows.tsx
+msgid "Keep access"
+msgstr "保留访问权限"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Keep an offline replica"
+msgstr "保留离线副本"
+
+#: src/authority-workflows.tsx
+msgid "Keep it hosted"
+msgstr "保留托管状态"
+
+#: src/authorization-review.tsx
+msgid "Keep your current records and explain which fields mean the same thing."
+msgstr "保留当前记录，并说明哪些字段表达相同的含义。"
+
+#: src/LanguageSetting.tsx
+msgid "Language"
+msgstr "语言"
+
+#. placeholder {0}: relativeTime(session.last_seen_at)
+#: src/AccountManagement.tsx
+msgid "Last used {0}"
+msgstr "上次使用时间：{0}"
+
+#: src/ApplicationAccess.tsx
+msgid "Legacy scoped access is revoked. Reauthorize this application for the entire collection."
+msgstr "旧版按范围划分的访问权限已撤销。请重新授权此应用访问整个集合。"
+
+#: src/ConnectApp.tsx
+msgid "Link your account to an editable record in this collection. Collection access is approved separately."
+msgstr "将你的账户关联到此集合中的一条可编辑记录。集合访问权限需另行批准。"
+
+#: src/authorization-review.tsx
+msgid "List file names and metadata"
+msgstr "列出文件名和元数据"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Loading account details…"
+msgstr "正在加载账户详情…"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Loading Google sign-in…"
+msgstr "正在加载 Google 登录…"
+
+#: src/GoogleIdentityButton.tsx
+msgctxt "Connect interface"
+msgid "Loading Google sign-in…"
+msgstr "正在加载 Google 登录…"
+
+#: src/ConnectApp.tsx
+msgid "Loading people…"
+msgstr "正在加载成员…"
+
+#: src/ConnectApp.tsx
+msgid "Loading your account and collections…"
+msgstr "正在加载你的账户和集合…"
+
+#: src/AccountManagement.tsx
+msgid "Local collection and mirror files remain on your computers."
+msgstr "本地集合和镜像文件会保留在你的电脑上。"
+
+#: src/AccountManagement.tsx
+msgid "Local collection files stay on your computers and are not measured here."
+msgstr "本地集合文件保留在你的电脑上，不计入此处的用量。"
+
+#: src/ConnectApp.tsx
+msgid "Location"
+msgstr "位置"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Location"
+msgstr "位置"
+
+#: src/ConnectApp.tsx
+msgid "Main copy"
+msgstr "主副本"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Main copy"
+msgstr "主副本"
+
+#: src/authority-workflows.tsx
+msgid "Main copy hosted by mdbase"
+msgstr "由 mdbase 托管的主副本"
+
+#: src/ConnectApp.tsx
+msgid "Main copy moved to a computer"
+msgstr "主副本已迁移到电脑"
+
+#: src/authority-workflows.tsx
+msgid "Main copy on {mirrorName}"
+msgstr "主副本位于 {mirrorName}"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Manage"
+msgstr "管理"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Manage and delete files"
+msgstr "管理和删除文件"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Manage definitions"
+msgstr "管理定义"
+
+#: src/auth-view.tsx
+msgid "Manage email preferences"
+msgstr "管理电子邮件偏好"
+
+#: src/AccountManagement.tsx
+msgid "Manage hosted storage, sign-in methods, and browser sessions."
+msgstr "管理托管存储空间、登录方式和浏览器会话。"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Manage saved views"
+msgstr "管理已保存视图"
+
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "Manage the main copy of {0} and its synced Markdown folders."
+msgstr "管理 {0} 的主副本及其同步的 Markdown 文件夹。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "manage timers"
+msgstr "管理定时任务"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "manage types"
+msgstr "管理类型"
+
+#: src/ConnectApp.tsx
+msgid "Manage where this collection lives and which applications can use it."
+msgstr "管理此集合的存储位置及可使用它的应用。"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Managed by your tailnet"
+msgstr "由你的 tailnet 管理"
+
+#: src/ConnectApp.tsx
+msgid "Management access does not give applications access to collection content. Each application needs its own collection approval."
+msgstr "管理权限不会让应用访问集合内容。每个应用都需要单独获得集合访问批准。"
+
+#: src/AccountManagement.tsx
+msgid "Markdown and file usage is temporarily unavailable."
+msgstr "Markdown 和文件用量暂不可用。"
+
+#: src/authority-workflows.tsx
+msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
+msgstr "Markdown 编辑内容将双向同步。并发编辑会分别保留，直到你选择一个版本。"
+
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgid "mdbase connect could not be reached. Check your connection and try again."
+msgstr "无法连接到 mdbase connect。请检查网络连接后重试。"
+
+#: src/portal-model.ts
+msgid "mdbase connect could not reach the service. Check your connection and try again."
+msgstr "mdbase connect 无法连接服务。请检查网络连接后重试。"
+
+#: src/authority-workflows.tsx
+msgid "mdbase connect is checking the latest hosted changes, registering the folder, and making it the main copy."
+msgstr "mdbase connect 正在检查最新的托管更改、注册文件夹，并将其设为主副本。"
+
+#: src/ConnectApp.tsx
+msgid "mdbase connect is unavailable"
+msgstr "mdbase connect 不可用"
+
+#: src/ConnectApp.tsx
+#: src/portal-ui.tsx
+msgid "mdbase connect navigation"
+msgstr "mdbase connect 导航"
+
+#: src/ConnectApp.tsx
+msgid "mdbase connect needs to restart"
+msgstr "需要重启 mdbase connect"
+
+#. placeholder {0}: adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." })
+#: src/authority-workflows.tsx
+msgid "mdbase now keeps the main copy of this collection.{0}"
+msgstr "mdbase 现在保管此集合的主副本。{0}"
+
+#: src/authority-workflows.tsx
+msgid "mdbase remembers your choice and {app} follows it. {app} keeps its copy of this collection either way."
+msgstr "mdbase 会记住你的选择，{app} 将遵循这一选择。无论如何，{app} 都会保留此集合的副本。"
+
+#: src/compatibility.ts
+msgctxt "Connect interface"
+msgid "Missing required types"
+msgstr "缺少必要类型"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "mobile app"
+msgstr "移动应用"
+
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Mobile app"
+msgstr "移动应用"
+
+#: src/compatibility.ts
+msgctxt "Connect interface"
+msgid "More access required"
+msgstr "需要更多访问权限"
+
+#: src/AccountManagement.tsx
+msgid "More regular updates about new features and improvements."
+msgstr "更定期地接收新功能和改进的动态。"
+
+#: src/authority-workflows.tsx
+msgid "Move a local collection to mdbase"
+msgstr "将本地集合迁移到 mdbase"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Move and rename files"
+msgstr "移动和重命名文件"
+
+#: src/authority-workflows.tsx
+msgid "Move approved"
+msgstr "迁移已批准"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Move collection online"
+msgstr "将集合迁移至云端"
+
+#: src/authority-workflows.tsx
+msgid "Move complete"
+msgstr "迁移完成"
+
+#: src/authority-workflows.tsx
+msgid "Move ended"
+msgstr "迁移已结束"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Move main copy"
+msgstr "迁移主副本"
+
+#: src/authority-workflows.tsx
+msgid "Move the main copy"
+msgstr "迁移主副本"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Move this collection"
+msgstr "迁移此集合"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Moved"
+msgstr "已迁移"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Moved to newer runtime"
+msgstr "已迁移到新版运行环境"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Moving to a computer"
+msgstr "正在迁移到电脑"
+
+#: src/ConnectApp.tsx
+msgid "My collection"
+msgstr "我的集合"
+
+#: src/AccountManagement.tsx
+msgid "Name"
+msgstr "名称"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Name"
+msgstr "姓名"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Name or registration ID"
+msgstr "名称或注册 ID"
+
+#: src/compatibility.ts
+msgctxt "Connect interface"
+msgid "Needs mdbase 0.3"
+msgstr "需要 mdbase 0.3"
+
+#: src/authorization-review.tsx
+msgid "New"
+msgstr "新增"
+
+#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+msgid "New collection name"
+msgstr "新集合名称"
+
+#: src/AccountManagement.tsx
+msgid "New password"
+msgstr "新密码"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "New password"
+msgstr "新密码"
+
+#: src/AccountManagement.tsx
+msgid "New passwords do not match."
+msgstr "两次输入的新密码不一致。"
+
+#: src/authority-workflows.tsx
+msgid "New synced folder"
+msgstr "新同步文件夹"
+
+#: src/auth-view.tsx
+msgid "New to mdbase? <0>Create an account</0>"
+msgstr "初次使用 mdbase？<0>创建账户</0>"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "No active code shown"
+msgstr "当前未显示有效代码"
+
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "No collection access"
+msgstr "无集合访问权限"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "No collections"
+msgstr "没有集合"
+
+#: src/CollectionPicker.tsx
+msgid "No collections are available."
+msgstr "没有可用的集合。"
+
+#: src/CollectionPicker.tsx
+msgid "No collections match. Try another name."
+msgstr "没有匹配的集合。请尝试其他名称。"
+
+#: src/authorization-view.tsx
+msgid "No compatible collection is ready."
+msgstr "没有可用的兼容集合。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "No computers connected"
+msgstr "没有已连接的电脑"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "No computers match"
+msgstr "没有匹配的电脑"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "No connected applications"
+msgstr "没有已连接的应用"
+
+#: src/AccountManagement.tsx
+msgid "No supported reauthentication method is connected."
+msgstr "未连接任何受支持的重新验证身份方式。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "No synced folders"
+msgstr "没有同步文件夹"
+
+#: src/authority-workflows.tsx
+msgid "Not allowed"
+msgstr "不允许"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Not configured"
+msgstr "未配置"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Not connected"
+msgstr "未连接"
+
+#: src/ConnectApp.tsx
+msgid "Not connected yet"
+msgstr "尚未连接"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Not connected yet"
+msgstr "尚未连接"
+
+#: src/ConnectApp.tsx
+msgid "Not now"
+msgstr "暂不"
+
+#: src/authorization-view.tsx
+msgid "Nothing is allowed until you review access."
+msgstr "在你审查访问权限之前，不会允许任何操作。"
+
+#: src/AccountManagement.tsx
+msgid "Occasional news about significant changes to mdbase Connect and new mdbase applications."
+msgstr "偶尔接收关于 mdbase Connect 重大变化及新 mdbase 应用的消息。"
+
+#: src/ConnectApp.tsx
+msgid "Offline"
+msgstr "离线"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Offline"
+msgstr "离线"
+
+#. placeholder {0}: computer.name
+#: src/ConnectApp.tsx
+msgid "On {0}"
+msgstr "在 {0} 上"
+
+#. placeholder {0}: computer.name
+#: src/ConnectApp.tsx
+msgid "On {0}: offline"
+msgstr "在 {0} 上：离线"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "On this computer"
+msgstr "在此电脑上"
+
+#. placeholder {0}: relativeTime(sharingCode.expiresAt)
+#: src/AccountManagement.tsx
+msgid "One use · expires {0}"
+msgstr "单次使用 · 于 {0} 过期"
+
+#: src/ConnectApp.tsx
+msgid "Online"
+msgstr "在线"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Online"
+msgstr "在线"
+
+#. placeholder {0}: files.scope.folders.join(", ")
+#: src/authorization-review.tsx
+msgid "Only {0}. Hidden folders are always excluded."
+msgstr "仅 {0}。隐藏文件夹始终排除在外。"
+
+#: src/authorization-view.tsx
+msgid "Only continue if you recognize this exact site."
+msgstr "只有在你确认是这个网站时才继续。"
+
+#: src/authorization-review.tsx
+msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
+msgstr "只更改此类型定义。现有记录保持不变。访问权限生效前会验证设置。"
+
+#: src/ConnectApp.tsx
+msgid "Open"
+msgstr "打开"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Open {0}"
+msgstr "打开 {0}"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Open {0} with {selectedName}"
+msgstr "使用 {selectedName} 打开 {0}"
+
+#: src/ConnectApp.tsx
+msgid "Open a collection in the editor or manage where its main copy lives."
+msgstr "在编辑器中打开集合，或管理其主副本的存储位置。"
+
+#: src/ConnectApp.tsx
+msgid "Open account and sessions"
+msgstr "打开账户与会话"
+
+#: src/ConnectApp.tsx
+msgid "Open desktop app"
+msgstr "打开桌面应用"
+
+#: src/ConnectApp.tsx
+msgid "Open editor"
+msgstr "打开编辑器"
+
+#: src/portal-ui.tsx
+msgid "Open editor <0>↗</0>"
+msgstr "打开编辑器 <0>↗</0>"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Open in {0}"
+msgstr "在 {0} 中打开"
+
+#: src/ConnectApp.tsx
+msgid "Open in editor"
+msgstr "在编辑器中打开"
+
+#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
+msgid "Open mdbase connect"
+msgstr "打开 mdbase connect"
+
+#. placeholder {0}: collection.detail
+#: src/ConnectApp.tsx
+msgid "Open mdbase connect on {0} to make this collection available."
+msgstr "在 {0} 上打开 mdbase connect，使此集合可用。"
+
+#: src/onboarding-view.tsx
+msgid "Open mdbase Connect without it"
+msgstr "不使用它，直接打开 mdbase Connect"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Open menu"
+msgstr "打开菜单"
+
+#: src/portal-ui.tsx
+msgctxt "Connect interface"
+msgid "Open navigation"
+msgstr "打开导航"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Open registration"
+msgstr "开放注册"
+
+#: src/auth-view.tsx
+msgid "Open the complete password reset link from your email."
+msgstr "打开电子邮件中完整的密码重置链接。"
+
+#: src/authorization-view.tsx
+msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
+msgstr "打开桌面应用以连接此电脑、添加文件夹并继续处理同一个请求。"
+
+#: src/auth-view.tsx
+msgid "Open the link from the email again, or change email preferences in your account settings."
+msgstr "重新打开邮件中的链接，或在账户设置中更改电子邮件偏好。"
+
+#: src/ConnectApp.tsx
+msgid "Open the mdbase connect desktop app and choose Connect this computer."
+msgstr "打开 mdbase connect 桌面应用并选择“连接此电脑”。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "open this collection"
+msgstr "打开此集合"
+
+#: src/auth-view.tsx
+msgid "Open this through Tailscale"
+msgstr "通过 Tailscale 打开"
+
+#: src/auth-view.tsx
+msgid "Open your account"
+msgstr "打开你的账户"
+
+#: src/authority-workflows.tsx
+msgid "Open your collections"
+msgstr "打开你的集合"
+
+#: src/authorization-capabilities.ts
+msgid "Open, search, validate, and follow changes to records and saved views."
+msgstr "打开、搜索和验证记录及已保存视图，并关注它们的更改。"
+
+#: src/authorization-capabilities.ts
+msgid "Open, search, validate, and follow records and saved views; list file names and read file contents."
+msgstr "打开、搜索和验证记录及已保存视图，并关注它们的更改；列出文件名并读取文件内容。"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Opening mdbase connect"
+msgstr "正在打开 mdbase connect"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Opening mdbase connect"
+msgstr "正在打开 mdbase connect"
+
+#: src/main.tsx
+#: src/portal-ui.tsx
+msgctxt "Connect interface"
+msgid "Opening mdbase connect…"
+msgstr "正在打开 mdbase connect…"
+
+#: src/auth-view.tsx
+msgid "or"
+msgstr "或"
+
+#: src/ApplicationAccess.tsx
+msgid "Origin"
+msgstr "来源"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Overview"
+msgstr "概览"
+
+#: src/authority-workflows.tsx
+#: src/ConnectApp.tsx
+msgid "Owner"
+msgstr "所有者"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Password"
+msgstr "密码"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Password changed"
+msgstr "密码已更改"
+
+#: src/AccountManagement.tsx
+msgid "Password changed. Other browser sessions were signed out."
+msgstr "密码已更改。其他浏览器会话已退出登录。"
+
+#: src/auth-view.tsx
+msgid "Password recovery is temporarily unavailable. You can still return to sign in."
+msgstr "密码恢复功能暂不可用。你仍可返回登录页面。"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Passwords do not match."
+msgstr "两次输入的密码不一致。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Paused"
+msgstr "已暂停"
+
+#: src/ConnectApp.tsx
+msgid "Pending"
+msgstr "待处理"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Pending invitations"
+msgstr "待处理邀请"
+
+#: src/authorization-review.tsx
+msgid "People"
+msgstr "人员"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "People & sharing"
+msgstr "人员与共享"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "People permissions"
+msgstr "人员权限"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Permanent allowance"
+msgstr "永久额度"
+
+#: src/AccountManagement.tsx
+msgid "Permanent for hosted data. Local files are never removed from your computers."
+msgstr "托管数据将永久删除。本地文件绝不会从你的电脑上移除。"
+
+#: src/authorization-capabilities.ts
+msgid "Permanently delete records and files from this collection."
+msgstr "永久删除此集合中的记录和文件。"
+
+#: src/authorization-capabilities.ts
+msgid "Permanently delete records from this collection."
+msgstr "永久删除此集合中的记录。"
+
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Permissions"
+msgstr "权限"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "person@example.com"
+msgstr "user@example.com"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Preparing {0}…"
+msgstr "正在准备 {0}…"
+
+#: src/onboarding-view.tsx
+msgid "Preparing a place to start."
+msgstr "正在准备开始所需的内容。"
+
+#: src/ApplicationAccess.tsx
+msgid "Previously approved · Collection no longer visible to your account"
+msgstr "之前已批准 · 此集合对你的账户不再可见"
+
+#: src/auth-view.tsx
+msgid "Privacy"
+msgstr "隐私"
+
+#: src/CollectionPicker.tsx
+msgid "Private"
+msgstr "私有"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Private collection"
+msgstr "私有集合"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Product updates"
+msgstr "产品动态"
+
+#: src/auth-view.tsx
+msgid "Public account creation is temporarily unavailable."
+msgstr "暂时无法公开创建账户。"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Read file contents"
+msgstr "读取文件内容"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Read records and files"
+msgstr "读取记录和文件"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Read this collection"
+msgstr "读取此集合"
+
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Reauthorization required"
+msgstr "需要重新授权"
+
+#: src/CollectionPicker.tsx
+msgid "Recently used"
+msgstr "最近使用"
+
+#: src/authority-workflows.tsx
+msgid "Recovery"
+msgstr "恢复"
+
+#. placeholder {0}: new Date(connector.created_at).toLocaleString()
+#. placeholder {1}: connector.id.slice(-8)
+#: src/ConnectApp.tsx
+msgid "Registered {0} · ID {1}"
+msgstr "注册于 {0} · ID {1}"
+
+#. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })
+#: src/ApplicationAccess.tsx
+msgid "Registered <0>{0}</0>"
+msgstr "已注册 <0>{0}</0>"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Registered computers"
+msgstr "已注册的电脑"
+
+#: src/ConnectApp.tsx
+msgid "Registered computers stay listed when offline. Revoking one also invalidates grants routed through it."
+msgstr "已注册的电脑即使离线也会保留在列表中。撤销某台电脑的权限也会使经由它转发的授权失效。"
+
+#: src/AccountManagement.tsx
+msgid "Registration"
+msgstr "注册"
+
+#: src/ConnectApp.tsx
+msgid "Reload Connect"
+msgstr "重新加载 Connect"
+
+#: src/authority-workflows.tsx
+msgid "Reminders are off. You can turn them on in the app by approving reminders again."
+msgstr "提醒已关闭。你可以在应用中重新批准提醒以将其开启。"
+
+#: src/authority-workflows.tsx
+msgid "Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged."
+msgstr "提醒将保持关闭。你可以完成设置，稍后再在应用中开启。集合访问权限不变。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Remove"
+msgstr "移除"
+
+#. placeholder {0}: member.name
+#. placeholder {1}: collection.display_name
+#: src/ConnectApp.tsx
+msgid "Remove {0} from {1}? Their application and folder access will also be revoked."
+msgstr "从 {1} 中移除 {0}？他们对应用和文件夹的访问权限也将被撤销。"
+
+#. placeholder {0}: member.name
+#: src/ConnectApp.tsx
+msgid "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
+msgstr "从未命名的集合中移除 {0}？他们对应用和文件夹的访问权限也将被撤销。"
+
+#: src/authority-workflows.tsx
+msgid "Remove access"
+msgstr "移除访问权限"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Remove access"
+msgstr "移除访问权限"
+
+#. placeholder {0}: pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
+#: src/authority-workflows.tsx
+msgid "Removing access to {0}…"
+msgstr "正在移除对 {0} 的访问权限…"
+
+#: src/ConnectApp.tsx
+msgid "Removing application and folder access…"
+msgstr "正在移除应用和文件夹的访问权限…"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Removing…"
+msgstr "正在移除…"
+
+#: src/ConnectPrimitives.tsx
+msgctxt "Connect interface"
+msgid "Rename"
+msgstr "重命名"
+
+#. placeholder {0}: collection.display_name
+#. placeholder {0}: connector.name
+#: src/ConnectApp.tsx
+msgid "Rename {0}"
+msgstr "重命名 {0}"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Replace existing files"
+msgstr "替换现有文件"
+
+#: src/auth-view.tsx
+msgid "Replacing your password signs out every other browser session connected to the account."
+msgstr "更换密码会让连接此账户的所有其他浏览器会话退出登录。"
+
+#. placeholder {0}: relativeTime(request.expires_at)
+#: src/authorization-view.tsx
+msgid "Request expires {0}"
+msgstr "请求于 {0} 过期"
+
+#. placeholder {0}: response.status
+#: src/api.ts
+msgid "Request failed with HTTP {0}."
+msgstr "请求失败，HTTP 状态码：{0}。"
+
+#: src/authorization-view.tsx
+msgid "Request unavailable"
+msgstr "请求不可用"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Requested access"
+msgstr "请求的访问权限"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Requested by {0}. No requesting origin is available."
+msgstr "由 {0} 请求。无法获取请求来源。"
+
+#. placeholder {0}: pairing.connector_name
+#. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
+#. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>
+#: src/authority-workflows.tsx
+msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
+msgstr "由 {0}{1}{2} 请求。只有在你主动通过此应用登录时才批准。"
+
+#. placeholder {0}: pairing.app_origin
+#: src/authority-workflows.tsx
+msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
+msgstr "请求来自 <0>{0}</0>。此处显示的来源不能证明请求者的身份。"
+
+#: src/authorization-view.tsx
+msgid "Requests"
+msgstr "请求"
+
+#: src/authorization-review.tsx
+msgid "Required"
+msgstr "必需"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Reset your password"
+msgstr "重置密码"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Retry creation"
+msgstr "重试创建"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Retry Google sign-in"
+msgstr "重试 Google 登录"
+
+#: src/GoogleIdentityButton.tsx
+msgctxt "Connect interface"
+msgid "Retry Google sign-in"
+msgstr "重试 Google 登录"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Return to {0}"
+msgstr "返回 {0}"
+
+#. placeholder {0}: adoption.source_name
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Return to {0}."
+msgstr "返回 {0}。"
+
+#: src/authorization-view.tsx
+msgid "Return to {applicationName}"
+msgstr "返回 {applicationName}"
+
+#: src/authorization-view.tsx
+msgid "Return to {applicationName} and connect again to start a new request."
+msgstr "返回 {applicationName} 并重新连接，以发起新请求。"
+
+#: src/authorization-view.tsx
+msgid "Return to {applicationName}."
+msgstr "返回 {applicationName}。"
+
+#: src/authority-workflows.tsx
+msgid "Return to {mirrorName}."
+msgstr "返回 {mirrorName}。"
+
+#: src/authority-workflows.tsx
+msgid "Return to mdbase connect."
+msgstr "返回 mdbase connect。"
+
+#: src/AccountManagement.tsx
+#: src/auth-view.tsx
+msgid "Return to sign in"
+msgstr "返回登录页面"
+
+#: src/authority-workflows.tsx
+msgid "Return to your account"
+msgstr "返回你的账户"
+
+#: src/authority-workflows.tsx
+msgid "Return to your computer."
+msgstr "返回你的电脑。"
+
+#: src/authorization-view.tsx
+msgid "Returning to {applicationName}…"
+msgstr "正在返回 {applicationName}…"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Review"
+msgstr "审查"
+
+#. placeholder {0}: request.application_name
+#: src/ConnectApp.tsx
+msgid "Review {0}’s collection access request."
+msgstr "审查 {0} 的集合访问请求。"
+
+#. placeholder {0}: request.application_name
+#: src/ConnectApp.tsx
+msgid "Review {0}’s request for {collectionName}."
+msgstr "审查 {0} 对 {collectionName} 的请求。"
+
+#: src/authorization-view.tsx
+msgid "Review access"
+msgstr "审查访问权限"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Review all"
+msgstr "全部审查"
+
+#: src/ApplicationAccess.tsx
+msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
+msgstr "查看与你账户连接的应用。你的浏览器登录信息绝不会与它们共享。"
+
+#: src/authorization-view.tsx
+msgid "Review in this browser"
+msgstr "在此浏览器中审查"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Review next request"
+msgstr "审查下一项请求"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Review request"
+msgstr "审查请求"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Review request"
+msgstr "审查请求"
+
+#: src/ApplicationAccess.tsx
+msgid "Review the access each application has to {collectionName}."
+msgstr "审查各应用对 {collectionName} 的访问权限。"
+
+#. placeholder {0}: grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })
+#: src/ApplicationAccess.tsx
+msgid "Revocation is pending. Waiting for {0} to confirm enforcement."
+msgstr "撤销待完成。正在等待 {0} 确认权限限制已生效。"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Revoke"
+msgstr "撤销"
+
+#. placeholder {0}: group.applicationName
+#. placeholder {1}: entries[0]!.collection_name
+#: src/ApplicationAccess.tsx
+msgid "Revoke {0} access to {1} across all its installations?"
+msgstr "撤销 {0} 所有安装实例对 {1} 的访问权限？"
+
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+msgid "Revoke {0} access to {collectionName}?"
+msgstr "撤销 {0} 对 {collectionName} 的访问权限？"
+
+#. placeholder {0}: connector.name
+#: src/ConnectApp.tsx
+msgid "Revoke {0} and the application grants routed through it?"
+msgstr "撤销 {0} 以及经由它转发的应用授权？"
+
+#. placeholder {0}: replica.name
+#: src/ConnectApp.tsx
+msgid "Revoke {0}?"
+msgstr "撤销 {0}？"
+
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Revoke access"
+msgstr "撤销访问权限"
+
+#. placeholder {0}: grant.collection_name
+#: src/ApplicationAccess.tsx
+msgid "Revoke access to {0}?"
+msgstr "撤销对 {0} 的访问权限？"
+
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+msgid "Revoke all {0} access and collection creation permission?"
+msgstr "撤销 {0} 的所有访问权限和创建集合的权限？"
+
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Revoke application"
+msgstr "撤销应用权限"
+
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Revoke collection access"
+msgstr "撤销集合访问权限"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Revoke computer"
+msgstr "撤销电脑权限"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Revoking…"
+msgstr "正在撤销…"
+
+#: src/ConnectApp.tsx
+msgid "Role"
+msgstr "角色"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Role"
+msgstr "角色"
+
+#. placeholder {0}: member.name
+#: src/ConnectApp.tsx
+msgid "Role for {0}"
+msgstr "{0} 的角色"
+
+#: src/ConnectPrimitives.tsx
+msgctxt "Connect interface"
+msgid "Save"
+msgstr "保存"
+
+#: src/ApplicationAccess.tsx
+msgid "Save narrower access"
+msgstr "保存收窄后的访问权限"
+
+#: src/ConnectPrimitives.tsx
+msgctxt "Connect interface"
+msgid "Saving…"
+msgstr "正在保存…"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
+msgid "Schedule background work"
+msgstr "安排后台任务"
+
+#: src/ApplicationAccess.tsx
+msgid "Scope"
+msgstr "范围"
+
+#: src/CollectionPicker.tsx
+msgid "Search collections by name"
+msgstr "按名称搜索集合"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "see collection members"
+msgstr "查看集合成员"
+
+#: src/authorization-review.tsx
+msgid "See collection members' account identities, names and roles"
+msgstr "查看集合成员的账户身份、姓名和角色"
+
+#: src/authorization-review.tsx
+msgid "See your account identity and display name"
+msgstr "查看你的账户身份和显示名称"
+
+#. placeholder {0}: relativeTime(connector.last_seen_at)
+#. placeholder {0}: relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)
+#: src/ConnectApp.tsx
+msgid "Seen {0}"
+msgstr "查看于 {0}"
+
+#: src/authorization-view.tsx
+msgid "Select a collection to continue."
+msgstr "请选择一个集合以继续。"
+
+#. placeholder {0}: selected.name
+#: src/CollectionPicker.tsx
+msgid "Selected: <0>{0}</0>"
+msgstr "已选择：<0>{0}</0>"
+
+#: src/ConnectApp.tsx
+#: src/FeedbackPage.tsx
+msgctxt "Connect interface"
+msgid "Send feedback"
+msgstr "发送反馈"
+
+#: src/auth-view.tsx
+msgid "Send me occasional product updates. You can change this at any time."
+msgstr "偶尔向我发送产品动态。你可以随时更改此设置。"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Send reset link"
+msgstr "发送重置链接"
+
+#: src/ConnectApp.tsx
+msgid "Send this private link to the invited person. Email invitations require an already registered, verified account. If they have just signed up, create a new invitation."
+msgstr "将此私人链接发送给受邀者。邮件邀请要求对方已注册并验证账户。如果对方刚刚注册，请创建新邀请。"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Send verification link"
+msgstr "发送验证链接"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Sending link…"
+msgstr "正在发送链接…"
+
+#. placeholder {0}: account.user.email
+#: src/AccountManagement.tsx
+msgid "Sent to {0}."
+msgstr "已发送至 {0}。"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Set up and allow access"
+msgstr "设置并允许访问"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "Setting up and allowing…"
+msgstr "正在设置并允许访问…"
+
+#. placeholder {0}: setupLabel(contract)
+#: src/authorization-review.tsx
+msgid "Setup for {0}"
+msgstr "{0} 的设置"
+
+#: src/authority-workflows.tsx
+msgid "Shared with you"
+msgstr "与你共享"
+
+#: src/ConnectApp.tsx
+msgid "Sharing code"
+msgstr "共享代码"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Sharing code"
+msgstr "共享代码"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Sharing code"
+msgstr "共享代码"
+
+#: src/authorization-view.tsx
+msgid "Short approval code"
+msgstr "短批准代码"
+
+#. placeholder {0}: visible.length
+#. placeholder {1}: data.connectors.length
+#: src/ConnectApp.tsx
+msgid "Showing {0} of {1} registered computers."
+msgstr "显示 {1} 台已注册电脑中的 {0} 台。"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Sign in"
+msgstr "登录"
+
+#: src/authority-workflows.tsx
+msgid "Sign in again"
+msgstr "重新登录"
+
+#: src/authority-workflows.tsx
+msgid "Sign in on a computer"
+msgstr "在电脑上登录"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Sign in to continue"
+msgstr "登录以继续"
+
+#: src/auth-view.tsx
+msgid "Sign in with the method connected to your invited account."
+msgstr "使用与你的受邀账户关联的方式登录。"
+
+#: src/auth-view.tsx
+msgid "Sign in, review the request, and return to the application."
+msgstr "登录并审查请求，然后返回应用。"
+
+#: src/AccountManagement.tsx
+msgid "Sign out"
+msgstr "退出登录"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Sign out of this browser"
+msgstr "在此浏览器中退出登录"
+
+#: src/AccountManagement.tsx
+msgid "Sign out other sessions"
+msgstr "退出其他会话"
+
+#: src/authority-workflows.tsx
+msgid "Sign-in cancelled"
+msgstr "登录已取消"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Sign-in methods"
+msgstr "登录方式"
+
+#: src/AccountManagement.tsx
+msgid "Sign-in methods for this account are controlled by Tailscale."
+msgstr "此账户的登录方式由 Tailscale 管理。"
+
+#: src/auth-view.tsx
+msgid "Sign-in was cancelled. You can try again or choose another method."
+msgstr "登录已取消。你可以重试或选择其他方式。"
+
+#. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })
+#. placeholder {1}: session.id.slice(-8)
+#: src/AccountManagement.tsx
+msgid "Signed in <0>{0}</0> · ID {1}"
+msgstr "已登录 <0>{0}</0> · ID {1}"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Signing in with Google…"
+msgstr "正在使用 Google 登录…"
+
+#: src/GoogleIdentityButton.tsx
+msgctxt "Connect interface"
+msgid "Signing in with Google…"
+msgstr "正在使用 Google 登录…"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Signing in…"
+msgstr "正在登录…"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Signing out…"
+msgstr "正在退出登录…"
+
+#: src/auth-view.tsx
+msgid "Start signup again"
+msgstr "重新开始注册"
+
+#: src/ConnectApp.tsx
+msgid "Status"
+msgstr "状态"
+
+#: src/auth-view.tsx
+msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
+msgstr "停止接收此链接对应类别的电子邮件。与你账户有关的消息仍会发送。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Storage"
+msgstr "存储空间"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Storage & sync"
+msgstr "存储与同步"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Stored by mdbase"
+msgstr "由 mdbase 存储"
+
+#. placeholder {0}: collection.detail
+#: src/ConnectApp.tsx
+msgid "Stored on {0}"
+msgstr "存储于 {0}"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Stored on your devices"
+msgstr "存储在你的设备上"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Sync"
+msgstr "同步"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "sync a folder"
+msgstr "同步文件夹"
+
+#: src/ConnectApp.tsx
+msgid "Sync folder"
+msgstr "同步文件夹"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Sync this collection"
+msgstr "同步此集合"
+
+#: src/ConnectApp.tsx
+msgid "Synced folders"
+msgstr "同步文件夹"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Synced folders"
+msgstr "同步文件夹"
+
+#: src/authorization-capabilities.ts
+msgid "Synchronize an application-controlled local copy of this collection."
+msgstr "同步此集合由应用管理的本地副本。"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Tailscale identity"
+msgstr "Tailscale 身份"
+
+#: src/auth-view.tsx
+msgid "Terms"
+msgstr "条款"
+
+#: src/authority-workflows.tsx
+msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
+msgstr "应用正在上传并检查集合的最终快照。只有在该快照完整上传后才会迁移主副本。"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "the application"
+msgstr "该应用"
+
+#: src/authorization-view.tsx
+msgid "The application will finish connecting with its one-time device code. You can close this window."
+msgstr "应用会使用一次性设备代码完成连接。你可以关闭此窗口。"
+
+#: src/authorization-view.tsx
+msgid "The application will learn that access was not granted. You can close this window."
+msgstr "应用会收到访问权限未获批准的结果。你可以关闭此窗口。"
+
+#: src/authorization-view.tsx
+msgid "The application will show that access was not granted."
+msgstr "应用会显示访问权限未获批准。"
+
+#. placeholder {0}: field.label.toLocaleLowerCase()
+#: src/authorization-review.tsx
+msgid "The application’s {0} value."
+msgstr "应用的 {0} 值。"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "The collection"
+msgstr "此集合"
+
+#: src/authorization-view.tsx
+msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
+msgstr "此集合无法同时允许所有必需的记录和文件权限。请选择其他集合。"
+
+#: src/authorization-view.tsx
+msgid "The collection requested by this application is not available."
+msgstr "此应用请求的集合不可用。"
+
+#: src/ApplicationAccess.tsx
+msgid "the computer holding this collection"
+msgstr "存有此集合的电脑"
+
+#: src/authority-workflows.tsx
+msgid "The desktop app will finish securely. No connector token was displayed or copied."
+msgstr "桌面应用将安全地完成后续操作。连接器令牌未被显示或复制。"
+
+#. placeholder {0}: collection.detail
+#: src/ConnectApp.tsx
+msgid "The editor can reach this collection through {0}."
+msgstr "编辑器可以通过 {0} 访问此集合。"
+
+#: src/authority-workflows.tsx
+msgid "The folder on {mirrorName} is now the main copy. Hosted access has stopped and previous application connections were revoked."
+msgstr "{mirrorName} 上的文件夹现在是主副本。托管访问已停止，之前的应用连接已撤销。"
+
+#: src/ConnectApp.tsx
+msgid "The folder remains the authority for this collection."
+msgstr "该文件夹仍是此集合的权威数据源。"
+
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "the hosted authority"
+msgstr "托管数据源"
+
+#: src/ConnectApp.tsx
+msgid "The hosted collection is available to the editor."
+msgstr "托管集合可供编辑器使用。"
+
+#: src/LanguageSetting.tsx
+msgid "The language could not be loaded or saved. Try choosing it again."
+msgstr "无法加载或保存语言设置。请重新选择。"
+
+#: src/main.tsx
+msgid "The language could not be loaded. Choose it again using the language setting."
+msgstr "无法加载语言。请在语言设置中重新选择。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "the latest release"
+msgstr "最新版本"
+
+#: src/auth-view.tsx
+msgid "The link is invalid, expired, already used, or account setup is temporarily unavailable."
+msgstr "链接无效、已过期或已使用，也可能是账户设置暂不可用。"
+
+#: src/auth-view.tsx
+msgid "The link is invalid, expired, already used, or password sign-in is temporarily unavailable."
+msgstr "链接无效、已过期或已使用，也可能是密码登录暂不可用。"
+
+#: src/ConnectApp.tsx
+msgid "The main copy has moved away from hosted storage."
+msgstr "主副本已从托管存储空间迁出。"
+
+#: src/authority-workflows.tsx
+msgid "The main copy stayed hosted."
+msgstr "主副本仍由云端托管。"
+
+#: src/authority-workflows.tsx
+msgid "The main copy was not moved to mdbase."
+msgstr "主副本未迁移到 mdbase。"
+
+#: src/portal-model.ts
+msgid "The mdbase connect app on this computer needs to be updated before you can continue."
+msgstr "继续之前，需要更新此电脑上的 mdbase connect 应用。"
+
+#: src/authority-workflows.tsx
+msgid "The original app approval changed."
+msgstr "原来的应用批准信息已更改。"
+
+#: src/authority-workflows.tsx
+msgid "The original sign-in changed."
+msgstr "原来的登录信息已更改。"
+
+#: src/authorization-view.tsx
+msgid "The page will notice when the request is approved."
+msgstr "请求获批准后，此页面会自动检测到。"
+
+#: src/authorization-review.tsx
+msgid "The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed."
+msgstr "规则在集合内部运行。通知只会告诉 {applicationName} 有内容发生更改，不会透露更改的内容。"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "the selected computer"
+msgstr "所选电脑"
+
+#: src/authority-workflows.tsx
+msgid "The signed-in account changed. Start sign-in again from the app."
+msgstr "已登录的账户发生更改。请从应用重新开始登录。"
+
+#: src/authority-workflows.tsx
+msgid "The synced Markdown folder becomes the main copy."
+msgstr "同步的 Markdown 文件夹会成为主副本。"
+
+#: src/portal-model.ts
+msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
+msgstr "此账户从 mdbase 桌面应用批准新设备。请在桌面应用中添加此设备，然后在 {app} 中重新登录。"
+
+#: src/AccountManagement.tsx
+msgid "This account is managed by your tailnet and cannot be deleted here."
+msgstr "此账户由你的 tailnet 管理，无法在此删除。"
+
+#: src/auth-view.tsx
+msgid "This account setup link can’t be opened"
+msgstr "无法打开此账户设置链接"
+
+#: src/authorization-capabilities.ts
+msgid "This app needs an update before it can connect. Try again after it updates."
+msgstr "此应用需要更新才能连接。请在更新后重试。"
+
+#: src/authorization-view.tsx
+msgid "This application needs a collection hosted by mdbase, and none is ready yet."
+msgstr "此应用需要由 mdbase 托管的集合，但目前没有可用的集合。"
+
+#: src/compatibility.ts
+msgid "This application needs a collection hosted by mdbase."
+msgstr "此应用需要由 mdbase 托管的集合。"
+
+#: src/portal-model.ts
+msgid "This application request has expired. Return to the application and start again."
+msgstr "此应用请求已过期。请返回应用重新发起。"
+
+#: src/authorization-review.tsx
+msgid "This application uses advanced behavior settings, so an existing type cannot be connected during approval."
+msgstr "此应用使用高级行为设置，因此批准期间无法连接现有类型。"
+
+#: src/ConnectApp.tsx
+msgid "This browser could not keep your creation request. No request was sent."
+msgstr "此浏览器无法保留你的创建请求。尚未发送请求。"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "This browser, active now"
+msgstr "此浏览器，当前活动"
+
+#: src/authorization-view.tsx
+msgid "this collection"
+msgstr "此集合"
+
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "this collection"
+msgstr "此集合"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "this collection"
+msgstr "此集合"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "This collection"
+msgstr "此集合"
+
+#. placeholder {0}: new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(unavailable.map(contractLabel))
+#: src/compatibility.ts
+msgid "This collection does not provide {0}."
+msgstr "此集合不提供 {0}。"
+
+#: src/authority-workflows.tsx
+msgid "This collection is no longer available. Choose a collection again."
+msgstr "此集合已不可用。请重新选择集合。"
+
+#: src/authority-workflows.tsx
+msgid "This collection stays on your computer. It can connect when a computer signed in to this account is available."
+msgstr "此集合保留在你的电脑上。只要有一台登录此账户的电脑可用，就可以连接。"
+
+#: src/ConnectApp.tsx
+msgid "This deployment has not configured a feedback destination."
+msgstr "此部署尚未配置反馈接收地址。"
+
+#: src/authority-workflows.tsx
+msgid "This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow."
+msgstr "此设备可以保留已批准集合的离线副本，包括其文件以及当前账户和成员信息。访问范围仅限你允许的集合。"
+
+#: src/authority-workflows.tsx
+msgid "This folder will receive Markdown from mdbase and will not upload local edits."
+msgstr "此文件夹将从 mdbase 接收 Markdown，不会上传本地编辑内容。"
+
+#: src/ApplicationAccess.tsx
+msgid "This installation has no approved collections."
+msgstr "此安装实例没有获批准的集合。"
+
+#. placeholder {0}: request.application_name
+#: src/authorization-view.tsx
+msgid "This is a Private collection: it stays on your computer. {0} can use it while a computer that has it is running mdbase and is signed in to your account."
+msgstr "这是私有集合：它保留在你的电脑上。只要存有它的电脑正在运行 mdbase 且已登录你的账户，{0} 就可以使用它。"
+
+#: src/authorization-view.tsx
+msgid "This is taking longer than usual. Keep this page open; it continues automatically when setup finishes."
+msgstr "此操作比平常耗时更长。请保持页面打开；设置完成后会自动继续。"
+
+#: src/AccountManagement.tsx
+msgid "This is your only sign-in method."
+msgstr "这是你唯一的登录方式。"
+
+#: src/AccountManagement.tsx
+msgid "This method is used by the current session."
+msgstr "当前会话正使用此方式。"
+
+#: src/AccountManagement.tsx
+msgid "This permanently deletes:"
+msgstr "此操作将永久删除："
+
+#: src/authorization-view.tsx
+msgid "This request has expired or was already answered."
+msgstr "此请求已过期或已处理。"
+
+#. placeholder {0}: request.application_name
+#: src/authorization-view.tsx
+msgid "This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {0}."
+msgstr "连接电脑或添加集合期间，此请求会保持打开。请在桌面应用中批准，然后返回此处继续前往 {0}。"
+
+#: src/auth-view.tsx
+msgid "This reset link can’t be opened"
+msgstr "无法打开此重置链接"
+
+#: src/auth-view.tsx
+msgid "This unsubscribe link can’t be opened"
+msgstr "无法打开此退订链接"
+
+#: src/authority-workflows.tsx
+msgid "Transfer approved"
+msgstr "迁移已批准"
+
+#: src/authority-workflows.tsx
+msgid "Transfer complete"
+msgstr "迁移完成"
+
+#: src/authority-workflows.tsx
+msgid "Transfer ended"
+msgstr "迁移已结束"
+
+#: src/ConnectApp.tsx
+msgid "Try a different name, registration ID or status. Filtering does not revoke access."
+msgstr "请尝试其他名称、注册 ID 或状态。筛选不会撤销访问权限。"
+
+#: src/auth-view.tsx
+#: src/authority-workflows.tsx
+#: src/ConnectApp.tsx
+#: src/onboarding-view.tsx
+#: src/portal-ui.tsx
+msgid "Try again"
+msgstr "重试"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Two-way sync"
+msgstr "双向同步"
+
+#: src/AccountManagement.tsx
+msgid "Type DELETE to confirm"
+msgstr "输入 DELETE 以确认"
+
+#: src/CollectionPicker.tsx
+msgid "Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice."
+msgstr "输入文字以筛选。方向键用于高亮，Enter 键用于选择。输入文字不会更改当前选择。"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Unavailable"
+msgstr "不可用"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Unnamed collection"
+msgstr "未命名的集合"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Unsubscribe"
+msgstr "退订"
+
+#: src/auth-view.tsx
+msgid "Unsubscribe from mdbase email"
+msgstr "退订 mdbase 邮件"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "Unsubscribing…"
+msgstr "正在退订…"
+
+#. placeholder {0}: collection.detail
+#: src/ConnectApp.tsx
+msgid "Update mdbase connect on {0} before using this collection."
+msgstr "使用此集合前，请更新 {0} 上的 mdbase connect。"
+
+#: src/ConnectApp.tsx
+msgid "Update recommended for current policy protection"
+msgstr "建议更新以获得当前的策略保护"
+
+#: src/ConnectApp.tsx
+msgid "Update required"
+msgstr "需要更新"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Update required"
+msgstr "需要更新"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Updating access…"
+msgstr "正在更新访问权限…"
+
+#: src/authorization-view.tsx
+msgid "Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade."
+msgstr "升级此应用之前添加的初始类型，同时保留你的自定义设置和笔记。无法追溯到这些初始类型的类型保持不变。如有冲突，或其他类型仍在使用旧合约，整个升级都会停止。"
+
+#: src/AccountManagement.tsx
+msgid "Usage temporarily unavailable"
+msgstr "用量暂不可用"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Usage unavailable"
+msgstr "用量不可用"
+
+#: src/auth-view.tsx
+msgid "Use a connected account to get started."
+msgstr "连接账户以开始使用。"
+
+#: src/auth-view.tsx
+msgid "Use a connected account, or verify your email to get started."
+msgstr "连接账户或验证电子邮箱以开始使用。"
+
+#: src/authorization-view.tsx
+msgid "Use a folder on this computer"
+msgstr "使用此电脑上的文件夹"
+
+#: src/authorization-view.tsx
+msgid "Use a local folder"
+msgstr "使用本地文件夹"
+
+#: src/ConnectApp.tsx
+msgid "Use a single-line collection name."
+msgstr "请使用单行的集合名称。"
+
+#: src/ConnectApp.tsx
+msgid "Use an existing person or create a note"
+msgstr "使用现有个人记录或创建笔记"
+
+#: src/authorization-review.tsx
+msgid "Use an existing type"
+msgstr "使用现有类型"
+
+#: src/AccountManagement.tsx
+#: src/auth-view.tsx
+msgid "Use at least 15 characters. Spaces are welcome."
+msgstr "请使用至少 15 个字符；可以包含空格。"
+
+#: src/ConnectApp.tsx
+msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
+msgstr "使用桌面应用，将普通 Markdown 文件夹保留在电脑上。"
+
+#: src/authority-workflows.tsx
+msgid "Use the folder on {mirrorName} as the main copy?"
+msgstr "将 {mirrorName} 上的文件夹设为主副本？"
+
+#: src/AccountManagement.tsx
+msgid "Use this when someone cannot invite your verified email address."
+msgstr "当他人无法邀请你已验证的电子邮箱地址时，可使用此方式。"
+
+#: src/AccountManagement.tsx
+msgid "Used by hosted collections"
+msgstr "供托管集合使用"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "v"
+msgstr "v"
+
+#: src/AccountManagement.tsx
+msgid "Verification and messages about your account. These are always sent."
+msgstr "账户验证及相关消息。此类消息始终会发送。"
+
+#: src/ConnectApp.tsx
+msgid "Verified email"
+msgstr "已验证的电子邮箱"
+
+#: src/AccountManagement.tsx
+msgid "Verify with GitHub"
+msgstr "通过 GitHub 验证"
+
+#: src/AccountManagement.tsx
+msgid "Verify with Google"
+msgstr "通过 Google 验证"
+
+#. placeholder {0}: connector.minimum_connector_version
+#: src/ConnectApp.tsx
+msgid "version {0} or later"
+msgstr "版本 {0} 或更高"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Viewer"
+msgstr "查看者"
+
+#: src/authorization-view.tsx
+msgid "Waiting for mdbase connect"
+msgstr "等待 mdbase connect"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Waiting for the app"
+msgstr "等待应用"
+
+#: src/authority-workflows.tsx
+msgctxt "Collection connection"
+msgid "Waiting for the computer"
+msgstr "等待电脑"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Waiting to sync"
+msgstr "等待同步"
+
+#: src/authority-workflows.tsx
+msgid "We couldn't confirm collection creation finished. Please try again."
+msgstr "无法确认集合已创建完成。请重试。"
+
+#: src/authority-workflows.tsx
+msgid "We couldn't identify your account. Sign in again to continue."
+msgstr "无法识别你的账户。请重新登录以继续。"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "We couldn't prepare {0}."
+msgstr "无法准备 {0}。"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "We couldn't prepare {0}. Keep the app open and try again."
+msgstr "无法准备 {0}。请保持应用打开并重试。"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "We couldn't prepare {0}. Make sure the app is up to date."
+msgstr "无法准备 {0}。请确保应用已更新至最新版本。"
+
+#: src/auth-view.tsx
+msgid "We’ll email you a link to verify your address. Then you can choose a password."
+msgstr "我们会发送一封验证邮箱地址的邮件。验证后，你可以设置密码。"
+
+#: src/auth-view.tsx
+msgid "We’ll email you a reset link. It expires in one hour."
+msgstr "我们会通过邮件发送重置链接。链接将在一小时后过期。"
+
+#: src/onboarding-view.tsx
+msgid "We’re creating a small private Markdown collection, then we’ll open it in the editor."
+msgstr "我们正在创建一个小型私有 Markdown 集合，然后会在编辑器中打开它。"
+
+#: src/authorization-view.tsx
+msgid "What it can do"
+msgstr "它可以执行的操作"
+
+#: src/authorization-review.tsx
+msgctxt "Application access approval"
+msgid "Work with files"
+msgstr "操作文件"
+
+#: src/authorization-view.tsx
+msgid "Workouts"
+msgstr "锻炼记录"
+
+#: src/authority-workflows.tsx
+msgid "Writes pause during verification, then hosted access is retired."
+msgstr "验证期间写入会暂停，之后托管访问将停止。"
+
+#: src/authority-workflows.tsx
+msgid "You allowed reminders for the selected collections."
+msgstr "你已允许所选集合发送提醒。"
+
+#: src/auth-view.tsx
+msgctxt "Account sign-in"
+msgid "You’re unsubscribed"
+msgstr "你已退订"
+
+#: src/AccountManagement.tsx
+msgid "Your account has been deleted."
+msgstr "你的账户已删除。"
+
+#: src/authorization-view.tsx
+msgid "Your approved collection and permissions will follow you back."
+msgstr "已获批准的集合和权限会随你返回应用。"
+
+#: src/AccountManagement.tsx
+msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."
+msgstr "更改已保存，但无法刷新账户详情。请重新加载以查看最新详情。"
+
+#: src/authorization-view.tsx
+msgid "Your choices are being checked with the collection’s main copy. The application does not have access yet."
+msgstr "正在与集合的主副本核对你的选择。应用尚未获得访问权限。"
+
+#: src/auth-view.tsx
+msgid "Your collections and account, in one place."
+msgstr "集中管理你的集合和账户。"
+
+#: src/ConnectApp.tsx
+msgid "Your collections were not deleted."
+msgstr "你的集合未被删除。"
+
+#: src/auth-view.tsx
+msgid "Your email is verified. Choose a name and password to finish setting up your account."
+msgstr "你的电子邮箱已验证。请选择名称和密码以完成账户设置。"
+
+#: src/auth-view.tsx
+msgid "Your email is verified. Confirm your name to finish setting up your account. No password needed."
+msgstr "你的电子邮箱已验证。确认姓名即可完成账户设置，无需密码。"
+
+#: src/onboarding-view.tsx
+msgid "Your first collection"
+msgstr "你的第一个集合"
+
+#: src/authority-workflows.tsx
+msgid "Your local collection was kept."
+msgstr "你的本地集合已保留。"
+
+#: src/portal-model.ts
+msgid "Your mdbase account hasn't been upgraded yet, so {app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to {app} to sign in with a different account."
+msgstr "你的 mdbase 账户尚未升级，因此 {app} 目前无法使用它。请发送邮件至 support@mdbase.dev，我们会为你升级；或者返回 {app}，使用其他账户登录。"
+
+#: src/portal-model.ts
+msgid "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly."
+msgstr "你的 mdbase 账户正在升级，通常需要几分钟。请稍后重试。"
+
+#: src/portal-model.ts
+msgid "Your mdbase account will be upgraded soon, so {app} can't use it yet. Sign in again from {app} once it is."
+msgstr "你的 mdbase 账户即将升级，{app} 暂时无法使用它。升级完成后，请从 {app} 重新登录。"
+
+#: src/portal-model.ts
+msgid "Your mdbase account's upgrade was paused, so {app} can't use it yet. Your account and collections still work with your current mdbase apps. Email support@mdbase.dev if you need help."
+msgstr "你的 mdbase 账户升级已暂停，因此 {app} 暂时无法使用它。你的账户和集合仍可在当前的 mdbase 应用中使用。如需帮助，请发送邮件至 support@mdbase.dev。"
+
+#: src/ConnectApp.tsx
+msgid "Your original request is kept. Retry it to avoid creating another collection."
+msgstr "原始请求已保留。请重试该请求，避免创建另一个集合。"
+
+#: src/auth-view.tsx
+msgid "Your other browser sessions have been signed out. This browser is now signed in with the new password."
+msgstr "你的其他浏览器会话已退出登录。此浏览器现已使用新密码登录。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Your person record"
+msgstr "你的个人记录"

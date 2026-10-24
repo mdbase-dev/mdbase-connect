@@ -4,30 +4,41 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite",
-    "test": "node --test *.test.mjs && node ../../scripts/ci/vitest.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "i18n:extract": "mdbase-i18n extract",
+    "i18n:compile": "mdbase-i18n compile",
+    "i18n:check": "mdbase-i18n check --compose \"../../packages/app-ui/src/locales/{locale}/messages.json\" \"../../packages/ui/locales/{locale}/messages.json\"",
+    "build": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && vite build",
+    "dev": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && vite",
+    "test": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && node --import ../../packages/app-ui/scripts/register-macros.mjs --test *.test.mjs && node ../../scripts/ci/vitest.mjs",
+    "typecheck": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && tsc -p tsconfig.json --noEmit",
+    "verify:i18n-integration": "pnpm --filter @mdbase-dev/i18n build && pnpm --filter @mdbase-dev/connect-protocol build && pnpm --filter @mdbase-dev/ui build && pnpm --filter @mdbase/connect-ui build && (result=0; pnpm build || result=1; pnpm typecheck || result=1; pnpm test || result=1; pnpm --filter @mdbase/connect-desktop build || result=1; pnpm --filter @mdbase/connect-desktop typecheck || result=1; pnpm --filter @mdbase/connect-desktop test || result=1; exit $result)"
   },
   "dependencies": {
-    "@mdbase/connect-management": "workspace:*",
-    "@phosphor-icons/react": "^2.1.10",
-    "@mdbase/connect-ui": "workspace:*",
+    "@lingui/core": "6.9.0",
+    "@lingui/react": "6.9.0",
     "@mdbase-dev/connect-protocol": "workspace:*",
+    "@mdbase-dev/i18n": "workspace:*",
     "@mdbase-dev/ui": "workspace:*",
+    "@mdbase/connect-management": "workspace:*",
+    "@mdbase/connect-ui": "workspace:*",
+    "@phosphor-icons/react": "^2.1.10",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@lingui/babel-plugin-lingui-macro": "6.9.0",
+    "@lingui/vite-plugin": "6.9.0",
+    "@rolldown/plugin-babel": "^0.2.4",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "jsdom": "^29.1.1",
-    "vitest": "^4.1.11",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.0.3",
+    "jsdom": "^29.1.1",
     "typescript": "^7.0.2",
-    "vite": "^8.1.6"
+    "vite": "^8.1.6",
+    "vitest": "^4.1.11"
   }
 }

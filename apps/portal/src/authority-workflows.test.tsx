@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "./test/render";
 import { describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
 import { api } from "./api";
@@ -13,20 +13,20 @@ async function show(canCreate=true, selected="", hint=selected) {
 describe("approval collection chooser",()=>{
   it("replaces the native select with one combobox/listbox and an explicit creation button",async()=>{
     const f=await show();
-    expect(f.container.querySelector("select")).toBeNull();
+    expect(f.picker.parentElement?.querySelector("select")).toBeNull();
     expect(within(f.picker).getAllByRole("option")).toHaveLength(collections.length);
     expect(screen.getByRole("button",{name:"Create a new collection…"})).toBeInTheDocument();
     expect(screen.getByRole("option",{name:"New collection"})).toBeInTheDocument();
     expect(screen.getByRole("option",{name:"create collection"})).toBeInTheDocument();
-    expect(screen.queryAllByRole("option",{selected:true})).toEqual([]);
+    expect(within(f.picker).queryAllByRole("option",{selected:true})).toEqual([]);
     expect(screen.getByRole("button",{name:"Open Reader"})).toBeDisabled();
   });
   it("filters without Escape, auto-selection or approval and names the explicit choice",async()=>{
     const f=await show();f.input.focus();
     fireEvent.change(f.input,{target:{value:"notes 159"}});
     expect(within(f.picker).getAllByRole("option")).toHaveLength(1);
-    fireEvent.keyDown(f.input,{key:"Enter"});expect(screen.queryAllByRole("option",{selected:true})).toEqual([]);
-    fireEvent.keyDown(f.input,{key:"ArrowDown"});expect(screen.queryAllByRole("option",{selected:true})).toEqual([]);
+    fireEvent.keyDown(f.input,{key:"Enter"});expect(within(f.picker).queryAllByRole("option",{selected:true})).toEqual([]);
+    fireEvent.keyDown(f.input,{key:"ArrowDown"});expect(within(f.picker).queryAllByRole("option",{selected:true})).toEqual([]);
     fireEvent.keyDown(f.input,{key:"Enter"});
     expect(screen.getByRole("option",{name:"[test] Notes 159"})).toHaveAttribute("aria-selected","true");
     expect(screen.getByRole("button",{name:"Open Reader with [test] Notes 159"})).toBeEnabled();
@@ -34,7 +34,7 @@ describe("approval collection chooser",()=>{
   });
   it("does not preselect a collection hint on a fresh approval",async()=>{
     const f=await show(false,"","collection-8");
-    expect(screen.queryAllByRole("option",{selected:true})).toEqual([]);
+    expect(within(f.picker).queryAllByRole("option",{selected:true})).toEqual([]);
     expect(screen.getByRole("button",{name:"Open Reader"})).toBeDisabled();
     expect(screen.queryByRole("button",{name:"Create a new collection…"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("option",{name:"[test] Notes 8"}));

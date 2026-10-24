@@ -5,7 +5,7 @@ import {
   applicationAccessOriginLabel,
   groupApplicationAccess,
   groupAuthorizationOperations
-} from "./access.ts";
+} from "./dist/access.js";
 
 test("groups repeated grants under a stable application identity", () => {
   const groups = groupApplicationAccess([

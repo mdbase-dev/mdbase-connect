@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { i18n } from "@mdbase-dev/ui/i18n";
 import { groupAuthorizationOperations } from "@mdbase/connect-ui/access";
 import { projectNextAuthorizationGroups } from "@mdbase-dev/connect-protocol/next-authorization";
 import {
@@ -25,42 +27,44 @@ const PRESENTATION: Record<ApplicationCapabilityId, {
   higherImpact?: boolean;
 }> = {
   "collection.read": {
-    label: "Read this collection",
-    description: "Open, search, validate, and follow changes to records and saved views."
+    get label() { return t(i18n)({ message: "Read this collection", context: "Application access approval" }); },
+    get description() { return t(i18n)({ message: "Open, search, validate, and follow changes to records and saved views." }); }
   },
   "records.create": {
-    label: "Create records",
-    description: "Add new records to this collection."
+    get label() { return t(i18n)({ message: "Create records", context: "Application access approval" }); },
+    get description() { return t(i18n)({ message: "Add new records to this collection." }); }
   },
   "records.edit": {
-    label: "Edit records",
-    description: "Change, move, and rename existing records."
+    get label() { return t(i18n)({ message: "Edit records", context: "Application access approval" }); },
+    get description() { return t(i18n)({ message: "Change, move, and rename existing records." }); }
   },
   "records.delete": {
-    label: "Delete records",
-    description: "Permanently delete records from this collection.",
+    get label() { return t(i18n)({ message: "Delete records", context: "Application access approval" }); },
+    get description() { return t(i18n)({ message: "Permanently delete records from this collection." }); },
     higherImpact: true
   },
   "views.manage": {
-    label: "Manage saved views",
-    description: "Create, change, and delete saved view definitions."
+    get label() { return t(i18n)({ message: "Manage saved views", context: "Application access approval" }); },
+    get description() { return t(i18n)({ message: "Create, change, and delete saved view definitions." }); }
   },
   "definitions.manage": {
-    label: "Manage definitions",
-    description: "Create and update record types and apply declared type packs.",
+    get label() { return t(i18n)({ message: "Manage definitions", context: "Application access approval" }); },
+    get description() { return t(i18n)({ message: "Create and update record types and apply declared type packs." }); },
     higherImpact: true
   },
   "background.schedule": {
-    label: "Schedule background work",
-    description: "Create and maintain timers that run while the application is closed."
+    get label() { return t(i18n)({ message: "Schedule background work", context: "Application access approval" }); },
+    get description() { return t(i18n)({ message: "Create and maintain timers that run while the application is closed." }); }
   },
   "offline.replica": {
-    label: "Keep an offline replica",
-    description: "Synchronize an application-controlled local copy of this collection."
+    get label() { return t(i18n)({ message: "Keep an offline replica", context: "Application access approval" }); },
+    get description() { return t(i18n)({ message: "Synchronize an application-controlled local copy of this collection." }); }
   }
 };
 
-const UPDATE_REQUIRED_MESSAGE = "This app needs an update before it can connect. Try again after it updates.";
+function updateRequiredMessage(): string {
+  return t(i18n)`This app needs an update before it can connect. Try again after it updates.`;
+}
 
 // Inspect the wire declaration before constructing consent controls. Never interpret
 // an unknown or mixed declaration as predecessor intent.
@@ -68,7 +72,7 @@ export function authorizationRequirementsError(requirements: ApplicationRequirem
   const declared = requirements.capabilities;
   const version = declared?.contract_version;
   const files = requirements.files;
-  const invalid = UPDATE_REQUIRED_MESSAGE;
+  const invalid = updateRequiredMessage();
   if (version !== undefined && version !== 1 && version !== 2) return invalid;
   if (declared && version === undefined) return invalid;
   const definitions = version === 2 ? PRESENTATION : APPLICATION_CAPABILITY_V1_DEFINITIONS;
@@ -155,20 +159,20 @@ export function selectedOperationsForCapabilityGroups(
 }
 
 const NEXT_COPY: Partial<Record<ApplicationCapabilityId, { label: string; description: string }>> = {
-  "collection.read": { label: "Read records and files", description: "Open, search, validate, and follow records and saved views; list file names and read file contents." },
-  "records.create": { label: "Create records and add files", description: "Add new records and files to this collection." },
-  "records.edit": { label: "Edit records and files", description: "Change, move, and rename records; replace, move, and rename existing files." },
-  "records.delete": { label: "Delete records and files", description: "Permanently delete records and files from this collection." }
+  "collection.read": { get label() { return t(i18n)({ message: "Read records and files", context: "Application access approval" }); }, get description() { return t(i18n)({ message: "Open, search, validate, and follow records and saved views; list file names and read file contents." }); } },
+  "records.create": { get label() { return t(i18n)({ message: "Create records and add files" }); }, get description() { return t(i18n)({ message: "Add new records and files to this collection." }); } },
+  "records.edit": { get label() { return t(i18n)({ message: "Edit records and files", context: "Application access approval" }); }, get description() { return t(i18n)({ message: "Change, move, and rename records; replace, move, and rename existing files." }); } },
+  "records.delete": { get label() { return t(i18n)({ message: "Delete records and files", context: "Application access approval" }); }, get description() { return t(i18n)({ message: "Permanently delete records and files from this collection." }); } }
 };
 
 /** Offer only representable groups; never manufacture file or record consent. */
 export function nextAuthorizationGroups(requirements: ApplicationRequirements, requested: readonly string[]): { groups: AuthorizationCapabilityGroup[]; error?: string } {
-  if (authorizationRequirementsError(requirements)) return { groups: [], error: UPDATE_REQUIRED_MESSAGE };
+  if (authorizationRequirementsError(requirements)) return { groups: [], error: updateRequiredMessage() };
   const projection = projectNextAuthorizationGroups(requirements, requested);
   return {
     ...projection,
     groups: projection.groups.map(group => ({
-      ...PRESENTATION[group.id], ...NEXT_COPY[group.id], ...group,
+      ...group, ...PRESENTATION[group.id], ...NEXT_COPY[group.id],
       higherImpact: PRESENTATION[group.id].higherImpact === true
     }))
   };

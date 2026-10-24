@@ -42,7 +42,7 @@ export const test = base.extend<{}, { authPortal: string }>({
     const origin = `http://127.0.0.1:${port}`;
     const portal = spawn(process.execPath, [
       fileURLToPath(new URL("../../portal/node_modules/vite/bin/vite.js", import.meta.url)),
-      "--host", "127.0.0.1", "--port", String(port), "--strictPort"
+      "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"
     ], { cwd: fileURLToPath(new URL("../../portal", import.meta.url)), stdio: ["ignore", "ignore", "inherit"] });
     try {
       let ready = false;

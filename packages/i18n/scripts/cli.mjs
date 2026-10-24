@@ -1,13 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { getConfig } from "@lingui/conf";
 import { formatter } from "@lingui/format-po";
 import { assertCompleteCatalogue } from "./checks.mjs";
 import { inspectUiSource } from "./source.mjs";
 import { locales } from "./config.mjs";
-import { mergeCatalogues } from "../dist/runtime.js";
+// Shared with the runtime, but executable before the workspace has any dist.
+import { mergeCatalogues } from "./catalogues.mjs";
 
 const require = createRequire(import.meta.url);
 const lingui = resolve(dirname(require.resolve("@lingui/cli")), "lingui.js");
@@ -15,6 +16,22 @@ function run(args) {
   const result = spawnSync(process.execPath, [lingui, ...args], { stdio: "inherit" });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error("Lingui " + args.join(" ") + " failed");
+}
+// Lingui 6.9 compiles obsolete PO entries, including English fallback values.
+// Prune at the shared compile boundary, not as a one-off catalogue cleanup.
+async function compile(config, args) {
+  for (const catalogue of config.catalogs) {
+    for (const locale of config.locales) {
+      const filename = catalogue.path.replaceAll("{locale}", locale) + ".po";
+      const existing = await readFile(filename, "utf8");
+      const context = { locale, sourceLocale: config.sourceLocale, filename, existing };
+      const entries = await config.format.parse(existing, context);
+      const active = Object.entries(entries).filter(([, entry]) => !entry.obsolete);
+      if (active.length !== Object.keys(entries).length)
+        await writeFile(filename, await config.format.serialize(Object.fromEntries(active), context));
+    }
+  }
+  run(["compile", "--strict", "--workers", "1", ...args]);
 }
 export async function main(command, args = []) {
   if (!["extract", "compile", "check", "source"].includes(command))
@@ -32,9 +49,9 @@ export async function main(command, args = []) {
     throw new Error("--compose requires compiled JSON paths containing {locale}");
   args = linguiArgs;
   if (command === "extract") return run(["extract", "--workers", "1", ...args]);
-  if (command === "compile") return run(["compile", "--strict", "--workers", "1", ...args]);
   const configIndex = args.indexOf("--config");
   const config = getConfig({ configPath: configIndex < 0 ? undefined : args[configIndex + 1] });
+  if (command === "compile") return compile(config, args);
   let policy = {};
   try { policy = JSON.parse(await readFile(resolve(config.rootDir, "i18n-policy.json"), "utf8")); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
@@ -49,7 +66,7 @@ export async function main(command, args = []) {
       for (const locale of locales)
         assertCompleteCatalogue(english, await load(locale), locale, policy.allowIdentical?.[locale]);
     }
-    run(["compile", "--strict", "--workers", "1", ...args]);
+    await compile(config, args);
     // Use exactly the runtime's compiled-value equality, including nested ICU objects.
     // Include every app scope so app/app and library/library collisions also fail.
     const paths = [...config.catalogs.map((catalogue) => catalogue.path + ".json"),

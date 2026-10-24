@@ -1,3 +1,5 @@
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { message } from "./portal-model";
@@ -10,6 +12,7 @@ interface StarterCollectionResponse {
 }
 
 export function GettingStarted() {
+  useLocaleRevision();
   const [error, setError] = useState("");
   const requestInFlight = useRef(false);
   const retryTimer = useRef<number | null>(null);
@@ -48,14 +51,14 @@ export function GettingStarted() {
     <main className="center-page">
       <PageBrand label="connect" markMotion="sort" error={error} />
       <section className="auth-panel onboarding-panel" aria-live="polite">
-        <p className="eyebrow">Your first collection</p>
-        <h1>Preparing a place to start.</h1>
-        <p>We’re creating a small private Markdown collection, then we’ll open it in the editor.</p>
+        <p className="eyebrow"><Trans>Your first collection</Trans></p>
+        <h1><Trans>Preparing a place to start.</Trans></h1>
+        <p><Trans>We’re creating a small private Markdown collection, then we’ll open it in the editor.</Trans></p>
         {!error && <div className="onboarding-progress" aria-hidden="true"><span /></div>}
         {error && <>
           <div className="message error" role="alert">{error}</div>
-          <button className="button primary" type="button" onClick={prepare}>Try again</button>
-          <a className="quiet-auth-link" href="/">Open mdbase Connect without it</a>
+          <button className="button primary" type="button" onClick={prepare}><Trans>Try again</Trans></button>
+          <a className="quiet-auth-link" href="/"><Trans>Open mdbase Connect without it</Trans></a>
         </>}
       </section>
     </main>

@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { i18n } from "@mdbase-dev/ui/i18n";
 import type {
   AvailableCollection,
   ContractRequirement,
@@ -14,7 +16,7 @@ export function installationAccountLabel(pairing: {
   const email = confirmed ? pairing.account_email : pairing.signed_in_account_email;
   const provider = confirmed ? pairing.account_provider : pairing.signed_in_account_provider;
   const login = confirmed ? pairing.account_login : pairing.signed_in_account_login;
-  return email || (provider === "github" && login ? `GitHub account @${login}` : null);
+  return email || (provider === "github" && login ? t(i18n)`GitHub account @${login}` : null);
 }
 
 /** Where a denied pairing leaves this window. An app's sign-in or consent
@@ -71,13 +73,13 @@ export function message(value: unknown) {
     }
   }
   if (/failed to fetch|networkerror|network request failed/i.test(detail)) {
-    return "mdbase connect could not reach the service. Check your connection and try again.";
+    return t(i18n)({ message: "mdbase connect could not reach the service. Check your connection and try again." });
   }
   if (/authorization.+(?:expired|not found)|request.+(?:expired|not found)/i.test(detail)) {
-    return "This application request has expired. Return to the application and start again.";
+    return t(i18n)({ message: "This application request has expired. Return to the application and start again." });
   }
   if (/unsupported.+protocol|up-to-date connector|no longer compatible/i.test(detail)) {
-    return "The mdbase connect app on this computer needs to be updated before you can continue.";
+    return t(i18n)({ message: "The mdbase connect app on this computer needs to be updated before you can continue." });
   }
   return detail;
 }
@@ -91,16 +93,16 @@ export function installationRefusal(reason: unknown, app: string): { heading: st
     const upgrade = details && typeof details === "object" ? (details as { upgrade?: unknown }).upgrade : undefined;
     // Mid-upgrade the same window works once it finishes, so keep it open.
     if (upgrade === "in_progress")
-      return { heading: "Account upgrade in progress", cancel: false, message: "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly." };
+      return { heading: t(i18n)({ message: "Account upgrade in progress" }), cancel: false, message: t(i18n)({ message: "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly." }) };
     // Rolled back: nothing is upgrading the account now, so stop the app waiting.
     if (upgrade === "postponed")
-      return { heading: "Account upgrade paused", cancel: true, message: `Your mdbase account's upgrade was paused, so ${app} can't use it yet. Your account and collections still work with your current mdbase apps. Email support@mdbase.dev if you need help.` };
+      return { heading: t(i18n)({ message: "Account upgrade paused", context: "Connect interface" }), cancel: true, message: t(i18n)`Your mdbase account's upgrade was paused, so ${app} can't use it yet. Your account and collections still work with your current mdbase apps. Email support@mdbase.dev if you need help.` };
     if (upgrade === "scheduled")
-      return { heading: "Account upgrade scheduled", cancel: true, message: `Your mdbase account will be upgraded soon, so ${app} can't use it yet. Sign in again from ${app} once it is.` };
-    return { heading: "Account upgrade needed", cancel: true, message: `Your mdbase account hasn't been upgraded yet, so ${app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to ${app} to sign in with a different account.` };
+      return { heading: t(i18n)({ message: "Account upgrade scheduled" }), cancel: true, message: t(i18n)`Your mdbase account will be upgraded soon, so ${app} can't use it yet. Sign in again from ${app} once it is.` };
+    return { heading: t(i18n)({ message: "Account upgrade needed", context: "Connect interface" }), cancel: true, message: t(i18n)`Your mdbase account hasn't been upgraded yet, so ${app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to ${app} to sign in with a different account.` };
   }
   if (code === "strict_device_approval")
-    return { heading: "Desktop approval needed", cancel: true, message: `This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in ${app}.` };
+    return { heading: t(i18n)({ message: "Desktop approval needed", context: "Connect interface" }), cancel: true, message: t(i18n)`This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in ${app}.` };
   return { heading: null, cancel: false, message: message(reason) };
 }
 export function host(value: string) { try { return new URL(value).host; } catch { return value; } }
@@ -120,9 +122,9 @@ export function neededProvisions(
 export function hasContract(contracts: ContractRequirement[], required: ContractRequirement) { return contracts.some((contract) => sameContract(contract, required)); }
 function sameContract(left: ContractRequirement, right: ContractRequirement) { return left.id === right.id && left.version === right.version && left.digest === right.digest; }
 export function provisionNames(provisions: TypePackProvision[]) {
-  return provisions
-    .map((provision) => provision.manifest.name ?? provision.manifest.id)
-    .join(" and ");
+  return new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(
+    provisions.map((provision) => provision.manifest.name ?? provision.manifest.id)
+  );
 }
 type ReturnLocation = Pick<Location, "origin" | "search">;
 
@@ -189,7 +191,7 @@ export function isAuthorizationReturnTarget() {
 }
 export function relativeTime(value: string) {
   const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1_000);
-  const format = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const format = new Intl.RelativeTimeFormat(i18n.locale === "pt" ? "pt-BR" : i18n.locale === "zh" ? "zh-CN" : i18n.locale, { numeric: "auto" });
   if (Math.abs(seconds) < 60) return format.format(seconds, "second");
   const minutes = Math.round(seconds / 60);
   if (Math.abs(minutes) < 60) return format.format(minutes, "minute");

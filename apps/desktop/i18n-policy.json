@@ -1,0 +1,27 @@
+{
+  "source": {
+    "brands": [
+      "Connect",
+      "connect",
+      "ABCD-EFGH"
+    ]
+  },
+  "allowIdentical": {
+    "fr": [
+      "C7DB9P",
+      "FSeU2b",
+      "IrC12v",
+      "Nu4oKW",
+      "XdavYY",
+      "YYdC3A"
+    ],
+    "de": [
+      "6YtxFj",
+      "URmyfc",
+      "XdavYY",
+      "YYdC3A",
+      "wNm5ha",
+      "yfJVbP"
+    ]
+  }
+}
