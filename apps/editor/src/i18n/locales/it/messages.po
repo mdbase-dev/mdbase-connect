@@ -661,7 +661,7 @@ msgstr "Azioni della nota {title}"
 #. placeholder {0}: collectionFileFormat(file)
 #: src/NoteList.tsx
 msgid "{title}, {0} file"
-msgstr "{title}, {0} file"
+msgstr "{title}, file {0}"
 
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
