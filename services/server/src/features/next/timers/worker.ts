@@ -204,7 +204,15 @@ export class TimerWorker {
         // any timer row is written; legacy resolution retains its own semantics.
         const current = await resolver.resolve(connection, row.grant_id);
         if (current && await legacyTaskReminderRetired(connection, current, row.namespace, row.criterion_id)) {
-          await connection.query("ROLLBACK");
+          // Cancel rather than skip: a skipped due row would be re-selected
+          // ahead of every later timer on each tick.
+          await connection.query(
+            `UPDATE next_timers SET status = 'cancelled', updated_at = now()
+             WHERE grant_id = $1 AND namespace = $2 AND timer_id = $3
+               AND generation = $4 AND status IN ('scheduled', 'firing')`,
+            [row.grant_id, row.namespace, row.timer_id, Number(row.generation)]
+          );
+          await connection.query("COMMIT");
           continue;
         }
         // Compare-and-set on the generation. A concurrent worker blocks on the

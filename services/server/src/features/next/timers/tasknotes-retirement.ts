@@ -11,7 +11,9 @@ const TASK_REMINDERS = "task-reminders";
 const CRITERION = "task.reminder";
 
 export async function taskReminderMembership(db: DatabaseQueryable, grant: TimerGrant, namespace: string, criterionId: string): Promise<boolean> {
-  return namespace === TASK_REMINDERS && criterionId === CRITERION && Boolean(await scope(db,grant));
+  // Native only: legacy writers keep their existing past-instant behaviour.
+  return namespace === TASK_REMINDERS && criterionId === CRITERION
+    && (await scope(db,grant))?.principal_kind === "installation";
 }
 
 interface Scope { user_id: string; collection_id: string; principal_kind: "legacy" | "installation" }

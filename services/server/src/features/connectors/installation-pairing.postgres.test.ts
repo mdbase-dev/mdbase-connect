@@ -1456,6 +1456,23 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await f.reconcile([])).json().cancelled_ids).toEqual(["offline"]);
     expect((await db.query("SELECT 1 FROM next_timer_events WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
   });
+  it("keeps legacy past-instant scheduling and cancels a retired legacy due row instead of re-selecting it",async()=>{
+    const f=await tasknotesRetirementFixture(),old=(await f.resolver.resolve(db,f.first))!;
+    const before=await timerTransaction(async connection=>{
+      await lockNamespace(connection,f.first,"task-reminders");
+      return reconcileTimers(connection,old,"task-reminders","task.reminder",[desiredTimer({id:"legacy-late",fire_at:f.past})]);
+    });
+    expect(before.timers[0]).toMatchObject({id:"legacy-late",status:"scheduled"});
+    expect((await f.reconcile()).statusCode).toBe(200);
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='legacy-late'",[f.first])).rows).toEqual([{status:"cancelled"}]);
+    // A due row in the retired tuple that escaped retirement must not stay at
+    // the head of the due queue.
+    await f.add(f.first,"escaped",f.past);
+    const worker=new TimerWorker(db,[],{resolver:f.resolver});
+    await worker.fireDue();
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='escaped'",[f.first])).rows).toEqual([{status:"cancelled"}]);
+    expect((await db.query("SELECT 1 FROM next_timer_events WHERE grant_id=$1",[f.first])).rows).toHaveLength(0);
+  });
   it("serializes an in-flight old-device write with the first native retirement",async()=>{
     const f=await tasknotesRetirementFixture(),writer=await db.connect();let pending:ReturnType<typeof f.reconcile>|undefined;
     try {
