@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { PERSON_CONTRACT } from "@mdbase-dev/connect";
 import type { TypePackAssessment, TypePackProvision, TypePackResourceDiff } from "@mdbase-dev/connect";
 import provisionUrl from "./person-setup.pack.json?url";
@@ -56,7 +57,7 @@ export function requireGuidedPersonSetup(provision: TypePackProvision, assessmen
     (["update", "delete", "conflict"].includes(resource.action) && !starterUpgrade(provision, resource))
     || (resource.action === "adopt" && resource.currentDigest !== resource.digest));
   if (!assessment.applicable || assessment.status === "downgrade" || unsafe) {
-    throw new Error(unsafe?.reason ?? "These definitions need review in Types. No files have been changed.");
+    throw new Error(unsafe?.reason ?? t`These definitions need review in Types. No files have been changed.`);
   }
   const person = assessment.resources.find((resource) => resource.target === PERSON_STARTER.target);
   // The engine keeps a Person type it cannot trace to a declared starter, with a
@@ -64,7 +65,7 @@ export function requireGuidedPersonSetup(provision: TypePackProvision, assessmen
   if (person?.action === "preserve" && person.mode === "seed" && person.reason) return { kept: true };
   const upgrade = person && starterUpgrade(provision, person);
   if (person?.action !== "create" && !upgrade) {
-    throw new Error("A Person type already exists but needs compatible mappings. Review it in Types; this setup will not replace it.");
+    throw new Error(t`A Person type already exists but needs compatible mappings. Review it in Types; this setup will not replace it.`);
   }
   return { upgrade };
 }

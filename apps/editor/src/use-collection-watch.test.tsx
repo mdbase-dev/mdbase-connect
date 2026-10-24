@@ -1,4 +1,4 @@
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "./test/locale";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { normalizeCollectionChange, type CollectionChange, type WatchStatus } from "@mdbase-dev/connect";
 import { useCollectionWatch } from "./use-collection-watch";

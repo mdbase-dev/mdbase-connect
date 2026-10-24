@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import type { TypePackProvision } from "@mdbase-dev/connect";
 
 export const DEFAULT_CONTRACT_CATALOG_URL = import.meta.env.VITE_MDBASE_CONTRACT_CATALOG_URL
@@ -79,7 +80,7 @@ export async function loadContractCatalog({
     signal
   });
   if (!response.ok) {
-    throw new Error(`The contract catalog returned ${response.status}.`);
+    throw new Error(t`The contract catalog returned ${response.status}.`);
   }
   const sourceUrl = response.url || url;
   return parseContractCatalog(await response.json(), sourceUrl);
@@ -100,36 +101,36 @@ export async function loadTypePackProvision(
     signal
   });
   if (!response.ok) {
-    throw new Error(`The type pack returned ${response.status}.`);
+    throw new Error(t`The type pack returned ${response.status}.`);
   }
   const bytes = await response.arrayBuffer();
   if (bytes.byteLength > MAX_TYPE_PACK_BYTES) {
-    throw new Error("The type pack is larger than the editor can install.");
+    throw new Error(t`The type pack is larger than the editor can install.`);
   }
   const digest = `sha256:${hex(await crypto.subtle.digest("SHA-256", bytes))}`;
   if (digest !== pack.digest) {
-    throw new Error("The type pack does not match its catalog digest.");
+    throw new Error(t`The type pack does not match its catalog digest.`);
   }
   let value: unknown;
   try {
     value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch {
-    throw new Error("The type pack is not valid JSON.");
+    throw new Error(t`The type pack is not valid JSON.`);
   }
   return parseTypePackProvision(value, pack);
 }
 
 export function parseContractCatalog(value: unknown, sourceUrl: string): ContractCatalog {
-  const catalog = requiredRecord(value, "The contract catalog");
+  const catalog = requiredRecord(value, t`The contract catalog`);
   if (catalog.catalog_version !== 2) {
-    throw new Error("The contract catalog uses an unsupported version.");
+    throw new Error(t`The contract catalog uses an unsupported version.`);
   }
-  const publisher = requiredRecord(catalog.publisher, "The contract catalog publisher");
+  const publisher = requiredRecord(catalog.publisher, t`The contract catalog publisher`);
   const contracts = requiredArray(catalog.contracts, "contracts").map((candidate, index) => {
     const contract = requiredRecord(candidate, `contracts[${index}]`);
     const contractType = requiredString(contract.contract_type, `contracts[${index}].contract_type`);
     if (!["record", "event", "action"].includes(contractType)) {
-      throw new Error(`contracts[${index}].contract_type is not supported.`);
+      throw new Error(t`contracts[${index}].contract_type is not supported.`);
     }
     return {
       id: requiredString(contract.id, `contracts[${index}].id`),
@@ -150,7 +151,7 @@ export function parseContractCatalog(value: unknown, sourceUrl: string): Contrac
     const pack = requiredRecord(candidate, `packs[${index}]`);
     const resourceCount = pack.resource_count;
     if (!Number.isInteger(resourceCount) || Number(resourceCount) < 1) {
-      throw new Error(`packs[${index}].resource_count must be a positive integer.`);
+      throw new Error(t`packs[${index}].resource_count must be a positive integer.`);
     }
     const common = {
       id: requiredString(pack.id, `packs[${index}].id`),
@@ -194,44 +195,44 @@ export function parseTypePackProvision(
   value: unknown,
   pack: Pick<ContractCatalogPack, "id" | "version" | "resourceCount" | "provides">
 ): TypePackProvision {
-  const provision = requiredRecord(value, "The type pack");
-  const manifest = requiredRecord(provision.manifest, "The type-pack manifest");
+  const provision = requiredRecord(value, t`The type pack`);
+  const manifest = requiredRecord(provision.manifest, t`The type-pack manifest`);
   if (manifest.kind !== "mdbase.type-pack") {
-    throw new Error("The type-pack manifest has an unsupported kind.");
+    throw new Error(t`The type-pack manifest has an unsupported kind.`);
   }
   if (requiredString(manifest.id, "manifest.id") !== pack.id
       || requiredString(manifest.version, "manifest.version") !== pack.version) {
-    throw new Error("The type-pack identity does not match the catalog.");
+    throw new Error(t`The type-pack identity does not match the catalog.`);
   }
 
   const manifestResources = requiredArray(manifest.resources, "manifest.resources");
   if (!manifestResources.length || manifestResources.length > 100
       || manifestResources.length !== pack.resourceCount) {
-    throw new Error("The type-pack resource count does not match the catalog.");
+    throw new Error(t`The type-pack resource count does not match the catalog.`);
   }
   const sources = new Set<string>();
   for (const [index, candidate] of manifestResources.entries()) {
     const resource = requiredRecord(candidate, `manifest.resources[${index}]`);
     const kind = requiredString(resource.kind, `manifest.resources[${index}].kind`);
     if (!["contract", "type", "schema"].includes(kind)) {
-      throw new Error(`manifest.resources[${index}].kind is not supported.`);
+      throw new Error(t`manifest.resources[${index}].kind is not supported.`);
     }
     const mode = requiredString(resource.mode, `manifest.resources[${index}].mode`);
     if (!["managed", "seed"].includes(mode)) {
-      throw new Error(`manifest.resources[${index}].mode is not supported.`);
+      throw new Error(t`manifest.resources[${index}].mode is not supported.`);
     }
     const source = safeRelativePath(resource.source, `manifest.resources[${index}].source`);
     safeRelativePath(resource.target, `manifest.resources[${index}].target`);
     requiredDigest(resource.digest, `manifest.resources[${index}].digest`);
     if (sources.has(source)) {
-      throw new Error(`The type pack contains duplicate source ${source}.`);
+      throw new Error(t`The type pack contains duplicate source ${source}.`);
     }
     sources.add(source);
   }
 
   const documents = requiredArray(provision.resources, "resources");
   if (documents.length !== manifestResources.length) {
-    throw new Error("The type pack does not contain every declared resource.");
+    throw new Error(t`The type pack does not contain every declared resource.`);
   }
   const documentSources = new Set<string>();
   for (const [index, candidate] of documents.entries()) {
@@ -239,10 +240,10 @@ export function parseTypePackProvision(
     const source = safeRelativePath(resource.source, `resources[${index}].source`);
     const document = requiredString(resource.document, `resources[${index}].document`);
     if (new TextEncoder().encode(document).byteLength > 262_144) {
-      throw new Error(`resources[${index}].document is too large.`);
+      throw new Error(t`resources[${index}].document is too large.`);
     }
     if (!sources.has(source) || documentSources.has(source)) {
-      throw new Error(`The type pack contains an unexpected resource ${source}.`);
+      throw new Error(t`The type pack contains an unexpected resource ${source}.`);
     }
     documentSources.add(source);
   }
@@ -253,7 +254,7 @@ export function parseTypePackProvision(
   const actualProvides = new Set(provides.map(referenceKey));
   if (expectedProvides.size !== actualProvides.size
       || [...expectedProvides].some((provided) => !actualProvides.has(provided))) {
-    throw new Error("The type pack does not provide the contracts declared by the catalog.");
+    throw new Error(t`The type pack does not provide the contracts declared by the catalog.`);
   }
   return value as TypePackProvision;
 }
@@ -325,7 +326,7 @@ function parsePackPresentation(
     ? undefined
     : requiredString(installation.primary_type, `${label}.installation.primary_type`);
   if (primaryType && !installedTypes.some(({ name }) => name === primaryType)) {
-    throw new Error(`${label}.installation.primary_type must name an installed type.`);
+    throw new Error(t`${label}.installation.primary_type must name an installed type.`);
   }
   const badges = requiredArray(display.badges ?? [], `${label}.display.badges`)
     .map((badge, index) => requiredString(badge, `${label}.display.badges[${index}]`));
@@ -377,10 +378,10 @@ function absoluteHttpUrl(value: unknown, base: string | undefined, label: string
   try {
     resolved = base ? new URL(raw, base) : new URL(raw);
   } catch {
-    throw new Error(`${label} must be a URL.`);
+    throw new Error(t`${label} must be a URL.`);
   }
   if (!["http:", "https:"].includes(resolved.protocol)) {
-    throw new Error(`${label} must use HTTP or HTTPS.`);
+    throw new Error(t`${label} must use HTTP or HTTPS.`);
   }
   return resolved.href;
 }
@@ -388,20 +389,20 @@ function absoluteHttpUrl(value: unknown, base: string | undefined, label: string
 function requiredDigest(value: unknown, label: string): string {
   const digest = requiredString(value, label);
   if (!/^sha256:[0-9a-f]{64}$/.test(digest)) {
-    throw new Error(`${label} must be a SHA-256 digest.`);
+    throw new Error(t`${label} must be a SHA-256 digest.`);
   }
   return digest;
 }
 
 function requiredString(value: unknown, label: string): string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${label} must be a non-empty string.`);
+    throw new Error(t`${label} must be a non-empty string.`);
   }
   return value;
 }
 
 function requiredArray(value: unknown, label: string): unknown[] {
-  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
+  if (!Array.isArray(value)) throw new Error(t`${label} must be an array.`);
   return value;
 }
 
@@ -411,14 +412,14 @@ function requiredEnum<const Values extends readonly string[]>(
   label: string
 ): Values[number] {
   if (typeof value !== "string" || !values.includes(value)) {
-    throw new Error(`${label} is not supported.`);
+    throw new Error(t`${label} is not supported.`);
   }
   return value;
 }
 
 function requiredRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} must be an object.`);
+    throw new Error(t`${label} must be an object.`);
   }
   return value as Record<string, unknown>;
 }
@@ -427,7 +428,7 @@ function safeRelativePath(value: unknown, label: string): string {
   const path = requiredString(value, label);
   if (path.startsWith("/") || path.startsWith("\\") || path.includes("\0")
       || path.split(/[\\/]/).some((segment) => segment === "..")) {
-    throw new Error(`${label} must stay inside the collection.`);
+    throw new Error(t`${label} must stay inside the collection.`);
   }
   return path;
 }
@@ -446,7 +447,7 @@ function assertUnique(values: ContractCatalogReference[], label: string) {
   const seen = new Set<string>();
   for (const value of values) {
     const identity = `${value.id}@${value.version}`;
-    if (seen.has(identity)) throw new Error(`The catalog contains duplicate ${label} ${identity}.`);
+    if (seen.has(identity)) throw new Error(t`The catalog contains duplicate ${label} ${identity}.`);
     seen.add(identity);
   }
 }

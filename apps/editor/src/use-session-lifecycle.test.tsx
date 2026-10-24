@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionGateway, CollectionSessionSnapshot, ConnectionSummary } from "./model";
 import { useSessionLifecycle } from "./use-session-lifecycle";

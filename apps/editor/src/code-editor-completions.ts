@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import {
   autocompletion,
   startCompletion,
@@ -77,7 +78,7 @@ export function linkCompletion(
     for (const type of types.filter((candidate) => candidate.toLocaleLowerCase().includes(typeQuery))) {
       options.push({
         label: `/${type}`,
-        detail: "Filter links by type",
+        detail: t`Filter links by type`,
         type: "type",
         apply: (view, _completion, applyFrom, applyTo) => {
           const insert = `@/${type}/`;
@@ -125,7 +126,7 @@ function objectOptions(
 ): Completion[] {
   return linkMatches(suggestions, query, type, 50, { currentPath, recentPaths }).map(({ suggestion, label }) => ({
     label,
-    detail: `${embed ? "Transclude note · " : ""}${suggestionDetail(suggestion, label)}`,
+    detail: embed ? t`Transclude note · ${suggestionDetail(suggestion, label)}` : suggestionDetail(suggestion, label),
     type: "text",
     apply: mention ? `[[${wikilinkFor(suggestion, label)}]]` : `${wikilinkFor(suggestion, label)}]]`
   }));
@@ -143,7 +144,7 @@ function fileOptions(files: CollectionFile[], query: string, embed: boolean): Co
     .slice(0, 30)
     .map((file) => ({
       label: file.path.split("/").at(-1) ?? file.path,
-      detail: `${embed ? "Transclude file" : "File"} · ${file.path}`,
+      detail: embed ? t`Transclude file · ${file.path}` : t`File · ${file.path}`,
       type: "text",
       apply: `${file.path}]]`
     }));
@@ -173,7 +174,7 @@ function headingCompletions(
     .filter((anchor) => !fragmentQuery || anchor.label.toLocaleLowerCase().includes(fragmentQuery))
     .map((anchor) => ({
       label: anchor.label,
-      detail: anchor.kind === "heading" ? "Section in note" : `Block · ${anchor.preview}`,
+      detail: anchor.kind === "heading" ? t`Section in note` : t`Block · ${anchor.preview ?? ""}`,
       type: "text",
       apply: `${anchor.value}]]`
     }));
@@ -257,16 +258,16 @@ const slashCommands: Array<{
   keywords: string[];
   complete?: boolean;
 }> = [
-  { label: "Heading 1", detail: "Large section heading", insert: "# ", cursor: 2, keywords: ["title", "h1"] },
-  { label: "Heading 2", detail: "Section heading", insert: "## ", cursor: 3, keywords: ["subtitle", "h2"] },
-  { label: "Heading 3", detail: "Small section heading", insert: "### ", cursor: 4, keywords: ["h3"] },
-  { label: "Bulleted list", detail: "Start a list", insert: "- ", cursor: 2, keywords: ["bullet", "unordered"] },
-  { label: "Numbered list", detail: "Start an ordered list", insert: "1. ", cursor: 3, keywords: ["ordered", "number"] },
-  { label: "Task", detail: "Start a checkable task", insert: "- [ ] ", cursor: 6, keywords: ["todo", "checkbox"] },
-  { label: "Quote", detail: "Set off quoted text", insert: "> ", cursor: 2, keywords: ["blockquote"] },
-  { label: "Code block", detail: "Insert a fenced code block", insert: "```\n\n```", cursor: 4, keywords: ["fence", "preformatted"] },
-  { label: "Divider", detail: "Separate sections", insert: "---", cursor: 3, keywords: ["rule", "separator"], complete: false },
-  { label: "Link to note or file", detail: "Insert an internal link", insert: "[[", cursor: 2, keywords: ["wikilink", "reference"], complete: true },
-  { label: "Transclude note or file", detail: "Embed collection content", insert: "![[", cursor: 3, keywords: ["embed", "reference"], complete: true },
-  { label: "Table", detail: "Insert a Markdown table", insert: "| Column | Column |\n| --- | --- |\n| Value | Value |", cursor: 2, keywords: ["grid", "columns"], complete: false }
+  { get label() { return t`Heading 1`; }, get detail() { return t`Large section heading`; }, insert: "# ", cursor: 2, keywords: ["title", "h1"] },
+  { get label() { return t`Heading 2`; }, get detail() { return t`Section heading`; }, insert: "## ", cursor: 3, keywords: ["subtitle", "h2"] },
+  { get label() { return t`Heading 3`; }, get detail() { return t`Small section heading`; }, insert: "### ", cursor: 4, keywords: ["h3"] },
+  { get label() { return t`Bulleted list`; }, get detail() { return t`Start a list`; }, insert: "- ", cursor: 2, keywords: ["bullet", "unordered"] },
+  { get label() { return t`Numbered list`; }, get detail() { return t`Start an ordered list`; }, insert: "1. ", cursor: 3, keywords: ["ordered", "number"] },
+  { get label() { return t`Task`; }, get detail() { return t`Start a checkable task`; }, insert: "- [ ] ", cursor: 6, keywords: ["todo", "checkbox"] },
+  { get label() { return t`Quote`; }, get detail() { return t`Set off quoted text`; }, insert: "> ", cursor: 2, keywords: ["blockquote"] },
+  { get label() { return t`Code block`; }, get detail() { return t`Insert a fenced code block`; }, insert: "```\n\n```", cursor: 4, keywords: ["fence", "preformatted"] },
+  { get label() { return t`Divider`; }, get detail() { return t`Separate sections`; }, insert: "---", cursor: 3, keywords: ["rule", "separator"], complete: false },
+  { get label() { return t`Link to note or file`; }, get detail() { return t`Insert an internal link`; }, insert: "[[", cursor: 2, keywords: ["wikilink", "reference"], complete: true },
+  { get label() { return t`Transclude note or file`; }, get detail() { return t`Embed collection content`; }, insert: "![[", cursor: 3, keywords: ["embed", "reference"], complete: true },
+  { get label() { return t`Table`; }, get detail() { return t`Insert a Markdown table`; }, insert: "| Column | Column |\n| --- | --- |\n| Value | Value |", cursor: 2, keywords: ["grid", "columns"], complete: false }
 ];

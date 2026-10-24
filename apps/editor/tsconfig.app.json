@@ -13,6 +13,10 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "paths": {
+      "@mdbase-dev/sdk": ["./node_modules/@mdbase-dev/sdk/dist/index.d.ts"],
+      "@mdbase-dev/sdk/describe": ["./node_modules/@mdbase-dev/sdk/dist/describe-error.d.ts"]
+    },
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,

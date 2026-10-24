@@ -1,3 +1,7 @@
+import { i18n } from "@lingui/core";
+import { Trans } from "@lingui/react/macro";
+import { t, plural } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import {
   ArrowLeftIcon as ArrowLeft,
   ArrowRightIcon as ArrowRight,
@@ -116,7 +120,7 @@ import { buildEditorCommands, command, formatShortcut, matchesCommandShortcut, t
 import { unlinkedMentions } from "./unlinked-mentions";
 import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
-import { SettingsView } from "./SettingsView";
+import { SettingsView } from "./settings/SettingsView";
 import { buildToastItems, ToastStack, type ToastTone } from "./Toasts";
 import { NEW_TYPE_SOURCE } from "./type-presentation";
 import { useCollectionIndex } from "./use-collection-index";
@@ -184,6 +188,7 @@ interface CollectionAppProps {
 /** The editor over a collection gateway: Connect by default, or the native
  * SDK gateway supplied by `SdkEditorRoot` once its scope is ready. */
 export function App({ gateway, collectionSwitcher, onFeedbackContext }: CollectionAppProps) {
+  useLingui();
   const { reportError } = useFeedback();
   const { controller: indexController, state: collectionIndex } = useCollectionIndex(gateway);
   const { controller: fileController, state: fileInventory } = useFileInventory(gateway);
@@ -289,8 +294,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const ignoreNextMobileHistoryPush = useRef(false);
   const mobileLayout = viewportWidth <= 760;
   const typeDescriptors = description?.types ?? emptyTypeDescriptors;
-  const tagFacets = useMemo(() => collectionTags(allNotes), [allNotes]);
-  const typeFacets = useMemo(() => collectionTypes(allNotes, typeDescriptors.map((type) => type.name)), [allNotes, typeDescriptors]);
+  const tagFacets = useMemo(() => collectionTags(allNotes), [allNotes, i18n.locale]);
+  const typeFacets = useMemo(() => collectionTypes(allNotes, typeDescriptors.map((type) => type.name)), [allNotes, typeDescriptors, i18n.locale]);
   const setNotice = useCallback((message?: string, tone: ToastTone = "error") => {
     setNoticeState(message ? { message, tone } : undefined);
     if (message && tone !== "info") signalMdbaseMark(tone === "error" ? "error" : "saved");
@@ -344,7 +349,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         if (!active || controller.signal.aborted) return;
         setContractCatalog({
           status: "error",
-          message: error instanceof Error ? error.message : "The contract catalog could not be loaded."
+          message: error instanceof Error ? error.message : t`The contract catalog could not be loaded.`
         });
       }
     );
@@ -417,7 +422,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   const refreshAfterConnectionGap = useCallback(async () => {
     setConnectionState("reconnecting");
-    setConnectionIssue("Refreshing collection state before reconnecting.");
+    setConnectionIssue(t`Refreshing collection state before reconnecting.`);
     try {
       await Promise.all([loadIndex(), fileController.reload(), refreshDescription()]);
       setConnectionState("connected");
@@ -495,13 +500,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       setRemoteApplyToken((token) => token + 1);
     }
     if (snapshot.remote && snapshot.remote !== previous.remote) {
-      session.error = `“${session.draft.title || session.document.path}” changed elsewhere. Your edits are still here.`;
+      session.error = t`“${session.draft.title || session.document.path}” changed elsewhere. Your edits are still here.`;
       if (active) setNotice(session.error);
     } else if (snapshot.problem && snapshot.problem !== previous.problem) {
       reportError({ code: "save_failed" });
       const message = gatewayError(new MdbaseConnectError(snapshot.problem));
       session.error = message;
-      setNotice(active ? message : `Couldn’t save “${session.draft.title || session.document.path}”. ${message}`);
+      setNotice(active ? message : t`Couldn’t save “${session.draft.title || session.document.path}”. ${message}`);
     } else if (snapshot.state === "saved" && previous.state !== "saved") {
       session.error = undefined;
     }
@@ -514,8 +519,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     let previous = session.record.snapshot;
     const collection = mutationScope.current.token().collectionId!;
     try { session.recoveryDraft = draftRecovery?.read(collection, next.path, next); }
-    catch { session.recoveryError = "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."; }
-    if (!draftRecovery) session.recoveryError = "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.";
+    catch { session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`; }
+    if (!draftRecovery) session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
     session.record.subscribe(() => {
       const current = session.record.snapshot;
       if (session.recoveryDraft && current.state === "saved" && recoveryDraftMatchesRecord(session.recoveryDraft, current.record)) {
@@ -531,7 +536,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           else draftRecovery?.remove(collection, current.record.path, current.record);
           if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path, current.record);
           if (draftRecovery) session.recoveryError = undefined;
-        } catch { session.recoveryError = "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."; }
+        } catch { session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`; }
       }
       sessionChanged(session, previous);
       previous = current;
@@ -636,7 +641,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     } catch (error) {
       if (current()) {
         setSelection(undefined);
-        setNoteOpenFailure({ path, options, message: `Couldn’t open “${path}”. ${gatewayError(error)}` });
+        setNoteOpenFailure({ path, options, message: t`Couldn’t open “${path}”. ${gatewayError(error)}` });
       }
       return false;
     } finally {
@@ -756,7 +761,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const session = noteSessions.current.active;
     if (!session?.remoteDocument) return;
     session.record.resolve({ keep: "theirs" });
-    setNotice("Loaded the latest version.", "success");
+    setNotice(t`Loaded the latest version.`, "success");
   }
 
   function keepLocalVersion() {
@@ -772,9 +777,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   function navigateToNote(path: string, options: NoteNavigationOptions = {}) {
     if (creationMode && creationDirty) {
       setConfirmation({
-        title: `Discard this ${creationMode}?`,
-        body: <p>The unfinished {creationMode} hasn’t been created.</p>,
-        confirmLabel: `Discard ${creationMode}`,
+        title: creationMode === "folder" ? t`Discard this folder?` : t`Discard this note?`,
+        body: <p>{creationMode === "folder" ? <Trans>The unfinished folder hasn’t been created.</Trans> : <Trans>The unfinished note hasn’t been created.</Trans>}</p>,
+        confirmLabel: creationMode === "folder" ? t`Discard folder` : t`Discard note`,
         tone: "danger",
         onConfirm: () => finishNavigateToNote(path, options)
       });
@@ -786,9 +791,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   function navigateToFile(file: CollectionFile) {
     if (creationMode && creationDirty) {
       setConfirmation({
-        title: `Discard this ${creationMode}?`,
-        body: <p>The unfinished {creationMode} hasn’t been created.</p>,
-        confirmLabel: `Discard ${creationMode}`,
+        title: creationMode === "folder" ? t`Discard this folder?` : t`Discard this note?`,
+        body: <p>{creationMode === "folder" ? <Trans>The unfinished folder hasn’t been created.</Trans> : <Trans>The unfinished note hasn’t been created.</Trans>}</p>,
+        confirmLabel: creationMode === "folder" ? t`Discard folder` : t`Discard note`,
         tone: "danger",
         onConfirm: () => finishNavigateToFile(file)
       });
@@ -851,16 +856,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [typeCreating, typeDocument, typeSource]);
 
-  const searchIndex = useMemo(() => searchIndexCache.current.build(allNotes, typeDescriptors), [allNotes, typeDescriptors]);
+  const searchIndex = useMemo(() => searchIndexCache.current.build(allNotes, typeDescriptors), [allNotes, typeDescriptors, i18n.locale]);
   const searchedResults = useMemo(() => {
     return deferredSearch.trim() ? searchNoteResults(searchIndex, deferredSearch) : undefined;
-  }, [deferredSearch, searchIndex]);
+  }, [deferredSearch, searchIndex, i18n.locale]);
   const searchedNotes = useMemo(() => searchedResults
     ? searchedResults.map((result) => result.note)
-    : allNotes, [allNotes, searchedResults]);
+    : allNotes, [allNotes, searchedResults, i18n.locale]);
   const searchContexts = useMemo(() => new Map(
     searchedResults?.map((result) => [result.note.path, result]) ?? []
-  ), [searchedResults]);
+  ), [searchedResults, i18n.locale]);
   const visibleNotes = useMemo(() => {
     const filtered = !noteFilter
       ? searchedNotes
@@ -870,17 +875,17 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           ? searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value))
           : searchedNotes.filter((note) => note.types.includes(noteFilter.value));
     return deferredSearch.trim() ? filtered : sortNotes(filtered, noteSort, typeDescriptors);
-  }, [deferredSearch, noteFilter, noteSort, searchedNotes, typeDescriptors]);
+  }, [deferredSearch, noteFilter, noteSort, searchedNotes, typeDescriptors, i18n.locale]);
   const { visibleFiles, entries: visibleBrowserEntries } = useCollectionBrowserEntries(
     visibleNotes, fileInventory.files, noteFilter, deferredSearch, noteSort, typeDescriptors);
-  const visibleNotePaths = useMemo(() => new Set(visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path)), [visibleBrowserEntries]);
-  const listSelection = useMemo(() => selectedCollectionFile || creationMode ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [creationMode, selectedCollectionFile, selectedPath, selection, visibleNotePaths]);
+  const visibleNotePaths = useMemo(() => new Set(visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path)), [visibleBrowserEntries, i18n.locale]);
+  const listSelection = useMemo(() => selectedCollectionFile || creationMode ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [creationMode, selectedCollectionFile, selectedPath, selection, visibleNotePaths, i18n.locale]);
   const selectionFields = useMemo(() => {
     const paths = new Set(listSelection.paths);
     return bulkFields(allNotes.filter((note) => paths.has(note.path)), typeDescriptors);
-  }, [allNotes, listSelection.paths, typeDescriptors]);
-  const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description]);
-  const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors]);
+  }, [allNotes, listSelection.paths, typeDescriptors, i18n.locale]);
+  const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description, i18n.locale]);
+  const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors, i18n.locale]);
   const embeddedNotes = useEmbeddedNoteReferences(
     gateway,
     { collectionId: workspaceCollectionId.current, epoch: collectionEpoch.current },
@@ -891,8 +896,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     document?.path,
     visibleNoteEmbedKeys
   );
-  const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes, typeDescriptors) : [], [allNotes, document, typeDescriptors]);
-  const mentions = useMemo(() => document ? unlinkedMentions(searchIndex, document.path, draft?.title ?? noteTitle(document, typeDescriptors)) : [], [searchIndex, document, draft?.title, typeDescriptors]);
+  const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes, typeDescriptors) : [], [allNotes, document, typeDescriptors, i18n.locale]);
+  const mentions = useMemo(() => document ? unlinkedMentions(searchIndex, document.path, draft?.title ?? noteTitle(document, typeDescriptors)) : [], [searchIndex, document, draft?.title, typeDescriptors, i18n.locale]);
   const focusMode = preferences.focusMode && surface === "notes" && Boolean(document) && !creationMode && !selectedCollectionFile;
 
   function toggleFocus() { setPreferences((current) => ({ ...current, focusMode: !current.focusMode })); }
@@ -907,7 +912,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     activity: NoteActivity,
     operation: (token: CollectionScopeToken) => Promise<Result>
   ): Promise<Result> => {
-    if (mutationScope.current.isFrozen) throw new Error("Collection mutations are temporarily disabled.");
+    if (mutationScope.current.isFrozen) throw new Error(t`Collection mutations are temporarily disabled.`);
     const token = mutationScope.current.token();
     return mutationScope.current.register(token, session.record.run(async () => {
       session.activity = activity;
@@ -961,11 +966,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     try {
       const connection = await gateway.requestDirectAccess();
       if (connection?.directAccess === "available") {
-        setNotice("mdbase editor can now use mdbase on this computer.", "success");
+        setNotice(t`mdbase editor can now use mdbase on this computer.`, "success");
       } else if (connection?.directAccess === "denied") {
-        setNotice("Local network access is blocked in this browser. Allow it in the site settings, then try again.");
+        setNotice(t`Local network access is blocked in this browser. Allow it in the site settings, then try again.`);
       } else if (connection?.directAccess === "unavailable") {
-        setNotice("mdbase could not be reached on this computer. Editing will continue through mdbase.");
+        setNotice(t`mdbase could not be reached on this computer. Editing will continue through mdbase.`);
       }
     } catch (error) {
       setNotice(gatewayError(error));
@@ -1049,12 +1054,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const drain = intent === "switch" || intent === "choose_another";
     if (!typeDraftDirty() && !creationDirty) return drain ? drainBeforeLeave() : true;
     const copy = intent === "add"
-      ? { title: "Connect another collection?", body: "Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first.", confirmLabel: "Continue" }
+      ? { title: t`Connect another collection?`, body: t`Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first.`, confirmLabel: t`Continue` }
       : intent === "sign_out"
-        ? { title: "Sign out?", body: "Unsaved type or creation changes will be discarded.", confirmLabel: "Sign out" }
-        : { title: "Switch collections?", body: creationDirty
-          ? "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
-          : "Unsaved type definition changes will be discarded. Saved note and property changes will finish first.", confirmLabel: "Switch collection" };
+        ? { title: t`Sign out?`, body: t`Unsaved type or creation changes will be discarded.`, confirmLabel: t`Sign out` }
+        : { title: t`Switch collections?`, body: creationDirty
+          ? t`The unfinished note or folder will be discarded. Saved note and property changes will finish first.`
+          : t`Unsaved type definition changes will be discarded. Saved note and property changes will finish first.`, confirmLabel: t`Switch collection` };
     return new Promise<boolean>((resolve) => setConfirmation({
       title: copy.title,
       body: <p>{copy.body}</p>,
@@ -1085,7 +1090,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   function beginCreation(mode: "note" | "folder", context: CreationContext = {}) {
-    if (!canCreateNotes) { setNotice("This application does not have permission to make that change."); return; }
+    if (!canCreateNotes) { setNotice(t`This application does not have permission to make that change.`); return; }
     navigationGeneration.current += 1;
     setNoteLoading(false);
     setNoteOpenFailure(undefined);
@@ -1130,8 +1135,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   function copyFacet(value: string, label: string) {
     void navigator.clipboard.writeText(value)
-      .then(() => setNotice(`Copied ${label}.`, "success"))
-      .catch(() => setNotice(`Couldn’t copy ${label}.`));
+      .then(() => setNotice(t`Copied ${label}.`, "success"))
+      .catch(() => setNotice(t`Couldn’t copy ${label}.`));
   }
 
   async function createNote(input: CreateNoteInput) {
@@ -1159,7 +1164,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const sourcePath = noteSessions.current.active?.document.path;
     const linked = unresolvedNoteTarget(target, label, sourcePath, format);
     if (!linked) {
-      setNotice("That link does not point to a Markdown note that can be created.");
+      setNotice(t`That link does not point to a Markdown note that can be created.`);
       return;
     }
     if (linkCreations.current.has(linked.path)) return;
@@ -1194,7 +1199,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     }).catch(async (error) => {
       if (!mutationScope.current.isCurrent(token)) return;
       if (navigation !== navigationGeneration.current) {
-        setNotice(`Couldn’t create “${linked.path}”. ${gatewayError(error)}`);
+        setNotice(t`Couldn’t create “${linked.path}”. ${gatewayError(error)}`);
         return;
       }
       const opened = await openNote(linked.path);
@@ -1207,9 +1212,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   async function planFolderChange(from: string, to: string): Promise<FolderChangePlan> {
-    if (mutationScope.current.isFrozen || !canRenameNotes) throw new Error("Moving notes is not available with this collection’s current access.");
+    if (mutationScope.current.isFrozen || !canRenameNotes) throw new Error(t`Moving notes is not available with this collection’s current access.`);
     if (!structureComplete || foldersLoading || structureError || fileInventory.loading || fileInventory.error) {
-      throw new Error("Wait for the complete note and attachment index before changing a folder.");
+      throw new Error(t`Wait for the complete note and attachment index before changing a folder.`);
     }
     const token = mutationScope.current.token();
     const moves = folderChangeMoves(from, to, allNotes.map((note) => note.path), fileInventory.files.map((file) => file.path));
@@ -1223,7 +1228,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
           session = noteSessions.current.get(move.from) ?? createSession(note);
         }
-        if (session.recoveryDraft) throw new Error(`Recover the unsaved edits in “${move.from}” before moving this folder.`);
+        if (session.recoveryDraft) throw new Error(t`Recover the unsaved edits in “${move.from}” before moving this folder.`);
         await flushSession(session);
         const preview = await runNoteOperation(session, "validating", () => gateway.preflightRename(move.from, move.to, session.document.revision));
         if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
@@ -1237,13 +1242,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   async function changeFolder(plan: FolderChangePlan, onProgress: (progress: FolderChangeProgress) => void): Promise<FolderChangeResult> {
     const token = mutationScope.current.token();
     if (mutationScope.current.isFrozen || !canRenameNotes || token.epoch !== plan.epoch || token.collectionId !== plan.collectionId) {
-      throw new Error("The collection changed. Review the folder change again.");
+      throw new Error(t`The collection changed. Review the folder change again.`);
     }
     if (!structureComplete || foldersLoading || structureError || fileInventory.loading || fileInventory.error) {
-      throw new Error("The note or attachment index is refreshing. Wait for it to finish, then review the folder change again.");
+      throw new Error(t`The note or attachment index is refreshing. Wait for it to finish, then review the folder change again.`);
     }
     const latestMoves = folderChangeMoves(plan.from, plan.to, allNotes.map((note) => note.path), fileInventory.files.map((file) => file.path));
-    if (JSON.stringify(latestMoves) !== JSON.stringify(plan.moves)) throw new Error("The folder’s notes changed. Review the folder change again.");
+    if (JSON.stringify(latestMoves) !== JSON.stringify(plan.moves)) throw new Error(t`The folder’s notes changed. Review the folder change again.`);
     return mutationScope.current.register(token, (async () => {
       const result: FolderChangeResult = { moved: 0, failures: [] };
       for (const [index, move] of plan.moves.entries()) {
@@ -1252,15 +1257,15 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         try {
           let session = noteSessions.current.get(move.from);
           if (!session) session = createSession(await gateway.read(move.from));
-          if (session.recoveryDraft) throw new Error("Recover unsaved edits before moving this note.");
+          if (session.recoveryDraft) throw new Error(t`Recover unsaved edits before moving this note.`);
           await flushSession(session);
           // Earlier renames may have rewritten this note’s links and revision.
           await refreshCachedNote(move.from);
-          if (session.document.path !== move.from) throw new Error("This note already moved elsewhere.");
+          if (session.document.path !== move.from) throw new Error(t`This note already moved elsewhere.`);
           const renamed = await runNoteOperation(session, "renaming", () => gateway.rename(move.from, move.to, session!.document.revision, true, {
             onProgress: (progress) => {
               if (mutationScope.current.isCurrent(token)) onProgress({ completed: index, total: plan.moves.length, path: move.from,
-                detail: progress.completedUnits === undefined ? undefined : `${progress.completedUnits} changes applied` });
+                detail: progress.completedUnits === undefined ? undefined : t`${progress.completedUnits} changes applied` });
             }
           }));
           if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
@@ -1281,8 +1286,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           result.failures.push({ path: move.from, message: gatewayError(error) });
           // An uncertain mutation must be recovered before issuing more writes.
           if (pendingNoteRequestId(error)) {
-            result.failures.at(-1)!.message += " The move may still be applying; recover the pending operation before retrying.";
-            result.failures.push(...plan.moves.slice(index + 1).map((remaining) => ({ path: remaining.from, message: "Not attempted because an earlier move needs recovery." })));
+            result.failures.at(-1)!.message += t` The move may still be applying; recover the pending operation before retrying.`;
+            result.failures.push(...plan.moves.slice(index + 1).map((remaining) => ({ path: remaining.from, message: t`Not attempted because an earlier move needs recovery.` })));
             break;
           }
         }
@@ -1292,9 +1297,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       const warnings: string[] = [];
       await Promise.all([...noteSessions.current.values()].filter((session) => !session.deleted).map(async (session) => {
         try { await refreshCachedNote(session.document.path); }
-        catch (error) { warnings.push(`Couldn’t reload rewritten links in “${session.document.path}”. ${gatewayError(error)}`); }
+        catch (error) { warnings.push(t`Couldn’t reload rewritten links in “${session.document.path}”. ${gatewayError(error)}`); }
       }));
-      try { await loadIndex(); } catch (error) { warnings.push(`Folder changes were applied, but refreshing the index failed. ${gatewayError(error)}`); }
+      try { await loadIndex(); } catch (error) { warnings.push(t`Folder changes were applied, but refreshing the index failed. ${gatewayError(error)}`); }
       if (warnings.length) result.warnings = warnings;
       if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
       if (noteFilter?.kind === "folder" && result.moved > 0) setNoteFilter({ kind: "folder", value: result.failures.length ? plan.from : plan.to });
@@ -1325,8 +1330,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       menuCommand("rename", <Pencil aria-hidden="true" />, () => void renameNote(path), mutationsFrozen || !canRenameNotes),
       menuCommand("move", <Folder aria-hidden="true" />, () => setMovePaths([path]), mutationsFrozen || !canRenameNotes),
       menuCommand("duplicate", <Copy aria-hidden="true" />, () => void duplicateNote(path), mutationsFrozen || !canCreateNotes),
-      menuCommand("copy-link", <Link2 aria-hidden="true" />, () => copyFacet(`[[${path.replace(/\.md$/i, "")}]]`, "note link")),
-      menuCommand("copy-path", <Copy aria-hidden="true" />, () => copyFacet(path, "note path")),
+      menuCommand("copy-link", <Link2 aria-hidden="true" />, () => copyFacet(`[[${path.replace(/\.md$/i, "")}]]`, t`note link`)),
+      menuCommand("copy-path", <Copy aria-hidden="true" />, () => copyFacet(path, t`note path`)),
       menuCommand(pinnedPaths.includes(path) ? "unpin" : "pin", <Pin aria-hidden="true" />, () => togglePin(path)),
       { ...menuCommand("delete", <Trash2 aria-hidden="true" />, () => void requestDelete(path), mutationsFrozen || !canDeleteNotes || bulkBusy), tone: "danger" }
     ];
@@ -1376,16 +1381,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       return;
     }
     setConfirmation({
-      title: "Discard type changes?",
-      body: <p>Your unsaved changes to this type definition won’t be kept.</p>,
-      confirmLabel: "Discard changes",
+      title: t`Discard type changes?`,
+      body: <p><Trans>Your unsaved changes to this type definition won’t be kept.</Trans></p>,
+      confirmLabel: t`Discard changes`,
       tone: "danger",
       onConfirm: select
     });
   }
 
   function beginTypeCreate() {
-    if (!canManageTypes) { setNotice("This application does not have permission to make that change."); return; }
+    if (!canManageTypes) { setNotice(t`This application does not have permission to make that change.`); return; }
     const begin = () => {
       setTypeWorkspace("definition");
       setSelectedTypeName(undefined);
@@ -1397,9 +1402,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       return;
     }
     setConfirmation({
-      title: "Discard type changes?",
-      body: <p>Your unsaved changes to this type definition won’t be kept.</p>,
-      confirmLabel: "Discard changes",
+      title: t`Discard type changes?`,
+      body: <p><Trans>Your unsaved changes to this type definition won’t be kept.</Trans></p>,
+      confirmLabel: t`Discard changes`,
       tone: "danger",
       onConfirm: begin
     });
@@ -1413,9 +1418,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   function cancelTypeCreate() {
     if (typeDraftDirty()) {
       setConfirmation({
-        title: "Discard this type?",
-        body: <p>The new type definition hasn’t been saved.</p>,
-        confirmLabel: "Discard type",
+        title: t`Discard this type?`,
+        body: <p><Trans>The new type definition hasn’t been saved.</Trans></p>,
+        confirmLabel: t`Discard type`,
         tone: "danger",
         onConfirm: finishCancelTypeCreate
       });
@@ -1436,12 +1441,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   async function installCatalogPack(pack: ContractCatalogPack) {
-    if (!canInstallTypes) { setNotice("This application does not have permission to make that change."); return; }
+    if (!canInstallTypes) { setNotice(t`This application does not have permission to make that change.`); return; }
     await reviewCatalogPackInstallation(pack, gateway, {
       installedTypeNames: description?.types.map(({ name }) => name) ?? [],
       confirm: (confirmation) => setConfirmation(confirmation),
       refreshDescription: async () => refreshDescription().then((next) => {
-        if (!next) throw new Error("Collection changed before the type pack finished."); return next;
+        if (!next) throw new Error(t`Collection changed before the type pack finished.`); return next;
       }),
       isTypeDraftDirty: typeDraftDirty,
       openType: async (name) => {
@@ -1462,9 +1467,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   function selectSurface(next: Surface) {
     if (creationMode && creationDirty) {
       setConfirmation({
-        title: `Discard this ${creationMode}?`,
-        body: <p>The unfinished {creationMode} hasn’t been created.</p>,
-        confirmLabel: `Discard ${creationMode}`,
+        title: creationMode === "folder" ? t`Discard this folder?` : t`Discard this note?`,
+        body: <p>{creationMode === "folder" ? <Trans>The unfinished folder hasn’t been created.</Trans> : <Trans>The unfinished note hasn’t been created.</Trans>}</p>,
+        confirmLabel: creationMode === "folder" ? t`Discard folder` : t`Discard note`,
         tone: "danger",
         onConfirm: () => finishSelectSurface(next)
       });
@@ -1502,11 +1507,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       finishCancelCreation();
       return;
     }
-    const subject = creationMode === "folder" ? "folder" : "note";
+    const folder = creationMode === "folder";
     setConfirmation({
-      title: `Discard this ${subject}?`,
-      body: <p>The details you entered haven’t been created yet.</p>,
-      confirmLabel: `Discard ${subject}`,
+      title: folder ? t`Discard this folder?` : t`Discard this note?`,
+      body: <p><Trans>The details you entered haven’t been created yet.</Trans></p>,
+      confirmLabel: folder ? t`Discard folder` : t`Discard note`,
       tone: "danger",
       onConfirm: finishCancelCreation
     });
@@ -1537,11 +1542,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   function requestForgetConnection(connection: ConnectionSummary, displayName?: string) {
-    const name = displayName ?? connection.displayName ?? "this collection";
+    const name = displayName ?? connection.displayName ?? t`this collection`;
     setConfirmation({
-      title: `Forget “${name}” from this browser?`,
-      body: <p>This removes the saved connection from this browser. It does not delete the collection or its files, and it does not revoke mdbase editor’s access in mdbase connect.</p>,
-      confirmLabel: "Forget from this browser",
+      title: t`Forget “${name}” from this browser?`,
+      body: <p><Trans>This removes the saved connection from this browser. It does not delete the collection or its files, and it does not revoke mdbase editor’s access in mdbase connect.</Trans></p>,
+      confirmLabel: t`Forget from this browser`,
       tone: "danger",
       onConfirm: () => forgetConnection(connection.collectionId)
     });
@@ -1637,7 +1642,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mutationsFrozen, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
-  const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
+  const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body, i18n.locale]);
   const launching = useLaunchEntrancePlaying();
   const usable = phase === "ready" && Boolean(description) && !launching;
   // First usable render: only now may the offline shell install and precache.
@@ -1660,7 +1665,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       onConnect={() => void (sessionSnapshot.status === "start_failed"
         ? retrySessionStart()
         : connectFromConnectScreen())}
-      actionLabel={sessionSnapshot.status === "start_failed" ? "Retry opening editor" : undefined}
+      actionLabel={sessionSnapshot.status === "start_failed" ? t`Retry opening editor` : undefined}
       hideSavedConnections={sessionSnapshot.status === "start_failed"}
       fatal={sessionSnapshot.status === "destroyed"}
       onOpen={(collectionId) => void openSavedCollection(collectionId)}
@@ -1705,7 +1710,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   ));
   const collectionTrack = Math.min(preferredCollectionTrack, collectionResizeMax);
   const listTrack = Math.min(preferredListTrack, listResizeMax);
-  const listName = surface === "types" ? "types" : "notes";
   const historyBackPath = noteHistoryState.paths[noteHistoryState.index - 1];
   const historyForwardPath = noteHistoryState.paths[noteHistoryState.index + 1];
   const activeRemoteDocument = noteSessions.current.active?.remoteDocument;
@@ -1739,8 +1743,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       move: canRenameNotes && !mutationsFrozen && !multipleSelected ? () => setMovePaths([document.path]) : undefined,
       duplicate: canCreateNotes && !mutationsFrozen ? () => void duplicateNote(document.path) : undefined,
       delete: canDeleteNotes && !mutationsFrozen && !bulkBusy && !multipleSelected ? () => void requestDelete(document.path) : undefined,
-      "copy-link": () => copyFacet(`[[${document.path.replace(/\.md$/i, "")}]]`, "note link"),
-      "copy-path": () => copyFacet(document.path, "note path"),
+      "copy-link": () => copyFacet(`[[${document.path.replace(/\.md$/i, "")}]]`, t`note link`),
+      "copy-path": () => copyFacet(document.path, t`note path`),
       ...(pinnedPaths.includes(document.path) ? { unpin: () => togglePin(document.path) } : { pin: () => togglePin(document.path) }),
       focus: toggleFocus,
       properties: () => { if (focusMode) toggleFocus(); setPropertiesOpen((value) => !value); },
@@ -1748,23 +1752,42 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       backlinks: () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); },
       "check-note": !mutationsFrozen ? () => void validateNote() : undefined
     } : {})
-  }, { focus: focusMode ? "Exit focus mode" : "Focus mode" });
-  const activeToasts = buildToastItems({ notice, recoveryMessage: recoveryAction ? recoveryAction.kind === "mention" ? "Linked mention." : recoveryAction.kind === "batch" ? recoveryAction.message : recoveryAction.kind === "delete" ? `${recoveryAction.pending ? "Deleting" : "Deleted"} “${noteTitle(recoveryAction.document, typeDescriptors)}”${recoveryAction.pending ? "…" : "."}` : recoveryAction.kind === "move" ? recoveryAction.message ?? `Moved ${recoveryAction.paths.length} ${recoveryAction.paths.length === 1 ? "note" : "notes"}.${recoveryAction.references ? ` Also updated links in ${recoveryAction.references} ${recoveryAction.references === 1 ? "note" : "notes"}.` : ""}` : `Renamed to “${recoveryAction.to}”.` : undefined, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
+  }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode` });
+  let recoveryMessage: string | undefined;
+  if (recoveryAction) {
+    switch (recoveryAction.kind) {
+      case "mention": recoveryMessage = t`Linked mention.`; break;
+      case "batch": recoveryMessage = recoveryAction.message; break;
+      case "delete": {
+        const title = noteTitle(recoveryAction.document, typeDescriptors);
+        recoveryMessage = recoveryAction.pending ? t`Deleting “${title}”…` : t`Deleted “${title}”.`;
+        break;
+      }
+      case "move": {
+        const moved = plural(recoveryAction.paths.length, { one: "Moved # note.", other: "Moved # notes." });
+        const links = recoveryAction.references ? plural(recoveryAction.references, { one: "Also updated links in # note.", other: "Also updated links in # notes." }) : "";
+        recoveryMessage = recoveryAction.message ?? [moved, links].filter(Boolean).join(" ");
+        break;
+      }
+      case "rename": recoveryMessage = t`Renamed to “${recoveryAction.to}”.`; break;
+    }
+  }
+  const activeToasts = buildToastItems({ notice, recoveryMessage, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
   const pendingNoteMutations = gateway.pendingNoteMutations();
   activeToasts.push(...pendingNoteToasts(pendingNoteMutations, activePendingRename?.requestId, recoveryBusy, recoverPendingNote));
   if (noteOpenFailure && document) activeToasts.push({
     id: "note-open", message: noteOpenFailure.message, tone: "error", sticky: true,
-    action: { label: "Retry note", onAction: () => navigateToNote(noteOpenFailure.path, noteOpenFailure.options) }
+    action: { label: t`Retry note`, onAction: () => navigateToNote(noteOpenFailure.path, noteOpenFailure.options) }
   });
   const editorLeadingActions = layout.listCollapsed ? <>
-    {layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
-    <PaneControl pane="list" label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
+    {layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+    <PaneControl pane="list" label={surface === "types" ? t`Show types sidebar` : t`Show notes sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
   </> : undefined;
   const notePathControl = document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
-    <label className="sr-only" htmlFor="note-path">Markdown path</label>
+    <label className="sr-only" htmlFor="note-path"><Trans>Markdown path</Trans></label>
     <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
   </form> : mobileLayout ? <p className="mobile-note-path" title={document.path}><PathLabel path={document.path} /></p>
-    : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title="Rename Markdown path" aria-label={document.path}><PathLabel path={document.path} /><Pencil aria-hidden="true" /></button>);
+    : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title={t`Rename Markdown path`} aria-label={document.path}><PathLabel path={document.path} /><Pencil aria-hidden="true" /></button>);
   const noteSaveIndicator = <><CollectionSaveWarning /><SaveIndicator
     identity={noteSessions.current.active?.editorSessionKey ?? document?.path}
     onRetry={canEditNotes ? () => { void noteSessions.current.active?.record.save(); } : undefined}
@@ -1823,9 +1846,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         selection={listSelection}
         onSelection={setSelection}
         pinnedPaths={pinnedPaths}
-        selectionBar={listSelection.paths.length > 1 && <div className="note-selection" role="group" aria-label="Selected notes" aria-busy={bulkBusy}>
-          <div className="note-selection-bar"><span role="status">{listSelection.paths.length} selected</span><ActionMenu label="Selection actions" items={bulkActions(listSelection.paths)} /><button className="mdbase-button is-tertiary" aria-label="Clear selection" onClick={() => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); }}>Clear</button></div>
-          {bulkPropertyKind && <Suspense fallback={<p>Loading properties…</p>}><BulkNoteProperties key={bulkPropertyKind} kind={bulkPropertyKind} fields={selectionFields} busy={bulkBusy} onApply={(change) => applyBulkProperties(listSelection.paths, change)} onClose={() => setBulkPropertyKind(undefined)} /></Suspense>}
+        selectionBar={listSelection.paths.length > 1 && <div className="note-selection" role="group" aria-label={t`Selected notes`} aria-busy={bulkBusy}>
+          <div className="note-selection-bar"><span role="status"><Trans>{listSelection.paths.length} selected</Trans></span><ActionMenu label={t`Selection actions`} items={bulkActions(listSelection.paths)} /><button className="mdbase-button is-tertiary" aria-label={t`Clear selection`} onClick={() => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); }}><Trans>Clear</Trans></button></div>
+          {bulkPropertyKind && <Suspense fallback={<p><Trans>Loading properties…</Trans></p>}><BulkNoteProperties key={bulkPropertyKind} kind={bulkPropertyKind} fields={selectionFields} busy={bulkBusy} onApply={(change) => applyBulkProperties(listSelection.paths, change)} onClose={() => setBulkPropertyKind(undefined)} /></Suspense>}
         </div>}
         noteCount={visibleNotes.length}
         fileCount={visibleFiles.length}
@@ -1849,7 +1872,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         searchContexts={searchContexts}
         sort={noteSort}
         scopeLabel={filterScopeLabel(noteFilter)}
-        collectionName={filterLabel(noteFilter, "All notes")}
+        collectionName={filterLabel(noteFilter, t`All notes`)}
         onSearch={setSearch}
         onSort={setNoteSort}
         onClearScope={() => setNoteFilter(undefined)}
@@ -1871,16 +1894,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onDelete={(path) => { if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
         onCreate={canCreateNotes ? beginCreate : undefined}
         onCollections={() => returnToMobilePane("collections")}
-        leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
-        trailingActions={<PaneControl pane="list" label="Hide notes sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
+        leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+        trailingActions={<PaneControl pane="list" label={t`Hide notes sidebar`} visibility="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}
-      {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<PaneSkeleton label="Loading file viewer" leadingActions={editorLeadingActions} variant="canvas" />}><FileWorkspace
+      {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<PaneSkeleton label={t`Loading file viewer`} leadingActions={editorLeadingActions} variant="canvas" />}><FileWorkspace
         file={selectedCollectionFile}
         asset={selectedFileAsset}
         leadingActions={editorLeadingActions}
         onBack={() => returnToMobilePane("notes")}
         onRetry={() => void fileAssetStore.retry(selectedCollectionFile)}
-      /></Suspense> : creationMode ? <Suspense fallback={<PaneSkeleton label={creationMode === "folder" ? "Loading folder composer" : "Loading note composer"} leadingActions={editorLeadingActions} />}><NewNoteComposer
+      /></Suspense> : creationMode ? <Suspense fallback={<PaneSkeleton label={creationMode === "folder" ? t`Loading folder composer` : t`Loading note composer`} leadingActions={editorLeadingActions} />}><NewNoteComposer
         types={description.types}
         defaultFolder={creationContext.folder}
         defaultTag={creationContext.tag}
@@ -1892,47 +1915,47 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onCreate={createNote}
         onCancel={cancelCreation}
         onDraftChange={setCreationDirty}
-      /></Suspense> : <main className="editor-pane" aria-label="Note editor" data-save-state={saveState}>
+      /></Suspense> : <main className="editor-pane" aria-label={t`Note editor`} data-save-state={saveState}>
         {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar mdbase-settle-host">
-            <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
+            <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
             {editorLeadingActions}
-            <div className="note-history" role="group" aria-label="Note history">
+            <div className="note-history" role="group" aria-label={t`Note history`}>
               <button
                 className="icon-button"
-                aria-label="Back in note history"
-                title={historyBackPath ? `Back to ${historyBackPath} · Alt+Left` : "No earlier note"}
+                aria-label={t`Back in note history`}
+                title={historyBackPath ? t`Back to ${historyBackPath} · Alt+Left` : t`No earlier note`}
                 disabled={!historyBackPath}
                 onClick={() => navigateNoteHistory(-1)}
               ><ArrowLeft aria-hidden="true" /></button>
               <button
                 className="icon-button"
-                aria-label="Forward in note history"
-                title={historyForwardPath ? `Forward to ${historyForwardPath} · Alt+Right` : "No later note"}
+                aria-label={t`Forward in note history`}
+                title={historyForwardPath ? t`Forward to ${historyForwardPath} · Alt+Right` : t`No later note`}
                 disabled={!historyForwardPath}
                 onClick={() => navigateNoteHistory(1)}
               ><ArrowRight aria-hidden="true" /></button>
             </div>
             {!mobileLayout && <div className="path-wrap">{notePathControl}</div>}
-            {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
-            {!mobileLayout && !canEditNotes && <span className="connect-muted">Read only</span>}
+            {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}><Trans>Opening “{pendingNotePath}”…</Trans></span>}
+            {!mobileLayout && !canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
             {!mobileLayout && noteSaveIndicator}
             {mobileLayout && shownConnection !== "connected" && <div className="mobile-connection">
               <ConnectionStatus state={shownConnection} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
             </div>}
-            {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => {
+            {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label={t`Note properties`} aria-pressed={propertiesOpen} onClick={() => {
               setPropertiesOpen((value) => {
                 if (!value) setBacklinksOpen(false);
                 return !value;
               });
             }}><Info aria-hidden="true" /></button>}
-            {focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}>Exit focus mode</button>}
-            <ActionMenu label="More note actions" items={[
+            {focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
+            <ActionMenu label={t`More note actions`} items={[
               ...(mobileLayout ? [
                 ...(canCreateNotes ? [menuCommand("new-note", <FilePlus2 aria-hidden="true" />, beginCreate, mutationsFrozen)] : []),
                 menuCommand("quick-open", <Search aria-hidden="true" />, () => { setQuickOpenCommandMode(false); setQuickOpen(true); })
               ] : []),
-              ...noteActions(document.path).map((item) => mobileLayout && item.label === "Rename" ? { ...item, label: "Rename path" } : item),
+              ...noteActions(document.path).map((item) => mobileLayout && item.label === "Rename" ? { ...item, label: t`Rename path` } : item),
               { ...menuCommand("outline", <ListBullets aria-hidden="true" />, () => setOutlineOpen(true)), separatorBefore: true },
               menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); }),
               menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? "Exit focus mode" : undefined),
@@ -1943,10 +1966,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             ]} />
           </header>
           {noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
-          {noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label="Unsaved draft found">
-            <strong>Unsaved edits from an earlier session are available.</strong>
-            <p>Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</p>
-            <details><summary>Review recovered text</summary><pre>{noteSessions.current.active.recoveryDraft.body}</pre>
+          {noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label={t`Unsaved draft found`}>
+            <strong><Trans>Unsaved edits from an earlier session are available.</Trans></strong>
+            <p><Trans>Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</Trans></p>
+            <details><summary><Trans>Review recovered text</Trans></summary><pre>{noteSessions.current.active.recoveryDraft.body}</pre>
               {Object.keys(noteSessions.current.active.recoveryDraft.patch).length > 0 && <pre>{JSON.stringify(noteSessions.current.active.recoveryDraft.patch, null, 2)}</pre>}
             </details>
             <button disabled={!canEditNotes || mutationsFrozen || pendingNoteMutations.length > 0} onClick={() => {
@@ -1956,34 +1979,34 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               session.record.restore(recovered);
               if (!sessionDirty(session)) {
                 try { draftRecovery?.remove(mutationScope.current.token().collectionId!, session.document.path, session.document); }
-                catch { setNotice("The recovery copy could not be removed from this browser."); }
+                catch { setNotice(t`The recovery copy could not be removed from this browser.`); }
               }
               session.record.autosave();
               touchSession(session);
-            }}>Restore unsaved edits</button>
+            }}><Trans>Restore unsaved edits</Trans></button>
             <button onClick={() => {
               const session = noteSessions.current.active!;
               try {
                 draftRecovery?.remove(mutationScope.current.token().collectionId!, session.document.path);
                 session.recoveryDraft = undefined;
                 touchSession(session);
-              } catch { setNotice("The recovery copy could not be removed from this browser."); }
-            }}>Discard recovered edits</button>
+              } catch { setNotice(t`The recovery copy could not be removed from this browser.`); }
+            }}><Trans>Discard recovered edits</Trans></button>
           </section>}
           <AttachmentTransfer controller={attachments} />
           {activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
           {renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
-            <div><strong>Rename this note?</strong><span>{renamePlan.affectedPaths.length.toLocaleString()} {renamePlan.affectedPaths.length === 1 ? "note contains" : "notes contain"} links that will change.{renamePlan.warnings.length > 0 ? ` ${renamePlan.warnings.length.toLocaleString()} ${renamePlan.warnings.length === 1 ? "link needs" : "links need"} attention and won’t be changed automatically.` : ""}</span></div>
-            <button onClick={cancelRename}>Cancel</button>
-            <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}>Rename and update links</button>
+            <div><strong><Trans>Rename this note?</Trans></strong><span>{plural(renamePlan.affectedPaths.length, { one: "# note contains links that will change.", other: "# notes contain links that will change." })}{renamePlan.warnings.length > 0 ? plural(renamePlan.warnings.length, { one: ` # link needs attention and won’t be changed automatically.`, other: ` # links need attention and won’t be changed automatically.` }) : ""}</span></div>
+            <button onClick={cancelRename}><Trans>Cancel</Trans></button>
+            <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}><Trans>Rename and update links</Trans></button>
           </div>}
           <MarkdownNoteEditor footer={<BacklinksPanel key={document.path} mentions={mentions} onLinkMention={canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={backlinkNotes} types={typeDescriptors} loading={contentIndexing} error={contentError} onFind={!contentComplete && !contentIndexing && !contentError ? () => setBacklinksOpen(true) : undefined} onRetry={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
             draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey} readOnly={noteReadOnly}
             provenance={mobileLayout ? <>
               {notePathControl}
-              {!canEditNotes && <span className="connect-muted">Read only</span>}
+              {!canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
               {noteSaveIndicator}
-              {noteLoading && <span role="status" className="note-opening-status">Opening “{pendingNotePath}”…</span>}
+              {noteLoading && <span role="status" className="note-opening-status"><Trans>Opening “{pendingNotePath}”…</Trans></span>}
             </> : undefined}
             remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
@@ -2002,7 +2025,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
         />}
       </main>}
-      {inspectorVisible && <InspectorFrame overlay={inspectorOverlay} label="Note properties" width={inspectorTrack} onClose={() => setPropertiesOpen(false)}>{document ? <Suspense fallback={<InspectorPanelLoading label="Note properties" />}>
+      {inspectorVisible && <InspectorFrame overlay={inspectorOverlay} label={t`Note properties`} width={inspectorTrack} onClose={() => setPropertiesOpen(false)}>{document ? <Suspense fallback={<InspectorPanelLoading label={t`Note properties`} />}>
         <PropertiesPanel
           key={document.path}
           note={document}
@@ -2015,11 +2038,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           onSave={saveProperties}
           onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
         />
-      </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null}</InspectorFrame>}
+      </Suspense> : noteLoading ? <InspectorPanelLoading label={t`Note properties`} /> : null}</InspectorFrame>}
     </>}
 
     {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{missingTypeCapabilities(connectionSummary).length > 0 ? <TypeAccessPrompt
-      leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+      leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onAuthorize={() => void connectCollection()}
       onBack={() => returnToMobilePane("collections")}
     /> : <>
@@ -2027,8 +2050,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         types={description.types}
         selectedName={typeWorkspace === "definition" ? selectedTypeName : undefined}
         packsSelected={typeWorkspace === "packs"}
-        leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
-        trailingActions={<PaneControl pane="list" label="Hide types sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
+        leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+        trailingActions={<PaneControl pane="list" label={t`Hide types sidebar`} visibility="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
         onSelect={selectType}
         onPacks={openTypePacks}
         onCreate={canManageTypes ? beginTypeCreate : undefined}
@@ -2079,17 +2102,17 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       noteCount={allNotes.length}
       preferences={preferences}
       directAccessBusy={directAccessBusy}
-      leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+      leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onChange={setPreferences}
       onBack={() => returnToMobilePane("collections")}
       onForget={requestForgetCurrentCollection}
       onRequestDirectAccess={() => void requestDirectAccess()}
     />}
 
-    {!focusMode && (!layout.collectionCollapsed || (hasListPane && !layout.listCollapsed) || (inspectorVisible && !mobileLayout)) && <aside className="pane-resizers" aria-label="Sidebar layout controls">
+    {!focusMode && (!layout.collectionCollapsed || (hasListPane && !layout.listCollapsed) || (inspectorVisible && !mobileLayout)) && <aside className="pane-resizers" aria-label={t`Sidebar layout controls`}>
       {!layout.collectionCollapsed && <PaneResizeHandle
         className="collection-resizer"
-        label="Resize collections sidebar"
+        label={t`Resize collections sidebar`}
         value={collectionTrack}
         min={COLLECTION_WIDTH.min}
         max={collectionResizeMax}
@@ -2099,7 +2122,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       />}
       {hasListPane && !layout.listCollapsed && <PaneResizeHandle
         className="list-resizer"
-        label={`Resize ${listName} sidebar`}
+        label={surface === "types" ? t`Resize types sidebar` : t`Resize notes sidebar`}
         value={listTrack}
         min={LIST_WIDTH.min}
         max={listResizeMax}
@@ -2109,7 +2132,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       />}
       {inspectorVisible && !inspectorOverlay && <PaneResizeHandle
         className="inspector-resizer"
-        label="Resize note inspector"
+        label={t`Resize note inspector`}
         value={inspectorTrack}
         min={INSPECTOR_WIDTH.min}
         max={inspectorResizeMax}

@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { i18n } from "@lingui/core";
 import { EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension, type Range, type Text } from "@codemirror/state";
 import { isolateHistory } from "@codemirror/commands";
 import { attachmentUploadFailure, type AttachmentUploader, type AttachmentUploadFailure } from "./AttachmentUpload";
@@ -8,6 +10,7 @@ import type { ResolvedFileReference } from "./use-file-assets";
 import { embedActions, focusEmbedOnPointer } from "./embed-actions";
 
 class FileEmbedWidget extends WidgetType {
+  readonly locale = i18n.locale;
   private unmountInlinePdf?: () => void;
   private textRequest?: AbortController;
 
@@ -19,7 +22,7 @@ class FileEmbedWidget extends WidgetType {
   eq(other: FileEmbedWidget) {
     const current = this.reference.asset;
     const next = other.reference.asset;
-    return Boolean(this.open) === Boolean(other.open)
+    return this.locale === other.locale && Boolean(this.open) === Boolean(other.open)
       && current.file.fileId === next.file.fileId
       && current.file.revision === next.file.revision
       && current.status === next.status
@@ -34,12 +37,12 @@ class FileEmbedWidget extends WidgetType {
     preview.className = `cm-file-embed cm-file-embed-${asset.file.mediaClass} ${asset.status}`;
     preview.tabIndex = 0;
     focusEmbedOnPointer(preview);
-    preview.setAttribute("aria-label", asset.status === "ready" ? `Preview ${filename}` : `Preview ${filename}, ${asset.status.replace("_", " ")}`);
+    preview.setAttribute("aria-label", t`Preview ${filename}`);
 
     if (!isInlinePreviewable(asset.file)) {
       const unavailable = document.createElement("div");
       unavailable.className = "cm-file-embed-status";
-      unavailable.textContent = `No inline preview is available for ${filename}.`;
+      unavailable.textContent = t`No inline preview is available for ${filename}.`;
       preview.append(unavailable);
     } else if (asset.status === "ready") {
       if (asset.file.mediaClass === "image") {
@@ -52,11 +55,11 @@ class FileEmbedWidget extends WidgetType {
         const cover = document.createElement("button");
         cover.type = "button";
         cover.className = "cm-file-embed-pdf-cover";
-        cover.setAttribute("aria-label", `Open ${filename}`);
+        cover.setAttribute("aria-label", t`Open ${filename}`);
         const mark = document.createElement("span");
         mark.textContent = "PDF";
         const prompt = document.createElement("span");
-        prompt.textContent = "Open document";
+        prompt.textContent = t`Open document`;
         cover.append(mark, prompt);
         cover.addEventListener("click", () => this.activatePdf(preview, cover, asset.url, filename));
         preview.append(cover);
@@ -69,7 +72,7 @@ class FileEmbedWidget extends WidgetType {
       } else if (isTextPreviewable(asset.file)) {
         const pre = document.createElement("pre");
         const code = document.createElement("code");
-        code.textContent = "Opening text preview…";
+        code.textContent = t`Opening text preview…`;
         pre.append(code);
         preview.append(pre);
         const request = new AbortController();
@@ -81,7 +84,7 @@ class FileEmbedWidget extends WidgetType {
           })
           .catch((error: unknown) => {
             if (!request.signal.aborted && code.isConnected) {
-              code.textContent = error instanceof Error ? error.message : "The text preview could not be opened.";
+              code.textContent = error instanceof Error ? error.message : t`The text preview could not be opened.`;
             }
           });
       }
@@ -90,7 +93,7 @@ class FileEmbedWidget extends WidgetType {
       status.className = "cm-file-embed-status";
       status.setAttribute("role", "status");
       status.textContent = asset.status === "loading" || asset.status === "idle"
-        ? `Opening ${filename}`
+        ? t`Opening ${filename}`
         : asset.error;
       preview.append(status);
     }
@@ -116,12 +119,12 @@ class FileEmbedWidget extends WidgetType {
   private activatePdf(preview: HTMLElement, cover: HTMLElement, src: string, filename: string) {
     if (preview.classList.contains("cm-file-embed-active")) return;
     preview.classList.add("cm-file-embed-active");
-    preview.setAttribute("aria-label", `PDF embed, ${filename}`);
+    preview.setAttribute("aria-label", t`PDF embed, ${filename}`);
     const viewer = document.createElement("div");
     viewer.className = "cm-file-embed-pdf-viewer";
     viewer.tabIndex = 0;
     viewer.setAttribute("role", "region");
-    viewer.setAttribute("aria-label", `Embedded PDF, ${filename}`);
+    viewer.setAttribute("aria-label", t`Embedded PDF, ${filename}`);
     cover.replaceWith(viewer);
     viewer.focus({ preventScroll: true });
     void import("./inline-pdf-viewer").then(({ mountInlinePdfViewer }) => {
@@ -168,9 +171,10 @@ const pendingAttachments = StateField.define<readonly PendingAttachment[]>({
 });
 
 class AttachmentWidget extends WidgetType {
+  readonly locale = i18n.locale;
   constructor(readonly job: PendingAttachment, readonly disabled: boolean) { super(); }
   eq(other: AttachmentWidget) {
-    return this.job.id === other.job.id && this.job.error?.message === other.job.error?.message
+    return this.locale === other.locale && this.job.id === other.job.id && this.job.error?.message === other.job.error?.message
       && this.job.error?.retryable === other.job.error?.retryable && this.disabled === other.disabled;
   }
   toDOM() {
@@ -181,16 +185,16 @@ class AttachmentWidget extends WidgetType {
     label.setAttribute("role", "status");
     label.textContent = this.job.error
       ? this.job.error.message
-      : `Uploading ${this.job.file.name}…`;
+      : t`Uploading ${this.job.file.name}…`;
     widget.append(label);
     for (const [text, action] of this.job.error?.retryable
-      ? [["Retry", this.job.retry], ["Remove", this.job.remove]] as const
-      : [["Remove", this.job.remove]] as const) {
+      ? [[t`Retry`, this.job.retry], [t`Remove`, this.job.remove]] as const
+      : [[t`Remove`, this.job.remove]] as const) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "mdbase-button is-tertiary";
       button.textContent = text;
-      button.setAttribute("aria-label", `${text} upload of ${this.job.file.name}`);
+      button.setAttribute("aria-label", t`${text} upload of ${this.job.file.name}`);
       button.disabled = this.disabled;
       button.addEventListener("click", action);
       widget.append(button);
@@ -250,7 +254,7 @@ export function attachmentCapture(uploader: () => AttachmentUploader | undefined
         if (this.destroyed) return;
         const current = this.view.state.field(pendingAttachments).find((job) => job.id === id);
         if (!current) return; // Removal/navigation must never insert a late reference.
-        if (!this.enabled()) throw new Error("The note is no longer editable.");
+        if (!this.enabled()) throw new Error(t`The note is no longer editable.`);
         const insert = blockAttachmentInsertion(this.view.state.doc, current.position, current.position, reference);
         const selection = this.view.state.selection.main;
         this.view.dispatch({

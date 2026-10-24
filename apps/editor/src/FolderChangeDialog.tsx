@@ -1,3 +1,7 @@
+import { displayLocale } from "./i18n/format";
+import { Trans, Plural } from "@lingui/react/macro";
+import { t, plural } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Dialog } from "./Dialog";
 import { Select } from "@mdbase-dev/ui/select";
@@ -15,6 +19,7 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
   folders: string[];
   onClose: (focusPath: string) => void;
 }) {
+  useLingui();
   const id = useId();
   const [value, setValue] = useState(mode === "rename" ? from.split("/").at(-1)! : parent ?? "");
   const [plan, setPlan] = useState<FolderChangePlan>();
@@ -36,7 +41,7 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
     if (!onPlanFolderChange || busy) return;
     setBusy(true); setError(undefined);
     try {
-      if (mode === "rename" && (!value.trim() || /[/\\]/.test(value))) throw new Error("Enter a folder name without slashes.");
+      if (mode === "rename" && (!value.trim() || /[/\\]/.test(value))) throw new Error(t`Enter a folder name without slashes.`);
       setPlan(await onPlanFolderChange(from, to));
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
@@ -51,33 +56,39 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
 
   return <Dialog titleId={id} className="confirm-dialog folder-change-dialog" onClose={() => { if (!busy) close(); }}>
     <div className="confirm-dialog-copy">
-      <h2 id={id}>{result ? result.failures.length || result.warnings?.length ? "Folder change needs attention" : "Folder change complete" : plan
-        ? `${mode === "rename" ? `Rename ‘${basename}’ and move` : "Move"} ${plan.moves.length.toLocaleString()} ${plan.moves.length === 1 ? "note" : "notes"}${plan.referenceCount ? ` and update ${plan.referenceCount.toLocaleString()} ${plan.referenceCount === 1 ? "link" : "links"}` : ""}?`
-        : `${mode === "rename" ? "Rename" : "Move"} ‘${basename}’`}</h2>
+      <h2 id={id}>{result ? result.failures.length || result.warnings?.length ? t`Folder change needs attention` : t`Folder change complete` : plan
+        ? plan.referenceCount
+          ? mode === "rename"
+            ? <Trans>Rename ‘{basename}’ and move <Plural value={plan.moves.length} one="# note" other="# notes" /> and update <Plural value={plan.referenceCount} one="# link" other="# links" />?</Trans>
+            : <Trans>Move <Plural value={plan.moves.length} one="# note" other="# notes" /> and update <Plural value={plan.referenceCount} one="# link" other="# links" />?</Trans>
+          : mode === "rename"
+            ? plural(plan.moves.length, { one: `Rename ‘${basename}’ and move # note?`, other: `Rename ‘${basename}’ and move # notes?` })
+            : plural(plan.moves.length, { one: "Move # note?", other: "Move # notes?" })
+        : mode === "rename" ? t`Rename ‘${basename}’` : t`Move ‘${basename}’` }</h2>
       {!plan && <form id={`${id}-form`} onSubmit={(event) => { event.preventDefault(); void review(); }}>
-        <label htmlFor={`${id}-value`}>{mode === "rename" ? "Folder name" : "Destination folder"}</label>
+        <label htmlFor={`${id}-value`}>{mode === "rename" ? t`Folder name` : t`Destination folder`}</label>
         {mode === "rename" ? <input className="mdbase-field" id={`${id}-value`} value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} data-autofocus />
-          : <Select id={`${id}-value`} aria-label="Destination folder" value={value} onChange={setValue} disabled={busy} data-autofocus options={[
-            { value: "", label: "All notes (collection root)" },
+          : <Select id={`${id}-value`} aria-label={t`Destination folder`} value={value} onChange={setValue} disabled={busy} data-autofocus options={[
+            { value: "", label: t`Collection root` },
             ...folders.filter((path) => path !== from && !path.startsWith(`${from}/`)).map((path) => ({ value: path, label: path }))
           ]} />}
-        <p>Notes in subfolders move too. Links to these notes will be updated.</p>
+        <p><Trans>Notes in subfolders move too. Links to these notes will be updated.</Trans></p>
       </form>}
-      {plan && !result && <div><p>From <code>{plan.from}</code> to <code>{plan.to}</code>. This changes paths across the collection, including subfolders.</p>
-        {plan.warnings.length > 0 && <p>{plan.warnings.length.toLocaleString()} link warnings need attention and will not be fixed automatically: {plan.warnings.join("; ")}</p>}
+      {plan && !result && <div><p><Trans>From <code>{plan.from}</code> to <code>{plan.to}</code>. This changes paths across the collection, including subfolders.</Trans></p>
+        {plan.warnings.length > 0 && <p><Trans>{plan.warnings.length.toLocaleString(displayLocale())} link warnings need attention and will not be fixed automatically: {plan.warnings.join("; ")}</Trans></p>}
       </div>}
-      {progress && busy && <p role="status">Moved {progress.completed} of {progress.total} notes. {progress.path}{progress.detail ? ` — ${progress.detail}` : ""}</p>}
+      {progress && busy && <p role="status"><Trans>Moved {progress.completed} of {progress.total} notes. {progress.path}</Trans>{progress.detail ? ` — ${progress.detail}` : ""}</p>}
       {result && <div role={result.failures.length ? "alert" : "status"}>
-        <p>{result.moved.toLocaleString()} {result.moved === 1 ? "note moved" : "notes moved"}.{result.failures.length ? ` ${result.failures.length.toLocaleString()} ${result.failures.length === 1 ? "note could" : "notes could"} not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.` : " Links were updated."}</p>
+        <p>{plural(result.moved, { one: "# note moved.", other: "# notes moved." })}{result.failures.length ? plural(result.failures.length, { one: ` # note could not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.`, other: ` # notes could not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.` }) : t` Links were updated.`}</p>
         {result.failures.length > 0 && <ul>{result.failures.map((failure) => <li key={failure.path}><code>{failure.path}</code>: {failure.message}</li>)}</ul>}
       </div>}
       {result?.warnings && <div role="alert">{result.warnings.map((warning) => <p key={warning}>{warning}</p>)}</div>}
       {error && <p role="alert">{error}</p>}
     </div>
     <footer>
-      <button className="mdbase-button is-tertiary" ref={cancel} disabled={busy} onClick={close}>{result ? "Done" : "Cancel"}</button>
-      {!result && (plan ? <button className="mdbase-button is-primary confirm-primary" disabled={busy} onClick={() => void apply()}>{busy ? "Moving…" : mode === "rename" ? "Rename folder" : "Move folder"}</button>
-        : <button className="mdbase-button is-primary confirm-primary" form={`${id}-form`} type="submit" disabled={busy}>{busy ? "Checking notes and links…" : "Review changes"}</button>)}
+      <button className="mdbase-button is-tertiary" ref={cancel} disabled={busy} onClick={close}>{result ? t`Done` : t`Cancel`}</button>
+      {!result && (plan ? <button className="mdbase-button is-primary confirm-primary" disabled={busy} onClick={() => void apply()}>{busy ? t`Moving…` : mode === "rename" ? t`Rename folder` : t`Move folder`}</button>
+        : <button className="mdbase-button is-primary confirm-primary" form={`${id}-form`} type="submit" disabled={busy}>{busy ? t`Checking notes and links…` : t`Review changes`}</button>)}
     </footer>
   </Dialog>;
 }

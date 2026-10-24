@@ -1,3 +1,5 @@
+import { t, plural } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { useRef, useState } from "react";
 import { MdbaseConnectError, type MdbaseFileProgress } from "@mdbase-dev/connect";
 import { trackMdbaseMarkProgress } from "@mdbase-dev/ui/mark-activity";
@@ -29,24 +31,24 @@ export function attachmentUploadFailure(name: string, error: unknown): Attachmen
     const amount = "(\\d+(?:\\.\\d+)?\\s*(?:bytes|[KMGT]i?B))";
     const limit = diagnostic.match(new RegExp(`${amount}\\s+(?:(?:file|upload|size)\\s+)?limit`, "iu"))?.[1]
       ?? diagnostic.match(new RegExp(`(?:limit|maximum file size)\\s*(?:of|is|:|=)?\\s*${amount}`, "iu"))?.[1];
-    return permanent(limit ? `${name} is larger than the ${limit.trim()} limit.` : `${name} is too large to upload.`);
+    return permanent(limit ? t`${name} is larger than the ${limit.trim()} limit.` : t`${name} is too large to upload.`);
   }
   if (status === 415 || /(?:unsupported|invalid) (?:media|file|content) type|file type.*not supported/iu.test(diagnostic)) {
-    return permanent(`${name} is a file type that can’t be uploaded.`);
+    return permanent(t`${name} is a file type that can’t be uploaded.`);
   }
   if (sdk?.problem.category === "authorization" || status === 401 || status === 403
       || /permission|not authorized|access denied|forbidden/iu.test(diagnostic)) {
-    return permanent(`You don’t have permission to upload ${name}.`);
+    return permanent(t`You don’t have permission to upload ${name}.`);
   }
   // An uncertain mutation outcome must be resolved, not uploaded again.
-  if (sdk?.outcomeUnknown) return permanent(`Couldn’t confirm whether ${name} was uploaded. Check the collection’s files before uploading again.`);
+  if (sdk?.outcomeUnknown) return permanent(t`Couldn’t confirm whether ${name} was uploaded. Check the collection’s files before uploading again.`);
   const timedOut = sdk?.code === "timeout" || failure?.name === "TimeoutError"
     || /timed? out|timeout/iu.test(diagnostic);
   const network = /failed to fetch|network(?:error| request| connection| error)|connection (?:lost|reset)/iu.test(diagnostic);
   const retryable = timedOut || network || status === 408 || status === 429 || status >= 500 && status < 600 || Boolean(sdk?.retryable);
-  if (timedOut) return { message: `Uploading ${name} took too long. Try again.`, retryable };
-  if (network) return { message: `Couldn’t upload ${name}. Check your connection and try again.`, retryable };
-  return { message: retryable ? `Couldn’t upload ${name} right now. Try again shortly.` : `Couldn’t upload ${name}.`, retryable };
+  if (timedOut) return { message: t`Uploading ${name} took too long. Try again.`, retryable };
+  if (network) return { message: t`Couldn’t upload ${name}. Check your connection and try again.`, retryable };
+  return { message: retryable ? t`Couldn’t upload ${name} right now. Try again shortly.` : t`Couldn’t upload ${name}.`, retryable };
 }
 
 interface AttachmentUploadState {
@@ -131,17 +133,19 @@ export function useAttachmentUpload(input: {
 
     setUpload(undefined);
     if (input.activeSession() !== session || session.deleted) {
-      input.setNotice(`${files.length === 1 ? "The file was" : "The files were"} uploaded, but the note changed before its link could be inserted.`, "success");
+      input.setNotice(plural(files.length, { one: `The file was uploaded, but the note changed before its link could be inserted.`, other: `The files were uploaded, but the note changed before its link could be inserted.` }), "success");
       return;
     }
     setInsertion({ id: ++sequence.current, text: references.join("\n"), block: true });
-    input.setNotice(`${files.length === 1 ? `Uploaded “${files[0]?.name ?? "attachment"}”` : `Uploaded ${files.length.toLocaleString()} files`}. The collection file is committed; the note link is saving separately.`, "success");
+    input.setNotice(files.length === 1
+      ? t`Uploaded “${files[0]!.name}”. The collection file is committed; the note link is saving separately.`
+      : plural(files.length, { one: "Uploaded # file. The collection file is committed; the note link is saving separately.", other: "Uploaded # files. The collection file is committed; the note link is saving separately." }), "success");
   }
 
   function uploadReference(source: File): Promise<string> {
     const transfer = input.scope.run(async (token): Promise<{ reference: string } | { error: unknown }> => {
       const session = input.activeSession();
-      if (!session || session.deleted) throw new Error("The note is no longer editable.");
+      if (!session || session.deleted) throw new Error(t`The note is no longer editable.`);
       const markProgress = trackMdbaseMarkProgress();
       try {
         const file = await uploadToCollection(source, session, token, reservedPaths.current, {
@@ -152,7 +156,7 @@ export function useAttachmentUpload(input: {
           }
         });
         if (input.activeSession() !== session || session.deleted) {
-          throw new Error("The file was uploaded, but the note changed before its link could be inserted.");
+          throw new Error(t`The file was uploaded, but the note changed before its link could be inserted.`);
         }
         return { reference: attachmentReference(file) };
       } catch (error) {
@@ -208,18 +212,19 @@ export function attachmentMenuItem(
   requestAccess: () => void
 ): ActionMenuItem {
   return canAttach ? {
-    label: controller.upload ? "Attaching file…" : "Attach file…",
+    label: controller.upload ? t`Attaching file…` : t`Attach file…`,
     icon: <FilePlus aria-hidden="true" />,
     disabled: Boolean(controller.upload) || controller.disabled,
     onSelect: () => controller.input.current?.click()
   } : {
-    label: "Request attachment access",
+    label: t`Request attachment access`,
     icon: <FilePlus aria-hidden="true" />,
     onSelect: requestAccess
   };
 }
 
 export function AttachmentTransfer({ controller }: { controller: AttachmentUploadController }) {
+  useLingui();
   return <>
     <input
       ref={controller.input}
@@ -241,7 +246,7 @@ export function AttachmentTransfer({ controller }: { controller: AttachmentUploa
       {controller.upload.progress && <progress
         max={Math.max(controller.upload.progress.totalBytes, 1)}
         value={controller.upload.progress.transferredBytes}
-        aria-label={`Attachment progress for ${controller.upload.name}`}
+        aria-label={t`Attachment progress for ${controller.upload.name}`}
       />}
     </div>}
   </>;
@@ -282,8 +287,8 @@ function attachmentReference(file: CollectionFile): string {
 }
 
 function attachmentProgressLabel(upload: AttachmentUploadState): string {
-  if (!upload.progress) return `Preparing “${upload.name}”…`;
-  const phase = upload.progress.phase === "hashing" ? "Checking" : upload.progress.phase === "uploading" ? "Uploading" : "Reading";
+  if (!upload.progress) return t`Preparing “${upload.name}”…`;
+  const phase = upload.progress.phase === "hashing" ? t`Checking` : upload.progress.phase === "uploading" ? t`Uploading` : t`Reading`;
   const total = upload.progress.totalBytes;
   return total <= 0 ? `${phase} “${upload.name}”…`
     : `${phase} “${upload.name}” · ${Math.min(100, Math.round(upload.progress.transferredBytes / total * 100))}%`;

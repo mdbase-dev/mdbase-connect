@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "./test/locale";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileViewer, FileWorkspace } from "./FileViewer";
 import { FileAssetStore } from "./file-asset-store";

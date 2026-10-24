@@ -1,4 +1,6 @@
 import "@testing-library/jest-dom/vitest";
+// Non-React presentation helpers also use the real, synchronously loaded English catalogue.
+import "./i18n/runtime";
 import { cleanup, configure } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 

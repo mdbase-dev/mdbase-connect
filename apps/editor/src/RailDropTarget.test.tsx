@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "./test/locale";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FOLDER_PATH_MIME } from "./folder-change";
 import { NOTE_PATHS_MIME } from "./note-list-view";

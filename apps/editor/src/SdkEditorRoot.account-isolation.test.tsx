@@ -2,7 +2,7 @@
 // Editor contract tests: real public grant crypto/storage, scripted CP, public
 // SDK account-view fixture. NOT actual Worker sign-out/wipe/native admission.
 // Muse's SDK cleanup and bound-inventory proofs remain separate release gates.
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "./test/locale";
 import type { Mdbase } from "@mdbase-dev/sdk";
 import { MdbaseAppGrants } from "@mdbase-dev/sdk/app-grant";
 import { afterEach, expect, it, vi } from "vitest";

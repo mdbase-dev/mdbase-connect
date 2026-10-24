@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { describe, expect, it, vi } from "vitest";

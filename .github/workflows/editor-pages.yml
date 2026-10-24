@@ -10,6 +10,7 @@ on:
       - "packages/management/**"
       - "packages/protocol/**"
       - "packages/app-ui/**"
+      - "packages/i18n/**"
       - "packages/ui/**"
       - "services/feedback/**"
       - "pnpm-lock.yaml"
@@ -63,6 +64,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:packages
+      - run: pnpm --filter mdbase-editor i18n:check
+      - run: git diff --exit-code -- apps/editor/src/i18n/locales
       - run: pnpm --filter mdbase-editor typecheck
       - run: pnpm --filter mdbase-editor test
       - run: pnpm --filter @mdbase/feedback-worker typecheck
