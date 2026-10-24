@@ -79,7 +79,7 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     await admin?.end();
   });
 
-  async function fixture(count = 2, transferred = 0, environment: "lab" | "staging" | "production" = "staging", contract: "ordinary" | "fixture" = "ordinary") {
+  async function fixture(count = 2, transferred = 0, environment: "lab" | "staging" | "production" = "staging", contract: "ordinary" | "fixture" = "ordinary", missing = 0) {
     const account = randomUUID(), collections = Array.from({ length: count }, (): string => randomUUID()).sort(), cohort = `managed-${randomUUID()}`;
     const storage = randomUUID();
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Synthetic managed')", [account, `${account}@example.test`]);
@@ -97,6 +97,9 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
       await db.query(`INSERT INTO hosted_collections(id,user_id,display_name,template,provider_url,authority_state,authority_epoch,transferred_collection_id)
         VALUES($1,$2,'Synthetic','mdbase','https://provider.example','transferred',2,$3)`, [id, account, local]);
     }
+    for (let i = 0; i < missing; i++)
+      await db.query(`INSERT INTO hosted_collections(id,user_id,display_name,template,quarantined_at,quarantine_reason)
+        VALUES($1,$2,'Missing','mdbase',now(),'provider_collection_missing')`, [randomUUID(), account]);
     await createCohort(db, cohort, actor); await addToCohort(db, cohort, [account], actor); await releaseCohort(db, cohort, actor);
     await setCohortFrozen(db, cohort, true, "synthetic freeze", actor);
     const capture = await inTransaction(db, client => readCohortCaptureSnapshot(client, cohort)), inventory = prearchiveInventory(capture);
@@ -336,6 +339,18 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,authority_state) VALUES($1,$2,'History','mdbase','transferred')", [history, f.account]);
     await cloudCopy(history, other);
     await expect(migrationRoute(db, routing, history)).rejects.toThrow("ambiguous_collection_owner");
+  });
+
+  it("skips missing-provider quarantines through archive, binding, flip and whole-account completion", async () => {
+    const f = await fixture(2, 0, "staging", "ordinary", 1);
+    const before = (await db.query("SELECT * FROM hosted_collections WHERE user_id=$1 AND quarantined_at IS NOT NULL", [f.account])).rows;
+    expect(before).toHaveLength(1);
+    expect(await run(f)).toHaveProperty("done.migration_complete", true);
+    for (const id of f.collections) await requireCompletedAccountMigration(db, id, f.account);
+    expect(await cutOvers(f.account)).toBe(2);
+    expect((await db.query("SELECT * FROM hosted_collections WHERE user_id=$1 AND quarantined_at IS NOT NULL", [f.account])).rows).toEqual(before);
+    expect((await db.query("SELECT collections::text[] FROM next_migration_account_flips WHERE account_id=$1", [f.account])).rows[0].collections).toEqual(f.collections);
+    expect((await source.query("SELECT 1 FROM hosted_provider_collections WHERE id=$1", [before[0].id])).rows).toEqual([]);
   });
 
   it("stop-before-flip returns at the shared barrier with nothing cut over; resume crosses it once", async () => {
@@ -641,7 +656,7 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
 
   it("an unsettled member refuses with bounded details; status reports them and the set", async () => {
     const f = await fixture(), second = f.collections[1]!;
-    await db.query("UPDATE hosted_collections SET quarantined_at=now(),quarantine_reason='provider_collection_missing' WHERE id=$1", [second]);
+    await db.query("UPDATE hosted_collections SET quarantined_at=now(),quarantine_reason=NULL WHERE id=$1", [second]);
     const details = { unsettled: [{ collection_id: second, predicate: "quarantined" }] };
     expect(await run(f)).toMatchObject({ stopped: { step: "preflight", reason: "collections_unsettled", details } });
     expect(await labStatus(f.account, f.deps)).toMatchObject({ refusal: { code: "collections_unsettled", details }, collection_ids: f.collections });

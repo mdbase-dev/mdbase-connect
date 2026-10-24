@@ -105,6 +105,9 @@ async function archiveClock(client: DatabaseQueryable): Promise<string> {
   return new Date(row.now).toISOString();
 }
 
+// Missing-provider quarantines have no source to migrate. Exclude them from
+// every migration inventory/digest, never from legacy storage or its retention.
+// NULL/unknown quarantine reasons stay in the held set and fail admission.
 /** Caller holds this transaction's batch lock through inventory/currentness checks. */
 async function readCohortBinding(client: DatabaseQueryable, name: string, requireFrozen: boolean): Promise<{ binding: ArchiveBinding; frozenAt: string | null; memberCount: number; inventory: [string, string[]][] }> {
   const batch = (await client.query<{ revision: string; changed: Date; frozen_at: Date | null }>(
@@ -116,7 +119,7 @@ async function readCohortBinding(client: DatabaseQueryable, name: string, requir
   const members = (await client.query<{ account: string; collection: string | null }>(
     `SELECT m.account_id::text AS account, h.id::text AS collection
      FROM next_migration_cohort_members m
-     LEFT JOIN hosted_collections h ON h.user_id = m.account_id AND h.authority_state <> 'transferred'
+     LEFT JOIN hosted_collections h ON h.user_id = m.account_id AND h.authority_state <> 'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing')
      WHERE m.cohort = $1 ORDER BY m.account_id, h.id`, [name]
   )).rows;
   const inventory = new Map<string, string[]>();
@@ -331,7 +334,7 @@ export async function accountMigrationView(db: DatabaseQueryable, account: strin
     `SELECT h.id::text AS id, h.authority_state, n.collection_id IS NOT NULL AS cut_over
      FROM hosted_collections h
      LEFT JOIN next_migration_collections n ON n.collection_id = h.id
-     WHERE h.user_id = $1 AND h.authority_state <> 'transferred' ORDER BY h.id`, [account]
+     WHERE h.user_id = $1 AND h.authority_state <> 'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing') ORDER BY h.id`, [account]
   )).rows;
   const { paused } = await rolloutState(db);
   return {
@@ -667,15 +670,15 @@ export async function flipAccountBackend(
     if (!batch) throw new Error("Migration membership has no cohort.");
     // Lock the hosted collections: none may change authority during the flip, and
     // creation of new ones is refused for a next account (the users row lock orders it).
-    const held = (await client.query<{ id: string; authority_state: string; barrier_f: string | null; final_digest: string | null; runtime: string | null }>(
-      `SELECT h.id::text AS id, h.authority_state, n.barrier_f::text AS barrier_f, n.final_digest, x.runtime
+    const held = (await client.query<{ id: string; authority_state: string; quarantined_at: Date | null; barrier_f: string | null; final_digest: string | null; runtime: string | null }>(
+      `SELECT h.id::text AS id, h.authority_state, h.quarantined_at, n.barrier_f::text AS barrier_f, n.final_digest, x.runtime
        FROM hosted_collections h
        LEFT JOIN next_migration_collections n ON n.collection_id = h.id AND n.account_id = h.user_id
        LEFT JOIN next_collections x ON x.collection_id = h.id AND x.owner_user_id = h.user_id
-       WHERE h.user_id = $1 AND h.authority_state <> 'transferred' ORDER BY h.id FOR UPDATE OF h`, [account]
+       WHERE h.user_id = $1 AND h.authority_state <> 'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing') ORDER BY h.id FOR UPDATE OF h`, [account]
     )).rows;
-    if (held.some((c) => c.authority_state !== "active")) {
-      throw new RolloutRefused("collections_unsettled", "A hosted collection is mid import or transfer.");
+    if (held.some((c) => c.authority_state !== "active" || c.quarantined_at !== null)) {
+      throw new RolloutRefused("collections_unsettled", "A hosted collection is quarantined or mid import or transfer.");
     }
     if (held.map((c) => c.id).join() !== named.join()) {
       throw new RolloutRefused("collections_mismatch", "The migrated collections are not exactly the account's hosted collections.");

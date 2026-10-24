@@ -43,7 +43,7 @@ export async function isCurrentZeroHostedCohort(client: DatabaseQueryable, name:
   const row = (await client.query<{ empty: boolean }>(
     `SELECT (SELECT count(*) FROM next_migration_cohort_members WHERE cohort=$1) BETWEEN 1 AND 850
        AND NOT EXISTS (SELECT 1 FROM next_migration_cohort_members m
-         JOIN hosted_collections h ON h.user_id=m.account_id AND h.authority_state<>'transferred'
+         JOIN hosted_collections h ON h.user_id=m.account_id AND h.authority_state<>'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing')
          WHERE m.cohort=$1) AS empty`, [name]
   )).rows[0];
   return row?.empty === true;

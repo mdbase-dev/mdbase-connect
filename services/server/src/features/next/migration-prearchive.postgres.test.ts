@@ -89,6 +89,19 @@ suite("prearchive original first-H6 authorization (real isolated PG)",()=>{
     }finally{await f.app.close();}
   });
 
+  it("prearchive H6 skips a missing-provider member with a freshly bound inventory", async()=>{
+    const f=await fixture(), other=f.inventory.selected[1]!;
+    try{
+      await db.query("UPDATE hosted_collections SET quarantined_at=now(),quarantine_reason='provider_collection_missing' WHERE id=$1",[other.collection_id]);
+      const capture=await inTransaction(db,client=>readCohortCaptureSnapshot(client,f.name));
+      const inventory=prearchiveInventory(capture);
+      expect(inventory.selected).toEqual([f.target]);
+      const response=await f.request("fence",{binding:capture.binding,inventory_sha256:inventory.inventory_sha256});
+      expect(response.statusCode,response.body).toBe(200);
+      expect(f.provider.legacyMigrationFence).toHaveBeenCalledExactlyOnceWith(f.target.collection_id,{deadline:expect.any(Number)});
+    }finally{await f.app.close();}
+  });
+
   it.each(["hash","binding","other-cohort","ordinal","extra","query","token","unknown-environment"])("refuses untrusted scope/role before provider IO: %s",async kind=>{
     const f=await fixture(kind==="unknown-environment"?"unknown":"lab");
     try{
