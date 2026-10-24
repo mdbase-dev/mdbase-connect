@@ -1,3 +1,3 @@
 ## Fixed
 
-- Require each translated ICU plural/ordinal to cover its locale's CLDR categories, reject unknown categories, and report English-identical plural/select branches for review while respecting reviewed identical-term IDs.
+- Require translated ICU plurals/ordinals to cover categories reachable at integer counts 0–999, allowing exact arms that cover an entire category. Report unreachable optional categories informationally, reject unknown categories, and warn on English-identical plural/select branches while respecting reviewed identical-term IDs.
