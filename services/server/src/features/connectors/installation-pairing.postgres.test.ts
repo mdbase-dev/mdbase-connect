@@ -82,7 +82,7 @@ describePg("installation device sign-in on daemon pairing", () => {
       nativePushes.push({connector,grants:snapshot.grants.map(g=>String(g.id))});
       await acknowledgeNativePush();
     }} });
-    registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null } });
+    registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null }, relay: { fenceConnector: async () => "closed" } });
     registerInstallationSignOutRoute(app, { db, relay: { fenceConnector: async (id, generation) => { fenced.push([id, generation]); return "closed"; } } });
     const resolver = backgroundTimerGrantResolver(db,"lab");
     registerTimerRoutes(app, { db, resolver });
