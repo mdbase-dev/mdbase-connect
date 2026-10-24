@@ -685,13 +685,22 @@ fn sync_context_needs_sign_in_and_only_uses_the_daemons_trust() {
 }
 
 #[test]
-fn empty_bootstrap_folder_does_not_ignore_hidden_user_data() {
-    let dir = crate::testutil::TestDir::new("strict-empty-bootstrap");
+fn join_folder_may_hold_hidden_entries_but_not_files_or_replica_state() {
+    let dir = crate::testutil::TestDir::new("join-empty");
     assert!(super::folder_is_empty(dir.path()).unwrap());
-    std::fs::create_dir(dir.path().join(".git")).unwrap();
+    std::fs::create_dir_all(dir.path().join(".obsidian/plugins")).unwrap();
+    std::fs::write(dir.path().join(".obsidian/app.json"), b"{}").unwrap();
+    std::fs::write(dir.path().join(".DS_Store"), b"synthetic").unwrap();
+    assert!(super::folder_is_empty(dir.path()).unwrap());
+    for private in [".mdbase", ".MDBASE", ".mdbase."] {
+        std::fs::create_dir(dir.path().join(private)).unwrap();
+        assert!(!super::folder_is_empty(dir.path()).unwrap(), "{private}");
+        std::fs::remove_dir(dir.path().join(private)).unwrap();
+    }
+    std::fs::write(dir.path().join("note.md"), b"synthetic").unwrap();
     assert!(!super::folder_is_empty(dir.path()).unwrap());
-    std::fs::remove_dir(dir.path().join(".git")).unwrap();
-    std::fs::write(dir.path().join(".private-notes.md"), b"synthetic").unwrap();
+    std::fs::remove_file(dir.path().join("note.md")).unwrap();
+    std::fs::create_dir(dir.path().join("notes")).unwrap();
     assert!(!super::folder_is_empty(dir.path()).unwrap());
 }
 
@@ -876,6 +885,38 @@ async fn added_empty_folder_stays_empty_for_sync_enable_with_the_host_lock() {
     assert!(super::local_bootstrap_folder_is_empty(&root).unwrap());
     std::fs::write(root.join("note.md"), b"synthetic").unwrap();
     assert!(!super::local_bootstrap_folder_is_empty(&root).unwrap());
+    let mut inner = d.inner.lock().await;
+    for host in inner.hosts.iter_mut() {
+        host.close().await;
+    }
+}
+
+/// `sync enable` right after `collection add` waits for the collection to open
+/// instead of refusing with `not_serving`.
+#[tokio::test]
+async fn enable_right_after_add_waits_for_the_open() {
+    let dir = crate::testutil::TestDir::new("enable-after-add");
+    let folder = crate::testutil::TestDir::new("enable-after-add-folder");
+    std::fs::write(folder.path().join("note.md"), b"synthetic").unwrap();
+    let d = paired_daemon(&dir).await;
+    let status = d
+        .add(crate::control::AddCollection {
+            path: folder.path().to_path_buf(),
+            name: None,
+        })
+        .await
+        .unwrap();
+    let id = status["id"].as_str().unwrap().to_string();
+    let out = d
+        .enable_sync(crate::control::EnableSync {
+            collection: id.clone(),
+            mode: None,
+            accept_takeover_holds: false,
+        })
+        .await;
+    if let Err(e) = &out {
+        assert_ne!(e.reason.as_deref(), Some("not_serving"), "{e:?}");
+    }
     let mut inner = d.inner.lock().await;
     for host in inner.hosts.iter_mut() {
         host.close().await;

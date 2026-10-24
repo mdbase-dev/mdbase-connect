@@ -19,7 +19,8 @@ use serde_json::{Value, json};
 
 use crate::client::{self, ClientError, ControlClient};
 use crate::control::{
-    Check, CollectionStatus, ControlError, DaemonStatus, HoldSummary, Method, PendingDevice,
+    Check, CollectionStatus, ConflictSummary, ControlError, DaemonStatus, HoldSummary, Method,
+    PendingDevice,
 };
 use crate::paths::Profile;
 use crate::registry::SyncMode;
@@ -84,7 +85,7 @@ enum Command {
         /// `keep_mine`, `take_theirs`, `keep_both` or `delete`.
         how: String,
     },
-    /// Unresolved field conflicts.
+    /// Changes mdbase merged where one side's value was kept over the other's.
     Conflicts {
         /// Collection ID, ID prefix or name.
         collection: String,
@@ -167,7 +168,7 @@ enum CollectionCmd {
     Join {
         /// The collection's ID (from another of your devices or the web).
         collection: String,
-        /// An empty folder.
+        /// An empty folder (hidden entries such as `.obsidian` may stay).
         path: PathBuf,
         /// Display name (default: the folder name).
         #[arg(long)]
@@ -867,14 +868,30 @@ async fn run_command(
             .await
         }
         Command::Conflicts { collection } => {
-            simple(
+            let id = resolve(profile, &collection).await?;
+            let v = call(
                 profile,
-                out,
                 Method::COLLECTION_CONFLICTS,
-                &collection,
-                json!({}),
+                json!({ "collection": id }),
             )
-            .await
+            .await?;
+            if out.json {
+                out.value(&v);
+                return Ok(ExitCode::SUCCESS);
+            }
+            let list: Vec<ConflictSummary> =
+                serde_json::from_value(v).map_err(|e| ClientError::Protocol(e.to_string()))?;
+            if list.is_empty() {
+                println!("No unresolved conflicts.");
+            }
+            for c in &list {
+                let what = match &c.field {
+                    Some(f) => format!("{} {f}", c.kind),
+                    None => c.kind.clone(),
+                };
+                println!("{}  {what}  ({})", c.path.as_deref().unwrap_or(&c.id), c.id);
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Command::Sync(SyncCmd::Enable {
             collection,

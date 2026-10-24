@@ -114,9 +114,16 @@ impl ControlClient {
         &mut self,
         store: &dyn crate::secrets::SecretStore,
     ) -> Result<(), ClientError> {
+        // The daemon is reachable; the keychain is what failed.
+        let keychain = |m: String| {
+            ClientError::Remote(crate::control::ControlError::unavailable(
+                "credential_store_unavailable",
+                m,
+            ))
+        };
         let key = crate::secrets::read_control_key(store)
-            .map_err(|e| ClientError::Protocol(e.to_string()))?
-            .ok_or_else(|| ClientError::Protocol("no control key in the keychain yet".into()))?;
+            .map_err(|e| keychain(e.to_string()))?
+            .ok_or_else(|| keychain("no control key in the keychain yet".into()))?;
         let v = self
             .call(
                 crate::control::Method::AUTH_CHALLENGE,
