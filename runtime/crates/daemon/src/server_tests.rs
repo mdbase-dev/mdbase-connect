@@ -1,6 +1,8 @@
 //! Security regression tests for consent and feed persistence boundaries.
 #[path = "server_capture_stop_tests.rs"]
 mod capture_stop_tests;
+#[path = "server_conflict_tests.rs"]
+mod conflict_tests;
 #[cfg(unix)]
 #[path = "server_mirror_join_tests.rs"]
 mod mirror_join_tests;
