@@ -44,28 +44,8 @@ msgstr "{0, plural, other {# 项未解决的冲突}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
-msgstr "{0, select, desktop {一台新电脑请求打开 {name}} mobile {一部新手机请求打开 {name}} other {一台新设备请求打开 {name}}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
-msgstr "{0, select, desktop {请输入新电脑上显示的六位代码} mobile {请输入新手机上显示的六位代码} other {请输入新设备上显示的六位代码}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
-msgstr "{0, select, desktop {代码不匹配。请核对新电脑上的代码。如果这不是你发起的请求，请拒绝。} mobile {代码不匹配。请核对新手机上的代码。如果这不是你发起的请求，请拒绝。} other {代码不匹配。请核对新设备上的代码。如果这不是你发起的请求，请拒绝。}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
-msgstr "{0, select, desktop {新电脑现在可以打开 {name}。} mobile {新手机现在可以打开 {name}。} other {新设备现在可以打开 {name}。}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
-msgstr "{0, select, desktop {新电脑未获得访问 {name} 的权限。} mobile {新手机未获得访问 {name} 的权限。} other {新设备未获得访问 {name} 的权限。}}"
+msgid "{0, select, desktop {Another computer} mobile {Another phone} other {Another device}}"
+msgstr "{0, select, desktop {另一台电脑} mobile {另一部手机} other {另一个设备}}"
 
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
@@ -89,11 +69,6 @@ msgstr "{0} 无法再通过此电脑使用 {1}。"
 #: src/renderer/access-view.tsx
 msgid "{0} can now use {where}."
 msgstr "{0} 现在可以使用 {where}。"
-
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "{0} is on this computer only now."
-#~ msgstr "{0} 现在仅存储在这台电脑上。"
 
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
@@ -247,6 +222,18 @@ msgstr "{waiting, plural, other {迁移前在“{name}”中进行的 # 项编�
 msgid "{waiting, plural, one {You removed “{name}” from this computer, so # edit made in “{name}” before the move was not added to it. It is still in {oldPath}.} other {You removed “{name}” from this computer, so # edits made in “{name}” before the move were not added to it. They are still in {oldPath}.}}"
 msgstr "{waiting, plural, other {你已从此电脑移除“{name}”，因此迁移前在“{name}”中进行的 # 项编辑未添加到其中。这些编辑仍保存在 {oldPath}。}}"
 
+#: src/renderer/device-requests.tsx
+msgid "{who} can now open {collection}."
+msgstr "{who}现在可以打开{collection}。"
+
+#: src/renderer/device-requests.tsx
+msgid "{who} wants to open {collection}"
+msgstr "{who}想要打开{collection}"
+
+#: src/renderer/device-requests.tsx
+msgid "{who} was not given access to {collection}."
+msgstr "未授予{who}访问{collection}的权限。"
+
 #: src/renderer/takeover-panel.tsx
 msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>允许托管镜像暂停，直到我重新加入"
@@ -318,6 +305,18 @@ msgstr "添加你的第一个集合"
 msgid "All on this computer only"
 msgstr "全部仅存储在此电脑上"
 
+#: src/renderer/device-requests.tsx
+msgid "Allow"
+msgstr "允许"
+
+#: src/renderer/device-requests.tsx
+msgid "Allow only a computer you are setting up yourself."
+msgstr "仅允许您正在亲自设置的电脑。"
+
+#: src/renderer/device-requests.tsx
+msgid "Allowing {who}…"
+msgstr "正在允许{who}…"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "An app"
@@ -362,15 +361,6 @@ msgstr "外观"
 #: src/renderer/main.tsx
 msgid "Application"
 msgstr "应用"
-
-#: src/renderer/device-requests.tsx
-msgctxt "Connect interface"
-msgid "Approve"
-msgstr "批准"
-
-#: src/renderer/device-requests.tsx
-msgid "Approve a device only if you started setting it up yourself."
-msgstr "只有在你本人发起设备设置时才批准它。"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Approve this computer in your browser. This window updates automatically."
@@ -482,6 +472,14 @@ msgstr "检查 {0} 是否显示相同的密钥。"
 #: src/renderer/takeover-state.mts
 msgid "Check that the disk is not full, then try again. Nothing was changed."
 msgstr "请检查磁盘是否已满，然后重试。没有任何内容被更改。"
+
+#: src/main/main.ts
+msgid "Check the verification code before allowing."
+msgstr "允许前请核对验证码。"
+
+#: src/renderer/collections-view.tsx
+msgid "Check this code matches on your other computer:"
+msgstr "请确认此代码与您另一台电脑上的代码一致："
 
 #: src/renderer/takeover-state.mts
 msgid "Check whether this folder was copied from another computer. Nothing was changed."
@@ -712,6 +710,10 @@ msgstr "删除笔记"
 msgid "Deleted on another device"
 msgstr "已在另一台设备上删除"
 
+#: src/renderer/device-requests.tsx
+msgid "Deny"
+msgstr "拒绝"
+
 #: src/renderer/collections-view.tsx
 msgid "Description"
 msgstr "描述"
@@ -821,10 +823,6 @@ msgstr "此电脑在 mdbase 账户中的显示方式"
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "如果你批准，{0} 将能够通过此电脑在 {where} 中{1}。你可以随时撤销。"
-
-#: src/renderer/device-requests.tsx
-msgid "If you approve, it can read and change everything in {name}, as this computer can."
-msgstr "如果你批准，它就能像此电脑一样读取和更改 {name} 中的所有内容。"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -1141,11 +1139,6 @@ msgstr "新应用现在需要等待你在此电脑上批准。"
 msgid "New collection"
 msgstr "新集合"
 
-#: src/renderer/device-requests.tsx
-msgctxt "Connect interface"
-msgid "New devices waiting"
-msgstr "新设备待处理"
-
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "No actions"
@@ -1221,6 +1214,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "仅在此电脑上"
 
+#: src/renderer/device-requests.tsx
+msgid "Only allow if this matches the code on {who}"
+msgstr "仅在此代码与{who}上的代码一致时允许"
+
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
 #: src/main/main.ts
@@ -1283,6 +1280,10 @@ msgstr "已暂停"
 msgctxt "Collection move recovery"
 msgid "Postponed"
 msgstr "已推迟"
+
+#: src/renderer/device-requests.tsx
+msgid "Preparing comparison code…"
+msgstr "正在准备比对代码…"
 
 #: src/renderer/main.tsx
 msgid "Previous version restored"
@@ -1547,11 +1548,6 @@ msgstr "保持在线，等待上传完成后再重试。"
 msgid "Stop {0} from using {1} through this computer?"
 msgstr "禁止 {0} 通过此电脑使用 {1}？"
 
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
-#~ msgstr "停止同步 {0}？它仍保留在此电脑上，但其他设备和网页应用将不再收到它的更改。"
-
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "已停止"
@@ -1596,11 +1592,6 @@ msgstr "采用另一版本"
 msgctxt "Desktop application"
 msgid "The application update is in progress."
 msgstr "正在更新应用。"
-
-#: src/main/main.ts
-msgctxt "Desktop application"
-msgid "The code is six digits."
-msgstr "代码必须为六位数字。"
 
 #: src/renderer/takeover-state.mts
 msgid "the collection did not accept it"
@@ -1841,10 +1832,6 @@ msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "此版本的 mdbase 太旧，无法使用该服务。请更新 mdbase。"
 
 #: src/renderer/collections-view.tsx
-#~ msgid "Turn off sync"
-#~ msgstr "关闭同步"
-
-#: src/renderer/collections-view.tsx
 msgid "Turn on sync"
 msgstr "开启同步"
 
@@ -1969,6 +1956,10 @@ msgstr "等待登录批准"
 #: src/renderer/daemon-view.mts
 msgid "Waiting for the collection's access policy from mdbase."
 msgstr "等待从 mdbase 获取集合访问策略。"
+
+#: src/renderer/device-requests.tsx
+msgid "Waiting for you"
+msgstr "等待您的决定"
 
 #: src/renderer/access-view.tsx
 msgid "Waiting for your approval"

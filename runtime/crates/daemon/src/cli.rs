@@ -93,7 +93,7 @@ enum Command {
     /// Turn sync on or off (moves the collection's log).
     #[command(subcommand)]
     Sync(SyncCmd),
-    /// Approve new devices for an end-to-end synced collection.
+    /// Let another computer of yours open a private collection.
     #[command(subcommand)]
     Device(DeviceCmd),
     /// Recovery keys for end-to-end synced collections.
@@ -332,27 +332,28 @@ enum AccessCmd {
 
 #[derive(Debug, Subcommand)]
 enum DeviceCmd {
-    /// Devices waiting for approval, with their six-digit codes.
+    /// Other computers waiting to open a private collection here.
     Pending {
-        /// Collection ID, ID prefix or name.
-        collection: String,
+        /// Only this collection (ID, ID prefix or name).
+        collection: Option<String>,
     },
-    /// Approve a device after checking its code matches the one on its screen.
+    /// Let a waiting computer open the collection after visually checking its code.
     Approve {
-        /// Collection ID, ID prefix or name.
-        collection: String,
-        /// Device ID.
+        /// Device ID, or a unique prefix, from `mdbase device pending`.
         device: String,
-        /// The six-digit code shown on the new device.
-        #[arg(long)]
-        code: String,
+        /// Only this collection (ID, ID prefix or name).
+        collection: Option<String>,
+        /// Internal desktop bridge: the code already shown at the Allow decision.
+        #[arg(long, hide = true)]
+        checked_code: Option<String>,
     },
-    /// Do not approve a device.
-    Reject {
-        /// Collection ID, ID prefix or name.
-        collection: String,
-        /// Device ID.
+    /// Do not let a waiting computer open the collection.
+    #[command(alias = "reject")]
+    Deny {
+        /// Device ID, or a unique prefix, from `mdbase device pending`.
         device: String,
+        /// Only this collection (ID, ID prefix or name).
+        collection: Option<String>,
     },
 }
 
@@ -583,6 +584,8 @@ async fn call(profile: &Profile, method: &str, params: Value) -> Result<Value, C
     }
     let timeout = if method == Method::MIGRATE_START {
         MIGRATE_START_TIMEOUT
+    } else if method == Method::DEVICE_APPROVE {
+        DEVICE_APPROVE_TIMEOUT
     } else {
         crate::client::CALL_TIMEOUT
     };
@@ -606,6 +609,50 @@ async fn call(profile: &Profile, method: &str, params: Value) -> Result<Value, C
 /// still-running takeover as an unreachable daemon.
 const MIGRATE_START_TIMEOUT: Duration = Duration::from_secs(600);
 const _: () = assert!(MIGRATE_START_TIMEOUT.as_secs() > crate::takeover::DRAIN.as_secs() * 2);
+
+/// `device approve` answers once the other computer has answered (its challenge
+/// lives two minutes) and the key grant is applied.
+const DEVICE_APPROVE_TIMEOUT: Duration = Duration::from_secs(240);
+
+/// A waiting computer's full device ID from an ID or unique prefix, and the
+/// resolved collection (if one was named).
+async fn pending_device(
+    profile: &Profile,
+    device: &str,
+    collection: Option<String>,
+) -> Result<(String, Option<String>), ClientError> {
+    let collection = match collection {
+        Some(c) => Some(resolve(profile, &c).await?),
+        None => None,
+    };
+    if crate::attest::uuid_bytes(device).is_some() {
+        return Ok((device.to_ascii_lowercase(), collection));
+    }
+    let v = call(
+        profile,
+        Method::DEVICE_PENDING,
+        json!({ "collection": collection }),
+    )
+    .await?;
+    let list: Vec<PendingDevice> =
+        serde_json::from_value(v).map_err(|e| ClientError::Protocol(e.to_string()))?;
+    let mut ids: Vec<&str> = list
+        .iter()
+        .map(|d| d.device.as_str())
+        .filter(|d| !device.is_empty() && d.starts_with(&device.to_ascii_lowercase()))
+        .collect();
+    ids.dedup();
+    match ids.as_slice() {
+        [one] => Ok((one.to_string(), collection)),
+        [] => Err(ClientError::Remote(ControlError::not_found(format!(
+            "no waiting computer matches {device} (see `mdbase device pending`)"
+        )))),
+        _ => Err(ClientError::Remote(ControlError::invalid(
+            "ambiguous_device",
+            format!("{device} matches more than one waiting computer; use more of its ID"),
+        ))),
+    }
+}
 
 /// Resolve a collection argument: exact ID, unique ID prefix, or exact name.
 async fn resolve(profile: &Profile, arg: &str) -> Result<String, ClientError> {
@@ -967,56 +1014,120 @@ async fn run_command(
             simple(profile, out, Method::SYNC_DISABLE, &collection, json!({})).await
         }
         Command::Device(DeviceCmd::Pending { collection }) => {
-            let id = resolve(profile, &collection).await?;
-            let v = call(profile, Method::DEVICE_PENDING, json!({ "collection": id })).await?;
+            let collection = match collection {
+                Some(c) => Some(resolve(profile, &c).await?),
+                None => None,
+            };
+            let v = call(
+                profile,
+                Method::DEVICE_PENDING,
+                json!({ "collection": collection }),
+            )
+            .await?;
             if out.json {
                 out.value(&v);
             } else {
                 let list: Vec<PendingDevice> =
                     serde_json::from_value(v).map_err(|e| ClientError::Protocol(e.to_string()))?;
                 if list.is_empty() {
-                    println!("No devices are waiting for approval.");
+                    println!("No other computer is waiting to open a private collection here.");
                 }
-                for d in list {
+                for d in &list {
                     println!(
-                        "{}  {}  code {} {}",
-                        d.device,
-                        d.kind,
-                        &d.code[..3.min(d.code.len())],
-                        &d.code[3.min(d.code.len())..]
+                        "{} wants to open \"{}\"  (device {})",
+                        d.name.as_deref().unwrap_or("Another computer"),
+                        d.collection_name,
+                        d.device
+                    );
+                    if let Some(code) = &d.sas {
+                        println!(
+                            "Only allow if this matches the code on {}: {}",
+                            d.name.as_deref().unwrap_or("the other computer"),
+                            display_code(code)
+                        );
+                    } else {
+                        println!(
+                            "Preparing verification code; run mdbase device pending again shortly."
+                        );
+                    }
+                }
+                if let Some(d) = list.iter().find(|d| d.sas.is_some()) {
+                    println!(
+                        "Allow: mdbase device approve {}\nDeny:  mdbase device deny {}",
+                        d.device, d.device
                     );
                 }
-                println!(
-                    "Approve a device only if the same code is shown on its screen:\n  \
-                     mdbase device approve {collection} <device> --code <six digits>"
-                );
             }
             Ok(ExitCode::SUCCESS)
         }
         Command::Device(DeviceCmd::Approve {
-            collection,
             device,
-            code,
+            collection,
+            checked_code,
         }) => {
-            let code: String = code.chars().filter(|c| !c.is_whitespace()).collect();
-            simple(
+            let (device, collection) = pending_device(profile, &device, collection).await?;
+            let sas = if let Some(code) = checked_code {
+                code
+            } else {
+                let v = call(
+                    profile,
+                    Method::DEVICE_PENDING,
+                    json!({ "collection": collection }),
+                )
+                .await?;
+                let list: Vec<PendingDevice> =
+                    serde_json::from_value(v).map_err(|e| ClientError::Protocol(e.to_string()))?;
+                let mut codes = list
+                    .iter()
+                    .filter(|d| d.device == device)
+                    .filter_map(|d| d.sas.as_deref());
+                let code = codes.next().ok_or_else(|| ClientError::Remote(ControlError::unavailable(
+                    "approval_not_ready", "the code is not ready; keep mdbase open on both computers and run device pending again shortly"
+                )))?;
+                if codes.any(|other| other != code) {
+                    return Err(ClientError::Remote(ControlError::invalid(
+                        "collection_required",
+                        "more than one collection has a different code; approve one collection at a time",
+                    )));
+                }
+                if !confirm(
+                    out,
+                    &format!(
+                        "Only allow if this matches the code on the other computer: {}. Allow?",
+                        display_code(code)
+                    ),
+                ) {
+                    return Ok(ExitCode::FAILURE);
+                }
+                code.to_string()
+            };
+            let v = call(
                 profile,
-                out,
                 Method::DEVICE_APPROVE,
-                &collection,
-                json!({ "device": device, "code": code }),
+                json!({ "device": device, "collection": collection, "sas": sas }),
             )
-            .await
+            .await?;
+            if out.json {
+                out.value(&v);
+            } else {
+                println!("Allowed. The other computer can open the collection now.");
+            }
+            Ok(ExitCode::SUCCESS)
         }
-        Command::Device(DeviceCmd::Reject { collection, device }) => {
-            simple(
+        Command::Device(DeviceCmd::Deny { device, collection }) => {
+            let (device, collection) = pending_device(profile, &device, collection).await?;
+            let v = call(
                 profile,
-                out,
                 Method::DEVICE_REJECT,
-                &collection,
-                json!({ "device": device }),
+                json!({ "device": device, "collection": collection }),
             )
-            .await
+            .await?;
+            if out.json {
+                out.value(&v);
+            } else {
+                println!("Denied.");
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Command::Recovery(RecoveryCmd::Create { collection }) => {
             let id = resolve(profile, &collection).await?;
@@ -1567,6 +1678,14 @@ mod progress_tests {
     }
 }
 
+fn display_code(code: &str) -> String {
+    if code.len() == 6 && code.bytes().all(|b| b.is_ascii_digit()) {
+        format!("{} {}", &code[..3], &code[3..])
+    } else {
+        code.into()
+    }
+}
+
 fn print_collection(c: &CollectionStatus) {
     let mode = match c.mode {
         SyncMode::Local => "local only",
@@ -1581,6 +1700,12 @@ fn print_collection(c: &CollectionStatus) {
         .unwrap_or_default();
     println!("  {}  {}", c.id, c.name);
     println!("      {}  [{mode}]  {state}{reason}", c.root.display());
+    if let Some(code) = &c.approval_code {
+        println!(
+            "      Check this code matches on your other computer: {}",
+            display_code(code)
+        );
+    }
     if let Some(s) = &c.sync {
         println!(
             "      confirmed through {}, {} pending, {} held, {} conflicts, {}",
@@ -1964,6 +2089,34 @@ mod mode_cli_tests {
         ));
         assert!(Cli::try_parse_from(["mdbase", "sync", "mode", "collection", "public"]).is_err());
         assert!(Cli::try_parse_from(["mdbase", "sync", "mode-status", "collection"]).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod device_cli_tests {
+    use super::*;
+
+    #[test]
+    fn comparison_code_keeps_leading_zeroes() {
+        assert_eq!(display_code("012345"), "012 345");
+    }
+
+    #[test]
+    fn desktop_carries_the_code_already_shown_at_allow() {
+        let cli = Cli::try_parse_from([
+            "mdbase",
+            "--json",
+            "device",
+            "approve",
+            "device-id",
+            "collection-id",
+            "--checked-code",
+            "012345",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::Device(DeviceCmd::Approve {
+            checked_code: Some(code), ..
+        }) if code == "012345"));
     }
 }
 

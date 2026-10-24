@@ -100,6 +100,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         account: std::sync::Mutex::new(Account::default()),
         account_gate: Mutex::new(()),
         link_prompt: Mutex::new(()),
+        device_approvals: Default::default(),
         authority: crate::authority::Authority::default(),
         confirmer: std::sync::RwLock::new(Arc::new(crate::confirm::Fixed(Answer::Yes))),
         grant_publications: Default::default(),

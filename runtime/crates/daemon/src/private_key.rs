@@ -600,7 +600,7 @@ fn keys_in_background(
 impl Daemon {
     /// The account incarnation, the sync context and this device's identity, with
     /// the credential store checked to be the OS keychain.
-    fn account_parts(
+    pub(super) fn account_parts(
         &self,
     ) -> Result<
         (
@@ -642,7 +642,7 @@ impl Daemon {
     }
 
     /// The incarnation is still the current one (checked around every cloud await).
-    fn current_account(
+    pub(super) fn current_account(
         &self,
         inc: Incarnation,
     ) -> impl Fn() -> Result<(), String> + Send + Sync + '_ {

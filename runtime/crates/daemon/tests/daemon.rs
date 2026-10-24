@@ -470,17 +470,22 @@ async fn daemon_lifecycle() {
     .unwrap();
     assert_eq!(paused.state, CollectionState::Paused);
 
-    // Device approval needs a private collection; codes are six digits.
+    // Device approval needs a device ID.
     match c
         .call(
             Method::DEVICE_APPROVE,
-            json!({ "collection": added.id, "device": "x", "code": "12" }),
+            json!({ "collection": added.id, "device": "x" }),
         )
         .await
     {
-        Err(ClientError::Remote(e)) => assert_eq!(e.reason.as_deref(), Some("invalid_code")),
+        Err(ClientError::Remote(e)) => assert_eq!(e.reason.as_deref(), Some("invalid_id")),
         other => panic!("{other:?}"),
     }
+    // Nothing waits on a computer without private collections.
+    assert_eq!(
+        c.call(Method::DEVICE_PENDING, json!({})).await.unwrap(),
+        json!([])
+    );
 
     // The registry is durable.
     let reg: serde_json::Value =

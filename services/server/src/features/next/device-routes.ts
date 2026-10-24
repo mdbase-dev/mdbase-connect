@@ -59,4 +59,20 @@ export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: Da
       return reply.code(error.status).send(apiError(error.code, error.message));
     }
   });
+  // The name of one of the caller's own computers, shown when it asks to open a
+  // Private collection on another of them. Other accounts' devices are not found.
+  app.get("/v1/next/devices/:deviceId/name", rateLimit, async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return reply;
+    reply.header("cache-control", "no-store");
+    const { deviceId } = request.params as { deviceId: string };
+    const notFound = () => reply.code(404).send(apiError("device_not_found", "Device not found."));
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(deviceId)) return notFound();
+    const row = (await options.db.query<{ name: string }>(
+      `SELECT c.name FROM next_devices d JOIN connectors c ON c.id = d.connector_id
+       WHERE d.id = $1 AND d.user_id = $2 AND c.user_id = $2 AND c.revoked_at IS NULL`,
+      [deviceId, connector.user_id]
+    )).rows[0];
+    return row ? { name: row.name } : notFound();
+  });
 }

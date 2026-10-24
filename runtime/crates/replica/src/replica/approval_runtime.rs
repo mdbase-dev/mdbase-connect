@@ -217,6 +217,7 @@ pub(super) struct ApprovalRuntime {
     exchanges: BTreeMap<Uuid, Exchange>,
     outbox: Vec<ApprovalChallenge>,
     pub(super) poisoned: bool,
+    pub(super) requester_code: Option<super::approval_requester::RequesterCode>,
     /// At most one confirmed grant is in flight; a second confirmation waits.
     pending_grant: Option<PendingGrant>,
     next_intent: u64,
@@ -234,6 +235,7 @@ impl ApprovalRuntime {
             exchanges: BTreeMap::new(),
             outbox: Vec::new(),
             poisoned: false,
+            requester_code: None,
             pending_grant: None,
             next_intent: 1,
             dispositions: BTreeMap::new(),
@@ -268,6 +270,20 @@ fn approval_error(e: ApprovalError) -> crate::api::ApiError {
         _ => "approval_context_invalid",
     };
     ErrorCode::Conflict.err_with_reason(reason, "device approval step was refused")
+}
+fn rejection_marker(collection: Uuid, target: Uuid) -> String {
+    format!(
+        "approval.rejected.{}.{}",
+        mdbn_wire::render::hex(&collection.0),
+        mdbn_wire::render::hex(&target.0)
+    )
+}
+fn sent_grant_marker(collection: Uuid, target: Uuid) -> String {
+    format!(
+        "approval.grant-sent.{}.{}",
+        mdbn_wire::render::hex(&collection.0),
+        mdbn_wire::render::hex(&target.0)
+    )
 }
 fn marker(binding: &ApprovalBinding) -> String {
     // Independent of mutable epoch/account context: the SAME commitment must not
@@ -410,6 +426,14 @@ impl<S: Store> Replica<S> {
     ) -> ApiResult<ApprovalChallenge> {
         self.cancel_stale_approvals();
         let context = self.approval_context(session, target)?;
+        if self
+            .store
+            .meta(&rejection_marker(self.cfg.collection, target))
+            .map_err(super::submit::store_err)?
+            .is_some()
+        {
+            return Err(denied());
+        }
         if let Some(x) = self.approval.exchanges.get(&target) {
             if x.context == context {
                 return Ok(x.challenge.clone());
@@ -484,7 +508,7 @@ impl<S: Store> Replica<S> {
     }
 
     /// Trusted host peer ingress, checked against exact current context before and
-    /// after comparison. Only a boolean leaves the INTERNAL computed-code path.
+    /// after comparison. The code is available only through host-only pending devices.
     pub(super) fn receive_device_reveal(
         &mut self,
         session: SessionId,
@@ -721,6 +745,109 @@ impl<S: Store> Replica<S> {
         Ok((intent, ApprovalDisposition::Queued))
     }
 
+    /// The user allowed the device in mdbase's own UI or CLI: one decision, no
+    /// code to type. This completes the SAME commit-then-reveal exchange as
+    /// [`Self::submit_device_approval`]: the reveal must already have verified
+    /// against the requester's logged commitment, and only this approver, which
+    /// the requester pinned when it revealed, signs the `key_grant`. The
+    /// displayed comparison code goes straight to the existing check.
+    pub fn allow_device_approval(
+        &mut self,
+        session: SessionId,
+        target: Uuid,
+    ) -> ApiResult<(ApprovalIntent, ApprovalDisposition)> {
+        self.host_only(session)?;
+        self.cancel_stale_approvals();
+        let code = self
+            .approval
+            .approver
+            .pending(&self.policy)
+            .into_iter()
+            .find(|w| w.device == target)
+            .and_then(|w| w.sas.map(Zeroizing::new))
+            .and_then(|c| ApproverCode::parse(&c))
+            .ok_or_else(|| {
+                ErrorCode::Conflict.err_with_reason(
+                    "approval_not_ready",
+                    "the requester's reveal has not completed for this exchange",
+                )
+            })?;
+        self.submit_device_approval(session, target, &code)
+    }
+
+    /// Allow only the comparison code actually displayed to the user. Uses the
+    /// existing exchange/context and SAS checks; never substitutes the current SAS.
+    pub fn allow_device_approval_checked(
+        &mut self,
+        session: SessionId,
+        target: Uuid,
+        code: &str,
+    ) -> ApiResult<(ApprovalIntent, ApprovalDisposition)> {
+        self.host_only(session)?;
+        let code = ApproverCode::parse(code).ok_or_else(|| {
+            ErrorCode::InvalidRequest.err("approval code must contain six digits")
+        })?;
+        self.submit_device_approval(session, target, &code)
+    }
+
+    /// The user denied the device here: end its exchange and stop offering it
+    /// across restarts and commitment renewal. Revocation is a control-plane action.
+    pub fn reject_device_approval(&mut self, session: SessionId, target: Uuid) -> ApiResult<()> {
+        self.host_only(session)?;
+        if self.policy.devices.get(&target).is_some_and(|d| d.keyed)
+            || self
+                .store
+                .meta(&sent_grant_marker(self.cfg.collection, target))
+                .map_err(super::submit::store_err)?
+                .is_some()
+            || self
+                .approval
+                .pending_grant
+                .as_ref()
+                .is_some_and(|g| g.target == target && g.sends > 0)
+        {
+            return Err(ErrorCode::Conflict.err_with_reason(
+                "approval_already_granted",
+                "a grant was already sent or the device is keyed; denial is not revocation",
+            ));
+        }
+        let checkpoint = super::apply_checkpoint::Checkpoint::capture(self);
+        match self.store.commit(Tx {
+            meta: vec![(rejection_marker(self.cfg.collection, target), Some(vec![1]))],
+            ..Tx::default()
+        }) {
+            Ok(_) => {}
+            Err(crate::store::StoreError::CommitAborted(_)) => {
+                return Err(ErrorCode::Unavailable.err("approval rejection was durably aborted"));
+            }
+            Err(_) => {
+                self.approval.poisoned = true;
+                self.failed_apply(checkpoint, self.head.seq, false);
+                return Err(ErrorCode::OutcomeUnknown
+                    .err("approval rejection outcome is unknown; reopen storage"));
+            }
+        }
+        self.approval.exchanges.remove(&target);
+        self.approval
+            .outbox
+            .retain(|c| c.binding.requester.device != target);
+        self.approval.approver.reject(&target);
+        if self
+            .approval
+            .pending_grant
+            .as_ref()
+            .is_some_and(|g| g.target == target)
+        {
+            let g = self.approval.pending_grant.take().unwrap();
+            self.approval.record(
+                g.intent,
+                ApprovalDisposition::Refused(ApprovalRefusal::ContextChanged),
+            );
+        }
+        self.status_dirty = true;
+        Ok(())
+    }
+
     /// Where a confirmed approval stands. Unknown intents (never issued, or aged
     /// out of the bounded history) are `not_found`.
     pub fn device_approval_disposition(
@@ -755,6 +882,11 @@ impl<S: Store> Replica<S> {
             || self.sealer.current_epoch() != Some(self.policy.epoch)
             || !self.private_state_current()
             || g.stamp.epoch == 0
+            || !matches!(
+                self.store
+                    .meta(&rejection_marker(self.cfg.collection, g.target)),
+                Ok(None)
+            )
         {
             return false;
         }
@@ -834,6 +966,30 @@ impl<S: Store> Replica<S> {
             );
             return false;
         };
+        // Persist BEFORE emission. Never clear this per-target witness: neither
+        // a lost reply, a moved head nor restart proves an earlier grant cannot
+        // still apply. A false positive is safer than promising revocation.
+        if g.sends == 0 {
+            let checkpoint = super::apply_checkpoint::Checkpoint::capture(self);
+            match self.store.commit(Tx {
+                meta: vec![(
+                    sent_grant_marker(self.cfg.collection, g.target),
+                    Some(vec![1]),
+                )],
+                ..Tx::default()
+            }) {
+                Ok(_) => {}
+                Err(crate::store::StoreError::CommitAborted(_)) => {
+                    self.approval.pending_grant = Some(g);
+                    return false;
+                }
+                Err(_) => {
+                    self.approval.poisoned = true;
+                    self.failed_apply(checkpoint, self.head.seq, false);
+                    return false;
+                }
+            }
+        }
         let intent = g.intent;
         let mut g = g;
         let sent = self.append_control(mdbn_wire::envelope::ItemKind::KeyGrant, body);
@@ -909,8 +1065,28 @@ impl<S: Store> Replica<S> {
             .pending(&self.policy)
             .into_iter()
             .filter_map(|w| {
-                self.approval_context(session, w.device).ok()?;
+                let context = self.approval_context(session, w.device).ok()?;
+                if self
+                    .store
+                    .meta(&rejection_marker(self.cfg.collection, w.device))
+                    .ok()?
+                    .is_some()
+                {
+                    return None;
+                }
+                // A commitment already spent on an exchange cannot be approved
+                // again; the requester logs a fresh one and shows up again.
+                let live = self.approval.exchanges.contains_key(&w.device);
+                if !live && self.store.meta(&marker(&context.binding)).ok()?.is_some() {
+                    return None;
+                }
                 Some(PendingDevice {
+                    sas: self
+                        .approval
+                        .exchanges
+                        .get(&w.device)
+                        .filter(|x| x.ready && x.context.session == session)
+                        .and(w.sas),
                     device: w.device,
                     account: w.account,
                     kind: w.kind,
