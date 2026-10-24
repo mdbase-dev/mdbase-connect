@@ -690,10 +690,13 @@ describePg("cloud-copy bootstrap", () => {
   it("enrols the owner's registered device into a cloud copy and mints its token", async () => {
     const who = await identity(); const collection = randomUUID();
     expect((await serviceCreate(await session(who.connector.user_id), collection)).statusCode).toBe(200);
+    // The joining computer names the collection as the account does.
+    await db.query("UPDATE next_collections SET display_name = 'Work notes' WHERE collection_id = $1", [collection]);
     const response = await join(who, collection, await joinProof(who, collection));
     expect(response.statusCode, response.body).toBe(200);
     const result = response.json();
     expect(result.enrolled_at).toBe(2);
+    expect(result.display_name).toBe("Work notes");
     // The exact appended genesis, for the joining device to verify and pin.
     expect(result.genesis.seq).toBe(1);
     const appended = (await db.query<{ item: Buffer }>("SELECT item FROM next_policy_batches WHERE collection_id = $1 AND seq = 1", [collection])).rows[0];
@@ -712,13 +715,30 @@ describePg("cloud-copy bootstrap", () => {
     expect(again.json().enrolled_at).toBe(2);
   });
 
+  it("does not distinguish unknown collections from collections without current membership", async () => {
+    const who = await identity(), owner = await identity(), collection = randomUUID();
+    expect((await serviceCreate(await session(owner.connector.user_id), collection)).statusCode).toBe(200);
+    const unknown = randomUUID();
+    const response = await join(who, unknown, await joinProof(who, unknown));
+    expect(response.statusCode, response.body).toBe(404);
+    expect(response.json().error.code).toBe("not_found");
+    const privateCollection = randomUUID();
+    await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','private',$3)", [privateCollection, owner.connector.user_id, Buffer.from(config.policyCert.root_key_id, "hex")]);
+    for (const id of [collection, privateCollection]) {
+      const inaccessible = await join(who, id, await joinProof(who, id));
+      expect(inaccessible.statusCode, inaccessible.body).toBe(404);
+      expect(inaccessible.json()).toEqual(response.json());
+    }
+    expect((await db.query(ENROLMENT_SQL, [collection, who.device])).rows).toEqual([]);
+  });
+
   it.each(["viewer", "editor"] as const)("joins an ordinary invited %s only after acknowledged membership and denies queued removal", async role => {
     const owner = await identity(), member = await identity(), collection = randomUUID();
     await db.query("UPDATE users SET account_backend='next' WHERE id=ANY($1::uuid[])", [[owner.connector.user_id, member.connector.user_id]]);
     expect((await serviceCreate(await session(owner.connector.user_id), collection)).statusCode).toBe(200);
     expect((await db.query("SELECT id FROM hosted_collections WHERE id=$1", [collection])).rows).toEqual([]);
     const membership = await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner.connector.user_id, userId: member.connector.user_id, role });
-    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(409);
+    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(404);
     expect((await db.query(ENROLMENT_SQL, [collection, member.device])).rows).toEqual([]);
     // Membership permits JOIN, never replacing the owner through CREATE.
     expect((await create(member, await proof(member, collection))).statusCode).toBe(409);
@@ -731,9 +751,9 @@ describePg("cloud-copy bootstrap", () => {
     const enrolled = await db.query(ENROLMENT_SQL, [collection, member.device]);
     expect(enrolled.rows).toHaveLength(1);
     await revokeHostedCollectionMembership(db, { collectionId: collection, actorUserId: owner.connector.user_id, membershipId: membership.membershipId });
-    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(409);
+    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(404);
     await emitter.drainCollection(collection);
-    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(409);
+    expect((await join(member, collection, await joinProof(member, collection))).statusCode).toBe(404);
     expect((await db.query(ENROLMENT_SQL, [collection, member.device])).rows).toHaveLength(1);
     await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner.connector.user_id, userId: member.connector.user_id, role });
     await emitter.drainCollection(collection);
@@ -753,7 +773,7 @@ describePg("cloud-copy bootstrap", () => {
     await emitter.drainCollection(collection);
     log.onRead = () => revokeHostedCollectionMembership(db, { collectionId: collection, actorUserId: owner.connector.user_id, membershipId: membership.membershipId }).then(() => undefined);
     const joined = await join(member, collection, await joinProof(member, collection));
-    expect(joined.statusCode, joined.body).toBe(409);
+    expect(joined.statusCode, joined.body).toBe(404);
     expect(joined.body).not.toContain("token");
   });
 
@@ -771,11 +791,11 @@ describePg("cloud-copy bootstrap", () => {
     const who = await identity();
     const priv = randomUUID();
     await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','private',$3)", [priv, who.connector.user_id, Buffer.from(config.policyCert.root_key_id, "hex")]);
-    expect((await join(who, priv, await joinProof(who, priv))).statusCode).toBe(409);
+    expect((await join(who, priv, await joinProof(who, priv))).statusCode).toBe(404);
     expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id = $1", [priv])).rows).toHaveLength(0);
     const theirs = randomUUID(); const owner = await identity();
     expect((await serviceCreate(await session(owner.connector.user_id), theirs)).statusCode).toBe(200);
-    expect((await join(who, theirs, await joinProof(who, theirs))).statusCode).toBe(409);
+    expect((await join(who, theirs, await joinProof(who, theirs))).statusCode).toBe(404);
     const left = randomUUID();
     expect((await serviceCreate(await session(who.connector.user_id), left)).statusCode).toBe(200);
     await db.query("UPDATE next_collections SET left_sync_at = now() WHERE collection_id = $1", [left]);
@@ -940,12 +960,12 @@ describePg("cloud-copy bootstrap", () => {
   it("refuses pending additions/removals and suspension while admitting acknowledged ordinary members",async()=>{
     const owner=await identity(),who=await installation(),collection=randomUUID();expect((await serviceCreate(await session(owner.connector.user_id),collection)).statusCode).toBe(200);await approveScope(who,collection);
     await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"editor"}],false);
-    expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(409);
+    expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(404);
     await emitter.drainCollection(collection);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(200);
     const daemon=await identity(who.connector.user_id);expect((await join(daemon,collection,await joinProof(daemon,collection))).statusCode).toBe(200);
     await policy(collection,[{op:"member-remove",account:who.connector.user_id}],false);
     expect((await refresh(who,collection)).statusCode).toBe(409);expect((await people(who,collection)).statusCode).toBe(409);expect((await listed(who)).json().collections).toEqual([]);
-    expect((await join(daemon,collection,await joinProof(daemon,collection))).statusCode).toBe(409);
+    expect((await join(daemon,collection,await joinProof(daemon,collection))).statusCode).toBe(404);
     await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"editor"}]);
     await db.query("UPDATE users SET suspended_at=now() WHERE id=$1",[owner.connector.user_id]);
     expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await listed(who)).json().collections).toEqual([]);
@@ -969,7 +989,7 @@ describePg("cloud-copy bootstrap", () => {
     await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"viewer"}]);await approveScope(who,collection);
     expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(200);
     await db.query("UPDATE next_policy_batches SET lost_at=now() WHERE id IN (SELECT batch_id FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb)",[collection,JSON.stringify([{op:"member-set",account:who.connector.user_id}])]);
-    expect((await listed(who)).json().collections).toEqual([]);expect((await people(who,collection)).statusCode).toBe(409);expect((await refresh(who,collection)).statusCode).toBe(409);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(409);
+    expect((await listed(who)).json().collections).toEqual([]);expect((await people(who,collection)).statusCode).toBe(409);expect((await refresh(who,collection)).statusCode).toBe(409);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(404);
     await db.query("UPDATE next_policy_batches SET lost_at=NULL WHERE collection_id=$1",[collection]);
     await db.query("UPDATE next_policy_batches SET lost_at=now() WHERE id IN (SELECT batch_id FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb)",[collection,JSON.stringify([{op:"device-enrol",device:who.device}])]);
     expect((await people(who,collection)).statusCode).toBe(409);expect((await refresh(who,collection)).statusCode).toBe(409);
@@ -981,7 +1001,7 @@ describePg("cloud-copy bootstrap", () => {
     const created=await create(who,await proof(who,collection));expect(created.statusCode,created.body).toBe(403);expect(created.body).not.toContain("token");
     await approveScope(who,collection);
     log.onRead=async()=>{await policy(collection,[{op:"member-remove",account:who.connector.user_id}],false);};
-    const joined=await join(who,collection,await joinProof(who,collection));expect(joined.statusCode,joined.body).toBe(409);expect(joined.body).not.toContain("token");
+    const joined=await join(who,collection,await joinProof(who,collection));expect(joined.statusCode,joined.body).toBe(404);expect(joined.body).not.toContain("token");
   });
   it("shares service generation/outbox for internal SHADOW and keeps the immutable tuple on retry", async () => {
     const who = await identity(), collection = randomUUID();

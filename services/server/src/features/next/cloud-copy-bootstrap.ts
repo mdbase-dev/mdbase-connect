@@ -24,7 +24,7 @@ import { requireInstallationDeviceConnector, requireSessionContext, requireUser,
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import {
   authenticate, CreateError, currentAccount, currentIdentity, currentMember, currentSession, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment,
-  inTransaction, lock, NIL, refuse as refuseCommon, refuseRevoked, SERVICE_ACCOUNT, type Device, type Proof
+  inTransaction, joinedDisplayName, lock, NIL, refuse as refuseCommon, refuseRevoked, SERVICE_ACCOUNT, type Device, type Proof
 } from "./bootstrap-common.js";
 import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
@@ -58,6 +58,12 @@ export function cloudCopyJoinDigest(input: { challenge: Uint8Array; connector: s
 
 async function currentJoiningCloudCopy(client: DatabaseConnection, collection: string, connector: ConnectorIdentity): Promise<void> {
   await requireInstallationScope(client,connector,collection);
+  try {
+    await currentMember(client,collection,connector.user_id);
+  } catch (error) {
+    if (error instanceof CreateError && error.code === "not_member") throw new CreateError(404,"not_found");
+    throw error;
+  }
   const current = await client.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR UPDATE OF n",[collection]);
   if (!current.rows.length) throw new CreateError(409,"not_current_cloud_copy");
   try {
@@ -66,7 +72,6 @@ async function currentJoiningCloudCopy(client: DatabaseConnection, collection: s
     if (error instanceof Error && error.message === "collection_deleted") throw new CreateError(409, "collection_deleted");
     throw error;
   }
-  await currentMember(client,collection,connector.user_id);
 }
 
 export function registerCloudCopyRoutes(app: FastifyInstance, options: {
@@ -299,6 +304,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
         // Hosted (or escrow) wraps the current epoch key to this device next.
         return {
           collection_id: collection, enrolled_at: batch.seq, log_url: pitrLogUrl(options.next.logService.url, pitr, collection),
+          display_name: await joinedDisplayName(client, collection),
           genesis: { seq: 1, item: genesis.item.toString("hex") },
           device: await mint(client, body.device_id, device.sign_pk, collection, body.capabilities)
         };

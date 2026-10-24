@@ -1410,3 +1410,32 @@ async fn status_is_built_once_per_change_for_every_subscriber() {
     assert_eq!(a["pid"], std::process::id());
     publisher.abort();
 }
+
+#[test]
+fn a_joined_collection_takes_the_account_name() {
+    let root = std::path::Path::new("/home/u/Notes folder");
+    let name = |given, account| join_name(given, account, root).unwrap();
+    assert_eq!(name(Some(" Mine "), Some("Work notes")), "Mine");
+    assert_eq!(name(None, Some("Work notes")), "Work notes");
+    // The control plane's placeholder, a missing name or an unusable one: the folder.
+    assert_eq!(name(None, Some(SERVER_PLACEHOLDER_NAME)), "Notes folder");
+    assert_eq!(name(None, None), "Notes folder");
+    assert_eq!(name(None, Some("bad\u{202E}name")), "Notes folder");
+    assert!(join_name(Some(""), None, root).is_err());
+}
+
+#[test]
+fn an_unknown_collection_is_not_found_not_refused() {
+    use crate::cloud::CloudError;
+    let e = cloud_refusal(CloudError::Server(404, "not_found".into()));
+    assert_eq!(
+        (e.code.as_str(), e.reason.as_deref()),
+        ("not_found", Some("not_found"))
+    );
+    for other in [
+        CloudError::Server(404, "error".into()),
+        CloudError::Server(409, "not_current_cloud_copy".into()),
+    ] {
+        assert_eq!(cloud_refusal(other).reason.as_deref(), Some("sync_refused"));
+    }
+}
