@@ -13,8 +13,8 @@
 //! means **no**: the action is refused with `confirmation_unavailable`. A dialog
 //! that times out (2 minutes) also means no.
 //!
-//! Dialog text names the app, the collection and the key fingerprint, so a user
-//! can compare it with what the app showed. It never contains secrets.
+//! Dialog text names the app (or computer) and the collection, with Allow and
+//! Deny. It never contains secrets or key material.
 
 use std::time::Duration;
 
@@ -59,7 +59,7 @@ fn sanitize(s: &str) -> String {
 #[cfg(target_os = "macos")]
 fn command(title: &str, message: &str) -> Option<std::process::Command> {
     let script = format!(
-        "set r to display dialog \"{}\" with title \"{}\" buttons {{\"Cancel\", \"Allow\"}} default button \"Cancel\" cancel button \"Cancel\" with icon caution giving up after {}\nif (gave up of r is false) and (button returned of r is \"Allow\") then\nreturn \"MDBASE_ALLOW\"\nelse\nreturn \"MDBASE_DENY\"\nend if",
+        "set r to display dialog \"{}\" with title \"{}\" buttons {{\"Deny\", \"Allow\"}} default button \"Deny\" cancel button \"Deny\" with icon caution giving up after {}\nif (gave up of r is false) and (button returned of r is \"Allow\") then\nreturn \"MDBASE_ALLOW\"\nelse\nreturn \"MDBASE_DENY\"\nend if",
         sanitize(message),
         sanitize(title),
         TIMEOUT.as_secs()
@@ -99,7 +99,7 @@ fn command(title: &str, message: &str) -> Option<std::process::Command> {
             "--question",
             "--default-cancel",
             "--ok-label=Allow",
-            "--cancel-label=Cancel",
+            "--cancel-label=Deny",
             &format!("--title={}", sanitize(title)),
             &format!("--text={}", sanitize(message)),
             &format!("--timeout={}", TIMEOUT.as_secs()),
@@ -111,6 +111,10 @@ fn command(title: &str, message: &str) -> Option<std::process::Command> {
         c.args([
             "--title",
             &sanitize(title),
+            "--yes-label",
+            "Allow",
+            "--no-label",
+            "Deny",
             "--warningyesno",
             &sanitize(message),
         ]);

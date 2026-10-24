@@ -240,7 +240,7 @@ async function auditPortalDevLogin() {
   assert.deepEqual(submitted, { name: "Portal Test", email: "portal-test@example.com" });
   await auditPage(page, "portal development pairing", { keyboard: true });
   await page.getByRole("button", { name: "Approve computer", exact: true }).click();
-  await page.getByRole("heading", { name: "Return to mdbase connect.", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "You can close this tab.", exact: true }).waitFor();
   await auditPage(page, "portal development pairing approved", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();

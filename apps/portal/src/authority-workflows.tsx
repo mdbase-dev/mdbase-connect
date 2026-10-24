@@ -446,14 +446,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         ) : deepLink ? (
           <>
             <p className="eyebrow"><Trans>Computer approved</Trans></p>
-            <h1><Trans>Return to mdbase connect.</Trans></h1>
-            <p><Trans>
-              The desktop app will finish securely. No connector token was
-              displayed or copied.
-            </Trans></p>
-            <a className="button primary link-button" href={deepLink}><Trans>
-              Open mdbase connect
-            </Trans></a>
+            <h1><Trans>You can close this tab.</Trans></h1>
+            <p><Trans>Signing in finishes on that computer.</Trans></p>
           </>
         ) : (
           <>

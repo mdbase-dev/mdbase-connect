@@ -2332,7 +2332,6 @@ msgstr "{0} で開く"
 msgid "Open in editor"
 msgstr "エディターで開く"
 
-#: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
@@ -2779,8 +2778,8 @@ msgid "Return to {mirrorName}."
 msgstr "{mirrorName} に戻ってください。"
 
 #: src/authority-workflows.tsx
-msgid "Return to mdbase connect."
-msgstr "mdbase connect に戻ってください。"
+#~ msgid "Return to mdbase connect."
+#~ msgstr "mdbase connect に戻ってください。"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3128,6 +3127,10 @@ msgstr "ログインをキャンセルしました。再試行するか、別の
 msgid "Signed in <0>{0}</0> · ID {1}"
 msgstr "ログイン中 <0>{0}</0> · ID {1}"
 
+#: src/authority-workflows.tsx
+msgid "Signing in finishes on that computer."
+msgstr "ログインはそのコンピューターで完了します。"
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
@@ -3270,8 +3273,8 @@ msgid "the computer holding this collection"
 msgstr "このコレクションを保持するコンピューター"
 
 #: src/authority-workflows.tsx
-msgid "The desktop app will finish securely. No connector token was displayed or copied."
-msgstr "デスクトップアプリで安全に完了します。コネクタートークンは表示もコピーもされていません。"
+#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
+#~ msgstr "デスクトップアプリで安全に完了します。コネクタートークンは表示もコピーもされていません。"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
@@ -3740,6 +3743,10 @@ msgstr "検証中は書き込みを一時停止し、その後ホスト型のア
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."
 msgstr "選択したコレクションのリマインダーを許可しました。"
+
+#: src/authority-workflows.tsx
+msgid "You can close this tab."
+msgstr "このタブを閉じてかまいません。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
