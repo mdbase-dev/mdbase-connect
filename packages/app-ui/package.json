@@ -121,13 +121,13 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "@codemirror/view": "^6.43.12",
+    "@codemirror/view": "^6.43.15",
     "@mdbase-dev/sdk": "file:vendor/sdk-0.0.0-bd131b16.tgz",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "jsdom": "^29.1.1",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
