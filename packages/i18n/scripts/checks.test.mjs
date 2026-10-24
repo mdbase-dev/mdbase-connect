@@ -41,6 +41,7 @@ for (const [locale, cardinal, ordinal] of [
   ["ko", ["other"], ["other"]],
   ["de", ["one", "other"], ["other"]],
   ["es", ["one", "other"], ["other"]],
+  ["it", ["one", "other"], ["many", "other"]],
   ["fr", ["one", "other"], ["one", "other"]],
   ["pt", ["one", "other"], ["other"]],
 ]) {
@@ -76,7 +77,7 @@ test("nested plural categories are checked inside select branches", () => {
 test("optional million-only categories are informational, never warnings or errors", () => {
   const source = "{n, plural, one {# item} other {# items}}";
   const target = "{n, plural, one {# unité} other {# unités}}";
-  for (const locale of ["fr", "es", "pt"]) {
+  for (const locale of ["fr", "es", "pt", "it"]) {
     const warnings = [], notes = [];
     assert.equal(assertCompleteCatalogue(entries(source), entries(source, target), locale, [],
       (warning) => warnings.push(warning), (info) => notes.push(info)), 1);

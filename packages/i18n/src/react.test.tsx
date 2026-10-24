@@ -21,7 +21,8 @@ it("provides immediate English and real translated portal context with a native 
   </> }));
   expect(screen.getByText("Hello")).toBeTruthy();
   const picker = screen.getByRole("combobox", { name: "Language" });
-  expect(screen.getAllByRole("option")).toHaveLength(9);
+  expect(screen.getAllByRole("option")).toHaveLength(10);
+  expect(screen.getByRole("option", { name: "Italiano" }).getAttribute("lang")).toBe("it");
   fireEvent.change(picker, { target: { value: "fr" } });
   await waitFor(() => expect(screen.getByText("Bonjour")).toBeTruthy());
   expect(errors).toEqual([]);

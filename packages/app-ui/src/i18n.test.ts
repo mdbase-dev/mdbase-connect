@@ -5,7 +5,7 @@ import { i18n, uiCatalogues } from "./i18n.js";
 
 describe("library catalogue source", () => {
   it("has synchronous English and loads each deployment-local catalogue", async () => {
-    for (const locale of ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh"] as const) {
+    for (const locale of ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh", "it"] as const) {
       const entries = await formatter({}).parse(await readFile(new URL(`./locales/${locale}/messages.po`, import.meta.url), "utf8"), { locale });
       const active = Object.entries(entries).filter(([, entry]) => !entry.obsolete).map(([id]) => id).sort();
       expect(active.length).toBeGreaterThan(100);

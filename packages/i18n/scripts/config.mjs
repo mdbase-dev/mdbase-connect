@@ -1,7 +1,7 @@
 import { defineConfig } from "@lingui/conf";
 import { formatter } from "@lingui/format-po";
 
-export const locales = ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh"];
+export const locales = ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh", "it"];
 /** Source/context generated IDs are Lingui's default; never supply explicit IDs. */
 export function i18nConfig({ include = ["<rootDir>/src"], exclude = ["**/*.test.*", "**/*.spec.*"],
   path = "<rootDir>/src/i18n/locales/{locale}/messages", ...options } = {}) {

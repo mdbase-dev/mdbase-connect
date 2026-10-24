@@ -15,7 +15,7 @@ test("native locale bundle runs without workspace packages or catalogue files", 
     const runtime = isolatedLocale(join(directory, "preferences"), ["ja-JP"]);
     await runtime.initialize();
     assert.equal(runtime.i18n.locale, "ja");
-    for (const locale of ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh"]) {
+    for (const locale of ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh", "it"]) {
       await runtime.selectLocale(locale);
       assert.equal(runtime.i18n.locale, locale);
     }
@@ -46,7 +46,7 @@ test("desktop composes every authored locale with both UI libraries", async () =
   const directory = await mkdtemp(join(tmpdir(), "mdbase-desktop-composition-"));
   try {
     const runtime = createNativeLocale(directory, ["en-US"]);
-    for (const locale of ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh"]) {
+    for (const locale of ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh", "it"]) {
       await runtime.selectLocale(locale);
       assert.equal(runtime.i18n.locale, locale);
       assert.equal(await readFile(join(directory, "language"), "utf8"), locale);

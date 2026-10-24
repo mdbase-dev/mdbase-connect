@@ -87,6 +87,25 @@ describe("real Lingui runtime", () => {
     await runtime.initialize();
     expect(runtime.i18n.locale).toBe("en");
   });
+  it("negotiates Italian OS variants and restores a persisted choice over browser preferences", async () => {
+    expect(negotiateLocale(["xx", "it-IT"])).toBe("it");
+    expect(negotiateLocale(["it_CH"])).toBe("it");
+    let saved: string | null = null;
+    const runtime = createI18nRuntime({ english: catalogue("Hello"), preferences: ["it-IT"],
+      storage: { getLocale: () => saved, setLocale: (locale) => { saved = locale; } },
+      loadLocale: async () => catalogue("Ciao") });
+    await runtime.initialize();
+    expect(runtime.i18n.locale).toBe("it");
+    expect(runtime.i18n._("greeting")).toBe("Ciao");
+    await runtime.selectLocale("it");
+    expect(saved).toBe("it");
+    const restarted = createI18nRuntime({ english: catalogue("Hello"), preferences: ["de-DE"],
+      storage: { getLocale: () => saved, setLocale: () => {} },
+      loadLocale: async () => catalogue("Ciao") });
+    await restarted.initialize();
+    expect(restarted.i18n.locale).toBe("it");
+    expect(formatters("it").number(1234.5)).toBe(new Intl.NumberFormat("it-IT").format(1234.5));
+  });
   it("formats pt as Brazilian Portuguese without changing values", () => {
     expect(formatters("pt").number(1234.5)).toBe(new Intl.NumberFormat("pt-BR").format(1234.5));
     expect(formatters("fr").relativeTime(-1, "day")).toContain("jour");

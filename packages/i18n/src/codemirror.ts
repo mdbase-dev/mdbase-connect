@@ -7,6 +7,7 @@ const loaders = {
   fr: () => import("./codemirror/fr.js"), de: () => import("./codemirror/de.js"),
   es: () => import("./codemirror/es.js"), ja: () => import("./codemirror/ja.js"),
   ko: () => import("./codemirror/ko.js"), pt: () => import("./codemirror/pt.js"),
+  it: () => import("./codemirror/it.js"),
   ru: () => import("./codemirror/ru.js"), zh: () => import("./codemirror/zh.js"),
 };
 /** Lazy chunks from the app's own deployment. Reconfigure the facet on activation.
