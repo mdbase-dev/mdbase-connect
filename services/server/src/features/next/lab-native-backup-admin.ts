@@ -11,6 +11,8 @@ import { LogServiceClient } from "./log-service-client.js";
 import { loadPolicySigner, verifyCert, ed25519PublicKeyObject, type NextControlPlaneConfig } from "./policy-keys.js";
 import { decodeCbor, domainHash, encodeCbor, keyId, uuidBytes, type Cbor, type CpCert, type Decoded } from "./policy-wire.js";
 import { captureLabNativeCut } from "./lab-native-backup.js";
+import { publishNativeBackupCoverage } from "./native-backup-archive.js";
+import { filesystemBackupStore, readNativeBackupStage, readPrivateBackupFile } from "./native-backup-filesystem.js";
 
 interface AdminContext {
   db: DatabasePool; environment?: string; publicUrl?: string; runtimeRevision?: string;
@@ -77,7 +79,7 @@ async function privateFile(path: string, bytes: Uint8Array): Promise<void> {
 
 export async function runLabNativeBackupAdmin(argv: string[], context: AdminContext): Promise<unknown> {
   // Admit LAB scope and exact command BEFORE parsing/loading any key or database.
-  if (context.environment !== "lab" || context.publicUrl !== "https://connect-lab.mdbase.dev" || argv[0] !== "capture") return refuse();
+  if (context.environment !== "lab" || context.publicUrl !== "https://connect-lab.mdbase.dev" || !["capture", "verify"].includes(argv[0] ?? "")) return refuse();
   const flags = fixedFlags(argv.slice(1));
   const collection = flags.get("collection")!, operation = flags.get("operation-id")!, expected = flags.get("expected-revision")!;
   const actor = flags.get("actor")!, reason = flags.get("reason")!;
@@ -103,15 +105,31 @@ export async function runLabNativeBackupAdmin(argv: string[], context: AdminCont
   const metadata = {operation_id: operation, actor, reason, collection, source_origin: source, runtime_revision: expected};
   try {
     await denyFirst();
-    // Load signing/transport keys only after the fresh authoritative denial read.
-    const signer = loadPolicySigner(config, Date.now());
-    const log = new LogServiceClient(config.logService);
     // Never overwrite a prior operation, partial cut or uncertain receipt.
     const scratch = join(process.cwd(), "scratch");
     await privateDirectory(scratch, true);
     const root = join(scratch, "lab-native-backup");
     await privateDirectory(root, true);
     const stage = join(root, operation);
+    if (argv[0] === "verify") {
+      // Trust arrives independently AFTER capture. Its expected context includes
+      // the observed BEGIN hash, so capture must not fabricate it in advance.
+      const store = await filesystemBackupStore(stage);
+      const original = JSON.parse(Buffer.from(await readPrivateBackupFile(join(stage,"operation.json"),65536)).toString("utf8"));
+      if (original.operation_id !== operation || original.collection !== collection || original.source_origin !== source || original.runtime_revision !== expected) return refuse();
+      const files = await readNativeBackupStage(stage);
+      const expectedContext = encodeCbor({struct: ["mdbase-lab-native-log-capture/1", "lab", "https://connect-lab.mdbase.dev", source,
+        uuidBytes(collection), uuidBytes(operation), expected, sha(genesis!), sha(files.get("cut/header.cbor")!)].map((value,key) => [key,value])});
+      if (!Buffer.from(files.get("capture-context.cbor")!).equals(Buffer.from(expectedContext))) return refuse();
+      const trust = await readPrivateBackupFile(join(stage,"trust.cbor"),65536);
+      const manifest = await publishNativeBackupCoverage(files, store, {executable:join(process.cwd(),"bin/mdbn-backup-verify"),stageRoot:root,trust}, denyFirst);
+      await audit(context.db,null,"next.lab_native_backup_verified",null,metadata);
+      return {schema:"mdbase-lab-native-backup/v1",...metadata,stage:`scratch/lab-native-backup/${operation}`,native_only:true,
+        verified:true,current_authority_verified:false,coverage_sha256:sha(Buffer.from(JSON.stringify(manifest))).toString("hex"),S_final:manifest.S_final};
+    }
+    // Load signing/transport keys only after the fresh authoritative denial read.
+    const signer = loadPolicySigner(config, Date.now());
+    const log = new LogServiceClient(config.logService);
     await privateDirectory(stage);
     await privateFile(join(stage, "operation.json"), Buffer.from(JSON.stringify({...metadata, state: "started"})));
     await audit(context.db, null, "next.lab_native_backup_started", null, metadata);
@@ -134,7 +152,7 @@ export async function runLabNativeBackupAdmin(argv: string[], context: AdminCont
     await unlink(join(stage, ".completion.pending"));
     await syncDirectory(stage);
     return {schema: "mdbase-lab-native-backup/v1", ...metadata, stage: `scratch/lab-native-backup/${operation}`, native_only: true,
-      page_count: cut.pages.length, object_count: cut.objects.length, completion_sha256: sha(cut.completion).toString("hex")};
+      verified: false, coverage: "requires-independent-trust-and-verify", page_count: cut.pages.length, object_count: cut.objects.length, completion_sha256: sha(cut.completion).toString("hex")};
   } catch {
     // UNKNOWN is terminal. No generic RPC retry/abort, raw DB/network diagnostic,
     // signing bytes, auxiliary tokens, object bytes or private keys in job output.

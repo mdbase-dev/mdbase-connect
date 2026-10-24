@@ -42,7 +42,8 @@ export interface LabNativeCut {
  * No caller-provided digest, signing bytes, signer or arbitrary RPC method. */
 export interface LabNativeCaptureContext {
   collection: string; operationId: string; sourceOrigin: string; runtimeRevision: string;
-  originalGenesis: Uint8Array; signer: PolicySigner; log: LogServiceClient;
+  originalGenesis: Uint8Array; signer: PolicySigner;
+  log: Pick<LogServiceClient, "backupBegin" | "backupPage" | "backupFinish" | "nativeObjectRange">;
   /** Fresh authoritative CP read, before every remote phase and signing. */
   denyFirst(): Promise<void>;
 }

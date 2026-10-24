@@ -1,7 +1,9 @@
 # LAB native backup admin (draft source)
 
-This is a **native-log-only capture adapter**, not a complete hosted backup or an
-operational restore runner. No deployment, credentials, fixture/target creation,
+This is a **native-log-only capture/archive adapter**, not a complete hosted
+backup or an operational restore runner. Capture plus independent verification
+produces an uploadable stage; the restore library still requires owner-supplied
+scratch-target admission. No deployment, credentials, fixture/target creation,
 production operation or Gate 4 qualification is implied.
 
 Considered: existing service-local `auth-admin request`, Next config/key loader,
@@ -29,7 +31,8 @@ The environment must be exactly `lab`, `PUBLIC_URL` must be exactly
 `https://connect-lab.mdbase.dev`, the runtime revision must match and the source
 must match the trusted existing Next log configuration. All extra/duplicate flags,
 caller signing bytes/digests, target selection, restore, resume and arbitrary
-method selection refuse. Keys remain inside the admin process. Loading signer
+method selection refuse. `verify` accepts exactly the same six flags, for an
+existing capture only; it performs no source mutation and loads no signing keys. Keys remain inside the admin process. Loading signer
 and transport keys follows the first fresh CP denial read.
 
 ## Observed capture and completion
@@ -100,8 +103,9 @@ These are test-run admission bounds, not performance or whole-hosted guarantees.
 - No qualified private-server→local-verifier transfer or operation/status readback.
 - No authenticated complete hosted SQL/KV/alarm manifest or frozen same-cut join.
 - No independently bound fresh target origin/namespace/server configuration.
-- No guarded restore command; typed strict import/object/snapshot/aux methods alone
-  do not validate an archive, prove EMPTY, activate serving or authorize effects.
+- No guarded restore command. The restore library authenticates the full archive,
+  but its caller must independently prove scratch EMPTY/isolation and current
+  authority before any effect. No target admission implementation is provided.
 - No interrupted capture/restore qualification. Native BEGIN has no qualified
   named-operation/status reconciliation. UNKNOWN requires explicit owner readback;
   a new invocation must not replay it blindly.
