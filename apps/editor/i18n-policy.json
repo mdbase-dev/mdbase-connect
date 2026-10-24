@@ -5,6 +5,27 @@
     "exclude": ["**/*.test.*", "**/test/**", "**/locales/**", "**/*.generated.*", "**/demo-*.ts"]
   },
   "allowIdentical": {
+    "it": [
+      "0W0UAC",
+      "4tdkkx",
+      "6Aih4U",
+      "ABVQxs",
+      "EOlMxB",
+      "ETvtLm",
+      "Ff190b",
+      "IkQdwW",
+      "NAEDZA",
+      "UL8A9w",
+      "WsLZvA",
+      "Wwnrd6",
+      "Y7Zs7Q",
+      "bvTeoz",
+      "f8fH8W",
+      "h51QFW",
+      "lULIWN",
+      "olyvCD",
+      "xGqoFm"
+    ],
     "es": [
       "33v1rN",
       "ABVQxs",

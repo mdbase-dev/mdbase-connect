@@ -14,7 +14,7 @@ msgstr " · versione precedente dell'app"
 
 #: src/renderer/takeover-state.mts
 msgid " in {folder}"
-msgstr " in {folder}"
+msgstr " nella cartella {folder}"
 
 #. placeholder {0}: imp.mirror_root
 #: src/renderer/takeover-state.mts

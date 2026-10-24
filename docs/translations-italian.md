@@ -1,13 +1,14 @@
-# Italian scaffold
+# Italian
 
 Branch `feat/i18n-italian` is stacked on `feat/i18n-editor` at `08fda20e`.
 The kit supports ten locales; Italian uses `it` and the endonym **Italiano**.
 
-## Completed shared scope
+## Complete authored scope
 
-- `packages/ui/locales/it/messages.po`: 59 translations.
-- `packages/app-ui/src/locales/it/messages.po`: 197 translations.
-- `packages/i18n/src/codemirror/it.ts`: 29 phrases, preserving lookup keys and `$`.
+- Portal: 825 messages; desktop: 443; editor: 1407.
+- Shared app-ui: 197; Connect ui: 59; CodeMirror: 29 phrases.
+- Editor translations imported from `e2ee000c`; portal/desktop from `49fd095d`.
+- The editor's shared “Optional” ID uses “Facoltativo”, matching app-ui.
 
 Picker endonyms are fixed runtime data, not catalogue messages. The picker label
 itself belongs to each app's catalogue. Italian browser/OS variants such as
@@ -15,25 +16,26 @@ itself belongs to each app's catalogue. Italian browser/OS variants such as
 Electron uses `app.getPreferredSystemLanguages()` with the same negotiation and
 the existing persisted `language` preference; no separate OS mapping is needed.
 Intl supplies Italian CLDR rules; no hand-maintained plural table is introduced.
-The kit tests cover optional million-only cardinal `many` and required ordinal
-`many`/`other`.
+Required plural categories cover integer counts 0..999. Million-only cardinal
+`many` is optional; ordinal `many`/`other` are covered by kit tests.
 
-## Pending translator scopes — not acceptance-ready
+## Reviewed identical strings
 
-All active translations are deliberately empty in:
+The Italian policy entries preserve technical tokens, not untranslated prose:
 
-- Portal: 825 / 825.
-- Desktop: 443 / 443.
-- Editor: 1407 / 1407.
+- Editor: Markdown suffix/templates/globs, `type:`, keyboard tokens, Phosphor
+  Regular, YAML; Italian UI terms Design, Offline, Runtime, Tag and File;
+  interpolation-only count labels. Italian `file` is invariable, including the
+  file-type label `{title}, {0} file`.
+- Portal: ID/version/interpolation-only labels, example email address, and
+  established Italian terms Account, Beta, Editor, Email, Password and Privacy.
+- Desktop: Account only. The sentence fragment ` in {folder}` is translated as
+  ` nella cartella {folder}`, not allowlisted.
 
-Do not fill these with English, disable Italian, skip Italian in tests, or relax
-`mdbase-i18n check`. That gate validates authored PO completeness before fallback
-and remains the acceptance requirement. A compile can resolve missing entries
-through the existing English fallback; it does **not** certify completeness.
-Runtime composition tests involving Italian app/shared IDs also await translations,
-since English fallback can conflict with translated library messages. Translators
-must align shared IDs with the library translations or give genuinely different
-app messages their own context.
+Identical ICU branches containing `# file`, `# byte` or `# record` are valid
+Italian technical nouns, not English fallback. No completeness, contract,
+source, composition or plural gate is weakened. All ten locales remain enabled.
 
-No non-strict development override is needed for the kit/shared gates. All normal
-strict checks and build scripts remain unchanged.
+The kit and shared UI sources are unchanged since `49bea0aa`; their Italian
+adoption tarballs remain pinned to that revision. External consumers must replace
+vendored `file:` dependencies with published versions at merge/release time.
