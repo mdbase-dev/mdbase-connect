@@ -7,7 +7,7 @@
 //!
 //! | | state directory | control endpoint | replica endpoint |
 //! |---|---|---|---|
-//! | Linux | `~/.local/state/mdbase` | `$XDG_RUNTIME_DIR/mdbase/control.sock` | `$XDG_RUNTIME_DIR/mdbase/replica.sock` |
+//! | Linux | `~/.local/state/mdbase` | `<state>/run/control.sock` | `$XDG_RUNTIME_DIR/mdbase/replica.sock` |
 //! | macOS | `~/Library/Application Support/mdbase` | `<state>/control.sock` | `<state>/replica.sock` |
 //! | Windows | `%LOCALAPPDATA%\mdbase\state` | `\\.\pipe\mdbase-control-<SID>` | `\\.\pipe\mdbase-replica-<SID>` |
 //! | isolated | the given directory | `<state>/run/control.sock`, or a pipe suffixed with a hash of the directory | likewise |
@@ -16,6 +16,9 @@
 //! `XDG_RUNTIME_DIR`, Linux uses `<state>/run`. The Linux state directory ignores
 //! `XDG_STATE_HOME` on purpose: every client (the SDK, Obsidian, the desktop) must
 //! find `daemon.json` at one fixed place, whatever environment it was started in.
+//! The Linux control endpoint is fixed under the state directory for the same
+//! reason: a CLI or desktop app started without `XDG_RUNTIME_DIR` (or with a
+//! different one) still reaches a daemon the service manager started.
 //!
 //! The daemon's identity (`daemon.json`) is always in the state
 //! directory: `~/.local/state/mdbase/daemon.json`,
@@ -231,8 +234,8 @@ fn default_locations() -> Result<(PathBuf, Endpoint, Endpoint), PathError> {
         .map(|r| r.join("mdbase"))
         .unwrap_or_else(|| state.join("run"));
     Ok((
-        state,
-        Endpoint::Unix(run.join("control.sock")),
+        state.clone(),
+        Endpoint::Unix(state.join("run").join("control.sock")),
         Endpoint::Unix(run.join("replica.sock")),
     ))
 }
@@ -310,6 +313,16 @@ mod tests {
         assert_eq!(p.registry_file(), PathBuf::from("/srv/x/collections.json"));
         assert_ne!(p.secret_namespace(), "default");
         assert_eq!(p.secret_namespace().len(), 12);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_control_endpoint_does_not_depend_on_the_runtime_dir() {
+        let p = Profile::installed().unwrap();
+        assert_eq!(
+            p.control,
+            Endpoint::Unix(p.state_dir.join("run").join("control.sock"))
+        );
     }
 
     #[test]

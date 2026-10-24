@@ -172,6 +172,9 @@ enum Cmd {
     Inventory(oneshot::Sender<Option<Inventory>>),
     /// Stop admitting writes, settle, take the inventory and hold counts, stop.
     Freeze(oneshot::Sender<Option<Frozen>>),
+    /// Keep the actor busy for a while (a stand-in for a large ingest).
+    #[cfg(test)]
+    TestBusy(Duration),
     #[cfg(test)]
     TestSeedHold(
         Box<Option<mdbn_wire::client::Hold>>,
@@ -331,9 +334,16 @@ pub struct Runtime {
     tx: std_mpsc::Sender<Cmd>,
     grant_changes: watch::Receiver<()>,
     thread: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The last counters the actor answered with, for [`Runtime::telemetry`]
+    /// while the actor is busy.
+    last_telemetry: std::sync::Mutex<Option<crate::control::SyncCounters>>,
     #[cfg(test)]
     capture_fixture_frozen: std::sync::Mutex<Option<Option<Frozen>>>,
 }
+
+/// How long [`Runtime::telemetry`] waits for the actor before answering from
+/// its last observation (a large ingest keeps the actor busy for seconds).
+const TELEMETRY_WAIT: Duration = Duration::from_millis(500);
 
 /// Why a runtime did not open. Messages carry no file contents.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -422,6 +432,7 @@ impl Runtime {
                 tx,
                 grant_changes,
                 thread: std::sync::Mutex::new(Some(thread)),
+                last_telemetry: std::sync::Mutex::new(None),
                 #[cfg(test)]
                 capture_fixture_frozen: std::sync::Mutex::new(None),
             }),
@@ -520,6 +531,12 @@ impl Runtime {
         rx.await.ok()
     }
 
+    /// Keep the actor busy for `d` (tests of answers that must not wait for it).
+    #[cfg(test)]
+    pub(crate) fn test_busy(&self, d: Duration) {
+        let _ = self.tx.send(Cmd::TestBusy(d));
+    }
+
     /// SEEDED-HOLD fixture only: None reads the original actor's real ledger;
     /// Some commits one typed hold on that same actor, without a client mutation.
     #[cfg(test)]
@@ -580,10 +597,31 @@ impl Runtime {
 
     /// Read-only counters and digests at one actor observation, or None once stopped.
     /// Diagnostic only: this is not a grant, prefix certificate or key-delivery ACK.
+    ///
+    /// Status must stay cheap while the actor is busy (ingesting thousands of
+    /// changes): after [`TELEMETRY_WAIT`] it answers with the last observation's
+    /// counters, without its digests, which describe a position the actor may
+    /// have moved past. `None` if there is none yet.
     pub async fn telemetry(&self) -> Option<crate::control::SyncCounters> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::Telemetry(tx)).ok()?;
-        rx.await.ok()
+        let last = || {
+            self.last_telemetry
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+        };
+        match tokio::time::timeout(TELEMETRY_WAIT, rx).await {
+            Ok(answer) => {
+                let counters = answer.ok()?;
+                *last() = Some(counters.clone());
+                Some(counters)
+            }
+            Err(_busy) => last().clone().map(|c| crate::control::SyncCounters {
+                head_digest: None,
+                confirmed_record_digest: None,
+                ..c
+            }),
+        }
     }
 
     /// Run an account-key operation; `None` once stopped. `Ok(true)`: keyed (status),
@@ -1396,6 +1434,8 @@ fn run(
             Ok(Cmd::Readiness(reply)) => {
                 let _ = reply.send((rep.sync_status(), rep.caught_up(), rep.adopt_status()));
             }
+            #[cfg(test)]
+            Ok(Cmd::TestBusy(d)) => std::thread::sleep(d),
             #[cfg(test)]
             Ok(Cmd::TestSeedHold(hold, reply)) => {
                 use mdbn_replica::store::Store as _;
