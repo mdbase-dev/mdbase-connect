@@ -316,6 +316,15 @@ async fn live_telemetry_is_real_actor_data_and_denies_stale_or_stopped_host() {
     assert_eq!(digest.digest, crate::secrets::hex(&hash));
     assert_eq!(digest.confirmed_through, counters.confirmed_through);
     assert_eq!(counters.head_digest.as_ref().unwrap().len(), 64);
+    // A busy actor (a large ingest) does not hold status up: the last counters,
+    // without digests that may describe a position it has moved past.
+    runtime.test_busy(std::time::Duration::from_secs(3));
+    let started = std::time::Instant::now();
+    let cached = host.observed_status().await.sync.expect("last counters");
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert_eq!(cached.confirmed_through, counters.confirmed_through);
+    assert_eq!(cached.pending, counters.pending);
+    assert!(cached.head_digest.is_none() && cached.confirmed_record_digest.is_none());
     context.authority.invalidate(2);
     assert!(host.observed_status().await.sync.is_none());
     host.close().await;
