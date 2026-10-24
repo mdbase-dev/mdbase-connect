@@ -13,6 +13,9 @@ export interface SystemRoutesOptions {
   environment?: string;
   publicUrl: string;
   editorOrigin?: string;
+  /** Reported on /ready, never a readiness failure: one collection's parked
+   * policy queue must not take the whole service out of rotation. */
+  nextPolicyHealth?: () => Promise<{ parked_batches: number; oldest_unsent_seconds: number }>;
 }
 
 export function registerSystemRoutes(
@@ -48,7 +51,8 @@ export function registerSystemRoutes(
       if (options.hostedCollections && options.hostedProvider) {
         await options.hostedProvider.ready();
       }
-      return { ok: true, service: "mdbase-connect" };
+      const nextPolicy = await options.nextPolicyHealth?.();
+      return { ok: true, service: "mdbase-connect", ...(nextPolicy ? { next_policy: nextPolicy } : {}) };
     } catch {
       return reply.code(503).send({
         ok: false,

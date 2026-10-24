@@ -10,7 +10,7 @@ import { registerPolicyRecoveryRoutes } from "./policy-recovery-routes.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { LogServiceClient } from "./log-service-client.js";
-import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
+import { PolicyEmitter, policyQueueHealth, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { activatePendingServices } from "./service-activation.js";
 import { certDigest, chainHash, decodeCbor, domainHash, encodeCbor, keyId, policyItemSignedDigest, type Cbor, type Decoded, type PolicyOp, type PolicySigner } from "./policy-wire.js";
 import { ed25519PublicKeyObject, ed25519RawPublicKey } from "./policy-keys.js";
@@ -727,10 +727,7 @@ describePostgres("mdbase-next policy outbox", () => {
     expect(await emitter.drainCollection(collectionId)).toBe(0);
     const parked = await database.db.query<{ error: string }>("SELECT error FROM next_policy_batches WHERE collection_id = $1 AND state = 'parked'", [collectionId]);
     expect(parked.rows[0]!.error).toBe("invalid_retained_ops");
-    const app = Fastify();
-    registerPolicyRecoveryRoutes(app, database.db, emitter);
-    app.get("/ready", () => ({ ok: true }));
-    try { expect((await app.inject({ url: "/ready" })).statusCode).toBe(503); } finally { await app.close(); }
+    expect((await policyQueueHealth(database.db)).parked_batches).toBeGreaterThan(0);
   });
 
   it("parks a reissue that cannot be signed without relaxing certificate validity", async () => {
@@ -758,7 +755,7 @@ describePostgres("mdbase-next policy outbox", () => {
     expect(batch.rows[0]!.error).toBe("lost_genesis");
   });
 
-  it("accepts only authenticated owner hints, verifies bytes, and surfaces parked readiness", async () => {
+  it("accepts only authenticated owner hints, verifies bytes, and reports parked queues", async () => {
     const owner = await newUser(database.db);
     const collectionId = await register(owner);
     const token = randomUUID();
@@ -768,7 +765,6 @@ describePostgres("mdbase-next policy outbox", () => {
     await emitter.drainCollection(collectionId);
     const app = Fastify();
     registerPolicyRecoveryRoutes(app, database.db, emitter);
-    app.get("/ready", () => ({ ok: true }));
     try {
       const url = `/v1/next/collections/${collectionId}/lost-policy`;
       const payload = { from_seq: 1, to_seq: 999, ops_digest: "ab".repeat(32) };
@@ -783,7 +779,7 @@ describePostgres("mdbase-next policy outbox", () => {
       expect((await client.head(collectionId)).seq).toBe(1);
       await database.db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [connector]);
       expect((await app.inject({ method: "POST", url, payload, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401);
-      expect((await app.inject({ method: "GET", url: "/ready" })).statusCode).toBe(503);
+      expect((await policyQueueHealth(database.db)).parked_batches).toBeGreaterThan(0);
     } finally {
       await app.close();
     }

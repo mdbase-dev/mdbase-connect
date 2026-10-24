@@ -23,7 +23,7 @@ import { HostedAuthorityRegistry } from "./hosted.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import { drainDeferredAccountDeletions } from "./account-management.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
-import { PolicyEmitter } from "./features/next/policy-outbox.js";
+import { PolicyEmitter, policyQueueHealth } from "./features/next/policy-outbox.js";
 import { activatePendingServices } from "./features/next/service-activation.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
 import { registerAccountKeyRoutes } from "./features/next/account-keys.js";
@@ -424,7 +424,8 @@ export async function buildApp(options: BuildOptions) {
     revision: options.revision,
     environment: options.environment,
     publicUrl,
-    editorOrigin: options.editorOrigin
+    editorOrigin: options.editorOrigin,
+    ...(options.nextControlPlane ? { nextPolicyHealth: () => policyQueueHealth(options.db) } : {})
   });
   if (options.resendWebhookSecret) {
     registerResendWebhookRoute(app, {

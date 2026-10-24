@@ -10,7 +10,7 @@ import { createDatabase, type DatabasePool } from "../../db.js";
 import { registerSystemRoutes } from "../system/routes.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
-import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
+import { PolicyEmitter, policyQueueHealth, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { recoverLostPolicy, unparkPolicyQueue } from "./policy-recovery.js";
 import { registerPolicyRecoveryRoutes } from "./policy-recovery-routes.js";
 import type { PolicyOp } from "./policy-wire.js";
@@ -181,7 +181,8 @@ describePostgres("parked policy queues (real Postgres)", () => {
       [collectionId]
     );
     const app = Fastify();
-    registerSystemRoutes(app, { db, relay: { ready: async () => undefined }, hostedCollections: false, publicUrl: "http://connect.test", nextPolicy: true });
+    registerSystemRoutes(app, { db, relay: { ready: async () => undefined }, hostedCollections: false, publicUrl: "http://connect.test",
+      nextPolicyHealth: () => policyQueueHealth(db) });
     registerPolicyRecoveryRoutes(app, db, new PolicyEmitter(db, client, signer));
     try {
       const parked = Number((await db.query<{ n: string }>("SELECT count(*) AS n FROM next_policy_batches WHERE state = 'parked'")).rows[0]!.n);

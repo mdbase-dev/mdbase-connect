@@ -1,0 +1,9 @@
+{
+  "reason": "Parked policy queues get an operator way out. One new operator CLI file (next:policy-queue, following the existing next:* CLIs) imports the queue health and unpark functions and the database. The unpark records an existing audit event (audit import), and app.ts passes queue health to /ready. Three exports: policyQueueHealth, unparkPolicyQueue and its result type. No new module boundary or abstraction.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 4,
+    "typeScriptExportDeclarations": 3,
+    "services/server": 1
+  }
+}

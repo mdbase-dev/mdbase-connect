@@ -213,8 +213,11 @@ export class LogServiceClient {
       throw new LogServiceError("unavailable", "redirect");
     }
     const body = limit === undefined ? new Uint8Array(await response.arrayBuffer()) : await readBoundedBytes(response, limit);
+    // The log service refuses with a CBOR error frame. Any other failure (a 403,
+    // 413 or 429 from a proxy or the edge, a 5xx) says nothing about the request
+    // itself, so it is retried with the same bytes rather than parking a queue.
     if (!response.ok && !(response.headers.get("content-type") ?? "").includes("cbor")) {
-      throw new LogServiceError(response.status >= 500 ? "unavailable" : "invalid", `http_${response.status}`);
+      throw new LogServiceError("unavailable", `http_${response.status}`);
     }
     return body;
   }

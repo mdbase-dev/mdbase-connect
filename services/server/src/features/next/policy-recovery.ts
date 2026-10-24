@@ -1,5 +1,6 @@
 // SEC-048: hints are advisory; only our acknowledged bytes establish policy loss.
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
+import { audit } from "../../platform/audit-events.js";
 import type { LogServiceClient } from "./log-service-client.js";
 
 /** One checked-out physical session owns serialization AND every durable write.
@@ -76,6 +77,48 @@ async function withPolicySession<T>(db: DatabasePool, collectionId: string, run:
       if (!failed) throw error;
     } finally { client.release(); }
   }
+}
+
+export interface UnparkedBatch { batch_id: string; seq: number; error: string | null; attempts: number; resumed: "send" | "reissue" }
+
+/**
+ * Operator resume of a collection's parked policy queue (docs/policy-queue.md).
+ * Each parked batch goes back to the step it was parked at, with its bytes and
+ * position unchanged: a refused send is sent again, and a lost batch whose
+ * reissue could not be signed is reissued. A lost batch with nothing to send
+ * (`lost_genesis`, `invalid_retained_ops`) cannot be resumed unchanged and is
+ * refused. Each resumed batch is audited with the operator and reason.
+ */
+export function unparkPolicyQueue(db: DatabasePool, collectionId: string, input: { actor: string; reason: string }): Promise<UnparkedBatch[]> {
+  const actor = input.actor.trim(), reason = input.reason.trim();
+  if (!actor) return Promise.reject(new Error("The operator making this change is required."));
+  if (!reason) return Promise.reject(new Error("A reason is required."));
+  return withPolicyLock(db, collectionId, async lock => {
+    await lock.query("BEGIN");
+    try {
+      await lock.assertOwned();
+      const parked = await lock.query<{ id: string; seq: string; error: string | null; attempts: number; lost: boolean; reissue: boolean }>(
+        `SELECT b.id, b.seq, b.error, b.attempts, b.lost_at IS NOT NULL AS lost,
+           EXISTS (SELECT 1 FROM next_policy_outbox o WHERE o.reissue_of = b.id AND o.batch_id IS NULL) AS reissue
+         FROM next_policy_batches b WHERE b.collection_id = $1 AND b.state = 'parked' ORDER BY b.id FOR UPDATE OF b`, [collectionId]
+      );
+      const stuck = parked.rows.find(batch => batch.lost && !batch.reissue);
+      if (stuck) throw new Error(`Batch ${stuck.id} (seq ${stuck.seq}) is no longer in the log and cannot be sent again unchanged (${stuck.error ?? "no error recorded"}).`);
+      const resumed: UnparkedBatch[] = [];
+      for (const batch of parked.rows) {
+        // A lost batch stays appended-and-lost, so its pending reissue is signed again.
+        await lock.query("UPDATE next_policy_batches SET state = $2 WHERE id = $1 AND state = 'parked'", [batch.id, batch.lost ? "appended" : "sending"]);
+        const entry: UnparkedBatch = { batch_id: batch.id, seq: Number(batch.seq), error: batch.error, attempts: batch.attempts, resumed: batch.lost ? "reissue" : "send" };
+        await audit(lock, null, "next_policy.unparked", collectionId, { ...entry, reason, actor });
+        resumed.push(entry);
+      }
+      await lock.commit();
+      return resumed;
+    } catch (error) {
+      await lock.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    }
+  });
 }
 
 export function recoverLostPolicy(db: DatabasePool, log: LogServiceClient, collectionId: string): Promise<number> {

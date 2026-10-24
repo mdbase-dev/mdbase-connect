@@ -6,8 +6,10 @@
 // - an unknown outcome is retried with the same bytes (log-service-api.md §4.2, I4);
 // - `head-moved` means these bytes are not in the log, and the item is rebuilt at the
 //   new head;
-// - any other refusal parks the collection's queue (order matters) until an operator
-//   looks at it. Nothing is dropped silently.
+// - any other refusal from the log service parks the collection's queue (order
+//   matters) until an operator resumes it (`next:policy-queue`, docs/policy-queue.md).
+//   Nothing is dropped silently. Failures that are not the log service's own
+//   refusal are retried with the same bytes, with backoff.
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
@@ -136,6 +138,22 @@ export async function queueNextPolicy(client: DatabaseQueryable, collectionId: s
   return true;
 }
 
+/**
+ * Policy queue health across all collections, for /ready and the operator tool:
+ * batches parked until an operator resumes them, and the age of the oldest
+ * policy work not yet in a log. A send that keeps failing is retried rather than
+ * parked, so it shows up only in the age.
+ */
+export async function policyQueueHealth(db: DatabaseQueryable): Promise<{ parked_batches: number; oldest_unsent_seconds: number }> {
+  const row = (await db.query<{ parked: number; oldest: number | null }>(
+    `SELECT (SELECT count(*)::int FROM next_policy_batches WHERE state = 'parked') AS parked,
+       floor(EXTRACT(EPOCH FROM now() - LEAST(
+         (SELECT min(created_at) FROM next_policy_outbox WHERE batch_id IS NULL),
+         (SELECT min(created_at) FROM next_policy_batches WHERE state <> 'appended'))))::int AS oldest`
+  )).rows[0];
+  return { parked_batches: row?.parked ?? 0, oldest_unsent_seconds: Math.max(0, row?.oldest ?? 0) };
+}
+
 interface Batch {
   id: string;
   seq: string;
@@ -149,6 +167,8 @@ const MAX_REBUILDS = 8;
 /** Foreground wake hints are optional; overflow remains in the durable ledger
  * for the existing poller. Never create an unbounded background request queue. */
 const MAX_BACKGROUND_WAKES = 4;
+/** Longest wait before the poller retries a collection whose sends keep failing. */
+const MAX_RETRY_DELAY_MS = 5 * 60_000;
 
 export class PolicyEmitter {
   private timer: NodeJS.Timeout | undefined;
@@ -157,6 +177,8 @@ export class PolicyEmitter {
   private readonly verificationHints = new Set<string>();
   private readonly wakeWork = new Map<string, Promise<void>>();
   private readonly committedWork = new Map<string, Promise<void>>();
+  /** Poller backoff per failing collection, in memory; cleared when a drain completes. */
+  private readonly retryAfter = new Map<string, { failures: number; at: number }>();
   private closed = false;
 
   /** Hints only select a collection for verification, never its ops or positions. */
@@ -269,9 +291,15 @@ export class PolicyEmitter {
     let appended = 0;
     for (const { collection_id: collectionId } of collections.rows) {
       if (failedVerification.has(collectionId)) continue;
+      const retry = this.retryAfter.get(collectionId);
+      if (retry && retry.at > this.now()) continue;
       try {
         appended += await this.drainCollection(collectionId);
       } catch (error) {
+        // Same bytes next time, but not every poll: a refusing proxy or a busy log
+        // service gets exponentially fewer requests. Foreground publishes still try.
+        const failures = (retry?.failures ?? 0) + 1;
+        this.retryAfter.set(collectionId, { failures, at: this.now() + Math.min(this.pollIntervalMs * 2 ** failures, MAX_RETRY_DELAY_MS) });
         this.reportFailure(error, collectionId);
       }
     }
@@ -295,7 +323,10 @@ export class PolicyEmitter {
         // bytes/current principal, and SDK first-read/keying gates remain intact.
         this.wakeCommittedCollection(collectionId);
       }
-      else if (outcome !== "rebuild" || ++rebuilds > MAX_REBUILDS) return appended;
+      else if (outcome !== "rebuild" || ++rebuilds > MAX_REBUILDS) {
+        this.retryAfter.delete(collectionId);
+        return appended;
+      }
     }
   }
 

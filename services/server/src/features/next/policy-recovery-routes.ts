@@ -28,10 +28,4 @@ export function registerPolicyRecoveryRoutes(app: FastifyInstance, db: DatabaseP
     emitter.hintLostPolicy(request.params.id);
     return reply.code(202).send({ accepted: true });
   });
-  // Keep existing readiness behavior unchanged when the feature is disabled.
-  app.addHook("preHandler", async (request, reply) => {
-    if (request.routeOptions.url !== "/ready") return;
-    const parked = await db.query("SELECT 1 FROM next_policy_batches WHERE state = 'parked' LIMIT 1");
-    if (parked.rows.length) return reply.code(503).send({ ok: false, service: "mdbase-connect", next_policy: "parked" });
-  });
 }
