@@ -4,6 +4,7 @@ import { InvitationMigrationPending } from "../migration-sharing.js";
 import { dataPermitted, type TimerGrant } from "./grants.js";
 import { importInstant, validateTimerImport } from "./import-original.js";
 import { requireTimerMigrationEffects } from "./migration-effects.js";
+import { taskReminderMembership, requireTaskReminderWrite, retireLegacyTaskReminders } from "./tasknotes-retirement.js";
 import {
   ACTIVE_STATUSES,
   LIST_RETENTION_MS,
@@ -113,30 +114,35 @@ export async function putTimer(
 ): Promise<TimerView> {
   await requireTimerMigrationEffects(db, grant.grantId);
   assertData(grant, desired.data);
+  await requireTaskReminderWrite(db, grant, namespace, criterionId);
   await advanceTimerIntent(db, grant.grantId, namespace);
   return putTimerRow(db, grant, namespace, criterionId, desired);
 }
 
 async function putTimerRow(
   db: DatabaseQueryable, grant: TimerGrant, namespace: string,
-  criterionId: string, desired: DesiredTimer
+  criterionId: string, desired: DesiredTimer, membership = false
 ): Promise<TimerView> {
   const existing = await selectTimer(db, grant.grantId, namespace, desired.id);
   const fireAt = desired.fireAt.toISOString();
   const data = desired.data === null ? null : JSON.stringify(desired.data);
+  // Full TaskNotes membership includes past instants. Retain matching history,
+  // but never backfill an unseen/changed ancient reminder. Cancelled rows keep
+  // the SDK one-result-per-desired-ID contract without scheduling delivery.
+  const status = membership && desired.fireAt.getTime() <= Date.now() ? "cancelled" : "scheduled";
   if (!existing) {
     const inserted = await db.query<TimerRow>(
       `INSERT INTO next_timers
          (grant_id, namespace, timer_id, criterion_id, fire_at, generation,
           status, data)
-       VALUES ($1, $2, $3, $4, $5, 1, 'scheduled', $6::jsonb)
+       VALUES ($1, $2, $3, $4, $5, 1, $7, $6::jsonb)
        RETURNING ${COLUMNS}`,
-      [grant.grantId, namespace, desired.id, criterionId, fireAt, data]
+      [grant.grantId, namespace, desired.id, criterionId, fireAt, data, status]
     );
     return timerView(inserted.rows[0], dataPermitted(grant));
   }
   if (
-    existing.status !== "cancelled"
+    (existing.status !== "cancelled" || status === "cancelled")
     && instant(existing.fire_at) === fireAt
     && existing.criterion_id === criterionId
     && sameData(existing.data, desired.data)
@@ -148,7 +154,7 @@ async function putTimerRow(
   if (generation === Number.MAX_SAFE_INTEGER) throw new TimerError(413, "too_large", "Timer generation exhausted.");
   const updated = await db.query<TimerRow>(
     `UPDATE next_timers
-     SET criterion_id = $4, fire_at = $5, generation = $6, status = 'scheduled',
+     SET criterion_id = $4, fire_at = $5, generation = $6, status = $8,
          data = $7::jsonb, fired_at = NULL, updated_at = now()
      WHERE grant_id = $1 AND namespace = $2 AND timer_id = $3
      RETURNING ${COLUMNS}`,
@@ -159,7 +165,8 @@ async function putTimerRow(
       criterionId,
       fireAt,
       generation + 1,
-      data
+      data,
+      status
     ]
   );
   return timerView(updated.rows[0], dataPermitted(grant));
@@ -213,11 +220,14 @@ export async function reconcileTimers(
     ids.add(timer.id);
     assertData(grant, timer.data);
   }
+  await requireTaskReminderWrite(db, grant, namespace, criterionId);
+  await retireLegacyTaskReminders(db, grant, namespace, criterionId, desired);
+  const membership = await taskReminderMembership(db, grant, namespace, criterionId);
   await advanceTimerIntent(db, grant.grantId, namespace);
   const timers: TimerView[] = [];
   for (const timer of desired) {
     checkDeadline();
-    timers.push(await putTimerRow(db, grant, namespace, criterionId, timer));
+    timers.push(await putTimerRow(db, grant, namespace, criterionId, timer, membership));
   }
   const active = await db.query<{ timer_id: string }>(
     `SELECT timer_id FROM next_timers
@@ -356,6 +366,7 @@ export async function importTimer(
     timer.data === null ? null : JSON.stringify(timer.data),
     importInstant(timer.created_at), importInstant(timer.updated_at),
     timer.fired_at === null ? null : importInstant(timer.fired_at), JSON.stringify(origin)];
+  await requireTaskReminderWrite(db, grant, timer.namespace, timer.criterion_id);
   await lockNamespace(db, grant.grantId, timer.namespace);
   const identicalExisting = async (): Promise<boolean | null> => {
     const existing = await db.query<{ identical: boolean }>(
