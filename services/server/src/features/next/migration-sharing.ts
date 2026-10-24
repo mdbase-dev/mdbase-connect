@@ -134,7 +134,7 @@ async function validateCompletedAccountMigration(client:DatabaseQueryable,collec
      FROM hosted_collections h
      LEFT JOIN next_migration_collections r ON r.collection_id=h.id AND r.account_id=h.user_id
      LEFT JOIN next_collections n ON n.collection_id=h.id AND n.owner_user_id=h.user_id
-     WHERE h.user_id=$1 AND h.authority_state<>'transferred' ORDER BY h.id LIMIT $2 FOR SHARE OF h`,[owner,MAX_COLLECTIONS+1]
+     WHERE h.user_id=$1 AND h.authority_state<>'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing') ORDER BY h.id LIMIT $2 FOR SHARE OF h`,[owner,MAX_COLLECTIONS+1]
   )).rows;
   if(rows.length!==named.length||rows.some((r,i)=>r.collection_id!==named[i]
     ||r.authority_state!=="active"||r.quarantined_at!==null
@@ -158,7 +158,7 @@ async function cohortInventory(client:DatabaseQueryable,cohort:string){
   const cohortRows=(await client.query<{account:string;collection:string|null}>(
     `SELECT m.account_id::text AS account,h.id::text AS collection
      FROM next_migration_cohort_members m LEFT JOIN hosted_collections h
-       ON h.user_id=m.account_id AND h.authority_state<>'transferred'
+       ON h.user_id=m.account_id AND h.authority_state<>'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing')
      WHERE m.cohort=$1 ORDER BY m.account_id,h.id LIMIT 2001`,[cohort]
   )).rows;
   const inventory=new Map<string,string[]>();let hosted=0;
@@ -217,7 +217,7 @@ export async function labCohortCompletionEvidence(client:DatabaseQueryable,cohor
        FROM hosted_collections h
        LEFT JOIN next_migration_collections r ON r.collection_id=h.id AND r.account_id=h.user_id
        LEFT JOIN next_collections n ON n.collection_id=h.id AND n.owner_user_id=h.user_id
-       WHERE h.user_id=$1 AND h.authority_state<>'transferred' ORDER BY h.id`,[member.account]
+       WHERE h.user_id=$1 AND h.authority_state<>'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing') ORDER BY h.id`,[member.account]
     )).rows;
     if(rows.some(r=>!r.routed||r.barrier_f===null||r.final_digest===null)
       ||[...member.collections].sort().join()!==rows.map(r=>r.collection_id).join()

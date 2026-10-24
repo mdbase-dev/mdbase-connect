@@ -143,6 +143,10 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     expect(await code(flipAccountBackend(db, a.user, a.ids.slice(1), evidence, await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_mismatch");
     expect(await code(flipAccountBackend(db, a.user, [a.ids[0]!, a.ids[0]!], evidence, await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_duplicated");
     expect(await code(flipAccountBackend(db, a.user, a.ids, digest(7), await migratedTimerGate(db, a.user, a.ids)))).toBe("evidence_mismatch");
+    // Even valid cutover evidence cannot admit an unknown quarantine reason.
+    await db.query("UPDATE hosted_collections SET quarantined_at=now(),quarantine_reason=NULL WHERE id=$1", [a.ids[0]]);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_unsettled");
+    await db.query("UPDATE hosted_collections SET quarantined_at=NULL WHERE id=$1", [a.ids[0]]);
     const flipped = await flipAccountBackend(db, a.user, [...a.ids].reverse(), evidence, await migratedTimerGate(db, a.user, a.ids));
     expect(flipped.backend).toBe("next");
     expect((await flipAccountBackend(db, a.user, a.ids, evidence, await migratedTimerGate(db, a.user, a.ids))).flipped_at).toBe(flipped.flipped_at);

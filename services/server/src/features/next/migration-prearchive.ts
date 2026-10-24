@@ -35,7 +35,7 @@ const changed = (): never => { throw new RolloutRefused("migration_prearchive_in
 
 /** Acquire owner/member/held-row locks BEFORE the cohort lock used by capture.
  * No SQL transaction/lock survives a provider await. Every new invocation sees
- * a fresh complete inventory, never a filtered eligible subset or old RR view. */
+ * a fresh complete migratable inventory (missing-provider quarantines excluded). */
 async function scope(client: DatabaseConnection, name: string, ordinal: number, binding: ArchiveBinding, digest: string): Promise<Target> {
   await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
   await client.query("SET LOCAL statement_timeout='5s'");
@@ -55,12 +55,12 @@ async function scope(client: DatabaseConnection, name: string, ordinal: number, 
 }
 
 async function cohortSettled(client: DatabaseConnection, name: string) {
-  // Every nonterminal held collection is authorized together. Do not put
-  // these predicates in inventory WHERE clauses and silently shrink it.
+  // Every nonterminal migratable collection is authorized together. Only
+  // missing-provider quarantines are excluded; other invalid members refuse.
   const invalid = (await client.query<{ invalid: boolean }>(`SELECT EXISTS (
     SELECT 1 FROM next_migration_cohort_members m JOIN users u ON u.id=m.account_id
     JOIN next_migration_cohorts c ON c.name=m.cohort
-    LEFT JOIN hosted_collections h ON h.user_id=u.id AND h.authority_state<>'transferred'
+    LEFT JOIN hosted_collections h ON h.user_id=u.id AND h.authority_state<>'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing')
     WHERE m.cohort=$1 AND m.terminal_excluded_at IS NULL
       AND (c.released_at IS NULL OR u.account_backend<>'legacy'
         OR EXISTS(SELECT 1 FROM next_migration_account_flips f WHERE f.account_id=u.id)

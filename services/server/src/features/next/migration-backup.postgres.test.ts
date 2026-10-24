@@ -98,6 +98,22 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1", [name])).rows[0].verified_result).toEqual(body);
   });
 
+  it("an account with only a missing-provider quarantine takes the ordinary zero-hosted path", async () => {
+    const account = await user(), missing = await collection(account);
+    await db.query("UPDATE hosted_collections SET quarantined_at=now(),quarantine_reason='provider_collection_missing' WHERE id=$1", [missing]);
+    const before = (await db.query("SELECT * FROM hosted_collections WHERE id=$1", [missing])).rows;
+    const name = await batch([account]), base = await metadata(name);
+    expect(base.migration_batch.membership_digest).toBe(migrationMembershipDigest([[account, []]]));
+    const body = { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment: "staging",
+      prefix: `legacy-archive/staging/2026/10/08/${name}`, retention: { ...base.retention, count: "2" } };
+    await acceptCohortArchive(db, name, body, "staging");
+    await startAccountMigration(db, account, "staging");
+    expect(await flipAccountBackend(db, account, [], flipEvidenceDigest([]), { enabled: true }, "staging")).toMatchObject({ backend: "next" });
+    expect((await db.query("SELECT completed_at FROM next_migration_cohorts WHERE name=$1", [name])).rows[0].completed_at).not.toBeNull();
+    expect((await db.query("SELECT * FROM hosted_collections WHERE id=$1", [missing])).rows).toEqual(before);
+    expect((await db.query("SELECT 1 FROM next_migration_collections WHERE collection_id=$1", [missing])).rows).toEqual([]);
+  });
+
   it("supersedes an accepted never-started zero-hosted revision on unfreeze, keeps its receipt, and refuses once started", async () => {
     const account = await user(), name = await batch([account]);
     const zero = async () => {

@@ -295,7 +295,7 @@ export function postgresLabConnect(options: {
         `SELECT h.id::text AS id, h.authority_state AS state, h.quarantined_at IS NOT NULL AS quarantined,
            EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id=h.id) AS deleted,
            EXISTS (SELECT 1 FROM next_migration_collections c WHERE c.collection_id=h.id AND c.account_id=h.user_id) AS cut_over
-         FROM hosted_collections h WHERE h.user_id=$1 AND h.authority_state<>'transferred' ORDER BY h.id`, [account])).rows;
+         FROM hosted_collections h WHERE h.user_id=$1 AND h.authority_state<>'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing') ORDER BY h.id`, [account])).rows;
       if (job === "managed") {
         if (!hosted.length) throw new RolloutRefused("managed_inventory_empty", "No held hosted collections; use the separately admitted zero-hosted path.");
         if (hosted.length > 16) throw new RolloutRefused("managed_inventory_over_cap", "The managed account exceeds the 16-collection bound.");

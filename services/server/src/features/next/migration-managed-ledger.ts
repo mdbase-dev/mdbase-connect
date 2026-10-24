@@ -132,7 +132,7 @@ export async function requireBoundHeldSet(client: DatabaseQueryable, account: st
        WHEN EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id=h.id) THEN 'deleted'
        WHEN h.quarantined_at IS NOT NULL THEN 'quarantined' WHEN h.authority_state<>'active' THEN 'authority_other' END AS predicate
      FROM hosted_collections h JOIN users u ON u.id=h.user_id LEFT JOIN next_migration_cohort_members m ON m.account_id=u.id
-     WHERE h.user_id=$1 AND h.authority_state<>'transferred' ORDER BY h.id FOR SHARE OF h`, [account])).rows;
+     WHERE h.user_id=$1 AND h.authority_state<>'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing') ORDER BY h.id FOR SHARE OF h`, [account])).rows;
   const ids = rows.map(r => r.id);
   if (ids.join() !== run.collections.join()) throw new RolloutRefused("collections_mismatch", "The held set changed since the original run.", 409,
     { added: ids.filter(id => !run.collections.includes(id)), missing: run.collections.filter(id => !ids.includes(id)) });
