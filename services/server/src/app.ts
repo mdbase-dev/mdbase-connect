@@ -612,7 +612,7 @@ export async function buildApp(options: BuildOptions) {
   if (options.nextControlPlane) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
     const nextLog = new LogServiceClient(options.nextControlPlane.logService);
-    registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
+    registerNextDeviceRoutes(app, { db: options.db, log: nextLog, relay });
     registerLocalRollbackBindingRoutes(app, options.db);
     registerLocalTakeoverRoutes(app, { db: options.db, relay, ...(nextPolicyEmitter ? { emitter: nextPolicyEmitter } : {}) });
     registerNextRolloutRoutes(app, options.db);
