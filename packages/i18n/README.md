@@ -52,10 +52,16 @@ The check runs extraction sync, raw-PO completeness **before fallback**, generat
 ICU argument/type, select/exact numeric cases, offset, pound and numeric React-tag
 contracts, strict JSON compilation and the structural source guard. Plural categories
 follow the target locale's grammar (Japanese/Chinese need not have English `one`;
-Russian needs its own categories). Every plural/ordinal must include all categories
-reported by `Intl.PluralRules` for that locale/type, plus `other`; unknown categories
+Russian needs its own categories). Translated plural/ordinal messages must cover
+categories selected by `Intl.PluralRules` for integer counts **0..999**, with plural
+offsets applied. PO messages contain no reliable call-site numeric domain, so the
+check does not infer fractional counts. `other` is always required; unknown categories
 fail. `pt` uses `pt-BR`. Source exact numeric arms must remain; extra `=N` arms are
-allowed but do not replace required categories. Missing, fuzzy and whole-message
+allowed. Exact arms satisfy a category only if they cover every integer in the domain
+that selects it (de/es `one`: `=1`; fr/pt `one`: both `=0` and `=1`). Exact arms match
+original counts, before subtracting an offset. Missing CLDR categories unreachable
+in that domain (e.g. fr/es/pt million-only `many`) produce **informational stdout
+notes**, not warnings or errors. They remain valid optional arms. Missing, fuzzy and whole-message
 English-placeholder translations fail. Plural/ordinal/select branches byte-identical
 to the corresponding English branch (or English `other` for added categories) warn
 when the branch contains literal letters. Warnings include locale, generated ID and
