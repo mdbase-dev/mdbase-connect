@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mdbase-dev/mdbase-connect",
+    "url": "git+https://github.com/mdbase-dev/mdbase-connect.git",
     "directory": "runtime/packages/mdbase"
   },
   "homepage": "https://mdbase.dev",
@@ -53,5 +53,14 @@
     "js-yaml": "4.1.0",
     "typescript": "5.9.3",
     "vitest": "3.2.7"
+  },
+  "types": "./dist/index.d.ts",
+  "bugs": {
+    "url": "https://github.com/mdbase-dev/mdbase-connect/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "tag": "next"
   }
 }
