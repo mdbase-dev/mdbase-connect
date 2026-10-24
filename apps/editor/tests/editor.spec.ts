@@ -241,7 +241,8 @@ async function expectSharedSelectControls(scope: Locator, languagePicker = false
   if (languagePicker) {
     const language = scope.getByRole("combobox", { name: "Interface language", exact: true });
     await expect(language).toHaveJSProperty("tagName", "SELECT");
-    await expect(language.locator("option")).toHaveCount(9);
+    await expect(language.locator("option")).toHaveCount(10);
+    await expect(language.locator('option[value="it"]')).toHaveText("Italiano");
   }
   const audit = await controls.evaluateAll((selects) => selects.map((select) => ({
     hasCaret: Boolean(select.querySelector(".mdbase-select-chevron")),

@@ -3716,7 +3716,7 @@ msgstr "Operazioni"
 
 #: src/TypeBrowser.tsx
 msgid "Optional"
-msgstr "Opzionale"
+msgstr "Facoltativo"
 
 #: src/SchemaValueEditor.tsx
 msgid "Optional field"
