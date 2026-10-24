@@ -4,6 +4,8 @@ import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type { CreateNoteInput } from "./model";
 
+const LAST_NOTE_KEY = "mdbase-editor:last-note:demo";
+
 vi.mock("./CodeEditor", () => ({ CodeEditor: () => null }));
 vi.mock("./MarkdownNoteEditor", () => ({
   MarkdownNoteEditor: ({ draft, onTitleChange, onBodyChange, onCreateLink }: {
@@ -48,7 +50,78 @@ async function harness() {
   return { gateway, first, second, third, read, list, describeCollection, listFiles, select };
 }
 
+class NamedCollectionGateway extends DemoCollectionGateway {
+  constructor(private readonly id: string) { super(0); }
+  protected override currentConnection() {
+    return { ...super.currentConnection()!, collectionId: this.id };
+  }
+}
+
+async function collection(id: string, paths: string[]) {
+  const gateway = new NamedCollectionGateway(id);
+  for (const note of (await gateway.list()).notes) await gateway.delete(note.path, (await gateway.read(note.path)).revision);
+  for (const path of paths) await gateway.create({ path, title: path, body: id, properties: {} });
+  vi.spyOn(gateway, "mostRecentNote").mockResolvedValue(paths[0]);
+  return gateway;
+}
+
 describe("note navigation ownership and recovery", () => {
+  it("restores only the current collection's note when the SDK remounts the workspace", async () => {
+    const a = await collection("a", ["a-first.md", "a-second.md"]);
+    const b = await collection("b", ["b.md"]);
+    const readB = vi.spyOn(b, "read");
+    // The old unscoped preference has no known collection owner.
+    localStorage.setItem("mdbase-editor:last-note", "legacy.md");
+    const view = render(<App key="a" gateway={a} />);
+    await screen.findByDisplayValue("a-first.md");
+    fireEvent.click(screen.getByRole("option", { name: /a-second.md/ }));
+    await screen.findByDisplayValue("a-second.md");
+
+    view.rerender(<App key="b" gateway={b} />);
+    await screen.findByDisplayValue("b.md");
+    expect(readB.mock.calls.map(([path]) => path)).toEqual(["b.md"]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(localStorage.getItem("mdbase-editor:last-note:a")).toBe("a-second.md");
+    expect(localStorage.getItem("mdbase-editor:last-note:b")).toBe("b.md");
+
+    view.rerender(<App key="a" gateway={a} />);
+    await screen.findByDisplayValue("a-second.md");
+  });
+
+  it("does not try the previous collection's note when switching to an empty collection", async () => {
+    const a = await collection("a", ["a.md"]);
+    const b = await collection("b", []);
+    const readB = vi.spyOn(b, "read");
+    const view = render(<App key="a" gateway={a} />);
+    await screen.findByDisplayValue("a.md");
+    view.rerender(<App key="b" gateway={b} />);
+    await screen.findByRole("status", { name: "Collection connected" });
+    expect(readB).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Note title" })).not.toBeInTheDocument();
+  });
+
+  it.each(["success", "failure"] as const)("retires an in-flight note selection's %s when its collection unmounts", async (outcome) => {
+    const a = await collection("a", ["a-first.md", "a-second.md"]);
+    const b = await collection("b", ["b.md"]);
+    const originalRead = a.read.bind(a);
+    const gate = deferred();
+    const view = render(<App key="a" gateway={a} />);
+    await screen.findByDisplayValue("a-first.md");
+    vi.spyOn(a, "read").mockImplementationOnce(async (path) => { await gate.promise; return originalRead(path); });
+    fireEvent.click(screen.getByRole("option", { name: /a-second.md/ }));
+    await screen.findByText("Opening “a-second.md”…");
+
+    view.rerender(<App key="b" gateway={b} />);
+    await screen.findByDisplayValue("b.md");
+    await act(async () => outcome === "success" ? gate.resolve() : gate.reject(new Error("Obsolete selection")));
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("b.md");
+    expect(screen.queryByText(/Obsolete selection/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry note" })).not.toBeInTheDocument();
+    expect(localStorage.getItem("mdbase-editor:last-note:a")).toBe("a-first.md");
+    expect(localStorage.getItem("mdbase-editor:last-note:b")).toBe("b.md");
+  });
+
   it("opens the authority's newest note independently of the unordered observer's first page", async () => {
     const gateway = new DemoCollectionGateway(3);
     const { notes } = await gateway.list();
@@ -69,7 +142,7 @@ describe("note navigation ownership and recovery", () => {
   it.each([false, true])("keeps startup connected when newest-note selection fails (remembered: %s)", async remembered => {
     const gateway = new DemoCollectionGateway(1);
     if (remembered) {
-      localStorage.setItem("mdbase-editor:last-note", "missing.md");
+      localStorage.setItem(LAST_NOTE_KEY, "missing.md");
       vi.spyOn(gateway, "read").mockRejectedValueOnce(new Error("Remembered note missing"));
     }
     const newest = vi.spyOn(gateway, "mostRecentNote").mockRejectedValue(new Error("Newest query unavailable"));
@@ -101,7 +174,7 @@ describe("note navigation ownership and recovery", () => {
       document: "---\ntitle: Frontmatter title\n---\nNo Markdown heading\n"
     });
     const newest = vi.spyOn(gateway, "mostRecentNote");
-    localStorage.setItem("mdbase-editor:last-note", path);
+    localStorage.setItem(LAST_NOTE_KEY, path);
     render(<App gateway={gateway} />);
 
     await waitFor(() => expect(read).toHaveBeenCalledWith(path));
@@ -128,15 +201,15 @@ describe("note navigation ownership and recovery", () => {
       await readGate.promise;
       return DemoCollectionGateway.prototype.read.call(gateway, path);
     });
-    localStorage.setItem("mdbase-editor:last-note", path);
+    localStorage.setItem(LAST_NOTE_KEY, path);
     render(<App gateway={gateway} />);
     await waitFor(() => expect(read).toHaveBeenCalledWith(path));
-    localStorage.removeItem("mdbase-editor:last-note");
+    localStorage.removeItem(LAST_NOTE_KEY);
 
     await act(async () => descriptionGate.reject(new Error("Metadata unavailable")));
     await screen.findByText("Metadata unavailable");
     await act(async () => readGate.resolve());
-    expect(localStorage.getItem("mdbase-editor:last-note")).toBeNull();
+    expect(localStorage.getItem(LAST_NOTE_KEY)).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Note title" })).not.toBeInTheDocument();
   });
 
@@ -172,7 +245,7 @@ describe("note navigation ownership and recovery", () => {
     expect(screen.getByRole("textbox", { name: "Note title" })).toBe(title);
     expect(screen.getByRole("option", { name: /The shape of useful tools/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("option", { name: /Garden notes 2/ })).toHaveAttribute("aria-selected", "false");
-    expect(localStorage.getItem("mdbase-editor:last-note")).toBe(first.path);
+    expect(localStorage.getItem(LAST_NOTE_KEY)).toBe(first.path);
     fireEvent.click(retry);
     await screen.findByDisplayValue("Garden notes 2");
     expect(read.mock.calls.map(([path]) => path)).toEqual([first.path, second.path, second.path]);
@@ -278,6 +351,6 @@ describe("note navigation ownership and recovery", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create linked note" }));
     await screen.findByDisplayValue("Linked");
     expect(created).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem("mdbase-editor:last-note")).toBe("Notes/Linked.md");
+    expect(localStorage.getItem(LAST_NOTE_KEY)).toBe("Notes/Linked.md");
   });
 });

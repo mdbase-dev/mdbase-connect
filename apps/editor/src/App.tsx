@@ -281,7 +281,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
    * same link after a lost reply reuses it as the intent, so the note lands once. */
   const linkCreationIds = useRef(new Map<string, string>());
   const searchIndexCache = useRef(new IncrementalNoteSearchIndex());
-  useEffect(() => () => noteSessions.current.clear(), []);
+  useEffect(() => () => {
+    collectionEpoch.current += 1;
+    noteSessions.current.clear();
+  }, []);
   const mobileHistoryInitialized = useRef(false);
   const ignoreNextMobileHistoryPush = useRef(false);
   const mobileLayout = viewportWidth <= 760;
@@ -556,7 +559,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setCreationContext({});
     setEditingPath(false);
     setNotice(session.error);
-    localStorage.setItem("mdbase-editor:last-note", session.document.path);
+    localStorage.setItem(`mdbase-editor:last-note:${mutationScope.current.token().collectionId}`, session.document.path);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
   }, []);
 
@@ -667,7 +670,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     let descriptionLoaded = false;
     try {
       const descriptionLoad = refreshDescription(current);
-      const remembered = localStorage.getItem("mdbase-editor:last-note");
+      const remembered = localStorage.getItem(`mdbase-editor:last-note:${mutationScope.current.token().collectionId}`);
       // Open the remembered note alongside description; otherwise query the newest.
       const rememberedNote = remembered ? openNote(remembered, {}, descriptionLoad) : Promise.resolve(false);
       const [nextDescription, newestPath] = await Promise.all([
@@ -1266,7 +1269,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           updateNoteSummary(renamed, move.from);
           if (noteSessions.current.active === session) {
             setDocument(renamed); setSelectedPath(renamed.path); setPathDraft(renamed.path);
-            localStorage.setItem("mdbase-editor:last-note", renamed.path);
+            localStorage.setItem(`mdbase-editor:last-note:${token.collectionId}`, renamed.path);
           }
           setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.from), renamed.path));
           replaceNoteHistoryPath(move.from, renamed.path);
