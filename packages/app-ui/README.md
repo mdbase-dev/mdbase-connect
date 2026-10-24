@@ -51,7 +51,7 @@ const runtime = createI18nRuntime({ i18n, english: appEnglish, loadLocale, libra
 Core-macro presentation helpers use the shared Lingui singleton; do not compose
 into an unrelated isolated instance. Keep React and Lingui deduplicated in app
 bundlers. No form is remounted on a locale switch. Build output includes all
-nine catalogues and transformed macros; consumers do not compile library source.
+ten catalogues and transformed macros; consumers do not compile library source.
 PO files are the only authoring format. Builds use the kit CLI to prune obsolete PO
 entries before compilation, including English fallback; `prepack` runs strict catalogue
 checks and rebuilds so stale compiled messages cannot enter a fresh tarball.

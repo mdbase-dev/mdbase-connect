@@ -3,7 +3,7 @@
 Shared, locally authored Lingui 6.9 tooling and React runtime. No remote service,
 AI provider, translation network endpoint or application data model.
 English starts synchronously; an app's own bundler serves lazy non-English JSON.
-Supported locales: `en fr de es ja ko pt ru zh`. `pt` is Brazilian Portuguese
+Supported locales: `en fr de es ja ko pt ru zh it`. `pt` is Brazilian Portuguese
 (the TaskNotes plugin explicitly labels it Português (Brasil)); `zh` is Simplified Chinese.
 Mechanical checks do not certify linguistic quality or native-device acceptance.
 
@@ -42,7 +42,7 @@ labels. Don't translate user data, paths, product names or protocol identifiers.
 Don't translate eagerly at module scope, nest `t` inside another `t` interpolation,
 or use translations in comparisons, lookups or CSS identifiers.
 
-Run extract, author all eight target PO files, then check. PO is the authoring source.
+Run extract, author all nine target PO files, then check. PO is the authoring source.
 The kit's `compile` and `check` commands prune obsolete entries from configured PO
 files before Lingui compilation or fallback resolution. Compiled JSON contains only
 active messages; still-active translations are preserved. Package builds must use
@@ -60,7 +60,7 @@ fail. `pt` uses `pt-BR`. Source exact numeric arms must remain; extra `=N` arms 
 allowed. Exact arms satisfy a category only if they cover every integer in the domain
 that selects it (de/es `one`: `=1`; fr/pt `one`: both `=0` and `=1`). Exact arms match
 original counts, before subtracting an offset. Missing CLDR categories unreachable
-in that domain (e.g. fr/es/pt million-only `many`) produce **informational stdout
+in that domain (e.g. fr/es/pt/it million-only `many`) produce **informational stdout
 notes**, not warnings or errors. They remain valid optional arms. Missing, fuzzy and whole-message
 English-placeholder translations fail. Plural/ordinal/select branches byte-identical
 to the corresponding English branch (or English `other` for added categories) warn
@@ -119,6 +119,7 @@ const loaders = {
   pt: () => import("./i18n/locales/pt/messages.json"),
   ru: () => import("./i18n/locales/ru/messages.json"),
   zh: () => import("./i18n/locales/zh/messages.json"),
+  it: () => import("./i18n/locales/it/messages.json"),
 };
 export const runtime = createI18nRuntime({
   english,
@@ -159,11 +160,15 @@ Do not mix separate translator instances.
 `formatters(runtime.i18n.locale)` provides Intl-backed `date`, `number` and
 `relativeTime` functions. Call during rendering so a language change updates display.
 These are display-only; never use them for persisted timestamps or enum values.
-Portuguese Intl formatting uses `pt-BR`, Chinese `zh-CN`.
+Portuguese Intl formatting uses `pt-BR`, Chinese `zh-CN`. Italian uses `it`.
+Italian cardinal plurals require `one`/`other` (`many` is optional for millions);
+ordinals require `many`/`other` (8, 11, 80 and 800 select `many`).
+Language picker options use fixed endonyms from `localeNames`, not PO messages;
+Italian is displayed as `Italiano`.
 
 ## Library catalogues (shared UI packages)
 
-A library owns its source scope and nine PO catalogues; **do not extract its source
+A library owns its source scope and ten PO catalogues; **do not extract its source
 again into every app catalogue**. It does not create an i18n instance or provider.
 React library components use `useLingui`/`Trans` from the parent app context.
 Source macro calls must be transformed by the library build before publication:
@@ -185,6 +190,7 @@ const loaders = {
   pt: () => import("./locales/pt/messages.json", { with: { type: "json" } }),
   ru: () => import("./locales/ru/messages.json", { with: { type: "json" } }),
   zh: () => import("./locales/zh/messages.json", { with: { type: "json" } }),
+  it: () => import("./locales/it/messages.json", { with: { type: "json" } }),
 };
 export const uiCatalogues: CatalogueSource = {
   english,
@@ -194,7 +200,7 @@ export const uiCatalogues: CatalogueSource = {
 
 The library's config includes only its own `src` and uses
 `path: "<rootDir>/src/locales/{locale}/messages"`. Run its own `mdbase-i18n check`
-for all nine locales. Copy **all nine JSON files** into `dist/locales/{locale}`
+for all ten locales. Copy **all ten JSON files** into `dist/locales/{locale}`
 and preserve the literal imports above during the library build, so the application
 bundler can split its own deployment's target-language chunks. Include these files
 in the packed tarball and smoke-test the packed `/i18n` entry. Add a package export:
@@ -236,7 +242,7 @@ different wording, give them different semantic source contexts; otherwise align
 their translations. No library prefixes, app-side ID rewriting or duplicate messages.
 
 Catch these collisions before runtime by including each library's compiled JSON path
-in the application's check command (quote `{locale}`; all nine locales are checked):
+in the application's check command (quote `{locale}`; all ten locales are checked):
 
 ```sh
 mdbase-i18n check --compose 'node_modules/@mdbase-dev/ui/dist/locales/{locale}/messages.json'
@@ -278,7 +284,7 @@ manifest or pack-fetch protocol in this package.
 
 Kit verification: `pnpm --filter @mdbase-dev/i18n verify`.
 `pnpm --filter @mdbase-dev/i18n test:packed` repeats the packed-consumer check:
-real extraction, all nine authored catalogues, strict compile and source checks
+real extraction, all ten authored catalogues, strict compile and source checks
 through an npm-style `node_modules/.bin` symlink, including rejection of a broken
 catalogue. The public bin always invokes the CLI; consumers should use the bare
 `mdbase-i18n` commands above and remove temporary exported-main adapter launchers.

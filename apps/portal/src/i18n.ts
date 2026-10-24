@@ -11,6 +11,7 @@ const loaders = {
   pt: () => import("./locales/pt/messages.json"),
   ru: () => import("./locales/ru/messages.json"),
   zh: () => import("./locales/zh/messages.json"),
+  it: () => import("./locales/it/messages.json"),
 };
 export const appCatalogues = {
   english,
