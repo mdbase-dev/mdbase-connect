@@ -25,8 +25,8 @@ The Italian policy entries preserve technical tokens, not untranslated prose:
 
 - Editor: Markdown suffix/templates/globs, `type:`, keyboard tokens, Phosphor
   Regular, YAML; Italian UI terms Design, Offline, Runtime, Tag and File;
-  interpolation-only count labels. Italian `file` is invariable, including the
-  file-type label `{title}, {0} file`.
+  interpolation-only count labels. Italian `file` is invariable; the file-type
+  label is reordered as `{title}, file {0}`, not allowlisted.
 - Portal: ID/version/interpolation-only labels, example email address, and
   established Italian terms Account, Beta, Editor, Email, Password and Privacy.
 - Desktop: Account only. The sentence fragment ` in {folder}` is translated as
