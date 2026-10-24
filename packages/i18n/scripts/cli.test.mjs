@@ -175,9 +175,11 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
     const existing = await readFile(filename, "utf8");
     const context = { locale, sourceLocale: "en", filename, existing };
     const entries = await formatter({}).parse(existing, context);
-    const categories = new Intl.PluralRules(locale === "pt" ? "pt-BR" : locale).resolvedOptions().pluralCategories;
+    const rules = new Intl.PluralRules(locale === "pt" ? "pt-BR" : locale);
+    const categories = [...new Set([...Array.from({ length: 1000 }, (_, count) => rules.select(count)), "other"])];
     for (const entry of Object.values(entries).filter((entry) => !entry.obsolete))
-      entry.translation = locale === "en" ? entry.message : "訳 {count, plural, " + categories.map((key) => key + " {" + (locale === "ja" ? "# files" : "# 訳") + "}").join(" ") + "}";
+      entry.translation = locale === "en" ? entry.message : "訳 {count, plural, " + categories.map((key) =>
+        (key === "one" && ["de", "es"].includes(locale) ? "=1" : key) + " {" + (locale === "ja" ? "# files" : "# 訳") + "}").join(" ") + "}";
     await writeFile(filename, await formatter({ origins: true, lineNumbers: false }).serialize(entries, context));
   }
   const authored = run("extract");
@@ -185,6 +187,9 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
   const branchWarning = run("check");
   assert.equal(branchWarning.status, 0, branchWarning.stdout + branchWarning.stderr);
   assert.match(branchWarning.stderr, /ja message .*English-identical ICU branch: count, plural, other/);
+  for (const locale of ["fr", "es", "pt"])
+    assert.match(branchWarning.stdout, new RegExp("info: " + locale + " message .*Optional plural categories absent.*many"));
+  assert.doesNotMatch(branchWarning.stderr, /Optional plural categories/);
   await writeFile(resolve(root, "i18n-policy.json"), JSON.stringify({ allowIdentical: { ja: Object.keys(nestedEnglish).filter((id) => !nestedEnglish[id].obsolete) } }));
   const reviewed = run("check");
   assert.equal(reviewed.status, 0, reviewed.stdout + reviewed.stderr);

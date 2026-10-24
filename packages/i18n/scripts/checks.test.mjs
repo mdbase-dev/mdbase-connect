@@ -40,11 +40,12 @@ for (const [locale, cardinal, ordinal] of [
   ["ja", ["other"], ["other"]],
   ["ko", ["other"], ["other"]],
   ["de", ["one", "other"], ["other"]],
-  ["fr", ["one", "many", "other"], ["one", "other"]],
-  ["pt", ["one", "many", "other"], ["other"]],
+  ["es", ["one", "other"], ["other"]],
+  ["fr", ["one", "other"], ["one", "other"]],
+  ["pt", ["one", "other"], ["other"]],
 ]) {
   for (const [type, categories] of [["plural", cardinal], ["selectordinal", ordinal]]) {
-    test(locale + " " + type + " requires all CLDR categories and rejects unknown categories", () => {
+    test(locale + " " + type + " requires integer-reachable categories and rejects unknown categories", () => {
       const source = "{n, " + type + ", one {# item} other {# items}}";
       const message = (keys) => "{n, " + type + ", " + keys.map((key) => key + " {# 訳}").join(" ") + "}";
       assertMessageContract(source, message(categories), locale);
@@ -52,12 +53,10 @@ for (const [locale, cardinal, ordinal] of [
         assert.throws(() => assertMessageContract(source, message(categories.filter((key) => key !== category)), locale),
           category === "other" ? /other|Unexpected|invalid/i : /Missing plural categories/);
       }
-      const unknown = ["zero", "one", "two", "few", "many"].find((key) => !categories.includes(key));
+      const allowed = new Intl.PluralRules(locale, { type: type === "plural" ? "cardinal" : "ordinal" }).resolvedOptions().pluralCategories;
+      const unknown = ["zero", "one", "two", "few", "many"].find((key) => !allowed.includes(key));
       assert.throws(() => assertMessageContract(source, message([...categories, unknown]), locale), /Invalid plural category/);
-      // Additional exact values do not replace any CLDR category.
       assertMessageContract(source, message([...categories, "=2"]), locale);
-      if (categories.includes("one"))
-        assert.throws(() => assertMessageContract(source, message([...categories.filter((key) => key !== "one"), "=1"]), locale), /Missing plural categories/);
     });
   }
 }
@@ -65,13 +64,58 @@ for (const [locale, cardinal, ordinal] of [
 test("English source exact arms need not redundantly enumerate source CLDR categories", () => {
   const source = "{n, plural, =1 {# item} other {# items}}";
   assertCompleteCatalogue(entries(source), entries(source), "en");
-  assert.throws(() => assertMessageContract(source, "{n, plural, =1 {# Ding} other {# Dinge}}", "de"), /Missing plural categories.*one/);
+  assertMessageContract(source, "{n, plural, =1 {# Ding} other {# Dinge}}", "de");
 });
 
-test("nested plural categories are checked even in extra target-locale branches", () => {
+test("nested plural categories are checked inside select branches", () => {
   const source = "{gender, select, other {{n, plural, one {# item} other {# items}}}}";
   assert.throws(() => assertMessageContract(source,
     "{gender, select, other {{n, plural, one {# элемент} other {# элементов}}}}", "ru"), /few, many/);
+});
+
+test("optional million-only categories are informational, never warnings or errors", () => {
+  const source = "{n, plural, one {# item} other {# items}}";
+  const target = "{n, plural, one {# unité} other {# unités}}";
+  for (const locale of ["fr", "es", "pt"]) {
+    const warnings = [], notes = [];
+    assert.equal(assertCompleteCatalogue(entries(source), entries(source, target), locale, [],
+      (warning) => warnings.push(warning), (info) => notes.push(info)), 1);
+    assert.deepEqual(warnings, []);
+    assert.equal(notes.length, 1);
+    assert.match(notes[0], new RegExp("^info: " + locale + " message " + generateMessageId(source, "") + ": Optional plural categories absent"));
+    assert.match(notes[0], /0\.\.999.*n, plural: many$/);
+    const present = [];
+    assertMessageContract(source, "{n, plural, one {# unité} many {# unités} other {# unités}}", locale, undefined, (info) => present.push(info));
+    assert.deepEqual(present, []);
+  }
+});
+
+test("exact arms satisfy a category only when every integer mapped to it is covered", () => {
+  const source = "{n, plural, =1 {# item} other {# items}}";
+  const exactOne = "{n, plural, =1 {# unité} other {# unités}}";
+  for (const locale of ["de", "es"]) assertMessageContract(source, exactOne, locale);
+  for (const locale of ["fr", "pt"]) {
+    assert.throws(() => assertMessageContract(source, exactOne, locale), /Missing plural categories.*one/);
+    assertMessageContract(source, "{n, plural, =0 {# unité} =1 {# unité} other {# unités}}", locale);
+  }
+  assert.throws(() => assertMessageContract(source,
+    "{n, plural, =1 {# элемент} =2 {# элемента} one {# элемент} many {# элементов} other {# элемента}}", "ru"), /Missing plural categories.*few/);
+  assert.throws(() => assertMessageContract(source,
+    "{n, plural, =1 {# элемент} =21 {# элемент} few {# элемента} many {# элементов} other {# элемента}}", "ru"), /Missing plural categories.*one/);
+  // French ordinal one is only 1 (unlike cardinal one, which also includes 0).
+  assertMessageContract("{n, selectordinal, one {#st} other {#th}}", "{n, selectordinal, =1 {#er} other {#e}}", "fr");
+});
+
+test("offset categories use the adjusted value but exact cases match the original count", () => {
+  const source = "{n, plural, offset:1 one {# item} other {# items}}";
+  assert.throws(() => assertMessageContract(source, "{n, plural, offset:1 =1 {# Ding} other {# Dinge}}", "de"), /Missing plural categories.*one/);
+  assertMessageContract(source, "{n, plural, offset:1 =0 {# Ding} =2 {# Ding} other {# Dinge}}", "de");
+});
+
+test("other stays required even if exact cases cover the entire integer domain", () => {
+  const source = "{n, plural, other {# items}}";
+  const target = "{n, plural, " + Array.from({ length: 1000 }, (_, count) => "=" + count + " {# Dinge}").join(" ") + "}";
+  assert.throws(() => assertMessageContract(source, target, "de"), /other/);
 });
 
 test("English-identical plural/select branches warn with locale, ID and path without failing completeness", () => {
