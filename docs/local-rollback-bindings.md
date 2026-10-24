@@ -37,10 +37,24 @@ same result. Conflicting reuse, changed inventory or active-binding drift return
 409. Current credentials, ownership and revocation are checked on every replay.
 An unknown outcome retries the same rollback ID, never a new one.
 
+Grants carried over to the Private collection when it was taken over (see
+`legacy-grant-carry-over.ts`) are included. Carry-over keeps the grant's legacy
+target and relay binding (`grants.legacy_collection_id`, `legacy_encryption`); the
+first rotation puts the grant back on that target with the rotated binding and
+withdraws its native policy grant (`grant-revoke`, binding inactive), in the same
+transaction. A grant carried over before the binding was kept has its binding
+rebuilt from the `grant.carried_over` audit record (legacy row), the grant's
+signed authorization (application agreement key) and the old connector's relay
+key, with a fresh key ID and epoch 1, then rotated like any other; each rebuild is
+audited as `grant.legacy_binding_recovered`. Only live, activated grants are
+considered: a revoked grant is never restored. Once a rollback receipt exists for
+the collection, carry-over no longer moves its grants.
+
 These tuples are identifiers, **not permission or public-key authority**. Before
 unfencing, the old daemon must durably prepare and verify an authenticated complete
 current legacy policy snapshot or an exact verified pre-rotation identity/active
 set. Drift fails closed; an empty active set means authorize none. Do not relabel
-stale cached scopes with new epochs. The endpoint leaves account backend, connector
-revocation, grant activation, permissions and Next policy unchanged. It does not
+stale cached scopes with new epochs. Apart from carried-over grants (above), the endpoint
+leaves account backend, connector revocation, grant activation, permissions and
+Next policy unchanged. It does not
 make an old daemon safe to start by itself.

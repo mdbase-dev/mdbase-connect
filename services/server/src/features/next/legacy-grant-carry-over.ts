@@ -7,7 +7,9 @@
 // whose terms project to a native policy grant (queueNextGrantPolicy refuses the
 // rest, which then stay where they are and need a fresh approval). The grant keeps
 // its id, so the app's existing tokens and client key remain valid. The serving
-// desktop approves the published policy grant as it does any owner grant.
+// desktop approves the published policy grant as it does any owner grant. The
+// legacy target and relay binding are kept on the grant for a fenced local
+// rollback (local-rollback-bindings.ts), which restores them.
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { audit } from "../../platform/audit-events.js";
 import { lockCollectionSharingAuthority } from "../../collection-sharing-authority.js";
@@ -44,6 +46,9 @@ async function carryOver(client: DatabaseConnection, collection: string): Promis
        AND g.application_installation_id IS NOT NULL
        AND g.application_authorization->'binding'->>'protocol_version' IN ('4', '5')
        AND EXISTS (SELECT 1 FROM next_grant_client_keys k WHERE k.grant_id = g.id)
+       -- A fenced local rollback returned this collection's apps to the old
+       -- connector: they stay there (a later move needs a fresh approval).
+       AND NOT EXISTS (SELECT 1 FROM next_local_rollback_bindings r WHERE r.collection_id = $1 AND r.user_id = $2)
        AND NOT EXISTS (
          SELECT 1 FROM grants n WHERE n.next_collection_id = $1 AND n.user_id = g.user_id
            AND n.application_id = g.application_id
@@ -57,7 +62,8 @@ async function carryOver(client: DatabaseConnection, collection: string): Promis
     await client.query("SAVEPOINT carry_over");
     try {
       await client.query(
-        `UPDATE grants SET collection_id = NULL, next_collection_id = $1, logical_collection_id = $1, encryption = NULL
+        `UPDATE grants SET legacy_collection_id = collection_id, legacy_encryption = encryption,
+           collection_id = NULL, next_collection_id = $1, logical_collection_id = $1, encryption = NULL
          WHERE id = $2`,
         [collection, grant.id]
       );
