@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { describeActivity, groupAccess, presentCollection, presentConnection } from "../src/renderer/daemon-view.mts";
+import { accountProblemText, describeActivity, groupAccess, presentCollection, presentConnection } from "../src/renderer/daemon-view.mts";
 
 test("connection: unknown, stopped, signed out, signing in and online are distinct", () => {
   assert.equal(presentConnection(null, false).dot, "connecting");
@@ -8,6 +8,18 @@ test("connection: unknown, stopped, signed out, signing in and online are distin
   assert.equal(presentConnection({ account: { signed_in: false, online: false } }, true).label, "Not signed in");
   assert.equal(presentConnection({ account: { signed_in: false, online: false, pairing: "https://x" } }, true).label, "Waiting for sign-in approval");
   assert.equal(presentConnection({ account: { signed_in: true, online: true } }, true).dot, "connected");
+});
+
+test("connection: an account problem is explained in plain words, never as a code", () => {
+  const failing = presentConnection({ account: { signed_in: true, online: false, last_error: "device_registration_failed" } }, true);
+  assert.equal(failing.dot, "danger");
+  assert.match(failing.detail, /keeps trying/);
+  const online = presentConnection({ account: { signed_in: true, online: true, last_error: "device_registration_failed" } }, true);
+  assert.equal(online.dot, "connected");
+  assert.match(online.detail, /could not register this computer/);
+  assert.equal(presentConnection({ account: { signed_in: true, online: true } }, true).detail, undefined);
+  assert.doesNotMatch(accountProblemText("some_new_reason"), /_/);
+  assert.equal(accountProblemText(null), undefined);
 });
 
 test("collections: sync is offered only for a ready local collection; waiting work is never shown as up to date", () => {

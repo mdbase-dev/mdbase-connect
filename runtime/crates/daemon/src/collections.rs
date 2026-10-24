@@ -425,6 +425,14 @@ impl CollectionHost {
         Ok(source)
     }
 
+    /// Open with `ctx` from now on (a new sign-in or device identity). A host that
+    /// is serving keeps the context it opened with until it is closed.
+    pub fn set_ctx(&mut self, ctx: Option<HostCtx>) {
+        if self.runtime.is_none() {
+            self.ctx = ctx;
+        }
+    }
+
     /// Re-evaluate state (folder presence, pause).
     pub fn refresh(&mut self) {
         let (state, reason) = if self.entry.paused {
@@ -490,6 +498,24 @@ impl CollectionHost {
             .source(mdbn_wire::common::B16(collection))
             .map_err(|d| d.reason())?;
         authority.current_synced().map_err(|d| d.reason())?;
+        // A synced registration is the device's that joined it, never used with
+        // another account's identity or the new identity of a removed computer.
+        if self
+            .entry
+            .owner_account
+            .as_deref()
+            .is_some_and(|owner| authority.active_account() != crate::authority::account_id(owner))
+        {
+            return Err("collection_account_mismatch");
+        }
+        if self
+            .entry
+            .device
+            .as_deref()
+            .is_some_and(|device| device != crate::secrets::uuid_string(&ctx.identity.device_id))
+        {
+            return Err("not_joined");
+        }
         let path = crate::sync::SyncConfig::path(&ctx.collections_dir, &self.entry.id);
         let invalid = |e: &dyn std::fmt::Display| {
             tracing::error!(collection = %self.entry.id, error = %e, "sync link refused");

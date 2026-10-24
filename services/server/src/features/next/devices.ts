@@ -34,7 +34,7 @@ export function withAccountId<T extends object>(grant: T, accountId: unknown): T
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 export class DeviceRegistrationError extends Error {
-  constructor(readonly code: "invalid_device" | "challenge_invalid" | "device_keys_changed" | "device_already_bound" | "identity_not_current", message: string) {
+  constructor(readonly code: "invalid_device" | "challenge_invalid" | "device_keys_changed" | "device_already_bound" | "device_removed" | "identity_not_current", message: string) {
     super(message);
   }
 }
@@ -197,7 +197,9 @@ export async function registerDevice(
     // account's desktop/CLI device with identical keys (the signature above
     // proves possession of them) whose old connector is still live. A connector
     // that was revoked (computer removed, account revoked) keeps its device
-    // retired. Device enrolments and revocations in collection logs are untouched.
+    // retired: the caller, which proved it holds this device's keys, is told so
+    // and registers a new device instead. Device enrolments and revocations in
+    // collection logs are untouched.
     if (row.user_id !== connector.user_id || row.kind !== kind || (kind !== "desktop" && kind !== "cli") || !sameKeys) {
       throw new DeviceRegistrationError("device_already_bound", "This connector or device is already registered to another.");
     }
@@ -208,7 +210,7 @@ export async function registerDevice(
       [row.connector_id, connector.user_id]
     );
     if (!retired.rows[0]) {
-      throw new DeviceRegistrationError("device_already_bound", "This device belongs to a computer that was removed.");
+      throw new DeviceRegistrationError("device_removed", "This device belongs to a computer that was removed; register a new device.");
     }
     const generation = String(retired.rows[0].fence_generation);
     await client.query("UPDATE next_devices SET connector_id = $2 WHERE id = $1", [deviceId, connector.id]);

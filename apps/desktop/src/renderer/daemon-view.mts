@@ -14,6 +14,27 @@ export interface ConnectionPresentation {
   label: string;
   settingsLabel: string;
   dot: ConnectionDotState;
+  /** What the account problem is, in plain words, when there is one. */
+  detail?: string;
+}
+
+// The daemon reports account problems as reason codes.
+const ACCOUNT_PROBLEMS: Record<string, string> = {
+  sign_in_failed: "Sign-in did not finish. Try again.",
+  sign_in_expired: "The sign-in request expired. Start again.",
+  sign_in_cancelled: "Sign-in was cancelled. Start again.",
+  sign_in_required: "Sign in to mdbase on this computer again.",
+  authentication_required: "mdbase no longer accepts this computer's sign-in. Sign out and sign in again.",
+  device_registration_failed: "mdbase could not register this computer yet. It keeps trying while mdbase is running.",
+  incompatible_version: "This version of mdbase is too old for the service. Update mdbase.",
+  credential_store_unavailable: "mdbase cannot reach this computer's secure storage. Unlock your keychain or restart mdbase.",
+  account_state: "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase.",
+  account_cleanup_failed: "Signing out did not finish. Try signing out again."
+};
+
+export function accountProblemText(reason: string | null | undefined): string | undefined {
+  if (!reason) return undefined;
+  return ACCOUNT_PROBLEMS[reason] ?? "mdbase could not connect this computer to your account. It keeps trying while mdbase is running.";
 }
 
 export function presentConnection(status: StatusLike | null, checked: boolean): ConnectionPresentation {
@@ -25,11 +46,13 @@ export function presentConnection(status: StatusLike | null, checked: boolean): 
   const account = status.account;
   if (account.pairing) return { label: t(i18n)({ message: "Waiting for sign-in approval" }), settingsLabel: t(i18n)({ message: "Signing in", context: "Local connection status" }), dot: "connecting" };
   if (!account.signed_in) return { label: t(i18n)({ message: "Not signed in", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Not signed in", context: "Local connection status" }), dot: "idle" };
-  if (account.online) return { label: t(i18n)({ message: "Connected securely", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Connected", context: "Local connection status" }), dot: "connected" };
+  const detail = accountProblemText(account.last_error);
+  if (account.online) return { label: t(i18n)({ message: "Connected securely", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Connected", context: "Local connection status" }), dot: "connected", ...(detail ? { detail } : {}) };
   return {
-    label: account.last_error ? t(i18n)({ message: "Account connection needs attention" }) : t(i18n)({ message: "Connecting securely…", context: "Local connection status" }),
-    settingsLabel: account.last_error ? t(i18n)({ message: "Needs attention", context: "Local connection status" }) : t(i18n)({ message: "Connecting", context: "Local connection status" }),
-    dot: account.last_error ? "danger" : "connecting"
+    label: detail ? t(i18n)({ message: "Account connection needs attention" }) : t(i18n)({ message: "Connecting securely…", context: "Local connection status" }),
+    settingsLabel: detail ? t(i18n)({ message: "Needs attention", context: "Local connection status" }) : t(i18n)({ message: "Connecting", context: "Local connection status" }),
+    dot: detail ? "danger" : "connecting",
+    ...(detail ? { detail } : {})
   };
 }
 

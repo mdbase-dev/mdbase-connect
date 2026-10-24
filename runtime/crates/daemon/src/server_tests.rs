@@ -60,7 +60,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         // separately by trust_tests with the LAB feature enabled.
         trust: Some(Arc::new(crate::trust::fixture_trust())),
         shutdown: watch::channel(false).0,
-        identity: std::sync::OnceLock::new(),
+        identity: Default::default(),
         account_keys: Default::default(),
         takeover: Default::default(),
         auto_private: Default::default(),
@@ -89,8 +89,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         }),
     });
     d.identity
-        .set(Arc::new(DeviceIdentity::generate().unwrap()))
-        .unwrap();
+        .set(Arc::new(DeviceIdentity::generate().unwrap()));
     d
 }
 /// Hold each startup barrier directly: no sleep or scheduler-dependent race.
