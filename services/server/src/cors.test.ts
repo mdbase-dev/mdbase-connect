@@ -2,27 +2,41 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 
-const deployments = {
-  production: ["https://app.tasknotes.dev", "https://writer.mdbase.dev", "https://journal.mdbase.dev", "https://reader.mdbase.dev", "https://editor.mdbase.dev", "chrome-extension://kimdfjefhbfgfecconmaiaaindjccidp"],
-  staging: ["https://staging.tasknotes-app.pages.dev", "https://staging.mdbase-writer.pages.dev", "https://staging.mdbase-journal.pages.dev", "https://staging.mdbase-reader.pages.dev", "https://editor-staging.mdbase.dev", "chrome-extension://palmhjikdacodimpnkapmidobfbocdgf"],
-  lab: ["https://lab.tasknotes-app.pages.dev", "https://lab.mdbase-writer.pages.dev", "https://lab.mdbase-journal-lab.pages.dev", "https://lab.mdbase-reader.pages.dev", "https://editor-lab.mdbase.dev", "https://mdbase-editor-lab.pages.dev", "http://127.0.0.1:48218", "chrome-extension://kimdfjefhbfgfecconmaiaaindjccidp"]
-};
+// Deployed client origins. None of these uses the account session cookie:
+// web apps and SDKs send bearer tokens with credentials omitted, so CORS
+// reflects their origin without allowing credentials.
+const appOrigins = [
+  // TaskNotes, Writer, Journal, Reader, Editor web (production, staging, LAB).
+  "https://app.tasknotes.dev", "https://staging.tasknotes-app.pages.dev", "https://lab.tasknotes-app.pages.dev",
+  "https://writer.mdbase.dev", "https://staging.mdbase-writer.pages.dev", "https://lab.mdbase-writer.pages.dev",
+  "https://journal.mdbase.dev", "https://staging.mdbase-journal.pages.dev", "https://lab.mdbase-journal-lab.pages.dev",
+  "https://reader.mdbase.dev", "https://staging.mdbase-reader.pages.dev", "https://lab.mdbase-reader.pages.dev",
+  "https://editor-lab.mdbase.dev", "https://mdbase-editor-lab.pages.dev", "http://127.0.0.1:48218",
+  // Native, desktop, extension and plugin shells.
+  "capacitor://app.tasknotes.dev", "https://localhost", "capacitor://localhost", "http://localhost",
+  "tauri://localhost", "http://tauri.localhost", "app://obsidian.md",
+  "chrome-extension://kimdfjefhbfgfecconmaiaaindjccidp", "chrome-extension://palmhjikdacodimpnkapmidobfbocdgf",
+  // Third-party SDK apps and look-alikes.
+  "https://application.example", "https://callumalpass.github.io", "https://other.mdbase.dev",
+  "https://connect.example.evil", "http://connect.example", "https://connect.example:444",
+  "https://preview.mdbase-reader.pages.dev", "null"
+];
 const resources: Array<() => Promise<void>> = [];
 afterAll(async () => { while (resources.length) await resources.pop()!(); });
 
-for (const [environment, origins] of Object.entries(deployments)) {
+for (const environment of ["production", "staging", "lab", "local"]) {
   describe(`${environment} CORS`, () => {
     let app: Awaited<ReturnType<typeof buildApp>>["app"];
     beforeAll(async () => {
       const db = await createDatabase("memory"); resources.push(() => db.end());
       ({ app } = await buildApp({ db, environment, publicUrl: "https://connect.example",
-        managementOrigins: ["https://management.example"], editorOrigin: "https://editor.example" }));
+        managementOrigins: ["https://management.example", "https://editor.mdbase.dev"],
+        editorOrigin: "https://editor.mdbase.dev" }));
       resources.push(() => app.close());
     });
 
-    it("allows deployed web/native apps and configured management origins", async () => {
-      for (const origin of [...origins, "https://connect.example", "https://management.example", "https://editor.example",
-        "https://app.tasknotes.dev", "capacitor://app.tasknotes.dev", "https://localhost", "capacitor://localhost"]) {
+    it("allows credentials only for the account and management origins", async () => {
+      for (const origin of ["https://connect.example", "https://management.example", "https://editor.mdbase.dev"]) {
         const response = await app.inject({ url: "/v1/auth/config", headers: { origin } });
         expect(response.statusCode).toBe(200);
         expect(response.headers["access-control-allow-origin"]).toBe(origin);
@@ -38,19 +52,30 @@ for (const [environment, origins] of Object.entries(deployments)) {
       }
     });
 
-    it("reflects arbitrary, sibling, other-environment and null origins without credentials", async () => {
-      const otherEnvironment = environment === "production" ? deployments.staging : deployments.production;
-      for (const origin of ["https://application.example", "https://callumalpass.github.io", "https://other.mdbase.dev",
-        "https://reader.mdbase.dev.example", "https://preview.mdbase-reader.pages.dev",
-        "http://reader.mdbase.dev", "https://reader.mdbase.dev:444", "null", otherEnvironment[1]]) {
-        for (const method of ["GET", "OPTIONS"] as const) {
-          const response = await app.inject({ method, url: "/v1/me", headers: {
-            origin, cookie: "mdbase_session=synthetic", "access-control-request-method": "GET"
-          } });
-          expect(response.headers["access-control-allow-origin"]).toBe(origin);
-          if (method === "OPTIONS") expect(response.statusCode).toBe(204);
-          expect(response.headers["access-control-allow-credentials"]).toBeUndefined();
-        }
+    it("reflects app, native, extension, plugin, third-party and null origins without credentials", async () => {
+      for (const origin of appOrigins) {
+        const preflight = await app.inject({ method: "OPTIONS", url: "/v1/me", headers: {
+          origin, "access-control-request-method": "POST", "access-control-request-headers": "authorization,content-type"
+        } });
+        expect(preflight.statusCode, origin).toBe(204);
+        expect(preflight.headers["access-control-allow-origin"], origin).toBe(origin);
+        expect(preflight.headers["access-control-allow-credentials"], origin).toBeUndefined();
+        expect(String(preflight.headers["access-control-allow-headers"]).toLowerCase(), origin).toContain("authorization");
+        expect(String(preflight.headers["access-control-allow-methods"]), origin).toContain("POST");
+        // A bearer-authenticated request stays readable from the app origin.
+        const bearer = await app.inject({ url: "/v1/auth/config", headers: { origin, authorization: "Bearer synthetic" } });
+        expect(bearer.statusCode, origin).toBe(200);
+        expect(bearer.headers["access-control-allow-origin"], origin).toBe(origin);
+        expect(bearer.headers["access-control-allow-credentials"], origin).toBeUndefined();
+      }
+    });
+
+    it("still refuses an ambient session cookie from a non-account origin", async () => {
+      for (const origin of ["https://app.tasknotes.dev", "https://writer.mdbase.dev", "app://obsidian.md", "https://application.example"]) {
+        const response = await app.inject({ url: "/v1/me", headers: { origin, cookie: "mdbase_session=synthetic" } });
+        expect(response.statusCode, origin).toBe(403);
+        expect(response.json()).toMatchObject({ error: { code: "origin_denied" } });
+        expect(response.headers["access-control-allow-credentials"], origin).toBeUndefined();
       }
     });
 

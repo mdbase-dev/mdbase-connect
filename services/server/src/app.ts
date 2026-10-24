@@ -108,32 +108,6 @@ import { apiError } from "./platform/http-errors.js";
 import { sessionToken } from "./platform/session-cookies.js";
 import type { AccountBackend } from "./features/next/account-backend-flip.js";
 
-// Exact deployed app origins; keep in sync with the apps' deployment configs.
-const applicationOrigins: Record<string, string[]> = {
-  production: [
-    "https://app.tasknotes.dev", "https://writer.mdbase.dev",
-    "https://journal.mdbase.dev", "https://reader.mdbase.dev", "https://editor.mdbase.dev",
-    "chrome-extension://kimdfjefhbfgfecconmaiaaindjccidp"
-  ],
-  staging: [
-    "https://staging.tasknotes-app.pages.dev", "https://staging.mdbase-writer.pages.dev",
-    "https://staging.mdbase-journal.pages.dev", "https://staging.mdbase-reader.pages.dev",
-    "https://editor-staging.mdbase.dev", "chrome-extension://palmhjikdacodimpnkapmidobfbocdgf"
-  ],
-  lab: [
-    "https://lab.tasknotes-app.pages.dev", "https://lab.mdbase-writer.pages.dev",
-    "https://lab.mdbase-journal-lab.pages.dev", "https://lab.mdbase-reader.pages.dev",
-    "https://editor-lab.mdbase.dev", "https://mdbase-editor-lab.pages.dev",
-    "http://127.0.0.1:48218", "chrome-extension://kimdfjefhbfgfecconmaiaaindjccidp"
-  ]
-};
-// TaskNotes' native hostname is fixed; Reader uses Capacitor's localhost default.
-// Android serves HTTPS; iOS uses the capacitor scheme in each environment.
-const nativeApplicationOrigins = [
-  "https://app.tasknotes.dev", "capacitor://app.tasknotes.dev",
-  "https://localhost", "capacitor://localhost"
-];
-
 interface BuildOptions {
   db: DatabasePool;
   revision?: string;
@@ -350,17 +324,14 @@ export async function buildApp(options: BuildOptions) {
     encoding: "utf8",
     runFirst: true
   });
-  const credentialedOrigins = new Set([
-    ...accountOrigins,
-    ...(options.editorOrigin ? [options.editorOrigin] : []),
-    ...(Object.hasOwn(applicationOrigins, options.environment ?? "")
-      ? [...applicationOrigins[options.environment!], ...nativeApplicationOrigins] : [])
-  ]);
   await app.register(cors, {
     delegator: (request, callback) => callback(null, {
-      // Browser SDK bearer-token requests keep origin reflection.
+      // Browser SDK bearer-token requests keep origin reflection. Only the
+      // account/management origins (which include the configured editor) may
+      // use the session cookie (see origin_denied below), so only they get
+      // credentialed CORS; apps and third-party SDKs authenticate with bearers.
       origin: true,
-      credentials: request.headers.origin !== undefined && credentialedOrigins.has(request.headers.origin),
+      credentials: request.headers.origin !== undefined && accountOrigins.has(request.headers.origin),
       methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       // Let browsers reuse a preflight for 2 hours (Chromium's cap) instead of
       // paying an OPTIONS round trip before every cross-origin app call.
