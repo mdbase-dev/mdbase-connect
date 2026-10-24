@@ -46,6 +46,7 @@ fn existing_config(tag: &str, config: &str) -> (std::path::PathBuf, Runtime) {
             private_dir: root.join("state"),
             adopt: None,
             id_hints: vec![],
+            computer_name: None,
             sync: None,
         },
         DeviceSecrets {

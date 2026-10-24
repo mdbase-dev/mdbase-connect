@@ -257,6 +257,7 @@ async fn main() {
         private_dir: work.join("state"),
         adopt: None,
         id_hints: vec![],
+        computer_name: None,
         sync: Some(Synced {
             log_url,
             chosen_state: CState::CloudCopy,

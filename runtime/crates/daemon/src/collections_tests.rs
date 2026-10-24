@@ -165,6 +165,7 @@ fn ctx(dir: &Path, server: Option<&str>, trust: Option<crate::trust::Trust>) -> 
         authority,
         notify: Arc::new(|| {}),
         sync,
+        computer_name: None,
         old_connector_running: Default::default(),
     }
 }
@@ -220,6 +221,7 @@ async fn mirror_closed_sqlite_startup_reports_counts_without_opening_folder() {
                 private_dir: private.clone(),
                 adopt: None,
                 id_hints: vec![],
+                computer_name: None,
                 sync: None,
             },
             mdbn_replica::DeviceSecrets {
@@ -929,6 +931,7 @@ fn a_refused_cache_is_refused_before_the_folder_is_opened() {
         private_dir: state,
         adopt: None,
         id_hints: vec![],
+        computer_name: None,
         sync: Some(crate::runtime::Synced {
             log_url: "https://log.lab.example".into(),
             chosen_state: mdbn_wire::policy::CState::CloudCopy,

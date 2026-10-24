@@ -455,6 +455,9 @@ pub struct Replica<S: Store> {
     /// Neutral confirmed catalog identity, memoized only for this store/catalog lifetime.
     pub(crate) handover_catalog: std::cell::RefCell<Option<handover::CatalogIdentity>>,
     query_execution_profile: QueryExecutionProfile,
+    /// The name `keep_both` copies carry (`name (conflict <label> <date>).ext`);
+    /// the device ID prefix when the host sets none.
+    pub(crate) conflict_label: Option<String>,
     /// Committed trusted derived-profile capture, never a serving permission.
     pub(crate) query_context: Option<Arc<crate::plan::QueryProjectionContext>>,
     pub(crate) query_stats: std::cell::Cell<query_driver::QueryStats>,
@@ -791,6 +794,7 @@ impl<S: Store> Replica<S> {
             orphan_grace_ms: orphans::ORPHAN_GRACE_MS,
             catalog,
             query_execution_profile: QueryExecutionProfile::default(),
+            conflict_label: None,
             query_context: None,
             query_stats: std::cell::Cell::default(),
             query_cursors: query_cursor::Cursors::default(),
@@ -982,6 +986,13 @@ impl<S: Store> Replica<S> {
     /// retain MemoryConstrained; only desktop hosts may select Desktop.
     pub fn set_query_execution_profile(&mut self, profile: QueryExecutionProfile) {
         self.query_execution_profile = profile;
+    }
+
+    /// Name `keep_both` copies after this computer (for example its user-facing
+    /// computer name) instead of a device ID prefix. Characters that are not safe
+    /// in a file name become `-`; a blank label restores the default.
+    pub fn set_conflict_label(&mut self, label: &str) {
+        self.conflict_label = disk::conflict_label(label);
     }
 
     /// Whether this replica has read up to the log head it heard in the current

@@ -244,6 +244,7 @@ fn open(
         private_dir: dir.join(format!("{}-state", d.label)),
         adopt: None,
         id_hints: vec![],
+        computer_name: None,
         sync: Some(Synced {
             log_url: log.into(),
             chosen_state: CState::CloudCopy,

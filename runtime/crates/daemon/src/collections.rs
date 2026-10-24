@@ -116,6 +116,8 @@ pub struct HostCtx {
     pub notify: Arc<dyn Fn() + Send + Sync>,
     /// What synced collections need; `None` until the daemon is signed in.
     pub sync: Option<SyncCtx>,
+    /// This computer's name in the account (signed in only).
+    pub computer_name: Option<String>,
     /// An old mdbase Connect daemon is running on this device (it holds its
     /// `daemon.lock`). Old daemons before the takeover marker check write to the
     /// folders they served, and they take no folder host lock, so a taken-over
@@ -240,6 +242,7 @@ impl CollectionHost {
             sync,
             adopt,
             id_hints,
+            computer_name: ctx.computer_name.clone(),
         };
         let secrets = mdbn_replica::DeviceSecrets {
             sign_sk: *ctx.identity.sign_seed(),
