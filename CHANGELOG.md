@@ -4,6 +4,16 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.143
+
+### Fixed
+
+- Skip legacy hosted collections quarantined as `provider_collection_missing` from migration inventories, archives, cutovers and verification, leaving their legacy rows unchanged. Other quarantine reasons remain refused.
+
+### Security
+
+- Update scoped dependency overrides to patched Undici 6.29.1/7.30.1, body-parser 2.4.0, Electron 43.8.1 and Zod 4.6.6, preserving the existing dependency audit gate and exceptions.
+
 ## 0.1.0-beta.142
 
 ### Added
