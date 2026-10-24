@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "kind": "mdbase-release-trust-bundle",
+  "repository": "mdbase-dev/mdbase-connect",
+  "commit": "36abd4b065be9495a7f5ae0808865a1f2279af04",
+  "version": "0.1.0-beta.141",
+  "imageBundle": {
+    "path": "image-release-bundle.json",
+    "length": 1596,
+    "sha256": "d87e4a6688d84b32e2fc2625a0fa0a3c126751b14de8fd6cac8bd72fda30ec39",
+    "publicationRunId": 39831749601,
+    "publicationRunAttempt": 1
+  },
+  "publication": {
+    "workflow": "publish-images.yml",
+    "runId": 39847131916,
+    "runAttempt": 1,
+    "publisherCommit": "51de1616ffb26d38444d463896396ee1b671af6c"
+  },
+  "qualification": {
+    "workflow": "server-ci.yml",
+    "runId": 39846838792,
+    "runAttempt": 1
+  },
+  "trustAssets": [
+    {
+      "path": "next-trust/production.json",
+      "length": 840,
+      "sha256": "7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7",
+      "environment": "production",
+      "controlPlaneOrigin": "https://connect.mdbase.dev",
+      "logOrigin": "https://log.mdbase.dev",
+      "source": {
+        "commit": "36abd4b065be9495a7f5ae0808865a1f2279af04",
+        "repository": "mdbase-dev/mdbase-connect",
+        "version": "0.1.0-beta.141"
+      }
+    }
+  ]
+}

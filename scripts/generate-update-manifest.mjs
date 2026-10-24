@@ -26,6 +26,23 @@ const blockedVersions = (options.get("blocked-versions")?.[0] ?? "")
   .map(semanticVersion);
 if (new Set(blockedVersions).size !== blockedVersions.length) fail("Blocked versions contain duplicates.");
 if (blockedVersions.includes(version)) fail("A release cannot block its own target version.");
+// The minimum supported version: every published version below it is listed as
+// blocked, so those installations get this release at once, bypassing staged
+// rollout (an app on a blocked version treats the update as required). The
+// manifest schema is unchanged, so older apps still read it.
+const minimumVersion = options.get("minimum-version")?.[0];
+if (minimumVersion !== undefined) {
+  semanticVersion(minimumVersion);
+  if (compareVersions(minimumVersion, version) > 0) fail("The minimum version is newer than this release.");
+  const published = (options.get("published-versions")?.[0] ?? "")
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map(semanticVersion);
+  for (const old of published) {
+    if (compareVersions(old, minimumVersion) < 0 && !blockedVersions.includes(old)) blockedVersions.push(old);
+  }
+  blockedVersions.sort(compareVersions);
+}
 
 const names = (await readdir(directory))
   .filter((name) => /^update-input-(macos|windows|linux)-(arm64|x64)\.json$/.test(name))
@@ -120,6 +137,29 @@ async function sha256(path) {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(path)) hash.update(chunk);
   return hash.digest("hex");
+}
+
+function compareVersions(left, right) {
+  const parse = (value) => {
+    const [main, pre] = value.split("-", 2);
+    return { main: main.split(".").map(BigInt), pre: pre === undefined ? [] : pre.split(".") };
+  };
+  const a = parse(left);
+  const b = parse(right);
+  for (let index = 0; index < 3; index += 1) {
+    if (a.main[index] !== b.main[index]) return a.main[index] < b.main[index] ? -1 : 1;
+  }
+  if (a.pre.length === 0 || b.pre.length === 0) return b.pre.length - a.pre.length === 0 ? 0 : a.pre.length === 0 ? 1 : -1;
+  for (let index = 0; index < Math.max(a.pre.length, b.pre.length); index += 1) {
+    const [x, y] = [a.pre[index], b.pre[index]];
+    if (x === undefined || y === undefined) return x === undefined ? -1 : 1;
+    if (x === y) continue;
+    const [xn, yn] = [/^\d+$/.test(x), /^\d+$/.test(y)];
+    if (xn && yn) return BigInt(x) < BigInt(y) ? -1 : 1;
+    if (xn !== yn) return xn ? -1 : 1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
 }
 
 function semanticVersion(value) {

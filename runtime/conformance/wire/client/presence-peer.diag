@@ -1,0 +1,10 @@
+/ Peer / {
+  / session / 0: h'abababababababababababababababab',
+  / account / 1: h'6f1e2d3c4b5a49688776655443322110',
+  / app / 2: "mdbase-editor",
+  / state / 3: {
+    "cursor": 120,
+    "editing": true
+  },
+  / last_seen / 4: 1791100800500
+}

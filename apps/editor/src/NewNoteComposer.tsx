@@ -1,6 +1,6 @@
 import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight } from "./icons";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
-import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
 import type { CreateNoteInput } from "./model";
 import { safeRenamePath } from "./note";
@@ -49,6 +49,9 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
   const [optionalPropertiesValid, setOptionalPropertiesValid] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
+  /** One record ID per creation, kept across edits until the create is confirmed:
+   * a retry reuses it, so the note lands once and later edits apply as an update. */
+  const attempt = useRef<string>(undefined);
   const type = types.find((candidate) => candidate.name === typeName);
   const declaredDisplayField = collectionDisplayField(type, "name_field");
   const displaySchema = schemaAtFieldReference(type?.schema, declaredDisplayField);
@@ -125,15 +128,18 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
     setError(undefined);
     let nextProperties = { ...defaults, ...properties };
     if (displayField) nextProperties = writeFieldReference(nextProperties, displayField, title.trim());
+    const input = {
+      title: title.trim(),
+      body,
+      path: safeRenamePath(resolvedPath),
+      type: typeName || undefined,
+      titleField: displayField,
+      properties: nextProperties
+    };
+    attempt.current ??= crypto.randomUUID();
     try {
-      await onCreate({
-        title: title.trim(),
-        body,
-        path: safeRenamePath(resolvedPath),
-        type: typeName || undefined,
-        titleField: displayField,
-        properties: nextProperties
-      });
+      await onCreate({ ...input, id: attempt.current });
+      attempt.current = undefined;
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "The note could not be created.");
       setCreating(false);

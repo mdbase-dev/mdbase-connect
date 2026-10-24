@@ -7,10 +7,8 @@ import test from "node:test";
 
 const require = createRequire(import.meta.url);
 const {
-  ElectronUpdateBackend,
   localUpdateServer,
-  parseRange,
-  runtimeNeedsReconciliation
+  parseRange
 } = require("../dist/main/electron-update-backend.js");
 
 function manifest() {
@@ -66,67 +64,4 @@ test("loopback feed rejects invalid methods and ranges", async (context) => {
   assert.equal(invalid.headers.get("content-range"), "bytes */10");
   assert.throws(() => parseRange("bytes=-2", 10), /Invalid update range/);
   assert.throws(() => parseRange("bytes=2-1", 10), /Invalid update range/);
-});
-
-test("runtime reconciliation installs missing services and repairs stale or stopped services", () => {
-  assert.equal(
-    runtimeNeedsReconciliation(
-      { installed: false, running: false },
-      "0.1.0-beta.9"
-    ),
-    true
-  );
-  assert.equal(
-    runtimeNeedsReconciliation(
-      { installed: false, running: true, binaryVersion: "0.1.0-beta.9" },
-      "0.1.0-beta.9"
-    ),
-    true
-  );
-  assert.equal(
-    runtimeNeedsReconciliation(
-      { installed: true, running: true, binaryVersion: "0.1.0-beta.8" },
-      "0.1.0-beta.9"
-    ),
-    true
-  );
-  assert.equal(
-    runtimeNeedsReconciliation(
-      { installed: true, running: false },
-      "0.1.0-beta.9"
-    ),
-    true
-  );
-  assert.equal(
-    runtimeNeedsReconciliation(
-      { installed: true, running: true, binaryVersion: "0.1.0-beta.9" },
-      "0.1.0-beta.9"
-    ),
-    false
-  );
-});
-
-test("recovery refuses a runtime path outside its private version directory", async () => {
-  const backend = new ElectronUpdateBackend({
-    currentVersion: "0.1.0-beta.9",
-    packaged: true,
-    platform: "darwin",
-    arch: "arm64",
-    userDataDirectory: "/private/profile",
-    binaryPath: () => "/Applications/mdbase connect.app/Contents/Resources/mdbase",
-    stateDirectory: () => "/private/profile/state",
-    endpoint: () => "/private/profile/connect.sock"
-  });
-  await assert.rejects(
-    backend.recover({
-      id: "transaction",
-      phase: "recovering",
-      target_version: "0.1.0-beta.9",
-      previous_version: "0.1.0-beta.8",
-      service_installed: true,
-      previous_runtime: "/tmp/attacker-controlled",
-      started_at: "2026-07-28T00:00:00.000Z"
-    }),
-    /outside the private update directory/
-  );
 });

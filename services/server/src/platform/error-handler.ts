@@ -47,14 +47,35 @@ import { CollectionInvitationError } from "../collection-invitations.js";
 import { CollectionMembershipPolicyError } from "../collection-policy.js";
 import { GrantPlanningError } from "../grant-planner.js";
 import {
+  CutoverProblemError,
+  cutoverProblem,
+  DEFAULT_CLIENT_UPDATE_POLICY,
+  type ClientUpdatePolicy
+} from "../features/next/cutover-problems.js";
+import {
   apiError,
   httpErrorStatus,
   OriginDeniedError,
   RequestValidationError
 } from "./http-errors.js";
 
-export function registerErrorHandler(app: FastifyInstance): void {
+export function registerErrorHandler(
+  app: FastifyInstance,
+  clientUpdate: ClientUpdatePolicy = DEFAULT_CLIENT_UPDATE_POLICY
+): void {
   app.setErrorHandler((error, request, reply) => {
+    // The provider's fence answer on a migrating collection reaches old clients
+    // through token and approval calls; give it the same plain-language refusal.
+    const cutover = error instanceof CutoverProblemError
+      ? error
+      : error instanceof HostedProviderResponseError && error.code === "collection_migrating"
+        ? new CutoverProblemError("migrating")
+        : undefined;
+    if (cutover) {
+      const problem = cutoverProblem(cutover, clientUpdate);
+      if (problem.retryAfterSeconds) reply.header("retry-after", String(problem.retryAfterSeconds));
+      return reply.code(problem.status).send(apiError(problem.code, problem.message, problem.details));
+    }
     if (error instanceof ApplicationManifestError) {
       return reply.code(400).send(apiError(
         "invalid_application_manifest",
@@ -78,6 +99,12 @@ export function registerErrorHandler(app: FastifyInstance): void {
       ));
     }
     if (error instanceof RequestValidationError) {
+      // A control-plane refusal on a fenced collection carries its own retry;
+      // expose it as the same Retry-After header the provider path sends.
+      const retry = error.code === "collection_migrating"
+        ? (error.details as { retry_after_seconds?: unknown } | undefined)?.retry_after_seconds
+        : undefined;
+      if (Number.isSafeInteger(retry) && (retry as number) > 0) reply.header("retry-after", String(retry));
       return reply.code(error.statusCode).send(apiError(error.code, error.message, error.details));
     }
     if (error instanceof GrantPlanningError) {

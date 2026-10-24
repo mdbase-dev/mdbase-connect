@@ -62,7 +62,7 @@ export async function packageHeadlessCli({
   const binaryPath = resolve(binary);
   await access(binaryPath, constants.R_OK | constants.X_OK);
   run(binaryPath, ["--help"]);
-  run(binaryPath, ["connect", "daemon", "run", "--help"]);
+  run(binaryPath, ["daemon", "run", "--help"]);
 
   const outputPath = resolve(outputDirectory);
   await mkdir(outputPath, { recursive: true });

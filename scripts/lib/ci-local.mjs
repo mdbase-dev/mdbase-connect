@@ -7,6 +7,7 @@
 /** Steps `pnpm ci:local` runs, in CI order. `tier` selects them. */
 export const localSteps = [
   { tier: "node", command: "pnpm install --frozen-lockfile" },
+  { tier: "node", command: "pnpm check:vendored-sdk" },
   { tier: "node", command: "pnpm version:check" },
   { tier: "node", command: "pnpm check:release-readiness" },
   { tier: "node", command: "pnpm check:release-components" },

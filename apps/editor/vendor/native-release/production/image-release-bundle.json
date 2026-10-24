@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "repository": "mdbase-dev/mdbase-connect",
+  "commit": "36abd4b065be9495a7f5ae0808865a1f2279af04",
+  "version": "0.1.0-beta.141",
+  "sourceDependencies": {
+    "mdbase-rs": "95f6f36d5f0de87ec03be5a5045a84f25fc8229b"
+  },
+  "qualification": {
+    "workflow": "server-ci.yml",
+    "runId": 39831701577,
+    "runAttempt": 1
+  },
+  "publication": {
+    "workflow": "publish-images.yml",
+    "runId": 39831749601,
+    "runAttempt": 1
+  },
+  "components": [
+    {
+      "id": "connect",
+      "image": "ghcr.io/mdbase-dev/mdbase-connect-server@sha256:5368af629022be021bf22ec147be5ae98d5b12adba1e6eddc98d71c0fb18f3f8",
+      "platform": "linux/amd64",
+      "attestationType": "https://mdbase.dev/attestations/release-image/v1"
+    },
+    {
+      "id": "hosted-provider",
+      "image": "ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:6ff7a260b51c7aea0e1c82c7620388db10edc91ae00b387bbbe30b76d09b9663",
+      "platform": "linux/amd64",
+      "attestationType": "https://mdbase.dev/attestations/release-image/v1"
+    },
+    {
+      "id": "mcp",
+      "image": "ghcr.io/mdbase-dev/mdbase-connect-mcp@sha256:559d13bd1907fda9fd6a861d5e88fddd9a86b4861d2210dd1e29c9b12479ad79",
+      "platform": "linux/amd64",
+      "attestationType": "https://mdbase.dev/attestations/release-image/v1"
+    },
+    {
+      "id": "client",
+      "image": "ghcr.io/mdbase-dev/mdbase-connect-client@sha256:05457f46119f73c1f268ad670ed8f410fc6bc30cc2af28a8fbc76bac1c451c85",
+      "platform": "linux/amd64",
+      "attestationType": "https://mdbase.dev/attestations/release-image/v1"
+    }
+  ]
+}

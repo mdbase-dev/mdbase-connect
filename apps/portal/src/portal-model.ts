@@ -5,12 +5,54 @@ import type {
   TypePackProvision
 } from "./api";
 
-const editorBaseUrl = import.meta.env?.VITE_MDBASE_EDITOR_URL ?? "https://editor.mdbase.dev/";
+export function installationAccountLabel(pairing: {
+  account_selection_confirmed?: boolean;
+  account_email?: string | null; account_provider?: string | null; account_login?: string | null;
+  signed_in_account_email?: string | null; signed_in_account_provider?: string | null; signed_in_account_login?: string | null;
+}): string | null {
+  const confirmed = pairing.account_selection_confirmed;
+  const email = confirmed ? pairing.account_email : pairing.signed_in_account_email;
+  const provider = confirmed ? pairing.account_provider : pairing.signed_in_account_provider;
+  const login = confirmed ? pairing.account_login : pairing.signed_in_account_login;
+  return email || (provider === "github" && login ? `GitHub account @${login}` : null);
+}
 
-export function editorConnectUrl(connectOrigin = location.origin): string {
-  const url = new URL("connect", editorBaseUrl);
-  url.searchParams.set("server", new URL(connectOrigin).origin);
-  return url.href;
+/** Where a denied pairing leaves this window. An app's sign-in or consent
+ * window ends here: the app reads the denial as a cancelled outcome, so the
+ * window closes (the app opened it) and otherwise shows "Sign-in cancelled" in
+ * place. It never navigates into another app, such as the Editor. Only the
+ * legacy computer pairing returns to the portal home. */
+export function finishDeniedPairing(
+  pairing: { installation_device?: boolean },
+  target: { close(): void; location: { href: string } }
+): "cancelled" | "home" {
+  if (!pairing.installation_device) {
+    target.location.href = "/";
+    return "home";
+  }
+  try { target.close(); } catch { /* A window the browser keeps open shows the cancelled page. */ }
+  return "cancelled";
+}
+
+export const NEW_COLLECTION = "new-collection";
+
+export function pairingInspectionPath(pairingId: string, search: string): string {
+  const incoming = new URLSearchParams(search), query = new URLSearchParams();
+  for (const key of ["collection_hint", "return_url"]) {
+    const value = incoming.get(key);
+    if (value) query.set(key, value);
+  }
+  const encoded = query.toString();
+  return `/v1/pairing-requests/${pairingId}${encoded ? `?${encoded}` : ""}`;
+}
+
+/** Optional portal navigation/ranking hint, never app consent. */
+export function readRememberedCollection(): string | null {
+  try { return localStorage.getItem(`mdbase-connect:last-collection:${location.origin}`); } catch { return null; }
+}
+
+export function rememberCollection(collectionId: string): void {
+  try { localStorage.setItem(`mdbase-connect:last-collection:${location.origin}`, collectionId); } catch { /* Storage is optional. */ }
 }
 
 export function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
@@ -38,6 +80,28 @@ export function message(value: unknown) {
     return "The mdbase connect app on this computer needs to be updated before you can continue.";
   }
   return detail;
+}
+/** A device sign-in step the portal refused. `cancel` marks refusals that no
+ * retry in this window can fix: the portal cancels the window so the app stops
+ * waiting and can offer sign-in again. Everything else stays retryable here. */
+export function installationRefusal(reason: unknown, app: string): { heading: string | null; message: string; cancel: boolean } {
+  const code = reason && typeof reason === "object" && "code" in reason ? (reason as { code?: unknown }).code : undefined;
+  if (code === "installation_legacy_backend") {
+    const details = (reason as { details?: unknown }).details;
+    const upgrade = details && typeof details === "object" ? (details as { upgrade?: unknown }).upgrade : undefined;
+    // Mid-upgrade the same window works once it finishes, so keep it open.
+    if (upgrade === "in_progress")
+      return { heading: "Account upgrade in progress", cancel: false, message: "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly." };
+    // Rolled back: nothing is upgrading the account now, so stop the app waiting.
+    if (upgrade === "postponed")
+      return { heading: "Account upgrade paused", cancel: true, message: `Your mdbase account's upgrade was paused, so ${app} can't use it yet. Your account and collections still work with your current mdbase apps. Email support@mdbase.dev if you need help.` };
+    if (upgrade === "scheduled")
+      return { heading: "Account upgrade scheduled", cancel: true, message: `Your mdbase account will be upgraded soon, so ${app} can't use it yet. Sign in again from ${app} once it is.` };
+    return { heading: "Account upgrade needed", cancel: true, message: `Your mdbase account hasn't been upgraded yet, so ${app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to ${app} to sign in with a different account.` };
+  }
+  if (code === "strict_device_approval")
+    return { heading: "Desktop approval needed", cancel: true, message: `This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in ${app}.` };
+  return { heading: null, cancel: false, message: message(reason) };
 }
 export function host(value: string) { try { return new URL(value).host; } catch { return value; } }
 export function formatDeviceCode(value: string) {

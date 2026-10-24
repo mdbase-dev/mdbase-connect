@@ -24,6 +24,7 @@ import {
 } from "../../collection-access.js";
 import {
   listHostedCollectionsVisibleToUser,
+  listNativeCollectionsVisibleToUser,
   resolveHostedCollection
 } from "../../collection-catalog.js";
 import {
@@ -40,7 +41,7 @@ import {
 } from "../../security.js";
 import { contractSetupChoiceSchema } from "../../protocol-schemas.js";
 import { audit } from "../../platform/audit-events.js";
-import { apiError } from "../../platform/http-errors.js";
+import { apiError, RequestValidationError } from "../../platform/http-errors.js";
 import {
   authenticatedUser,
   requireConnector,
@@ -58,6 +59,9 @@ import {
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { createLocalApprovalService, liveAuthorizationCollections } from "./local-collections.js";
 import { approveHostedAuthorization } from "./hosted-approval-service.js";
+import { unmigratedLocalCollection } from "../next/native-grant-target.js";
+import { approveNativeAuthorization, resolveNativeCollectionAccess } from "./native-approval-service.js";
+import { createNativeApprovalDelivery } from "./native-approval-delivery.js";
 import { PEOPLE_PERMISSIONS } from "@mdbase-dev/connect-protocol";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
@@ -80,6 +84,7 @@ export function registerAuthorizationRoutes(
   const relay = options.relay;
   const publicUrl = options.publicUrl;
   const localApprovals = createLocalApprovalService(options.db, relay);
+  const nativeDelivery = createNativeApprovalDelivery(options.db, relay, () => app.log.warn("Native approval delivery deferred to policy renewal."), options.nativePolicyEmitter);
   registerGrantRevocationRoute(app, options);
   app.post("/v1/connectors/authorization-requests/:requestId/approve", async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);
@@ -573,6 +578,10 @@ export function registerAuthorizationRoutes(
     const { request_id: requestId } = z.object({
       request_id: z.uuid()
     }).strict().parse(request.query);
+    // Apps open this route in a popup and watch its WindowProxy. Any hop in
+    // the navigation with a stricter opener policy severs it, so the redirects
+    // keep the opener just like the approval page they lead to.
+    reply.header("Cross-Origin-Opener-Policy", "unsafe-none");
     const user = await authenticatedUser(request, options.db, options.tailscaleAuth);
     if (!user) {
       const returnTo = `${publicUrl}${request.url}`;
@@ -662,7 +671,7 @@ export function registerAuthorizationRoutes(
       collection_id: string;
       operations: string[];
     }>(
-      `SELECT COALESCE(col.local_id, g.hosted_collection_id)::text AS collection_id,
+      `SELECT COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id)::text AS collection_id,
               g.operations
        FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
@@ -730,9 +739,34 @@ export function registerAuthorizationRoutes(
         })
       };
     }));
+    // Private native collections: end-to-end encrypted, so their types are not
+    // visible here; the app checks them once connected. A device approves the grant.
+    const privateCollections = requiresHostedCollection(authorization.rows[0].requirements)
+      || !authorization.rows[0].client_pk ? [] : (await Promise.all(
+      (await listNativeCollectionsVisibleToUser(options.db, user.id))
+        .filter((collection) => collection.sync === "private")
+        .map(async (collection) => {
+          const access = await resolveNativeCollectionAccess(options.db, user.id, collection.id);
+          if (!access?.actions.has("application.authorize")) return [];
+          return [{
+            id: collection.id,
+            display_name: access.collection.displayName,
+            kind: "private" as const,
+            connector_name: "Private collection",
+            spec_version: "0.3.0",
+            contracts: [],
+            access: accessView(access),
+            authorization: previewCollectionGrant({
+              applicationOperationCeiling: authorization.rows[0].requested_operations,
+              requirements: authorization.rows[0].requirements,
+              access
+            })
+          }];
+        }))).flat();
     const availableCollections = [
       ...local.collections,
-      ...hostedCollections
+      ...hostedCollections,
+      ...privateCollections
     ];
     return {
       authorization: {
@@ -827,6 +861,20 @@ export function registerAuthorizationRoutes(
         peoplePermissions: input.people_permissions,
         contractSetups: input.contract_setups
       });
+    } else if (await resolveNativeCollectionAccess(options.db, user.id, input.collection_id)
+      || (options.nextClientKeys && await unmigratedLocalCollection(options.db, input.collection_id, user.id))) {
+      if (input.contract_setups.length > 0) {
+        throw new RequestValidationError("Private collections are set up by the application after it connects.");
+      }
+      approved = await approveNativeAuthorization(options.db, {
+        requestId,
+        userId: user.id,
+        collectionId: input.collection_id,
+        operations: input.operations,
+        fileActions: input.file_actions,
+        peoplePermissions: input.people_permissions
+      });
+      if (approved) await nativeDelivery.authorization(requestId);
     } else {
       const access = await resolveHostedCollectionAccess(
         options.db,

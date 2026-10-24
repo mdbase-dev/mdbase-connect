@@ -1,0 +1,19 @@
+/* Shared collection screens (@mdbase-dev/ui/collections) on the editor's tokens. */
+:root {
+  --mdbase-collections-accent: var(--accent);
+  --mdbase-collections-surface: var(--white);
+  --mdbase-collections-canvas: var(--canvas);
+  --mdbase-collections-text: var(--ink);
+  --mdbase-collections-text-soft: var(--muted);
+  --mdbase-collections-border: var(--line);
+  --mdbase-collections-danger: var(--danger);
+}
+
+.editor-private-problem { margin: 0; color: var(--danger); }
+
+/* In the rail header the switcher names the open collection. */
+.rail-collection-heading .editor-collection-switcher { width: 100%; }
+.rail-collection-heading .editor-collection-switcher .mdbase-collections-trigger { width: 100%; margin-left: -8px; }
+.rail-collection-heading .editor-collection-switcher .mdbase-collections-trigger-name { flex: 1 1 auto; text-align: left; }
+/* The rail is narrow; the role shows in the switcher itself. */
+.rail-collection-heading .editor-collection-switcher .mdbase-collections-trigger-role { display: none; }

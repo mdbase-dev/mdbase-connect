@@ -380,3 +380,31 @@ fn claimed_collections_are_labelled_and_reported_by_doctor() {
     assert!(rendered.starts_with("Connect needs attention."));
     assert!(rendered.contains("Warning: a newer mdbase runtime now manages Notes."));
 }
+
+/// mio before 1.2.4 releases a Windows named pipe's state twice when the server
+/// goes away just after a read is submitted (tokio-rs/mio#2014). `connect daemon
+/// stop` ends the daemon's task and then pings its pipe, so the CLI crashed with
+/// heap corruption (0xC0000374).
+#[test]
+fn named_pipes_use_a_mio_with_the_use_after_free_fix() {
+    let lock = include_str!("../../../Cargo.lock");
+    let versions: Vec<Vec<u32>> = lock
+        .split("[[package]]")
+        .filter(|package| package.contains("\nname = \"mio\"\n"))
+        .filter_map(|package| package.split("\nversion = \"").nth(1))
+        .filter_map(|rest| rest.split('"').next())
+        .map(|version| {
+            version
+                .split('.')
+                .map(|part| part.parse().unwrap())
+                .collect()
+        })
+        .collect();
+    assert!(!versions.is_empty(), "mio is not in Cargo.lock");
+    for version in versions {
+        assert!(
+            version >= vec![1, 2, 4],
+            "mio {version:?} has the named pipe use-after-free"
+        );
+    }
+}

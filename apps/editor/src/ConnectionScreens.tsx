@@ -1,17 +1,13 @@
 import {
   CaretRightIcon as ChevronRight,
-  FilePlusIcon as FilePlus2,
-  TrashIcon as Trash2,
-  XIcon as X
+  TrashIcon as Trash2
 } from "./icons";
 import { ActionMenu } from "./ActionMenu";
 import { ConnectLayout } from "@mdbase-dev/ui/screens";
-import { FeedbackButton, FeedbackBug, useFeedback } from "@mdbase-dev/ui/feedback";
+import { FeedbackButton } from "@mdbase-dev/ui/feedback";
 import "@mdbase-dev/ui/feedback.css";
-import { Dialog } from "./Dialog";
 import type { ConnectionSummary } from "./model";
-
-export function ConnectScreen({ notice, missingCapabilities = [], connections, onConnect, onOpen, onForget, actionLabel, hideSavedConnections = false, fatal = false }: {
+interface ConnectScreenProps {
   notice?: string;
   missingCapabilities?: string[];
   connections: ConnectionSummary[];
@@ -21,7 +17,9 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
   actionLabel?: string;
   hideSavedConnections?: boolean;
   fatal?: boolean;
-}) {
+}
+
+export function ConnectScreen({ notice, missingCapabilities = [], connections, onConnect, onOpen, onForget, actionLabel, hideSavedConnections = false, fatal = false }: ConnectScreenProps) {
   const updatingAccess = missingCapabilities.length > 0;
   return <ConnectLayout
     app="editor"
@@ -55,49 +53,12 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
         ? "Connect another collection"
         : "Choose a collection")} <ChevronRight aria-hidden="true" /></button>}
     {!fatal && <p className="mdbase-connect-footnote">{updatingAccess
-      ? "mdbase connect keeps the access you already approved and shows only what needs to be added."
-      : "You’ll continue to mdbase connect. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."}</p>}
+      ? "mdbase keeps the access you already approved and shows only what needs to be added."
+      : "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."}</p>}
     <FeedbackButton />
     <details className="compatibility-help"><summary>Collection not listed?</summary><p>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</p></details>
   </ConnectLayout>;
 }
-export function CollectionSwitcher({ activeCollectionId, connections, displayName, connectHref, onOpen, onConnect, onClose }: {
-  activeCollectionId?: string;
-  connections: ConnectionSummary[];
-  displayName: string;
-  connectHref?: string;
-  onOpen: (collectionId: string) => void;
-  onConnect: () => void;
-  onClose: () => void;
-}) {
-  const feedback = useFeedback();
-  return <Dialog titleId="collection-switcher-title" className="collection-switcher" onClose={onClose}>
-    <header>
-      <h2 id="collection-switcher-title">Choose a collection</h2>
-      <button className="icon-button" aria-label="Close collection switcher" onClick={onClose}><X aria-hidden="true" /></button>
-    </header>
-    <div className="collection-switcher-list">
-      {connections.map((connection) => {
-        const active = connection.collectionId === activeCollectionId;
-        const name = active ? displayName : connection.displayName ?? "Untitled collection";
-        return <button
-          key={connection.collectionId}
-          className={active ? "current" : undefined}
-          aria-current={active ? "true" : undefined}
-          onClick={() => active ? onClose() : onOpen(connection.collectionId)}
-        >
-          <span><strong>{name}</strong>{active && <small>Current collection</small>}</span>
-        </button>;
-      })}
-    </div>
-    <footer>
-      <button className="collection-connect-another mdbase-button" onClick={onConnect}><FilePlus2 aria-hidden="true" />Connect another collection</button>
-      {connectHref && <a className="collection-connect-workspace mdbase-button is-tertiary" href={connectHref}>Connect workspace</a>}
-      {feedback.enabled && <button className="mdbase-feedback-trigger mdbase-button is-tertiary" onClick={() => { onClose(); requestAnimationFrame(() => requestAnimationFrame(() => feedback.open())); }}><FeedbackBug wiggle={feedback.wiggle} />Send feedback</button>}
-    </footer>
-  </Dialog>;
-}
-
 
 function accessSummary(capabilities: string[]): string {
   const labels: Record<string, string> = {

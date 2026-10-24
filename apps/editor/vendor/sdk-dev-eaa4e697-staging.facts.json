@@ -1,0 +1,109 @@
+{
+  "source": "eaa4e697fc1198f32fc3714f377342a24c56d985",
+  "sourceTree": "71ddecbca5dd54b5153d6bcd500cc89ce189474e",
+  "archive": "sdk-dev-eaa4e697-staging.tgz",
+  "bytes": 4461608,
+  "sha256": "15eb64b50fc7c2809ff3dba9cce5104fe48d8592208b3af8acb529862a1af18c",
+  "sri": "sha512-OZcexDhkjwROq0pSf/rSV1aU9H2AArhB5S2/UQU4ZTYMqJz7mpOhSFznZKSjDh6nb4EVROvBS926O3+HUePbjA==",
+  "members": 896,
+  "originalNpmPackNoMemberRewrite": true,
+  "originalMembersAndBundledProtocolVerified": true,
+  "dependencies": [
+    {
+      "name": "@mdbase-dev/connect-protocol",
+      "file": "vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz",
+      "bytes": 107322,
+      "sha256": "cd1e15236ab7e25c511a4ba13af6a9df23f4b41715161479bba97b0445e1c138",
+      "sri": "sha512-c0iOOWEcNJRstdyUJ6aqJ3puVR5C9jXW4MBHmQnHI2c4vgOeKi5VWfiuueWx3ArvtwB3nPuAaXHhll/OKH/+Yw=="
+    }
+  ],
+  "environment": "staging",
+  "trust": {
+    "environment": "staging",
+    "cpOrigin": "https://connect-staging.mdbase.dev",
+    "logOrigin": "https://log-staging.mdbase.dev",
+    "sha256": "67e117646c9c26927f0d5a44cbd26f057c318975032e9cd24f24b020150cdbc7",
+    "sourceCommit": "f45df4598a5bff891de68eec3431ec7744885067",
+    "sourceVersion": "0.1.0-beta.134"
+  },
+  "handoff": {
+    "contextSha256": "15e0c28ca828287666dc13cd1ab8cd90caa8f3a4a0036c5fa0eb6f8fbf162d9e",
+    "receiptSha256": "d7ab9de1a1ed60b159a7c7a762ec2664c687e7c1130220f0d1a67ccd5e8412bf",
+    "asset_length": 853,
+    "asset_path": "next-trust/staging.json",
+    "image_publication": {
+      "run_attempt": 1,
+      "run_id": 39368946447
+    },
+    "proof_sha256": {
+      "image-release-bundle.json": "34cf935430d182866b09617d8d6d9de9d8c25de9e3a5b79fdb7c1d68765ecf24",
+      "image-release-bundle.sigstore.json": "000d4239afcbe1a029a4b79d9511517db78d45d5477a07e3d6444f631277b7c1",
+      "release-trust-bundle.json": "9f248aa6b8130265f8c6a21e13612258958366678ef5951141b2056126b0c496",
+      "release-trust-bundle.sigstore.json": "79e64aae850aa06ed2eaa858ecc8e487d250284208bf24e541890c9dd2f493f9"
+    },
+    "publisher_qualification": {
+      "run_attempt": 1,
+      "run_id": 39371386700
+    },
+    "trust_publication": {
+      "publisher_commit": "3eebf5b7b07ed8ed86b1809a1b33551feb3f89d5",
+      "run_attempt": 1,
+      "run_id": 39371667255
+    }
+  },
+  "verifier": {
+    "source": "0e44e1e100c2bba9608c5ac3145d6cdee30fa4e2",
+    "sha256": "4c72bcc8c2ee9c95663ad4e2edfcf7a52aa2743ed7308b5031570a35982af6e4",
+    "clockOverride": false
+  },
+  "packagedTrustModuleSha256": "5443500b96150bc719afdd7e3f15b5ea1c17cdf75ac3fa9568d4111f4a776342",
+  "nativeSource": "725d72b2e43b2b744062e055e43feaeb41838399",
+  "nativeSha256": "6984f87d98e29d9f99c6b07f7728f716d1f7b2e3585a74bcc2046ba259a8afab",
+  "nativeBytes": 3676583,
+  "nativeQualification": "accepted original integrity-pinned, not separately signed",
+  "qualification": {
+    "pr": 944,
+    "soleAutomaticCi": 39383342511,
+    "attempt": 1,
+    "ciConclusion": "success",
+    "ciCompletedAt": "2026-10-20T07:05:09Z",
+    "qualifiedSdkHead": "e42dd61406051a4a9a8d1569bf1cd9a7c37988c7",
+    "actualSdkMerge": "eaa4e697fc1198f32fc3714f377342a24c56d985",
+    "actualMergedAt": "2026-10-20T07:17:29Z",
+    "qualifiedAndMergedWholeTreeEqual": true,
+    "apiReview": "Co06:58:27 APPROVED / normal selfmerge on green",
+    "authorization": "Co06:38:30 ONE replacement LAB +ONE replacement STAGING after real repro/qualified merge"
+  },
+  "authenticationEvidence": {
+    "handoff": ".coord/scratch/nx-trust/beta134-staging-custody-handoff.md",
+    "source": "f45df4598a5bff891de68eec3431ec7744885067",
+    "imagePublication": {
+      "run": 39368946447,
+      "attempt": 1
+    },
+    "trustPublication": {
+      "run": 39371667255,
+      "attempt": 1,
+      "artifact": 12241686209
+    },
+    "publisherCommit": "3eebf5b7b07ed8ed86b1809a1b33551feb3f89d5",
+    "publisherMainCi": 39371386700,
+    "publisherFullMergeQueue": 39370333006,
+    "sourceMainCi": 39368917195,
+    "sourceFullMergeQueue": 39367667804,
+    "opsAuthenticationCommit": "dfd861e86c751f0529ba566ab26936247a694591",
+    "opsDeploymentCommit": "d7fba425b1134e6638a38e5bf1c697f54788b214",
+    "canonicalAuthenticationAt": "2026-10-20T05:15:00Z",
+    "canonicalServedReadbackAt": "2026-10-20T05:38:28Z",
+    "recoveryMode": "forward-only",
+    "bookkeepingNotNewGate": true
+  },
+  "trustReceiptPurpose": "UNCHANGED accepted same-target context+verifier binding ONLY; not old/new SDK/native signing/auth/admission",
+  "trustClockOverride": false,
+  "normalBuildAndPackOnly": true,
+  "additionalQualificationOrConsumerTests": false,
+  "newRustOrNativeOrHelperBuild": false,
+  "newOpsAuthenticationByThisProducer": false,
+  "appRepinPublicationOrDeployment": false,
+  "productionAuthorization": false
+}

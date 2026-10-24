@@ -39,11 +39,14 @@ export function editableNote(
     return { title: heading[1].trim(), body: content, source: { kind: "heading" } };
   }
 
-  return { title: basename(note.path), body, source: { kind: "heading" } };
+  const title = unnamedRecordTitle(note.path, body);
+  return { title, body, source: { kind: "path", title } };
 }
 
 export function persistedBody(title: string, body: string, source: TitleSource): string {
   if (source.kind === "frontmatter") return body;
+  // A display stand-in is never written into another app's record unless the person retitles it.
+  if (source.kind === "path" && title.trim() === source.title) return body;
   const cleanTitle = title.trim() || "Untitled";
   const cleanBody = body.replace(/^\s*\n/, "");
   return cleanBody ? `# ${cleanTitle}\n\n${cleanBody}` : `# ${cleanTitle}\n`;
@@ -64,7 +67,7 @@ export function noteTitle(
   if (typeof value === "string" && value.trim()) return value.trim();
   const heading = markdownHeading(note.body ?? "");
   if (heading) return heading;
-  return basename(note.path);
+  return field ? basename(note.path) : unnamedRecordTitle(note.path, note.body ?? "");
 }
 
 const excerptCache = new WeakMap<NoteSummary, { typeKey: CollectionTypeDescriptor[]; value: string }>();
@@ -87,7 +90,7 @@ function markdownExcerpt(body: string, title = "", maximumLength = 160): string 
 }
 
 /** Readable prose for excerpts/snippets, without Markdown presentation syntax. */
-export function markdownPlainText(body: string, title = "", maximumLength = Number.POSITIVE_INFINITY): string {
+export function markdownPlainText(body: string, title = "", maximumLength = Number.POSITIVE_INFINITY, maximumLines = Number.POSITIVE_INFINITY): string {
   const lines: string[] = [];
   let length = 0;
   let fenced = false;
@@ -110,7 +113,7 @@ export function markdownPlainText(body: string, title = "", maximumLength = Numb
     if (!lines.length && title && line.toLocaleLowerCase() === title.toLocaleLowerCase()) continue;
     lines.push(line);
     length += line.length + 1;
-    if (length >= maximumLength) break;
+    if (length >= maximumLength || lines.length >= maximumLines) break;
   }
   const text = lines.join(" ");
   return text.length > maximumLength ? `${text.slice(0, maximumLength).replace(/\s+\S*$/, "")}…` : text;
@@ -138,6 +141,23 @@ export function folder(path: string): string {
 
 export function basename(path: string): string {
   return path.split("/").at(-1)?.replace(/\.[^.]+$/, "") || "Untitled";
+}
+
+/** Generated UUID filenames aren't useful names. A readable body line is only
+ * a display stand-in: TitleSource keeps body-only edits from persisting it. */
+function unnamedRecordTitle(path: string, body: string): string {
+  const filename = basename(path);
+  return opaqueFilename(path) ? markdownPlainText(body, "", 80, 1) || filename : filename;
+}
+
+/** Metadata-only rows need their existing content index for a readable stand-in. */
+export function noteNeedsBodyTitle(note: Pick<NoteSummary, "path" | "types" | "body">, types: CollectionTypeDescriptor[]): boolean {
+  return note.body === undefined && opaqueFilename(note.path)
+    && !recordDisplayField(note.types, types, "name_field");
+}
+
+function opaqueFilename(path: string): boolean {
+  return /^(?:[a-z][a-z\d]*[_-])?[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(basename(path));
 }
 
 function markdownHeading(body: string): string | undefined {
@@ -190,10 +210,6 @@ export function folderTree(notes: NoteSummary[], additionalPaths: readonly strin
   return freeze(roots);
 }
 
-export function folders(notes: NoteSummary[]): Array<{ name: string; count: number }> {
-  return folderTree(notes).map(({ name, count }) => ({ name, count }));
-}
-
 export function noteTags(note: NoteSummary): string[] {
   const fileTags = Array.isArray(note.file.tags) ? note.file.tags.filter((tag): tag is string => typeof tag === "string") : [];
   const frontmatterTags = Array.isArray(note.effectiveFrontmatter.tags)
@@ -221,15 +237,6 @@ export function types(notes: NoteSummary[], declared: string[] = []): Array<{ na
   }
   return [...counts].map(([name, count]) => ({ name, count }))
     .sort((left, right) => left.name.localeCompare(right.name));
-}
-
-export function propertyPatch(before: JsonObject, after: JsonObject): JsonObject {
-  const patch: JsonObject = {};
-  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    if (!(key in after)) patch[key] = null;
-    else if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) patch[key] = after[key];
-  }
-  return patch;
 }
 
 export function safeRenamePath(value: string): string {

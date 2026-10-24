@@ -1,11 +1,12 @@
 # Architecture
 
-mdbase editor is a client-side application with two deliberately separate
-authorities. `/connect` uses `@mdbase/connect-management` and the user's account
-session for control-plane administration. The editing workspace uses an
-explicitly authorized `@mdbase-dev/connect` collection grant. The design keeps
-account management, collection transport, lifecycle, editing state, and
-rendering separate even though the application is deployed as one static site.
+mdbase editor is a client-side application deployed as one static site. The
+editing workspace uses an explicitly authorized collection grant. The design
+keeps collection transport, lifecycle, editing state, and rendering separate.
+Account administration lives on the separate Connect portal; the editor has no
+account console. The **Open Connect** command carries collection context there,
+and old `/connect` bookmarks forward to the portal without creating a gateway or
+SDK owner (`src/main.tsx`).
 
 ## Dependency direction
 
@@ -19,19 +20,14 @@ React composition (App, feature views)
                                               │
                                   @mdbase-dev/connect or demo adapter
 
-ConnectApp ── shared EditorRail ── @mdbase/connect-management ── account APIs only
+Open Connect command ── collection-context link ── Connect portal (account APIs only)
 ```
 
-The route entry point lazy-loads `App` and `ConnectApp` independently, while
-both compose the same primary editor rail. Opening Connect replaces the
-editor's note-list context with current-collection and account navigation. It
-does not construct a collection gateway or start collection authorization.
-Collection context is carried in `?collection=<id>` and remembered locally for
-direct entry. Without a valid remembered or requested collection, Connect opens
-the account-wide collection list rather than selecting an arbitrary collection.
-Choosing Notes, Types, Settings, or **Open in editor** creates a normal
-`?collection=<id>` editor navigation; the collection session then reuses an
-existing grant or begins the standard approval transaction.
+The route entry point lazy-loads `App`. Connect links open the canonical server
+origin with `?collection=<id>`; the portal remembers valid collection context
+without selecting an arbitrary collection. **Open editor** returns to the
+Editor with collection context, where the SDK reuses an existing authorization
+or begins the standard approval transaction.
 
 Views may depend on model types and pure domain helpers. They do not own remote
 request generations, snapshot tokens, mutation queues, or authoritative note
@@ -165,11 +161,10 @@ are not automatically replaced or retried. Pending source is a loading state,
 not a YAML validation error. An application error boundary
 contains unexpected render failures and offers recovery.
 
-`ConnectApp.tsx` owns account navigation and control-plane actions. Its client
-always sends browser credentials to the configured Connect origin, which must
-explicitly trust the editor origin. The server accepts that session only from
-the configured origin. This account session is not accepted by collection
-operation routes as an application grant.
+Portal `ConnectApp.tsx` owns account navigation and control-plane actions.
+Its management client sends browser credentials only to its own Connect
+origin. This account session is not accepted by collection operation routes
+as an application grant.
 
 ## Invariants
 

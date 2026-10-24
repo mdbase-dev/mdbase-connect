@@ -1,0 +1,98 @@
+/ Mutation / {
+  / id / 0: h'0192f3a460007abc8def0123456789ab',
+  / origin / 1: h'9b2f6c1e3a474d5b8e216f0a9c3d7e54',
+  / base_seq / 2: 41,
+  / clock / 3: / OpClock / {
+    / instant / 0: 1791100800000,
+    / tz / 1: "Australia/Melbourne",
+    / local_date / 2: "2026-10-04"
+  },
+  / seed / 4: h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e',
+  / source / 5: 0 / Api /,
+  / ops / 6: [
+    / Update / {
+      / kind / 0: 2 / Update /,
+      / id / 1: h'0192f3a45b6c7d8e9f0123456789abcd',
+      / patch / 2: {
+        "status": "done",
+        "priority": 3,
+        "estimate": 1.5
+      },
+      / unset / 3: [
+        "snoozed"
+      ],
+      / add / 4: {
+        "tags": [
+          "urgent"
+        ]
+      },
+      / remove / 5: {
+        "tags": [
+          "someday"
+        ]
+      },
+      / body_edits / 7: [
+        / BodyEdit / [/ start / 0, / end / 5, / insert / "Agenda"],
+        / BodyEdit / [/ start / 42, / end / 42, / insert / "\n- follow up with Bo"]
+      ],
+      / body_base / 8: h'38732073f309589131fec63f417896537e63d27fc29fcf7c60d5f47379f0887a',
+      / base / 10: [
+        / BaseField / [/ key / "status", / observed / "open"],
+        / BaseField / [/ key / "snoozed"]
+      ]
+    },
+    / FileAttach / {
+      / kind / 0: 13 / FileAttach /,
+      / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654',
+      / path / 2: "assets/photo.webp",
+      / content / 3: / AttachmentContentV1 / [/ version / 1, / reference / / AttachmentRefV1 / [/ version / 1, / collection / h'4c18af2eb04a4b77b83e493c3695962e', / key_epoch / 3, / attachment_id / h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', / chunk_bytes / 8388608, / manifest_cipher_hash / h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'], / whole_plain_hash / h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3', / total_plain_bytes / 9000000],
+      / if_revision / 4: h'b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3',
+      / base / 5: h'b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4'
+    },
+    / FileDelete / {
+      / kind / 0: 9 / FileDelete /,
+      / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654'
+    },
+    / UnindexedMarkdownPut / {
+      / kind / 0: 14 / UnindexedMarkdownPut /,
+      / id / 1: h'0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e',
+      / path / 2: "notes/14.md",
+      / payload / 3: / UnindexedMarkdownPayloadV1 / [/ discriminator / 2, / profile / 1, / kind / 1 / UnindexedOversizedMarkdown /, / content / / AttachmentContentV1 / [/ version / 1, / reference / / AttachmentRefV1 / [/ version / 1, / collection / h'4c18af2eb04a4b77b83e493c3695962e', / key_epoch / 3, / attachment_id / h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', / chunk_bytes / 8388608, / manifest_cipher_hash / h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'], / whole_plain_hash / h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3', / total_plain_bytes / 9000000]],
+      / expected / 4: / UnindexedMarkdownPayloadV1 / [/ discriminator / 2, / profile / 1, / kind / 1 / UnindexedOversizedMarkdown /, / content / / AttachmentContentV1 / [/ version / 1, / reference / / AttachmentRefV1 / [/ version / 1, / collection / h'4c18af2eb04a4b77b83e493c3695962e', / key_epoch / 3, / attachment_id / h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', / chunk_bytes / 8388608, / manifest_cipher_hash / h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'], / whole_plain_hash / h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3', / total_plain_bytes / 9000000]]
+    },
+    / RecordToUnindexedMarkdown / {
+      / kind / 0: 15 / RecordToUnindexedMarkdown /,
+      / id / 1: h'0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f',
+      / path / 2: "notes/15.md",
+      / payload / 3: / UnindexedMarkdownPayloadV1 / [/ discriminator / 2, / profile / 1, / kind / 1 / UnindexedOversizedMarkdown /, / content / / AttachmentContentV1 / [/ version / 1, / reference / / AttachmentRefV1 / [/ version / 1, / collection / h'4c18af2eb04a4b77b83e493c3695962e', / key_epoch / 3, / attachment_id / h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', / chunk_bytes / 8388608, / manifest_cipher_hash / h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'], / whole_plain_hash / h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3', / total_plain_bytes / 9000000]],
+      / prior_revision / 4: h'd1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1'
+    },
+    / UnindexedMarkdownToRecord / {
+      / kind / 0: 16 / UnindexedMarkdownToRecord /,
+      / id / 1: h'10101010101010101010101010101010',
+      / path / 2: "notes/16.md",
+      / doc / 3: 0,
+      / prior / 4: / UnindexedMarkdownPayloadV1 / [/ discriminator / 2, / profile / 1, / kind / 1 / UnindexedOversizedMarkdown /, / content / / AttachmentContentV1 / [/ version / 1, / reference / / AttachmentRefV1 / [/ version / 1, / collection / h'4c18af2eb04a4b77b83e493c3695962e', / key_epoch / 3, / attachment_id / h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', / chunk_bytes / 8388608, / manifest_cipher_hash / h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'], / whole_plain_hash / h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3', / total_plain_bytes / 9000000]]
+    },
+    / OrdinaryFileToRecord / {
+      / kind / 0: 17 / OrdinaryFileToRecord /,
+      / id / 1: h'11111111111111111111111111111111',
+      / path / 2: "views/existing.base",
+      / doc / 3: "views: []\n",
+      / prior / 4: / BlobRef / {
+        / plain_hash / 0: h'96f38c29a06a779a354059c40c74130771b33df5743d2e3c18f9ce1851a17f26',
+        / size / 1: 10,
+        / blob_id / 2: h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1',
+        / id_epoch / 3: 1,
+        / part_size / 4: 8388608
+      }
+    }
+  ],
+  / on_behalf / 7: h'6f1e2d3c4b5a49688776655443322110',
+  / conflict_mode / 8: 0 / Record /,
+  / validated_at / 9: 2 / Error /,
+  / room / 10: / RoomCheckpoint / {
+    / stream / 0: h'2d7e9a416c3b4f189a05c8e1b2d3f467',
+    / state / 1: h'7777777777777777777777777777777777777777777777777777777777777777'
+  }
+}

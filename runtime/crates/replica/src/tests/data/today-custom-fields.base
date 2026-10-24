@@ -1,0 +1,35 @@
+properties:
+  note.task_rank:
+    displayName: Manual order
+    hidden: true
+views:
+  - type: tasknotesTaskList
+    name: Today
+    filters:
+      and:
+        - note["workflow_state"].isEmpty() == false
+        - note["workflow_state"] != "custom-state-3"
+        - file.hasTag("archived") != true
+        - or:
+            - and:
+                - note["plan_date"].isEmpty() == false
+                - date(note["plan_date"]) <= today()
+            - and:
+                - note["plan_date"].isEmpty()
+                - or:
+                    - note["deadline"].isEmpty()
+                    - date(note["deadline"]) <= today()
+    order:
+      - note["task title"]
+      - note["plan_date"]
+      - note["deadline"]
+      - note["project_links"]
+    sort:
+      - property: note.task_rank
+        direction: DESC
+      - property: note["importance"]
+        direction: ASC
+      - property: note["task title"]
+        direction: ASC
+    options:
+      sections: day

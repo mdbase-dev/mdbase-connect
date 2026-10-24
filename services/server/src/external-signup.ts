@@ -3,6 +3,7 @@ import type { AuthenticationPolicyStore, AuthenticationSettings } from "./authen
 import type { DatabasePool } from "./database-types.js";
 import { EMAIL_NORMALIZATION_VERSION, normalizeEmailAddress } from "./email-identity.js";
 import { createExternalSessionInTransaction, type VerifiedExternalIdentity } from "./external-auth.js";
+import type { AccountBackend } from "./features/next/account-backend-flip.js";
 import { completePublicAccountOnboarding } from "./public-account-onboarding.js";
 import { PublicSignupUnavailableError } from "./public-signup.js";
 import { randomToken, safeEqual, tokenHash } from "./security.js";
@@ -30,7 +31,8 @@ export class ExternalSignupService {
   constructor(
     private readonly db: DatabasePool,
     private readonly policy: AuthenticationPolicyStore,
-    private readonly providers: ReadonlySet<VerifiedExternalIdentity["provider"]>
+    private readonly providers: ReadonlySet<VerifiedExternalIdentity["provider"]>,
+    private readonly newAccountBackend: AccountBackend = "legacy"
   ) {}
 
   async create(identity: VerifiedExternalIdentity, returnTo: string): Promise<string> {
@@ -97,7 +99,7 @@ export class ExternalSignupService {
       const session = await createExternalSessionInTransaction(connection, {
         ...identity,
         name: input.name
-      }, { clientName: input.clientName, allowAccountCreation: true });
+      }, { clientName: input.clientName, allowAccountCreation: true, newAccountBackend: this.newAccountBackend });
       if (session.createdAccount) {
         const emailIdentityId = randomUUID();
         const email = normalizeEmailAddress(identity.email);

@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Today",
+    "path": "TaskNotes/Views/today.base",
+    "document": "properties:\n  note.tasknotes_manual_order:\n    displayName: Manual order\n    hidden: true\nviews:\n  - type: tasknotesTaskList\n    name: Today\n    filters:\n      and:\n        - note[\"status\"].isEmpty() == false\n        - note[\"status\"] != \"done\"\n        - file.hasTag(\"archived\") != true\n        - or:\n            - and:\n                - note[\"scheduled\"].isEmpty() == false\n                - date(note[\"scheduled\"]) <= today()\n            - and:\n                - note[\"scheduled\"].isEmpty()\n                - or:\n                    - note[\"due\"].isEmpty()\n                    - date(note[\"due\"]) <= today()\n    order:\n      - note[\"title\"]\n      - note[\"scheduled\"]\n      - note[\"due\"]\n      - note[\"projects\"]\n    sort:\n      - property: note.tasknotes_manual_order\n        direction: DESC\n      - property: note[\"priority\"]\n        direction: ASC\n      - property: note[\"title\"]\n        direction: ASC\n    options:\n      sections: day\n"
+  },
+  {
+    "name": "Upcoming",
+    "path": "TaskNotes/Views/upcoming.base",
+    "document": "properties:\n  note.tasknotes_manual_order:\n    displayName: Manual order\n    hidden: true\nviews:\n  - type: tasknotesCalendar\n    name: Upcoming\n    filters:\n      and:\n        - note[\"status\"].isEmpty() == false\n        - note[\"status\"] != \"done\"\n        - file.hasTag(\"archived\") != true\n    order:\n      - note[\"status\"]\n      - note[\"scheduled\"]\n      - note[\"due\"]\n      - note[\"priority\"]\n    sort:\n      - property: note.tasknotes_manual_order\n        direction: DESC\n    options:\n      calendarView: listWeek\n      listDayCount: 7\n      showScheduled: true\n      showDue: true\n      showRecurring: true\n      showCompletedRecurringInstances: false\n      showSkippedRecurringInstances: false\n"
+  },
+  {
+    "name": "Calendar",
+    "path": "TaskNotes/Views/calendar.base",
+    "document": "properties:\n  note.tasknotes_manual_order:\n    displayName: Manual order\n    hidden: true\nviews:\n  - type: tasknotesCalendar\n    name: Calendar\n    filters:\n      and:\n        - note[\"status\"].isEmpty() == false\n        - note[\"status\"] != \"done\"\n        - file.hasTag(\"archived\") != true\n    order:\n      - note[\"status\"]\n      - note[\"scheduled\"]\n      - note[\"due\"]\n      - note[\"priority\"]\n    sort:\n      - property: note.tasknotes_manual_order\n        direction: DESC\n    options:\n      calendarView: dayGridMonth\n      listDayCount: 7\n      customDayCount: 3\n      showScheduled: true\n      showDue: true\n      showRecurring: true\n      showCompletedRecurringInstances: false\n      showSkippedRecurringInstances: false\n"
+  },
+  {
+    "name": "Projects",
+    "path": "TaskNotes/Views/projects.base",
+    "document": "properties:\n  note.tasknotes_manual_order:\n    displayName: Manual order\n    hidden: true\nviews:\n  - type: tasknotesTaskList\n    name: Projects\n    filters:\n      and:\n        - note[\"status\"].isEmpty() == false\n        - note[\"status\"] != \"done\"\n        - file.hasTag(\"archived\") != true\n        - note[\"projects\"].isEmpty() == false\n    order:\n      - note[\"title\"]\n      - note[\"scheduled\"]\n      - note[\"due\"]\n    sort:\n      - property: note.tasknotes_manual_order\n        direction: DESC\n      - property: note[\"title\"]\n        direction: ASC\n    groupBy:\n      property: note[\"projects\"]\n      direction: ASC\n    options:\n      create: false\n"
+  },
+  {
+    "name": "Archive",
+    "path": "TaskNotes/Views/archive.base",
+    "document": "properties:\n  note.tasknotes_manual_order:\n    displayName: Manual order\n    hidden: true\nviews:\n  - type: tasknotesTaskList\n    name: Archive\n    filters:\n      and:\n        - file.hasTag(\"archived\") == true\n    order:\n      - note[\"title\"]\n      - note[\"scheduled\"]\n      - note[\"due\"]\n    sort:\n      - property: note.tasknotes_manual_order\n        direction: DESC\n      - property: note[\"title\"]\n        direction: ASC\n    options:\n      create: false\n"
+  }
+]

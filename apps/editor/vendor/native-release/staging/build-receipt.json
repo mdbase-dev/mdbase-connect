@@ -1,0 +1,6 @@
+{
+  "schema": "mdbn-sdk/application-build/1",
+  "contextSha256": "15e0c28ca828287666dc13cd1ab8cd90caa8f3a4a0036c5fa0eb6f8fbf162d9e",
+  "verifierSha256": "4c72bcc8c2ee9c95663ad4e2edfcf7a52aa2743ed7308b5031570a35982af6e4",
+  "verifierSourceCommit": "0e44e1e100c2bba9608c5ac3145d6cdee30fa4e2"
+}

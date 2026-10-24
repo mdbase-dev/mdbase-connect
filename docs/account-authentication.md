@@ -331,6 +331,26 @@ invitation. Omission is rejected rather than silently creating an account withou
 hosted storage. Existing accounts are not automatically granted entitlements on
 login; legacy provisioning repairs require an audited operator decision.
 
+### LAB migration fixtures
+
+Only in `environment=lab`, an admin/seeder invitation may explicitly request
+`--account-backend legacy`. Its email must end in `@lab.invalid`, its operator
+reason must start with `[test]` followed by whitespace, and the account name
+submitted to normal invitation signup must have the same `[test]` marking.
+Other environments, addresses, markings, or backend values are refused. Public
+signup does not accept an account-backend field from the client.
+
+Migration `0081_lab_fixture_invitation_backend.sql` stores this selection on
+the invitation; signup rereads it under the invitation lock and passes it to
+`provisionNewAccountBackend` in the normal account-creation transaction. This
+creates a genuinely legacy-born fixture without changing `MDBASE_NEW_ACCOUNT_BACKEND`
+or converting an existing account. Ordinary invitations and public/provider
+signup retain the deployment's configured backend. Operator list/show expose
+a fixture override, and resending preserves it subject to the same LAB guards.
+Do not redeem fixture overrides on an older application build that lacks this
+feature; rehearsal operators must verify the created account's backend before
+seeding or migrating it.
+
 To deliver the generated link through Resend in the same operation, configure
 `MDBASE_CONNECT_RESEND_API_KEY` and `MDBASE_CONNECT_EMAIL_FROM`, enable
 `email-delivery` in the audited policy, and add `--send-email enabled`. The

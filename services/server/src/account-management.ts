@@ -5,7 +5,9 @@ import type {
   DatabaseQueryable
 } from "./database-types.js";
 import { queueAccountProviderCleanup } from "./hosted-capability-lifecycle.js";
+import { recordCollectionDeletionIntent } from "./features/next/collection-deletion.js";
 import { completeMigrationBatch } from "./features/next/migration-topology.js";
+import { queueNextPolicy } from "./features/next/policy-outbox.js";
 import type {
   ExternalProvider,
   VerifiedExternalIdentity
@@ -140,6 +142,10 @@ async function eraseAccount(client: DatabaseConnection, user: string, queueProvi
   const cleanup = queueProvider ? await queueAccountProviderCleanup(client, user) : undefined;
   const result = { ...counts, hostedCollectionsScheduledForDeletion: cleanup?.hostedCollections ?? counts.hostedCollectionsScheduledForDeletion,
     crossAccountReplicasRevoked: cleanup?.crossAccountReplicas ?? 0 };
+  await eraseNativeCollectionAccess(client, user);
+  // An installation's Native choice references the account and its grant without
+  // cascading; it describes only this account's own pairing, so it goes with it.
+  await client.query("DELETE FROM installation_native_authorizations WHERE account_id=$1", [user]);
   // PostgreSQL checks the authorized-user FK before cascading owned hosted
   // rows. Remove dependent grants and detach the complete replica binding in
   // the shared erasure pipeline, after durable provider cleanup is recorded.
@@ -157,6 +163,30 @@ async function eraseAccount(client: DatabaseConnection, user: string, queueProvi
   });
   await client.query("DELETE FROM users WHERE id = $1", [user]);
   return result;
+}
+
+/** Native collection rows cascade away with the user, so first record what must
+ * outlive them. Owned collections get the permanent deletion denial (no FK), so
+ * their identifiers are never reused. Other owners' current native logs remove
+ * the account exactly as a membership removal does, revoking its enrolled
+ * devices and forcing a rekey. Shadow, left and deleted logs are skipped: an
+ * op the log rejects would park that owner's policy outbox. */
+async function eraseNativeCollectionAccess(client: DatabaseConnection, user: string): Promise<void> {
+  const owned = await client.query<{ collection_id: string }>(
+    "SELECT collection_id FROM next_collections WHERE owner_user_id=$1 AND runtime='next' ORDER BY collection_id", [user]
+  );
+  for (const row of owned.rows) await recordCollectionDeletionIntent(client, row.collection_id, user);
+  // Locking the memberships keeps a concurrent owner removal from queueing a second op.
+  const memberships = await client.query<{ collection_id: string }>(
+    "SELECT collection_id FROM collection_memberships WHERE user_id=$1 AND state IN ('active','changing') ORDER BY collection_id FOR UPDATE", [user]
+  );
+  for (const { collection_id: collection } of memberships.rows) {
+    const current = await client.query(
+      "SELECT 1 FROM next_collections WHERE collection_id=$1 AND owner_user_id<>$2 AND runtime='next' AND left_sync_at IS NULL", [collection, user]
+    );
+    const deleted = await client.query("SELECT 1 FROM next_collection_deletion_facts WHERE collection_id=$1 LIMIT 1", [collection]);
+    if (current.rows.length && !deleted.rows.length) await queueNextPolicy(client, collection, [{ op: "member-remove", account: user }]);
+  }
 }
 
 async function accountDeletionCounts(client: DatabaseConnection, user: string): Promise<AccountDeletionResult> {

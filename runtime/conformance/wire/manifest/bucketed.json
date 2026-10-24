@@ -1,0 +1,53 @@
+{
+  "_type": "ManifestPayload",
+  "fmt": 1,
+  "seq": 10000,
+  "chain": "h'c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5'",
+  "state_digest": "h'd5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5'",
+  "bucket_bits": 8,
+  "sections": [
+    {
+      "_type": "Section",
+      "kind": "Resources",
+      "chunks": [
+        {
+          "_type": "ChunkRef",
+          "address": "h'0101010101010101010101010101010101010101010101010101010101010101'",
+          "plain_hash": "h'0202020202020202020202020202020202020202020202020202020202020202'",
+          "rows": 3,
+          "bucket": 0,
+          "plain_size": 900
+        }
+      ]
+    },
+    {
+      "_type": "Section",
+      "kind": "Index",
+      "chunks": [
+        {
+          "_type": "ChunkRef",
+          "address": "h'0303030303030303030303030303030303030303030303030303030303030303'",
+          "plain_hash": "h'0404040404040404040404040404040404040404040404040404040404040404'",
+          "rows": 400,
+          "bucket": 0,
+          "plain_size": 44000
+        }
+      ]
+    },
+    {
+      "_type": "Section",
+      "kind": "Receipts",
+      "chunks": []
+    }
+  ],
+  "horizon": {
+    "_type": "Horizon",
+    "seq_floor": 1,
+    "time_floor": 0
+  },
+  "sem": {"_type": "Version", "major": 1, "minor": 0},
+  "record_count": 100000,
+  "file_count": 1234,
+  "previous": "h'0606060606060606060606060606060606060606060606060606060606060606'",
+  "control_chain": "h'0707070707070707070707070707070707070707070707070707070707070707'"
+}

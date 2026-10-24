@@ -9,6 +9,7 @@ import { renameHostedCollectionForUser } from "../hosted/service.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { tokenHash } from "../../security.js";
 import { inTransaction } from "./bootstrap-common.js";
+import type { CollectionDeletionFact } from "./collection-deletion.js";
 import { registerCollectionNameRoutes } from "./collection-name-routes.js";
 import { installationCollections } from "./installation-scope.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
@@ -26,6 +27,12 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
   let schema: string;
   const app = Fastify();
   const keys = { sign_pk: Buffer.alloc(32, 1), kem_pk: Buffer.alloc(32, 2), noise_pk: Buffer.alloc(32, 3) };
+  const floors: CollectionDeletionFact[] = [];
+  let floorFails = false;
+  const floor = { recordCollectionDeletion: async (fact: CollectionDeletionFact) => {
+    if (floorFails) throw new Error("lost reply");
+    floors.push(fact); return { fact, generation: 1n };
+  } };
   beforeAll(async () => {
     const url = new URL(testUrl!);
     if (!["localhost", "127.0.0.1", "::1"].includes(url.hostname) || !/test/i.test(url.pathname)) throw new Error("Requires dedicated local test Postgres.");
@@ -35,7 +42,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerErrorHandler(app);
-    registerCollectionNameRoutes(app, db);
+    registerCollectionNameRoutes(app, db, floor);
     registerNextRouteRoutes(app,{db,publicUrl:"https://connect.test",broker:{request:async () => {throw new Error("Catalog reads must not contact a relay.");}}});
   }, 60_000);
   afterAll(async () => {
@@ -44,7 +51,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     await admin?.end();
   });
   async function fixture(installation = false, collectionSync: "cloud_copy" | "private" = sync) {
-    const user = randomUUID(), connector = randomUUID(), device = randomUUID(), collection = randomUUID();
+    const user = randomUUID(), connector = randomUUID(), device = randomUUID(), collection = randomUUID(), installationId = randomUUID();
     const credential = `fixture_${randomUUID()}`;
     const kind = installation ? "app-runtime" as const : "desktop" as const;
     await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Fixture owner','next')", [user, `${user}@example.test`]);
@@ -60,12 +67,14 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     await db.query("UPDATE next_policy_outbox SET batch_id=$2 WHERE collection_id=$1", [collection, batch]);
     if (installation) {
       await db.query(`INSERT INTO installation_device_credentials(pairing_id,connector_id,device_id,installation_id,app_id,app_origin,kind,sign_pk,kem_pk,noise_pk,token_hash)
-        VALUES($1,$2,$3,$4,'tasknotes-web','https://app.tasknotes.dev','app-runtime',$5,$6,$7,$8)`, [randomUUID(), connector, device, randomUUID(), keys.sign_pk, keys.kem_pk, keys.noise_pk, tokenHash(credential)]);
+        VALUES($1,$2,$3,$4,'tasknotes-web','https://app.tasknotes.dev','app-runtime',$5,$6,$7,$8)`, [randomUUID(), connector, device, installationId, keys.sign_pk, keys.kem_pk, keys.noise_pk, tokenHash(credential)]);
       await db.query("INSERT INTO installation_collection_scopes(connector_id,collection_id) VALUES($1,$2)", [connector, collection]);
     }
-    return { user, connector, device, collection, batch, headers: { authorization: `Bearer ${credential}` } };
+    return { user, connector, device, collection, batch, installationId, headers: { authorization: `Bearer ${credential}` } };
   }
   const rename = (f: Awaited<ReturnType<typeof fixture>>, display_name = "Updated label") => app.inject({ method: "PATCH", url: `/v1/next/collections/${f.collection}/name`, headers: f.headers, payload: { display_name } });
+  const remove = (f: Awaited<ReturnType<typeof fixture>>, confirm_name = "Initial label") => app.inject({ method: "DELETE", url: `/v1/next/collections/${f.collection}`, headers: f.headers, payload: { confirm_name } });
+  const deletionFacts = async (collection: string) => (await db.query("SELECT deletion_id,authority,actor_id FROM next_collection_deletion_facts WHERE collection_id=$1", [collection])).rows;
   const name = async (collection: string) => (await db.query<{display_name:string|null}>("SELECT display_name FROM next_collections WHERE collection_id=$1", [collection])).rows[0].display_name;
 
   it("backfills exact same-owner legacy labels, including private and suspended rows", async () => {
@@ -272,5 +281,66 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     const f = await fixture();
     expect((await rename(f, invalid)).statusCode).toBe(400);
     expect(await name(f.collection)).toBe("Initial label");
+  });
+
+  it("lets the owner delete for every account, device and app, keeping data but ending access", async () => {
+    const installation = sync === "cloud_copy", f = await fixture(installation);
+    // Another app grant on this collection, through a separate connector of the owner.
+    const grant = await localGrantFixture(db);
+    await db.query("UPDATE connectors SET user_id=$2 WHERE id=$1", [grant, f.user]);
+    await db.query("UPDATE collections SET user_id=$2,local_id=$3 WHERE id=$1", [grant, f.user, f.collection]);
+    await db.query("UPDATE grants SET user_id=$2,activated_at=now() WHERE id=$1", [grant, f.user]);
+    // And a native grant (a web app reaching the collection through a device).
+    const native = await localGrantFixture(db);
+    await db.query("UPDATE grants SET user_id=$2,collection_id=NULL,next_collection_id=$3,activated_at=now() WHERE id=$1", [native, f.user, f.collection]);
+    const tokens = await issueApplicationTokens(db, undefined, grant);
+    const catalog = () => app.inject({ method: "GET", url: "/v1/next/apps/collections", headers: { authorization: `Bearer ${tokens.access_token}` } });
+    expect((await catalog()).statusCode).toBe(200);
+    if (installation) await db.query(`INSERT INTO next_background_grants(id,principal_kind,native_connector_id,installation_id,device_id,device_kind,sign_pk,kem_pk,noise_pk,user_id,application_id,collection_id,approval_request_id,timer_declaration,approved_at)
+      VALUES($1,'installation',$2,$3,$4,'app-runtime',$5,$6,$7,$8,$9,$10,$11,'{}',now())`, [randomUUID(), f.connector, f.installationId, f.device, keys.sign_pk, keys.kem_pk, keys.noise_pk, f.user, grant, f.collection, randomUUID()]);
+
+    const reply = await remove(f);
+    expect(reply.statusCode, reply.body).toBe(200);
+    expect(reply.headers["cache-control"]).toBe("no-store");
+    expect(reply.json()).toEqual({ collection_id: f.collection, deleted: true });
+    const [fact] = await deletionFacts(f.collection);
+    expect(fact).toEqual({ deletion_id: expect.any(String), authority: "cp-intent", actor_id: f.user });
+    // The native registry receives the same immutable CP tuple.
+    expect(floors.filter(row => row.collection === f.collection)).toEqual([{ collection: f.collection, deletionId: fact.deletion_id, lifecycleEpoch: 1n }]);
+
+    expect((await catalog()).statusCode).toBe(401);
+    await expect(issueApplicationTokens(db, undefined, grant)).rejects.toThrow();
+    expect((await db.query("SELECT bool_and(revoked_at IS NOT NULL) AS revoked FROM grants WHERE id=ANY($1::uuid[])", [[grant, native]])).rows[0].revoked).toBe(true);
+    expect((await db.query("SELECT bool_and(revoked_at IS NOT NULL) AS revoked FROM access_tokens WHERE grant_id=$1", [grant])).rows[0].revoked).toBe(true);
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1", [f.collection])).rows).toEqual([]);
+    expect((await db.query("SELECT 1 FROM next_background_grants WHERE collection_id=$1 AND revoked_at IS NULL", [f.collection])).rows).toEqual([]);
+    // An installation has also lost its scope, so it is refused before lookup.
+    for (const again of [await rename(f), await remove(f)]) expect(again.statusCode).toBe(installation ? 403 : 404);
+    // Soft delete: the collection's row and label are retained, unreachable.
+    expect(await name(f.collection)).toBe("Initial label");
+  });
+  it("keeps the CP denial when the native floor reply is lost", async () => {
+    const f = await fixture();
+    floorFails = true;
+    try { expect((await remove(f)).statusCode).toBe(200); } finally { floorFails = false; }
+    expect(await deletionFacts(f.collection)).toHaveLength(1);
+    expect((await remove(f)).statusCode).toBe(404);
+  });
+  it("refuses a mismatched name, a non-owner and a frozen account without deleting", async () => {
+    const a = await fixture(), b = await fixture();
+    const mismatch = await remove(a, "Initial labe");
+    expect(mismatch.statusCode).toBe(409);
+    expect(mismatch.json().error).toMatchObject({ code: "collection_name_mismatch", message: "The name you typed does not match this collection's name." });
+    expect((await remove({ ...a, collection: b.collection })).statusCode).toBe(404);
+    await db.query("UPDATE next_policy_outbox SET ops=jsonb_set(ops,'{ops,1,role}','\"editor\"') WHERE collection_id=$1", [a.collection]);
+    expect((await remove(a)).json().error.code).toBe("not_owner");
+    const cohort = `delete_${randomUUID()}`;
+    await db.query("INSERT INTO next_migration_cohorts(name,frozen_at) VALUES($1,now())", [cohort]);
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [b.user, cohort]);
+    const frozen = await remove(b);
+    expect(frozen.statusCode).toBe(409);
+    expect(frozen.json().error.code).toBe("migration_frozen");
+    for (const f of [a, b]) expect(await deletionFacts(f.collection)).toEqual([]);
+    expect(floors.filter(row => [a.collection, b.collection].includes(row.collection))).toEqual([]);
   });
 });

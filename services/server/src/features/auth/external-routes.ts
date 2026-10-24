@@ -15,6 +15,7 @@ import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
 import { createExternalSession, type VerifiedExternalIdentity } from "../../external-auth.js";
 import { ExternalSignupService, ExternalSignupEmailRequiredError } from "../../external-signup.js";
+import type { AccountBackend } from "../next/account-backend-flip.js";
 import { PublicSignupUnavailableError } from "../../public-signup.js";
 import { AuthRateLimiter } from "../../auth-rate-limit.js";
 import { ianaTimezoneSchema } from "../../platform/timezones.js";
@@ -55,6 +56,7 @@ interface ExternalAuthRoutesOptions {
   googleAuth?: GoogleAuthConfig;
   authRateLimitSecret?: string;
   authenticationLegalDocuments?: AuthenticationLegalDocuments;
+  newAccountBackend: AccountBackend;
 }
 
 export function registerExternalAuthRoutes(
@@ -64,7 +66,7 @@ export function registerExternalAuthRoutes(
   const signup = new ExternalSignupService(options.db, options.authenticationPolicy, new Set([
     ...(options.googleAuth ? ["google" as const] : []),
     ...(options.githubAuth ? ["github" as const] : [])
-  ]));
+  ]), options.newAccountBackend);
   const limiter = options.authRateLimitSecret
     ? new AuthRateLimiter(options.db, options.authRateLimitSecret)
     : null;
@@ -144,7 +146,8 @@ export function registerExternalAuthRoutes(
     }
     const session = await createExternalSession(options.db, identity, {
       clientName: sessionClientName(request.headers["user-agent"]),
-      allowAccountCreation: allowedSubjects.has(identity.subject)
+      allowAccountCreation: allowedSubjects.has(identity.subject),
+      newAccountBackend: options.newAccountBackend
     });
     setSessionCookie(reply, session.token, options.publicUrl);
     return returnTo;

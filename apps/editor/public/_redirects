@@ -1,0 +1,5 @@
+# Client routes served by the app shell. 404.html disables the Pages SPA
+# fallback, so every client route is listed; other paths get 404.html.
+# Retired Connect console links open the editor (see src/main.tsx).
+/connect / 200
+/connect/* / 200

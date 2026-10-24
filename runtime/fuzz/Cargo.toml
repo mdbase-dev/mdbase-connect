@@ -1,0 +1,53 @@
+# cargo-fuzz targets for mdbn-core. Not a workspace member and not run in CI:
+# fuzz in short local sessions (see README.md here).
+[package]
+name = "mdbn-core-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mdbn-core = { path = "../crates/core" }
+
+# Keep this crate out of the main workspace.
+[workspace]
+
+[[bin]]
+name = "yaml_parse"
+path = "fuzz_targets/yaml_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "yaml_write"
+path = "fuzz_targets/yaml_write.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "body_merge"
+path = "fuzz_targets/body_merge.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "regex_profile"
+path = "fuzz_targets/regex_profile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cel"
+path = "fuzz_targets/cel.rs"
+test = false
+doc = false
+bench = false

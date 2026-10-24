@@ -1,0 +1,37 @@
+/ HelloResult / {
+  / version / 0: / Version / [/ major / 1, / minor / 0],
+  / runtime_version / 1: "0.1.0",
+  / sem / 2: / Version / [/ major / 1, / minor / 0],
+  / collection / 3: h'4c18af2eb04a4b77b83e493c3695962e',
+  / grant / 4: / GrantInfo / {
+    / grant / 0: h'6f1e2d3c4b5a49688776655443322110',
+    / capabilities / 1: [
+      "collection.read"
+    ],
+    / role / 2: 1 / Editor /
+  },
+  / status / 5: / SyncStatus / {
+    / mode / 0: 1 / Synced /,
+    / confirmed_through / 1: 1,
+    / head_known / 2: 44,
+    / pending / 3: 3,
+    / oldest_pending / 4: 1791100700000,
+    / holds / 5: 1,
+    / unresolved / 6: 2,
+    / connection / 7: 0 / Online /,
+    / incidents / 9: [
+      / Incident / {
+        / kind / 0: 7 / VoidedItems /,
+        / details / 1: 1
+      }
+    ],
+    / confirmed_head / 11: / ConfirmedHead / {
+      / seq / 0: 1,
+      / chain / 1: h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4',
+      / policy_generation / 2: h'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1',
+      / catalog_generation / 3: h'cacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacaca'
+    }
+  },
+  / features / 6: [],
+  / head_witness / 7: h'aa000101504c18af2eb04a4b77b83e493c3695962e02502d7e9a416c3b4f189a05c8e1b2d3f4670301045820c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c40501060007584054545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454085820c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1095820cacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacaca'
+}

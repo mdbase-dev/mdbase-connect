@@ -1,0 +1,42 @@
+{
+  "_type": "HelloResult",
+  "version": {"_type": "Version", "major": 1, "minor": 0},
+  "runtime_version": "0.1.0",
+  "sem": {"_type": "Version", "major": 1, "minor": 0},
+  "collection": "h'4c18af2eb04a4b77b83e493c3695962e'",
+  "grant": {
+    "_type": "GrantInfo",
+    "grant": "h'6f1e2d3c4b5a49688776655443322110'",
+    "capabilities": [
+      "collection.read"
+    ],
+    "role": "Editor"
+  },
+  "status": {
+    "_type": "SyncStatus",
+    "mode": "Synced",
+    "confirmed_through": 1,
+    "head_known": 44,
+    "pending": 3,
+    "oldest_pending": 1791100700000,
+    "holds": 1,
+    "unresolved": 2,
+    "connection": "Online",
+    "incidents": [
+      {
+        "_type": "Incident",
+        "kind": "VoidedItems",
+        "details": 1
+      }
+    ],
+    "confirmed_head": {
+      "_type": "ConfirmedHead",
+      "seq": 1,
+      "chain": "h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4'",
+      "policy_generation": "h'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1'",
+      "catalog_generation": "h'cacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacaca'"
+    }
+  },
+  "features": [],
+  "head_witness": "h'aa000101504c18af2eb04a4b77b83e493c3695962e02502d7e9a416c3b4f189a05c8e1b2d3f4670301045820c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c40501060007584054545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454085820c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1095820cacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacaca'"
+}

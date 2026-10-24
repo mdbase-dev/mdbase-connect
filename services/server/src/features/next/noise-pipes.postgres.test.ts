@@ -70,8 +70,13 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
   const ids = { user: randomUUID(), connector: randomUUID(), collection: randomUUID(), localId: randomUUID(), application: randomUUID(), grant: randomUUID(), device: randomUUID() };
   const connectorToken = `con_${randomUUID()}`;
   const accessToken = `at_${randomUUID()}`;
+  const browserSession = randomUUID();
+  const applicationOrigin = "http://connect.test:48271";
+  const cookieNames = ["mdbase_session", "__Host-mdbase_session"] as const;
+  const browserHeaders = (cookieName: string) => ({ origin: applicationOrigin, cookie: `${cookieName}=${browserSession}` });
   const deviceKey = keyPair("ed25519").privateKey;
   const deviceNoisePk = randomBytes(32);
+  const deviceKemPk = randomBytes(32);
 
   beforeAll(async () => {
     const url = new URL(testUrl!);
@@ -82,6 +87,9 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Pipe owner')", [ids.user, `${ids.user}@example.test`]);
+    await db.query(`INSERT INTO sessions (id, user_id, token_hash, provider, account_session_epoch, expires_at)
+      VALUES ($1, $2, $3, 'password', COALESCE((SELECT session_epoch FROM users WHERE id = $2), 1), now() + interval '1 day')`,
+    [randomUUID(), ids.user, tokenHash(browserSession)]);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash,relay_generation) VALUES($1,$2,'Daemon',$3,0)", [ids.connector, ids.user, tokenHash(connectorToken)]);
     await db.query(`INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,enabled,present,authority_state)
       VALUES($1,$2,$3,$4,'Notes','0.3.0',true,true,'active')`, [ids.collection, ids.user, ids.connector, ids.localId]);
@@ -90,7 +98,7 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
     // Application reconciliation seeds its jobs at startup and then every 6 hours.
     // Settle it before creating the hand-made grant, which has no manifest to satisfy.
     await (app as unknown as { drainApplicationReconciliation(): Promise<void> }).drainApplicationReconciliation();
-    await db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1,$2,'Pipe app','https://example.test','[]')", [ids.application, ids.application]);
+    await db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1,$2,'Pipe app',$3,'[]')", [ids.application, ids.application, applicationOrigin]);
     await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,scope,application_installation_id,application_authorization,activated_at)
       VALUES($1,$2,$3,$4,'["read"]','{"access":"full_collection","contracts":[]}','pipe-installation',
       '{"binding":{"protocol_version":4,"contracts":{"semantic_capabilities":1}}}',now())`, [ids.grant, ids.user, ids.application, ids.collection]);
@@ -108,7 +116,7 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
   async function registerDevice() {
     const headers = { authorization: `Bearer ${connectorToken}` };
     const { challenge } = (await app.inject({ method: "POST", url: "/v1/next/devices/challenge", headers })).json() as { challenge: string };
-    const keys = { signPk: Buffer.from(ed25519RawPublicKey(deviceKey)), kemPk: randomBytes(32), noisePk: deviceNoisePk };
+    const keys = { signPk: Buffer.from(ed25519RawPublicKey(deviceKey)), kemPk: deviceKemPk, noisePk: deviceNoisePk };
     const digest = deviceRegistrationDigest({ challenge: Buffer.from(challenge, "hex"), connectorId: ids.connector, deviceId: ids.device, ...keys });
     const response = await app.inject({
       method: "POST", url: "/v1/next/devices", headers,
@@ -144,42 +152,57 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
     return socket;
   }
 
-  async function client(grant = ids.grant, target: { device?: string; noisePk?: string } = {}): Promise<WebSocket> {
-    const socket = new WebSocket(`${base}/v1/next/relay/client`);
+  async function client(grant = ids.grant, target: { device?: string; noisePk?: string; headers?: Record<string, string>; accessToken?: string } = {}): Promise<WebSocket> {
+    const socket = new WebSocket(`${base}/v1/next/relay/client`, { headers: target.headers });
     await once(socket, "open");
     socket.send(JSON.stringify({
-      type: "pipe_auth", access_token: accessToken, collection: ids.localId, grant,
+      type: "pipe_auth", access_token: target.accessToken ?? accessToken, collection: ids.localId, grant,
       device: target.device ?? ids.device, device_noise_pk: target.noisePk ?? deviceNoisePk.toString("hex")
     }));
     return socket;
   }
 
-  it("carries opaque bytes both ways and closes on the daemon's request", async () => {
+  it.each(["none", ...cookieNames])("carries frame-authenticated bytes both ways with ambient session cookie %s", async cookieName => {
     await registerDevice();
     const device = await daemon();
-    const app1 = await client();
-    const opened = await Promise.all([next(device, json("pipe_open")), next(app1, json("pipe_opened"))]);
-    const pipeId = opened[0].pipe_id as string;
-    expect(opened[0]).toMatchObject({ collection_id: ids.localId, grant_id: ids.grant });
-    expect(opened[1].pipe_id).toBe(pipeId);
-    const pipeBytes = Buffer.from(pipeId.replaceAll("-", ""), "hex");
+    let app1: WebSocket | undefined;
+    try {
+      app1 = await client(ids.grant, { headers: cookieName === "none" ? { origin: applicationOrigin } : browserHeaders(cookieName) });
+      const opened = await Promise.all([next(device, json("pipe_open")), next(app1, json("pipe_opened"))]);
+      const pipeId = opened[0].pipe_id as string;
+      expect(opened[0]).toMatchObject({ collection_id: ids.localId, grant_id: ids.grant });
+      expect(opened[1].pipe_id).toBe(pipeId);
+      const pipeBytes = Buffer.from(pipeId.replaceAll("-", ""), "hex");
 
-    const toDevice = next(device, (data, binary) => (binary ? data : undefined));
-    app1.send(Buffer.from("noise message 1"));
-    const framed = await toDevice;
-    expect(framed.subarray(0, 4).toString()).toBe("MDBN");
-    expect(framed.subarray(4, 20).equals(pipeBytes)).toBe(true);
-    expect(framed.subarray(20).toString()).toBe("noise message 1");
+      const toDevice = next(device, (data, binary) => (binary ? data : undefined));
+      app1.send(Buffer.from("noise message 1"));
+      const framed = await toDevice;
+      expect(framed.subarray(0, 4).toString()).toBe("MDBN");
+      expect(framed.subarray(4, 20).equals(pipeBytes)).toBe(true);
+      expect(framed.subarray(20).toString()).toBe("noise message 1");
 
-    const toClient = next(app1, (data, binary) => (binary ? data.toString() : undefined));
-    device.send(Buffer.concat([Buffer.from("MDBN"), pipeBytes, Buffer.from("noise reply")]));
-    expect(await toClient).toBe("noise reply");
+      const toClient = next(app1, (data, binary) => (binary ? data.toString() : undefined));
+      device.send(Buffer.concat([Buffer.from("MDBN"), pipeBytes, Buffer.from("noise reply")]));
+      expect(await toClient).toBe("noise reply");
 
-    const closed = once(app1, "close");
-    device.send(JSON.stringify({ type: "pipe_close", pipe_id: pipeId, reason: "unknown_grant" }));
-    const [code, reason] = await closed;
-    expect([code, reason.toString()]).toEqual([4000, "unknown_grant"]);
-    device.close();
+      const closed = once(app1, "close");
+      device.send(JSON.stringify({ type: "pipe_close", pipe_id: pipeId, reason: "unknown_grant" }));
+      const [code, reason] = await closed;
+      expect([code, reason.toString()]).toEqual([4000, "unknown_grant"]);
+    } finally { app1?.terminate(); device.terminate(); }
+  });
+
+  it.each(cookieNames)("refuses invalid frame credentials despite a valid ambient %s account cookie", async cookieName => {
+    const socket = await client(ids.grant, { headers: browserHeaders(cookieName), accessToken: "invalid-component-frame-token" });
+    const [code, reason] = await once(socket, "close");
+    // Well-formed frames without an active token have no granting authority.
+    expect([code, reason.toString()]).toEqual([4403, "grant_inactive"]);
+  });
+
+  it.each(cookieNames)("keeps cross-origin account requests protected with %s", async cookieName => {
+    const response = await app.inject({ method: "GET", url: "/v1/me", headers: browserHeaders(cookieName) });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe("origin_denied");
   });
 
   it("refuses a client without a matching active grant, and when no daemon is bound", async () => {

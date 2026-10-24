@@ -1,0 +1,74 @@
+{
+  "_type": "PolicyPayload",
+  "fmt": 1,
+  "cert": {
+    "_type": "CpCert",
+    "policy_pk": "h'9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c'",
+    "not_before": 1790000000000,
+    "not_after": 1800000000000,
+    "root": "h'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf'",
+    "sig": "h'51515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151'"
+  },
+  "issued_at": 1791200000000,
+  "ops": [
+    {
+      "_type": "DeviceRevoke",
+      "kind": "DeviceRevoke",
+      "device": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'"
+    },
+    {
+      "_type": "MemberRemove",
+      "kind": "MemberRemove",
+      "account": "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'"
+    },
+    {
+      "_type": "Grant",
+      "kind": "Grant",
+      "grant": "h'6f1e2d3c4b5a49688776655443322110'",
+      "installation": "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'",
+      "app_id": "tasknotes-planner",
+      "account": "h'6f1e2d3c4b5a49688776655443322110'",
+      "capabilities": [
+        "collection.read",
+        "records.edit"
+      ],
+      "client_pk": "h'0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c'",
+      "file_folders": [
+        "Photos"
+      ]
+    },
+    {
+      "_type": "GrantRevoke",
+      "kind": "GrantRevoke",
+      "grant": "h'6f1e2d3c4b5a49688776655443322110'"
+    },
+    {
+      "_type": "CollectionState",
+      "kind": "CollectionState",
+      "state": "CloudCopy",
+      "compress": false
+    },
+    {
+      "_type": "CpKeyRevoke",
+      "kind": "CpKeyRevoke",
+      "key_id": "h'ce7ee39cb8c5c4b32f954bf04d50757d'",
+      "revoked_from": 1791150000000,
+      "root_sig": "h'52525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252'"
+    },
+    {
+      "_type": "MigrationCutover",
+      "kind": "MigrationCutover",
+      "legacy_collection": "h'4c18af2eb04a4b77b83e493c3695962e'",
+      "revoked": [
+        "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'"
+      ],
+      "cutover_at": 1791200000000
+    },
+    {
+      "_type": "Freeze",
+      "kind": "Freeze",
+      "frozen": false,
+      "reason": "cutover complete"
+    }
+  ]
+}

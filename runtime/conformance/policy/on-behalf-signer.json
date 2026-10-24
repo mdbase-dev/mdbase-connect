@@ -1,0 +1,25 @@
+{
+  "rule": "log-entry.md V6, policy.md §6.2 (entry row)",
+  "description": "Payload signer-account predicate only. Every case assumes an otherwise effective, capability-covering grant, approved where e2e requires it. Header, signature, epoch and other entry checks are separate.",
+  "members": { "A": "editor", "B": "editor" },
+  "devices": {
+    "a1": { "account": "A", "kind": "desktop" },
+    "b1": { "account": "B", "kind": "mobile" },
+    "b2": { "account": "B", "kind": "desktop", "revoked": true },
+    "hosted": { "account": "service", "kind": "hosted" },
+    "escrow": { "account": "service", "kind": "escrow" }
+  },
+  "grant": { "account": "B", "capabilities": ["records.create"] },
+  "cases": [
+    { "state": "e2e",        "signer": "b1",      "on_behalf": true,  "valid": true,  "why": "a device of the grant's account" },
+    { "state": "e2e",        "signer": "a1",      "on_behalf": true,  "valid": false, "why": "another member's device" },
+    { "state": "e2e",        "signer": "b2",      "on_behalf": true,  "valid": false, "why": "a revoked device of the grant's account" },
+    { "state": "e2e",        "signer": "unknown", "on_behalf": true,  "valid": false, "why": "an unknown device" },
+    { "state": "cloud-copy", "signer": "hosted",  "on_behalf": true,  "valid": true,  "why": "hosted in cloud-copy" },
+    { "state": "cloud-copy", "signer": "escrow",  "on_behalf": true,  "valid": false, "why": "the escrow is not the hosted replica" },
+    { "state": "cloud-copy", "signer": "a1",      "on_behalf": true,  "valid": false, "why": "another member's device, cloud-copy" },
+    { "state": "e2e",        "signer": "hosted",  "on_behalf": true,  "valid": false, "why": "hosted after the collection is private" },
+    { "state": "e2e",        "signer": "a1",      "on_behalf": false, "valid": true,  "why": "no on_behalf: V6 does not apply" }
+  ],
+  "void_rule": "V6"
+}

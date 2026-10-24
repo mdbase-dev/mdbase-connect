@@ -12,6 +12,7 @@ import {
 import { apiError, oauthError } from "../../platform/http-errors.js";
 import type { AuthorizationRouteOptions } from "./route-options.js";
 import { issueApplicationTokens, lockApplicationGrantAuthority } from "./token-service.js";
+import { createNativeApprovalDelivery } from "./native-approval-delivery.js";
 
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
@@ -19,6 +20,7 @@ export function registerAuthorizationPollingRoutes(
   app: FastifyInstance,
   options: AuthorizationRouteOptions
 ): void {
+  const nativeDelivery = createNativeApprovalDelivery(options.db, options.relay, () => app.log.warn("Native approval delivery deferred to policy renewal."), options.nativePolicyEmitter);
   app.post("/oauth/token", async (request, reply) => {
     const input = z.discriminatedUnion("grant_type", [
       z.object({
@@ -105,6 +107,7 @@ export function registerAuthorizationPollingRoutes(
           "The user has not completed the authorization request."
         ));
       }
+      let tokens: Awaited<ReturnType<typeof issueApplicationTokens>>;
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
@@ -122,19 +125,20 @@ export function registerAuthorizationPollingRoutes(
             "The device authorization has already been used."
           ));
         }
-        const tokens = await issueApplicationTokens(
+        tokens = await issueApplicationTokens(
           connection,
           options.hostedProvider,
           consumed.rows[0].grant_id
         );
         await connection.query("COMMIT");
-        return tokens;
       } catch (error) {
         await connection.query("ROLLBACK");
         throw error;
       } finally {
         connection.release();
       }
+      await nativeDelivery.grant(pending.grant_id);
+      return tokens;
     }
 
     if (input.grant_type === "authorization_code") {
@@ -151,8 +155,7 @@ export function registerAuthorizationPollingRoutes(
          JOIN grants g ON g.id = ac.grant_id
          JOIN users u ON u.id = g.user_id
          WHERE ac.code_hash = $1 AND ac.used_at IS NULL
-           AND ac.expires_at > now() AND g.revoked_at IS NULL
-           AND u.suspended_at IS NULL`,
+           AND ac.expires_at > now() AND g.revoked_at IS NULL`,
         [tokenHash(input.code)]
       );
       const authorizationCode = code.rows[0];
@@ -162,6 +165,7 @@ export function registerAuthorizationPollingRoutes(
         || !safeEqual(authorizationCode.code_challenge, pkceChallenge(input.code_verifier))) {
         return reply.code(400).send(apiError("invalid_grant", "Authorization code is invalid or expired."));
       }
+      let tokens: Awaited<ReturnType<typeof issueApplicationTokens>>;
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
@@ -174,15 +178,16 @@ export function registerAuthorizationPollingRoutes(
           await connection.query("ROLLBACK");
           return reply.code(400).send(apiError("invalid_grant", "Authorization code has already been used."));
         }
-        const tokens = await issueApplicationTokens(connection, options.hostedProvider, authorizationCode.grant_id);
+        tokens = await issueApplicationTokens(connection, options.hostedProvider, authorizationCode.grant_id);
         await connection.query("COMMIT");
-        return tokens;
       } catch (error) {
         await connection.query("ROLLBACK");
         throw error;
       } finally {
         connection.release();
       }
+      await nativeDelivery.grant(authorizationCode.grant_id);
+      return tokens;
     }
 
     const refresh = await options.db.query<{
@@ -196,8 +201,7 @@ export function registerAuthorizationPollingRoutes(
        JOIN users u ON u.id = g.user_id
        WHERE rt.token_hash = $1 AND rt.used_at IS NULL AND rt.revoked_at IS NULL
          AND rt.expires_at > now() AND g.revoked_at IS NULL
-         AND g.activated_at IS NOT NULL AND g.application_id = $2
-         AND u.suspended_at IS NULL`,
+         AND g.activated_at IS NOT NULL AND g.application_id = $2`,
       [tokenHash(input.refresh_token), input.client_id]
     );
     const current = refresh.rows[0];
@@ -229,6 +233,7 @@ export function registerAuthorizationPollingRoutes(
         ));
       }
     }
+    let tokens: Awaited<ReturnType<typeof issueApplicationTokens>>;
     const connection = await options.db.connect();
     try {
       await connection.query("BEGIN");
@@ -242,14 +247,15 @@ export function registerAuthorizationPollingRoutes(
         await connection.query("ROLLBACK");
         return reply.code(400).send(apiError("invalid_grant", "Refresh token has already been used."));
       }
-      const tokens = await issueApplicationTokens(connection, options.hostedProvider, current.grant_id);
+      tokens = await issueApplicationTokens(connection, options.hostedProvider, current.grant_id);
       await connection.query("COMMIT");
-      return tokens;
     } catch (error) {
       await connection.query("ROLLBACK");
       throw error;
     } finally {
       connection.release();
     }
+    await nativeDelivery.grant(current.grant_id);
+    return tokens;
   });
 }

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { requireCollectionAction, resolveHostedCollectionAccess } from "./collection-access.js";
+import { requireCollectionSharingManager } from "./collection-access.js";
+import { lockCollectionSharingAuthority } from "./collection-sharing-authority.js";
+import { queueNextPolicy } from "./features/next/policy-outbox.js";
 import {
   CollectionMembershipPolicyError,
   membershipPolicyPreset,
@@ -29,10 +31,7 @@ export async function changeHostedCollectionMembershipRole(
   try {
     await connection.query("BEGIN");
     await lockActiveHostedCollection(connection, input.collectionId);
-    requireCollectionAction(
-      await resolveHostedCollectionAccess(connection, input.actorUserId, input.collectionId),
-      "members.manage"
-    );
+    await requireCollectionSharingManager(connection, input.actorUserId, input.collectionId);
     const membership = await membershipForUpdate(
       connection,
       input.collectionId,
@@ -79,6 +78,9 @@ export async function changeHostedCollectionMembershipRole(
          WHERE id = $1`,
         [membership.id, policyId, revision]
       );
+      await queueNextPolicy(connection, input.collectionId, [{
+        op: "member-set", account: membership.user_id, role: preset.role
+      }]);
     } else {
       await connection.query(
         `UPDATE collection_memberships
@@ -87,6 +89,11 @@ export async function changeHostedCollectionMembershipRole(
          WHERE id = $1`,
         [membership.id, policyId, revision]
       );
+      // A pending provider cleanup must not retain native write authority or
+      // promote early. Removing the member would permanently revoke devices.
+      await queueNextPolicy(connection, input.collectionId, [{
+        op: "member-set", account: membership.user_id, role: "viewer"
+      }]);
     }
     await audit(
       connection,
@@ -137,10 +144,7 @@ export async function revokeHostedCollectionMembership(
   try {
     await connection.query("BEGIN");
     await lockActiveHostedCollection(connection, input.collectionId);
-    requireCollectionAction(
-      await resolveHostedCollectionAccess(connection, input.actorUserId, input.collectionId),
-      "members.manage"
-    );
+    await requireCollectionSharingManager(connection, input.actorUserId, input.collectionId);
     const membership = await membershipForUpdate(
       connection,
       input.collectionId,
@@ -157,6 +161,11 @@ export async function revokeHostedCollectionMembership(
       input.collectionId,
       "membership_revoked"
     );
+    if (membership.state !== "revoking") {
+      await queueNextPolicy(connection, input.collectionId, [{
+        op: "member-remove", account: membership.user_id
+      }]);
+    }
     if (pendingProviderRevocations === 0) {
       await connection.query(
         `UPDATE collection_memberships
@@ -225,15 +234,14 @@ export async function finalizeReadyMembershipTransitions(db: DatabasePool): Prom
     const connection = await db.connect();
     try {
       await connection.query("BEGIN");
-      await connection.query("SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE", [
-        candidate.collection_id
-      ]);
+      const authority = await lockCollectionSharingAuthority(connection, candidate.collection_id);
       const current = await connection.query<{
+        user_id: string;
         state: "changing" | "revoking";
         pending_policy_id: string | null;
         pending_policy_revision: number | null;
       }>(
-        `SELECT state, pending_policy_id, pending_policy_revision
+        `SELECT user_id, state, pending_policy_id, pending_policy_revision
          FROM collection_memberships
          WHERE id = $1 AND collection_id = $2
            AND state IN ('changing', 'revoking')
@@ -241,7 +249,9 @@ export async function finalizeReadyMembershipTransitions(db: DatabasePool): Prom
         [candidate.id, candidate.collection_id]
       );
       const membership = current.rows[0];
-      if (!membership) {
+      // Cleanup may finish after the authority becomes unavailable. Release
+      // revoked seats, but never publish a promotion for an unavailable authority.
+      if (!membership || (membership.state === "changing" && !authority)) {
         await connection.query("COMMIT");
         continue;
       }
@@ -271,6 +281,15 @@ export async function finalizeReadyMembershipTransitions(db: DatabasePool): Prom
           [candidate.id, membership.pending_policy_id, membership.pending_policy_revision]
         );
         if (updated.rowCount === 1) {
+          const policy = (await connection.query<{ role: CollectionMembershipRole }>(
+            `SELECT role FROM collection_membership_policies
+             WHERE id = $1 AND membership_id = $2 AND revision = $3`,
+            [membership.pending_policy_id, candidate.id, membership.pending_policy_revision]
+          )).rows[0];
+          if (!policy) throw new Error("Changing membership has no exact pending policy.");
+          await queueNextPolicy(connection, candidate.collection_id, [{
+            op: "member-set", account: membership.user_id, role: policy.role
+          }]);
           await audit(connection, null, "collection_membership.role_changed", candidate.id, {
             collection_id: candidate.collection_id,
             policy_revision: membership.pending_policy_revision
@@ -312,16 +331,10 @@ export async function finalizeReadyMembershipTransitions(db: DatabasePool): Prom
 }
 
 async function lockActiveHostedCollection(
-  db: DatabaseQueryable,
+  db: DatabaseConnection,
   collectionId: string
 ): Promise<void> {
-  const result = await db.query<{ id: string }>(
-    `SELECT id FROM hosted_collections
-     WHERE id = $1 AND authority_state = 'active'
-     FOR UPDATE`,
-    [collectionId]
-  );
-  if (!result.rows[0]) {
+  if (!(await lockCollectionSharingAuthority(db, collectionId))) {
     throw new CollectionMembershipPolicyError(
       "collection_unavailable",
       "The collection is not available for membership changes."

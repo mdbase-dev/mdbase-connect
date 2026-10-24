@@ -20,7 +20,15 @@ import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
 import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
 import { z } from "zod";
-import { readBoundedJson } from "./platform/bounded-json.js";
+import { asProviderError, readResponse, HostedProviderResponseError, HostedProviderUnavailableError,
+  type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyMigrationRollbackEnvelope,
+  type LegacyMigrationRollbackReceipt, type LegacyMigrationRetained } from "./hosted-provider-replies.js";
+import * as legacy from "./hosted-provider-legacy-migration.js";
+import type { LegacyMigrationRequest, LegacyMigrationSource } from "./hosted-provider-legacy-migration.js";
+export { HostedProviderResponseError, HostedProviderUnavailableError, type LegacyMigrationDrain, type LegacyMigrationFence,
+  type LegacyMigrationRollbackRequest, type LegacyMigrationRollbackEnvelope, type LegacyMigrationRollbackReceipt,
+  type LegacyNotificationWatermark, type LegacyMigrationRetained } from "./hosted-provider-replies.js";
+export type { LegacyMigrationSource } from "./hosted-provider-legacy-migration.js";
 
 export interface HostedProviderConfig {
   url: string;
@@ -299,10 +307,37 @@ export class HostedProviderClient {
     return requiredProjectionStatus(result?.projection, collectionId);
   }
 
-  async legacyMigrationDrain(collectionId: string, options?: HostedProviderOperationOptions): Promise<unknown> {
-    return this.request("GET", `/internal/v1/collections/${z.uuid().parse(collectionId)}/legacy-migration`, undefined, true, options, response => readBoundedJson(response, 4096));
+  private readonly legacyRequest = (options?: HostedProviderOperationOptions): LegacyMigrationRequest =>
+    (method, path, body, readReply, attempts) => this.request(method, path, body, true, options, readReply, attempts);
+  legacyMigrationDrain(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationDrain> {
+    return legacy.legacyMigrationDrain(this.legacyRequest(options), collectionId);
   }
-
+  legacyMigrationSource(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationSource> {
+    return legacy.legacyMigrationSource(this.legacyRequest(options), collectionId);
+  }
+  legacyMigrationPlacement(collectionId: string, options?: HostedProviderOperationOptions): Promise<{ timezone: string; ownerTimezones: string[] }> {
+    return legacy.legacyMigrationPlacement(this.legacyRequest(options), collectionId);
+  }
+  legacyMigrationFence(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationFence> {
+    return legacy.legacyMigrationFence(this.legacyRequest(options), collectionId);
+  }
+  legacyMigrationRetain(collectionId: string, retainUntil: Date, options?: HostedProviderOperationOptions): Promise<LegacyMigrationRetained> {
+    return legacy.legacyMigrationRetain(this.legacyRequest(options), collectionId, retainUntil);
+  }
+  // Migration replica fronts and pre-cutover unfence; shapes are checked in `legacy`.
+  legacyMigrationReplicas = (id: string, options?: HostedProviderOperationOptions) => legacy.legacyMigrationReplicas(this.legacyRequest(options), id);
+  legacyMigrationRevokeReplicas = (id: string, ids: string[], options?: HostedProviderOperationOptions) => legacy.legacyMigrationRevokeReplicas(this.legacyRequest(options), id, ids);
+  legacyMigrationRestoreReplicas = (id: string, ids: string[], options?: HostedProviderOperationOptions) => legacy.legacyMigrationRestoreReplicas(this.legacyRequest(options), id, ids);
+  legacyMigrationRevokedReplicas = (id: string, options?: HostedProviderOperationOptions) => legacy.legacyMigrationRevokedReplicas(this.legacyRequest(options), id);
+  legacyMigrationUnfence = (id: string, options?: HostedProviderOperationOptions) => legacy.legacyMigrationUnfence(this.legacyRequest(options), id);
+  legacyMigrationRollback(collectionId: string, binding: LegacyMigrationRollbackEnvelope,
+    options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
+    return legacy.legacyMigrationRollback(this.legacyRequest(options), "rollback", collectionId, binding);
+  }
+  legacyMigrationRollbackReceipt(collectionId: string, binding: LegacyMigrationRollbackEnvelope,
+    options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
+    return legacy.legacyMigrationRollback(this.legacyRequest(options), "rollback-receipt", collectionId, binding);
+  }
   async advanceProjection(
     collectionId: string,
     generationId: string,
@@ -768,11 +803,12 @@ export class HostedProviderClient {
     body?: unknown,
     authenticated = true,
     options?: HostedProviderOperationOptions,
-    readReply: (response: Response) => Promise<unknown> = readResponse
+    readReply: (response: Response) => Promise<unknown> = readResponse,
+    attempts: 1 | 3 = 3
   ): Promise<unknown> {
     const operation = requiredOperation(options);
     let unavailable: unknown;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       throwIfCancelled(operation);
       const requestController = new AbortController();
       const requestTimeout = setTimeout(
@@ -796,7 +832,7 @@ export class HostedProviderClient {
         });
         const value = await readReply(response);
         if (response.ok) return value;
-        if ([429, 502, 503, 504].includes(response.status) && attempt < 2) {
+        if ([429, 502, 503, 504].includes(response.status) && attempt + 1 < attempts) {
           retryable = true;
         } else {
           const providerError = asProviderError(value);
@@ -810,7 +846,7 @@ export class HostedProviderClient {
         if (error instanceof HostedProviderResponseError) throw error;
         unavailable = error;
         if (operation.signal?.aborted) throw operation.signal.reason;
-        retryable = attempt < 2;
+        retryable = attempt + 1 < attempts;
       } finally {
         clearTimeout(requestTimeout);
       }
@@ -913,46 +949,6 @@ function requiredProjectionStatus(
     );
   }
   return value as HostedProjectionStatus;
-}
-
-export class HostedProviderResponseError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string
-  ) {
-    super(message);
-  }
-}
-
-export class HostedProviderUnavailableError extends Error {
-  constructor(public readonly cause: unknown) {
-    super("The hosted storage provider is temporarily unavailable.");
-  }
-}
-
-async function readResponse(response: Response): Promise<unknown> {
-  if (response.status === 204) return undefined;
-  const text = await response.text();
-  if (!text) return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-}
-
-function asProviderError(value: unknown): { code: string; message: string } {
-  const body = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const error = body.error && typeof body.error === "object"
-    ? body.error as Record<string, unknown>
-    : {};
-  return {
-    code: typeof error.code === "string" ? error.code : "hosted_provider_error",
-    message: typeof error.message === "string"
-      ? error.message
-      : "The hosted storage provider rejected the request."
-  };
 }
 
 function requiredOperation(

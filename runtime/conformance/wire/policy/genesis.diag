@@ -1,0 +1,33 @@
+/ PolicyPayload / {
+  / fmt / 0: 1,
+  / cert / 1: / CpCert / {
+    / policy_pk / 0: h'9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c',
+    / not_before / 1: 1790000000000,
+    / not_after / 2: 1800000000000,
+    / root / 3: h'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf',
+    / sig / 4: h'51515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151'
+  },
+  / issued_at / 2: 1791100000000,
+  / ops / 3: [
+    / Genesis / {
+      / kind / 0: 1 / Genesis /,
+      / owner / 1: h'6f1e2d3c4b5a49688776655443322110',
+      / root / 2: h'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf',
+      / state / 3: 0 / E2e /
+    },
+    / MemberSet / {
+      / kind / 0: 4 / MemberSet /,
+      / account / 1: h'6f1e2d3c4b5a49688776655443322110',
+      / role / 2: 2 / Owner /
+    },
+    / DeviceEnrol / {
+      / kind / 0: 2 / DeviceEnrol /,
+      / device / 1: h'2d7e9a416c3b4f189a05c8e1b2d3f467',
+      / account / 2: h'6f1e2d3c4b5a49688776655443322110',
+      / kind / 3: 0 / Desktop /,
+      / sign_pk / 4: h'0101010101010101010101010101010101010101010101010101010101010101',
+      / kem_pk / 5: h'0202020202020202020202020202020202020202020202020202020202020202',
+      / noise_pk / 6: h'0303030303030303030303030303030303030303030303030303030303030303'
+    }
+  ]
+}

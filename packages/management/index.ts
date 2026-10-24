@@ -148,6 +148,16 @@ export interface HostedCollection {
   replicas: HostedReplica[];
 }
 
+/** Management visibility never enrolls a device or authorizes content reads. */
+export interface NativeCollection {
+  id: string;
+  display_name: string | null;
+  sync: "private" | "cloud_copy";
+  /** Own enrolled, unrevoked computers; presence does not establish content readiness. */
+  computer_ids?: string[];
+  access: Pick<HostedCollectionAccess, "relationship" | "role" | "can_manage_members">;
+}
+
 export interface ManagementOverview {
   user: { id: string; name: string; email: string | null; login: string | null };
   subscription: null | {
@@ -178,6 +188,9 @@ export interface ManagementOverview {
     };
   };
   hosted_collections_available?: boolean;
+  /** A desktop/CLI is linked to this account; Native creation stays on that device. */
+  native_collection_creation_available?: boolean;
+  collection_creation_available?: boolean;
   collection_sharing_available?: boolean;
   authentication: {
     provider: "google" | "github" | "password" | "tailscale" | "session";
@@ -209,6 +222,29 @@ export interface ManagementOverview {
     last_seen_at: string;
   }>;
   hosted_collections: HostedCollection[];
+  /** Absent on control planes predating native management discovery. */
+  native_collections?: NativeCollection[];
+  /** Absent on control planes predating installation access management. */
+  installation_access?: Array<{
+    application_id: string;
+    application_family_id: string;
+    application_name: string;
+    application_origin: string;
+    icon: string | null;
+    connector_id: string;
+    installation_id: string;
+    device_kind: "app-runtime" | "mobile";
+    created_at: string;
+    create_collections: boolean;
+    collection_id: string | null;
+    collection_name: string | null;
+    sync: "private" | "cloud_copy" | null;
+    /** Metadata visibility, not device or data-route availability. */
+    available: boolean;
+    role: "owner" | "editor" | "viewer" | null;
+    /** SDK consent metadata, not a restriction on device collection keys. */
+    approved_optional_file_actions: string[];
+  }>;
   grants: Array<{
     id: string;
     operations: string[];
@@ -349,6 +385,16 @@ export class ConnectManagementClient {
         ...(input.currentPassword ? { current_password: input.currentPassword } : {}),
         ...(input.reauthenticationToken ? { reauth_token: input.reauthenticationToken } : {})
       })
+    }, options);
+  }
+
+  createCollection(
+    input: {accountId: string; requestId: string; displayName: string; timezone: string},
+    options?: ManagementRequestOptions
+  ): Promise<void> {
+    return this.request("/v1/account/collections", {
+      method: "POST",
+      body: JSON.stringify({account_id:input.accountId, request_id:input.requestId, display_name:input.displayName, timezone:input.timezone})
     }, options);
   }
 
@@ -494,6 +540,21 @@ export class ConnectManagementClient {
 
   revokeGrant(id: string, options?: ManagementRequestOptions): Promise<void> {
     return this.request(`/v1/grants/${encodeURIComponent(id)}`, { method: "DELETE" }, options);
+  }
+
+  uiConfiguration(options?: ManagementRequestOptions): Promise<{ editor_url: string | null }> {
+    return this.request("/v1/ui-configuration", {}, options);
+  }
+
+  async revokeInstallation(connectorId: string, options?: ManagementRequestOptions): Promise<void> {
+    await this.request(`/v1/account/installations/${encodeURIComponent(connectorId)}`, { method: "DELETE" }, options);
+  }
+
+  removeInstallationAccess(applicationId: string, collectionId: string, options?: ManagementRequestOptions): Promise<{ ok: true; state: "revoking"; collection_id: string }> {
+    return this.request(`/v1/account/applications/${encodeURIComponent(applicationId)}/remove-installation-access`, {
+      method: "POST",
+      body: JSON.stringify({ collection_id: collectionId, confirm: true })
+    }, options);
   }
 
   async revokeApplication(

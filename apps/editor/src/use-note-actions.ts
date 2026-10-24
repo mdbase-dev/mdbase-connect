@@ -6,7 +6,7 @@ import { StaleCollectionOperationError, type CollectionMutationScope, type Colle
 import { gatewayError } from "./gateway";
 import type { CollectionGateway, CollectionFile, NoteDocument, NoteSummary } from "./model";
 import { noteTitle, safeRenamePath, summaryFromDocument } from "./note";
-import type { NoteSession, NoteSessionStore, Draft, NoteActivity } from "./note-session";
+import { recoveredNote, type NoteSession, type NoteSessionStore, type Draft, type NoteActivity } from "./note-session";
 import { updateMutationActivity } from "./note-mutation-presentation";
 import { pendingNoteRequestId, type RenamePlan, type PendingRenameRecovery } from "./pending-note-mutation";
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
@@ -54,7 +54,7 @@ type BatchUndo = { kind: "delete"; document: NoteDocument } | { kind: "propertie
 type RecoveryAction =
   | { kind: "mention"; path: string; before: string; after: string }
   | { kind: "batch"; changes: BatchUndo[]; message: string }
-  | { kind: "delete"; document: NoteDocument }
+  | { kind: "delete"; document: NoteDocument; pending?: boolean }
   | { kind: "rename"; from: string; to: string }
   | { kind: "move"; paths: Array<{ from: string; to: string }>; references: number; message?: string };
 
@@ -82,6 +82,15 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
   const mentionRequest = useRef(false);
   const renameRequest = useRef<string | undefined>(undefined);
   const deleteRequests = useRef(new Set<string>());
+  /** One record ID per duplicate or restore, kept until it is confirmed: a retry
+   * after a lost reply reuses it as the write's intent, so the note lands once. */
+  const duplicateAttempt = useRef<{ key: string; id: string }>(undefined);
+  const restoreIds = useRef(new WeakMap<NoteDocument, string>());
+  function restoreId(deleted: NoteDocument): string {
+    let id = restoreIds.current.get(deleted);
+    if (!id) restoreIds.current.set(deleted, id = crypto.randomUUID());
+    return id;
+  }
 
   async function actionSession(path: string): Promise<NoteSession> {
     const token = mutationScope.current.token();
@@ -110,7 +119,10 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       const occupied = new Set([...allNotes.map((note) => note.path), ...files.map((file) => file.path)]);
       let nextPath = `${stem} copy.md`;
       for (let suffix = 2; occupied.has(nextPath); suffix += 1) nextPath = `${stem} copy ${suffix}.md`;
-      const duplicated = await mutationScope.current.register(token, gateway.restore({ ...session.document, path: nextPath }));
+      const key = JSON.stringify([path, session.document.revision]);
+      if (duplicateAttempt.current?.key !== key) duplicateAttempt.current = { key, id: crypto.randomUUID() };
+      const duplicated = await mutationScope.current.register(token, gateway.restore({ ...session.document, path: nextPath }, duplicateAttempt.current.id));
+      if (duplicateAttempt.current?.key === key) duplicateAttempt.current = undefined;
       if (!mutationScope.current.isCurrent(token)) return;
       createSession(duplicated);
       indexController.create(summaryFromDocument(duplicated));
@@ -292,7 +304,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         if (session.document.path !== from) throw new Error("This note moved before the rename could begin.");
       }
       const renamed = await runNoteOperation(session, updateRefs ? "renaming" : "moving", (token) => requestId
-        ? gateway.recoverNoteMutation(requestId)
+        ? recoveredNote(gateway, requestId)
         : gateway.rename(
         from,
         to,
@@ -315,7 +327,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         setDocument(renamed);
         setSelectedPath(renamed.path);
         setPathDraft(renamed.path);
-        localStorage.setItem("mdbase-editor:last-note", renamed.path);
+        localStorage.setItem(`mdbase-editor:last-note:${token.collectionId}`, renamed.path);
       }
       setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, from), renamed.path));
       replaceNoteHistoryPath(from, renamed.path);
@@ -482,6 +494,10 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       setSelectedPath(undefined);
       if (next) void openNote(next.path);
     }
+      // Acknowledge the delete at once: confirmation can take seconds, and the
+      // note has already left the list. Undo becomes available once confirmed.
+      const pendingRecovery: RecoveryAction | undefined = reportUndo ? { kind: "delete", document: session.document, pending: true } : undefined;
+      if (pendingRecovery) setRecoveryAction(pendingRecovery);
       try {
         let deletedDocument: NoteDocument | undefined;
         await runNoteOperation(session, "deleting", async (token) => {
@@ -497,9 +513,11 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         noteSessions.current.delete(path);
         indexController.commitRemoval(path);
         setRecentPaths((current) => forgetRecentPath(current, path));
-        if (deletedDocument && reportUndo) setRecoveryAction({ kind: "delete", document: deletedDocument });
+        const confirmed = deletedDocument;
+        if (pendingRecovery) setRecoveryAction((current) => current !== pendingRecovery ? current : confirmed ? { kind: "delete", document: confirmed } : undefined);
         return deletedDocument;
       } catch (error) {
+        if (pendingRecovery) setRecoveryAction((current) => current === pendingRecovery ? undefined : current);
         if (!mutationScope.current.isCurrent(token)) return;
         session.deleted = false;
         indexController.rollbackRemoval(summaryFromDocument(session.document));
@@ -512,7 +530,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
 
   async function undoRecovery() {
     const action = recoveryAction;
-    if (!action || recoveryBusy || mutationScope.current.isFrozen) return;
+    if (!action || recoveryBusy || mutationScope.current.isFrozen || (action.kind === "delete" && action.pending)) return;
     const token = mutationScope.current.token();
     setRecoveryBusy(true);
     setNotice(undefined);
@@ -522,7 +540,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
           if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
           const change = action.changes.find((item) => item.document.path === path)!;
           if (change.kind === "delete") {
-            const restored = await mutationScope.current.register(token, gateway.restore(change.document));
+            const restored = await mutationScope.current.register(token, gateway.restore(change.document, restoreId(change.document)));
             if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
             createSession(restored); indexController.create(summaryFromDocument(restored));
           } else {
@@ -555,7 +573,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         touchSession(session);
         setNotice("Restored unlinked mention.", "success");
       } else if (action.kind === "delete") {
-        const restored = await mutationScope.current.register(token, gateway.restore(action.document));
+        const restored = await mutationScope.current.register(token, gateway.restore(action.document, restoreId(action.document)));
         if (!mutationScope.current.isCurrent(token)) return;
         createSession(restored);
         indexController.create(summaryFromDocument(restored));
@@ -584,7 +602,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
             setDocument(restored);
             setSelectedPath(restored.path);
             setPathDraft(restored.path);
-            localStorage.setItem("mdbase-editor:last-note", restored.path);
+            localStorage.setItem(`mdbase-editor:last-note:${token.collectionId}`, restored.path);
           }
           setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.to), restored.path));
           replaceNoteHistoryPath(move.to, restored.path);

@@ -1,7 +1,7 @@
 {
   "name": "@mdbase/connect-desktop",
   "productName": "mdbase connect",
-  "version": "0.1.0-beta.129",
+  "version": "0.1.0-beta.143",
   "description": "Connect applications to authorized mdbase collections.",
   "author": "mdbase",
   "private": true,
@@ -11,10 +11,10 @@
     "build:main": "tsc -p tsconfig.main.json && node scripts/build-main.mjs",
     "build:renderer": "vite build",
     "build:standalone": "pnpm --filter @mdbase-dev/connect-protocol --filter @mdbase-dev/ui build && pnpm build",
-    "dev:daemon": "cargo build --manifest-path ../../Cargo.toml -p mdbase-cli",
-    "start": "pnpm dev:daemon && pnpm build:standalone && electron .",
-    "make": "pnpm dev:daemon --release && pnpm build:standalone && electron-forge make",
-    "package": "pnpm dev:daemon --release && pnpm build:standalone && electron-forge package && node scripts/verify-package.mjs",
+    "stage:daemon": "node scripts/stage-daemon.mjs",
+    "start": "pnpm build:standalone && electron .",
+    "make": "pnpm stage:daemon && pnpm build:standalone && electron-forge make",
+    "package": "pnpm stage:daemon && pnpm build:standalone && electron-forge package && node scripts/verify-package.mjs",
     "test": "pnpm build:main && pnpm ensure:electron && node --test test/*.test.mjs",
     "test:renderer": "pnpm build:renderer && node --test scripts/renderer-ux.test.mjs",
     "ensure:electron": "node -e \"require('electron')\"",
@@ -46,6 +46,6 @@
     "playwright-core": "^1.61.1",
     "sigstore": "4.1.1",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5"
+    "vite": "^8.1.6"
   }
 }

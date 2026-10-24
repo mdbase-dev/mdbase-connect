@@ -13,7 +13,7 @@ import {
   validateAuthorizationSelection,
   type MdbaseApplicationManifest as MdbaseAppManifest,
   type MdbaseApplicationCapabilityId as ApplicationCapabilityId
-} from "./application-contract.js";
+} from "@mdbase-dev/connect-protocol";
 import {
   accessRequirementSatisfied,
   applicationReadinessContext,

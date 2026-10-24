@@ -1,0 +1,73 @@
+# cargo-deny: licenses, advisories, banned crates and sources.
+# Run: cargo deny check   (CI: the fast lane)
+#
+# Portable-crate rules that depend on *which* crate pulls a dependency in (core,
+# wire, replica, store-file and wasm may not reach getrandom, libc, regex, ...)
+# are in `cargo xtask arch`, which resolves the tree for wasm32. This file holds
+# the workspace-wide rules.
+
+[graph]
+all-features = false
+# Check both the native and the WASM dependency graphs.
+targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc", "wasm32-unknown-unknown"]
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+# The allow-list is policy, not an inventory of what is in the tree today.
+unused-allowed-license = "allow"
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+  "CC0-1.0",
+]
+
+[licenses.private]
+# Workspace crates are publish = false.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+deny = [
+  # regex-lite is the chosen flavour on every platform. Native
+  # replicas re-execute entries to verify them, so one engine everywhere.
+  { crate = "regex", reason = "use regex-lite for consistent behavior across platforms" },
+  # Unmaintained / unsound YAML crates; use yaml-rust2.
+  { crate = "serde_yaml", reason = "unmaintained; use yaml-rust2" },
+  { crate = "serde_yml", reason = "unsound; use yaml-rust2" },
+  # Tests use a real Postgres instance.
+  { crate = "pg-embed", reason = "tests use real Postgres" },
+]
+
+# getrandom. cargo-deny can't scope a ban by root crate, so it's split:
+# - here, workspace-wide: never the JS/WASM backends (`js`, `wasm_js`). No crate
+#   gets entropy from the browser behind the WASM host's back;
+# - `cargo xtask arch`: the portable crates (core, wire, replica, store-file, wasm)
+#   must not reach getrandom, rand or any OS-entropy crate at all. It resolves each
+#   portable crate's tree for wasm32 and fails CI. Entropy is injected
+#   (mdbn_core::host::Entropy).
+# Native host crates (store-pg, hosted, log-service backends, legacy with `pg`,
+# platform-native, daemon, sim, bench) may use OS entropy, e.g. the Postgres
+# driver's SCRAM nonces through rand with getrandom `std`.
+[[bans.features]]
+crate = "getrandom"
+deny = ["js", "wasm_js"]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

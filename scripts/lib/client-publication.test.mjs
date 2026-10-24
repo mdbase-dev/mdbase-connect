@@ -82,25 +82,28 @@ test("npm and desktop cannot publish on a tag push; dispatches retain exact qual
   assert.match(desktop, /website-update:[\s\S]*needs: publish/);
   assert.match(desktop, /test "v\$package_version" = "\$GITHUB_REF_NAME"/);
 });
-test("Editor has distinct guarded main and tag publication paths; staging remains on main", async () => {
+test("Editor publishes only through the native dispatch path; main never deploys", async () => {
   const text = await workflow("editor-pages");
-  const production = text.split("  deploy-cloudflare:\n")[1].split("  deploy-cloudflare-staging:\n")[0];
-  assert.match(production, /startsWith\(github.ref, 'refs\/tags\/v'\)/);
-  assert.match(production, /github.ref == 'refs\/heads\/main'/);
-  assert.match(production, /fetch-depth: 0/);
-  assert.match(production, /needs: test/);
-  assert.match(production, /name: cloudflare-pages\n/);
-  assert.match(production, /if: startsWith\(github.ref, 'refs\/tags\/v'\)[\s\S]*?run: node scripts\/verify-client-publication.mjs/);
-  assert.match(production, /if: github.ref == 'refs\/heads\/main'[\s\S]*?run: node scripts\/verify-editor-publication.mjs/);
-  assert.match(production, /scripts\/ci\/verify-qualified-commit "\$GITHUB_SHA"/);
-  for (const guard of ["verify-client-publication", "verify-editor-publication"]) {
-    const position = production.indexOf(`run: node scripts/${guard}.mjs`);
-    assert.ok(position > 0 && position < production.indexOf("wrangler pages deploy"));
-  }
-  assert.match(text, /group: editor-pages-\$\{\{ github.event_name == 'workflow_dispatch' && inputs.target == 'production' && 'production' \|\| github.ref \}\}/);
-  assert.match(text, /cancel-in-progress: \$\{\{ github.event_name != 'workflow_dispatch' \|\| inputs.target != 'production' \}\}/);
+  // Main's Editor is the native one: the legacy main/tag Pages jobs are gone, so no
+  // push, pull request or blank-source dispatch can publish anywhere public.
+  assert.doesNotMatch(text, /deploy-cloudflare/);
+  assert.doesNotMatch(text, /production_verified_commit/);
+  const jobs = text.split("\njobs:\n")[1];
+  const deploys = [...jobs.matchAll(/wrangler"? pages deploy|"\$cli" pages deploy/g)];
+  assert.equal(deploys.length, 1);
+  const upload = jobs.split("  native-deploy:\n")[1];
+  assert.match(upload, /pages deploy artifact\/publish/);
+  assert.match(upload, /needs: \[native-inputs, native-build\]/);
+  const dispatch = jobs.split("  native-dispatch:\n")[1].split("  native-inputs:\n")[0];
+  assert.match(dispatch, /if: github.event_name == 'workflow_dispatch' && inputs.source_sha != ''/);
+  assert.match(dispatch, /\[\[ "\$GITHUB_REF" == "refs\/heads\/release\/native-\$TARGET" \]\]/);
+  assert.match(dispatch, /\[\[ "\$GITHUB_SHA" == "\$SOURCE_SHA" \]\]/);
+  assert.match(jobs.split("  native-inputs:\n")[1], /needs: native-dispatch/);
+  assert.match(jobs.split("  test:\n")[1].split("\n  native-dispatch:")[0], /if: inputs.source_sha == ''/);
+  assert.match(text, /group: editor-pages-\$\{\{ github.ref \}\}/);
+  // Native source dispatches never cancel an uploader; check-only runs supersede.
+  assert.match(text, /cancel-in-progress: \$\{\{ inputs.source_sha == '' \}\}/);
   assert.match(text, /node --test scripts\/lib\/\*publication\*.test.mjs/);
-  assert.match(text.split("  deploy-cloudflare-staging:\n")[1], /github.ref == 'refs\/heads\/main'/);
 });
 
 test("remote annotated tag must still identify the exact version and commit", () => {

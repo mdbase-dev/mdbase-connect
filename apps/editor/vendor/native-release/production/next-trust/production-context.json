@@ -1,0 +1,38 @@
+{
+  "context": {
+    "control_plane_origin": "https://connect.mdbase.dev",
+    "environment": "production",
+    "log_origin": "https://log.mdbase.dev",
+    "sha256": "7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7",
+    "source": {
+      "commit": "36abd4b065be9495a7f5ae0808865a1f2279af04",
+      "repository": "mdbase-dev/mdbase-connect",
+      "version": "0.1.0-beta.141"
+    }
+  },
+  "kind": "mdbase-next-build-trust-context",
+  "provenance": {
+    "asset_length": 840,
+    "asset_path": "next-trust/production.json",
+    "image_publication": {
+      "run_attempt": 1,
+      "run_id": 39831749601
+    },
+    "proof_sha256": {
+      "image-release-bundle.json": "d87e4a6688d84b32e2fc2625a0fa0a3c126751b14de8fd6cac8bd72fda30ec39",
+      "image-release-bundle.sigstore.json": "3045f827140d0bdde5cc624e2e26983c4f60352d287283bcea1fa77561904b39",
+      "release-trust-bundle.json": "7d09704e72af803493aabf43a9f160ddbd5914e01685707265d8cfca4ba54fed",
+      "release-trust-bundle.sigstore.json": "915587efba88e05d8c8b7069b2892ca856006adbef829832001890adb22cf4b0"
+    },
+    "publisher_qualification": {
+      "run_attempt": 1,
+      "run_id": 39846838792
+    },
+    "trust_publication": {
+      "publisher_commit": "51de1616ffb26d38444d463896396ee1b671af6c",
+      "run_attempt": 1,
+      "run_id": 39847131916
+    }
+  },
+  "schema_version": 1
+}

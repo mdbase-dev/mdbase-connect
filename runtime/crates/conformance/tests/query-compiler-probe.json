@@ -1,0 +1,588 @@
+{
+  "parser": "obsidian-bases-expression@0.3.0-rc.4",
+  "compiler": "uncommitted WIP main e42; syntax checks only",
+  "readDefaults": {
+    "status": "open",
+    "priority": "normal"
+  },
+  "fixtures": [
+    {
+      "source": "status == \"open\"",
+      "compiled": {
+        "compilerVersion": 1,
+        "parserVersion": "0.3.0-rc.4",
+        "query": {
+          "types": [
+            "task"
+          ],
+          "where": "((((\"status\" in raw) ? raw[\"status\"] : null) == \"open\"))"
+        },
+        "dependencies": [
+          {
+            "source": "raw",
+            "field": "status"
+          }
+        ],
+        "requiresReplicaValidation": true
+      },
+      "rows": [
+        {
+          "raw": {},
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": null
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": "open"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": 1
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": true
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": [
+              "open"
+            ]
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": "done"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "priority": "high"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "Review Status": "open"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "raw": "open"
+          },
+          "basesExpected": false
+        }
+      ]
+    },
+    {
+      "source": "note.status != \"open\"",
+      "compiled": {
+        "compilerVersion": 1,
+        "parserVersion": "0.3.0-rc.4",
+        "query": {
+          "types": [
+            "task"
+          ],
+          "where": "((((\"status\" in raw) ? raw[\"status\"] : null) != \"open\"))"
+        },
+        "dependencies": [
+          {
+            "source": "raw",
+            "field": "status"
+          }
+        ],
+        "requiresReplicaValidation": true
+      },
+      "rows": [
+        {
+          "raw": {},
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": null
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": "open"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": 1
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": true
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": [
+              "open"
+            ]
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": "done"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "priority": "high"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "Review Status": "open"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "raw": "open"
+          },
+          "basesExpected": true
+        }
+      ]
+    },
+    {
+      "source": "note.status == null",
+      "compiled": {
+        "compilerVersion": 1,
+        "parserVersion": "0.3.0-rc.4",
+        "query": {
+          "types": [
+            "task"
+          ],
+          "where": "((((\"status\" in raw) ? raw[\"status\"] : null) == null))"
+        },
+        "dependencies": [
+          {
+            "source": "raw",
+            "field": "status"
+          }
+        ],
+        "requiresReplicaValidation": true
+      },
+      "rows": [
+        {
+          "raw": {},
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": null
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": "open"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": 1
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": true
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": [
+              "open"
+            ]
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": "done"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "priority": "high"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "Review Status": "open"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "raw": "open"
+          },
+          "basesExpected": true
+        }
+      ]
+    },
+    {
+      "source": "note.status != null",
+      "compiled": {
+        "compilerVersion": 1,
+        "parserVersion": "0.3.0-rc.4",
+        "query": {
+          "types": [
+            "task"
+          ],
+          "where": "((((\"status\" in raw) ? raw[\"status\"] : null) != null))"
+        },
+        "dependencies": [
+          {
+            "source": "raw",
+            "field": "status"
+          }
+        ],
+        "requiresReplicaValidation": true
+      },
+      "rows": [
+        {
+          "raw": {},
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": null
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": "open"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": 1
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": true
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": [
+              "open"
+            ]
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": "done"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "priority": "high"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "Review Status": "open"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "raw": "open"
+          },
+          "basesExpected": false
+        }
+      ]
+    },
+    {
+      "source": "note.status == \"open\" || priority == \"high\"",
+      "compiled": {
+        "compilerVersion": 1,
+        "parserVersion": "0.3.0-rc.4",
+        "query": {
+          "types": [
+            "task"
+          ],
+          "where": "(((((\"status\" in raw) ? raw[\"status\"] : null) == \"open\") || (((\"priority\" in raw) ? raw[\"priority\"] : null) == \"high\")))"
+        },
+        "dependencies": [
+          {
+            "source": "raw",
+            "field": "status"
+          },
+          {
+            "source": "raw",
+            "field": "priority"
+          }
+        ],
+        "requiresReplicaValidation": true
+      },
+      "rows": [
+        {
+          "raw": {},
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": null
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": "open"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "status": 1
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": true
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": [
+              "open"
+            ]
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": "done"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "priority": "high"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "Review Status": "open"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "raw": "open"
+          },
+          "basesExpected": false
+        }
+      ]
+    },
+    {
+      "source": "note[\"Review Status\"] == \"open\"",
+      "compiled": {
+        "compilerVersion": 1,
+        "parserVersion": "0.3.0-rc.4",
+        "query": {
+          "types": [
+            "task"
+          ],
+          "where": "((((\"Review Status\" in raw) ? raw[\"Review Status\"] : null) == \"open\"))"
+        },
+        "dependencies": [
+          {
+            "source": "raw",
+            "field": "Review Status"
+          }
+        ],
+        "requiresReplicaValidation": true
+      },
+      "rows": [
+        {
+          "raw": {},
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": null
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": "open"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": 1
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": true
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": [
+              "open"
+            ]
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": "done"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "priority": "high"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "Review Status": "open"
+          },
+          "basesExpected": true
+        },
+        {
+          "raw": {
+            "raw": "open"
+          },
+          "basesExpected": false
+        }
+      ]
+    },
+    {
+      "source": "note.raw == \"open\"",
+      "compiled": {
+        "compilerVersion": 1,
+        "parserVersion": "0.3.0-rc.4",
+        "query": {
+          "types": [
+            "task"
+          ],
+          "where": "((((\"raw\" in raw) ? raw[\"raw\"] : null) == \"open\"))"
+        },
+        "dependencies": [
+          {
+            "source": "raw",
+            "field": "raw"
+          }
+        ],
+        "requiresReplicaValidation": true
+      },
+      "rows": [
+        {
+          "raw": {},
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": null
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": "open"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": 1
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": true
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": [
+              "open"
+            ]
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "status": "done"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "priority": "high"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "Review Status": "open"
+          },
+          "basesExpected": false
+        },
+        {
+          "raw": {
+            "raw": "open"
+          },
+          "basesExpected": true
+        }
+      ]
+    }
+  ]
+}

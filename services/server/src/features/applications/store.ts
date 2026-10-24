@@ -25,6 +25,27 @@ export interface RegisteredApplication {
   notifications: ApplicationNotifications;
 }
 
+export interface InstallationApplication {
+  id: string;
+  name: string;
+  family_identity: string;
+  requirements: ApplicationRequirements;
+  notifications: ApplicationNotifications;
+  homepage: string;
+  redirect_uris: string[];
+  application_declaration: AppManifest | null;
+  /** Retained extra origins for pre-field registrations, including migration0066.
+   * New declarations carry their own installation_origins in the manifest. */
+  installation_origins: Partial<Record<"lab" | "staging" | "production" | "local", Partial<Record<"app-runtime" | "mobile", string[]>>>>;
+}
+
+export async function findInstallationApplication(db: DatabaseQueryable, appId: string): Promise<InstallationApplication | undefined> {
+  return (await db.query<InstallationApplication>(
+    "SELECT id,name,family_identity,homepage,redirect_uris,application_declaration,installation_origins,requirements,notifications FROM applications WHERE id::text=$1",
+    [appId],
+  )).rows[0];
+}
+
 export async function upsertApplication(
   db: DatabaseQueryable,
   discovered: RegisteredApplicationManifest

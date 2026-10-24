@@ -41,6 +41,8 @@ export function collectionCompatibility(
       detail: `${collection.display_name} uses mdbase ${collection.spec_version}. Upgrade a copy to mdbase 0.3 and verify it before approving access; the original can stay untouched.`
     };
   }
+  // A Private collection's types are end-to-end encrypted; the app checks them once connected.
+  if (collection.kind === "private") return { compatible: true };
   const unavailable = request.requirements.contracts.filter((requirement) =>
     !hasContract(collection.contracts, requirement)
     && !request.provisions.type_packs.some((provision) =>

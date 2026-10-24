@@ -1,0 +1,29 @@
+[package]
+name = "mdbn-log-do"
+description = "D2 candidate B: the log service as one Durable Object per collection plus R2 (workers-rs, wasm32)."
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Its own workspace: built only for wasm32 by worker-build, outside the main
+# workspace so `cargo build --workspace` and CI are unaffected.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mdbn-wire = { path = "../../crates/wire" }
+mdbn-log-service = { path = "../../crates/log-service" }
+worker = "0.8"
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+async-lock = "3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

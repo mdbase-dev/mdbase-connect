@@ -1231,7 +1231,7 @@ dependencies = [
 
 [[package]]
 name = "connect-hosted-storage-benchmark"
-version = "0.1.0-beta.129"
+version = "0.1.0-beta.143"
 dependencies = [
  "aes-gcm",
  "chrono",
@@ -2690,7 +2690,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-cli"
-version = "0.1.0-beta.129"
+version = "0.1.0-beta.143"
 dependencies = [
  "chrono-tz",
  "clap",
@@ -2729,7 +2729,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-core"
-version = "0.1.0-beta.129"
+version = "0.1.0-beta.143"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -2758,7 +2758,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-daemon"
-version = "0.1.0-beta.129"
+version = "0.1.0-beta.143"
 dependencies = [
  "async-trait",
  "axum",
@@ -2799,7 +2799,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-hosted-provider"
-version = "0.1.0-beta.129"
+version = "0.1.0-beta.143"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -2846,7 +2846,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-mirror"
-version = "0.1.0-beta.129"
+version = "0.1.0-beta.143"
 dependencies = [
  "async-trait",
  "axum",
@@ -2873,7 +2873,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-protocol"
-version = "0.1.0-beta.129"
+version = "0.1.0-beta.143"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2892,7 +2892,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-runtime"
-version = "0.1.0-beta.129"
+version = "0.1.0-beta.143"
 dependencies = [
  "chrono",
  "mdbase",
@@ -2986,9 +2986,9 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "mio"
-version = "1.2.2"
+version = "1.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30d65c71f1ce40ab09135ce117d742b9f8a19ff91a41a8b57ed50bc2de59c427"
+checksum = "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee"
 dependencies = [
  "libc",
  "log",
@@ -3721,9 +3721,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "once_cell",
@@ -4403,7 +4403,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

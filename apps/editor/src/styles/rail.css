@@ -15,7 +15,7 @@
   padding: 0 1px 0 var(--space-2);
 }
 
-.rail-header > .rail-collection-switcher {
+.rail-header > .rail-collection-heading {
   min-width: 0;
   flex: 1;
   display: grid;
@@ -43,9 +43,7 @@
   white-space: nowrap;
 }
 
-.rail-current-collection svg { width: 12px; height: 12px; flex: 0 0 auto; }
-.rail-collection-switcher .wordmark { white-space: nowrap; }
-.rail-collection-switcher:hover .rail-current-collection { color: var(--accent); }
+.rail-collection-heading .wordmark { white-space: nowrap; }
 
 @container (max-width: 190px) {
   .rail-header .wordmark-label strong { display: none; }
@@ -136,6 +134,13 @@
 .collection-rail nav .rail-drop-target:focus-within small,
 .collection-rail nav .context-menu-target:hover small,
 .collection-rail nav .context-menu-target:focus-within small { opacity: 1; }
+
+/* The feedback entry reads as a rail row, not the shared standalone trigger. */
+.collection-rail nav .rail-feedback {
+  font: inherit;
+  font-size: var(--font-size-ui);
+  border-radius: 0;
+}
 
 .rail-filter-section { margin-top: var(--space-1); }
 .rail-filter-items { display: grid; }
@@ -250,8 +255,6 @@
 .folder-change-dialog .confirm-dialog-copy { max-height: 65vh; overflow-y: auto; }
 .folder-change-dialog code { overflow-wrap: anywhere; }
 .folder-change-dialog p + p { margin-top: var(--space-2); }
-.collection-connect-workspace { display: inline-flex; padding: var(--space-2); color: var(--muted); text-decoration: none; border-radius: var(--radius-sm); }
-.collection-connect-workspace:hover { color: var(--ink); background: var(--hover); }
 
 /* Also used on the collection connection screen. */
 .compatibility-help { margin-top: var(--space-4); color: var(--faint); font-size: var(--font-size-caption); }

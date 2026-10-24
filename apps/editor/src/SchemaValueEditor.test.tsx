@@ -1,12 +1,26 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { JsonObject } from "@mdbase-dev/connect";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SchemaValueEditor, schemaInitialValue, schemaValueComplete } from "./SchemaValueEditor";
 import { chooseOption } from "./test/select";
 
 describe("recursive schema values", () => {
+  it("uses local-time and date-only pickers for declared temporal unions", () => {
+    const schema = { anyOf: [{ type: "string", format: "date" }, { type: "string", format: "date-time" }] };
+    const changed = vi.fn();
+    const { rerender } = render(<SchemaValueEditor name="Scheduled" schema={schema} value="2026-10-14T22:00:00Z" onChange={changed} />);
+    const input = screen.getByLabelText("Scheduled") as HTMLInputElement;
+    expect(input).toHaveAttribute("type", "datetime-local");
+    expect(input.title).toContain("Local time");
+    fireEvent.change(input, { target: { value: "2026-10-15T09:30" } });
+    expect(changed).toHaveBeenLastCalledWith(new Date("2026-10-15T09:30").toISOString());
+    rerender(<SchemaValueEditor name="Scheduled" schema={schema} value="2026-10-23" onChange={changed} />);
+    expect(screen.getByLabelText("Scheduled")).toHaveAttribute("type", "date");
+    expect(screen.getByLabelText("Scheduled")).toHaveValue("2026-10-23");
+  });
+
   it("builds initial nested values from required fields, defaults, constants, and list minimums", () => {
     expect(schemaInitialValue(contactSchema)).toEqual({
       profile: { display_name: "", visibility: "team" },

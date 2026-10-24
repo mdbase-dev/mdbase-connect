@@ -1,0 +1,3 @@
+# Vendored spec fixtures are compared byte for byte (merge outputs are exact bytes).
+conformance/spec/** -text
+conformance/determinism/** -text

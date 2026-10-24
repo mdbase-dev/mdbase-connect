@@ -93,17 +93,15 @@ Types reuse the list-and-document rhythm; settings are one quiet document
 rather than a dashboard. Section headings sit above their content; preference
 rows share a steady rhythm, collection facts stay compact, and technical facts
 live behind Details. In the collection rail, All notes, Types, and
-Settings remain the primary editing group. One header trigger combines the brand
-lockup and current collection and opens the collection switcher; it includes
-recent collections, connecting another collection, the Connect workspace, and
-Send feedback. Feedback is not squeezed beside the connection status.
+Settings remain the primary editing group. The header shows the brand lockup above the
+shared collection switcher, which names the current collection and lists the
+account's collections, adding a collection, managing access and sign-out. Feedback is not squeezed beside the connection status.
 The independently scrolling middle contains All notes, the folder tree without
-a section heading, and a quiet New folder action. Types, Settings, and Connect
+a section heading, and a quiet New folder action. Types, Settings, and Send feedback
 form a fixed bottom group above connection status, so large folder trees never
 push them out of reach. Keyboard order follows the visual order: header, note
-and folder navigation, New folder, Types, Settings, Connect, then status actions.
-Connect remains visibly secondary until a pending authorization count requires
-attention. Counts use
+and folder navigation, New folder, Types, Settings, Send feedback, then status actions.
+Closing the feedback dialog returns focus to Send feedback. Counts use
 UI text with tabular numerals and appear only on hover, focus, or the selected
 row; accessible names always include them.
 
@@ -151,9 +149,11 @@ between note actions, document views (outline and Linked from), insertion
 (Attach file), and help (shortcuts and Check note). Mobile puts New note and
 Quick open first; there is only one Rename path and one Attach file action.
 Menus scroll when viewport space is limited, and keyboard focus stays visible.
-Frontmatter opens as typed rows first, with JSON available as an
-escape hatch for nested or unfamiliar values. The inspector offers quiet Fields
-and JSON tabs; complete Markdown source lives behind the property options menu,
+Frontmatter opens as typed rows first, with underlying values available as an
+escape hatch for nested or unfamiliar values. The inspector offers quiet Properties
+and Advanced tabs. On typed notes, properties not described by the type sit under
+Additional properties; they remain editable and are not assumed to be system fields.
+Complete Markdown source lives behind the property options menu,
 not a third primary tab. Sizes and dates use the UI family at the normal chrome
 size. An empty inspector explains what properties are useful for, with a direct
 Add property action.
@@ -192,9 +192,8 @@ reminders and decorative folder-name placeholders are omitted.
 Type editing uses the same quiet document grammar. Field names are inline
 editable in the UI family, with compact kind selects, labelled shared Required
 checkboxes, and removal in each row's options menu. Row details and YAML remain
-available without surrounding every field name in a permanent input box. The
-path takes the flexible space in the type bar; its save notice stays at the
-trailing edge, never stretched into the centre. The redundant Type definition
+available without surrounding every field name in a permanent input box. The type bar keeps its path and version behind Details; its save notice stays at
+the trailing edge, never stretched into the centre. The redundant Type definition
 eyebrow and table-like column headers are omitted. Application compatibility
 appears as a disclosure within the type, not as a separate dashboard. Each
 contract implementation keeps its direct field mapping, JSON Schema-driven

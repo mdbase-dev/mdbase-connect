@@ -1,0 +1,119 @@
+# Determinism fixture: core operations replayed natively and in WASM
+# (mdbn_core::replay). One YAML flow mapping per line. The golden output is
+# core.expected.json; update it only for an intended semantics change.
+
+# Path keys: NFC, full case folding (ß -> ss, İ -> i + U+0307, final sigma), NFC.
+{op: path_key, path: "Notes/Cafe\u0301.md"}
+{op: path_key, path: "NOTES/CAFÉ.md"}
+{op: path_key, path: "Straße/ΣΊΣΥΦΟΣ/İstanbul/ﬁle.md"}
+{op: equivalence_groups, paths: ["Straße.md", "STRASSE.md", "strasse-2.md", "a/ǅ.md", "a/ǆ.md", "a/Ǆ.md", "x.md"]}
+{op: allocate_path, requested: "tasks/call bob.md", existing: ["tasks/Call Bob.md", "tasks/CALL BOB (2).md"]}
+{op: allocate_path, requested: "views/tasks.view.base", existing: ["views/tasks.view.base", "views/TASKS.VIEW (2).BASE"]}
+{op: allocate_path, requested: "README", existing: ["readme", "README (2)"]}
+
+# Path patterns: number formatting must be identical everywhere.
+{op: derive_path, pattern: "t/{a}-{b}-{c}-{d}.md", frontmatter: {a: 0.1, b: 1e21, c: 42.0, d: -7}}
+{op: derive_path, pattern: "t/{a}.md", frontmatter: {a: 5e-324}}
+{op: derive_path, pattern: "t/{a}.md", frontmatter: {a: 1.7976931348623157e308}}
+{op: derive_path, pattern: "t/{a}.md", frontmatter: {a: 9007199254740993}}
+{op: derive_path, pattern: "t/{title}.md", frontmatter: {title: "Q3/Q4"}}
+{op: derive_path, pattern: "t/{title}.md", frontmatter: {}}
+
+# Parsing: scalar resolution, block scalars, CRLF, BOM, invalid frontmatter.
+{op: parse, path: a.md, source: "---\nn: 0x1F\no: 0o17\nf: 1.\ns: 1_000\nt: 2026-10-01T00:00:00Z\ny: yes\nz: ~\nbig: 99999999999999999999\ninf: .inf\n---\nbody\n"}
+{op: parse, path: a.md, source: "\ufeff---\r\nnote: >\r\n  one\r\n  two\r\n\r\n  three\r\nlit: |-\r\n  x\r\n---\r\nbody\r\n"}
+{op: parse, path: a.md, source: "---\n- a\n---\nb\n"}
+{op: parse, path: a.md, source: "---\na: [\n---\nb\n"}
+{op: parse, path: v/x.base, source: "views:\n  - type: table\n    name: \"Open \\u00e9\"\n"}
+{op: parse, path: a.md, source: "---\na: &x {k: [1, 2.5, \"é\"]}\nb: *x\n---\n"}
+
+# Writes: format fidelity.
+{op: write, path: a.md, source: "---\n# Task\ntitle: 'Fix login'   # quoted\nstatus: open\ntags: [a, b]\nlist:\n  - x\n\n# end\n---\nBody\n", set: {status: done, tags: [a, "c, d"], list: [y, z], new: 1.5}, remove: [title]}
+{op: write, path: a.md, source: "\ufeff---\r\na: 1\r\n---\r\nbody\r\n", set: {b: "multi\nline\n", c: {k: [1, {x: null}]}}}
+{op: write, path: a.md, source: "no frontmatter\n", set: {a: "true", b: "", c: "2026-10-01", d: " pad "}}
+{op: write, path: a.md, source: "---\na: &x [1]\nb: *x\n---\n", set: {a: [2]}}
+{op: write, path: a.md, source: "---\n- not a map\n---\n", set: {a: 1}}
+{op: write, path: v/x.base, source: "views: []", set: {filters: {and: ["status == \"open\""]}}}
+{op: write, path: v/x.base, source: "views: []\n", body: "text"}
+
+# Three-way merge (12A): strategies, instants, union, format fidelity, conflicts.
+{op: merge, types: ["---\nkind: mdbase.type\nname: item\nversion: 1\nmatch:\n  path_glob: \"items/**/*.md\"\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      reviewers: {type: array, uniqueItems: true}\ncollection:\n  merge:\n    due: max\n    rank: min\nlifecycle:\n  on_update:\n    set:\n      dateModified: {now: true}\n---\n"], path: items/a.md, base: "---\ntitle: T # keep\ndue: 2026-10-01\nrank: 3\ndateModified: 2026-10-01T00:00:00Z\nreviewers:\n  - ann\ntags: x\nstatus: open\n---\nl1\nl2\nl3\n", first: "---\ntitle: T # keep\ndue: 2026-10-05\nrank: 1\ndateModified: 2026-10-02T09:00:00+10:00\nreviewers:\n  - ann\n  - bo\ntags: [x, y]\nstatus: doing\n---\nl1 first\nl2\nl3\n", second: "---\ntitle: 'T2' # keep\ndue: 2026-10-04\nrank: 2\ndateModified: 2026-10-01T23:30:00Z\nreviewers:\n  - cy\ntags: z\nstatus: done\nowner: \"bo\"\n---\nl1\nl2\nl3 second\n"}
+{op: merge, path: a.md, base: "---\n- x\n---\nB\n", first: "---\n- y\n---\nB\nf\n", second: "---\n- z\n---\nB\ns\n"}
+{op: merge, paths: {base: a.md, first: b.md, second: c.md}, base: "x\n", first: "x\n", second: "y\n"}
+{op: merge_body, base: "a\n", first: "a\nb", second: "a\nc\n"}
+{op: merge_body, base: "1\n2\n3\n", first: "1\n2x\n3\n", second: "1\n2y\n3\n"}
+{op: merge_body, base: "1\n2\n3\n4\n5\n", first: "0\n1\n2\n3\n4\n5\n", second: "1\n2\n3\n4\n5x\n"}
+
+# Body edits: Unicode scalar offsets, rebase, errors.
+{op: body_edits, base: "café 😀\nbar\n", current: "café 😀\nbar\n", edits: [[7, 10, "baz"]]}
+{op: body_edits, base: "Agenda\n- budget\n- hiring\n", current: "Agenda (Monday)\n- budget\n- hiring\n", edits: [[18, 24, "interviews"]]}
+{op: body_edits, base: "Agenda\n- budget\n- hiring\n", current: "Agenda\n- budget\n- hiring\n- rent\n", edits: [[25, 25, "- travel\n"]]}
+{op: body_edits, base: null, current: "changed\n", edits: [[0, 1, "x"]]}
+{op: body_edits, base: "ab", current: "ab", edits: [[1, 1, "x"], [1, 1, "y"]]}
+
+# Move detection: ranks, exact similarity thresholds, deterministic ties.
+{op: detect_moves, disappeared: [{path: n/a.md, content: "1\n2\n3\n4\n", file_id: f1}, {path: n/b.md, content: "q\n"}], appeared: [{path: z/a.md, content: "1\n2\n3\n4\n5\n"}, {path: m/b.md, content: "1\n2\nx\n", file_id: f1}, {path: b/b.md, content: "q\n"}, {path: a/b.md, content: "q\n"}]}
+{op: detect_moves, id_field: id, disappeared: [{path: "t/Call Bob.md", content: "---\nid: t1\n---\nold\n", file_id: f1}], appeared: [{path: "d/Call Bob.md", content: "---\nid: t2\n---\nold\n", file_id: f1}, {path: "t/Robert.md", content: "---\nid: t1\n---\nnew\n"}]}
+
+# Regex profile (spec 10): ASCII classes and folding, scalar values, rejections.
+{op: regex_match, pattern: "^\\w+$", text: "café"}
+{op: regex_match, pattern: "caf\\b", text: "café"}
+{op: regex_match, pattern: "(?i)^straße$", text: "STRASSE"}
+{op: regex_match, pattern: "(?i)^abc$", text: "aBc"}
+{op: regex_match, pattern: "^.{2}$", text: "😀é"}
+{op: regex_match, pattern: "^[a-zà-ÿ]+\\x{1F600}$", text: "café😀"}
+{op: regex_match, pattern: "^\\<\\>$", text: "<>"}
+{op: regex_match, pattern: "(?x) ^ a \\  b # c", text: "a b"}
+{op: regex_match, pattern: "(?x) ^ a \\x20 b # c", text: "a b"}
+{op: regex_match, pattern: "\\p{L}", text: "a"}
+{op: regex_match, pattern: "(a{1000}){1000}", text: "a"}
+{op: regex_match, pattern: "(?<n>a)", text: "a"}
+
+# CEL (spec 10): numbers, strings, presence, optionals, macros, error absorption.
+{op: cel, expression: "1 + 2 * 3 == 7 && 7 / -2 == -3 && 1 == 1.0 && 1u < 2.5", record: {}}
+{op: cel, expression: "0.1 + 0.2", record: {}}
+{op: cel, expression: "string(1e21) + ' ' + string(1.0 / 3.0) + ' ' + string(-0.0)", record: {}}
+{op: cel, expression: "'Straße'.upper() + 'ÉCLAIR'.lower() + string(size('😀é'))", record: {}}
+{op: cel, expression: "status == 'open' && has(raw.tags) && tags.exists(t, t == 'b') && !has(raw.missing) && missing == null", record: {status: open, tags: [a, b]}}
+{op: cel, expression: "meta.?owner.orValue('nobody') + '/' + meta.?team.orValue('none')", record: {meta: {owner: ann}}}
+{op: cel, expression: "[3, 1, 2].map(v, v > 1, v * 10) + [1, 2, 3].filter(v, v % 2 == 1)", record: {}}
+{op: cel, expression: "{'b': 1, 'a': 2}.map(k, k)", record: {}}
+{op: cel, expression: "[1, 0].exists(v, 1 / v == 1) && (false && 1 / 0 == 1) == false", record: {}}
+{op: cel, expression: "1 / 0 == 1 || false", record: {}}
+{op: cel, expression: "9223372036854775807 + 1", record: {}}
+{op: cel, expression: "'é'.matches('^\\\\w$')", record: {}}
+{op: cel, expression: "title.matches('\\\\p{L}')", record: {title: x}}
+{op: cel, expression: "now()", record: {}}
+
+# CEL temporal values (spec 10). No clock or zone is bound in replay, so now(),
+# today() and zone conversions are evaluation errors here.
+{op: cel, expression: "timestamp('2026-06-20T00:00:00Z') + duration('36h')", record: {}}
+{op: cel, expression: "string(timestamp('2026-10-02T09:00:00.5+10:00')) + ' ' + string(duration('-1h30m')) + ' ' + string(duration('1.5ms'))", record: {}}
+{op: cel, expression: "due.addMonths(1) + ' ' + due.addYears(-2) + ' ' + string(due.daysUntil('2027-01-01')) + ' ' + string(due.dayOfWeek())", record: {due: "2024-02-29"}}
+{op: cel, expression: "timestamp('2026-06-20T23:00:00Z').getDate('+10:00')", record: {}}
+{op: cel, expression: "date(timestamp('2026-06-20T15:30:00Z'))", record: {}}
+{op: cel, expression: "due < timestamp('2026-01-01T00:00:00Z')", record: {due: "2025-01-01"}}
+
+# rc.5 errata: append-append onto a base without a final line break.
+{op: merge_body, base: "a", first: "a\nb\n", second: "a\nc\n"}
+{op: merge_body, base: "a", first: "a\r\nb", second: "a\r\nc"}
+
+# Path policy: one verdict on every platform.
+{op: check_path, path: "tasks/Call Bob.md"}
+{op: check_path, path: ".obsidian/plugins/x/main.js"}
+{op: check_path, path: "C:evil.md"}
+{op: check_path, path: ".MDBASE/state"}
+{op: check_path, path: ".mdbase./x"}
+{op: check_path, path: "notes/COM1.md"}
+{op: check_path, path: "‌.git/config"}
+{op: check_path, path: "GIT~1/config"}
+{op: check_path, path: "a/../b"}
+{op: check_path, path: "x/Node_Modules/y"}
+
+# Semantics 1.1: embedded IANA 2026e on native and WASM, including DST boundaries,
+# aliases, POSIX future rules, and explicit unknown-zone errors.
+{op: cel, expression: "timestamp('2026-10-03T15:59:59Z').getHours('Australia/Melbourne')", record: {}}
+{op: cel, expression: "timestamp('2026-10-03T16:00:00Z').getHours('Australia/Melbourne')", record: {}}
+{op: cel, expression: "timestamp('2400-07-01T00:00:00Z').getHours('US/Eastern')", record: {}}
+{op: cel, expression: "timestamp('1880-01-01T00:00:00Z').getMinutes('Asia/Kolkata')", record: {}}
+{op: cel, expression: "timestamp('2026-01-01T00:00:00Z').getHours('Mars/Olympus')", record: {}}

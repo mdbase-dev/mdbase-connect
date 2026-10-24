@@ -17,6 +17,7 @@ import {
   type TypePackAssessment,
   type TypePackProvision
 } from "@mdbase-dev/connect";
+import { isMdbaseError } from "@mdbase-dev/sdk";
 import {
   applyConnectServerOverride,
   connectServerUrl
@@ -474,6 +475,9 @@ export function gatewayError(error: unknown): string {
     if (error.problem.recovery === "reauthorize") {
       return "This collection needs authorization again. Choose the collection to continue.";
     }
+  }
+  if (isMdbaseError(error) && error.recovery === "reauthorize") {
+    return "This collection needs authorization again. Choose the collection to continue.";
   }
   if (error instanceof Error) return error.message;
   return "The collection could not be reached.";

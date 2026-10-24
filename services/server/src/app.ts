@@ -28,10 +28,17 @@ import { activatePendingServices } from "./features/next/service-activation.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
 import { registerAccountKeyRoutes } from "./features/next/account-keys.js";
 import { registerPrivateCollectionRoutes } from "./features/next/private-collections.js";
-import { registerNextHostedRoutes } from "./features/next/hosted-routes.js";
+import { globalRateLimitKeying, registerNextHostedRoutes } from "./features/next/hosted-routes.js";
+import { registerLabPitrRoutes } from "./features/next/lab-pitr-routes.js";
+import { validatePitrCollections } from "./features/next/lab-pitr-config.js";
 import { registerMigrationRolloutRoutes } from "./features/next/migration-rollout.js";
 import { registerCollectionMigrationRecordRoute } from "./features/next/migration-record-routes.js";
 import { registerMigrationSourceWitnessRoutes } from "./features/next/migration-source.js";
+import { registerMigrationProviderRoutes } from "./features/next/migration-provider.js";
+import { registerPrearchiveMigrationRoutes } from "./features/next/migration-prearchive.js";
+import { registerMigrationReplicaRoutes } from "./features/next/migration-replicas.js";
+import { registerMigrationTimerCleanupRoute } from "./features/next/migration-timer-cleanup.js";
+import { registerMigrationRouteRetireRoute } from "./features/next/migration-routing.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
 import { registerLabFixtureRoutes } from "./features/next/lab-fixture-routes.js";
 import { validateLabFixtureConfig } from "./features/next/lab-fixture-config.js";
@@ -42,7 +49,10 @@ import { registerCollectionLogTokenRoute } from "./features/next/collection-log-
 import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
 import { registerLocalRollbackBindingRoutes } from "./features/next/local-rollback-bindings.js";
 import { registerLocalTakeoverRoutes } from "./features/next/local-takeover.js";
+import { carryOverLegacyGrants } from "./features/next/legacy-grant-carry-over.js";
+import { registerNextRolloutRoutes } from "./features/next/rollout-routes.js";
 import { registerNextRouteRoutes } from "./features/next/route-routes.js";
+import { registerClientKeyAttachRoute } from "./features/next/client-key-attach.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { NotificationService, type NotificationTransports } from "./notifications.js";
 import { RelayHub } from "./relay.js";
@@ -52,6 +62,7 @@ import type {
   RegistrationMode
 } from "./runtime-config.js";
 import { registerAccountOverviewRoute } from "./features/account/me-routes.js";
+import { registerAccountCollectionCreationRoutes } from "./features/account/collection-creation-routes.js";
 import { registerAccountManagementRoutes } from "./features/account/management-routes.js";
 import { registerAccountSessionRoutes } from "./features/account/session-routes.js";
 import { registerApplicationRoutes } from "./features/applications/routes.js";
@@ -71,6 +82,7 @@ import { registerConnectorControlRoutes } from "./features/connectors/control-ro
 import { registerConnectorInventoryRoutes } from "./features/connectors/inventory-routes.js";
 import { registerConnectorManagementRoutes } from "./features/connectors/management-routes.js";
 import { registerConnectorPairingRoutes } from "./features/connectors/pairing-routes.js";
+import { registerInstallationSignOutRoute } from "./features/connectors/installation-signout.js";
 import { registerConnectorRelayRoute } from "./features/connectors/relay-route.js";
 import { registerConnectorGrantRoutes } from "./features/grants/connector-routes.js";
 import { registerConnectorHostedRoutes } from "./features/hosted/connector-routes.js";
@@ -80,7 +92,7 @@ import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-ro
 import { registerMirrorPairingRoutes } from "./features/mirrors/pairing-routes.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
 import type { PushTargetSealer } from "./features/next/push-target-seal.js";
-import type { TimerGrantResolver } from "./features/next/timers/grants.js";
+import { backgroundTimerGrantResolver, legacyTimerGrantResolver, type TimerGrantResolver } from "./features/next/timers/grants.js";
 import { registerTimerRoutes } from "./features/next/timers/routes.js";
 import { TimerWorker, notificationsConsumer } from "./features/next/timers/worker.js";
 import { registerOnboardingRoutes } from "./features/onboarding/routes.js";
@@ -89,9 +101,12 @@ import { registerLocalOperationRoutes } from "./features/operations/local-routes
 import { registerSystemRoutes } from "./features/system/routes.js";
 import { registerLifecycleDiagnosticRoute } from "./features/system/lifecycle-diagnostics.js";
 import { registerErrorHandler } from "./platform/error-handler.js";
+import type { ClientUpdatePolicy } from "./features/next/cutover-problems.js";
 import { authorityUrl } from "./platform/authority-url.js";
+import { installationEnvironment } from "./local-deployment.js";
 import { apiError } from "./platform/http-errors.js";
 import { sessionToken } from "./platform/session-cookies.js";
+import type { AccountBackend } from "./features/next/account-backend-flip.js";
 
 interface BuildOptions {
   db: DatabasePool;
@@ -103,6 +118,7 @@ interface BuildOptions {
   googleAuth?: GoogleAuthConfig;
   registration?: RegistrationMode;
   authRateLimitSecret?: string;
+  passwordSignupIpMaxAttempts?: number;
   betaAccessOrigin?: string;
   managementOrigins?: string[];
   editorOrigin?: string;
@@ -115,6 +131,10 @@ interface BuildOptions {
   hostedProvider?: HostedProviderClient;
   hostedReferenceAuthority?: boolean;
   publicUrl?: string;
+  /** Where old clients are told to update once their collection moves to mdbase-next. */
+  clientUpdate?: ClientUpdatePolicy;
+  /** Backend of newly created accounts; legacy when absent. */
+  newAccountBackend?: AccountBackend;
   /** Validated by runtime configuration; loopback tests default to publicUrl. */
   identityIssuer?: string;
   portalDist?: string;
@@ -141,6 +161,14 @@ export async function buildApp(options: BuildOptions) {
   if (options.nextControlPlane?.labFixtures) validateLabFixtureConfig(
     options.nextControlPlane.labFixtures, options.environment, options.publicUrl ?? ""
   );
+  let timerGrantResolver = options.nextTimers?.resolver ?? legacyTimerGrantResolver;
+  if (options.nextControlPlane && options.nextTimers && !options.nextTimers.resolver) {
+    const environment = options.environment;
+    if (!installationEnvironment(environment, options.publicUrl, environment)) {
+      throw new Error("Native timers require a configured installation registry environment.");
+    }
+    timerGrantResolver = backgroundTimerGrantResolver(options.db, environment);
+  }
   const app = Fastify({
     logger: process.env.NODE_ENV !== "test",
     // OAuth callbacks carry short-lived credentials in the query string.
@@ -169,7 +197,8 @@ export async function buildApp(options: BuildOptions) {
         options.notifications.pollIntervalMs,
         (error) => app.log.error({ err: error }, "notification delivery worker failed"),
         options.notifications.pushTargetSealer,
-        options.nextTimers?.resolver
+        timerGrantResolver,
+        options.environment
       )
     : undefined;
   const timers = options.nextTimers
@@ -179,10 +208,10 @@ export async function buildApp(options: BuildOptions) {
           void notifications?.drainOnce().catch(
             (error) => app.log.error({ err: error }, "notification delivery worker failed")
           );
-        }, options.nextTimers.resolver)],
+        }, timerGrantResolver, options.environment)],
         {
           pollIntervalMs: options.nextTimers.pollIntervalMs,
-          resolver: options.nextTimers.resolver,
+          resolver: timerGrantResolver,
           onError: (error) => app.log.error({ err: error }, "timer worker failed"),
           onMetric: (metric) => app.log.warn(metric, "privacy-safe Connect metric")
         }
@@ -241,6 +270,7 @@ export async function buildApp(options: BuildOptions) {
       )
     : undefined;
 
+  await validatePitrCollections(options.db, options.nextControlPlane?.logService.labPitr);
   const serviceDeployments = options.nextControlPlane?.cloudCopyBootstrap;
   const nextPolicySigner = options.nextControlPlane ? loadPolicySigner(options.nextControlPlane, Date.now()) : undefined;
   const nextPolicyEmitter = options.nextControlPlane
@@ -248,11 +278,11 @@ export async function buildApp(options: BuildOptions) {
         options.db,
         new LogServiceClient(options.nextControlPlane.logService),
         nextPolicySigner!,
-        (error, collectionId) => app.log.error({ err: error, collectionId }, "mdbase-next policy emission failed"),
+        (_error, _collectionId, details) => app.log.error(details, "mdbase-next policy emission failed"),
         2_000,
         Date.now,
         serviceDeployments
-          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId)
+          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr, options.nextControlPlane!.migrationRouting)
           : undefined
       )
     : undefined;
@@ -285,7 +315,7 @@ export async function buildApp(options: BuildOptions) {
   });
   await app.register(rateLimit, {
     global: true,
-    max: 600,
+    ...globalRateLimitKeying(options.nextControlPlane?.serviceTokens, options.nextControlPlane?.migrationRouting?.inboundToken),
     timeWindow: "1 minute"
   });
   await app.register(formbody);
@@ -295,9 +325,18 @@ export async function buildApp(options: BuildOptions) {
     runFirst: true
   });
   await app.register(cors, {
-    origin: true,
-    credentials: true,
-    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    delegator: (request, callback) => callback(null, {
+      // Browser SDK bearer-token requests keep origin reflection. Only the
+      // account/management origins (which include the configured editor) may
+      // use the session cookie (see origin_denied below), so only they get
+      // credentialed CORS; apps and third-party SDKs authenticate with bearers.
+      origin: true,
+      credentials: request.headers.origin !== undefined && accountOrigins.has(request.headers.origin),
+      methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      // Let browsers reuse a preflight for 2 hours (Chromium's cap) instead of
+      // paying an OPTIONS round trip before every cross-origin app call.
+      maxAge: 7200
+    })
   });
   await app.register(websocket);
   app.addContentTypeParser(
@@ -361,8 +400,14 @@ export async function buildApp(options: BuildOptions) {
         )
       });
     }
+    // This resolved route never uses account-cookie authority: every client
+    // must authenticate its first frame with its own active grant. Same-site
+    // browsers may still attach an ambient Connect session cookie to upgrades.
+    const frameAuthenticatedRelay = request.method === "GET"
+      && request.routeOptions.url === "/v1/next/relay/client";
     if (
-      sessionToken(request)
+      !frameAuthenticatedRelay
+      && sessionToken(request)
       && request.headers.origin
       && !accountOrigins.has(request.headers.origin)
     ) {
@@ -370,7 +415,7 @@ export async function buildApp(options: BuildOptions) {
     }
   });
 
-  registerErrorHandler(app);
+  registerErrorHandler(app, options.clientUpdate);
   registerSystemRoutes(app, {
     db: options.db,
     relay,
@@ -394,11 +439,14 @@ export async function buildApp(options: BuildOptions) {
   }
   registerPasswordAuthRoutes(app, {
     db: options.db,
+    environment: options.environment,
+    passwordSignupIpMaxAttempts: options.passwordSignupIpMaxAttempts,
     publicUrl,
     authenticationPolicy,
     authRateLimitSecret: options.authRateLimitSecret,
     authenticationLegalDocuments: options.authenticationLegalDocuments,
     emailTransport: options.emailTransport,
+    newAccountBackend: options.newAccountBackend ?? "legacy",
     providers: {
       development: options.devAuth === true,
       tailscale: options.tailscaleAuth === true,
@@ -414,15 +462,24 @@ export async function buildApp(options: BuildOptions) {
     githubAuth: options.githubAuth,
     googleAuth: options.googleAuth,
     authRateLimitSecret: options.authRateLimitSecret,
-    authenticationLegalDocuments: options.authenticationLegalDocuments
+    authenticationLegalDocuments: options.authenticationLegalDocuments,
+    newAccountBackend: options.newAccountBackend ?? "legacy"
   });
   registerConnectorPairingRoutes(app, {
     db: options.db,
+    relay,
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
     installationDevices: !!options.nextControlPlane,
-    installationEnvironment: options.environment
+    nativePolicyEmitter: nextPolicyEmitter,
+    installationEnvironment: options.environment,
+    cloudCopy: options.nextControlPlane?.cloudCopyBootstrap ? {
+      db:options.db,next:options.nextControlPlane,emitter:nextPolicyEmitter!,
+      log:new LogServiceClient(options.nextControlPlane.logService),
+    } : undefined,
   });
+  // Previously issued installations can be revoked after a feature rollback.
+  registerInstallationSignOutRoute(app, { db: options.db, relay });
   registerAccountSessionRoutes(app, {
     db: options.db,
     publicUrl,
@@ -492,12 +549,13 @@ export async function buildApp(options: BuildOptions) {
     publicKey: options.notifications?.publicKey,
     transports: options.notifications?.transports,
     hostedProvider: options.hostedProvider,
-    grantResolver: options.nextTimers?.resolver
+    grantResolver: timerGrantResolver,
+    serverEnvironment: options.environment
   });
   if (timers) {
     registerTimerRoutes(app, {
       db: options.db,
-      resolver: options.nextTimers?.resolver,
+      resolver: timerGrantResolver,
       hostedProvider: options.hostedProvider,
       onWrite: () => timers.wake()
     });
@@ -534,11 +592,17 @@ export async function buildApp(options: BuildOptions) {
     hostedProvider: options.hostedProvider,
     hostedReference
   });
+  registerAccountCollectionCreationRoutes(app, {
+    db: options.db, publicUrl, tailscaleAuth: options.tailscaleAuth,
+    hostedCollections: options.hostedCollections, hostedProvider: options.hostedProvider, hostedReference,
+    ...(options.nextControlPlane?.cloudCopyBootstrap ? {native:{db:options.db, next:options.nextControlPlane, emitter:nextPolicyEmitter!, log:new LogServiceClient(options.nextControlPlane.logService)}} : {})
+  });
   registerHostedSharingRoutes(app, {
     db: options.db,
     hostedCollections: options.hostedCollections,
     hostedSharing: options.hostedSharing,
-    tailscaleAuth: options.tailscaleAuth
+    tailscaleAuth: options.tailscaleAuth,
+    nativePolicyEmitter: nextPolicyEmitter
   });
   registerOnboardingRoutes(app, {
     db: options.db,
@@ -554,25 +618,43 @@ export async function buildApp(options: BuildOptions) {
   if (options.nextControlPlane) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
     const nextLog = new LogServiceClient(options.nextControlPlane.logService);
-    registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
+    registerNextDeviceRoutes(app, { db: options.db, log: nextLog, relay });
     registerLocalRollbackBindingRoutes(app, options.db);
-    registerLocalTakeoverRoutes(app, { db: options.db, relay });
+    registerLocalTakeoverRoutes(app, { db: options.db, relay, ...(nextPolicyEmitter ? { emitter: nextPolicyEmitter } : {}) });
+    registerNextRolloutRoutes(app, options.db);
     registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
-    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
+    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog, migrationRouting: options.nextControlPlane.migrationRouting });
+    registerLabPitrRoutes(app, { db: options.db, next: options.nextControlPlane, log: nextLog,
+      admission: { signer: nextPolicySigner!, audience: new URL(publicUrl).origin, identity: nextLog } });
     registerCollectionMigrationRecordRoute(app, options.db);
     if (options.nextControlPlane.migrationToken) {
-      registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment });
+      registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment, provider: options.hostedProvider,
+        timers: options.nextTimers !== undefined });
       registerMigrationSourceWitnessRoutes(app, { db: options.db, next: options.nextControlPlane, signer: nextPolicySigner!, provider: options.hostedProvider });
+      registerPrearchiveMigrationRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken,
+        environment: options.environment, provider: options.hostedProvider });
+      registerMigrationProviderRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment, provider: options.hostedProvider,
+        ...(options.nextControlPlane.serviceTokens.hosted && new URL(publicUrl).protocol === "https:"
+          ? { hostedRead: { token: options.nextControlPlane.serviceTokens.hosted, audience: new URL(publicUrl).origin, migrationRouting: options.nextControlPlane.migrationRouting } } : {}),
+        ...(options.nextControlPlane.cloudCopyBootstrap ? { bootstrap: { next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog } } : {}) });
+      registerMigrationReplicaRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, provider: options.hostedProvider,
+        log: nextLog, emitter: nextPolicyEmitter! });
+      registerMigrationTimerCleanupRoute(app, { db: options.db, token: options.nextControlPlane.migrationToken,
+        environment: options.environment, provider: options.hostedProvider });
+      if (options.nextControlPlane.migrationRouting) registerMigrationRouteRetireRoute(app, { db: options.db,
+        token: options.nextControlPlane.migrationToken, routing: options.nextControlPlane.migrationRouting });
     }
-    if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, tailscaleAuth: options.tailscaleAuth });
-    if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog });
+    if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog, tailscaleAuth: options.tailscaleAuth });
+    if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog });
     // AK1 account keys: private only, and only with a persistent per-account rate limit.
     if (options.nextControlPlane.privateBootstrap && options.authRateLimitSecret) registerAccountKeyRoutes(app, {
       db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
     });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
-    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl });
+    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr, migrationRouting: options.nextControlPlane.migrationRouting,
+      ...(options.nextControlPlane.privateBootstrap ? { carryOver: (collection: string) => carryOverLegacyGrants({ db: options.db, emitter: nextPolicyEmitter! }, collection, app.log) } : {}) });
+    registerClientKeyAttachRoute(app, { db: options.db });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
       db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,
       environment: options.environment, publicUrl, emitter: nextPolicyEmitter!
@@ -589,6 +671,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     authenticationPolicy,
     tailscaleAuth: options.tailscaleAuth,
+    nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap),
     hostedCollections: options.hostedCollections,
     hostedSharing: options.hostedSharing,
     hostedProvider: options.hostedProvider,
@@ -597,6 +680,7 @@ export async function buildApp(options: BuildOptions) {
   registerConnectorGrantRoutes(app, { db: options.db, relay });
   registerAuthorizationRoutes(app, {
     nextClientKeys: options.nextControlPlane !== undefined,
+    nativePolicyEmitter: nextPolicyEmitter,
     db: options.db,
     relay,
     publicUrl,
@@ -612,6 +696,21 @@ export async function buildApp(options: BuildOptions) {
     await app.register(fastifyStatic, { root: resolve(options.portalDist), wildcard: false });
     app.setNotFoundHandler((request, reply) => {
       if (request.method === "GET" && request.headers.accept?.includes("text/html")) {
+        // Cross-origin app popups need their original WindowProxy to remain live.
+        // Even same-origin-allow-popups severs an incoming cross-origin opener.
+        // Keep other portal pages/APIs and all other Helmet protections unchanged.
+        const page = new URL(request.url, publicUrl);
+        const approvalPath = (path: string) => /^\/(?:pair|authorize)\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\/?$/i.test(path) || path === "/device";
+        let approval = approvalPath(page.pathname);
+        const returnTo = page.searchParams.get("return_to");
+        if (!approval && returnTo && ["/login", "/signup", "/reset-password"].includes(page.pathname)) {
+          try {
+            const target = new URL(returnTo, publicUrl);
+            approval = target.origin === new URL(publicUrl).origin
+              && (approvalPath(target.pathname) || target.pathname === "/oauth/authorize");
+          } catch { /* malformed return targets retain the ordinary policy */ }
+        }
+        if (approval) reply.header("Cross-Origin-Opener-Policy", "unsafe-none");
         return reply.sendFile("index.html");
       }
       return reply.code(404).send(apiError("not_found", "Not found."));

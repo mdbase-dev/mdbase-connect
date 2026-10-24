@@ -35,13 +35,13 @@ apt-get install -y --no-install-recommends trash-cli` : "dnf install -y --setopt
 package="$1"
 check() {
   # Fedora merges /usr/sbin into /usr/bin, so PATH may report either spelling.
-  test "$(readlink -f "$(command -v mdbase)")" = /usr/lib/mdbase-connect/resources/mdbase
-  test "$(readlink -f /usr/bin/mdbase)" = /usr/lib/mdbase-connect/resources/mdbase
+  test "$(readlink -f "$(command -v mdbase)")" = /usr/lib/mdbase-connect/resources/mdbase-next/mdbase
+  test "$(readlink -f /usr/bin/mdbase)" = /usr/lib/mdbase-connect/resources/mdbase-next/mdbase
   test "$(readlink -f /usr/bin/mdbase-connect)" = /usr/lib/mdbase-connect/mdbase-connect
   ${owner}
   # Exercise the CLI as an ordinary user, without starting a daemon or touching collections.
   su -s /bin/sh nobody -c 'mdbase --version && mdbase --help'
-  test "$(mdbase --version)" = "$(/usr/lib/mdbase-connect/resources/mdbase --version)"
+  test "$(mdbase --version)" = "$(/usr/lib/mdbase-connect/resources/mdbase-next/mdbase --version)"
   test "$(mdbase --version)" = "$expected_version"
 }
 ${install}

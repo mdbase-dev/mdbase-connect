@@ -1,0 +1,13 @@
+{
+  "_type": "HelloParams",
+  "versions": [
+    {"_type": "Version", "major": 1, "minor": 0}
+  ],
+  "client_name": "tasknotes",
+  "client_version": "5.0.0",
+  "features": [
+    "presence",
+    "fence"
+  ],
+  "timezone": "Australia/Melbourne"
+}

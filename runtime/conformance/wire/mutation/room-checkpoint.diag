@@ -1,0 +1,28 @@
+/ Mutation / {
+  / id / 0: h'0192f3a460007abc8def0123456789ab',
+  / origin / 1: h'9b2f6c1e3a474d5b8e216f0a9c3d7e54',
+  / base_seq / 2: 41,
+  / clock / 3: / OpClock / {
+    / instant / 0: 1791100800000,
+    / tz / 1: "Australia/Melbourne",
+    / local_date / 2: "2026-10-04"
+  },
+  / seed / 4: h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e',
+  / source / 5: 0 / Api /,
+  / ops / 6: [
+    / Update / {
+      / kind / 0: 2 / Update /,
+      / id / 1: h'0192f3a45b6c7d8e9f0123456789abcd',
+      / body_edits / 7: [
+        / BodyEdit / [/ start / 6, / end / 6, / insert / "typed in a room\n"]
+      ],
+      / body_base / 8: h'38732073f309589131fec63f417896537e63d27fc29fcf7c60d5f47379f0887a',
+      / body_base_text / 9: "Notes\n"
+    }
+  ],
+  / validated_at / 9: 2 / Error /,
+  / room / 10: / RoomCheckpoint / {
+    / stream / 0: h'5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a',
+    / state / 1: h'7777777777777777777777777777777777777777777777777777777777777777'
+  }
+}

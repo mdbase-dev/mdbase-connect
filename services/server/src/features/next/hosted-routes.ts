@@ -3,6 +3,7 @@
 // has its own bearer token, accepted only on these routes; neither is the provider's
 // internal token.
 import { createHash } from "node:crypto";
+import { normalizeIP } from "@fastify/rate-limit";
 import { decodeCbor, uuidBytes, type Decoded } from "./policy-wire.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -14,6 +15,7 @@ import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-clie
 import { loadServiceDevice, serviceDeviceWire, type ServiceDeviceRecord, type ServiceKind } from "./service-devices.js";
 import { CreateError, inTransaction, lock, NIL, refuseRevoked } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
+import { migrationRoute, type MigrationRouting } from "./migration-routing.js";
 
 export type CollectionDirectoryState = "standard" | "private" | "local" | "unknown";
 
@@ -62,6 +64,33 @@ export function serviceKind(request: FastifyRequest, tokens: { hosted?: string; 
   return null;
 }
 
+// The global limiter counts public traffic per client IP. Hosted and escrow
+// deployments call these internal routes from shared Cloudflare egress addresses, one
+// Durable Object per collection, so an internal request carrying a valid service token
+// is counted against that service's own bucket instead. Each hosted collection reads
+// its service-device record at most once a minute and refreshes its log token about
+// every 14 minutes; a deployment without the record cache makes 4 requests a minute.
+// 12,000 a minute covers 2,000 uncached collections with 50% headroom. Requests without
+// a valid token, and routes with their own `config.rateLimit`, keep the per-IP limit.
+const PUBLIC_REQUESTS_PER_MINUTE = 600;
+const SERVICE_REQUESTS_PER_MINUTE = 12_000;
+const SERVICE_BUCKET = "service:";
+
+/** `keyGenerator` and `max` for the global one-minute limiter. */
+export function globalRateLimitKeying(tokens: { hosted?: string; escrow?: string } | undefined, migrationToken?: string) {
+  return {
+    keyGenerator(request: FastifyRequest): string {
+      const kind = tokens && request.url.startsWith("/internal/") && request.routeOptions.config?.rateLimit === undefined
+        ? serviceKind(request, tokens) : null;
+      const presented = bearerToken(request);
+      const migration = migrationToken && presented && request.url.startsWith("/internal/") && request.routeOptions.config?.rateLimit === undefined && safeEqual(presented, migrationToken);
+      return migration ? SERVICE_BUCKET + "migration-hosted" : kind ? SERVICE_BUCKET + kind : normalizeIP(request.ip);
+    },
+    max: (_request: FastifyRequest, key: string): number =>
+      key.startsWith(SERVICE_BUCKET) ? SERVICE_REQUESTS_PER_MINUTE : PUBLIC_REQUESTS_PER_MINUTE
+  };
+}
+
 /**
  * Run `use` only after current CP denial/revocation checks, under the existing
  * collection lock and share-locked collection row. No network effects occur here.
@@ -97,15 +126,21 @@ const HOSTED_BOOTSTRAP_BYTES_MAX = 128 * 1024;
 class OriginalGenesisUnavailable extends Error {}
 /** Structural admission only, not a second crypto verifier. The deployment must
  * verify this ORIGINAL signed item with bundled PolicyPins BEFORE any KMS/keys.
- * Original genesis may predate cloud-copy; it never proves current mode. */
-async function originalGenesis(db: DatabaseQueryable, collection: string) {
-  const rows = await db.query<{state: string; item: Buffer | null}>(
-    `SELECT state, CASE WHEN octet_length(item) BETWEEN 1 AND $2 THEN item ELSE NULL END AS item
+ * Original genesis may predate cloud-copy; it never proves current mode.
+ * Explicit CP-only pending metadata observation may accept the immutable original
+ * sending batch, never parked/lost. Ordinary callers remain appended-only. */
+export async function originalGenesis(db: DatabaseQueryable, collection: string,
+  original?: { owner: string; root: string; state: "appended" | "sending-or-appended" }) {
+  const rows = await db.query<{state: string; lost_at?: Date | null; item: Buffer | null}>(
+    // Count candidates across retained history before checking loss/state: a lost
+    // original plus live reissue must not masquerade as a unique original seq1.
+    `SELECT state${original ? ", lost_at" : ""}, CASE WHEN octet_length(item) BETWEEN 1 AND $2 THEN item ELSE NULL END AS item
      FROM next_policy_batches WHERE collection_id=$1 AND seq=1 ORDER BY id LIMIT 2 FOR SHARE`,
     [collection, ORIGINAL_GENESIS_BYTES_MAX],
   );
   const row = rows.rows[0];
-  if (rows.rows.length !== 1 || row?.state !== "appended" || !row.item) throw new OriginalGenesisUnavailable();
+  if (rows.rows.length !== 1 || !row || (original && row.lost_at !== null)
+    || !(row.state === "appended" || (original?.state === "sending-or-appended" && row.state === "sending")) || !row.item) throw new OriginalGenesisUnavailable();
   const item = row.item;
   const bytes = (v: Decoded | undefined, n: number): v is Uint8Array => v instanceof Uint8Array && v.length === n;
   const shape = (v: Decoded | undefined, keys: number[]): v is Map<number, Decoded> => v instanceof Map && v.size === keys.length && keys.every(k => v.has(k));
@@ -120,15 +155,34 @@ async function originalGenesis(db: DatabaseQueryable, collection: string) {
     if (!shape(cert,[0,1,2,3,4]) || !bytes(cert.get(0),32) || !Number.isSafeInteger(cert.get(1)) || !Number.isSafeInteger(cert.get(2)) || !bytes(cert.get(3),16) || !bytes(cert.get(4),64) || !Array.isArray(ops) || !ops.length) throw new OriginalGenesisUnavailable();
     const genesis = ops[0];
     if (!shape(genesis,[0,1,2,3]) || genesis.get(0) !== 1 || !bytes(genesis.get(1),16) || !bytes(genesis.get(2),16) || (genesis.get(3) !== 0 && genesis.get(3) !== 1)) throw new OriginalGenesisUnavailable();
+    if (original && (!Buffer.from(genesis.get(1) as Uint8Array).equals(Buffer.from(uuidBytes(original.owner)))
+      || !/^[0-9a-f]{32}$/.test(original.root) || !Buffer.from(genesis.get(2) as Uint8Array).equals(Buffer.from(original.root,"hex"))
+      || !Buffer.from(cert.get(3) as Uint8Array).equals(Buffer.from(original.root,"hex")))) throw new OriginalGenesisUnavailable();
   } catch { throw new OriginalGenesisUnavailable(); }
   return {seq: 1 as const, item: item.toString("base64"), hash: createHash("sha256").update(item).digest("hex")};
 }
 
 export function registerNextHostedRoutes(
   app: FastifyInstance,
-  options: { db: DatabasePool; tokens: { hosted?: string; escrow?: string }; log?: LogServiceClient; now?: () => number }
+  options: { db: DatabasePool; tokens: { hosted?: string; escrow?: string }; log?: LogServiceClient; now?: () => number; migrationRouting?: MigrationRouting }
 ): void {
-  const authorize = (request: FastifyRequest) => serviceKind(request, options.tokens) !== null;
+  const callerKind = (request: FastifyRequest) => {
+    const token = bearerToken(request);
+    return token && options.migrationRouting && safeEqual(token, options.migrationRouting.inboundToken)
+      ? "hosted" as const : serviceKind(request, options.tokens);
+  };
+  const scoped = async (request: FastifyRequest, ids: string[]) => {
+    const kind = callerKind(request);
+    if (!kind) return false;
+    if (kind === "escrow" || !options.migrationRouting) return true;
+    const migrationCaller = safeEqual(bearerToken(request)!, options.migrationRouting.inboundToken);
+    for (const id of ids) {
+      // A retired route has no hosted deployment: neither credential reads it.
+      const route = await migrationRoute(options.db, options.migrationRouting, id);
+      if (route === "retired" || (route === "migration") !== migrationCaller) return false;
+    }
+    return true;
+  };
   // The record lookup itself requires a current cloud copy; this only picks the answer
   // for a miss: 409 when the collection is not (or no longer) a cloud copy, else 404.
   const notCurrent = async (reply: FastifyReply, collection: string, missing: string) =>
@@ -137,14 +191,16 @@ export function registerNextHostedRoutes(
       : reply.code(404).send(apiError("service_device_not_found", missing));
   app.get("/internal/v1/next/collections/:id/state", async (request, reply) => {
     reply.header("cache-control", "no-store");
-    if (!authorize(request)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
+    if (!callerKind(request)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { id } = z.object({ id: z.uuid() }).parse(request.params);
+    if (!await scoped(request, [id])) return reply.code(403).send(apiError("wrong_service_scope", "This deployment does not own this account route."));
     return (await collectionDirectory(options.db, [id]))[0];
   });
   app.post("/internal/v1/next/collections/states", async (request, reply) => {
     reply.header("cache-control", "no-store");
-    if (!authorize(request)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
+    if (!callerKind(request)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { ids } = z.object({ ids: z.array(z.uuid()).min(1).max(500) }).strict().parse(request.body);
+    if (!await scoped(request, [...new Set(ids)])) return reply.code(403).send(apiError("wrong_service_scope", "This deployment does not own these account routes."));
     return { collections: await collectionDirectory(options.db, [...new Set(ids)]) };
   });
 
@@ -152,9 +208,10 @@ export function registerNextHostedRoutes(
   // standard: a collection that left sync, or never was cloud copy, has no service device.
   app.get("/internal/v1/next/collections/:id/service-devices/:kind", async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const caller = serviceKind(request, options.tokens);
+    const caller = callerKind(request);
     if (!caller) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { id, kind } = z.object({ id: z.uuid(), kind: z.enum(["hosted", "escrow"]) }).parse(request.params);
+    if (!await scoped(request, [id])) return reply.code(403).send(apiError("wrong_service_scope", "This deployment does not own this account route."));
     if (kind !== caller) return reply.code(403).send(apiError("wrong_service_kind", "This token reads only its own kind of service device."));
     try {
       const wire = await withCurrentRecord(options.db, id, { kind }, async (record, client) => {
@@ -174,13 +231,14 @@ export function registerNextHostedRoutes(
   const log = options.log;
   if (log) app.post("/internal/v1/next/service-devices/:device/log-token", async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const caller = serviceKind(request, options.tokens);
+    const caller = callerKind(request);
     if (!caller) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const params = z.object({ device: z.uuid() }).safeParse(request.params);
     const body = z.object({ collection: z.uuid() }).strict().safeParse(request.body);
     if (!params.success || !body.success) return reply.code(400).send(apiError("invalid_request", "A device and collection are required."));
     const { device } = params.data;
     const { collection } = body.data;
+    if (!await scoped(request, [collection])) return reply.code(403).send(apiError("wrong_service_scope", "This deployment does not own this account route."));
     const minted = await withCurrentRecord(options.db, collection, { device: device.toLowerCase() }, (record) => {
       if (record.kind !== caller) return "wrong_kind" as const;
       const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;

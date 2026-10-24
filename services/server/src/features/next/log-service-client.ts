@@ -7,10 +7,11 @@
 //   claims = {0: role (0 device, 1 control plane), ? 1: device, 2: sign_pk,
 //             3: expires_at ms, 4: "mdbase-log", ? 5: collection}
 import { createHash, createPrivateKey, sign, type KeyObject } from "node:crypto";
-import { decodeCbor, domainHash, encodeCbor, uuidBytes, type Cbor, type Decoded } from "./policy-wire.js";
+import { decodeCbor, domainHash, encodeCbor, keyId, uuidBytes, type Cbor, type Decoded } from "./policy-wire.js";
 import { ed25519RawPublicKey, type LogServiceConfig } from "./policy-keys.js";
 import type { CollectionDeletionFact, CollectionDeletionPage } from "./collection-deletion.js";
 import { readBoundedBytes } from "../../platform/bounded-json.js";
+import { pitrLogUrl, type LabPitrConfig } from "./lab-pitr-config.js";
 
 export const LOG_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -25,6 +26,37 @@ export interface NativeBackupFinish {
 }
 const NATIVE_PAGE_BYTES = 4 * 1024 * 1024;
 const NATIVE_OBJECT_BYTES = 9 * 1024 * 1024;
+/**
+ * Inputs the log service chooses a new collection's storage region from
+ * (`create_log` key 2; mdbase-next `crates/log-service/src/placement.rs`):
+ * the collection's IANA timezone and the owner's timezones on their other
+ * collections. Connect sends no location: its users do not reach it through
+ * Cloudflare, and its own address says nothing about theirs.
+ */
+export interface LogPlacement { timezone?: string; ownerTimezones?: readonly string[] }
+
+/** The regions a collection can be stored in (mdbase-next `crates/log-service/src/placement.rs`). */
+const LOG_REGIONS = ["oc", "apac", "wnam", "enam", "weur"] as const;
+export type LogRegion = (typeof LOG_REGIONS)[number];
+export const isLogRegion = (value: unknown): value is LogRegion =>
+  typeof value === "string" && (LOG_REGIONS as readonly string[]).includes(value);
+
+// The log service refuses (and so would park the genesis on) a timezone over
+// 64 bytes or more than 1000 owner timezones; anything else unmappable falls
+// back to its default, so only wire-safe IANA-shaped names are sent.
+const PLACEMENT_TIMEZONE = /^[A-Za-z][A-Za-z0-9_+\-/]*$/;
+const MAX_OWNER_TIMEZONES = 1000;
+const wireTimezone = (value: unknown): value is string =>
+  typeof value === "string" && Buffer.byteLength(value) <= 64 && PLACEMENT_TIMEZONE.test(value);
+
+/** The placement map `{4: timezone, 5: [owner timezone]}`, or nothing (the Worker default). */
+function placementField(placement: LogPlacement | undefined): Cbor | undefined {
+  const timezone = wireTimezone(placement?.timezone) ? placement!.timezone : undefined;
+  const owners = (placement?.ownerTimezones ?? []).filter(wireTimezone).slice(0, MAX_OWNER_TIMEZONES);
+  if (timezone === undefined && owners.length === 0) return undefined;
+  return struct([[4, timezone], [5, owners.length ? owners : undefined]]);
+}
+
 
 export type AppendResult =
   | { kind: "appended"; first: number; last: number }
@@ -136,20 +168,74 @@ function validateNativeSettings(settings: NativeRestoreSettings): void {
   if (settings.length !== 4 || settings[0] !== 1 || !Array.isArray(settings[1]) || settings[1].length !== 4 || ![30, 365].includes(settings[2]) || !Number.isSafeInteger(settings[3])) throw new Error("native_backup_restore_settings");
   for (const quota of settings[1]) nativeUint(quota, Number.MAX_SAFE_INTEGER);
 }
+type FailurePhase = "head" | "control-item" | "create_log" | "append" | "recover" | "unknown";
+const RPC_PHASES: Record<string, FailurePhase> = { head: "head", read: "control-item", create_log: "create_log", append: "append" };
+const SAFE_ERROR_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "EPIPE",
+  "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "ABORT_ERR",
+  "ERR_TLS_CERT_ALTNAME_INVALID", "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "unavailable", "rate_limited", "unauthenticated", "invalid", "not_found", "exists"]);
+
 
 export class LogServiceClient {
+  private static readonly failures = new WeakMap<Error, { phase: FailurePhase; step: "nonce" | "rpc" | undefined }>();
   private readonly issuer: KeyObject;
   private readonly transport: KeyObject;
   private readonly transportPublicKey: Uint8Array;
   private readonly baseUrl: string;
+  private readonly pitr: LabPitrConfig | undefined;
+  private readonly pitrPublicIdentity: Readonly<{ transportPublicKey: string; issuerKeyId: string }> | undefined;
+  private readonly pitrIssuerPublicKey: string | undefined;
   private requestId = 0;
   private cached: { token: string; expiresAt: number } | undefined;
 
   constructor(config: LogServiceConfig, private readonly fetchImpl: typeof fetch = fetch, private readonly now: () => number = Date.now) {
     this.baseUrl = config.url.replace(/\/+$/u, "");
+    this.pitr = config.labPitr ? Object.freeze({ ...config.labPitr }) : undefined;
     this.issuer = edKey(config.tokenIssuerKeyPem, "MDBASE_NEXT_LOG_TOKEN_SIGNING_KEY");
     this.transport = edKey(config.transportKeyPem, "MDBASE_NEXT_LOG_TRANSPORT_KEY");
     this.transportPublicKey = ed25519RawPublicKey(this.transport);
+    // Public metadata only, captured once from already loaded startup keys. The
+    // observer never parses a PEM, signs, mints a token or reads private material.
+    if (this.pitr) {
+      const issuerPublicKey = ed25519RawPublicKey(this.issuer);
+      this.pitrIssuerPublicKey = Buffer.from(issuerPublicKey).toString("hex");
+      this.pitrPublicIdentity = Object.freeze({ transportPublicKey: Buffer.from(this.transportPublicKey).toString("hex"),
+        issuerKeyId: Buffer.from(keyId(issuerPublicKey)).toString("hex") });
+    }
+  }
+
+  /** Closed diagnostic vocabulary only: never serialize the error/message,
+   * request, collection, full stack, endpoint, token or arbitrary remote code. */
+  static failureDetails(error: unknown, phase?: "recover") {
+    const context = error instanceof Error ? this.failures.get(error) : undefined;
+    let errorCode = "unknown";
+    let cursor = error;
+    for (let depth = 0; depth < 4 && cursor instanceof Error; depth += 1) {
+      if (cursor instanceof DOMException && (cursor.name === "TimeoutError" || cursor.name === "AbortError")) { errorCode = cursor.name; break; }
+      const code = (cursor as Error & { code?: unknown }).code;
+      // RPC error frames cannot claim a database SQLSTATE or echo arbitrary codes.
+      const sqlState = !(cursor instanceof LogServiceError) && typeof code === "string" && /^(?:[0-9][0-9A-Z]|F0|HV|P0|XX)[0-9A-Z]{3}$/.test(code);
+      if (typeof code === "string" && (SAFE_ERROR_CODES.has(code) || sqlState)) { errorCode = code; break; }
+      cursor = cursor.cause;
+    }
+    const stack = error instanceof Error && typeof error.stack === "string" ? error.stack : "";
+    const summary = stack.split("\n", 24).slice(1).flatMap(line => {
+      const frame = /[/\\](log-service-client|policy-outbox|policy-recovery|service-activation|policy-wire|bounded-json|migration-routing|app|db)\.(ts|js):(\d{1,6}):(\d{1,6})\)?$/.exec(line.trim());
+      return frame ? [`${frame[1]}.${frame[2]}:${frame[3]}:${frame[4]}`] : [];
+    }).slice(0, 8);
+    return { callback_phase: phase ?? context?.phase ?? "unknown", transport_step: context?.step ?? "unknown",
+      route: context?.step === "nonce" ? "/v1/nonce" : context?.step === "rpc" ? "/v1/rpc" : undefined,
+      error_code: errorCode, stack_summary: summary };
+  }
+
+  pitrControlIdentity(): Readonly<{ transportPublicKey: string; issuerKeyId: string }> | null {
+    return this.pitrPublicIdentity ? { ...this.pitrPublicIdentity } : null;
+  }
+
+  /** Detached public startup observation only; not current admission or a signer. */
+  pitrAdmissionIdentity(): Readonly<{ transportPublicKey: string; issuerPublicKey: string }> | null {
+    return this.pitrPublicIdentity && this.pitrIssuerPublicKey
+      ? { transportPublicKey: this.pitrPublicIdentity.transportPublicKey, issuerPublicKey: this.pitrIssuerPublicKey } : null;
   }
 
   /** Mint a log-service access token. Device tokens name the device and, narrowing them, one collection. */
@@ -175,8 +261,8 @@ export class LogServiceClient {
     return this.cached.token;
   }
 
-  private async fetchBytes(path: string, init: RequestInit, limit?: number): Promise<Uint8Array> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, ...(limit === undefined ? {} : {redirect:"manual"}), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  private async fetchBytes(path: string, init: RequestInit, limit?: number, base = this.baseUrl): Promise<Uint8Array> {
+    const response = await this.fetchImpl(`${base}${path}`, { ...init, ...(limit === undefined ? {} : {redirect:"manual"}), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     if (limit !== undefined && response.status >= 300 && response.status < 400) {
       await response.body?.cancel();
       throw new LogServiceError("unavailable", "redirect");
@@ -188,46 +274,64 @@ export class LogServiceClient {
     return body;
   }
 
-  private async rpc(method: string, params: Cbor, deletion = false, nativeLimit?: number): Promise<Decoded> {
+  private async rpc(method: string, params: Cbor, deletion = false, isolatedRegistry = false, nativeLimit?: number): Promise<Decoded> {
     const strict = deletion || nativeLimit !== undefined;
-    const nonceHex = new TextDecoder().decode(await this.fetchBytes("/v1/nonce", { method: "GET" }, strict ? 256 : undefined)).trim();
-    if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
-    const requestId = ++this.requestId;
-    const body = encodeCbor(struct([[0, 0], [1, requestId], [2, method], [3, params]]));
-    if (nativeLimit !== undefined && body.length > NATIVE_OBJECT_BYTES + 64 * 1024) throw new Error("native_backup_request_bounds");
-    const token = this.controlPlaneToken();
-    const collectionField = field(field(decodeCbor(body), 3)!, 0);
-    const collection = collectionField instanceof Uint8Array && collectionField.length === 16
-      ? collectionField : new Uint8Array(16);
-    // auth::http_digest: method is the LS RPC method, not HTTP POST.
-    const digest = domainHash("mdbase/v1/ls-http", Buffer.concat([
-      Buffer.from(method), Buffer.of(0), Buffer.from("/v1/rpc"), Buffer.of(0), collection,
-      createHash("sha256").update(token, "utf8").digest(), createHash("sha256").update(body).digest(),
-      Buffer.from(nonceHex, "hex"),
-    ]));
-    const frame = decodeCbor(await this.fetchBytes("/v1/rpc", {
-      method: "POST",
-      headers: {
-        "content-type": "application/vnd.mdbase.v1+cbor",
-        authorization: `Bearer ${token}`,
-        "x-mdbase-nonce": nonceHex,
-        "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
-      },
-      body: Buffer.from(body),
-    }, deletion ? DELETION_REPLY_BYTES : nativeLimit), strict ? {canonicalStructs:true,maxDepth:deletion ? 12 : 32} : undefined);
-    if (strict && (!(frame instanceof Map) || frame.size !== 3 || field(frame,0) !== 1 || field(frame,1) !== requestId || (frame.has(2) === frame.has(3)))) {
-      if (deletion) return deletionUnavailable();
-      throw new LogServiceError("unavailable", "native_backup_frame");
+    let transportStep: "nonce" | "rpc" | undefined;
+    try {
+      if (isolatedRegistry && (!this.pitr || method !== "registry_collection_deletions")) throw new Error("lab_pitr_registry_configuration_required");
+      const requestId = ++this.requestId;
+      const body = encodeCbor(struct([[0, 0], [1, requestId], [2, method], [3, params]]));
+      if (nativeLimit !== undefined && body.length > NATIVE_OBJECT_BYTES + 64 * 1024) throw new Error("native_backup_request_bounds");
+      const decoded = field(decodeCbor(body), 3)!;
+      // Registry deletion writes name the original subject in field 1, not nil field 0.
+      const subject = field(decoded, method === "registry_record_collection_deletion" ? 1 : 0);
+      const hex = subject instanceof Uint8Array && subject.length === 16 ? Buffer.from(subject).toString("hex") : "";
+      const id = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+      const base = isolatedRegistry ? this.pitr!.logUrl : pitrLogUrl(this.baseUrl, this.pitr, id);
+      transportStep = "nonce";
+      const nonceHex = new TextDecoder().decode(await this.fetchBytes("/v1/nonce", { method: "GET" }, strict ? 256 : undefined, base)).trim();
+      if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
+      const token = this.controlPlaneToken();
+      const collectionField = field(decoded, 0);
+      const collection = collectionField instanceof Uint8Array && collectionField.length === 16
+        ? collectionField : new Uint8Array(16);
+      // auth::http_digest: method is the LS RPC method, not HTTP POST.
+      const digest = domainHash("mdbase/v1/ls-http", Buffer.concat([
+        Buffer.from(method), Buffer.of(0), Buffer.from("/v1/rpc"), Buffer.of(0), collection,
+        createHash("sha256").update(token, "utf8").digest(), createHash("sha256").update(body).digest(),
+        Buffer.from(nonceHex, "hex"),
+      ]));
+      transportStep = "rpc";
+      const frame = decodeCbor(await this.fetchBytes("/v1/rpc", {
+        method: "POST",
+        headers: {
+          "content-type": "application/vnd.mdbase.v1+cbor",
+          authorization: `Bearer ${token}`,
+          "x-mdbase-nonce": nonceHex,
+          "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
+        },
+        body: Buffer.from(body),
+      }, deletion ? DELETION_REPLY_BYTES : nativeLimit, base), strict ? {canonicalStructs:true,maxDepth:deletion ? 12 : 32} : undefined);
+      if (strict && (!(frame instanceof Map) || frame.size !== 3 || field(frame,0) !== 1 || field(frame,1) !== requestId || (frame.has(2) === frame.has(3)))) {
+        if (deletion) return deletionUnavailable();
+        throw new LogServiceError("unavailable", "native_backup_frame");
+      }
+      const error = field(frame, 3);
+      if (error !== undefined) {
+        const code = field(error, 0);
+        const reason = field(error, 1);
+        throw new LogServiceError(typeof code === "string" ? code : "invalid", typeof reason === "string" ? reason : undefined, field(error, 4));
+      }
+      const result = field(frame, 2);
+      if (field(frame, 0) !== 1 || result === undefined) throw new Error("malformed log service response");
+      return result;
+    } catch (error) {
+      // Side metadata preserves even frozen original errors and every existing
+      // retry/parking decision. Never record request bytes, identifiers or URLs.
+      if (error instanceof Error) LogServiceClient.failures.set(error, { phase: RPC_PHASES[method] ?? "unknown", step: transportStep });
+      throw error;
+
     }
-    const error = field(frame, 3);
-    if (error !== undefined) {
-      const code = field(error, 0);
-      const reason = field(error, 1);
-      throw new LogServiceError(typeof code === "string" ? code : "invalid", typeof reason === "string" ? reason : undefined, field(error, 4));
-    }
-    const result = field(frame, 2);
-    if (field(frame, 0) !== 1 || result === undefined) throw new Error("malformed log service response");
-    return result;
   }
 
   /** Exact-position control read; control items are never compacted. */
@@ -256,9 +360,14 @@ export class LogServiceClient {
     }
   }
 
-  /** `create_log`: idempotent for the same genesis bytes; `invalid`/`exists` for a different genesis. */
-  async createLog(collection: string, genesis: Uint8Array): Promise<void> {
-    await this.rpc("create_log", struct([[0, uuidBytes(collection)], [1, genesis]]));
+  /** `create_log`: idempotent for the same genesis bytes; `invalid`/`exists` for a different genesis.
+   * The placement only matters on the call that creates the log. The reply's key 2 is the
+   * region the log service recorded (on a retry too); absent for a collection with no region,
+   * and anything that is not a known region is treated as absent. */
+  async createLog(collection: string, genesis: Uint8Array, placement?: LogPlacement): Promise<{ region?: LogRegion }> {
+    const result = await this.rpc("create_log", struct([[0, uuidBytes(collection)], [1, genesis], [2, placementField(placement)]]));
+    const region = field(result, 2);
+    return isLogRegion(region) ? { region } : {};
   }
 
   async setQuota(collection: string, quotas: { storageBytes: number; itemsPerSecond: number; bytesPerSecond: number; burstItems: number }): Promise<void> {
@@ -281,16 +390,27 @@ export class LogServiceClient {
 
   /** Generation-pinned keyset page; never a cached positive liveness permit. */
   async registryCollectionDeletions(after: string | null = null, expected: bigint | null = null): Promise<CollectionDeletionPage> {
+    return this.deletionPage(after, expected, false);
+  }
+
+  /** Fixed-run nil cut, never the shared registry or a liveness permit. */
+  async labPitrCollectionDeletions(run: string, after: string | null = null, expected: bigint | null = null): Promise<CollectionDeletionPage> {
+    if (!this.pitr || run !== this.pitr.run || (after !== null && after !== this.pitr.active && after !== this.pitr.deleted)) throw new Error("lab_pitr_registry_configuration_required");
+    return this.deletionPage(after, expected, true);
+  }
+
+  private async deletionPage(after: string | null, expected: bigint | null, isolated: boolean): Promise<CollectionDeletionPage> {
     const cursor = after === null ? null : deletionUuidBytes(after);
     if (after !== null && expected === null) throw new Error("collection_deletion_generation_required");
     if (expected !== null && typeof expected !== "bigint") throw new Error("invalid_collection_deletion_generation");
     const generation = expected === null ? null : deletionUint(expected);
     const result = deletionFields(await this.rpc("registry_collection_deletions", struct([
       [0,new Uint8Array(16)],[1,cursor],[2,generation],
-    ]),true),5);
+    ]),true,isolated),5);
     const revision = deletionUint(result.get(1)), values = result.get(2), done = result.get(4);
     if (result.get(0) !== 1 || (expected !== null && revision !== expected) || !Array.isArray(values) || values.length > 128 || typeof done !== "boolean" || done !== (values.length < 128)) return deletionUnavailable();
     const rows = values.map(deletionRow);
+    if (isolated && rows.some(row => row.collection !== this.pitr!.active && row.collection !== this.pitr!.deleted)) return deletionUnavailable();
     let previous = after;
     for (const row of rows) { if (previous !== null && row.collection <= previous) return deletionUnavailable(); previous = row.collection; }
     const next = result.get(3) === null ? null : deletionUuid(result.get(3));
@@ -300,17 +420,17 @@ export class LogServiceClient {
 
   /** Fixed native backup/import methods. No generic RPC or CP token is exposed. */
   async backupBegin(collection: string): Promise<NativeBackupFrame> {
-    return nativeFrame(await this.rpc("backup_begin", struct([[0, deletionUuidBytes(collection)]]), false, 128 * 1024), 64 * 1024);
+    return nativeFrame(await this.rpc("backup_begin", struct([[0, deletionUuidBytes(collection)]]), false, false, 128 * 1024), 64 * 1024);
   }
 
   async backupPage(collection: string, session: Uint8Array, page: number, previous: Uint8Array): Promise<NativeBackupFrame> {
     nativeBytes(session, 16); nativeBytes(previous, 32); nativeUint(page, 65_536, true);
-    return nativeFrame(await this.rpc("backup_page", struct([[0, deletionUuidBytes(collection)], [1, session], [2, page], [3, previous]]), false, NATIVE_PAGE_BYTES + 1024), NATIVE_PAGE_BYTES);
+    return nativeFrame(await this.rpc("backup_page", struct([[0, deletionUuidBytes(collection)], [1, session], [2, page], [3, previous]]), false, false, NATIVE_PAGE_BYTES + 1024), NATIVE_PAGE_BYTES);
   }
 
   async backupFinish(collection: string, session: Uint8Array, finalHash: Uint8Array): Promise<NativeBackupFinish> {
     nativeBytes(session, 16); nativeBytes(finalHash, 32);
-    const result = nativeMap(await this.rpc("backup_finish", struct([[0, deletionUuidBytes(collection)], [1, session], [2, finalHash]]), false, 64 * 1024), 8);
+    const result = nativeMap(await this.rpc("backup_finish", struct([[0, deletionUuidBytes(collection)], [1, session], [2, finalHash]]), false, false, 64 * 1024), 8);
     if (result.get(0) !== 1) throw new Error("native_backup_finish");
     const actualCollection = nativeBytes(result.get(1), 16), actualSession = nativeBytes(result.get(2), 16), actualHash = nativeBytes(result.get(7), 32);
     if (!Buffer.from(actualCollection).equals(Buffer.from(deletionUuidBytes(collection))) || !Buffer.from(actualSession).equals(Buffer.from(session)) || !Buffer.from(actualHash).equals(Buffer.from(finalHash))) throw new Error("native_backup_finish_binding");
@@ -321,14 +441,14 @@ export class LogServiceClient {
 
   async backupAbort(collection: string, session: Uint8Array): Promise<void> {
     nativeBytes(session, 16);
-    nativeAck(await this.rpc("backup_abort", struct([[0, deletionUuidBytes(collection)], [1, session]]), false, 64 * 1024));
+    nativeAck(await this.rpc("backup_abort", struct([[0, deletionUuidBytes(collection)], [1, session]]), false, false, 64 * 1024));
   }
 
   /** Explicit bounded range: avoids issuing or following object download URLs. */
   async nativeObjectRange(collection: string, address: Uint8Array, offset: number, length: number): Promise<{bytes: Uint8Array; size: number; checksum: Uint8Array}> {
     nativeBytes(address, 32); nativeUint(offset, NATIVE_OBJECT_BYTES); nativeUint(length, 1024 * 1024, true);
     if (offset + length > NATIVE_OBJECT_BYTES) throw new Error("native_backup_object_bounds");
-    const result = nativeMap(await this.rpc("get_object", struct([[0, deletionUuidBytes(collection)], [1, address], [2, [offset, length]]]), false, length + 1024), 3, [0, 2, 3]);
+    const result = nativeMap(await this.rpc("get_object", struct([[0, deletionUuidBytes(collection)], [1, address], [2, [offset, length]]]), false, false, length + 1024), 3, [0, 2, 3]);
     const raw = result.get(0);
     if (!(raw instanceof Uint8Array) || raw.length !== length) throw new Error("native_backup_object_range");
     return {bytes: raw, size: nativeUint(result.get(2), NATIVE_OBJECT_BYTES, true), checksum: nativeBytes(result.get(3), 32)};
@@ -343,7 +463,7 @@ export class LogServiceClient {
     if (final) {nativeUint(final.retainedFrom, Number.MAX_SAFE_INTEGER, true); nativeUint(final.head, Number.MAX_SAFE_INTEGER, true); nativeBytes(final.chain, 32);}
     const result = nativeMap(await this.rpc("import", struct([[0, deletionUuidBytes(collection)], [1, input.items.map(([seq, bytes]) => [seq, bytes])],
       [2, final ? struct([[0, final.retainedFrom], [1, final.head], [2, final.chain]]) : undefined],
-      [3, input.settings ? [...input.settings].map(value => Array.isArray(value) ? [...value] : value) as Cbor : undefined], [4, input.plan ? [...input.plan] : undefined]]), false, 64 * 1024), 4);
+      [3, input.settings ? [...input.settings].map(value => Array.isArray(value) ? [...value] : value) as Cbor : undefined], [4, input.plan ? [...input.plan] : undefined]]), false, false, 64 * 1024), 4);
     if (typeof result.get(2) !== "boolean" || result.get(3) !== true) throw new Error("native_backup_strict_import");
     return {head: nativeUint(result.get(0), Number.MAX_SAFE_INTEGER, true), chain: nativeBytes(result.get(1), 32), live: result.get(2) as boolean, strict: true};
   }
@@ -351,25 +471,25 @@ export class LogServiceClient {
   async importNativeObject(collection: string, address: Uint8Array, kind: number, bytes: Uint8Array): Promise<void> {
     nativeBytes(address, 32);
     if (![16, 17, 18, 19].includes(kind) || !(bytes instanceof Uint8Array) || !bytes.length || bytes.length > NATIVE_OBJECT_BYTES) throw new Error("native_backup_object_bounds");
-    nativeAck(await this.rpc("import_object", struct([[0, deletionUuidBytes(collection)], [1, address], [2, kind], [3, bytes]]), false, 64 * 1024));
+    nativeAck(await this.rpc("import_object", struct([[0, deletionUuidBytes(collection)], [1, address], [2, kind], [3, bytes]]), false, false, 64 * 1024));
   }
 
   async importNativeSnapshot(collection: string, pointer: readonly [number, Uint8Array, Uint8Array, number, boolean], refs: readonly Uint8Array[]): Promise<void> {
     nativeUint(pointer[0], Number.MAX_SAFE_INTEGER, true); nativeBytes(pointer[1], 32); nativeBytes(pointer[2], 16);
     if (!Number.isSafeInteger(pointer[3]) || typeof pointer[4] !== "boolean" || refs.length > 4096) throw new Error("native_backup_snapshot_bounds");
     for (const ref of refs) nativeBytes(ref, 32);
-    nativeAck(await this.rpc("import_snapshot", struct([[0, deletionUuidBytes(collection)], [1, struct(pointer.map((value, index) => [index, value]))], [2, [...refs]]]), false, 64 * 1024));
+    nativeAck(await this.rpc("import_snapshot", struct([[0, deletionUuidBytes(collection)], [1, struct(pointer.map((value, index) => [index, value]))], [2, [...refs]]]), false, false, 64 * 1024));
   }
 
   async restoreAuxBegin(collection: string, header: Uint8Array, finalHash: Uint8Array, pageCount: number): Promise<{page: number; hash: Uint8Array}> {
     if (!(header instanceof Uint8Array) || !header.length || header.length > 64 * 1024) throw new Error("native_backup_header_bounds");
     nativeBytes(finalHash, 32); nativeUint(pageCount, 65_536, true);
-    return nativeAux(await this.rpc("restore_aux_begin", struct([[0, deletionUuidBytes(collection)], [1, header], [2, finalHash], [3, pageCount]]), false, 64 * 1024));
+    return nativeAux(await this.rpc("restore_aux_begin", struct([[0, deletionUuidBytes(collection)], [1, header], [2, finalHash], [3, pageCount]]), false, false, 64 * 1024));
   }
 
   async restoreAuxPage(collection: string, page: Uint8Array): Promise<{page: number; hash: Uint8Array}> {
     if (!(page instanceof Uint8Array) || !page.length || page.length > NATIVE_PAGE_BYTES) throw new Error("native_backup_page_bounds");
-    return nativeAux(await this.rpc("restore_aux_page", struct([[0, deletionUuidBytes(collection)], [1, page]]), false, 64 * 1024));
+    return nativeAux(await this.rpc("restore_aux_page", struct([[0, deletionUuidBytes(collection)], [1, page]]), false, false, 64 * 1024));
   }
 
   async deleteLog(collection: string): Promise<void> {

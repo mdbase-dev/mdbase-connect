@@ -1,18 +1,58 @@
 // Freezing and retaining hosted collections for the mdbase-next migration
 // (mdbase-next docs/ship/migration.md H6-H10, §6).
+#[path = "legacy_migration/rollback_owner_namespace.rs"]
+mod rollback_owner_namespace;
 #[allow(dead_code, unused_imports)]
 mod support;
 #[path = "support/test_postgres.rs"]
 mod test_postgres;
 
-use chrono::{Duration, Utc};
-use mdbase_connect_hosted_provider::{app, AppState};
+use chrono::{Duration, Timelike, Utc};
+use mdbase_connect_hosted_provider::{app, AppState, LegacyRollbackRequest, ProviderAccountLimits};
 use mdbase_connect_protocol::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use support::FileLifecycleFixture;
+use sqlx::Row;
 use test_postgres::DisposablePostgres;
 use uuid::Uuid;
+
+// Migration drain requires the authoritative runtime schema even when empty.
+// This local fixture adds only its physical projection, never a runtime
+// initializer, effect producer or synthetic settlement.
+struct FileLifecycleFixture(support::FileLifecycleFixture);
+
+impl std::ops::Deref for FileLifecycleFixture {
+    type Target = support::FileLifecycleFixture;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl FileLifecycleFixture {
+    async fn new(url: &str) -> Self {
+        let fixture = support::FileLifecycleFixture::new(url).await;
+        sqlx::raw_sql(r#"
+            CREATE TABLE IF NOT EXISTS mdbase_runtime_schema (singleton boolean PRIMARY KEY CHECK(singleton), version integer);
+            INSERT INTO mdbase_runtime_schema VALUES(TRUE,2) ON CONFLICT DO NOTHING;
+            CREATE TABLE IF NOT EXISTS mdbase_runtime_timers (
+                namespace text, id text, generation bigint, status text, fire_at timestamptz,
+                lease_token text, lease_worker text, lease_expires_at timestamptz, PRIMARY KEY(namespace,id));
+            CREATE TABLE IF NOT EXISTS mdbase_runtime_runs (
+                namespace text, id text, revision bigint, status text, executor text,
+                workflow text, trigger_id text, created_at timestamptz, not_before timestamptz,
+                lease_token text, lease_worker text, lease_expires_at timestamptz, record_json jsonb,
+                PRIMARY KEY(namespace,id));
+            CREATE TABLE IF NOT EXISTS mdbase_runtime_events (namespace text, cursor bigint, PRIMARY KEY(namespace,cursor));
+        "#).execute(&fixture.pool).await.unwrap();
+        let version: i32 =
+            sqlx::query_scalar("SELECT version FROM mdbase_runtime_schema WHERE singleton=TRUE")
+                .fetch_one(&fixture.pool)
+                .await
+                .unwrap();
+        assert_eq!(version, 2, "fixture must not normalize unsupported schema");
+        Self(fixture)
+    }
+}
 
 fn upload() -> OpenFileUploadRequest {
     let bytes = b"after the freeze";
@@ -88,6 +128,56 @@ async fn migrating_refuses_writes_and_rollback_reopens_them() {
         .open_file_upload(id, &fixture.token, upload(), None)
         .await
         .expect("uploads resume after rollback");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn migration_transition_replies_echo_persisted_timestamps() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+
+    let first = provider
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
+        .await
+        .unwrap();
+    let drain = provider.legacy_migration_drain(id).await.unwrap();
+    let repeated = provider
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
+        .await
+        .unwrap();
+    // Native settlement binds the exact serialized provider run. PostgreSQL's
+    // microsecond timestamp must be returned, not the nanosecond input clock.
+    let first_json = serde_json::to_value(&first).unwrap();
+    assert_eq!(first.migration_id, drain.migration_id);
+    assert_eq!(first.started_at, drain.started_at);
+    assert_eq!(first.started_at, repeated.started_at);
+    assert_eq!(
+        first_json["started_at"],
+        serde_json::to_value(&drain).unwrap()["started_at"]
+    );
+    assert_eq!(
+        first_json["started_at"],
+        serde_json::to_value(&repeated).unwrap()["started_at"]
+    );
+
+    // Deliberately non-microsecond input makes the retention case deterministic.
+    let requested = (Utc::now() + Duration::days(91))
+        .with_nanosecond(123_456_789)
+        .unwrap();
+    let retained = provider
+        .set_legacy_migration_state(id, "migrated", Some(requested), false, &[])
+        .await
+        .unwrap();
+    let stored = provider.legacy_migration_drain(id).await.unwrap();
+    assert_eq!(retained.started_at, stored.started_at);
+    assert_eq!(retained.retain_until, stored.retain_until);
+    assert_eq!(
+        serde_json::to_value(&retained).unwrap()["retain_until"],
+        serde_json::to_value(&stored).unwrap()["retain_until"]
+    );
+    assert!(retained.retain_until.unwrap() >= Utc::now() + Duration::days(90));
 }
 
 #[tokio::test]
@@ -658,4 +748,1021 @@ async fn independent_or_rewritten_revocations_are_never_restored_by_rollback() {
             "{mode}: mirror stays revoked; re-link required"
         );
     }
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_requires_drain_and_refuses_foreign_replica_scope() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let foreign = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    let request = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_mutation_journal
+             (replica_id, request_id, operation_kind, input_schema_version, input_digest,
+              state, process_epoch, lease_owner, lease_expires_at, fencing_generation)
+           VALUES ($1, $2, 'test', 1, '\x00', 'claimed', $3, $3, now() + interval '1 minute', 1)"#,
+    )
+    .bind(mirror)
+    .bind(request)
+    .bind(Uuid::now_v7())
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![mirror]).await;
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_migration_not_drained"
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+    sqlx::query("UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() - interval '1 second' WHERE request_id = $1")
+        .bind(request).execute(&fixture.pool).await.unwrap();
+    let mut wrong = input.clone();
+    wrong.replica_ids.push(mirror_id(&foreign).await);
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &wrong)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    let receipt = fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    assert!(receipt.restored_ids.is_empty()); // this mirror was not migration-revoked
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_replaced_or_deleted_collection_cannot_reuse_the_old_run() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM hosted_provider_collections WHERE id = $1")
+        .bind(id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "hosted_collection_not_found"
+    );
+    fixture
+        .provider
+        .create_collection(input.owner_account_id, id, "mdbase", "Replacement", "UTC")
+        .await
+        .unwrap();
+    fenced(&fixture).await;
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+}
+
+async fn rollback_input(
+    fixture: &FileLifecycleFixture,
+    replica_ids: Vec<Uuid>,
+) -> LegacyRollbackRequest {
+    let row = sqlx::query("SELECT account_id, legacy_migration_id, authority_epoch, head FROM hosted_provider_collections WHERE id = $1")
+        .bind(fixture.collection_id).fetch_one(&fixture.pool).await.unwrap();
+    LegacyRollbackRequest {
+        owner_account_id: row.get::<Option<Uuid>, _>("account_id").unwrap(),
+        provider_migration_id: row.get::<Option<Uuid>, _>("legacy_migration_id").unwrap(),
+        authority_epoch: row.get("authority_epoch"),
+        fixed_head: row.get("head"),
+        driver_id: Uuid::new_v4(),
+        action_id: Uuid::new_v4(),
+        replica_ids,
+    }
+}
+
+async fn fenced(fixture: &FileLifecycleFixture) {
+    fixture
+        .provider
+        .set_legacy_migration_state(fixture.collection_id, "migrating", None, false, &[])
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_restores_owned_ids_and_survives_lost_reply_and_old_writes() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    fenced(&fixture).await;
+    assert_eq!(
+        fixture
+            .provider
+            .revoke_migration_replicas(id, &[mirror])
+            .await
+            .unwrap(),
+        vec![mirror]
+    );
+    let input = rollback_input(&fixture, vec![mirror]).await;
+    let receipt = fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    assert_eq!(receipt.binding, input);
+    assert_eq!(receipt.restored_ids, vec![mirror]);
+    assert_eq!(state_of(&fixture).await, "active");
+    fixture
+        .provider
+        .open_file_upload(id, &fixture.token, upload(), None)
+        .await
+        .unwrap();
+    // Model ordinary old writes advancing the already-reopened source head.
+    sqlx::query("UPDATE hosted_provider_collections SET head = head + 1 WHERE id = $1")
+        .bind(id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let reopened = fixture.provider.clone();
+    assert_eq!(
+        reopened
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap(),
+        receipt
+    );
+    assert_eq!(
+        reopened
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap(),
+        receipt
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_empty_scope_and_missing_lookup_never_infer_success() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_receipt_unknown"
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+    let receipt = fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    assert!(receipt.restored_ids.is_empty());
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap(),
+        receipt
+    );
+
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    fixture
+        .provider
+        .set_legacy_migration_state(fixture.collection_id, "active", None, false, &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(fixture.collection_id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_receipt_unknown"
+    );
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(fixture.collection_id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_source_and_replay_bindings_fail_closed() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    for field in [
+        "owner_account_id",
+        "provider_migration_id",
+        "authority_epoch",
+        "fixed_head",
+    ] {
+        let mut wrong = input.clone();
+        match field {
+            "owner_account_id" => wrong.owner_account_id = Uuid::new_v4(),
+            "provider_migration_id" => wrong.provider_migration_id = Uuid::new_v4(),
+            "authority_epoch" => wrong.authority_epoch += 1,
+            "fixed_head" => wrong.fixed_head += 1,
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            fixture
+                .provider
+                .rollback_legacy_migration(id, &wrong)
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_rollback_binding_conflict",
+            "{field}"
+        );
+        assert_eq!(state_of(&fixture).await, "migrating");
+    }
+    let receipt = fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    for field in ["driver_id", "action_id", "replica_ids"] {
+        let mut wrong = input.clone();
+        match field {
+            "driver_id" => wrong.driver_id = Uuid::new_v4(),
+            "action_id" => wrong.action_id = Uuid::new_v4(),
+            "replica_ids" => wrong.replica_ids.push(Uuid::new_v4()),
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            fixture
+                .provider
+                .legacy_migration_rollback_receipt(id, &wrong)
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_rollback_binding_conflict",
+            "{field}"
+        );
+        assert_eq!(
+            fixture
+                .provider
+                .rollback_legacy_migration(id, &wrong)
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_rollback_binding_conflict",
+            "{field}"
+        );
+    }
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap(),
+        receipt
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_preserves_independent_revocations() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    fenced(&fixture).await;
+    fixture
+        .provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    fixture.provider.revoke_replica(mirror).await.unwrap();
+    let input = rollback_input(&fixture, vec![mirror]).await;
+    let receipt = fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    assert!(receipt.restored_ids.is_empty());
+    let revoked: Option<chrono::DateTime<Utc>> =
+        sqlx::query_scalar("SELECT revoked_at FROM hosted_provider_replicas WHERE id = $1")
+            .bind(mirror)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert!(revoked.is_some());
+    assert!(fixture
+        .provider
+        .open_file_upload(id, &fixture.token, upload(), None)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_insert_failure_rolls_back_restore_and_active() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let first = FileLifecycleFixture::new(database.url()).await;
+    fenced(&first).await;
+    let first_input = rollback_input(&first, vec![]).await;
+    first
+        .provider
+        .rollback_legacy_migration(first.collection_id, &first_input)
+        .await
+        .unwrap();
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    fenced(&fixture).await;
+    fixture
+        .provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    let mut input = rollback_input(&fixture, vec![mirror]).await;
+    input.driver_id = first_input.driver_id;
+    input.action_id = first_input.action_id;
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+    let revoked: Option<chrono::DateTime<Utc>> =
+        sqlx::query_scalar("SELECT revoked_at FROM hosted_provider_replicas WHERE id = $1")
+            .bind(mirror)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert!(revoked.is_some());
+    input.action_id = Uuid::new_v4();
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap()
+            .restored_ids,
+        vec![mirror]
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_is_not_revived_by_a_later_migration_or_reverse_flag() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    fenced(&fixture).await;
+    assert_eq!(
+        fixture
+            .provider
+            .legacy_migration_rollback_receipt(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    fixture
+        .provider
+        .set_legacy_migration_state(id, "active", None, false, &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    fixture
+        .provider
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(91)),
+            false,
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .provider
+            .rollback_legacy_migration(id, &input)
+            .await
+            .unwrap_err()
+            .code,
+        "legacy_rollback_binding_conflict"
+    );
+    assert_eq!(state_of(&fixture).await, "migrated");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_owner_is_checked_after_collection_lock_wait() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    let mut transaction = fixture.pool.begin().await.unwrap();
+    sqlx::query("UPDATE hosted_provider_collections SET account_id = NULL WHERE id = $1")
+        .bind(id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    let provider = fixture.provider.clone();
+    let task = tokio::spawn(async move { provider.rollback_legacy_migration(id, &input).await });
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(!task.is_finished());
+    transaction.commit().await.unwrap();
+    assert_eq!(
+        task.await.unwrap().unwrap_err().code,
+        "legacy_rollback_binding_conflict"
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn rollback_receipt_http_requires_internal_auth_and_lookup_is_read_only() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    fenced(&fixture).await;
+    let input = rollback_input(&fixture, vec![]).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let token = "internal-rollback-receipt-test-token-".repeat(2);
+    let state = AppState::new(fixture.provider.clone(), &token).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/internal/v1/collections/{id}/legacy-migration");
+    for path in ["rollback", "rollback-receipt"] {
+        assert_eq!(
+            client
+                .post(format!("{base}/{path}"))
+                .json(&input)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        client
+            .post(format!("{base}/rollback-receipt"))
+            .bearer_auth(&token)
+            .json(&input)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::NOT_FOUND
+    );
+    assert_eq!(state_of(&fixture).await, "migrating");
+    let response = client
+        .post(format!("{base}/rollback"))
+        .bearer_auth(&token)
+        .json(&input)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let receipt: Value = response.json().await.unwrap();
+    let response = client
+        .post(format!("{base}/rollback-receipt"))
+        .bearer_auth(&token)
+        .json(&input)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(response.json::<Value>().await.unwrap(), receipt);
+    server.abort();
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn refused_old_clients_learn_their_collection_is_upgrading_or_moved() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    fenced(&fixture).await;
+    provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = AppState::new(provider.clone(), &"internal-cutover-test-token-".repeat(2)).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let client = reqwest::Client::new();
+    let files = format!(
+        "http://{address}/v1/authorities/{id}/files?protocol_version={FILE_PROTOCOL_VERSION}"
+    );
+
+    let migrating = client
+        .get(&files)
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(migrating.status(), reqwest::StatusCode::CONFLICT);
+    assert_eq!(migrating.headers()["retry-after"], "300");
+    let body: Value = migrating.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "collection_migrating");
+
+    let anonymous = client.get(&files).send().await.unwrap();
+    assert_eq!(anonymous.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let mismatched = client
+        .get(format!(
+            "http://{address}/v1/authorities/{}/files?protocol_version={FILE_PROTOCOL_VERSION}",
+            Uuid::now_v7()
+        ))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(mismatched.status(), reqwest::StatusCode::CONFLICT);
+
+    let stranger = client
+        .get(&files)
+        .bearer_auth("t".repeat(40))
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(
+        stranger.status(),
+        reqwest::StatusCode::CONFLICT,
+        "unknown tokens learn nothing"
+    );
+
+    provider
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(120)),
+            false,
+            &[],
+        )
+        .await
+        .unwrap();
+    let moved = client
+        .get(&files)
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(moved.status(), reqwest::StatusCode::CONFLICT);
+    let body: Value = moved.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "collection_unavailable");
+    assert_eq!(body["error"]["details"]["reason"], "moved_to_next_runtime");
+    assert_eq!(
+        body["error"]["details"]["update_url"],
+        "https://mdbase.dev/downloads"
+    );
+    let guidance = "mdbase has been updated. Copy any unsaved work somewhere safe, \
+                    then reload this page to continue.";
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .starts_with(guidance));
+
+    // The same revoked historical bearer receives the refusal on every old
+    // authority route family, before any data operation can run.
+    let snapshot = format!("sync/snapshot?snapshot_id={}", Uuid::now_v7());
+    let file_snapshot = format!("sync/files/snapshot?snapshot_id={}", Uuid::now_v7());
+    for (method, suffix) in [
+        (reqwest::Method::POST, "operations/describe"),
+        (reqwest::Method::POST, "operations/read"),
+        (reqwest::Method::POST, "operations/query"),
+        (reqwest::Method::POST, "sync/sessions"),
+        (reqwest::Method::GET, snapshot.as_str()),
+        (reqwest::Method::GET, file_snapshot.as_str()),
+        (reqwest::Method::GET, "sync/changes?after=0"),
+    ] {
+        let response = client
+            .request(
+                method,
+                format!("http://{address}/v1/authorities/{id}/{suffix}"),
+            )
+            .bearer_auth(&fixture.token)
+            .json(&json!({
+                "protocol_version": LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                "request_id": Uuid::now_v7(),
+                "input": { "path": "note.md" }
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::CONFLICT, "{suffix}");
+        assert!(response.headers().get("retry-after").is_none());
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["error"]["code"], "collection_unavailable", "{suffix}");
+        assert!(body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with(guidance));
+        assert_eq!(body["error"]["details"]["reason"], "moved_to_next_runtime");
+    }
+    server.abort();
+}
+
+/// Run lease columns: token, worker, expiry.
+type RunLease<'a> = (
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<chrono::DateTime<Utc>>,
+);
+/// A run row shape: status, lease, `record_json`.
+type RunShape<'a> = (&'a str, RunLease<'a>, Option<Value>);
+
+/// One notification run row in the collection's runtime namespace.
+async fn put_notification_run(
+    fixture: &FileLifecycleFixture,
+    status: &str,
+    lease: RunLease<'_>,
+    record: Option<Value>,
+) {
+    sqlx::query("DELETE FROM mdbase_runtime_runs WHERE namespace = $1")
+        .bind(format!(
+            "connect-hosted:{}:notifications",
+            fixture.collection_id
+        ))
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"INSERT INTO mdbase_runtime_runs
+           (namespace,id,revision,status,executor,workflow,trigger_id,created_at,not_before,
+            lease_token,lease_worker,lease_expires_at,record_json)
+           VALUES ($1,'run',1,$2,'notify','workflow','trigger',now(),now(),$3,$4,$5,$6)"#,
+    )
+    .bind(format!(
+        "connect-hosted:{}:notifications",
+        fixture.collection_id
+    ))
+    .bind(status)
+    .bind(lease.0)
+    .bind(lease.1)
+    .bind(lease.2)
+    .bind(record)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+}
+
+fn run_record(active_attempt: Value, attempt_statuses: &[&str]) -> Value {
+    json!({
+        "active_attempt": active_attempt,
+        "attempts": attempt_statuses.iter()
+            .map(|status| json!({"invocation_id": "fixture-invocation", "status": status}))
+            .collect::<Vec<_>>(),
+    })
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn failed_unleased_notification_runs_settle_and_every_other_shape_blocks() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    let live = Utc::now() + Duration::minutes(5);
+    let expired = Utc::now() - Duration::days(1);
+    let none = (None, None, None);
+    let settled = run_record(Value::Null, &["succeeded", "failed"]);
+    // Each shape keeps the collection active and reports a drain blocker.
+    let blocking: Vec<RunShape> = vec![
+        (
+            "failed",
+            (Some("lease"), Some("worker"), Some(live)),
+            Some(settled.clone()),
+        ),
+        (
+            "failed",
+            (Some("lease"), Some("worker"), Some(expired)),
+            Some(settled.clone()),
+        ),
+        ("failed", (Some("lease"), None, None), Some(settled.clone())),
+        (
+            "failed",
+            (None, Some("worker"), None),
+            Some(settled.clone()),
+        ),
+        ("failed", (None, None, Some(expired)), Some(settled.clone())),
+        ("running", none, Some(settled.clone())),
+        ("queued", none, Some(settled.clone())),
+        ("waiting", none, Some(settled.clone())),
+        ("indeterminate", none, Some(settled.clone())),
+        ("FAILED", none, Some(settled.clone())),
+        ("failed ", none, Some(settled.clone())),
+        ("failed", none, Some(run_record(json!(0), &["failed"]))),
+        (
+            "failed",
+            none,
+            Some(run_record(Value::Null, &["failed", "dispatching"])),
+        ),
+        (
+            "failed",
+            none,
+            Some(run_record(Value::Null, &["indeterminate"])),
+        ),
+        (
+            "failed",
+            none,
+            Some(json!({"active_attempt": null, "attempts": [{"invocation_id": "x"}]})),
+        ),
+        (
+            "failed",
+            none,
+            Some(json!({"active_attempt": null, "attempts": ["failed"]})),
+        ),
+        ("failed", none, Some(json!({"active_attempt": null}))),
+        (
+            "failed",
+            none,
+            Some(json!({"active_attempt": null, "attempts": {"0": "failed"}})),
+        ),
+        ("failed", none, Some(json!("failed"))),
+        ("failed", none, None),
+    ];
+    for (status, lease, record) in &blocking {
+        put_notification_run(&fixture, status, *lease, record.clone()).await;
+        let drain = fixture.provider.legacy_migration_drain(id).await.unwrap();
+        assert!(
+            drain.in_flight > 0 && drain.unresolved > 0,
+            "{status:?} {lease:?} {record:?}"
+        );
+        assert_eq!(
+            fixture
+                .provider
+                .set_legacy_migration_state(id, "migrating", None, false, &[])
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_notifications_not_drained",
+            "{status:?} {lease:?} {record:?}"
+        );
+        assert_eq!(state_of(&fixture).await, "active");
+    }
+
+    // A terminal failed run with no lease and only durable attempt outcomes is
+    // settled: no attempt is pending and the runtime cannot admit another.
+    for record in [run_record(Value::Null, &[]), settled.clone()] {
+        put_notification_run(&fixture, "failed", none, Some(record)).await;
+        let drain = fixture.provider.legacy_migration_drain(id).await.unwrap();
+        assert_eq!((drain.in_flight, drain.unresolved), (0, 0));
+    }
+    // Fence, drain and atomic rollback all treat it as settled.
+    fenced(&fixture).await;
+    let drain = fixture.provider.legacy_migration_drain(id).await.unwrap();
+    assert_eq!((drain.state.as_str(), drain.in_flight), ("migrating", 0));
+    let mirror = mirror_id(&fixture).await;
+    fixture
+        .provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    let input = rollback_input(&fixture, vec![mirror]).await;
+    fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    assert_eq!(state_of(&fixture).await, "active");
+
+    // While fenced, a blocking run refuses cutover and rollback; once it is a
+    // settled failed run, cutover proceeds.
+    fenced(&fixture).await;
+    let retain = Utc::now() + Duration::days(91);
+    for (status, lease, record) in [
+        ("indeterminate", none, Some(settled.clone())),
+        (
+            "failed",
+            (Some("lease"), Some("worker"), Some(expired)),
+            Some(settled.clone()),
+        ),
+        (
+            "failed",
+            none,
+            Some(run_record(Value::Null, &["dispatching"])),
+        ),
+    ] {
+        put_notification_run(&fixture, status, lease, record.clone()).await;
+        assert_eq!(
+            fixture
+                .provider
+                .set_legacy_migration_state(id, "migrated", Some(retain), false, &[])
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_notifications_not_drained",
+            "{status:?} {lease:?} {record:?}"
+        );
+        let input = rollback_input(&fixture, vec![]).await;
+        assert_eq!(
+            fixture
+                .provider
+                .rollback_legacy_migration(id, &input)
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_notifications_not_drained",
+            "{status:?} {lease:?} {record:?}"
+        );
+        assert_eq!(state_of(&fixture).await, "migrating");
+    }
+    put_notification_run(&fixture, "failed", none, Some(settled)).await;
+    fixture
+        .provider
+        .set_legacy_migration_state(id, "migrated", Some(retain), false, &[])
+        .await
+        .unwrap();
+    assert_eq!(state_of(&fixture).await, "migrated");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn revoked_replicas_read_names_only_the_current_runs_own_revocations() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let token = "internal-legacy-migration-test-token-".repeat(2);
+    let state = AppState::new(fixture.provider.clone(), &token).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let client = reqwest::Client::new();
+    let url =
+        format!("http://{address}/internal/v1/collections/{id}/legacy-migration/revoked-replicas");
+    let read = || async { client.get(&url).bearer_auth(&token).send().await.unwrap() };
+    let unauthorized = client.get(&url).send().await.unwrap();
+    assert_eq!(unauthorized.status(), reqwest::StatusCode::UNAUTHORIZED);
+    // No run while active: nothing to name in a cutover.
+    let early = read().await;
+    assert_eq!(early.status(), reqwest::StatusCode::CONFLICT);
+
+    fenced(&fixture).await;
+    let run: Uuid = sqlx::query_scalar(
+        "SELECT legacy_migration_id FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    let body: Value = read().await.json().await.unwrap();
+    assert_eq!(
+        body,
+        json!({ "collection_id": id, "migration_id": run, "revoked": [mirror] })
+    );
+    provider
+        .restore_migration_revoked_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    let body: Value = read().await.json().await.unwrap();
+    assert_eq!(body["revoked"], json!([]));
+    // A revocation rewritten by another path is no longer this run's.
+    provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    sqlx::query("UPDATE hosted_provider_replicas SET revoked_at = revoked_at + interval '1 second' WHERE id = $1")
+        .bind(mirror)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let body: Value = read().await.json().await.unwrap();
+    assert_eq!(body["revoked"], json!([]));
+    server.abort();
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn placement_reports_the_collection_and_owner_timezones_only() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let account: Uuid =
+        sqlx::query_scalar("SELECT account_id FROM hosted_provider_collections WHERE id = $1")
+            .bind(id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    for timezone in ["Europe/Berlin", "Australia/Sydney"] {
+        provider
+            .create_collection(account, Uuid::now_v7(), "mdbase", "Other", timezone)
+            .await
+            .unwrap();
+    }
+    // Another account's collection never counts.
+    let stranger = Uuid::now_v7();
+    provider
+        .upsert_account(
+            stranger,
+            1,
+            ProviderAccountLimits {
+                hosted_storage_bytes: 1024 * 1024 * 1024,
+                retained_file_bytes: 1024 * 1024 * 1024,
+                max_document_bytes: 2 * 1024 * 1024,
+                max_single_file_bytes: 250 * 1024 * 1024,
+                max_mirror_replicas_per_collection: 10,
+                max_application_replicas_per_collection: 50,
+                max_hosted_collections: 10,
+                max_files_per_collection: 10_000,
+            },
+        )
+        .await
+        .unwrap();
+    provider
+        .create_collection(stranger, Uuid::now_v7(), "mdbase", "Theirs", "Asia/Tokyo")
+        .await
+        .unwrap();
+
+    let placement = provider.legacy_migration_placement(id).await.unwrap();
+    assert_eq!(placement.collection_id, id);
+    assert_eq!(placement.timezone, "UTC");
+    // Newest first.
+    assert_eq!(
+        placement.owner_timezones,
+        vec!["Australia/Sydney".to_string(), "Europe/Berlin".to_string()]
+    );
+
+    let missing = provider
+        .legacy_migration_placement(Uuid::now_v7())
+        .await
+        .unwrap_err();
+    assert_eq!(missing.status.as_u16(), 404);
 }

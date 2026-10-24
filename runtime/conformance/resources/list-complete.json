@@ -1,0 +1,14 @@
+{
+  "method": "list_resources",
+  "request_id": 1,
+  "params": {
+    "1": true,
+    "3": 1
+  },
+  "path": "_types/task.md",
+  "source": "abc",
+  "revision_hex": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  "complete": true,
+  "cursor": null,
+  "note": "Wire codec vector; fixture cursor is not a live continuation."
+}

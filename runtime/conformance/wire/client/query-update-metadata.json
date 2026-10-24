@@ -1,0 +1,28 @@
+{
+  "_type": "QueryUpdate",
+  "sub": 3,
+  "kind": "Diff",
+  "complete": true,
+  "as_of": 100,
+  "metadata": {
+    "_type": "QueryMetadata",
+    "columns": [
+      "label"
+    ],
+    "total_count": 12,
+    "diagnostics": [],
+    "groups": [
+      {
+        "_type": "QueryGroup",
+        "values": [
+          ["status", "done"]
+        ],
+        "count": 12,
+        "summaries": [
+          ["total_estimate", 30]
+        ]
+      }
+    ],
+    "has_more": true
+  }
+}

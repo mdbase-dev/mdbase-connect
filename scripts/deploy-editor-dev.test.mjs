@@ -565,6 +565,17 @@ test("exact verifier checks immutable and canonical bytes, revision, headers, an
     assert.deepEqual(deployment.files.find(({ path }) => path === "index.html").remote_path, "/");
   }
   assert.deepEqual(result.control_files.map(({ path }) => path), ["_headers", "_redirects"]);
+  assert.equal(result.deployments[0].files.find(({ path }) => path === "404.html").remote_path, "/__mdbase-editor-not-found");
+});
+
+test("exact verifier allows only app-shell rewrites in _redirects", async () => {
+  for (const rule of ["/* / 200", "/connect https://example.com 301", "/connect /index.html 200", "/connect / 302"]) {
+    const fixture = await deploymentFixture({ redirectsText: `${rule}\n` });
+    await assert.rejects(verifyExactDeployment({
+      ...fixture.options,
+      fetchImplementation: fixture.fetch([])
+    }), /only app-shell rewrite rules/u);
+  }
 });
 
 test("exact verifier rejects missing, duplicated, omitted, reordered, or non-normalized origin roles", async () => {
@@ -752,7 +763,8 @@ async function deploymentFixture({
   immutableAssetCacheControl = "public, max-age=0, must-revalidate",
   canonicalEdgeCacheControl = "public, max-age=14400, must-revalidate",
   canonicalRevalidatedCacheControl = "public, max-age=0, must-revalidate",
-  extraAssetPath = null
+  extraAssetPath = null,
+  redirectsText = "# Client routes\n/connect / 200\n/connect/* / 200\n"
 } = {}) {
   const directory = await mkdtemp(resolve(tmpdir(), "mdbase-editor-dist-"));
   const canonicalOrigin = "https://editor-lab.mdbase.dev";
@@ -779,8 +791,9 @@ async function deploymentFixture({
     ["assets/font.woff", Buffer.from("font\n")],
     ["assets/font.woff2", Buffer.from("font2\n")],
     ["index.html", Buffer.from("<!doctype html>\n")],
+    ["404.html", Buffer.from("<!doctype html><title>Page not found</title>\n")],
     ["_headers", Buffer.from(headersText)],
-    ["_redirects", Buffer.from("# no redirects\n")]
+    ["_redirects", Buffer.from(redirectsText)]
   ]);
   if (extraAssetPath) files.set(extraAssetPath, Buffer.from("extra\n"));
   for (const [path, content] of files) {
@@ -801,7 +814,8 @@ async function deploymentFixture({
     },
     fetch: (requested) => async (url) => {
       const remotePath = decodeURIComponent(url.pathname);
-      const path = remotePath === "/" ? "index.html" : remotePath.slice(1);
+      const notFound = !files.has(remotePath.slice(1)) && remotePath !== "/";
+      const path = remotePath === "/" ? "index.html" : notFound ? "404.html" : remotePath.slice(1);
       requested.push(remotePath);
       const content = files.get(path);
       const globalHeaders = {
@@ -829,8 +843,8 @@ async function deploymentFixture({
         body = Buffer.concat([body, Buffer.from("stale")]);
       }
       return {
-        ok: true,
-        status: 200,
+        ok: !notFound,
+        status: notFound ? 404 : 200,
         url: redirectEscape ? `https://escape.example${remotePath}` : `${url.origin}${remotePath}`,
         headers: new Headers(globalHeaders),
         arrayBuffer: async () => body

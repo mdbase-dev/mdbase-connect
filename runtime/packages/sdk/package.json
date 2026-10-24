@@ -1,0 +1,95 @@
+{
+  "name": "@mdbase-dev/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript SDK: live queries, optimistic submits, receipts, status, holds, files and presence over the replica client API.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./thin-client": {
+      "types": "./dist/thin-client.d.ts",
+      "import": "./dist/thin-client.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
+    "./app-host": {
+      "types": "./dist/app-host/index.d.ts",
+      "import": "./dist/app-host/index.js"
+    },
+    "./app-storage": {
+      "types": "./dist/app-storage/index.d.ts",
+      "import": "./dist/app-storage/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    },
+    "./account": {
+      "types": "./dist/account.d.ts",
+      "import": "./dist/account.js"
+    },
+    "./notifications": {
+      "types": "./dist/notifications.d.ts",
+      "import": "./dist/notifications.js"
+    },
+    "./app-grant": {
+      "types": "./dist/app-grant/index.d.ts",
+      "import": "./dist/app-grant/index.js"
+    },
+    "./offline-shell/build": {
+      "types": "./dist/offline-shell-build.d.ts",
+      "import": "./dist/offline-shell-build.js"
+    },
+    "./describe": {
+      "types": "./dist/describe-error.d.ts",
+      "import": "./dist/describe-error.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "vendor/*.tgz",
+    "vendor/*.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/build-application-assets.mjs && node scripts/build-browser.mjs",
+    "build:browser": "node scripts/build-browser.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "api:update": "node scripts/public-api.mjs --update",
+    "test": "vitest run && node --test scripts/browser-bundle.node-test.mjs scripts/application-assets.node-test.mjs scripts/offline-shell.node-test.mjs",
+    "size": "node scripts/size.mjs",
+    "check:vite-consumer": "node scripts/vite-consumer-check.mjs",
+    "check:npm-consumer": "node scripts/npm-consumer-check.mjs"
+  },
+  "devDependencies": {
+    "@sqlite.org/sqlite-wasm": "3.53.4-build2",
+    "@types/node": "22.20.5",
+    "esbuild": "0.28.2",
+    "fake-indexeddb": "6.2.5",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  },
+  "bundleDependencies": [
+    "@mdbase-dev/connect-protocol"
+  ],
+  "dependencies": {
+    "@mdbase-dev/connect-protocol": "file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz",
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0"
+  }
+}

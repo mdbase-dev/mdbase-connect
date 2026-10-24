@@ -19,13 +19,21 @@ import {
   inspectInstallationPairing,
   selectInstallationAccount,
   attestInstallationPairing,
+  attachInstallationNativeAuthorization,
   approveInstallationPairing,
   exchangeInstallationPairing,
   denyInstallationPairing,
   removeInstallationAccess,
   installationApp,
+  FILE_ACTIONS,
 } from "./installation-pairing.js";
 import { CreateError, isLockTimeout } from "../next/bootstrap-common.js";
+import { createInstallationPairingCollection } from "./installation-pairing-collection.js";
+import type { CloudCopyBootstrapOptions } from "../next/service-cloud-copy.js";
+import type { RelayHub } from "../../relay.js";
+import type { PolicyEmitter } from "../next/policy-outbox.js";
+import { createNativeApprovalDelivery } from "../authorizations/native-approval-delivery.js";
+import { ServiceDeviceError } from "../next/service-devices.js";
 async function installationResult(
   reply: FastifyReply,
   work: () => Promise<unknown>,
@@ -35,7 +43,9 @@ async function installationResult(
     return await work();
   } catch (e) {
     if (e instanceof InstallationPairingError)
-      return reply.code(e.status).send(apiError(e.code, e.message));
+      return reply.code(e.status).send(apiError(e.code, e.message, e.details));
+    if (e instanceof ServiceDeviceError)
+      return reply.code(e.status===502?503:e.status).send(apiError(e.code,"Collection creation is incomplete. Resume the original named collection."));
     if (e instanceof CreateError)
       return reply
         .code(e.status)
@@ -65,17 +75,21 @@ const originalUuid = z
 
 interface ConnectorPairingRoutesOptions {
   db: DatabasePool;
+  relay: Pick<RelayHub, "pushPolicy">;
+  nativePolicyEmitter?: Pick<PolicyEmitter, "publishCommitted">;
   publicUrl: string;
   tailscaleAuth?: boolean;
   /** SAME approval channel, enabled only with next control-plane support. */
   installationDevices?: boolean;
   installationEnvironment?: string;
+  cloudCopy?: CloudCopyBootstrapOptions;
 }
 
 export function registerConnectorPairingRoutes(
   app: FastifyInstance,
   options: ConnectorPairingRoutesOptions,
 ): void {
+  const nativeDelivery = createNativeApprovalDelivery(options.db, options.relay, () => app.log.warn("Native approval delivery deferred to policy renewal."), options.nativePolicyEmitter);
   app.post("/v1/pairing-requests", async (request, reply) => {
     if (
       request.body &&
@@ -94,17 +108,24 @@ export function registerConnectorPairingRoutes(
       const input = z
         .object({
           connector_name: z.string().trim().min(1).max(100).optional(),
+          collection_hint: originalUuid.optional(),
           installation: z
             .object({
               request_id: originalUuid,
               app_id: z.string().min(1).max(64),
               requested_create_collections: z.boolean().optional(),
+              recovery_collection_id: originalUuid.optional(),
               reconsent: z.boolean().optional(),
               renewal: z.object({request_id:originalUuid,pairing_secret:z.string().regex(/^pair_[A-Za-z0-9_-]{43}$/)}).strict().optional(),
               pairing_secret: z.string().regex(/^pair_[A-Za-z0-9_-]{43}$/),
               installation_id: originalUuid,
               device_id: originalUuid,
               kind: z.enum(["app-runtime", "mobile"]),
+              file_access: z.object({
+                collection_id: originalUuid,
+                actions: z.array(z.enum(FILE_ACTIONS)).min(1).max(6),
+                reason: z.string().min(1).max(140),
+              }).strict().optional(),
             })
             .strict(),
         })
@@ -115,10 +136,11 @@ export function registerConnectorPairingRoutes(
       return installationResult(reply, async () => {
         const result = await startInstallationPairing(
           options.db,
-          input.installation,
-          installationApp(options.installationEnvironment,input.installation.app_id,request.headers.origin,input.installation.kind),
+          { ...input.installation, collection_hint: input.collection_hint },
+          await installationApp(options.db,options.installationEnvironment,input.installation.app_id,request.headers.origin,input.installation.kind),
           options.publicUrl,
           existingConnector??undefined,
+          options.installationEnvironment,
         );
         return reply.code(201).send(result);
       });
@@ -166,8 +188,9 @@ export function registerConnectorPairingRoutes(
               "Installation device sign-in is unavailable.",
             ),
           );
+      const { collection_hint, return_url } = z.object({ collection_hint: originalUuid.optional(), return_url: z.string().max(2048).optional() }).parse(request.query);
       return installationResult(reply, () =>
-        inspectInstallationPairing(options.db, pairingId, user.id),
+        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy, user, collection_hint, return_url, options.installationEnvironment),
       );
     }
     const pairing = await options.db.query<{
@@ -222,21 +245,29 @@ export function registerConnectorPairingRoutes(
             );
         const session = await requireSessionContext(request, reply, options.db);
         if (!session) return;
-        const {fingerprint,collection_ids,create_collections}=z.object({
+        const {fingerprint,collection_ids,create_collections,selected_collection_id,selected_collection_kind,timer_consent,file_actions}=z.object({
           fingerprint:z.string().regex(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/),
           collection_ids:z.array(originalUuid).max(1000).default([]),
           create_collections:z.boolean().default(false),
+          selected_collection_id:originalUuid.optional(),
+          selected_collection_kind:z.enum(["cloud_copy","private"]).optional(),
+          timer_consent:z.boolean().optional(),
+          file_actions:z.array(z.enum(FILE_ACTIONS)).min(1).max(6).optional(),
         }).strict().parse(request.body);
-        return installationResult(reply, () =>
-          approveInstallationPairing(
+        return installationResult(reply, async () => {
+          const result = await approveInstallationPairing(
             options.db,
             pairingId,
             session.user.id,
             session.sessionId,
             fingerprint,
-            {collection_ids,create_collections},
-          ),
-        );
+            {collection_ids,create_collections,selected_collection_id,selected_collection_kind,timer_consent,file_actions},
+            options.installationEnvironment,
+          );
+          // Both authorities have committed; never push an uncommitted grant.
+          if ("native_authorization_uri" in result) await nativeDelivery.installation(pairingId);
+          return result;
+        });
       }
       const approved = await options.db.query<{
         id: string;
@@ -274,13 +305,36 @@ export function registerConnectorPairingRoutes(
     },
   );
 
+  // Revocation remains available after a feature rollback or pairing expiry.
+  app.post("/v1/account/applications/:applicationId/remove-installation-access", { bodyLimit: 4096 }, async (request, reply) => {
+    const session = await requireSessionContext(request, reply, options.db);
+    if (!session) return;
+    const { applicationId } = z.object({ applicationId: originalUuid }).parse(request.params);
+    const { collection_id } = z.object({ collection_id: originalUuid, confirm: z.literal(true) }).strict().parse(request.body);
+    return installationResult(reply, () => removeInstallationAccess(options.db, { applicationId }, session.user.id, session.sessionId, collection_id, options.installationEnvironment));
+  });
+
   if (options.installationDevices) {
+    if (options.cloudCopy) {
+      const cloudCopy = options.cloudCopy;
+      app.post("/v1/pairing-requests/:pairingId/collections", {
+        bodyLimit:4096,config:{rateLimit:{max:6,timeWindow:"1 minute"}},
+      }, async (request,reply) => {
+        const session = await requireSessionContext(request,reply,options.db);
+        if (!session) return;
+        const {pairingId} = z.object({pairingId:originalUuid}).parse(request.params);
+        const {display_name} = z.object({display_name:z.string()}).strict().parse(request.body);
+        return installationResult(reply,()=>createInstallationPairingCollection(cloudCopy,{
+          requestId:pairingId,user:session.user.id,session:session.sessionId,displayName:display_name,serverEnvironment:options.installationEnvironment,
+        }));
+      });
+    }
     app.post("/v1/pairing-requests/:pairingId/remove-access",async (request,reply)=>{
       const session=await requireSessionContext(request,reply,options.db);
       if(!session)return;
       const {pairingId}=z.object({pairingId:originalUuid}).parse(request.params);
       const {collection_id}=z.object({collection_id:originalUuid,confirm:z.literal(true)}).strict().parse(request.body);
-      return installationResult(reply,()=>removeInstallationAccess(options.db,pairingId,session.user.id,session.sessionId,collection_id));
+      return installationResult(reply,()=>removeInstallationAccess(options.db,pairingId,session.user.id,session.sessionId,collection_id,options.installationEnvironment));
     });
     app.post(
       "/v1/pairing-requests/:pairingId/select-account",
@@ -296,6 +350,8 @@ export function registerConnectorPairingRoutes(
             pairingId,
             session.user.id,
             session.sessionId,
+            session.user,
+            options.installationEnvironment,
           ),
         );
       },
@@ -312,8 +368,16 @@ export function registerConnectorPairingRoutes(
           pairingId,
           session.user.id,
           session.sessionId,
+          options.installationEnvironment,
         ),
       );
+    });
+    app.post("/v1/pairing-requests/:pairingId/native-authorization",async (request,reply)=>{
+      const {pairingId}=z.object({pairingId:originalUuid}).parse(request.params);
+      const secret=bearerToken(request);
+      if (!secret) return reply.code(401).send(apiError("invalid_pairing","Pairing secret required."));
+      const body=z.object({authorization_request_id:originalUuid}).strict().parse(request.body);
+      return installationResult(reply,()=>attachInstallationNativeAuthorization(options.db,pairingId,secret,body.authorization_request_id,options.installationEnvironment));
     });
     app.post(
       "/v1/pairing-requests/:pairingId/attest",
@@ -336,7 +400,7 @@ export function registerConnectorPairingRoutes(
           .strict()
           .parse(request.body);
         return installationResult(reply, () =>
-          attestInstallationPairing(options.db, pairingId, secret, body),
+          attestInstallationPairing(options.db, pairingId, secret, body, options.installationEnvironment),
         );
       },
     );
@@ -370,9 +434,10 @@ export function registerConnectorPairingRoutes(
             options.db,
             pairingId,
             secret,
+            options.installationEnvironment,
           );
           return reply
-            .code(result.status === "paired" || result.status === "scope_updated" ? 200 : 202)
+            .code(["paired","scope_updated","file_access_updated","declined"].includes(result.status) ? 200 : 202)
             .send(result);
         });
       }

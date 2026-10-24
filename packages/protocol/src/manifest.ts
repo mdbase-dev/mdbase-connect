@@ -1,10 +1,12 @@
-import { createHash } from "node:crypto";
-import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
-import addFormatsModule from "ajv-formats";
+import { sha256 as sha256Bytes } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
+import type { ErrorObject, ValidateFunction } from "ajv/dist/2020.js";
 import { isMap, parseDocument } from "yaml";
-import appManifestSchema from "../schemas/mdbase-app.schema.json" with { type: "json" };
-import legacyAppManifestSchema from "../schemas/mdbase-app.legacy-v1.schema.json" with { type: "json" };
 import type { LegacyMdbaseAppManifest } from "./index.js";
+import {
+  appManifestValidator as generatedAppManifestValidator,
+  legacyAppManifestValidator as generatedLegacyAppManifestValidator
+} from "./manifest-validators.generated.js";
 export type {
   LegacyApplicationFileRequirement,
   LegacyApplicationRequirements,
@@ -80,18 +82,11 @@ export class AppManifestValidationError extends Error {
   }
 }
 
-const ajv = new Ajv2020({
-  allErrors: true,
-  strict: true,
-  // `required` may name properties declared by an enclosing oneOf branch.
-  strictRequired: false
-});
-const addFormats = addFormatsModule as unknown as (instance: Ajv2020) => Ajv2020;
-addFormats(ajv);
-ajv.addSchema(appManifestSchema);
-const appManifestValidator = requiredValidator(String(appManifestSchema.$id));
-ajv.addSchema(legacyAppManifestSchema);
-const legacyAppManifestValidator = requiredValidator(String(legacyAppManifestSchema.$id));
+// Precompiled from the published JSON Schemas by
+// scripts/generate-manifest-validators.mjs, so validation stays synchronous and
+// identical without shipping the Ajv compiler to consumers.
+const appManifestValidator = generatedAppManifestValidator as ValidateFunction;
+const legacyAppManifestValidator = generatedLegacyAppManifestValidator as ValidateFunction;
 
 /**
  * Validate the complete bundled application declaration accepted by Connect.
@@ -203,12 +198,6 @@ export function formatManifestValidationIssues(
   return issues.map((issue) => `${issue.path || "/"} ${issue.message}`).join("; ");
 }
 
-function requiredValidator(reference: string): ValidateFunction {
-  const validate = ajv.getSchema(reference);
-  if (!validate) throw new Error(`Canonical schema is unavailable: ${reference}`);
-  return validate;
-}
-
 function validationResult(
   validate: ValidateFunction,
   value: unknown
@@ -313,6 +302,27 @@ function validateManifestOrigins(
   allowLocal: boolean
 ): ManifestValidationIssue[] {
   const manifest = asObject(value);
+  for (const [environment, policy] of Object.entries(asObject(manifest.installation_origins))) {
+    for (const [kind, origins] of Object.entries(asObject(policy))) {
+      for (const [index, origin] of (origins as string[]).entries()) {
+        const path = `/installation_origins/${environment}/${kind}/${index}`;
+        try {
+          const url = new URL(origin);
+          const web = secureOrAllowedLocal(url, true) && url.origin === origin;
+          const native = kind === "mobile" && url.protocol === "capacitor:"
+            && /^[a-z0-9.-]+$/u.test(url.hostname) && `${url.protocol}//${url.host}` === origin;
+          // A Chrome extension ID is stable (derived from its key), so it can be
+          // declared exactly. Firefox extension origins are random per profile.
+          const extension = kind === "app-runtime" && /^chrome-extension:\/\/[a-p]{32}$/u.test(origin);
+          if ((!web && !native && !extension) || origin.includes("*") || url.username || url.password || url.search || url.hash) {
+            return [issue(path, "origin", "must be an exact HTTPS, loopback HTTP, mobile capacitor or Chrome extension origin without wildcards")];
+          }
+        } catch {
+          return [issue(path, "origin", "must be an exact installation origin")];
+        }
+      }
+    }
+  }
   if (manifest.distribution === "portable") {
     if (manifest.project_url === undefined) {
       return manifest.icon === undefined
@@ -346,6 +356,10 @@ function validateManifestOrigins(
       )];
     }
     for (const [index, redirect] of (manifest.redirect_uris as unknown[]).entries()) {
+      // Redirects match exactly (RFC 8252 §8.10); a wildcard is never a pattern.
+      if (String(redirect).includes("*")) {
+        return [issue(`/redirect_uris/${index}`, "url", "must be an exact URI without wildcards")];
+      }
       const url = new URL(String(redirect));
       if (url.origin === homepage.origin && !secureOrAllowedLocal(url, allowLocal)) {
         return [issue(
@@ -521,7 +535,7 @@ function typeFrontmatter(document: string): Record<string, unknown> | undefined 
 }
 
 function sha256(document: string): string {
-  return `sha256:${createHash("sha256").update(document).digest("hex")}`;
+  return `sha256:${bytesToHex(sha256Bytes(utf8ToBytes(document)))}`;
 }
 
 function validateConfigurationSetup(value: unknown): ManifestValidationIssue[] {

@@ -1,0 +1,444 @@
+import {
+    APPLICATION_MANIFEST_MAX_BYTES,
+    parseVersionedAppManifest,
+} from "@mdbase-dev/connect-protocol/manifest";
+import { selectAppEnvironment } from "../app-host/app-environment.js";
+import type { CborValue } from "../cbor.js";
+import { MdbaseError, mdbaseError } from "../errors.js";
+import {
+    applicationDeclaration,
+    plainApplicationManifest,
+    type MdbaseApplicationDeclaration,
+} from "./declaration.js";
+import { appReleaseTrust } from "./packaged-trust.js";
+import { applicationLoopbackAllowed } from "./local-build.js";
+import {
+    REGISTRATION_REFUSAL_MAX_BYTES,
+    registrationRefusal,
+    type RegistrationRefusal,
+} from "./registration-refusal.js";
+
+export interface ApplicationRegistrationOptions {
+    readonly declaration: Readonly<MdbaseApplicationDeclaration>;
+    readonly signal: AbortSignal;
+    isCurrent(): boolean;
+    readonly fetch?: typeof fetch;
+}
+export interface ApplicationRegistration {
+    readonly id: string;
+    readonly name: string;
+    readonly manifestDigest: string;
+    /** Set when the declaration named an application UUID and the CP registered
+     * this exact manifest under a different one (a changed manifest gets a new
+     * UUID). The registered `id` is used; the declared one is kept here only for
+     * the developer note. */
+    readonly supersededDeclaredId?: string;
+}
+const nativeId =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const nil = "00000000-0000-0000-0000-000000000000";
+const transient = new Set([408, 429, 500, 502, 503, 504]);
+const binding = () =>
+    mdbaseError(
+        "invalid_request",
+        "Application registration binding mismatch",
+        "application_registration_binding",
+    );
+const badReply = () =>
+    mdbaseError(
+        "unavailable",
+        "Application registration evidence invalid",
+        "application_registration_response",
+    );
+const unknown = () =>
+    mdbaseError(
+        "outcome_unknown",
+        "Original application registration outcome unknown",
+        "application_registration_unknown",
+    );
+function record(value: unknown): Record<string, unknown> {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw badReply();
+    return value as Record<string, unknown>;
+}
+/** Structural equality of canonical parser outputs, NOT a parser, compiler or
+ * digest implementation. The original authenticated CP supplies the digest. */
+/** RFC 8785-style canonical JSON, as the CP hashes a registered manifest. */
+function canonicalJson(value: unknown): string {
+    if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number")
+        return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+    const entries = Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
+}
+export async function manifestDigest(manifest: unknown): Promise<string> {
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(manifest))));
+    return Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+function sameJson(left: unknown, right: unknown): boolean {
+    const stack: [unknown, unknown][] = [[left, right]];
+    let nodes = 0;
+    while (stack.length) {
+        if (++nodes > 524288) return false;
+        const [a, b] = stack.pop()!;
+        if (a === b) continue;
+        if (
+            !a ||
+            !b ||
+            typeof a !== "object" ||
+            typeof b !== "object" ||
+            Array.isArray(a) !== Array.isArray(b)
+        )
+            return false;
+        const keys = Object.keys(a);
+        if (keys.length !== Object.keys(b).length) return false;
+        for (const key of keys) {
+            if (!Object.hasOwn(b, key)) return false;
+            stack.push([
+                (a as Record<string, unknown>)[key],
+                (b as Record<string, unknown>)[key],
+            ]);
+        }
+    }
+    return true;
+}
+
+/** SDK-internal public metadata resolution, BEFORE Worker/DB/key allocation.
+ * The sole retry exception is the exact immutable register upsert: CP uniqueness
+ * preserves the same application row and reconciliation job for identical body
+ * bytes. This does not authorize retrying enrollment/create/other unknown writes.
+ * No app-supplied endpoint, trust or storage rebinding. P5: a verified receipt
+ * is remembered per CP origin and canonical manifest digest, so a warm open
+ * registers only when the manifest changed (the CP binds the id to the digest). */
+export async function resolveApplicationRegistration(
+    input: ApplicationRegistrationOptions,
+): Promise<Readonly<ApplicationRegistration>> {
+    const original = input.declaration,
+        signal = input.signal,
+        guard = input.isCurrent,
+        fetcher = input.fetch ?? globalThis.fetch;
+    const sourceManifest = original.manifest;
+    const declaration = applicationDeclaration(original);
+    function check(): void {
+        try {
+            if (
+                !signal.aborted &&
+                input.signal === signal &&
+                input.declaration === original &&
+                input.isCurrent === guard &&
+                original.id === declaration.id &&
+                original.name === declaration.name &&
+                original.origin === declaration.origin &&
+                original.environment === declaration.environment &&
+                original.manifest === sourceManifest &&
+                guard.call(input) === true &&
+                !signal.aborted
+            )
+                return;
+        } catch {
+            /* no caller diagnostic content */
+        }
+        throw mdbaseError(
+            "cancelled",
+            "Application registration fenced",
+            "application_registration_fenced",
+        );
+    }
+    check();
+    let environment: ReturnType<typeof selectAppEnvironment>,
+        manifest: ReturnType<typeof parseVersionedAppManifest>["manifest"];
+    try {
+        environment = selectAppEnvironment({
+            environment: declaration.environment,
+            appOrigin: declaration.origin,
+            release: appReleaseTrust(),
+        });
+    } catch {
+        check();
+        throw mdbaseError(
+            "unavailable",
+            "SDK registration environment unavailable",
+            "application_registration_unavailable",
+        );
+    }
+    try {
+        manifest = parseVersionedAppManifest(plainApplicationManifest(declaration), {
+            allowLocal: applicationLoopbackAllowed(declaration.environment),
+        }).manifest;
+    } catch {
+        throw binding();
+    }
+    // The app origin is the manifest homepage's, or one declared exactly under
+    // installation_origins for this environment and installation kind
+    // (Capacitor `capacitor://` and Android https, extension pages).
+    const declaredOrigins = declaration.environment === "local" ? [] :
+        manifest.installation_origins?.[declaration.environment]?.[
+            declaration.installationKind
+        ] ?? [];
+    if (
+        manifest.name !== declaration.name ||
+        manifest.distribution === "portable" ||
+        (new URL(manifest.homepage).origin !== declaration.origin &&
+            !declaredOrigins.includes(declaration.origin))
+    )
+        throw binding();
+    const body = JSON.stringify({ manifest }),
+        url = `${environment.cpOrigin}/v1/apps/register`;
+    const cacheKey = `mdbase.app.registration.v1.${encodeURIComponent(environment.cpOrigin)}.${encodeURIComponent(manifest.id)}`;
+    const storage = (): Storage | null => { try { return globalThis.localStorage ?? null; } catch { return null; } };
+    const localDigest = storage() ? await manifestDigest(manifest).catch(() => null) : null;
+    check();
+    const remember = (registered: Readonly<ApplicationRegistration>): void => {
+        if (!localDigest) return;
+        try { storage()?.setItem(cacheKey, JSON.stringify({ v: 1, digest: localDigest, declaredId: declaration.id, ...registered })); } catch { /* optional */ }
+    };
+    {
+        let cached: Record<string, unknown> | null = null;
+        try { const raw = storage()?.getItem(cacheKey); cached = raw ? record(JSON.parse(raw)) : null; } catch { cached = null; }
+        if (cached && localDigest && cached.v === 1 && cached.digest === localDigest && cached.declaredId === declaration.id
+            && typeof cached.id === "string" && nativeId.test(cached.id) && cached.id !== nil && cached.name === manifest.name
+            && typeof cached.manifestDigest === "string" && /^[0-9a-f]{64}$/.test(cached.manifestDigest)
+            && (cached.supersededDeclaredId === undefined || cached.supersededDeclaredId === declaration.id)) {
+            return Object.freeze({ id: cached.id, name: manifest.name, manifestDigest: cached.manifestDigest,
+                ...(cached.supersededDeclaredId !== undefined ? { supersededDeclaredId: declaration.id } : {}) });
+        }
+    }
+    if (
+        new TextEncoder().encode(body).length >
+            APPLICATION_MANIFEST_MAX_BYTES + 32 ||
+        typeof fetcher !== "function"
+    )
+        throw binding();
+    const control = new AbortController(),
+        abort = () => control.abort(),
+        timer = setTimeout(abort, 15000);
+    (timer as { unref?: () => void }).unref?.();
+    signal.addEventListener("abort", abort, { once: true });
+    function current(): void {
+        check();
+        if (control.signal.aborted) throw unknown();
+    }
+    /** A bounded, typed refusal body, or null (oversized, untyped, not JSON). */
+    async function refusalOf(
+        response: Response,
+    ): Promise<RegistrationRefusal | null> {
+        const length = response.headers.get("content-length");
+        if (
+            !response.body ||
+            (length !== null &&
+                (!/^(0|[1-9][0-9]*)$/.test(length) ||
+                    Number(length) > REGISTRATION_REFUSAL_MAX_BYTES))
+        ) {
+            void response.body?.cancel().catch(() => {});
+            return null;
+        }
+        const reader = response.body.getReader(),
+            buffer = new Uint8Array(REGISTRATION_REFUSAL_MAX_BYTES);
+        let count = 0;
+        try {
+            for (;;) {
+                const part = await reader.read();
+                current();
+                if (part.done) break;
+                if (count + part.value.length > buffer.length) return null;
+                buffer.set(part.value, count);
+                count += part.value.length;
+            }
+            return registrationRefusal(
+                JSON.parse(
+                    new TextDecoder("utf-8", { fatal: true }).decode(
+                        buffer.subarray(0, count),
+                    ),
+                ),
+            );
+        } catch (error) {
+            if (error instanceof MdbaseError) throw error;
+            return null;
+        } finally {
+            void reader.cancel().catch(() => {});
+        }
+    }
+    async function decode(
+        response: Response,
+    ): Promise<Record<string, unknown>> {
+        const buffer = new Uint8Array(
+            2 * APPLICATION_MANIFEST_MAX_BYTES + 8192,
+        );
+        let count = 0;
+        const length = response.headers.get("content-length");
+        if (
+            length !== null &&
+            /^(0|[1-9][0-9]*)$/.test(length) &&
+            Number(length) > buffer.length
+        ) {
+            void response.body?.cancel().catch(() => {});
+            throw badReply();
+        }
+        if (!response.body) throw badReply();
+        const reader = response.body.getReader();
+        try {
+            for (;;) {
+                const part = await reader.read();
+                try {
+                    current();
+                    if (part.done) break;
+                    if (count + part.value.length > buffer.length)
+                        throw badReply();
+                    buffer.set(part.value, count);
+                    count += part.value.length;
+                } finally {
+                    part.value?.fill(0);
+                }
+            }
+            try {
+                return record(
+                    JSON.parse(
+                        new TextDecoder("utf-8", { fatal: true }).decode(
+                            buffer.subarray(0, count),
+                        ),
+                    ),
+                );
+            } catch {
+                throw badReply();
+            }
+        } finally {
+            buffer.fill(0);
+            void reader.cancel().catch(() => {});
+            reader.releaseLock();
+        }
+    }
+    async function receipt(
+        value: Record<string, unknown>,
+    ): Promise<Readonly<ApplicationRegistration>> {
+        const app = record(value.application),
+            id = app.id,
+            digest = app.manifest_digest;
+        if (typeof id !== "string" || !nativeId.test(id) || id === nil)
+            throw badReply();
+        // A changed manifest gets a new CP UUID. Accept it in place of a declared
+        // UUID only when every canonical check binds it to the manifest we sent;
+        // any mismatch then is a binding failure, never a silent rebind.
+        const superseded = nativeId.test(declaration.id) && id !== declaration.id;
+        const refuse = superseded ? binding : badReply;
+        if (superseded && digest !== (await manifestDigest(manifest).catch(() => null)))
+            throw binding();
+        current();
+        if (
+            typeof digest !== "string" ||
+            !/^[0-9a-f]{64}$/.test(digest) ||
+            app.name !== manifest.name ||
+            app.canonical_identity !==
+                `bundle:${manifest.id}:sha256:${digest}` ||
+            app.family_identity !== `bundle:${manifest.id}` ||
+            app.distribution !== "web"
+        )
+            throw refuse();
+        if (!app.application_declaration)
+            throw mdbaseError(
+                "upgrade_required",
+                "Canonical registration evidence unavailable",
+                "application_registration_unsupported",
+            );
+        let returned: typeof manifest;
+        try {
+            returned = parseVersionedAppManifest(app.application_declaration, {
+                allowLocal: applicationLoopbackAllowed(declaration.environment),
+            }).manifest;
+        } catch {
+            throw badReply();
+        }
+        if (!sameJson(manifest, returned)) throw refuse();
+        current();
+        return Object.freeze({
+            id,
+            name: manifest.name,
+            manifestDigest: digest,
+            ...(superseded ? { supersededDeclaredId: declaration.id } : {}),
+        });
+    }
+    try {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            current();
+            let response: Response | undefined;
+            try {
+                response = await fetcher(url, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body,
+                    signal: control.signal,
+                    credentials: "omit",
+                    redirect: "error",
+                    cache: "default",
+                    referrerPolicy: "no-referrer",
+                });
+                current();
+                if (
+                    response.redirected ||
+                    (response.url && response.url !== url)
+                )
+                    throw badReply();
+                if (!response.ok) {
+                    if (transient.has(response.status)) {
+                        await response.body?.cancel().catch(() => {});
+                        throw unknown();
+                    }
+                    // Permanent: never retried. Keep only the typed code and paths.
+                    const refusal = await refusalOf(response);
+                    throw mdbaseError(
+                        "forbidden",
+                        "Application registration refused",
+                        refusal
+                            ? {
+                                  reason: "application_registration_refused",
+                                  details: new Map<string, CborValue>([
+                                      ["code", refusal.code],
+                                      ["paths", [...refusal.paths]],
+                                  ]),
+                              }
+                            : "application_registration_refused",
+                    );
+                }
+                const registered = await receipt(await decode(response));
+                remember(registered);
+                return registered;
+            } catch (error) {
+                void response?.body?.cancel().catch(() => {});
+                current();
+                if (
+                    error instanceof MdbaseError &&
+                    error.reason !== "application_registration_unknown"
+                )
+                    throw error;
+                if (attempt === 2) throw unknown();
+                await new Promise<void>((resolve, reject) => {
+                    const finish = () => {
+                        clearTimeout(delay);
+                        control.signal.removeEventListener("abort", finish);
+                        try {
+                            current();
+                            resolve();
+                        } catch (error) {
+                            reject(error);
+                        }
+                    };
+                    const delay = setTimeout(
+                        finish,
+                        attempt === 0 ? 250 : 1000,
+                    );
+                    (delay as { unref?: () => void }).unref?.();
+                    control.signal.addEventListener("abort", finish, {
+                        once: true,
+                    });
+                    if (control.signal.aborted) finish();
+                });
+            }
+        }
+        throw unknown();
+    } finally {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        control.abort();
+    }
+}

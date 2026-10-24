@@ -147,6 +147,7 @@ export async function resolvePolicyAppliedAck(input: {
        SET latest_policy_ack_mode = $3,
            latest_policy_ack_generation = relay_generation,
            latest_policy_ack_at = now(),
+           last_seen_at = now(),
            policy_lease_adopted_at = CASE
              WHEN $3 = 'lease_v1' AND $4::boolean
                THEN COALESCE(policy_lease_adopted_at, now())
@@ -242,8 +243,8 @@ export function normalizePolicyGrant(
  * 2026-10-04-control-daemon-grant-feed-and-relay.md §3). Absent fields mean the grant
  * works only through the envelope compatibility layer.
  */
-function nextDeviceGrantFields(grant: { operations: string[]; client_pk: Buffer | null; client_key_signature: Buffer | null; application_authorization: ApplicationAuthorizationProof }): Record<string, unknown> {
-  const capabilities = grantCapabilityGroups(grant.application_authorization.binding.contracts.semantic_capabilities, grant.operations);
+function nextDeviceGrantFields(grant: { operations: string[]; file_capability: unknown; next_bound: boolean; client_pk: Buffer | null; client_key_signature: Buffer | null; application_authorization: ApplicationAuthorizationProof }): Record<string, unknown> {
+  const capabilities = grantCapabilityGroups(grant.application_authorization.binding.contracts.semantic_capabilities, grant.operations, grant.next_bound, grant.file_capability as import("@mdbase-dev/connect-protocol").FileCapability | null);
   return {
     ...(capabilities ? { capabilities } : {}),
     ...(grant.client_pk ? { client_pk: grant.client_pk.toString("hex"), client_fingerprint: clientFingerprint(grant.client_pk) } : {}),
@@ -318,6 +319,7 @@ export async function buildPolicySnapshot(
       [connectorId, String(active.rows[0].policy_sequence)]
     );
     const grants = await observeConnectorPolicyStage("grant_inventory", () => connection.query<{
+      next_bound: boolean;
       id: string; user_id: string; application_id: string; application_name: string;
       application_distribution: "web" | "portable"; application_homepage: string;
       application_project_url: string | null; application_origin: string;
@@ -329,6 +331,7 @@ export async function buildPolicySnapshot(
       notification_criteria: unknown[]; created_at: Date | string; client_pk: Buffer | null; client_key_signature: Buffer | null;
     }>(
       `SELECT ${nextDevice ? "COALESCE(binding.log_grant_id, g.id)" : "g.id"} AS id,
+              ${nextDevice ? "(binding.grant_id IS NOT NULL)" : "false"} AS next_bound,
               g.user_id, g.application_id, a.name AS application_name,
               a.distribution AS application_distribution,
               a.homepage AS application_homepage,
@@ -353,11 +356,61 @@ export async function buildPolicySnapshot(
        ORDER BY g.id`,
       [connectorId]
     ));
+    // Native Private grants target no legacy collection row, so the inventory
+    // above never sees them. A next-device daemon also needs its account's
+    // native grants: they arrive as pending approvals, and the daemon keeps
+    // only the collections it hosts. Old connectors never receive them.
+    const nativeGrants = nextDevice ? await observeConnectorPolicyStage("grant_inventory", () => connection.query<{
+      next_bound: boolean;
+      id: string; user_id: string; application_id: string; application_name: string;
+      application_distribution: "web" | "portable"; application_homepage: string;
+      application_project_url: string | null; application_origin: string;
+      application_icon: string | null; local_id: string; collection_name: string;
+      operations: string[]; scope: GrantScope; encryption: unknown | null;
+      file_capability: unknown | null;
+      application_authorization: ApplicationAuthorizationProof;
+      application_declaration: unknown | null;
+      notification_criteria: unknown[]; created_at: Date | string; client_pk: Buffer | null; client_key_signature: Buffer | null;
+    }>(
+      `SELECT COALESCE(binding.log_grant_id, g.id) AS id,
+              (binding.grant_id IS NOT NULL) AS next_bound,
+              g.user_id, g.application_id, a.name AS application_name,
+              a.distribution AS application_distribution,
+              a.homepage AS application_homepage,
+              a.project_url AS application_project_url,
+              CASE WHEN g.application_origin = '' THEN a.homepage
+                   ELSE g.application_origin END AS application_origin,
+              a.icon AS application_icon,
+              g.next_collection_id::text AS local_id,
+              COALESCE(nc.display_name, 'New collection') AS collection_name,
+              g.operations, g.scope,
+              g.encryption, g.file_capability, g.application_authorization,
+              a.application_declaration,
+              g.notification_criteria, g.created_at,
+              k.client_pk, k.signature AS client_key_signature
+       FROM grants g
+       JOIN connectors con ON con.id = $1 AND con.user_id = g.user_id AND con.revoked_at IS NULL
+       JOIN applications a ON a.id = g.application_id
+       JOIN next_collections nc ON nc.collection_id = g.next_collection_id
+         AND nc.runtime = 'next' AND nc.sync = 'private' AND nc.left_sync_at IS NULL
+       LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
+       LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
+       WHERE g.next_collection_id IS NOT NULL AND g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL
+         AND g.scope->>'access' = 'full_collection'
+         AND g.scope->'contracts' = '[]'::jsonb
+         AND binding.active = true
+       ORDER BY g.id`,
+      [connectorId]
+    )) : null;
+    const grantRows = nativeGrants
+      ? [...grants.rows, ...nativeGrants.rows].sort((a, b) => String(a.id).localeCompare(String(b.id)))
+      : grants.rows;
     const sequenceValue = BigInt(active.rows[0].policy_sequence);
     if (sequenceValue > MAX_POLICY_SEQUENCE) throw new PolicySequenceExhaustedError();
     const sequence = Number(sequenceValue);
     const leaseIssuedAtMs = new Date(active.rows[0].database_now).getTime();
-    const policyGrants = grants.rows.map((grant) => {
+    const policyGrants = grantRows.map((grant) => {
       const normalized = normalizePolicyGrant({ ...grant, collection_id: grant.local_id }, declarationEvidence);
       const projected = nextDevice ? { ...normalized, ...nextDeviceGrantFields(grant) } : normalized;
       return nextAccount ? withAccountId(projected, grant.user_id) : projected;

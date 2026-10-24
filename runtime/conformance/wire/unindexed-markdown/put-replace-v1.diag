@@ -1,0 +1,13 @@
+/ Put / {
+  / kind / 0: 14 / Put /,
+  / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654',
+  / path / 2: "notes/huge-export.md",
+  / payload / 3: / UnindexedMarkdownPayloadV1 / [/ discriminator / 2, / profile / 1, / kind / 1 / UnindexedOversizedMarkdown /, / content / / AttachmentContentV1 / [/ version / 1, / reference / / AttachmentRefV1 / [/ version / 1, / collection / h'4c18af2eb04a4b77b83e493c3695962e', / key_epoch / 3, / attachment_id / h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', / chunk_bytes / 8388608, / manifest_cipher_hash / h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'], / whole_plain_hash / h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3', / total_plain_bytes / 9000000]],
+  / expected / 4: / UnindexedMarkdownPayloadV1 / [/ discriminator / 2, / profile / 1, / kind / 1 / UnindexedOversizedMarkdown /, / content / / BlobRef / {
+    / plain_hash / 0: h'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1',
+    / size / 1: 2000000,
+    / blob_id / 2: h'c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2',
+    / id_epoch / 3: 2,
+    / part_size / 4: 8388608
+  }]
+}

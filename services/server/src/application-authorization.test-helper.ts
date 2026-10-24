@@ -51,6 +51,7 @@ export async function testApplicationAuthorization(input: {
   collectionId?: string;
   authorizationId?: string;
   issuedAt?: Date;
+  authorizationNonce?: string;
   grantAgreementPublicKey?: string;
   grantSigningPublicKey?: string;
   installationIdentity?: TestApplicationIdentity;
@@ -74,7 +75,7 @@ export async function testApplicationAuthorization(input: {
     grant_signing_public_key:
       input.grantSigningPublicKey ?? grantSigning.publicKey,
     flow: input.flow,
-    authorization_nonce: Buffer.alloc(32, 7).toString("base64url"),
+    authorization_nonce: input.authorizationNonce ?? Buffer.alloc(32, 7).toString("base64url"),
     issued_at: issuedAt.toISOString(),
     expires_at: new Date(issuedAt.getTime() + 10 * 60 * 1_000).toISOString(),
     code_challenge: input.codeChallenge,

@@ -1,0 +1,2 @@
+# Authenticated private LAB input; supply it only for explicit LAB tests.
+/lab.json

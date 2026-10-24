@@ -17,6 +17,12 @@
   text-align: center;
 }
 
+.mdbase-opening .wordmark-mark > .mdbase-mark {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .mdbase-opening-message p,
 .mdbase-opening-message small {
   display: block;
@@ -38,18 +44,54 @@
   color: var(--color-danger);
 }
 
+/* The launch screen: the mark the flock flies onto, then the quiet line. */
+.mdbase-opening-launch-mark {
+  display: block;
+  width: 42px;
+  height: 42px;
+  margin-bottom: var(--space-2);
+}
+
+.mdbase-opening-launch-mark .mdbase-mark {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* While the flock flies, the canvas draws the mark; the real one takes over when it lands. */
+.mdbase-opening-launch[data-entrance="flying"] .mdbase-opening-launch-mark {
+  visibility: hidden;
+}
+
+.mdbase-opening-launch-text {
+  transition: opacity var(--motion-slow) var(--ease-out);
+}
+
+.mdbase-opening-launch[data-entrance="flying"] .mdbase-opening-launch-text {
+  opacity: 0;
+}
+
+.mdbase-opening-flock {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
 /* Before a collection is open. */
 .mdbase-connect-screen {
   min-height: 100%;
   display: grid;
   place-items: center;
-  padding: 32px;
+  /* The extra bottom padding lifts short content slightly above centre; tall
+   * content just grows downward, so the top never clips (no negative margin). */
+  padding: 32px 32px calc(32px + 8vh);
   background: var(--color-canvas);
 }
 
 .mdbase-connect-screen section {
   width: min(100%, 520px);
-  margin-top: -4vh;
 }
 
 .mdbase-connect-screen h1 {

@@ -1,30 +1,107 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { desktopTestPlan } from "../ci/desktop-test-plan.mjs";
+import { bundledImporterOnlyChange, desktopTestPlan } from "../ci/desktop-test-plan.mjs";
 import { serverTestPlan } from "../ci/server-test-plan.mjs";
 
 const workflow = (name) => readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8");
 
-test("editor styling skips native CLI and Windows packaging, not release regressions", () => {
-  assert.deepEqual(desktopTestPlan(["apps/editor/src/styles.css"]), { headless: false, windows: false });
-  assert.deepEqual(desktopTestPlan(["apps/editor/src/main.ts"]), { headless: false, windows: true });
-  assert.deepEqual(desktopTestPlan(["apps/editor/package.json"]), { headless: false, windows: true });
-  assert.match(workflow("desktop-release"), /cross-platform-release-tests:\n    if: github.event_name != 'push'/);
+test("bundled workspace inputs use cheap builds and retain JS release regressions", () => {
+  for (const path of ["apps/editor/src/styles.css", "apps/editor/src/main.ts", "apps/editor/package.json",
+    "packages/protocol/src/manifest.ts", "packages/protocol/package.json", "packages/ui/src/index.ts",
+    "packages/connect-ui/src/index.ts"]) {
+    assert.deepEqual(desktopTestPlan([path]), { headless: false, windows: false, bundle: true });
+  }
+  const desktop = workflow("desktop-release");
+  const bundle = desktop.split("  bundle-check:\n")[1].split("  cross-platform-release-tests:\n")[0];
+  for (const command of ["pnpm build:packages", "@mdbase/connect-desktop build:standalone",
+    "mdbase-editor build", "scripts/lib/package-headless-cli.test.mjs", "mdbase-editor test"]) {
+    assert.ok(bundle.includes(command), command);
+  }
+  assert.match(bundle, /needs.select-tests.outputs.bundle == 'true'/);
+  assert.doesNotMatch(bundle, /cargo |connect-desktop make|electron-forge/);
 });
 
 test("shared, native, unknown, empty and mixed inputs retain native checks", () => {
-  for (const path of ["Cargo.lock", "Cargo.toml", "crates/cli/src/main.rs", "deploy/docker/mdbase-rs-revision", "apps/desktop/src/main.ts", "packages/sdk/src/index.ts", "pnpm-lock.yaml", ".github/workflows/desktop-release.yml", "scripts/package-headless-cli.mjs", "unknown/input"]) {
-    for (const paths of [[path], ["apps/editor/src/styles.css", path]]) {
-      assert.deepEqual(desktopTestPlan(paths), { headless: true, windows: true });
+  for (const path of ["Cargo.lock", "Cargo.toml", "crates/cli/src/main.rs", "deploy/docker/mdbase-rs-revision", "runtime/crates/daemon/src/main.rs",
+    "packages/sdk/src/index.ts", "pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json",
+    ".github/workflows/desktop-release.yml", "scripts/ci/desktop-test-plan.mjs",
+    "scripts/package-headless-cli.mjs", "scripts/ci/smoke-headless-cli.sh", "unknown/input"]) {
+    for (const paths of [[path], ["packages/protocol/src/manifest.ts", path]]) {
+      assert.deepEqual(desktopTestPlan(paths), { headless: true, windows: true, bundle: false });
     }
   }
-  assert.deepEqual(desktopTestPlan([]), { headless: true, windows: true });
+  assert.deepEqual(desktopTestPlan([]), { headless: true, windows: true, bundle: false });
+});
+
+test("desktop app and packaging changes retain Store packaging without unrelated native CLI smokes", () => {
+  for (const path of ["apps/desktop/src/main/main.ts", "apps/desktop/src/renderer/main.tsx",
+    "apps/desktop/package.json", "apps/desktop/forge.config.cjs", "apps/desktop/scripts/verify-package.mjs"]) {
+    assert.deepEqual(desktopTestPlan(["packages/protocol/src/manifest.ts", path]),
+      { headless: false, windows: true, bundle: false });
+  }
+  for (const path of ["scripts/configure-windows-store-package.ps1", "scripts/verify-windows-packages.ps1"]) {
+    assert.equal(desktopTestPlan([path]).windows, true);
+  }
+});
+
+const lock = `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+
+importers:
+
+  .:
+    dependencies:
+      typescript:
+        version: 7.0.2
+
+  apps/desktop:
+    dependencies:
+      electron:
+        version: 42.0.0
+
+  packages/protocol:
+    dependencies:
+      ajv:
+        version: 8.20.0
+
+packages:
+
+  ajv@8.20.0:
+    resolution: {integrity: sha512-unchanged}
+
+snapshots:
+
+  ajv@8.20.0: {}
+`;
+
+test("bundled importer-only lock edits skip packaging; shared resolutions and other importers do not", () => {
+  const protocol = lock.replace("  packages/protocol:\n", "  packages/protocol:\n    devDependencies:\n      esbuild:\n        version: 0.28.1\n");
+  assert.equal(bundledImporterOnlyChange(lock, protocol), true);
+  const paths724 = ["changelog.d/protocol-manifest-browser-hashing.md", "packages/protocol/package.json",
+    "packages/protocol/src/manifest.ts", "packages/protocol/test/manifest-browser.test.mjs", "pnpm-lock.yaml"];
+  assert.deepEqual(desktopTestPlan(paths724, { bundledLockChange: bundledImporterOnlyChange(lock, protocol) }),
+    { headless: false, windows: false, bundle: true });
+  for (const other of [lock, protocol.replace("42.0.0", "43.0.0"), protocol.replace("7.0.2", "7.0.3"),
+    protocol.replace("sha512-unchanged", "sha512-changed"), protocol.replace("ajv@8.20.0: {}", "ajv@8.20.0: {optional: true}"),
+    protocol.replace("autoInstallPeers: true", "autoInstallPeers: false"), protocol.replace("'9.0'", "'10.0'"),
+    protocol.replace("    devDependencies:", "    devDependencies: &shared"),
+    protocol.replace("    devDependencies:", "settings: {autoInstallPeers: false}\n    devDependencies:"),
+    undefined, "", "importers:\ninvalid"]) {
+    assert.equal(bundledImporterOnlyChange(lock, other), false);
+    assert.deepEqual(desktopTestPlan(paths724, { bundledLockChange: bundledImporterOnlyChange(lock, other) }),
+      { headless: true, windows: true, bundle: false });
+  }
+  assert.deepEqual(desktopTestPlan([...paths724, "Cargo.lock"], { bundledLockChange: true }),
+    { headless: true, windows: true, bundle: false });
+  assert.match(workflow("desktop-release"), /fetch-depth: 0/);
 });
 
 test("native selection retains explicit dispatch checks and includes Rust input triggers", () => {
   const desktop = workflow("desktop-release");
-  for (const job of ["headless-package-smoke", "windows-package-smoke"]) {
+  for (const job of ["headless-package-smoke", "windows-package-smoke", "cross-platform-release-tests"]) {
     const block = desktop.split(`  ${job}:\n`)[1].split(/\n  [a-z][\w-]+:\n/)[0];
     assert.match(block, /needs: select-tests/);
     assert.match(block, /!cancelled\(\) && \(github.event_name == 'workflow_dispatch' \|\|/);
@@ -84,6 +161,17 @@ test("pull requests changing native or system-suite inputs run full Server CI", 
   assert.match(classify, /if \[\[ \$NATIVE_CHANGES == true \]\] \|\|/);
 });
 
+test("protocol-only packaging selection leaves Node and full merge-queue qualification intact", () => {
+  const server = workflow("server-ci");
+  const classify = server.split("  classify:\n")[1].split("  windows-daemon-lifecycle:\n")[0];
+  assert.match(classify, /if \[\[ "\$GITHUB_EVENT_NAME" == merge_group \]\]; then\s+echo 'run_full=true'/);
+  const node = server.split("  node:\n")[1].split("  server-container-full:\n")[0];
+  assert.doesNotMatch(node, /needs.select-tests|outputs.bundle|outputs.windows|outputs.headless/);
+  for (const job of ["node", "server-container-full", "hosted-provider-system", "hosted-provider-rust"]) {
+    assert.ok(server.split("  qualification:\n")[1].includes(`- ${job}`), job);
+  }
+});
+
 test("Rust caches are restored by CI jobs and written only by rust-caches.yml from main", () => {
   const owner = workflow("rust-caches");
   assert.match(owner, /save-if: \$\{\{ github.ref == 'refs\/heads\/main' \}\}/);
@@ -100,7 +188,7 @@ test("Rust caches are restored by CI jobs and written only by rust-caches.yml fr
   assert.equal(consumers, 7);
 });
 
-test("Windows headless smoke reuses the Store package job's release CLI", () => {
+test("Windows headless smoke reuses the Store package job's daemon build", () => {
   const desktop = workflow("desktop-release");
   const headless = desktop.split("  headless-package-smoke:\n")[1].split("  cross-platform-release-tests:\n")[0];
   assert.doesNotMatch(headless, /os: windows-2025/);

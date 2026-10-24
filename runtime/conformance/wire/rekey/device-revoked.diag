@@ -1,0 +1,23 @@
+/ RekeyPayload / {
+  / fmt / 0: 1,
+  / epoch / 1: 2,
+  / from / 2: 1,
+  / commit / 3: h'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+  / wraps / 4: [
+    / KeyWrap / {
+      / device / 0: h'2d7e9a416c3b4f189a05c8e1b2d3f467',
+      / enc / 1: h'e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1',
+      / ct / 2: h'c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7'
+    },
+    / KeyWrap / {
+      / device / 0: h'9b2f6c1e3a474d5b8e216f0a9c3d7e54',
+      / enc / 1: h'e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1',
+      / ct / 2: h'c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7'
+    }
+  ],
+  / history / 5: / SealedBox / {
+    / salt / 0: h'0f0e0d0c0b0a09080706050403020100',
+    / ct / 1: h'abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab'
+  },
+  / reason / 6: 1 / DeviceRevoked /
+}

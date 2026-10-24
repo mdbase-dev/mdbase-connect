@@ -9,8 +9,9 @@ import { randomBytes, verify as edVerify } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
   APPLICATION_CAPABILITY_DEFINITIONS,
-  type ApplicationCapabilityId
+  type ApplicationCapabilityId, type FileCapability
 } from "@mdbase-dev/connect-protocol";
+import { exactNextPermissionCapabilities } from "@mdbase-dev/connect-protocol/next-authorization";
 import type { DatabasePool } from "../../database-types.js";
 import type { RelayBrokerReply } from "../../relay-broker.js";
 import { ConnectorOperationError } from "../../relay-errors.js";
@@ -18,6 +19,7 @@ import { NOISE_PIPE_CAPABILITY, type NoisePipes } from "./noise-pipes.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, uuidBytes } from "./policy-wire.js";
 import { inTransaction } from "./bootstrap-common.js";
+import { audit } from "../../platform/audit-events.js";
 
 export const NEXT_DEVICE_CAPABILITY = "next_device_v1";
 
@@ -94,7 +96,7 @@ const verifies = (publicKey: Uint8Array, digest: Uint8Array, signature: Uint8Arr
 
 export async function issueDeviceChallenge(db: DatabasePool, connectorId: string, now = Date.now()): Promise<{ challenge: string; expires_at: number }> {
   const challenge = randomBytes(32);
-  await db.query("DELETE FROM next_device_challenges WHERE expires_at < now() - interval '1 hour'");
+  await db.query("DELETE FROM next_device_challenges WHERE connector_id IS NOT NULL AND service_device_id IS NULL AND service_purpose IS NULL AND service_audience IS NULL AND expires_at < now() - interval '1 hour'");
   await db.query(
     "INSERT INTO next_device_challenges (challenge, connector_id, expires_at) VALUES ($1, $2, $3)",
     [challenge, connectorId, new Date(now + CHALLENGE_TTL_MS)]
@@ -111,6 +113,8 @@ export function deviceRegistrationDigest(input: { challenge: Uint8Array; connect
 
 /**
  * Register (or re-register with identical keys) the daemon device of a connector.
+ * A daemon that signed in again moves its device to the new connector and returns
+ * the old connector it retired, for the caller to fence on the relay.
  * The challenge is consumed in the same transaction.
  */
 export async function registerDevice(
@@ -118,7 +122,7 @@ export async function registerDevice(
   connector: { id: string; user_id: string },
   body: Record<string, unknown>,
   originalTokenHash: string
-): Promise<{ device_id: string }> {
+): Promise<{ device_id: string; retired?: { connector_id: string; fence_generation: string } }> {
   if (typeof originalTokenHash !== "string" || originalTokenHash.length === 0) {
     throw new DeviceRegistrationError("identity_not_current", "The connector credential is no longer current.");
   }
@@ -160,30 +164,57 @@ export async function registerDevice(
     }
     const used = await client.query(
       `UPDATE next_device_challenges SET used_at = now()
-       WHERE challenge = $1 AND connector_id = $2 AND used_at IS NULL AND expires_at > now()`,
+       WHERE challenge = $1 AND connector_id = $2 AND service_device_id IS NULL
+         AND service_purpose IS NULL AND service_audience IS NULL AND used_at IS NULL AND expires_at > now()`,
       [challenge, connector.id]
     );
     if (used.rowCount !== 1) throw new DeviceRegistrationError("challenge_invalid", "The challenge is unknown, used or expired.");
-    const existing = await client.query<{ id: string; connector_id: string; sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer }>(
-      "SELECT id, connector_id, sign_pk, kem_pk, noise_pk FROM next_devices WHERE id = $1 OR connector_id = $2 FOR UPDATE",
+    const existing = await client.query<{ id: string; connector_id: string; user_id: string; kind: string; sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer }>(
+      "SELECT id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk FROM next_devices WHERE id = $1 OR connector_id = $2 FOR UPDATE",
       [deviceId, connector.id]
     );
+    if (existing.rows.some(row => row.id !== deviceId)) {
+      throw new DeviceRegistrationError("device_already_bound", "This connector or device is already registered to another.");
+    }
     const row = existing.rows[0];
-    if (row) {
-      if (row.id !== deviceId || row.connector_id !== connector.id) {
-        throw new DeviceRegistrationError("device_already_bound", "This connector or device is already registered to another.");
-      }
-      if (!row.sign_pk.equals(signPk) || !row.kem_pk.equals(kemPk) || !row.noise_pk.equals(noisePk)) {
-        throw new DeviceRegistrationError("device_keys_changed", "A device's keys never change; register a new device.");
-      }
-    } else {
+    if (!row) {
       await client.query(
         `INSERT INTO next_devices (id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [deviceId, connector.id, connector.user_id, kind, signPk, kemPk, noisePk]
       );
+      return { device_id: deviceId };
     }
-    return { device_id: deviceId };
+    const sameKeys = row.sign_pk.equals(signPk) && row.kem_pk.equals(kemPk) && row.noise_pk.equals(noisePk);
+    if (row.connector_id === connector.id) {
+      if (!sameKeys) throw new DeviceRegistrationError("device_keys_changed", "A device's keys never change; register a new device.");
+      return { device_id: deviceId };
+    }
+    // The same computer signed in again (sign-out forgets the connector token
+    // locally, so the device row still names the old connector). Move the
+    // device to the new connector and retire the old one, but only for the same
+    // account's desktop/CLI device with identical keys (the signature above
+    // proves possession of them) whose old connector is still live. A connector
+    // that was revoked (computer removed, account revoked) keeps its device
+    // retired. Device enrolments and revocations in collection logs are untouched.
+    if (row.user_id !== connector.user_id || row.kind !== kind || (kind !== "desktop" && kind !== "cli") || !sameKeys) {
+      throw new DeviceRegistrationError("device_already_bound", "This connector or device is already registered to another.");
+    }
+    const retired = await client.query<{ fence_generation: string | number }>(
+      `UPDATE connectors SET revoked_at = now(), relay_generation = relay_generation + 1
+       WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+       RETURNING relay_generation AS fence_generation`,
+      [row.connector_id, connector.user_id]
+    );
+    if (!retired.rows[0]) {
+      throw new DeviceRegistrationError("device_already_bound", "This device belongs to a computer that was removed.");
+    }
+    const generation = String(retired.rows[0].fence_generation);
+    await client.query("UPDATE next_devices SET connector_id = $2 WHERE id = $1", [deviceId, connector.id]);
+    await audit(client, connector.user_id, "connector.revoked", row.connector_id, {
+      reason: "device_signed_in_again", device_id: deviceId, replaced_by: connector.id, fence_generation: generation
+    });
+    return { device_id: deviceId, retired: { connector_id: row.connector_id, fence_generation: generation } };
   });
 }
 
@@ -197,7 +228,7 @@ export function deviceBindDigest(connectorId: string, sessionId: string, nonce: 
  * did not offer `next_device_v1`.
  */
 export class NextRelayDevices {
-  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; pipes: boolean; deviceId?: string }>();
+  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; pipes: boolean; deviceId?: string; oldConnectorRunning: boolean }>();
 
   constructor(private readonly db: DatabasePool, private readonly pipes?: NoisePipes) {}
 
@@ -221,10 +252,11 @@ export class NextRelayDevices {
   }
 
   /** Extra `relay_welcome` fields: a fresh nonce when the connector offered the capability. */
-  welcome(socket: WebSocket, capabilities: readonly string[]): { device_nonce?: string } {
+  /** `oldConnectorRunning` is the daemon's `relay_hello` report, held in memory for this socket only. */
+  welcome(socket: WebSocket, capabilities: readonly string[], oldConnectorRunning = false): { device_nonce?: string } {
     if (!this.negotiated(capabilities)) return {};
     const nonce = randomBytes(32);
-    this.sockets.set(socket, { nonce, pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY) });
+    this.sockets.set(socket, { nonce, pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY), oldConnectorRunning });
     return { device_nonce: nonce.toString("hex") };
   }
 
@@ -259,7 +291,9 @@ export class NextRelayDevices {
         || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(body.device_id)) {
       return { version: 1, ok: false, error: { kind: "internal", code: "invalid_broker_command", message: "The relay command was invalid." } };
     }
-    return { version: 1, ok: true, value: this.pipes?.isBound(socket, generation, body.device_id) ?? false };
+    const bound = this.pipes?.isBound(socket, generation, body.device_id) ?? false;
+    // A bound daemon whose collections are still held by a legacy connector cannot serve them.
+    return { version: 1, ok: true, value: bound, ...(bound && this.sockets.get(socket)?.oldConnectorRunning ? { detail: { old_connector_running: true } } : {}) };
   }
 
   boundDevice(socket: WebSocket): string | undefined {
@@ -269,10 +303,12 @@ export class NextRelayDevices {
 
 /**
  * The v2 capability groups a grant's operations cover exactly, for the daemon's access
- * list. `offline.replica` is never offered for a local collection. Undefined for v1
- * bindings, which work only through the envelope compatibility layer.
+ * list. `offline.replica` is never offered for a local collection. V1 requires
+ * a published next binding and an exact record/file pair; unbound grants retain
+ * their envelope compatibility behavior.
  */
-export function grantCapabilityGroups(semanticCapabilities: number | undefined, operations: readonly string[]): string[] | undefined {
+export function grantCapabilityGroups(semanticCapabilities: number | undefined, operations: readonly string[], nextBound = false, files?: FileCapability | null): string[] | undefined {
+  if (semanticCapabilities === 1 && nextBound) return exactNextPermissionCapabilities(operations, files?.actions ?? []);
   if (semanticCapabilities !== 2) return undefined;
   const granted = new Set(operations);
   return (Object.keys(APPLICATION_CAPABILITY_DEFINITIONS) as ApplicationCapabilityId[]).filter((group) =>

@@ -8,11 +8,12 @@ import { bearerToken, requireConnector, requireInstallationDeviceConnector } fro
 import { tokenHash } from "../../security.js";
 import { isLockTimeout } from "./bootstrap-common.js";
 import { DeviceRegistrationError, issueDeviceChallenge, registerDevice } from "./devices.js";
-import { GrantApprovalReportError, reportGrantApproval } from "./grant-approval.js";
+import { GrantApprovalReportError, grantApprovalTerms, reportGrantApproval } from "./grant-approval.js";
 import type { LogServiceClient } from "./log-service-client.js";
+import type { RelayHub } from "../../relay.js";
 import { registerApprovalPeerRoutes } from "./approval-peer-routes.js";
 
-export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: DatabasePool; log: Pick<LogServiceClient, "controlItemAt"> }): void {
+export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: DatabasePool; log: Pick<LogServiceClient, "controlItemAt">; relay: Pick<RelayHub, "fenceConnector"> }): void {
   registerApprovalPeerRoutes(app, options.db);
   const rateLimit = { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } };
   app.post("/v1/next/devices/challenge", rateLimit, async (request, reply) => {
@@ -24,13 +25,27 @@ export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: Da
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return reply;
     try {
-      return await registerDevice(options.db, connector, (request.body ?? {}) as Record<string, unknown>, tokenHash(bearerToken(request)!));
+      const { device_id, retired } = await registerDevice(options.db, connector, (request.body ?? {}) as Record<string, unknown>, tokenHash(bearerToken(request)!));
+      // The old connector's revocation and generation are committed; closing its
+      // relay socket is best effort and converges with the connector lease.
+      if (retired) await options.relay.fenceConnector(retired.connector_id, retired.fence_generation).catch(() => undefined);
+      return { device_id };
     } catch (error) {
       if (isLockTimeout(error)) return reply.code(503).send(apiError("busy", "Device registration was not confirmed."));
       if (!(error instanceof DeviceRegistrationError)) throw error;
       const status = error.code === "identity_not_current" ? 403 : error.code === "device_keys_changed" || error.code === "device_already_bound" ? 409 : 400;
       return reply.code(status).send(apiError(error.code, error.message));
     }
+  });
+  // Terms a device shows before approving a pending grant on a Private collection.
+  app.get("/v1/next/grants/:grantId/terms", rateLimit, async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return reply;
+    const { grantId } = request.params as { grantId: string };
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(grantId)) return reply.code(404).send(apiError("grant_not_found", "Grant not found."));
+    const terms = await grantApprovalTerms(options.db, connector, grantId);
+    if (!terms) return reply.code(404).send(apiError("grant_not_found", "Grant not found."));
+    return terms;
   });
   app.post("/v1/next/grants/:grantId/approval", rateLimit, async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);

@@ -61,7 +61,8 @@
   background: var(--color-warning-text, oklch(43% 0.055 69));
 }
 
-.collection-rail .reconnect-action {
+.collection-rail .reconnect-action,
+.mobile-connection .reconnect-action {
   flex: 0 0 auto;
   padding: var(--space-1) 5px;
   border-radius: var(--radius-sm);
@@ -70,7 +71,8 @@
   font-weight: var(--font-weight-semibold);
 }
 
-.collection-rail .reconnect-action:hover {
+.collection-rail .reconnect-action:hover,
+.mobile-connection .reconnect-action:hover {
   background: var(--color-warning-surface, oklch(98% 0.018 86));
 }
 
@@ -351,3 +353,26 @@ kbd {
   white-space: nowrap;
 }
 
+
+/* Mobile note bar: the rail is off-screen, so the link state shows here when it isn't connected. */
+.mobile-connection {
+  min-width: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.mobile-connection p {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+
+.mobile-connection .reconnect-action {
+  min-height: 44px;
+}

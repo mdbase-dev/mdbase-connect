@@ -1,0 +1,43 @@
+# Duration helpers: original eight humanized expectations plus explicit component/boundary cases.
+{"op":"bases_duration","action":"humanize","duration":"1y"}
+{"op":"bases_duration","action":"humanize","duration":"1M"}
+{"op":"bases_duration","action":"humanize","duration":"2w"}
+{"op":"bases_duration","action":"humanize","duration":"1d"}
+{"op":"bases_duration","action":"humanize","duration":"1h"}
+{"op":"bases_duration","action":"humanize","duration":"30m"}
+{"op":"bases_duration","action":"humanize","duration":"45s"}
+{"op":"bases_duration","action":"scale","duration":"1h","factor":2}
+{"op":"bases_duration","action":"parts","duration":"1y 2M 3w 4d 5h 6m 7s 8ms"}
+{"op":"bases_duration","action":"parts","duration":"+1.5 Hours -.5 hours .25 MINUTES -2 seconds"}
+{"op":"bases_duration","action":"fixed","duration":"1000ms -1s"}
+{"op":"bases_duration","action":"fixed","duration":"2h 30m"}
+{"op":"bases_duration","action":"add","duration":"1y 2d","rhs":"3M 4h"}
+{"op":"bases_duration","action":"humanize","duration":"0s"}
+{"op":"bases_duration","action":"humanize","duration":"44.999s"}
+{"op":"bases_duration","action":"humanize","duration":"90s"}
+{"op":"bases_duration","action":"humanize","duration":"45m"}
+{"op":"bases_duration","action":"humanize","duration":"90m"}
+{"op":"bases_duration","action":"humanize","duration":"22h"}
+{"op":"bases_duration","action":"humanize","duration":"36h"}
+{"op":"bases_duration","action":"humanize","duration":"26d"}
+{"op":"bases_duration","action":"humanize","duration":"-2h"}
+{"op":"bases_duration","action":"humanize","duration":""}
+{"op":"bases_duration","action":"humanize","duration":"junk 1d"}
+{"op":"bases_duration","action":"humanize","duration":"1d junk"}
+{"op":"bases_duration","action":"humanize","duration":"1h30m"}
+{"op":"bases_duration","action":"humanize","duration":"1d, 2h"}
+{"op":"bases_duration","action":"humanize","duration":"1e3s"}
+{"op":"bases_duration","action":"humanize","duration":"1.s"}
+{"op":"bases_duration","action":"humanize","duration":"1D"}
+{"op":"bases_duration","action":"humanize","duration":"1Y"}
+{"op":"bases_duration","action":"humanize","duration":"1MS"}
+{"op":"bases_duration","action":"humanize","duration":"1日"}
+{"op":"bases_duration","action":"humanize","duration":"1000000000d 1d"}
+{"op":"bases_duration","action":"humanize","duration":"2M"}
+{"op":"bases_duration","action":"humanize","duration":".5y"}
+{"op":"bases_duration","action":"humanize","duration":"-1y"}
+{"op":"bases_duration","action":"humanize","duration":"1y 1d"}
+{"op":"bases_duration","action":"humanize","duration":"1M 1y"}
+{"op":"bases_duration","action":"humanize","duration":"45d"}
+{"op":"bases_duration","action":"scale","duration":"1000000000d","factor":2}
+{"op":"bases_duration","action":"humanize","duration":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}

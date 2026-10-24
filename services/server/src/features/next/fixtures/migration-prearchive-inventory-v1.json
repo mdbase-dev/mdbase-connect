@@ -1,0 +1,59 @@
+{
+  "generator": "Python json.dumps(ensure_ascii=True,sort_keys=True,separators=(comma,colon)) + hashlib.sha256",
+  "capture": {
+    "schema": "mdbase-migration-capture/1",
+    "binding": {
+      "batch_id": "test-prearchive",
+      "membership_revision": "7",
+      "membership_digest": "0fd11fb3bc868092210c06fde6cf091c1e1a2127670ec0db699e2b3bd69895c6",
+      "membership_changed_at": "2026-10-14T00:00:00.000Z"
+    },
+    "frozen_at": null,
+    "observed_at": "2026-10-14T02:00:00.000Z",
+    "members": [
+      {
+        "view": {
+          "account_id": "10000000-0000-0000-0000-000000000001",
+          "cohort": "test-prearchive",
+          "hosted_collections": [
+            "20000000-0000-0000-0000-000000000001",
+            "20000000-0000-0000-0000-000000000002"
+          ],
+          "terminal_excluded": false
+        },
+        "suspended": true,
+        "terminal_excluded_at": null,
+        "export_collections": [
+          "20000000-0000-0000-0000-000000000001",
+          "20000000-0000-0000-0000-000000000002"
+        ]
+      },
+      {
+        "view": {
+          "account_id": "10000000-0000-0000-0000-000000000002",
+          "cohort": "test-prearchive",
+          "hosted_collections": [
+            "20000000-0000-0000-0000-000000000003"
+          ],
+          "terminal_excluded": true
+        },
+        "suspended": false,
+        "terminal_excluded_at": "2026-10-14T01:00:00.000Z",
+        "export_collections": []
+      },
+      {
+        "view": {
+          "account_id": "10000000-0000-0000-0000-000000000003",
+          "cohort": "test-prearchive",
+          "hosted_collections": [],
+          "terminal_excluded": false
+        },
+        "suspended": false,
+        "terminal_excluded_at": null,
+        "export_collections": []
+      }
+    ]
+  },
+  "canonical_ascii": "{\"binding\":{\"batch_id\":\"test-prearchive\",\"membership_changed_at\":\"2026-10-14T00:00:00.000Z\",\"membership_digest\":\"0fd11fb3bc868092210c06fde6cf091c1e1a2127670ec0db699e2b3bd69895c6\",\"membership_revision\":\"7\"},\"members\":[{\"account_id\":\"10000000-0000-0000-0000-000000000001\",\"export_collections\":[\"20000000-0000-0000-0000-000000000001\",\"20000000-0000-0000-0000-000000000002\"],\"hosted_collections\":[\"20000000-0000-0000-0000-000000000001\",\"20000000-0000-0000-0000-000000000002\"],\"terminal_excluded_at\":null},{\"account_id\":\"10000000-0000-0000-0000-000000000002\",\"export_collections\":[],\"hosted_collections\":[\"20000000-0000-0000-0000-000000000003\"],\"terminal_excluded_at\":\"2026-10-14T01:00:00.000Z\"},{\"account_id\":\"10000000-0000-0000-0000-000000000003\",\"export_collections\":[],\"hosted_collections\":[],\"terminal_excluded_at\":null}]}",
+  "inventory_sha256": "f019005f8fc87ffb7b33e9cdd1d7a4523e32f88c6552e6a527e4db912b428088"
+}

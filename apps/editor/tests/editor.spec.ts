@@ -1081,9 +1081,9 @@ test("edits complete type membership, choices, and multiple required fields", as
   // The collection rail starts hidden at small laptop widths.
   await page.getByRole("button", { name: "Show collections sidebar" }).first().click();
   await page.getByRole("button", { name: "Types (1)" }).click();
-  await expect(page.getByRole("heading", { name: "Type membership" })).toBeVisible();
-  await page.getByRole("heading", { name: "Type membership" }).click();
-  await expect(page.getByText("Explicit assignment", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Which notes use this type" })).toBeVisible();
+  await page.getByRole("heading", { name: "Which notes use this type" }).click();
+  await expect(page.getByText("Assigned by name", { exact: true })).toBeVisible();
   await expect(page.getByText("Automatic matching", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Add path pattern" }).click();
@@ -1220,8 +1220,8 @@ test("builds and saves a recursive list-of-objects field", async ({ page }) => {
   const fieldName = page.locator(".visual-field-name input").last();
   await fieldName.fill("contacts");
   await fieldName.press("Tab");
-  await chooseOption(page.getByRole("combobox", { name: "contacts field kind" }), "array");
-  await chooseOption(page.getByRole("combobox", { name: "contacts[] kind" }), "object");
+  await chooseOption(page.getByRole("combobox", { name: "contacts field type" }), "array");
+  await chooseOption(page.getByRole("combobox", { name: "contacts[] field type" }), "object");
   await page.getByRole("button", { name: "Add nested field" }).last().click();
 
   const nestedName = page.locator(".visual-field-name input").last();
@@ -1447,7 +1447,7 @@ test("edits structured frontmatter without exposing an undifferentiated textarea
   await expect(panel).not.toBeVisible();
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
   await page.getByRole("button", { name: "Note properties" }).click();
-  await panel.getByRole("tab", { name: /JSON/ }).click();
+  await panel.getByRole("tab", { name: "Advanced" }).click();
   await expect(panel.getByRole("textbox", { name: "Frontmatter JSON" })).toContainText('"nested editing"');
 });
 
@@ -1460,7 +1460,7 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await panel.getByRole("button", { name: "Add property" }).click();
   await panel.getByRole("searchbox", { name: "Find a property" }).fill("title");
   await panel.locator(".property-options button").filter({ hasText: "title" }).click();
-  await expect(panel.getByLabel("title property kind")).toHaveCount(0);
+  await expect(panel.getByLabel("title property type")).toHaveCount(0);
   await panel.getByRole("textbox", { name: "title value" }).fill("Source-backed title");
   const propertySaveState = panel.locator(".property-save-state");
   await expect(propertySaveState).toBeEmpty();
@@ -1487,7 +1487,10 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await expect(panel.getByRole("textbox", { name: "Complete record source" })).toContainText("Source tail.");
 });
 
-test("keeps a ten-thousand-note collection responsive and virtualized", async ({ page }) => {
+test("keeps a ten-thousand-note collection responsive and virtualized", { tag: "@performance" }, async ({ page }) => {
+  // Budgets measure a real first visit, including the offline shell, which now
+  // installs only after first usable. Reduced motion skips the launch entrance.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const started = Date.now();
   await page.goto("?demo=10000");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();

@@ -1,0 +1,117 @@
+/ EntryPayload / {
+  / fmt / 0: 1,
+  / sem / 1: / Version / [/ major / 1, / minor / 0],
+  / mutation / 2: / Mutation / {
+    / id / 0: h'0192f3a460007abc8def0123456789ab',
+    / origin / 1: h'9b2f6c1e3a474d5b8e216f0a9c3d7e54',
+    / base_seq / 2: 41,
+    / clock / 3: / OpClock / {
+      / instant / 0: 1791100800000,
+      / tz / 1: "Australia/Melbourne",
+      / local_date / 2: "2026-10-04"
+    },
+    / seed / 4: h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e',
+    / source / 5: 1 / External /,
+    / ops / 6: [
+      / FilePut / {
+        / kind / 0: 8 / FilePut /,
+        / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654',
+        / path / 2: "Photos/today.png",
+        / blob / 3: / BlobRef / {
+          / plain_hash / 0: h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2',
+          / size / 1: 18,
+          / blob_id / 2: h'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2',
+          / id_epoch / 3: 1,
+          / part_size / 4: 8388608
+        },
+        / base / 5: h'9999999999999999999999999999999999999999999999999999999999999999'
+      }
+    ]
+  },
+  / status / 3: 2 / Conflicted /,
+  / effects / 4: [
+    / PutRecord / {
+      / kind / 0: 1 / PutRecord /,
+      / id / 1: h'0192f3a45b6c7d8e9f0123456789abcd',
+      / path / 2: "archive/a.md",
+      / doc / 3: "---\nstatus: done\n---\n"
+    },
+    / RemoveRecord / {
+      / kind / 0: 2 / RemoveRecord /,
+      / id / 1: h'0192f3a45b6c7d8e9f01000000000003',
+      / path / 2: "old.md"
+    },
+    / PutFile / {
+      / kind / 0: 3 / PutFile /,
+      / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654',
+      / path / 2: "Photos/today.png",
+      / blob / 3: / BlobRef / {
+        / plain_hash / 0: h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2',
+        / size / 1: 18,
+        / blob_id / 2: h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1',
+        / id_epoch / 3: 1,
+        / part_size / 4: 8388608
+      }
+    },
+    / RemoveFile / {
+      / kind / 0: 4 / RemoveFile /,
+      / id / 1: h'0192f3a45b6c7d8e9f01000000000002',
+      / path / 2: "x.bin"
+    },
+    / PutResource / {
+      / kind / 0: 5 / PutResource /,
+      / path / 1: "mdbase.yaml",
+      / doc / 2: "spec_version: \"0.3.0\"\n"
+    },
+    / RemoveResource / {
+      / kind / 0: 6 / RemoveResource /,
+      / path / 1: "_types/old.md"
+    },
+    / PutSettings / {
+      / kind / 0: 7 / PutSettings /,
+      / inclusion / 1: / FileInclusion / {
+        / include / 0: [
+          0 / Image /
+        ]
+      }
+    }
+  ],
+  / conflicts / 5: [
+    / Conflict / {
+      / kind / 0: 1 / Field /,
+      / id / 1: h'0192f3a45b6c7d8e9f0123456789abcd',
+      / field / 2: "status",
+      / base / 3: / ConflictValue / [/ form / 1 / value /, / value / "open"],
+      / kept / 4: / ConflictValue / [/ form / 1 / value /, / value / "done"],
+      / lost / 5: / ConflictValue / [/ form / 1 / value /, / value / "in-progress"]
+    },
+    / Conflict / {
+      / kind / 0: 6 / File /,
+      / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654',
+      / kept / 4: / ConflictValue / [/ form / 3 / blob /, / value / / BlobRef / {
+        / plain_hash / 0: h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2',
+        / size / 1: 18,
+        / blob_id / 2: h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1',
+        / id_epoch / 3: 1,
+        / part_size / 4: 8388608
+      }],
+      / lost / 5: / ConflictValue / [/ form / 3 / blob /, / value / / BlobRef / {
+        / plain_hash / 0: h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2',
+        / size / 1: 18,
+        / blob_id / 2: h'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2',
+        / id_epoch / 3: 1,
+        / part_size / 4: 8388608
+      }]
+    },
+    / Conflict / {
+      / kind / 0: 5 / Delete /,
+      / id / 1: h'0192f3a45b6c7d8e9f0123456789abcd',
+      / base / 3: / ConflictValue / [/ form / 0 / missing /],
+      / kept / 4: / ConflictValue / [/ form / 2 / text /, / value / "kept"],
+      / lost / 5: / ConflictValue / [/ form / 4 / deleted /]
+    }
+  ],
+  / aliases / 6: [
+    / Alias / [/ path / "tasks/a.md", / record / h'0192f3a45b6c7d8e9f0123456789abcd']
+  ]
+}

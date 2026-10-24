@@ -1,0 +1,29 @@
+[package]
+name = "mdbn-local-host"
+description = "The shared native composition of a collection folder's replica: FileStore + SqlStore/SqliteIndex + NativePlatform, the folder host lock, and the local-only drive loop. Used by the `mdbase` crate and the daemon."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies: mdbn-core, mdbn-wire, mdbn-replica,
+# mdbn-store-file, mdbn-platform-native. A composition point: nothing portable
+# depends on it.
+[dependencies]
+mdbn-core.workspace = true
+mdbn-wire.workspace = true
+mdbn-replica.workspace = true
+mdbn-store-file.workspace = true
+mdbn-platform-native.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+# Wipe the hex/JSON seed buffers the identity file goes through.
+zeroize = { version = "1", features = ["derive", "serde"] }
+getrandom = { version = "0.3", default-features = false }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+/** Test helpers: an in-memory replica speaking the real client protocol. */
+export { MemoryReplica } from "./memory-replica.js";
+export type { MemoryRecord, MemoryReplicaOptions } from "./memory-replica.js";
+export type { MemoryContract } from "./memory-contracts.js";
+export { serveNoise } from "./noise-server.js";
+export type { ServeNoiseOptions } from "./noise-server.js";
+export { createApplicationFixture } from "./application.js";
+export type {
+  ApplicationFixture, ApplicationFixtureOptions, ApplicationFixtureControls,
+  ApplicationFixtureAction, ApplicationFixtureCall, ApplicationFixtureHandler,
+} from "./application.js";
+export { createTestApp, createTestMdbase } from "./test-app.js";
+export type { TestApp, TestMdbase, TestAppOptions, TestAppPreset, TestAppCollection, TestAppFault } from "./test-app.js";

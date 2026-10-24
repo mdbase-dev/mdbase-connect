@@ -3,8 +3,9 @@
 // bounded transactions, enrolment lookups and refusals.
 import { verify } from "node:crypto";
 import type { FastifyReply } from "fastify";
-import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
+import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import type { PolicyOp, RegisteredDeviceKind } from "./policy-wire.js";
 
@@ -119,11 +120,29 @@ export const exactEnrolment = (device: string, account: string, d: Device) => JS
   noisePublicKey: { $hex: d.noise_pk.toString("hex") }
 }]);
 
+/** Canonical revocation relation over policy_ops(collection_id,outbox_id,ord,value).
+ * Shared by individual guards and inventory discovery; removal permanently
+ * denies every historical device enrolment, including earlier ops in one row. */
+export const DEVICE_REVOCATIONS = `
+  SELECT collection_id,value->>'device' AS device_id FROM policy_ops
+  WHERE value->>'op'='device-revoke'
+  UNION
+  SELECT enrolled.collection_id,enrolled.value->>'device' AS device_id
+  FROM policy_ops enrolled JOIN policy_ops removal ON removal.collection_id=enrolled.collection_id
+    AND (removal.outbox_id>enrolled.outbox_id OR (removal.outbox_id=enrolled.outbox_id AND removal.ord>enrolled.ord))
+  WHERE enrolled.value->>'op'='device-enrol' AND removal.value->>'op'='member-remove'
+    AND removal.value->>'account'=enrolled.value->>'account'`;
+
 /** A historical enrolment is never current once the device has been revoked. */
-export async function refuseRevoked(client: DatabaseConnection, collection: string, device: string): Promise<void> {
+export async function refuseRevoked(client: DatabaseQueryable, collection: string, device: string): Promise<void> {
   const revoked = await client.query(
-    "SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb LIMIT 1",
-    [collection, JSON.stringify([{ op: "device-revoke", device }])]
+    `WITH policy_ops AS (
+       SELECT o.collection_id,o.id AS outbox_id,e.ord,e.value FROM next_policy_outbox o
+       CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY AS e(value,ord)
+       WHERE o.collection_id=$1
+     ), revoked AS (${DEVICE_REVOCATIONS})
+     SELECT 1 FROM revoked WHERE device_id=$2 LIMIT 1`,
+    [collection, device]
   );
   if (revoked.rows.length) throw new CreateError(409, "device_revoked");
 }
@@ -141,9 +160,9 @@ export function refuse(reply: FastifyReply, error: unknown, message: string) {
  * The account is a current member of the collection: its latest effective membership
  * op (native batch position, then row/op order) is a member-set acknowledged by
  * the log. Queued/lost removals deny immediately; a pending member-set is
- * not. One row at most, projected in SQL.
+ * not. One row at most, projected in SQL. Returns the current role.
  */
-export async function currentMember(client: DatabaseConnection, collection: string, account: string, requiredRole?: "owner"): Promise<void> {
+export async function currentMember(client: DatabaseQueryable, collection: string, account: string, requiredRole?: "owner"): Promise<string> {
   const latest = await client.query<{ op: string; role: string }>(
     `SELECT e.value->>'op' AS op, e.value->>'role' AS role
        FROM next_policy_outbox o
@@ -160,4 +179,35 @@ export async function currentMember(client: DatabaseConnection, collection: stri
   );
   if (latest.rows[0]?.op !== "member-set") throw new CreateError(409, "not_member");
   if (requiredRole !== undefined && latest.rows[0].role !== requiredRole) throw new CreateError(403, "not_owner");
+  return latest.rows[0].role;
+}
+
+/** Exact current native device authority, shared by People and background work.
+ * Caller owns the transaction. Account/owner locks precede the collection lock;
+ * pending removal denies immediately and historical enrolment never revives. */
+export async function currentCollectionDevice(client: DatabaseConnection, connector: Connector, collection: string, deviceId: string, device: Device): Promise<void> {
+  await currentIdentity(client,connector,deviceId,device);
+  const owner = (await client.query<{owner_user_id:string}>(
+    `SELECT n.owner_user_id FROM next_collections n JOIN users u ON u.id=n.owner_user_id
+     WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync IN ('cloud_copy','private') AND n.left_sync_at IS NULL AND u.suspended_at IS NULL FOR SHARE OF u`, [collection]
+  )).rows[0];
+  if (!owner) throw new CreateError(409,"not_current_collection");
+  const current = await client.query(
+    `SELECT 1 FROM next_collections WHERE collection_id=$1 AND owner_user_id=$2
+     AND runtime='next' AND sync IN ('cloud_copy','private') AND left_sync_at IS NULL FOR UPDATE`, [collection,owner.owner_user_id]
+  );
+  if (!current.rows.length) throw new CreateError(409,"not_current_collection");
+  try { await requireCollectionNotDeleted(client,collection); }
+  catch (error) {
+    if (error instanceof Error && error.message === "collection_deleted") throw new CreateError(409,"collection_deleted");
+    throw error;
+  }
+  await currentMember(client,collection,connector.user_id);
+  await refuseRevoked(client,collection,deviceId);
+  const enrolled = await client.query(
+    `SELECT 1 FROM next_policy_outbox o JOIN next_policy_batches b ON b.id=o.batch_id
+     WHERE o.collection_id=$1 AND b.state='appended' AND b.lost_at IS NULL AND o.ops->'ops' @> $2::jsonb LIMIT 1`,
+    [collection,exactEnrolment(deviceId,connector.user_id,device)]
+  );
+  if (!enrolled.rows.length) throw new CreateError(409,"not_enrolled");
 }

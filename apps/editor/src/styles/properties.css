@@ -159,6 +159,26 @@
   overflow-y: auto;
 }
 
+.additional-properties {
+  margin-block: var(--space-4);
+}
+
+.additional-properties > summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.additional-properties > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.additional-properties > p {
+  margin-block: var(--space-2) var(--space-4);
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+}
+
 .property-row {
   position: relative;
   padding: 10px 28px 11px 0;

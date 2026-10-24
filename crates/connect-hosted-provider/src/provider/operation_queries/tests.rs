@@ -3,6 +3,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn query_database_retries_only_classified_transaction_aborts() {
+        for class in ["serialization", "deadlock", "statement", "pool", "unknown"] {
+            let error = ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider_database_retryable",
+                "test",
+            )
+            .with_details(json!({ "retry_class": class }));
+            assert_eq!(
+                hosted_query_retryable_database_conflict(&error),
+                matches!(class, "serialization" | "deadlock")
+            );
+        }
+        for error in [
+            ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "provider_database_retryable", "test"),
+            ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "provider_database_timeout", "test")
+                .with_details(json!({ "retry_class": "serialization" })),
+        ] {
+            assert!(!hosted_query_retryable_database_conflict(&error));
+        }
+    }
+
+    #[test]
+    fn query_database_retry_backoff_is_positive_exponential_jitter_and_capped() {
+        for (attempt, ceiling) in [10_u64, 20, 40, 80, 160, 250].into_iter().enumerate() {
+            let floor = ceiling / 2;
+            assert_eq!(hosted_query_database_retry_delay(attempt, 0), Duration::from_millis(floor));
+            assert_eq!(
+                hosted_query_database_retry_delay(attempt, (ceiling - floor) as u32),
+                Duration::from_millis(ceiling)
+            );
+        }
+        for attempt in 6..HOSTED_QUERY_DATABASE_RETRIES {
+            for random in [0, 1, u32::MAX] {
+                let delay = hosted_query_database_retry_delay(attempt, random);
+                assert!(delay >= Duration::from_millis(125));
+                assert!(delay <= Duration::from_millis(250));
+            }
+        }
+    }
+
+    #[test]
     fn query_cursor_tokens_are_canonical_and_round_trip() {
         let id = Uuid::new_v4();
         let token = encode_query_cursor(id);

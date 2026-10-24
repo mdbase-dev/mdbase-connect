@@ -1,0 +1,13 @@
+/ Receipt / {
+  / mutation / 0: h'0192f3a460007abc8def0123456789ab',
+  / state / 1: 2 / Rejected /,
+  / problem / 6: / Problem / {
+    / code / 0: "conflict",
+    / recovery / 1: 2 / ResolveConflict /,
+    / message / 2: "the record changed since if_revision",
+    / reason / 3: "revision",
+    / details / 4: {
+      "current": "sha256:ab"
+    }
+  }
+}

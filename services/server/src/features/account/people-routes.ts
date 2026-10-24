@@ -6,7 +6,9 @@ import { matchesMembershipBinding, membershipBindingForAccess } from "../../coll
 import type { DatabasePool } from "../../db.js";
 import { bearerToken, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { inTransaction, refuse } from "../next/bootstrap-common.js";
-import { installationPeople } from "../next/installation-scope.js";
+import { nativeCollectionMembers, nextDevicePeople } from "../next/people.js";
+import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
+import { resolveNativeCollectionAccess } from "../authorizations/native-approval-service.js";
 import { apiError } from "../../platform/http-errors.js";
 import { tokenHash } from "../../security.js";
 
@@ -26,6 +28,8 @@ interface PeopleGrant {
   collection_id: string | null;
   local_collection_id: string | null;
   hosted_collection_id: string | null;
+  next_collection_id: string | null;
+  grant_id: string;
   people_permissions: PeoplePermission[] | null;
   membership_id: string | null;
   membership_policy_id: string | null;
@@ -45,16 +49,21 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
       const bearer = bearerToken(request);
       if (!bearer) return reply.code(401).send(apiError("invalid_token", "An application access token is required."));
-      if (bearer.startsWith("idev_")) {
+      if (bearer.startsWith("idev_") || bearer.startsWith("ct_")) {
         const connector = await requireInstallationDeviceConnector(request,reply,options.db);
         if (!connector) return reply;
-        if (!connector.installation_device_id) return reply.code(403).send(apiError("installation_credential_required","Use an installation credential."));
-        try { return await inTransaction(options.db,client=>installationPeople(client,connector,collectionId.toLowerCase(),permission,issuer)); }
-        catch (error) { return refuse(reply,error,"This installation cannot read this collection's people."); }
+        const query = z.object({ device_id: z.uuid().optional() }).strict().parse(request.query);
+        const deviceId = query.device_id?.toLowerCase() ?? connector.installation_device_id;
+        if (!deviceId) return reply.code(400).send(apiError("invalid_request","An exact registered device ID is required."));
+        try {
+          const result = await inTransaction(options.db,client=>nextDevicePeople(client,connector,collectionId.toLowerCase(),deviceId,permission,issuer));
+          const settingsUrl = permission === "identity" ? personSettingsUrl(options,collectionId) : null;
+          return settingsUrl ? { ...result, person_settings_url: settingsUrl } : result;
+        } catch (error) { return refuse(reply,error,"This device cannot read this collection's people."); }
       }
       const result = await options.db.query<PeopleGrant>(
-        `SELECT g.user_id, u.account_backend, u.public_subject, u.name, g.collection_id,
-                col.local_id AS local_collection_id, g.hosted_collection_id,
+        `SELECT g.id AS grant_id, g.user_id, u.account_backend, u.public_subject, u.name, g.collection_id,
+                col.local_id AS local_collection_id, g.hosted_collection_id, g.next_collection_id,
                 g.people_permissions,
                 g.membership_id, g.membership_policy_id, g.membership_policy_revision
          FROM access_tokens tok
@@ -63,14 +72,14 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
          JOIN applications app ON app.id = g.application_id
          LEFT JOIN collections col ON col.id = g.collection_id
          LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
-         LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, g.hosted_collection_id)
+         LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id)
          LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id AND binding.collection_id = nc.collection_id
          WHERE tok.token_hash = $1 AND tok.expires_at > now()
            AND tok.revoked_at IS NULL AND g.revoked_at IS NULL
            AND g.activated_at IS NOT NULL AND g.reauthorization_required_at IS NULL
            AND u.suspended_at IS NULL
            AND (nc.runtime IS NULL OR nc.runtime <> 'next' OR binding.active = true)
-           AND COALESCE(col.local_id, g.hosted_collection_id) = $2
+           AND COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id) = $2
            AND (g.collection_id IS NULL OR (col.enabled = true AND col.present = true))
            AND (g.hosted_replica_id IS NULL OR (replica.id IS NOT NULL AND replica.revoked_at IS NULL))
            AND g.application_authorization->'binding'->>'application_manifest_digest' = app.manifest_digest`,
@@ -83,11 +92,19 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       if (!grant.people_permissions?.includes(permission)) {
         return reply.code(403).send(apiError("insufficient_access", "This application was not approved to read this identity information."));
       }
+      // Private grants use the same account-consent and current-membership
+      // boundary as cloud grants; there is no second computer-side decision.
+      if (grant.next_collection_id) {
+        try { await requireCollectionNotDeleted(options.db, grant.next_collection_id); }
+        catch { return reply.code(401).send(apiError("invalid_token", "The collection was deleted.")); }
+      }
       const access = grant.hosted_collection_id
         ? await resolveHostedCollectionAccess(options.db, grant.user_id, grant.hosted_collection_id)
         : grant.collection_id
           ? await resolveLocalCollectionAccess(options.db, grant.user_id, grant.collection_id)
-          : null;
+          : grant.next_collection_id
+            ? await resolveNativeCollectionAccess(options.db, grant.user_id, grant.next_collection_id)
+            : null;
       if (!access || access.collection.authorityState !== "active"
         || !access.actions.has("application.authorize")
         || !matchesMembershipBinding(grant, membershipBindingForAccess(access))) {
@@ -99,7 +116,7 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       );
       if (!owner.rows.length) return reply.code(401).send(apiError("invalid_token", "The collection owner is unavailable."));
       if (permission === "identity") {
-        const settingsUrl = personSettingsUrl(options, grant.hosted_collection_id ?? grant.local_collection_id);
+        const settingsUrl = personSettingsUrl(options, grant.hosted_collection_id ?? grant.local_collection_id ?? grant.next_collection_id);
         return {
           ...profile(grant),
           ...(grant.account_backend === "next" ? { account_id: grant.user_id } : {}),
@@ -107,6 +124,7 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
         } satisfies CurrentAccountResponse;
       }
 
+      if (grant.next_collection_id) return await nativeCollectionMembers(options.db, grant.next_collection_id, issuer);
       const members: CollectionMemberProfile[] = owner.rows.map((row) => ({ ...profile(row), ...(grant.account_backend === "next" ? { account_id: row.id } : {}), role: "owner" }));
       if (grant.hosted_collection_id) {
         const rows = await options.db.query<{ id: string; public_subject: string; name: string; role: "viewer" | "editor" }>(

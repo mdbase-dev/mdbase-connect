@@ -1,0 +1,8 @@
+{
+  "_type": "BasePayload",
+  "fmt": 1,
+  "manifest": "h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'",
+  "state_digest": "h'd0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0'",
+  "adopter": "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'",
+  "source": "Folder"
+}

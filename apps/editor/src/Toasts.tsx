@@ -16,13 +16,18 @@ export interface ToastItem {
   action?: ToastAction;
   sticky?: boolean;
   dismissible?: boolean;
+  /** Overrides the default auto-dismiss delay. */
+  durationMs?: number;
 }
 
 const autoDismissMs = 6_000;
+/** Matches TaskNotes: an Undo stays available for 30 seconds. */
+export const undoWindowMs = 30_000;
 
 export function buildToastItems({
   notice,
   recoveryMessage,
+  recoveryPending = false,
   recoveryBusy,
   onUndo,
   hasPendingRename,
@@ -30,16 +35,25 @@ export function buildToastItems({
 }: {
   notice?: { message: string; tone: ToastTone };
   recoveryMessage?: string;
+  /** The change is still being confirmed; Undo is offered once it settles. */
+  recoveryPending?: boolean;
   recoveryBusy: boolean;
   onUndo: () => void;
   hasPendingRename: boolean;
   onResumeRename: () => void;
 }): ToastItem[] {
   const items: ToastItem[] = notice ? [{ id: "notice", message: notice.message, tone: notice.tone }] : [];
-  if (recoveryMessage) items.push({
+  if (recoveryMessage) items.push(recoveryPending ? {
+    id: "recovery",
+    message: recoveryMessage,
+    tone: "info",
+    sticky: true,
+    dismissible: false
+  } : {
     id: "recovery",
     message: recoveryMessage,
     tone: "success",
+    durationMs: undoWindowMs,
     action: { label: recoveryBusy ? "Undoing" : "Undo", onAction: onUndo, busy: recoveryBusy }
   });
   if (hasPendingRename) items.push({
@@ -86,7 +100,7 @@ function useAutoDismiss(toast: ToastItem, dismiss: () => void, paused: boolean) 
   dismissRef.current = dismiss;
   useEffect(() => {
     if (toast.sticky || toast.action?.busy || paused) return;
-    const timer = window.setTimeout(() => dismissRef.current(), autoDismissMs);
+    const timer = window.setTimeout(() => dismissRef.current(), toast.durationMs ?? autoDismissMs);
     return () => window.clearTimeout(timer);
-  }, [toast.message, toast.sticky, toast.action?.busy, paused]);
+  }, [toast.message, toast.sticky, toast.action?.busy, toast.durationMs, paused]);
 }

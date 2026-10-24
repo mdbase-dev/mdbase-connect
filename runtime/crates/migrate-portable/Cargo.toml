@@ -1,0 +1,28 @@
+[package]
+name = "mdbn-migrate-portable"
+description = "Pure, portable conversion rules for migrating a legacy mdbase Connect collection: path preflight and renames, legacy IDs, and the oversized-document rule. Consumed by the native migrator and the hosted Worker import."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Portable, like mdbn-core: no I/O, no clocks, no entropy, no legacy readers. Allowed
+# internal dependencies: mdbn-core (path policy), mdbn-wire (identifiers, digests),
+# mdbn-store-file (only its portable SQL index ABI, for the hosted import's spill,
+# behind `sql-spill`, which only the hosted Worker composition enables).
+[dependencies]
+mdbn-core.workspace = true
+mdbn-wire.workspace = true
+mdbn-store-file = { workspace = true, optional = true }
+
+[features]
+# `hosted_import::SqlSpill` over the SQL index ABI (the DO's SQLite).
+sql-spill = ["dep:mdbn-store-file"]
+
+[dev-dependencies]
+mdbn-store-file.workspace = true
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+[lints]
+workspace = true

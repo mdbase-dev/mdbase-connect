@@ -1,0 +1,6 @@
+/ ReindexOrdinaryFile / {
+  / kind / 0: 11 / ReindexOrdinaryFile /,
+  / id / 1: h'11111111111111111111111111111111',
+  / path / 2: "views/existing.base",
+  / doc / 3: "views: []\n"
+}

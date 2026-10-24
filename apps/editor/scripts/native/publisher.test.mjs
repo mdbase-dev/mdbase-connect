@@ -1,0 +1,204 @@
+// Command/data doubles only: no authentication, Cloudflare, Native or Stage IO.
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { cp, readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { it } from 'node:test';
+import { parse } from 'yaml';
+import { assertDispatch, assertCurrentHead, deploymentFor } from './refs.mjs';
+import { loadOriginals, protectedHashes } from './originals.mjs';
+import { assertArtifactMetadata, assertArtifactRun, assertArtifactDirectory } from './artifact.mjs';
+import { inventoryDirectory } from './native-publish-bytes.mjs';
+import { headersPolicy, redirectsPolicy, assertHostingSource, verifyHosting, verifyPublication } from './hosting.mjs';
+import { assertBuiltManifest, captureDeployment, createReceipt } from './publisher.mjs';
+const repoRoot=fileURLToPath(new URL('../../../../',import.meta.url));
+const hashes={NATIVE_SDK_SHA256:'15eb64b50fc7c2809ff3dba9cce5104fe48d8592208b3af8acb529862a1af18c',
+ NATIVE_UI_SHA256:'8f785294454321c40596bdaad976dc4c5374c3f23dfa828f47e3e7b3139b77e5',
+ NATIVE_PROTOCOL_SHA256:'cd1e15236ab7e25c511a4ba13af6a9df23f4b41715161479bba97b0445e1c138',
+ NATIVE_TRUST_ASSET_SHA256:'67e117646c9c26927f0d5a44cbd26f057c318975032e9cd24f24b020150cdbc7'};
+const productionHashes={...hashes,
+ NATIVE_SDK_SHA256:'e64771a90bed2fb3837d4b65df8930fcd124d3059fcb0bcbaf9d64dbfb148205',
+ NATIVE_TRUST_ASSET_SHA256:'7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7'};
+const source='a'.repeat(40),tree='b'.repeat(40),origin='https://editor-staging.mdbase.dev';
+const uuid='12345678-1234-4234-8234-123456789abc';
+const env={TARGET:'staging',SOURCE_SHA:source,GITHUB_SHA:source,GITHUB_REF:'refs/heads/release/native-staging',GITHUB_EVENT_NAME:'workflow_dispatch'};
+const expected={id:'10',digest:'sha256:'+'c'.repeat(64),repository:'mdbase-dev/mdbase-connect',repositoryId:'20',run:'30',attempt:'1',event:'workflow_dispatch',ref:env.GITHUB_REF,source,tree,target:'staging'};
+const metadata={id:10,expired:false,digest:expected.digest,name:'editor-native-build-staging-30-1',workflow_run:{id:30,head_sha:source,head_repository_id:20}};
+const run={id:30,head_sha:source,run_attempt:1,event:expected.event,head_branch:'release/native-staging',path:'.github/workflows/editor-pages.yml',repository:{id:20,full_name:expected.repository}};
+const deployment={id:uuid,url:'https://12345678.mdbase-editor.pages.dev',sourceSha:source,pagesBranch:'staging'};
+const sha=b=>createHash('sha256').update(b).digest('hex');
+
+it('binds the historical Stage packet, lock and ALL extracted SDK/UI/protocol originals without importing them',async()=>{
+ // Main now installs production. Recreate the historical staging pins and
+ // extracted originals in a fixture, not in the application's current install.
+ const root=await mkdtemp(join(tmpdir(),'editor-staging-originals-'));
+ try {
+ const app=join(root,'apps/editor');await mkdir(app,{recursive:true});
+ await cp(join(repoRoot,'config/native-publish'),join(root,'config/native-publish'),{recursive:true});
+ await cp(join(repoRoot,'apps/editor/vendor'),join(app,'vendor'),{recursive:true});
+ const pkg=JSON.parse(await readFile(join(repoRoot,'apps/editor/package.json'),'utf8'));
+ const current=pkg.dependencies['@mdbase-dev/sdk'].slice('file:vendor/'.length);
+ const staging='sdk-dev-eaa4e697-staging.tgz';
+ pkg.dependencies['@mdbase-dev/sdk']='file:vendor/'+staging;
+ await writeFile(join(app,'package.json'),JSON.stringify(pkg));
+ const currentFacts=JSON.parse(await readFile(join(app,'vendor/mdbase-next-sdk.json'),'utf8'));
+ const stagingFacts=JSON.parse(await readFile(join(app,'vendor/sdk-dev-eaa4e697-staging.facts.json'),'utf8'));
+ const lock=(await readFile(join(repoRoot,'pnpm-lock.yaml'),'utf8')).replaceAll(current,staging).replaceAll(currentFacts.integrity,stagingFacts.sri);
+ await writeFile(join(root,'pnpm-lock.yaml'),lock);
+ for(const name of ['@mdbase-dev/sdk','@mdbase-dev/ui','@mdbase-dev/connect-protocol']) {
+  const installed=join(app,'node_modules',name);await mkdir(installed,{recursive:true});
+  execFileSync('tar',['-xzf',join(app,pkg.dependencies[name].slice(5)),'--strip-components=1','-C',installed]);
+ }
+ const result=await loadOriginals({target:'staging',repoRoot:root,hashes,installed:true});
+ assert.equal(result.environment,'staging');assert.equal(result.release.cpOrigin,'https://connect-staging.mdbase.dev');
+ assert.equal(result.archives.sdk.members,896);assert.equal(result.archives.sdk.sha256,hashes.NATIVE_SDK_SHA256);
+ assert.equal(result.release.assetSha256,hashes.NATIVE_TRUST_ASSET_SHA256);
+ await assert.rejects(loadOriginals({target:'production',repoRoot:root,hashes}),/ENOENT|mismatch/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot:root,hashes:{...hashes,NATIVE_TRUST_ASSET_SHA256:'15e0c28ca828287666dc13cd1ab8cd90caa8f3a4a0036c5fa0eb6f8fbf162d9e'}}),/RAW signed asset/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot:root,hashes:{...hashes,NATIVE_SDK_SHA256:'0'.repeat(64)}}),/protected archive hash/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot:root}),/four protected/);
+ assert.throws(()=>protectedHashes({}),/four protected/);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+it('binds the original production beta141 packet and ALL installed SDK/UI/protocol members',async()=>{
+ const result=await loadOriginals({target:'production',repoRoot,hashes:productionHashes,installed:true});
+ assert.equal(result.environment,'production');assert.equal(result.archives.sdk.members,896);
+ assert.equal(result.archives.sdk.sha256,productionHashes.NATIVE_SDK_SHA256);
+ assert.equal(result.release.cpOrigin,'https://connect.mdbase.dev');
+ assert.equal(result.release.source.version,'0.1.0-beta.141');
+ assert.equal(result.release.assetSha256,productionHashes.NATIVE_TRUST_ASSET_SHA256);
+ await assert.rejects(loadOriginals({target:'production',repoRoot,hashes}),/protected archive hash/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot,hashes:productionHashes}),/producer complete SDK inventory|canonical artifact facts/);
+});
+it('requires exact manual release-ref HEAD, never a tag/main/short/moving source',async()=>{
+ assert.equal(assertDispatch(env).sha,source);
+ for(const patch of [{SOURCE_SHA:'abcd'},{GITHUB_EVENT_NAME:'push'},{GITHUB_REF:'refs/heads/main'},{GITHUB_SHA:tree},{TARGET:'lab'}])
+  assert.throws(()=>assertDispatch({...env,...patch}));
+ let calls=0;
+ await assertCurrentHead({...env,GITHUB_REPOSITORY:expected.repository,GITHUB_TOKEN:'fixture'},async url=>{
+  calls++;assert.equal(url,`https://api.github.com/repos/${expected.repository}/git/ref/heads/release/native-staging`);
+  return Response.json({ref:env.GITHUB_REF,object:{type:'commit',sha:source}});
+ });assert.equal(calls,1);
+ await assert.rejects(assertCurrentHead({...env,GITHUB_REPOSITORY:expected.repository},async()=>Response.json({ref:env.GITHUB_REF,object:{type:'commit',sha:tree}})),/moved/);
+});
+it('binds immutable artifact metadata AND the exact workflow/run attempt/manual ref',()=>{
+ assertArtifactMetadata(metadata,expected);assertArtifactRun(run,expected);
+ for(const patch of [{expired:true},{digest:'sha256:'+'d'.repeat(64)},{name:'editor-native-build-staging-30-2'},{workflow_run:{...metadata.workflow_run,head_repository_id:99}}])assert.throws(()=>assertArtifactMetadata({...metadata,...patch},expected));
+ for(const patch of [{run_attempt:2},{event:'push'},{head_branch:'main'},{path:'.github/workflows/native-journal.yml'},{head_sha:tree}])assert.throws(()=>assertArtifactRun({...run,...patch},expected));
+});
+it('uses page20 and resolves only the unique uploaded URL/full source/channel to a FULL UUID',async()=>{
+ const entry={id:uuid,url:deployment.url,deployment_trigger:{metadata:{commit_hash:source,branch:'staging'}}};
+ const options={output:'Success '+deployment.url,target:'staging',sha:source,accountId:'a'.repeat(32),apiToken:'fixture'};
+ const capture=rows=>captureDeployment({...options,fetchImpl:async url=>{assert.match(url,/\/mdbase-editor\/deployments\?per_page=20$/);return Response.json({success:true,result:rows});}});
+ assert.deepEqual(await capture([entry]),deployment);
+ for(const bad of [{...entry,id:'12345678'},{...entry,url:'https://87654321.mdbase-editor.pages.dev'},
+  {...entry,deployment_trigger:{metadata:{commit_hash:tree,branch:'staging'}}},{...entry,deployment_trigger:{metadata:{commit_hash:source,branch:'main'}}}])await assert.rejects(capture([bad]),/UUID/);
+ await assert.rejects(capture([entry,entry]),/UUID/);
+});
+for(const target of ['staging','production']) it(`retains BOTH ${target} callbacks and refuses retargeted installations`,()=>{
+ const {origin,connectOrigin,branch,releaseRef}=deploymentFor(target);
+ assert.equal(branch,target==='production'?'main':'staging');
+ const binding=assertDispatch({...env,TARGET:target,GITHUB_REF:`refs/heads/${releaseRef}`});
+ assert.equal(binding.target,target);assert.equal(binding.origin,origin);
+ const plan={origin,target,sdkTrust:{release:{cpOrigin:connectOrigin}}};
+ const manifest={manifest_version:1,id:'dev.mdbase.editor',homepage:origin+'/',redirect_uris:[origin+'/',origin+'/?server='+encodeURIComponent(connectOrigin)],installation_origins:{[target]:{'app-runtime':[origin]}}};
+ assertBuiltManifest(manifest,plan);
+ assert.throws(()=>assertBuiltManifest({...manifest,redirect_uris:[origin+'/']},plan));
+ const other=target==='production'?'staging':'production';
+ assert.throws(()=>assertBuiltManifest({...manifest,installation_origins:{[other]:{'app-runtime':[origin]}}},plan));
+});
+async function fixture() {
+ const root=await mkdtemp(join(tmpdir(),'editor-publisher-'));
+ const files={'index.html':'<html>editor</html>','404.html':'missing','_headers':headersPolicy,'_redirects':redirectsPolicy,'assets/a.js':'export const value=1;','.well-known/mdbase-app.json':'{}'};
+ for(const [path,body] of Object.entries(files)){await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),body);}
+ return {root,files,inventory:await inventoryDirectory(root)};
+}
+function transport(files,bad=false) {return async url=>{
+ const path=new URL(url).pathname;let key=path.slice(1),status=200;
+ if(path==='/' || path==='/connect' || path==='/connect/retired')key='index.html';
+ if(!(key in files)||key.startsWith('_')){key='404.html';status=404;}
+ const headers=new Headers();let section;
+ for(const line of headersPolicy.split('\n')){if(line&&!line.startsWith(' '))section=line;const match=/^  ([^:]+): (.+)$/.exec(line);if(section==='/*'&&match)headers.set(match[1],match[2]);}
+ if(path.startsWith('/assets/'))headers.set('cache-control','public, max-age=0, must-revalidate');
+ if(path==='/.well-known/mdbase-app.json')headers.set('cache-control','no-store');
+ headers.set('content-type',key.endsWith('.js')?'application/javascript':key.endsWith('.json')?'application/json':'text/html');
+ if(bad)headers.delete('content-security-policy');
+ return new Response(files[key],{status,headers});
+};}
+it('accounts for ALL static bytes plus SOURCE-owned headers/redirects; refuses tamper and wrong live policy',async()=>{
+ const f=await fixture();try{
+  await assertHostingSource(f.root,f.inventory);
+  const report=await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:transport(f.files)});
+  assert.equal(report.ok,true);assert.equal(report.verified.length+report.controls.length,f.inventory.length);assert.equal(report.unverified.length,0);assert.equal(report.controls.length,2);
+  const plan={sha:source,tree,target:'staging',origin,pagesBranch:'staging'};
+  const receiptEnv={...env,...hashes,GITHUB_REPOSITORY:expected.repository,GITHUB_REPOSITORY_ID:expected.repositoryId,GITHUB_RUN_ID:expected.run,GITHUB_RUN_ATTEMPT:expected.attempt,ARTIFACT_ID:expected.id,ARTIFACT_DIGEST:expected.digest};
+  const verification={...report,origins:[{...report,origin},{...report,origin:deployment.url}]};
+  const evidence={plan,inventory:f.inventory,deployment,verification,env:receiptEnv,project:{id:uuid,name:'mdbase-editor',productionBranch:'main'},artifact:{expected,before:metadata,after:metadata,run,runAfter:run,downloadedSha256:expected.digest.slice(7)}};
+  assert.equal(createReceipt(evidence).status,'verified');
+  assert.equal(createReceipt({...evidence,verification:{...verification,origins:verification.origins.slice(0,1)}}).status,'failed-or-incomplete');
+  assert.equal(createReceipt({...evidence,artifact:{...evidence.artifact,runAfter:{...run,run_attempt:2}}}).status,'failed-or-incomplete');
+  const badUrls=[],badTransport=transport(f.files,true);
+  assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:async(...args)=>{badUrls.push(String(args[0]));return badTransport(...args);}})).ok,false);
+  assert.equal(new Set(badUrls).size,badUrls.length,'Security-header failures must not be retried as transient transport errors');
+  await writeFile(join(f.root,'_headers'),headersPolicy+'# changed\n');
+  await assert.rejects(assertHostingSource(f.root,f.inventory),/changed/);
+  await assert.rejects(verifyHosting({origin,inventory:[...f.inventory,{path:'nested/_headers',bytes:0,sha256:sha('')}],deployment}),/Unreviewed/);
+ }finally{await rm(f.root,{recursive:true,force:true});}
+});
+it('checks complete immutable directory contents and retains incomplete receipts as failures',async()=>{
+ const f=await fixture();try{
+  const root=join(f.root,'artifact');await mkdir(root);await mkdir(join(root,'publish'));await writeFile(join(root,'publish','a.txt'),'data');
+  const inventory=await inventoryDirectory(join(root,'publish'));
+  const plan={sha:source,tree,target:'staging',origin,pagesBranch:'staging',sdkTrust:{environment:'staging'}};
+  const contents={'inventory.json':JSON.stringify(inventory),'plan.json':JSON.stringify(plan)};
+  for(const [name,bytes] of Object.entries(contents))await writeFile(join(root,name),bytes);
+  await writeFile(join(root,'envelope.json'),JSON.stringify({...expected,inventorySha256:sha(contents['inventory.json']),planSha256:sha(contents['plan.json'])}));
+  await assertArtifactDirectory(root,expected);
+  await writeFile(join(root,'publish','extra'),'not inventoried');await assert.rejects(assertArtifactDirectory(root,expected));
+  assert.equal(createReceipt({plan,inventory,deployment}).status,'failed-or-incomplete');
+ }finally{await rm(f.root,{recursive:true,force:true});}
+});
+it('runs main pushes as checks only and isolates build from protected upload dependencies',async()=>{
+ const workflow=parse(await readFile(join(repoRoot,'.github/workflows/editor-pages.yml'),'utf8'));
+ assert.ok(workflow.on.push.branches.includes('main'));assert.ok(workflow.on.workflow_dispatch.inputs.source_sha);
+ assert.equal(workflow.jobs['native-build'].environment,undefined);
+ const protectedJob=workflow.jobs['native-deploy'];assert.ok(protectedJob.environment);
+ const commands=protectedJob.steps.map(s=>s.run??'').join('\n');
+ assert.doesNotMatch(commands,/pnpm (install|build|rebuild)|npm run|npx/);
+ assert.match(commands,/refs\.mjs/);assert.match(commands,/--commit-hash/);assert.match(commands,/--no-bundle/);
+ assert.match(workflow.jobs.test.if,/source_sha/);
+});
+it('re-verifies only the custom alias inside a bounded settle window after the immutable deployment passes',async()=>{
+ const plan={sha:source,tree,target:'staging',origin,pagesBranch:'staging'};
+ const report=ok=>({ok,verified:[],controls:[],unverified:[],probes:[],failures:ok?[]:[{path:'/',reason:'trusted-live-header-policy-failed'}]});
+ const harness=outcomes=>{
+  let clock=0;const calls=[],sleeps=[];
+  return {calls,sleeps,options:{plan,inventory:[],deployment,now:()=>clock,sleep:async ms=>{sleeps.push(ms);clock+=ms;},
+   verify:async({origin:target,totalTimeoutMs})=>{calls.push({origin:target,totalTimeoutMs});clock+=1000;return report(outcomes(target,calls.length));}}};
+ };
+ // Alias still serving the previous deployment twice, then converged.
+ const settling=harness((target,n)=>target===deployment.url || n>=4);
+ const settled=await verifyPublication(settling.options);
+ assert.equal(settled.ok,true);
+ assert.deepEqual(settling.calls.map(c=>c.origin),[deployment.url,origin,origin,origin]);
+ assert.deepEqual(settling.sleeps,[15000,15000]);
+ assert.deepEqual(settled.aliasAttempts.map(a=>a.ok),[false,false,true]);
+ assert.equal(settled.aliasAttempts[0].failures[0].reason,'trusted-live-header-policy-failed');
+ assert.deepEqual(settled.origins.map(r=>r.origin),[deployment.url,origin],'receipt needs exactly one final report per origin');
+ assert.equal(settled.origin,origin);
+ // A failing immutable deployment is terminal: one alias report, no settle wait.
+ const broken=harness(()=>false);
+ const failed=await verifyPublication(broken.options);
+ assert.equal(failed.ok,false);assert.equal(broken.calls.length,2);assert.deepEqual(broken.sleeps,[]);
+ // An alias that never converges stops inside the window and stays failed.
+ const stuck=harness(target=>target===deployment.url);
+ const never=await verifyPublication(stuck.options);
+ assert.equal(never.ok,false);assert.equal(never.origins.length,2);assert.ok(never.aliasAttempts.length>2);
+ assert.ok(stuck.sleeps.reduce((a,b)=>a+b,0)<=300000);
+ assert.ok(stuck.calls.every(c=>c.totalTimeoutMs>0 && c.totalTimeoutMs<=180000));
+ assert.ok(never.aliasAttempts.at(-1).startedMs<=300000);
+ await assert.rejects(verifyPublication({...stuck.options,deployment:{...deployment,sourceSha:'c'.repeat(40)}}),/mismatch/);
+});

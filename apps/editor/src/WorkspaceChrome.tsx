@@ -27,11 +27,14 @@ export function PathLabel({ path }: { path: string }) {
   </span>;
 }
 
-export function SaveIndicator({ state, activity, detail, identity, onCancel, onRetry }: { state: SaveState; activity?: NoteActivity; detail?: string; identity?: string; onCancel?: () => void; onRetry?: () => void }) {
+export function SaveIndicator({ state, activity, detail, identity, savedOnDevice, onCancel, onRetry }: { state: SaveState; activity?: NoteActivity; detail?: string; identity?: string; savedOnDevice?: boolean; onCancel?: () => void; onRetry?: () => void }) {
   const attention = state === "conflict" || state === "error";
   const routineSave = !attention && state !== "recovery" && (activity === "saving" || activity === "properties" || (!activity && state === "saving"));
   const slow = useDelayedBusy(routineSave, identity);
-  if (routineSave ? !slow : !activity && (state === "saved" || state === "waiting")) return null;
+  const idle = routineSave ? !slow : !activity && (state === "saved" || state === "waiting");
+  // The SDK keeps saved changes on this device while the collection can't be reached.
+  if (idle && savedOnDevice) return <div className="save-indicator"><SaveNotice tone="pending" label="Saved on this device; waiting for sync" /></div>;
+  if (idle) return null;
   const activityLabels: Record<NoteActivity, string> = {
     saving: "Saving…",
     properties: "Saving…",
@@ -40,7 +43,7 @@ export function SaveIndicator({ state, activity, detail, identity, onCancel, onR
     deleting: "Deleting",
     validating: "Checking"
   };
-  const label = attention ? "Needs attention" : state === "recovery" ? "Recovery pending"
+  const label = attention ? "Needs attention" : state === "recovery" ? "Not confirmed yet"
     : detail ?? (activity ? activityLabels[activity] : "Saving…");
   const tone: SaveTone = attention ? "attention" : state === "recovery" ? "pending" : "saving";
   return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{state === "error" && onRetry && <button className="cancel-operation mdbase-button is-secondary" onClick={onRetry}>Retry save</button>}{onCancel && <button className="cancel-operation mdbase-button is-secondary" onClick={onCancel}>Cancel</button>}</div>;

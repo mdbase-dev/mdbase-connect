@@ -1,15 +1,17 @@
 {
   "name": "@mdbase/connect-portal",
-  "version": "0.1.0-beta.129",
+  "version": "0.1.0-beta.143",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "test": "node --test",
+    "test": "node --test *.test.mjs && node ../../scripts/ci/vitest.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@mdbase/connect-management": "workspace:*",
+    "@phosphor-icons/react": "^2.1.10",
     "@mdbase/connect-ui": "workspace:*",
     "@mdbase-dev/connect-protocol": "workspace:*",
     "@mdbase-dev/ui": "workspace:*",
@@ -17,10 +19,15 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.11",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.0.3",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5"
+    "vite": "^8.1.6"
   }
 }

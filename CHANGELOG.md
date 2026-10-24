@@ -4,6 +4,885 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.143
+
+### Fixed
+
+- Skip legacy hosted collections quarantined as `provider_collection_missing` from migration inventories, archives, cutovers and verification, leaving their legacy rows unchanged. Other quarantine reasons remain refused.
+
+### Security
+
+- Update scoped dependency overrides to patched Undici 6.29.1/7.30.1, body-parser 2.4.0, Electron 43.8.1 and Zod 4.6.6, preserving the existing dependency audit gate and exceptions.
+
+## 0.1.0-beta.142
+
+### Added
+
+- Supply the original beta.141 production SDK packet to the Editor's existing target-aware publisher intake; publication still requires separate authorization.
+
+### Changed
+
+- After the desktop app takes over a collection from mdbase Connect, it turns on
+  Private sync for it automatically, so apps that used the collection keep
+  working without being approved again. Their grants carry over to the Private
+  collection when it is created (or the next time such an app connects). Files
+  are never changed by this; a failed attempt is retried when mdbase starts,
+  after sign-in and on a backoff, and the app and `mdbase doctor` say what it is
+  waiting for. Collections that were paused by hand stay paused until resumed.
+
+- Prepare the beta.141 production trust asset bound to its immutable image source, preserving existing production roots, certified policy keys and origins. Authenticated publication, tag push and production promotion remain separate gates.
+
+- Prepare the source-bound beta.141 staging trust asset with the existing independent staging roots and certified policy keys; authenticated publication and deployment remain separate gates.
+
+### Fixed
+
+- Desktop automatically retries moving local collections when an account upgrade becomes available, without restarting the daemon.
+- Preserve disabled and paused legacy collections during the move and leave their Private sync off.
+- Clarify that local collections remain safe on disk while waiting for an account upgrade, without claiming that the old connector is still syncing.
+
+- Desktop upgrades stop the legacy daemon through its existing private shutdown endpoint and automatically retry moves postponed while it is still exiting. No manual quit or migration retry is needed.
+
+- Keep the Editor’s last-open note collection-scoped and ignore pending note selections after leaving a collection.
+
+- Pin the Editor's default SDK archive to production beta.141 trust instead of staging trust.
+
+- Lower named query selections to string selections and projections so web clients can query local collections on desktop daemon beta.126; preserve application-facing selected value names.
+
+- Managed hosted account migration now processes every held collection in two phases: every member first reaches the verified pre-cutover pause with its timers imported, then each is cut over in turn and the account flips once using combined cutover and timer evidence. Before its first resume the driver records a one-way account latch, and route-back records the opposite one before its first rollback, so a resume whose reply was lost can never race a sibling's rollback. A failure before that latch routes the whole set back to active legacy sources without restarting any member, including members that were never dispatched or rolled back before their fence (each restored from its accepted original archive fence, and only reported done once every source is verified active), also straight after a start that was never bound; the account stays legacy for post-bulk follow-up; after the route-back latch the control plane refuses any late source fence for the account. After the cutover latch the driver only moves forward: `resume` imports every member's timers before the latch, and a Worker whose idempotent cutover reply was lost retries it while it still holds the action. Original ambiguous Worker launches are never replayed, and run bindings from the earlier driver are refused rather than reinterpreted. Transferred history is excluded. The account's single recorded migration start selects the job: an ordinary archived start uses this managed path in LAB, staging and production, while a LAB fixture start keeps its singleton contract; missing, repeated, unknown or cross-environment starts refuse. Live managed multi-collection qualification is pending.
+- Transferred hosted history is no longer routed to the hosted migration Worker. An ordinary hosted→local promotion leaves that id as the owner's local collection, so it and any later cloud copy of it use the control plane's own deployments; held collections keep their migration route before and after the flip.
+
+- The production desktop daemon now embeds the reviewed production trust asset
+  (`config/next-trust/production.json`), pinned by its SHA-256 and verified at
+  load, so synced collections and turning on sync no longer refuse with
+  `trust_missing`. LAB and local rehearsal builds are unchanged and still embed
+  no production trust.
+
+- After updating from mdbase Connect, the desktop app and `mdbase doctor` now say
+  that collections are waiting for this computer to sign in (or for the mdbase
+  server to be reachable), instead of waiting for an account upgrade or a
+  migration batch. The portal's sign-in page no longer calls an already-used
+  computer a "New computer".
+- The takeover is recorded in Activity for each collection that moved, and App
+  access explains that apps used with mdbase Connect reappear once Private sync
+  is on for the moved collections.
+- When turning on sync fails, the reason is shown inside the dialog in plain
+  words, and the dialog stays open to retry.
+- `mdbase doctor` reports a build without trust for synced collections and no
+  longer recommends `mdbase sync enable` when that cannot work.
+
+## 0.1.0-beta.141
+
+### Changed
+
+- Re-cut beta.140 as beta.141 without product changes after GitHub dropped beta.140's main push event during an incident. The beta.140 changelog and code are carried forward unchanged.
+
+## 0.1.0-beta.140
+
+### Added
+
+- `@mdbase-dev/ui/collections`: `CollectionGate` and `CollectionPanel` start the SDK front door themselves (`autoStart`, default true, safe with several gates). `extraActions` now appears on every gate screen (beside Sign in when signed out, in the footer otherwise) and can be a function of the screen. App-provided `sections` list collections the SDK doesn't, on the gate's choosing and signed-out screens and in the switcher, and `renderAppCollection` shows one while it's open, with a way back to the list. The switcher takes a leading `icon` (or `"mark"`), rows take an app `rowDetail` line, and `DeleteCollectionDialog`'s `onClose` reports `deleted`, `cancelled` or `failed`. `@mdbase-dev/ui/collections/testing` exports `shareTestDocument()` for Node test setups.
+- `collections.css` falls back to built-in values for every design token, so it renders without `tokens.css`, and every value is customisable through a `--mdbase-collections-*` property. The current-row highlight no longer turns pink on grey surfaces written as `oklch(L 0 0)`.
+
+- `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`: shared collection UI for apps built on the SDK front door, covering the collection switcher, adding a collection, the gate and blocked screens, sign-out and Manage access. It includes a headless `collectionView`, React components and `mountCollectionUi()` for hosts that don't use React. Problems appear with their fix inside them, collection names wrap instead of truncating, popup calls run inside the click, and the layout works by keyboard and at phone width. The SDK is an optional peer dependency.
+
+- `@mdbase-dev/ui/collections`: rows for a Private collection (the SDK entry's
+  `kind: "private"`) show a "Private" label with a lock, in the switcher, its
+  header and the chooser. The word is part of the row's accessible name.
+
+- `@mdbase-dev/ui/collections`: app section items take `actions`, shown in the same row menu as SDK collections, with danger styling for destructive ones. An action's `confirmDelete(onClose?)` opens `DeleteCollectionDialog` for the item, so an app can offer "Delete collection…" on its own collections with the usual typed-name confirmation. Closing a row dialog opened from the switcher returns focus to the switcher.
+
+- Shared collection choosers offer Add a Private collection through the SDK.
+- Apps can show SDK storage eviction warnings beside their save status; unsupported-browser and unavailable-storage screens retain SDK problem copy.
+
+- Add a source-only native SDK record-operation adapter for the editor integration lane. It requires complete, revision-consistent mutation bases and confirmed, unprotected readback, and preserves exact recovery identities after ambiguous SDK failures. The existing Connect gateway remains active pending shared sign-in and collection integration.
+
+### Changed
+
+- The Editor now registers its offline-app service worker after it first becomes usable, instead of from the page head, so a first visit no longer installs and precaches the whole app while the collection is opening. The large-collection loading budget again measures a real first visit.
+
+- The Editor now uses the public SDK application entry for sign-in, requested collection approval, reauthorization and collection selection. It keeps the bundled registration declaration unchanged and opens the editor only for the SDK's usable, current, ready collection. Demo and Connect-management routes are preserved.
+
+- The native-SDK Editor from `release/native-staging` is now main's Editor. It publishes only through the native dispatch path on `release/native-<target>`; the legacy main and version-tag Pages jobs and their `verify-editor-publication` guard are removed, so no main push or tag dispatch publishes the Editor.
+- Old Editor `/connect` links and the **Open Connect** command open the Connect portal for the build's environment (staging builds use `connect-staging.mdbase.dev`).
+
+- Give the editor's existing connection screen owner-supplied native SDK sign-in actions, automatic approval status, popup completion cleanup, and explicit blocked-window recovery. Native collection opening still requires qualified composition inputs; the default gateway is unchanged.
+- Pin the release-qualified SDK archive containing the shared native collection factory and provider-receipt helpers, including both Docker dependency-install contexts.
+
+- Prepare the native Editor staging path with the original cancellation-fixed staging SDK and canonical protocol, exact staging entry/installation origins, verified read-only file previews, and a manual branch-preserving immutable publisher. Keep private collection selection and Native lifecycle SDK-owned. Static source/build checks do not imply live acceptance or production authorization.
+
+- Serve a not-found page with status 404 for unknown Editor paths instead of the app shell. Old `/connect` links still open the editor.
+
+- Editor no longer shows Connected while offline. The collection status says "Offline" while the collection can't be reached, and "Saved on this device; waiting for sync" while changes are kept on this device until they sync; the note's save status says the same.
+
+- Pin the editor to the original ad69a506 SDK dev archive with its original connect-protocol dependency archive, installed as ordinary file dependencies in both Docker dependency-install contexts. The archive is a dev intake, not release-qualified.
+- Port the editor's SDK mode onto the public `MdbaseApplicationEntry`: `SdkEditorRoot` forwards SDK lifecycle, selection, setup, readiness and connection currentness, and opens the existing editor over a native gateway using the borrowed connection's records, files and people clients. The app-owned native sign-in binding and popup are removed; the Connect gateway remains the production default.
+
+- Pin the editor's original release-qualified SDK837 archive, including shared host/caller lifetime composition and optional bounded SDK832 diagnostics. Keep native collection opening disabled until the editor's own composition is qualified; update both Docker dependency-install archive paths.
+
+- Pin the editor and shared collection UI to the unified sign-in SDK. Native callbacks defer closing the original popup to the SDK until completion and custody acknowledgement.
+
+- Admit production migration routing. Production routes migrated owners only when its own deployment is configured with the production migration Worker origin and distinct tokens; LAB and staging are unchanged and local deployments stay refused.
+
+- Prepare the source-bound beta.139 staging trust asset with the existing independent staging roots and certified policy keys; authenticated publication and deployment remain separate gates.
+
+### Fixed
+
+- `@mdbase-dev/ui/collections`: long collection names wrap in switcher rows even
+  when the host app styles `button > span` to one ellipsized line, and the
+  switcher trigger shows up to two lines of the name before cutting it short. The
+  full name stays in the trigger's accessible name and title.
+
+- `@mdbase-dev/ui/collections`: the setup review plans again by itself, with
+  backoff, while the SDK reports a transient refusal (for example another tab
+  finishing setup), instead of stopping at "Try again".
+
+- Cache the Editor app shell and lazy assets for offline reloads through the shared SDK build hook.
+- Do not offer recovery for edits already in the note; explain why editing is paused when a genuinely unsaved recovery copy needs a decision.
+- Preserve another tab's unsaved recovery copy when a saved note is acknowledged.
+
+- Editor now uses local date-time and date-only pickers for schema-declared date/date-time unions, including task schedules and deadlines.
+- Properties omits unavailable filesystem size and modification facts instead of showing Unknown. Frontmatter dates remain separate from file metadata.
+
+- Load readable names for generated-filename notes in the notes list without needing to open them first. Meaningful filenames and declared name fields keep the lightweight metadata-only path.
+
+- Editor's Linked from panel now finds links and embeds in native collection notes after content indexing, using the same Markdown parser and target resolution as forward navigation.
+
+- Editor's All notes badge now follows the complete live note index after additions, deletions and pending changes, including notes in Journal folders, while keeping pagination totals during loading.
+
+- Native Editor publication now re-verifies the custom domain for up to five minutes after the immutable deployment passes, so a Pages alias that briefly keeps serving the previous deployment no longer fails an otherwise good publish. Failures on the immutable deployment remain terminal.
+
+- Use the SDK's native file grant for Editor attachment permissions, failing closed when the grant is unknown or lacks add permission.
+- Upload through the original SDK file API and report success only after the original receipt and file readback match; keep the original mutation ID on uncertain or retired-scope outcomes.
+
+- Prepare the native Editor LAB entry with the producer-qualified SDK 0fabaf20 and native runtime a350db1c, replacing its previous SDK archive. LAB builds now generate the canonical Editor LAB declaration rather than the production declaration. This candidate is not deployed or live-qualified; the legacy OAuth chooser's collection eligibility and format checks are unchanged.
+
+- The editor declares the file actions that pair with its optional record capabilities, so next accounts no longer refuse its Private collection consent.
+
+- Restore the editor's Send feedback entry, lost when the shared collection switcher replaced the editor's own switcher dialog. It now sits last in the collection rail's fixed tools group, after Types and Settings.
+
+- Use the opening readable line as a display-only name for notes with generated UUID filenames when no name or heading is declared. Editing their body does not write that name into the note.
+- Use plain language in type settings, keep type paths and versions under Details, and put undeclared properties on typed notes under Additional properties. Underlying values remain available in Advanced.
+
+- The Editor can open Your person record after person definitions are applied. Contract queries now use bounded pages and continue through the returned cursor instead of requesting an unsupported page size.
+
+### Security
+
+- The Editor now uses SDK-owned, account-bound Native approvals, collection routing and client lifetime instead of an app-owned historical-grant section. Unbound approvals left by older browser sessions are not listed or opened; approve those collections again through Add a collection. Existing browser grants are not imported or relabeled. The pinned SDK attempts whole-store grant cleanup on sign-out; another account's surviving grants remain hidden even if cleanup fails. Isolated custom-adapter lifecycle tests do not add a production fallback.
+
+## 0.1.0-beta.139
+
+### Changed
+
+- Prepare the source-bound beta.138 staging trust asset with the existing independent staging roots and certified policy keys; authenticated publication and deployment remain separate gates.
+
+### Fixed
+
+- Pushes to main no longer redeploy the legacy-SDK Editor to `editor-staging.mdbase.dev`. That build had replaced the native staging Editor, so mdbase-next accounts could never grant it a collection.
+
+- The migration job's completion readback accepts a suspended owner whose migration completed, so suspended accounts no longer stop at `verify_completion` with `lab_completion_missing`. Sharing, timers and every other post-migration guard still refuse suspended owners.
+
+## 0.1.0-beta.138
+
+### Changed
+
+- Prepare canonical beta.137 staging trust metadata while preserving the existing staging roots and certified policy keys.
+
+### Fixed
+
+- A zero-hosted migration cohort whose archive was accepted but which no member ever started can be unfrozen and rerun. Unfreeze advances the cohort's membership revision, so the old acceptance is kept but is no longer current; the rerun freezes, archives and is accepted again. Unfreeze is still refused once any member has started.
+
+## 0.1.0-beta.137
+
+### Changed
+
+- Prepare canonical beta.136 staging trust metadata while preserving the existing staging roots and certified policy keys.
+
+### Fixed
+
+- A migrated account's new collections are created on the control plane's own hosted and escrow deployments. Only legacy hosted collections of a routed owner are served by the hosted migration Worker, so creating a collection after migration no longer fails with 503.
+
+## 0.1.0-beta.136
+
+### Changed
+
+- Prepare canonical beta.135 staging trust metadata while preserving the existing staging roots and certified policy keys.
+
+### Fixed
+
+- Release entitlement reconciliation of active hosted accounts skips accounts whose migration topology is frozen and reports how many it skipped, instead of failing the whole batch and the release.
+
+## 0.1.0-beta.135
+
+### Changed
+
+- Production migration archives use the same scoped-hosted and zero-hosted acceptance profiles, frozen cohort capture, current receiving snapshots, and pre-archive fences as staging, with unchanged environment, membership, retention, and verifier-role checks.
+
+- Prepare canonical beta.134 staging trust metadata while preserving the existing staging roots and certified policy keys.
+
+### Fixed
+
+- Admit the fixed production Connect identity through the same migration CLI and authenticated target bootstrap used by staging, retaining ordinary archive admission, LAB-only custody restrictions and independent deployment-readiness gates.
+- Refuse missing, foreign or arbitrary Connect origins before migration CLI database access, including resume and status commands.
+
+- Add a migration-token route that returns a never-started account's hosted collection from a pre-archive fence to active after its archive failed before acceptance. It undoes only Connect's own latest recorded pre-archive fence run, refuses accepted archives, started or cut-over accounts, superseded or changed runs, run-owned replica revocations and inactive authority, keeps the authority epoch unchanged, serializes with the other migration steps and calls the provider once.
+
+- The native scoped recovered-byte proof now admits staging and production data with the provider's default legacy-only `local` key custody, alongside same-environment keys. `local` custody with any KMS reply and cross-environment keys still refuse, and LAB is unchanged.
+- Native recovered-byte refusals keep the single fixed stderr line but exit with a stage code: 2 header and environment, 3 key preflight, 4 object proof, 1 invocation or framing.
+
+### Security
+
+- Prepare the production NEXT trust asset from existing certified production public pins and canonical CP/log origins, bound to the immutable beta.134 image release. Publication still requires separate approval; no private keys, signing, deployment or rotation are performed.
+
+## 0.1.0-beta.134
+
+### Added
+
+- Show fixed, content-free SDK opening progress in collection gates; retain the slow-opening fallback for older SDKs or unknown stages.
+
+- Shared collection choosers offer Add a Private collection through the SDK.
+- Apps can show SDK storage eviction warnings beside their save status; unsupported-browser and unavailable-storage screens retain SDK problem copy.
+
+- Allow staging migration fixtures to use the existing operator-only legacy invitation option with `@staging.invalid` addresses and `[test]` marking at issuance and signup. Production still refuses overrides, and ordinary invitations keep the configured account backend.
+
+### Changed
+
+- Choose Cloud copy and Private collections from one searchable consent list, with Private lock badges and owner/shared hints. Typing and arrow keys never select or approve; explicitly choose a row before opening the named collection. Keep creation as an explicit action and never preselect a link hint.
+
+- Reduce authenticated hosted-migration claim SQL round trips while preserving
+  fresh source/target checks, key locks, one-use nonce expiry and acknowledged
+  transaction commits. No protocol, schema, timeout or readiness changes.
+
+- Show the collection picker immediately during app sign-in. One explicit approval confirms the account, waits for the original app's device preparation, and approves the chosen access; browsing and filtering never grant access. Keep the app identity, sign-in warning and Details on the picker, and show the app name when a requesting origin is unavailable.
+
+- Attribute policy-emission failures with sanitized callback phase, nonce/RPC
+  step, route name, error code and bounded owned-frame summary. Keep failures at
+  error level without logging raw errors, collection identifiers, tokens or
+  endpoint URLs; retry, ownership and durable acknowledgment semantics are unchanged.
+
+- Queue policy emission and recovery before database checkout when six policy
+  owners are already active in this process. Reserve the other control-plane
+  pool connections for foreground work, without rejecting queued policy work or
+  releasing its admission before lock cleanup and physical connection release.
+
+- Offer one “Add a collection…” action in the shared collection gate and switcher, using the SDK chooser, coordinated with its hosted/Private picker update. Keep the legacy `allowPrivate` presentation option as a deprecated no-op and `addPrivateCollection` UI action as a deprecated alias of normal Add; leave guards, gesture-bound calls, cancellation and save warnings are unchanged. This does not add new Private collection creation.
+
+- Extend the invitation fixture database constraint to accept the reserved `staging.invalid` domain as well as `lab.invalid`. Runtime staging invitation admission is a separate change; existing invitations and account backends are unchanged.
+
+### Fixed
+
+- Keep collection gate headings focused for screen readers without drawing an interactive focus ring; keyboard focus rings remain on controls.
+
+- Use the shared scanning wordmark and opening status in collection gates, including embedded panels, while retaining account and collection-switch actions.
+
+- Keep “Signing out…” visible when the SDK has published its signed-out screen
+  but the original sign-out action is still finishing. Sign in becomes available
+  only after that action settles; SDK shutdown and acknowledgment behavior is unchanged.
+
+- After an account's upgrade is paused and returned to mdbase Connect, app sign-in windows now close with a plain explanation instead of asking people to wait and try again. Installation pairing reports the new `postponed` upgrade state.
+- The legacy SDK keeps the stored authorization when a token refresh fails for a reason other than the credential (for example a collection being upgraded, a rate limit or an outage), and reports it as temporarily unavailable. Only genuine authorization failures remove it.
+- The "collection is being upgraded" message no longer claims changes are safe; it says changes made during the upgrade may not be saved and to check them afterwards.
+- Desktop no longer offers "Move to the new sync engine" before the server allows the move, shows why a move was refused, and explains when this computer moved its collections but the account still uses mdbase Connect. The bundled daemon refuses an explicit move the rollout check does not allow, before stopping the old connector.
+
+- Retry hosted query serialization and deadlock conflicts with bounded, jittered exponential backoff inside the existing operation deadline, preserving exact replay receipts and quota accounting under concurrent queries.
+
+- Keep LAB internal migration-source PostgreSQL connections encrypted without pinning Render's rotating self-signed certificate. Source identity and read-only checks remain in place; staging, production, and ordinary database TLS policy are unchanged.
+
+- Confirm native collection member changes before reporting completion.
+
+- Keep collection search usable in short approval windows by showing a bounded
+  inline collection list instead of a dropdown that can cover its filter.
+  Filtering does not select or approve a collection; existing access and
+  explicit approval behavior are unchanged.
+
+- Keep policy emission and recovery serialized without holding SQL transactions
+  across log-service calls. Fence writes and append decisions on the same owned
+  database session; a disconnected sender cannot acknowledge an uncertain batch
+  after another worker takes over. Preserve original retry bytes, recovery order,
+  atomic loss scheduling and database timeouts.
+
+- Preserve unsent edits from old hosted mirrors during takeover, rejoin their collections automatically, and show waiting imports, recoveries and conflicts without modifying the old folders.
+- Vendor the canonical daemon importer from NEXT #931 (`18f32bd5a`), retaining recovery bytes in its existing owned capture and using fresh rollout permission for explicit retries as well as startup.
+
+- Release collection directory handles after runtime shutdown by updating the
+  canonical filesystem engine's derived-cache ownership. Windows cleanup no
+  longer waits on a stale global identity handle.
+
+## 0.1.0-beta.133
+
+### Added
+
+- Add migration-service-only, idempotent AppendBase abort-barrier and receipt
+  endpoints. A signed freeze fences publication on the original uncutover
+  shadow log; metadata alone cannot authorize native cancellation or rollback.
+  Requires the separately qualified native publication-exclusion consumer and
+  receipt-qualified rollback. Never unfreezes or renews an expired backup hold.
+
+### Fixed
+
+- Replace per-collection account-overview authority, freeze and serving-device reads with set-based inventory queries. Preserve current membership-policy decoding, deletion/suspension denial and permanent device/member-removal rules; validate completed migration evidence once per distinct owner rather than once per collection.
+
+- Keep portal management reads single-flight so slow account loading is not continually superseded by background refreshes. Unavailable initial reads can be retried without signing in again; completed mutations still get a fresh post-operation snapshot.
+
+- Explain account upgrade requirements before app sign-in offers account confirmation, and show policy refusals as the actual blocking state rather than a user cancellation. Upgrading accounts can recheck readiness without granting access.
+
+- Preserve the original Connect-owner migration rollback binding while qualifying the separate provider storage account. Receipts retain both identities atomically, and non-identity accounts can roll back without rewriting an existing intent. Deploy the provider migration and v2 routes before the control plane; the new control plane never falls back to v1. Existing UNKNOWN actions still require their original recovery flow.
+
+## 0.1.0-beta.132
+
+### Fixed
+
+- Keep hosted migration claim issuance available across sequential authenticated reads by counting only unconsumed, unexpired challenges against the subject cap. One-live-nonce enforcement, expiry, proof scope and atomic consumption are unchanged.
+
+## 0.1.0-beta.131
+
+### Fixed
+
+- Allow Node and CLI device-flow applications to use hosted record, sync, and file operations without an `Origin` header when their approved portable capability requires a valid application-key proof. Browser origin restrictions and mirror authorization are unchanged.
+- Preserve hosted provider authorization denial codes in typed SDK outcomes instead of reporting them as unknown problems.
+
+- Next-only apps now receive a specific collection-upgrade outcome for an authorized local collection still held by its legacy desktop installation, instead of a misleading offline, key-registration or approval failure. Updating the desktop app is explained in plain language without exposing unavailable collections or granting legacy access.
+
+### Security
+
+- Add fixed production NEXT trust publication and verification under the existing protected release identity, with the same independent publisher/asset pins as staging.
+- Allow admin certificate tooling to receive root keys over an inherited pipe instead of a plaintext key file.
+
+## 0.1.0-beta.130
+
+### Added
+
+- Explicit account backend metadata (`legacy` or `next`, default `legacy`), available on the session account response and through a minimal authenticated application-grant endpoint before collection setup.
+
+- `@mdbase-dev/ui/collections`: `CollectionGate` and `CollectionPanel` start the SDK front door themselves (`autoStart`, default true, safe with several gates). `extraActions` now appears on every gate screen (beside Sign in when signed out, in the footer otherwise) and can be a function of the screen. App-provided `sections` list collections the SDK doesn't, on the gate's choosing and signed-out screens and in the switcher, and `renderAppCollection` shows one while it's open, with a way back to the list. The switcher takes a leading `icon` (or `"mark"`), rows take an app `rowDetail` line, and `DeleteCollectionDialog`'s `onClose` reports `deleted`, `cancelled` or `failed`. `@mdbase-dev/ui/collections/testing` exports `shareTestDocument()` for Node test setups.
+- `collections.css` falls back to built-in values for every design token, so it renders without `tokens.css`, and every value is customisable through a `--mdbase-collections-*` property. The current-row highlight no longer turns pink on grey surfaces written as `oklch(L 0 0)`.
+
+- `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`: shared collection UI for apps built on the SDK front door, covering the collection switcher, adding a collection, the gate and blocked screens, sign-out and Manage access. It includes a headless `collectionView`, React components and `mountCollectionUi()` for hosts that don't use React. Problems appear with their fix inside them, collection names wrap instead of truncating, popup calls run inside the click, and the layout works by keyboard and at phone width. The SDK is an optional peer dependency.
+
+- `@mdbase-dev/ui/collections`: rows for a Private collection (the SDK entry's
+  `kind: "private"`) show a "Private" label with a lock, in the switcher, its
+  header and the chooser. The word is part of the row's accessible name.
+
+- `@mdbase-dev/ui/collections`: app section items take `actions`, shown in the same row menu as SDK collections, with danger styling for destructive ones. An action's `confirmDelete(onClose?)` opens `DeleteCollectionDialog` for the item, so an app can offer "Delete collection…" on its own collections with the usual typed-name confirmation. Closing a row dialog opened from the switcher returns focus to the switcher.
+
+- Service-local `auth-admin archive drain-deletions` reuses existing deletion workers before migration freeze and refuses unless the current unfrozen cohort and all three deletion queues are strictly known empty. Results are observations, not physical-erasure receipts or capture authorization.
+
+- Add optional `@mdbase-dev/connect/timers` `appTimers(connection)`, a
+  retained-app-grant port for the existing opaque control-plane timer HTTP API
+  and specific WebPush/FCM channel operations. It does not open a data session,
+  expose credentials or retry uncertain writes. `close()` stops this port
+  without deleting persistent notifications. Private collection timer
+  permissions still require control-plane approval/resolver support; no hosted
+  or old data-API fallback is introduced.
+
+- Cloud-copy collections have durable shared catalog names, optional initial naming and an owner-authorized metadata rename API. Existing legacy labels are preserved; private-sync name creation and rename remain unavailable.
+
+- Internal migration tooling can read the current started-owner claim and public SHADOW target tuple without creating a target or changing the legacy provider. These facts do not grant native migration or serving permission.
+
+- Add strictly typed CP nil-registry record/page transport and durable generation-pinned deletion-denial union, retaining committed page denials on failure or drift. Startup serving gates and typed Gone integration follow separately.
+
+- Add bounded candidate transport for device-origin-signed approval metadata between registered USER devices. Metadata queueing and acknowledgement do not activate PRIVATE grants, deliver keys or indicate approval readiness.
+
+- App manifests may declare exact Chrome extension origins for installation pairing, and the approval screen says when a mobile app or browser extension is asking.
+- Installation pairing can return the user to the app after approval through a `return_url` that exactly matches one of the app's declared redirect URIs.
+
+- File uploads accept a bounded `maxAttempts` option and `noAutoAbort` for caller-managed recovery. Existing retry and cleanup defaults remain unchanged; callers can choose a single attempt without automatically deleting an incomplete transfer.
+
+- First-party per-installation devices can register with the existing mobile and app-runtime policy kinds, preserving connector proof-of-possession, immutable key bindings, exact enrolment, and current authorization checks.
+
+- The editor opens with a launch entrance: small birds fly in from the edges of the screen, land on the 42px mdbase mark and close up into it, then the mark scans until the collection is open. It plays once per page, lasts under two seconds, holds a fast open until the mark has landed, and is skipped with reduced motion or in a background tab. `OpeningScreen` takes `entrance="flock"` and `@mdbase-dev/ui/screens` exports `useLaunchEntrancePlaying()` for other apps.
+
+- Added audited, migration-token-only hosted source and fence endpoints using the existing provider drain and migration transition. These endpoints preserve legacy run identity and retained journal evidence; they do not enable target serving, cutover or rollback.
+
+- Create or find migration SHADOW targets through the shared service bootstrap while checking the current legacy owner and exact migration start claim.
+
+- Include the original signed genesis bytes and exact hash in bounded authenticated hosted service-device bootstrap records for independent verification before key use.
+
+- Add internal hosted migration rollback receipts binding the exact provider run and requested/restored replicas, with read-only lost-response lookup.
+
+- First-party browser and mobile installations can use the existing device-pairing
+  channel to select an account, attest their original device key and request
+  explicit device approval. Interrupted exchanges reconcile the same registration
+  and installation-scoped credential without creating another device.
+
+- An installation can ask for an optional file action that its manifest declares in `requirements.files.optional` (for example `add`) on one collection it can already open, with a one-line reason. The approval page shows a focused Allow / Don't allow screen with that reason. The decision is recorded for that app and collection, and the app learns the outcome (`file_access_updated` or `declined`) from its request. An installation's collection listing includes approved file actions when asked with `?include=file_actions`. The approval records the person's choice for the app to follow. It does not narrow the installation device's access to the collection.
+
+- Let an app installation end its own device session with only its
+  installation credential (`DELETE /v1/next/installation`, used by the SDK's
+  `signOut()`). The route revokes the device in each collection it was
+  enrolled in, removes its collection access, revokes the credential and its
+  background grants, and closes its relay connections. Ordinary connector
+  credentials get 403 `installation_required`; an unknown or already revoked
+  credential gets 401 `invalid_connector`.
+
+- Recognize a separate LAB cohort archive verifier-result format that preserves per-component runtime provenance while retaining frozen membership, freshness and retention checks.
+
+- Add opt-in fixed-run LAB cloud-copy routing, stateless escrow factory selection, distinct device/app-grant current-authority checks sharing canonical grant terms, separate original CP-principal sending-genesis/current-collection and isolated nil denial-only metadata observations, isolated registry metadata reads, and an owner-session delete/revoke adapter for the Gate4 recovery drill.
+
+- Permit the fixed isolated TaskNotes harness origin `http://127.0.0.1:48218` only for LAB web installation pairing; production, staging and mobile origin policies are unchanged.
+
+- LAB migration fixtures can request a legacy-born account on an individual `[test]` invitation without changing the deployment's default for new accounts. The override is refused outside LAB and is honored through normal invitation signup.
+
+- LAB migration operators can request `lab-run --stop-before-flip` to pause after
+  verified H1 and before native cutover preparation. `resume <account>` releases
+  only the current paused native run through the authenticated operator entry;
+  lost or drifted outcomes stop without retry. Requires compatible hosted Worker
+  code; normal runs are unchanged.
+
+- Legacy v4 archive metadata accepts canonical `legacy-archive/` physical prefixes while preserving historical locations, immutable receipts and existing admission checks; routine prefixes remain refused.
+
+- Add bounded, content-free provenance storage for legacy timer imports, with required original-record digests, hashed subject/source identifiers, validated erasure markers and exact timestamp metadata when target microsecond precision loses digits. This schema change does not enable migration or timer delivery.
+
+- Next desktop and CLI devices can explicitly retire a matching legacy local connector after takeover. Retirement requires the exact positive registered inventory, preserves collection, grant and rollback-binding rows, and refuses connectors already registered as next devices. Enrollment, inventory and retirement serialize against current account and connector credentials; retirement does not activate grants, rotate keys or change the account backend.
+
+- Add an explicit local-only server build for isolated migration rehearsals. Its canonical target, service-device factory and claim-proof transports accept only exact loopback origins; managed builds continue to reject local configuration and require their existing HTTPS origins.
+
+- Add native-only local rollback binding preparation with a durable, idempotent result for each collection and rollback ID. Replays do not rotate twice; identity, inventory or binding drift fails closed. Preparation does not reverse account migration, reactivate a connector or authorize application access.
+
+- Add a bounded dedicated-service migration capture inventory for LAB and staging archive preparation, preserving complete membership while excluding terminal accounts from payload selection.
+
+- The operator migration job (`next-migration-lab`) now runs in a staging deployment as well as LAB. It reads the environment from the deployment's own configuration, uses that deployment's canonical Connect origin, requires the ordinary archived start in staging and flips and cleans up timers as staging. Production and local deployments are still refused, and the timer rollback-cleanup HTTP route stays LAB-only.
+
+- A LAB-only operator command, `next-migration-lab`, runs one tiny fixture account's hosted migration end to end (`lab-run`) or routes it back before cutover (`route-back`). It stops for an operator on any unknown outcome and prints the step, the reason code and the commands to inspect and resume. See docs/lab-migration-run.md.
+
+- The operator migration job (`next-migration-lab`) prints one `worker_timeline` JSON line on stdout each time the hosted Worker's migration status changes. The line has the time since the run started, the run state and reason, the native checkpoint step and the kind of the last prepared action. Rehearsal logs now show how long each step took. Polling and decisions are unchanged.
+
+- Migration-token route that queues a member policy item for each current member of a migrating collection on its new target, bound to the current migration claim and provider run. Active members keep their role, members with a pending role change are carried as viewers, and revoked or revoking members and pending invitations are not carried. Repeating the request queues only what changed since, including removing members who left during the migration, and the route returns the exact member map the new backend must hold. The cutover policy now refuses until the target's queued members match.
+
+- Dedicated LAB/staging migration-service endpoints can authorize an original hosted source fence and read its drain before archive acceptance or account start. They require the complete cohort inventory and preserve existing start-gated migration paths.
+
+- Migration-token routes for the fence-first collection migration: list, revoke and unrevoke legacy mirror replicas, unfence a pre-cutover legacy collection, and queue the control-plane `migration-cutover` policy (with `freeze false`) naming exactly the replicas the current provider run revoked. Each route requires the current migration claim and provider run and refuses stale, foreign or superseded ones; rollback steps refuse once the cutover policy is queued, and a repeated cutover request finds the queued policy instead of adding another.
+- Hosted provider: a read-only internal route listing the replicas whose revocation the current migration run owns.
+
+- Migration-token routes `…/rollback` and `…/rollback-receipt` in front of the hosted provider's receipted pre-cutover rollback. Both are bound to the current migration claim and the exact rollback binding (with the collection's current authority epoch added by Connect, never the caller) Connect records before the first dispatch, and return the provider receipt only after verifying that it echoes that binding. A receipted rollback also settles the LAB timer rollback cleanup.
+
+- Control-plane routing of migrated owners to the hosted migration Worker now works in staging as well as LAB, configured by `MDBASE_NEXT_MIGRATION_HOSTED_URL`, `MDBASE_NEXT_MIGRATION_HOSTED_TOKEN` and `MDBASE_NEXT_MIGRATION_INBOUND_TOKEN` and admitted only from the deployment's own environment and canonical origin. Production stays refused (`migration_routing_production_disabled`) behind a single code switch; local deployments are refused. LAB keeps accepting its earlier `MDBASE_NEXT_LAB_MIGRATION_*` names.
+- LAB cleanup: `POST /internal/v1/next/migration/collections/:id/routing/retire` (migration token, LAB only) retires a disposed fixture collection's migration route, so the control plane stops waking, routing and serving records for it.
+
+- Add migration-token-only source witness issuance using the existing control-plane signer, frozen legacy source observation and authenticated native admission observation. Native authority, revocation and terminal deletion/rollback qualification remain separate activation gates; no application/session or raw-sealer access is added.
+
+- Let native installations request explicit reminder permission for the chosen collection without a legacy OAuth grant. Reuse the existing timer, recovery receipt, sealed channel and notification engines with current installation authority; declining leaves reminders off, and changed permissions require fresh approval without replacing device keys.
+
+- Let a currently enrolled desktop or CLI connector read the exact migration cutover metadata for a current collection it belongs to, including cross-account membership. Sequence fields are lossless decimal strings; the read grants no installation, key, policy or admission authority.
+
+- Device sign-in explicitly confirms the signed-in account for each approval request, including collection access updates, and returns the confirmed email to the requesting app.
+- The device approval portal lets users choose a collection or create a named cloud-copy collection before approving access. Final receipts identify the exact approved selection and collections created in that request; existing collections do not receive fresh-creation provenance.
+
+- `MDBASE_NEW_ACCOUNT_BACKEND=legacy|next` (default `legacy`) selects the
+  backend of newly created accounts: OAuth sign-up, email sign-up and
+  invitation acceptance. Set it to `next` at the all-user cutover so new
+  sign-ups can use the new apps at once.
+  - A `next` account is created fully flipped: the backend marker, a flip
+    record with no collections and the flip audit event, written by the same
+    code as the staged migration's flip.
+  - The installation sign-in page shows the "mdbase was upgraded" notice only
+    to migrated accounts, not to accounts created on the new backend.
+
+- Create cloud-copy collections on the next control plane, behind
+  `MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1`:
+  - for a signed-in account with no device
+    (`POST /v1/next/collections/cloud-copy/service`), where the hosted replica is the
+    first member;
+  - or from an owner's registered device (`POST /v1/next/collections/cloud-copy`).
+  In both cases the hosted and escrow deployments generate their own service
+  devices, and the genesis enrols them.
+- Enrol an owner's registered device into a cloud copy
+  (`POST /v1/next/collections/:id/devices`, signed with a fresh device challenge).
+  Private collections refuse this.
+
+- Let a device enrolled in a synced next collection renew its role-0 log
+  token (`POST /v1/next/collections/:id/log-token`, signed with a fresh
+  device challenge). The token covers that one collection, lasts 15
+  minutes, and is issued only while the device's exact enrolment has been
+  acknowledged by the log and not revoked. It grants no membership or key.
+
+- Owners can delete a synced collection with `DELETE /v1/next/collections/:id` and its current name as confirmation. Access ends immediately for every account, device and app; stored data is kept but cannot be reached.
+
+- Current registered next-device credentials can read exact public account and collection member metadata for native private/cloud-copy collections. Access requires the current device, acknowledged membership/enrolment and original key tuple; installation collection scopes remain enforced, and revoked historical devices cannot regain access through re-invitation.
+
+- Discover current enrolled cloud-copy hosted Noise targets at an operator-configured origin before daemon fallbacks, without treating enrolment or activation as live readiness.
+
+- Staged migration of hosted collections to mdbase-next, driven by the hosted
+  migrator over a dedicated token (`MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN`).
+  - Operators release cohorts; there is no user opt-in.
+  - One global pause (the rollout starts paused) refuses the atomic per-account
+    start claim. An account that has started always finishes.
+  - Each hosted collection's cutover is recorded only for the control plane's
+    cloud copy with the preserved ID, and routes it to the next runtime.
+  - The guarded account backend flip is the only setter of
+    `account_backend = next`. It requires every settled hosted collection to be
+    cut over, and an evidence digest that the server recomputes from those records.
+  - A flipped account cannot create legacy hosted collections.
+  - A migrating account's collections are never quarantined as missing.
+  - Account deletion during migration is immediate and terminal.
+  - Every change is an audit event. The `next:migration-rollout` CLI pauses,
+    resumes and manages cohorts and records the operator.
+
+- Return exact account UUIDs alongside portable people profiles for next accounts, behind current user-approved identity/member permissions and active log-grant bindings.
+
+- An enrolled device of a private collection can ask for a fresh SAS commitment
+  (`POST /v1/next/collections/:id/private/devices/approval-request`, signed with a
+  fresh device challenge). The control plane appends the signed `approval-request`
+  policy op; an existing keyed device then approves the device again.
+
+- `GET /v1/next/apps/collections` reports `role` (`owner`, `editor` or `viewer`) for a Private collection while the account is a current member, so apps can show owner actions. It is omitted otherwise.
+
+- Create private (end-to-end) collections on the next control plane from an owner's
+  registered device (`POST /v1/next/collections/private`), behind
+  `MDBASE_NEXT_PRIVATE_BOOTSTRAP=1`. The genesis enrols only that device, and no
+  hosted or escrow device is ever enrolled.
+- Enrol a registered device of a current member into a private collection with its
+  SAS commitment (`POST /v1/next/collections/:id/private/devices`). The device holds
+  no key until an existing keyed device approves it and grants the key.
+
+- Behind the next control-plane flag, serve `GET /v1/next/rollout` to connector credentials: `local_takeover` is true only for an account already on the next backend, the response names only the caller's own backend, and it is never cached. Anonymous, session, app installation, revoked and suspended callers get 401.
+
+- Store service-device records (public keys and KMS-wrapped private keys) for
+  hosted-replica and escrow members of cloud-copy collections, and let each
+  deployment fetch its own kind's record and refresh a role-0 log token scoped to
+  one collection. Inactive unless the next control plane and the matching internal
+  service token are configured.
+
+- Installation and reconsent approval links can request a collection. The portal preselects it only from the confirmed account's approvable list; unavailable hints reveal no collection existence and grant no access.
+
+- Add permanent next-collection deletion denial facts outside live-row/account cascades, with immutable CP intent and denial-monotonic native-floor union primitives. Native fence receipts, startup reconciliation and user-facing deletion integration remain separate work.
+
+- Fixed-run control-plane original-admission responses authenticated with the existing certified policy key, exact original genesis anchors, caller challenges, and short purpose-specific freshness. Device and nil-registry admission are excluded.
+
+- Web applications can ask for access to a Private collection. The account owner or a member approves it in the browser, then a desktop of the account approves it on the device; until then the collection is listed as needing approval.
+- Collection routes and the installation collection list report availability: available, or unavailable because the desktop is offline, needs an update, is blocked by an older connector still running, still has to approve the app, or because the collection must be set up again after moving to the new sync (`sync_required`).
+- Desktops can fetch the terms of a pending Private grant (`GET /v1/next/grants/:grantId/terms`) to show before approving it.
+
+- Web apps granted a Private collection can read its people metadata (`/v1/authorities/:id/identity` and `/members`) with their access token, once a device of the account has approved the app and the person approved people access.
+
+- The hosted provider has `migrating` and `migrated` collection states for the
+  mdbase-next migration.
+  - Both refuse writes and reads. Replica registration and token rotation answer
+    a distinct `collection_migrating` (409), never a not-found.
+  - `migrated` needs at least 90 days of `legacy_retain_until`, never shortened.
+    The provider refuses it while accepted writes are still in flight.
+  - Once cut over, a collection returns to `active` (directly or through
+    `migrating`) only with `reverse_verified`. Rollback to `active` can restore the
+    replicas revoked during the migration in the same transaction.
+  - Compaction is refused and the blob deletion worker never removes a retained
+    collection's objects, whatever queued them. Retention is rechecked under the
+    collection lock right before each deletion.
+  - Deleting a collection or account is immediate and terminal, even during
+    retention: its objects are purged and no rollback path accepts it.
+  - A drain status route reports the head and the accepted mutations still
+    holding a live lease.
+  - Nothing calls these routes until the migration runs.
+
+- LAB/staging scoped archive acceptance can bind the original hosted source fence to ordinary account start. Native migration fence/source fronts check that accepted lineage instead of physically fencing the provider again; existing claim, drain and readiness checks remain required.
+
+- Approve first-party installation access to named cloud-copy collections and an explicitly requested create capability. Created collections join only that installation's scope atomically; existing installations use additive same-device re-consent.
+- Discover/join collections and read people only within approved UUIDs and current membership/enrolment. Explicit collection removal revokes the app's grants and enrolled installation devices without changing other collections or accounts.
+
+- Add a native selected-archive file recovery component that authenticates legacy collection keys and current/retained metadata, then checks original recovered file bytes against their authenticated size/digest. It returns inventory only, not archive verification or migration acceptance.
+
+- Expose the existing version-aware application authorization compiler from the shared protocol package for native SDK consumers. Connect uses the same implementation: bare full-collection requirements remain semantic v1 with four read-only operations and no file request; explicit declarations and choices retain their original behavior.
+
+- Add a fixed staging trust publication selector that refuses missing or mismatched reviewed assets; ordinary image publication remains separate.
+
+- Each hosted timer import page now records which provider run imported which timers. In LAB, a claim-bound route deletes a rolled-back run's unchanged imported timers after a settled pre-cutover rollback, so a later run can import the collection again. Drifted rows, native timers and other runs' timers are never deleted.
+
+- Admit the explicit LAB/staging zero-hosted archive profile for complete frozen cohorts, with current empty-hosted scope checks at acceptance, start and completion and unchanged elapsed-time and immutable-receipt guards.
+
+### Changed
+
+- Installation device pairing now uses registered application IDs, names, and exact environment/kind origin policies instead of TaskNotes-specific code. Explicit access removal is scoped to the registered application family.
+
+- Application access uses plain-language labels for record types, app setup and scheduled activity. Grants show their exact application origin, identify local development origins, and include the collection ID so collections with the same name can be distinguished.
+
+- The desktop app recognises collection handoff to the newer mdbase runtime and leaves the old connector stopped while migration is in progress.
+- A bundled newer runtime can be installed only when the account rollout explicitly allows it; existing newer installations are preserved. The app's own update checks remain available after handoff.
+
+- Check protocol and UI bundle changes on Linux without rebuilding unrelated native release packages. Desktop packaging, native inputs, shared lock resolutions and release dispatches retain their platform checks.
+
+- CORS preflight responses now carry `Access-Control-Max-Age: 7200`, so
+  browsers stop sending an OPTIONS request before every cross-origin app call
+  (about 190 ms each on a warm app open).
+
+- Apps that have not updated get a clear message when their collection moves to the new sync service: a prompt to reload or update (with the download link and an optional minimum version) instead of a "collection not found" error. While a collection is being upgraded they are told their data is safe and when to try again, and suspended accounts get a plain suspension message.
+- The sign-in approval page tells returning users that mdbase was upgraded and that they need to approve each app once to continue.
+
+- Validate exact, bounded hosted migration rollback receipts in the internal provider client without automatically repeating a rollback request after an uncertain response.
+
+- In environment `lab` only, a tiny LAB fixture cohort now completes at its final account flip without an archive acceptance, when every member's LAB start binds the current inventory and every member flipped on its recomputed cutover evidence. Imported timers and original invitation links then work. Other environments never complete a fixture cohort, and a completed cohort can no longer be unfrozen.
+
+- Extend installation pairing regression coverage through initial consent, additive consent, and explicit access removal for the approved TaskNotes LAB loopback origin.
+
+- Isolate an explicitly configured LAB migration account on its own hosted deployment, using authoritative collection ownership and distinct scoped service credentials; other accounts keep their existing routing.
+
+- Make the bounded migration receiving view available in LAB using the existing verified LAB archive profile and unchanged complete-inventory checks.
+- Add an explicit LAB-only tiny-fixture start profile, bound to the exact frozen one-account, one-hosted-collection inventory without manufacturing an archive acceptance.
+
+- Clarified legacy archive drain-before-freeze timing, completion closure and removal deadlines separately from routine backup retention.
+
+- An app sign-in refused because the account has not been upgraded yet now says
+  where the upgrade stands, in plain words (`details.upgrade` on
+  `installation_legacy_backend`). Mid-upgrade, the window stays open with
+  **Try again**. Otherwise the window is cancelled, and an account with no
+  upgrade scheduled is pointed to support@mdbase.dev.
+
+- Add a bounded complete staging receiving view to the existing migration archive-binding route, preserving its default header and canonical archive checks. Provider fence retries refuse changed migration runs; receiving metadata does not establish original command success, native readiness or ordinary suspended-account access.
+
+- Track provider migration runs and ownership of migration replica updates across rollback.
+
+- The migration rollback and rollback-receipt routes accept an optional `authority_epoch` only when re-reading a recorded rollback; it must equal that original binding's epoch. A fresh rollback still takes the epoch from the collection's current binding and refuses a caller-supplied one.
+
+- App manifests refuse redirect URIs containing wildcards, and installation pairing hands back only through a return URL that exactly matches a declared redirect URI.
+
+- Joining a cloud copy on the next control plane now also returns the
+  collection's log URL and its genesis item, so the joining device can verify
+  and pin the genesis before it trusts the log.
+- Enrolling a device in a private collection on the next control plane also
+  returns the log URL and the genesis item, for the same reason.
+
+- Synced next-runtime application approvals and permission changes now queue exact, non-broadening policy grants transactionally. Narrowing rotates the immutable log grant ID, and all SQL revocation/deletion paths queue its revocation atomically. Noise discovery returns the current log identity plus the stable Connect authorization reference; private approval reports bind to the current log identity.
+
+- Present next application permissions as jointly approved record and file actions, refuse missing paired declarations, and preserve exact independent controls for legacy accounts.
+
+- Collections created on mdbase-next are stored in the region nearest their owner. A new collection uses the timezone its owner's device reported at sign-up; a migrated collection uses its hosted collection's timezone, falling back to the owner's other hosted collections. Without a timezone the log service's default region applies.
+
+- A collection's hosted copy on mdbase-next is created in the same region as its log. Connect records the region the log service chose when it created the log and passes it to the hosted service when the collection is activated or admitted for migration. Collections without a region keep the hosted service's default.
+
+- Add LAB-only privacy-bounded service-wake correlation logs (hashed collection tag, role, timestamp, delivery outcome and retry intent); never log tokens, URLs, IDs or response bodies.
+
+- Apps that have not updated now get the same update prompt for a desktop collection that moved to the new sync service, instead of being signed out. Suspended accounts see the suspension message there too.
+
+- Simplified device approval to one named collection picker. Choose an existing collection or “New collection…” and enter its name; Approve creates and opens it. Additional collection access and technical details stay behind disclosures. The primary action becomes visibly enabled immediately after a valid choice. Existing access and per-collection authorization checks are unchanged.
+
+- Rename PostgreSQL test fixtures without changing migration locking or isolation assertions.
+
+- `@mdbase-dev/connect-protocol` validates application manifests with precompiled standalone validators generated from the published schemas. Validation results, issues and strict refusal are unchanged, and the package no longer depends on Ajv at runtime, so browser bundles that import manifest validation are smaller.
+
+- Private collections use account consent alone: no second computer approval or key-code comparison is requested. App access works while the account's signed-in computer is running; Private data stays on that computer. Revocation, exact grant terms, and current membership checks remain enforced.
+
+- Private end-to-end synced collections now support optional cleartext control-plane labels at creation and owner-only rename, using the existing synced collection naming rules. Contents remain end-to-end encrypted; local-only names and installation consent are unchanged.
+
+- Computers can be filtered by name, registration ID or connection status. The count now describes registered computers rather than implying every entry is connected. Registration dates and short IDs distinguish repeated computer and browser-session names; existing revocation and sign-out controls remain explicit.
+
+- Public service-created cloud copies and internal migration SHADOW targets share the same service-device and policy-outbox bootstrap. Retries preserve the original owner, root, runtime, name and service identities; public creation refuses frozen migration topology and deleted collection IDs.
+
+- Allow the authenticated release-trust reference consumer to verify independently supplied staging context, while keeping the fixed trust publisher LAB-only.
+
+- Allow an optional password-signup IP attempt limit for staging and LAB. The default remains 10 attempts per hour, invitation previews share the same limit, and deployments outside staging or LAB refuse to start when the override is set.
+
+- The account migration start records a digest of the account's starter reservation, and the account flip refuses with `starter_reservation_changed` when the reservation changed since the start (or `starter_provisioning_in_flight` while it is being provisioned). The reservation is carried through the flip unchanged.
+
+### Fixed
+
+- `@mdbase-dev/ui/collections`: long collection names wrap in switcher rows even
+  when the host app styles `button > span` to one ellipsized line, and the
+  switcher trigger shows up to two lines of the name before cutting it short. The
+  full name stays in the trigger's accessible name and title.
+
+- `@mdbase-dev/ui/collections`: the setup review plans again by itself, with
+  backoff, while the SDK reports a transient refusal (for example another tab
+  finishing setup), instead of stopping at "Try again".
+
+- Keep pairing and authorization popups connected to the app that opened them, so the app can close the window when sign-in finishes. Only approval pages and their same-origin sign-in return flow use this policy; ordinary portal pages and API protections are unchanged.
+
+- Fixed migration archive acceptance refusing a full-size cohort: the acceptance request (membership plus every ordered source fence) is now bounded at 1 MiB instead of 4 KiB. Freeze and start requests remain bounded at 4 KiB.
+
+- Fix account collection creation after an account upgrade. Keep the original creation request across retries and reloads so an uncertain result does not create another collection. Use one Add collection panel, with desktop help for adding collections from a computer.
+
+- Keep this browser's sign-out action above the session list, including when sessions cannot load. Show pending and retryable failure states without signing out other sessions.
+
+- Derive app-key fingerprints shown in consent and relay policy from the canonical policy `H(client-fp)` domain hash. Display the first 16 hex characters as `xxxx-xxxx-xxxx-xxxx`, matching native clients. These display strings are recomputed from stored public keys on each response, not persisted; no data migration is needed. Private grant approval already verifies the canonical full digest and is unchanged.
+
+- Keep a connected computer's last-seen status current when its existing relay policy renewal is acknowledged, instead of letting a healthy long-lived connection appear offline.
+
+- Explicitly revoked application grants no longer keep obsolete reauthorization notices that made removed access reappear in account management. Pending authority confirmation remains visible as Revoking.
+
+- Require a nonempty frozen account cohort before migration archive acceptance or reuse, while preserving complete ownership coverage, public binding metadata and immutable historical receipts.
+
+- Hosted and escrow reads honor current collection deletion and device revocation before returning wrapped records or minting log tokens; deleted collections are unavailable in the service directory.
+
+- The hosted provider no longer restarts a semantic projection rebuild from scratch when records are written while it runs: a completed rebuild replays up to 64 changed records through write-path maintenance and activates at the current head. Rebuild batches also stop after about one second, so record writes, notification recovery and the migration fence no longer hit the 5 s lock timeout while a large collection is being indexed.
+
+- Hosted collection renaming checks current action permission under the collection's mutation lock before applying provider or catalog changes.
+
+- Preserve original timer generations, states and timestamps during migration; reject incomplete or conflicting records instead of resetting or skipping them.
+- Require complete original account-migration readback before imported timer mutations, firing, receipts or cleanup. Bound stored provenance and prevent an old import from restoring erased timer data.
+- `next-timers copy-hosted <collection>` imports every original timer of a fenced, drained hosted collection in bounded pages, verifies the imported set equals the source under one unchanged provider watermark, and records a content-free manifest. The lossy internal timer import route is removed.
+- The account flip now requires the next timer service, each legacy source `migrated`, and each hosted collection's timer import to still match the provider watermark, the same legacy run and the target timer rows.
+
+- Replace lossy hosted timer export with bounded, frozen, SELECT-only keyset
+  pages preserving original identity, generation, terminal state and timestamps.
+  Refuse unsettled or unrepresentable records instead of silently skipping them.
+- Close the legacy `copy-hosted` CLI path until strict original-timer import and
+  authenticated page consumption are integrated, preventing generation resets,
+  omitted pages and replay of previously delivered reminders.
+- Add isolated PostgreSQL read-only source regressions for complete multi-page
+  inventory, nanosecond originals, expired/unfinished work, SQL/record mismatch
+  and missing runtime schema without initializing storage.
+
+- Fixed “Use this account” failing during sign-in for returning accounts with a linked sign-in email.
+
+- GitHub accounts without an email can now confirm device sign-in using their GitHub login. If the signed-in account cannot be identified, the page offers a link to sign in again.
+
+- Device approval no longer shows an empty outlined "Additional collection access" box when there is nothing extra to allow, and the reminders checkbox is no longer drawn as a tall block. `@mdbase-dev/ui` adds `Checkbox` and `CheckboxGroup` (`@mdbase-dev/ui/checkbox`): a labelled checkbox row with a 44px target, and a legend-titled group without the browser's fieldset outline.
+
+- Require explicit selection of the same account before approving a renewed, previously denied first-party installation sign-in; retain the original device and attested keys.
+- Clarify that mobile and app-runtime installation kinds carry identical endpoint authority.
+
+- Refuse installation-device sign-in for legacy-backend accounts at selection, attestation, approval and exchange, including replay after rollback; cancellation remains available.
+
+- The device sign-in approval page no longer leaves people stuck after a refused step. Retryable failures offer Try again. When the chosen account can't be used for this sign-in, the page explains why in plain words and cancels the request, so the app stops waiting and can offer sign-in again. An app polling a cancelled request now gets `installation_pairing_denied` and can renew the request.
+
+- Hosted installation recovery can bind START to one immutable collection UUID. Retries, renewals, approval and credential exchange preserve that target and refuse broader, changed, newly created or Private scope without granting access from recovery metadata. Ordinary Add and pending responses retain their previous shape.
+
+- Hosted and escrow deployments' authenticated calls to the control plane's internal routes are now rate limited per service (12,000 requests a minute) instead of sharing the per-IP limit (600 a minute) with public traffic, so many hosted collections behind shared egress addresses no longer receive 429 responses. Requests without a valid service token keep the per-IP limit.
+
+- Route released, frozen LAB migration cohort members to the configured migration hosted deployment without per-run environment edits. Bootstrap, discovery and scoped claim readers share the same DB-backed account classifier; the explicit account CSV remains a fallback.
+
+- Preserve bounded LAB custody failure call, name and message in the private migration diagnostic file, without exposing sub-causes in progress or result output.
+
+- Prepare the canonical SHADOW cloud copy and service-device identity before the LAB migration runner asks the Worker to open custody. Failed preparation stops before Run dispatch; ordinary custody access and serving admission are unchanged.
+
+- Capture LAB hosted-migration Worker ready/run error messages and stacks in an explicit private operator file, without printing raw details or changing unknown-outcome reconciliation. Staging and production do not enable raw capture.
+
+- LAB reserved-account migration routing no longer requires or changes an unrelated default hosted client URL. Authenticated owned discovery uses the validated scoped destination; other accounts retain their configured default or existing missing-default behavior.
+
+- Allow an explicit bounded account UUID list to use the LAB migration Worker, preserving authoritative ownership checks and normal routing for unlisted accounts.
+
+- Allow an explicitly selected LAB rehearsal owner source identity only over the existing exact certificate pin, with PostgreSQL read-only startup options and the canonical timer importer's read-only transaction. Dedicated SELECT-only readers remain required for staging and production.
+
+- Preserve bounded, token-free LAB target-preparation sub-causes in the existing private error capture before Worker Run. Distinguish configuration guards, fetch failures, HTTP refusals and response validation without retrying or changing custody authorization.
+
+- Read legacy hosted mutation journals through their replica-to-collection binding during timer migration. Validate the source query against the actual legacy provider migrations and pinned runtime bootstrap instead of a fabricated journal collection column.
+
+- Require original notification effect admission and unsettled-work drain checks during hosted migration, with an uncapped same-snapshot content-free watermark on the existing authenticated drain response.
+
+- Preserve timer declarations and consent throughout application sign-in, approval, exchange, and background notification handling on explicitly local-built servers. Local declarations require the server's own local environment and an exact loopback origin; managed environment checks and registered-origin authorization are unchanged.
+- Reject port zero in local loopback origins.
+
+- Allow registered applications to start device sign-in on explicitly local-built, local-environment servers using exact loopback origins. Managed builds still reject the local environment, and registered origin checks remain required.
+
+- Add regression coverage for local retirement's native UUID ordering, case canonicalization, and duplicate-inventory refusal.
+
+- Admit scoped zero-hosted migration archives and capture in compiled local rehearsal servers, while managed builds continue to reject local archives and local builds reject managed archive profiles.
+
+- The MCP server image build copies the app-ui package's vendored SDK tarball that the workspace lockfile references, so its frozen install no longer fails and release images publish again.
+
+- Preserve binary device keys and challenges in the in-memory database test adapter instead of interpolating lossy UTF-8 SQL literals.
+
+- The hosted migration executor's claim challenge and claim read calls to the control plane are now rate limited per service (4,800 requests a minute per route) when they carry the hosted service credential, instead of 20 requests a minute per IP address, so collections migrating behind shared egress addresses are no longer throttled. Requests without the credential keep the per-IP limit.
+
+- Preserve original emailed hosted invitations across completed account migrations without thawing unrelated topology. Acceptance checks the original flip, current inventory and cutover digest, NEXT registry, archived cohort binding and completed revision; incomplete migrations return a typed retryable `collection_migrating` refusal. Tiny LAB completion remains closed pending its genuine verification/recovery producer.
+
+- Return persisted legacy migration timestamps so first-fence, repeated-fence and drain replies identify the same provider run exactly.
+
+- Preserve finite Worker readiness stage, error name and detail code before migration status reconciliation. Unknown values stay `unknown`/`other`, unrelated replies stay null, and HTTP500 remains UNKNOWN without retry or raw error output.
+
+- The remaining migration-token routes the hosted migration executor and Driver call (fence, source, target, claim read, source-witness, the replica and member/cutover policy steps, and cutover) now count requests carrying the migration token against a per-route service budget of 4,800 a minute instead of the shared per-IP 20 a minute, matching the migration-claim routes. Requests without the token or with a wrong one keep the per-IP limit.
+
+- Preserve bounded HTTP and transport-error classes from the initial migration Worker run reply before status reconciliation, so an absent run no longer hides the request's diagnostic evidence. Never emit response text, exception messages or credentials.
+
+- Push newly approved Private application grants to the consenting account's enrolled Native devices immediately, instead of waiting for policy renewal. Delivery runs after consent commits; an unavailable relay does not undo consent or issued credentials.
+
+- Reuse collection invitations and member management for native synced collections,
+  publishing membership additions, role changes and removals through the policy log.
+  Invited accounts can join cloud copies with their registered devices after membership
+  is acknowledged. Removed devices are not restored by a later invitation.
+
+- Bind Private collection credential completions to the original approved account, application and keys, rejecting incomplete or mismatched authorization records.
+
+- Deleting a synced collection also revokes web-app grants on a Private collection, so they leave the device feed immediately.
+
+- Publish committed Private app requests through the existing log producer before Native feed delivery, without waiting behind unrelated background work.
+
+- Show native collections in Connect management and use the existing People and invitation controls for their authorized managers, without requiring a legacy hosted collection row.
+
+- Native Private collection grants now reach the account's next-device daemons in the relay policy feed (as pending approvals), can be revoked by the daemon through the connector grant endpoint by their log id, and report "computer offline" instead of "approval required" when no serving device is online.
+
+- Requesting the starter collection for an account that has moved to the new system no longer starts the old setup; the response says to open one of your apps instead.
+
+- Wake cloud-copy services immediately after foreground create/enrol policy commits, independently of the background historical verification and catch-up queues.
+
+- Freeze a hosted migration batch before capturing its recovery archive, and fence collection creation, renaming, deletion, import, adoption, transfer and topology cleanup until the migration window permits them. Keep guarded transaction locks alive across bounded provider work and compensation without changing global database timeouts.
+- Accept account deletion during a frozen batch, revoke its credentials immediately and terminal-exclude it from migration without changing archive membership. Automatically complete terminal erasure once the whole batch finishes or is audited-unfrozen before archive acceptance, including after a restart or a deletion accepted after the final flip. Deletion outside a freeze remains immediate.
+
+- Activate hosted and escrow collection services after a cloud-copy genesis is appended, with durable bounded retries, so enrolled devices can receive their epoch key without an app opening the hosted copy.
+
+- Wake cloud-copy services after committed device enrolment and other control-policy batches, with restart-safe generation acknowledgments and retries, instead of relying on the polling alarm after the initial activation.
+
+- Keep the app connected to its authorization popup through the `/oauth/authorize` redirect and its sign-in return, so apps no longer treat a Private collection approval as cancelled a few seconds after the popup opens.
+
+- Old application tabs refused after collection migration now tell users to copy unsaved work somewhere safe before reloading or updating. Existing refusal codes, authentication boundaries, and retry behavior are unchanged.
+
+- Keep popover surfaces opaque throughout their entrance animation so approval text does not show through collection lists in small windows.
+
+- Applications can connect with a consistent subset of optional record and file permissions instead of being refused when an optional group is incomplete. Required permissions still need a complete match, and unsupported requests explain that the app needs an update.
+
+- App approval stops waiting after 30 seconds if the app has not finished preparing. It explains how to check the app, connection and desktop client, and offers a retry of the same request without repeating approval.
+
+- Manage accounts, browser sessions, computers, collections, and application access directly on the Connect portal, including `/account`; the Editor links to the portal instead of hosting a second management workspace.
+- Show native collections and genuine browser/mobile app installation access without inventing legacy grants or treating app registrations as computers.
+- Revoke app access through the existing collection-family and installation sign-out boundaries, including after the original pairing window expires.
+
+- Make the approval collection chooser searchable with an explicit create action first, group application access by collection while retaining individual installation details, style sidebar account links, and open existing Reader manage-access links on Applications.
+
+- Accounts whose migration batch has completed can approve apps, create Private and cloud-copy collections, manage Native sharing and invitations, and rename or delete current next collections without thawing their legacy archive. In-flight batches and legacy topology remain frozen.
+
+- Preserve the complete declaration-bound collection setup pair when projecting Private application permissions, without granting definition administration. Exact record/file pairs and refusal of partial or undeclared operations remain unchanged. Native must independently verify the signed declaration and mediate setup; this projection alone does not enable Private setup execution.
+
+- Make the canonical application manifest parser usable in browser and Worker
+  bundles without Node crypto imports. Type-pack document and upgrade-baseline
+  digest checks remain synchronous and preserve their existing UTF-8 hashes,
+  validation issues, and versioned parser behavior.
+
+- Fixed Private collection relay connections being rejected when a browser also sends its Connect session cookie, including same-site app deployments. The client relay still requires its own valid grant credentials; account and management requests retain their cross-origin protections.
+
+- Keep legacy schema column, nullability, and constraint checks in the active PostgreSQL schema when bootstrapping isolated databases.
+
+- An app that declares its application ID now connects after its manifest changes: the SDK accepts the new ID Connect registers for the changed manifest when every registration check matches the manifest it sent, and keeps the app's declared local storage names.
+
+- Allow self-registered apps to pair from their declared web origins, with optional exact native and loopback origins, while retaining explicit device and collection consent.
+
+- Complete private-account strict mode from signed applied revoke/rekey witnesses across all member devices, rather than requiring one device to host every private collection. Strict retries retain their operation version; status lists missing witnesses until completion.
+
+- Allow the dedicated migration service to migrate suspended accounts while preserving suspension and ordinary access restrictions.
+
+- Let explicitly approved local PostgreSQL tests migrate isolated schemas in parallel while retaining same-schema serialization and the unchanged production-wide migration lock.
+
+- Recover uncertain timer metadata mutations with bounded, authenticated original-operation receipts instead of reapplying desired snapshots to newer generations. Fence namespace intents and recheck current consent after transaction lock waits.
+
+- Offer one Add collection action with a location choice, including the existing desktop handoff for linked Native computers even when Hosted is disabled. Private badges name the exact enrolled computer and its presence; Hosted badges remain Hosted. Preserve original creation requests across uncertain outcomes and allow the canonical Hosted creator after verified account migration completion without clearing the archive freeze.
+
+- Private collections appear in the normal app Sign in/Add chooser alongside cloud copies. Approving Private composes the original signed Native authorization with account-only installation registration; it never grants a Private ID to a Hosted Worker or asks for computer-side confirmation.
+
+- Older applications with complete permission groups can authorize a consistent subset on the next runtime without expanding their declared rights. Required permissions and fixed file actions remain intact; original signed declarations and existing grants are not rewritten.
+
+- Make the cold-runtime shutdown regression synchronize on the actual opener, and account for Windows' existing per-folder delete-share cleanup budget without changing shutdown behavior.
+
+### Security
+
+- Update transitive source-map and PDF viewer dependencies to patched releases while retaining the dependency audit gate.
+
+- Add an own-collection migration claim read for hosted deployments, requiring a current service-key proof and isolated one-use challenge rather than sharing operator migration credentials.
+
+- Refuse collection log-token refresh when permanent CP deletion facts are already known, including for otherwise eligible restored collection metadata. This local denial does not replace native deletion/currentness fences.
+
+- Verify the LAB migration reader's internal PostgreSQL CA and exact certificate identity within its dedicated source connection; normal control, public, staging and production TLS policy is unchanged.
+
+- Require exactly 116 elapsed days of archive retention after original completion, a capture lasting at most 24 hours, and unchanged current membership for migration admission. Preserve historical receipts without allowing them to satisfy new claims.
+
+- Require a fresh verified v4 legacy batch archive before every hosted-migration start or retry; bind immutable acceptance to current account membership and hosted-collection ownership, using the dedicated migration verifier boundary.
+
+- Define canonical, environment/source-bound NEXT public root and policy pins as authenticated release-bundle assets. Require exact origins, certificate/key-ID validation and signed-manifest digest binding; do not publish operational pins or permit unsigned LAB trust.
+
+- Authenticate reviewed LAB NEXT trust assets with a release-linked inventory signed by the existing protected image publisher; retain immutable image bundles and independently verify producer/release qualification and asset context.
+
+- Add versioned CP-only pre-key replay registration with signed nonce and request-digest bindings, committed PostgreSQL uniqueness, persistent cutoff data and bounded live quotas. Required actors still refuse serving until native authentication, clock continuity and old-writer drain are qualified.
+
+- Update Sharp to 0.35.5 (including its patched image-library binaries) and require MCP SDK 1.31.0 or newer, resolving dependency audit findings without adding audit exceptions.
+
+- Require independently approved publisher and canonical asset hashes for the fixed staging trust publication operation; reject missing or changed inputs before publication. LAB publication remains unchanged.
+
+- Refresh TLS, AWS configuration, and HTTP cache dependency pins to upstream patched versions while preserving existing SDK features. Remove the resolved HTTP cache audit exception.
+
 ## 0.1.0-beta.129
 
 ### Added

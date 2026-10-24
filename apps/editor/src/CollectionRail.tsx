@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   CaretDownIcon as ChevronDown,
@@ -13,13 +13,14 @@ import { FolderChangeDialog, type FolderChangeActions } from "./FolderChangeDial
 import { FOLDER_PATH_MIME } from "./folder-change";
 import { RailDropTarget } from "./RailDropTarget";
 import { EditorRail } from "./EditorRail";
+import { connectServerUrl } from "./connect-endpoint";
 import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
-import type { ConnectionState } from "./app-state-types";
+import type { ConnectionState, EditorSyncState } from "./app-state-types";
 import { folderTree, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./note-list-view";
 
 
-export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, onSwitch, onCollapse, onPlanFolderChange, onChangeFolder }: {
+export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, switcher, onCollapse, onPlanFolderChange, onChangeFolder }: {
   collectionId: string;
   name: string;
   count: number;
@@ -29,7 +30,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   files: CollectionFile[];
   foldersLoading: boolean;
   surface: "notes" | "types" | "settings";
-  connectionState: ConnectionState;
+  connectionState: ShownConnectionState;
   connectionIssue?: string;
   directAccess?: ConnectionSummary["directAccess"];
   directAccessBusy: boolean;
@@ -43,7 +44,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   onSettings: () => void;
   onReconnect: () => void;
   onRequestDirectAccess: () => void;
-  onSwitch: () => void;
+  switcher?: ReactNode;
   onCollapse: () => void;
 } & FolderChangeActions) {
   const [folderChange, setFolderChange] = useState<{ from: string; parent?: string; mode: "rename" | "move" }>();
@@ -57,8 +58,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     notes={{ onClick: () => onFilter(undefined) }}
     types={{ onClick: onTypes }}
     settings={{ onClick: onSettings }}
-    connectHref={connectWorkspaceUrl(collectionId)}
-    onSwitch={onSwitch}
+    switcher={switcher}
     onCollapse={onCollapse}
     onMoveNotes={onMoveNotes}
     onMoveFolder={moveFolder}
@@ -66,8 +66,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     footer={<>
       {directAccess === "permission_required" && connectionState === "connected"
         ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
-        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : connectionState === "reconnecting" ? "Reconnecting" : "Sync stopped"}</span></p>}
-      {connectionState !== "connected" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
+        : <ConnectionStatus state={connectionState} issue={connectionIssue} onReconnect={onReconnect} />}
     </>}
   >
       <FolderFilterSection
@@ -295,10 +294,26 @@ function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: 
 
 
 export function connectWorkspaceUrl(collectionId: string): string {
-  const url = new URL("/connect", location.origin);
-  const source = new URLSearchParams(location.search);
-  const server = source.get("server");
-  if (server) url.searchParams.set("server", server);
+  const url = new URL("/", connectServerUrl());
   url.searchParams.set("collection", collectionId);
-  return `${url.pathname}${url.search}`;
+  return url.href;
 }
+
+/** The collection link state and its retry; the rail shows it always, the mobile note bar only when not connected. */
+export function ConnectionStatus({ state, issue, onReconnect }: { state: ShownConnectionState; issue?: string | undefined; onReconnect: () => void }) {
+  const label = connectionLabels[state];
+  return <>
+    <p role="status" aria-label={`Collection ${state === "saved_on_device" ? "changes saved on this device; waiting for sync" : state}`} title={issue ?? label}><span className={`status-dot ${state === "connected" ? state : state === "stopped" ? "stopped" : "reconnecting"}`} aria-hidden="true" /><span>{label}</span></p>
+    {(state === "reconnecting" || state === "stopped") && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
+  </>;
+}
+
+/** The link state, or what the SDK says about syncing while the link is up. */
+export type ShownConnectionState = ConnectionState | Exclude<EditorSyncState, "synced">;
+const connectionLabels: Record<ShownConnectionState, string> = {
+  connected: "Connected",
+  reconnecting: "Reconnecting",
+  stopped: "Sync stopped",
+  offline: "Offline",
+  saved_on_device: "Saved on this device; waiting for sync"
+};

@@ -100,9 +100,17 @@ export function noteRecordAdapter(
     frontmatter: (note) => note.frontmatter,
     write: (base, change) => outcome(() => guard(() => gateway.update(base, change))),
     read: (base) => outcome(() => gateway.read(base.path)),
-    recover: (requestId) => outcome(() => guard(() => gateway.recoverNoteMutation(requestId))),
+    recover: (requestId) => outcome(() => guard(() => recoveredNote(gateway, requestId))),
     isPending: (requestId) => gateway.pendingNoteMutations().some((pending) => pending.requestId === requestId)
   };
+}
+
+/** Note sessions and renames only own update/rename operations, which always
+ * produce a document; a delete identity here is an invariant failure. */
+export async function recoveredNote(gateway: Pick<CollectionGateway, "recoverNoteMutation">, requestId: string): Promise<NoteDocument> {
+  const recovered = await gateway.recoverNoteMutation(requestId);
+  if (!recovered) throw new Error("The interrupted operation removed this note. No new write was attempted.");
+  return recovered;
 }
 
 /** The gateway reports failures as errors; the session expects them as outcomes. */

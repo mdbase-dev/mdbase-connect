@@ -122,10 +122,10 @@ describe("application reconciliation worker", () => {
     await first.close();
     expect(Date.now() - before).toBeLessThan(80);
     const expiry = (await fixture.db.query<{ lease_expires_at: Date }>(
-      "SELECT lease_expires_at FROM application_reconciliation_jobs")).rows[0].lease_expires_at.getTime();
+      "SELECT lease_expires_at FROM application_reconciliation_jobs WHERE application_id=$1", [fixture.applications[0]])).rows[0].lease_expires_at.getTime();
     await wait(50);
     const unchanged = (await fixture.db.query<{ lease_expires_at: Date }>(
-      "SELECT lease_expires_at FROM application_reconciliation_jobs")).rows[0].lease_expires_at.getTime();
+      "SELECT lease_expires_at FROM application_reconciliation_jobs WHERE application_id=$1", [fixture.applications[0]])).rows[0].lease_expires_at.getTime();
     expect(unchanged).toBe(expiry);
     release(); await running;
   });
@@ -146,7 +146,7 @@ describe("application reconciliation worker", () => {
     await entered;
     expect(reconcile).toHaveBeenCalledOnce(); expect(peak).toBe(1);
     release(); await Promise.all([first, second]);
-    expect((await fixture.db.query<{ attempts: number; state: string }>("SELECT attempts,state FROM application_reconciliation_jobs")).rows[0])
+    expect((await fixture.db.query<{ attempts: number; state: string }>("SELECT attempts,state FROM application_reconciliation_jobs WHERE application_id=$1", [fixture.applications[0]])).rows[0])
       .toMatchObject({ attempts: 1, state: "completed" });
   });
 
@@ -225,6 +225,10 @@ describe("application reconciliation worker", () => {
 
 async function makeFixture(counts: number[]) {
   const db = await createDatabase("memory"); databases.push(db);
+  // Qualify the ordinary seeded application's startup scan with production
+  // timing before arranging fixture actors with deliberately short test leases.
+  const startup = new ApplicationReconciliationWorker(db, relay);
+  await startup.seedMissingJobs(); await startup.drainUntilIdle(); await startup.close();
   const applications: string[] = []; const grants: string[][] = [];
   const user = randomUUID();
   await db.query("INSERT INTO users (id,email,name) VALUES ($1,$2,'Worker test')", [user, `${user}@example.com`]);

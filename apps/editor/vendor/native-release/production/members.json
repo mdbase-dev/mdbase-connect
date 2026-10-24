@@ -1,0 +1,4482 @@
+[
+  {
+    "path": "LICENSE",
+    "bytes": 1084,
+    "sha256": "babe02479afe073a3ab536bc248b86e3c5936e5709791ddef484a5d998780225"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/LICENSE",
+    "bytes": 1084,
+    "sha256": "babe02479afe073a3ab536bc248b86e3c5936e5709791ddef484a5d998780225"
+  },
+  {
+    "path": "node_modules/@noble/hashes/LICENSE",
+    "bytes": 1109,
+    "sha256": "4f221aee6e072336700c408c68ab3b96a3fc09f6aebe6f48f1bd99e5ef13faec"
+  },
+  {
+    "path": "node_modules/yaml/LICENSE",
+    "bytes": 738,
+    "sha256": "5bba27375d93e9119f76c1015f7672cf9ad5f70952296e0842fb2243d6376869"
+  },
+  {
+    "path": "node_modules/@noble/hashes/_blake.js",
+    "bytes": 2841,
+    "sha256": "cabbff61d1f373bac45594ad758df7c42e176464ddbb94b44f5533fa977a4f56"
+  },
+  {
+    "path": "node_modules/@noble/hashes/_md.js",
+    "bytes": 9175,
+    "sha256": "60cf3010fda89e3e4d3f0e7ff1ce249e9c467f34b4fd41b6fd6101d9f69be763"
+  },
+  {
+    "path": "node_modules/@noble/hashes/_u64.js",
+    "bytes": 4794,
+    "sha256": "b09da8c07fe8187c07649494cdb7cd0bcf13df90b506a9473d19e4d5f8c2e102"
+  },
+  {
+    "path": "dist/account-key.js",
+    "bytes": 16786,
+    "sha256": "e231f615b0f8c06166070cd54aa076345b9411a9a19133cb1c0bced863849059"
+  },
+  {
+    "path": "dist/account.js",
+    "bytes": 872,
+    "sha256": "5d992731b8f142fb563dc710fb2b27911ac3452843826fe3b53e3ebc599c7b43"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/nodes/addPairToJSMap.js",
+    "bytes": 2289,
+    "sha256": "67cc22455591363a78723876f73640c5712161bb840423e705820666cb0d3ada"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/addPairToJSMap.js",
+    "bytes": 2338,
+    "sha256": "e4977864d75c1fdbf7fc78c9f4329406e153deccfff090fd812dae2b27e6c2c2"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/nodes/Alias.js",
+    "bytes": 3998,
+    "sha256": "0aaa9956d9f965e29f391c268baca1e7f9c50649b900128a9e5e669450d76411"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/Alias.js",
+    "bytes": 4042,
+    "sha256": "139f5fbb3e7727a9cea89e16b2518f9ffe2e3a37cfb46717e60d23da7d6e739e"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/doc/anchors.js",
+    "bytes": 2276,
+    "sha256": "0d5c8fd9bf01e2f4eb0cf08771705e0c0efbd05d9835714fc94850d943003cc6"
+  },
+  {
+    "path": "node_modules/yaml/dist/doc/anchors.js",
+    "bytes": 2386,
+    "sha256": "ea9a479b1e98d88235ffa6736d0405e2119e9dde7b5249b72185488ab2527261"
+  },
+  {
+    "path": "dist/app-storage/app-binary-index.js",
+    "bytes": 9791,
+    "sha256": "93805e25ebc4e6d5d071f4e33c30ac58249f0c9226f0a770ef724057fa41400c"
+  },
+  {
+    "path": "dist/app-host/app-environment.js",
+    "bytes": 3053,
+    "sha256": "2c36056571947d01c2e6dd49b46ade20a8aa91f85bcae1c8ec68ae6169b5da37"
+  },
+  {
+    "path": "dist/app-host/app-origin.js",
+    "bytes": 2224,
+    "sha256": "11b867dea31a489dcea657b804b94dde543b33a4e9933a626ead3885c8099b74"
+  },
+  {
+    "path": "dist/app-storage/app-sqlite-index.js",
+    "bytes": 4487,
+    "sha256": "cb4df277a106f65c39e1fa9bb92db7413b278e07474c06633c7499b830d30c69"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/application-authorization.js",
+    "bytes": 9696,
+    "sha256": "f7a82ea057c194b749f7661996cbdd84cc23149a54ed71121882a71259b54099"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/application-contract.js",
+    "bytes": 4319,
+    "sha256": "0145fb725a71b6af2b57bb90b5170eb03d4ece0b344e3c835616305cf3697f37"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/application-declaration.js",
+    "bytes": 11,
+    "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+  },
+  {
+    "path": "dist/testing/application.js",
+    "bytes": 10696,
+    "sha256": "d5cd889682defcbdce0e5d934180c7da92cd0eae918fee86c2503ae1ec1f3ef2"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/doc/applyReviver.js",
+    "bytes": 1923,
+    "sha256": "b653aa07fcd8619637c1dbf6151d9de5e22efcb3becfd4dff86cdcf4bb2f1a97"
+  },
+  {
+    "path": "node_modules/yaml/dist/doc/applyReviver.js",
+    "bytes": 1950,
+    "sha256": "7271668f41f264e4b9aeb184629cfd11c510b401c5a797fa7194d17a9652976e"
+  },
+  {
+    "path": "node_modules/@noble/hashes/argon2.js",
+    "bytes": 25707,
+    "sha256": "f39753324bdf2f484150731d24b1d71236f26bf10bedd594f7d190fcdfdefdc9"
+  },
+  {
+    "path": "dist/application/asset-loader.js",
+    "bytes": 6185,
+    "sha256": "e8ca18b9c950f5816c9b9b68e6484b32d718253991e5d82e417011c80a24860e"
+  },
+  {
+    "path": "dist/attachment-wire.js",
+    "bytes": 2177,
+    "sha256": "57bf00648113aabd614d95147f42f8bd5557209d0bf58d7e7abd67f9fc803f35"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/authorization-errors.js",
+    "bytes": 1849,
+    "sha256": "dc7e7936597a1d3f564b793e97c61a934fe47f6c890e222ddc84b33a20272413"
+  },
+  {
+    "path": "dist/app-host/bases-pages.js",
+    "bytes": 1922,
+    "sha256": "3c37c9dc9e325ad006252b3fc72d130f6e76fbb2fc7791465abc7be9cfce331d"
+  },
+  {
+    "path": "dist/transport/bases-rpc.js",
+    "bytes": 2158,
+    "sha256": "d643448cbcc99871c50eb6a520317497d478322f33039f75906054a9dd68c1f9"
+  },
+  {
+    "path": "dist/app-host/bases-wire.js",
+    "bytes": 17674,
+    "sha256": "80dfdcc236e83cf823dee0327ce9424af929c10cf95b5df8f0736720073f3fb5"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/yaml-1.1/binary.js",
+    "bytes": 2315,
+    "sha256": "ad5b0407d199dda7bc4fbacaee90d2a2a99540c8ced44c13bdf6974cb6dc3ef1"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/binary.js",
+    "bytes": 2800,
+    "sha256": "15d7b0b8516c8190b191ec9a0adaab16808d09751ef534d7829512944072011f"
+  },
+  {
+    "path": "node_modules/@noble/hashes/blake1.js",
+    "bytes": 25201,
+    "sha256": "da1d08b4d0702ad4f185a796df8fce3fec2855de53b02190eba3bd8555677b5c"
+  },
+  {
+    "path": "node_modules/@noble/hashes/blake2.js",
+    "bytes": 22819,
+    "sha256": "03f00237bcc0b4d822a80f7c0ac22e42632c48e246c3b6da584e6452186e32f0"
+  },
+  {
+    "path": "node_modules/@noble/hashes/blake3.js",
+    "bytes": 12503,
+    "sha256": "bc25a8f6c50acabf3781c44ec55cb364b00f6f3f4349d841813a1057a8af2f20"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/core/bool.js",
+    "bytes": 607,
+    "sha256": "9d4b1fe540d36d8e09cf5799b8abed53e4ee620425d3d6712e8a50c927752615"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/yaml-1.1/bool.js",
+    "bytes": 787,
+    "sha256": "1d605f63430047574323f352893ba3c52fc73fbd1b52e47fa6dec2eb375301a5"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/core/bool.js",
+    "bytes": 635,
+    "sha256": "9fa696b1efc38cf8c73a398f30d9f9841658aa5afd0b7a6b0822947c3991ba7a"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/bool.js",
+    "bytes": 841,
+    "sha256": "80a0046224dac3437f22e3b27b0180e1aad82277ab2fee4769094c6d12d67b6f"
+  },
+  {
+    "path": "dist/application/browser-capabilities.js",
+    "bytes": 3864,
+    "sha256": "94131dceb625397b3890e4baa1c46e6363ee414fac56261a7da7e19d9fd57f96"
+  },
+  {
+    "path": "dist/app-host/browser-direct-access.js",
+    "bytes": 691,
+    "sha256": "1f99bcfdc3ab3a932c8e07f9b7fd64b5051ba0fcd2101b8f367699dd756668ea"
+  },
+  {
+    "path": "dist/application/browser-selection.js",
+    "bytes": 7685,
+    "sha256": "322b983d14cde7e7ddc16ad79cb921daf70d8ef4b6bb66f6a631e0984ea0394d"
+  },
+  {
+    "path": "dist/browser.js",
+    "bytes": 243,
+    "sha256": "23ad6336ebad4dea47763e973355664b75d9a3e6244983e209511a7ad3c2f0c6"
+  },
+  {
+    "path": "dist/application/capabilities.js",
+    "bytes": 1600,
+    "sha256": "854ce3a28a9e4b87b1276daf9219bae56c0e33b12581a41cfbf7e15d2d946e3b"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/capabilities.js",
+    "bytes": 5201,
+    "sha256": "a95c7cce0f712f29718749a8ac863ca686b467d0e6ef5981e2899e37ece43d4e"
+  },
+  {
+    "path": "dist/cbor.js",
+    "bytes": 15241,
+    "sha256": "13d96bdfc62b56dfd9341c269449344c6828a3f81b5337daca6b03186943af2a"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/change-events.generated.js",
+    "bytes": 768,
+    "sha256": "fd91545152025a11845ea57668c79758e6edf6a01a856e7552de99eb5495f0d5"
+  },
+  {
+    "path": "dist/app-grant/client.js",
+    "bytes": 49284,
+    "sha256": "6642b24e22b99ccb1bbaebf332fc607a8008d23d6cb9a801ee8588358c325416"
+  },
+  {
+    "path": "dist/client.js",
+    "bytes": 86469,
+    "sha256": "302a44fb0807debeb5e2de4e0bf9df0c3f78e0372ef7aa79dc7e17bba86575e4"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-bootstrap.js",
+    "bytes": 25139,
+    "sha256": "b0e23ace3c00b8b23236113f1deeed9bef4d1f844559f4d1720626cf3eaf683e"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-host.js",
+    "bytes": 47619,
+    "sha256": "8349b50709d10c348218971308e579a1d6fda5504a1abe153e760b292018ea27"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-persistence-idb.js",
+    "bytes": 9233,
+    "sha256": "bb351fbab807f35bdb1b3001e56f8d50a46d3dab93ce0dc29e828c95d78055ea"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-persistence.js",
+    "bytes": 13225,
+    "sha256": "c6db33ce25078b494006e411044d61472203b999a71895d399ba23334bcf921e"
+  },
+  {
+    "path": "dist/codec.js",
+    "bytes": 12979,
+    "sha256": "86e48142a07ca31d6ebd2a8601794c2b31b8e90ea2241337ee8144c7aa5a4004"
+  },
+  {
+    "path": "dist/collection-availability.js",
+    "bytes": 2903,
+    "sha256": "c043d322ae1e2d0f58fcf3631dfd9515bbe96e25bc71e5db1b4493485675b637"
+  },
+  {
+    "path": "dist/app-host/collection-control.js",
+    "bytes": 30457,
+    "sha256": "f9973be64a97706dcfa59f335ab7b6ddff396fa9c328918e3b69d396cf61d4dc"
+  },
+  {
+    "path": "dist/app-host/collection-delete.js",
+    "bytes": 2654,
+    "sha256": "3b9f6f69d2f40dd72b35ded8a8e66dbd0c2a54ce938945a22e2dc4407f77db4d"
+  },
+  {
+    "path": "dist/app-host/collection-display-name.js",
+    "bytes": 913,
+    "sha256": "d34a0ba0653f42aeec9c20ba3f70f4f23976681409343ae393cc83a76b51ef78"
+  },
+  {
+    "path": "dist/app-host/collection-join-ledger.js",
+    "bytes": 8917,
+    "sha256": "b21e06ad6cb33ebb6fd8182da0743e2ad02cc8980e26e8b3b1c1d1d718269840"
+  },
+  {
+    "path": "dist/app-host/collection-people.js",
+    "bytes": 5320,
+    "sha256": "fa3d4e63c4a3f030aa31b9c2698463a8685802549d822fde8d09523b90ed8389"
+  },
+  {
+    "path": "dist/app-host/collection-readiness.js",
+    "bytes": 23530,
+    "sha256": "6516dedcbaa26ee745c625d48c38a4388630217d3e8fc918f9a1d8830b6dcb8d"
+  },
+  {
+    "path": "dist/application/collection-selection.js",
+    "bytes": 16486,
+    "sha256": "3ba2c12de7cf491019d5d480b42607cb6033d670115c2f626221a12cc3ed9093"
+  },
+  {
+    "path": "dist/app-host/collection-setup-journal.js",
+    "bytes": 32868,
+    "sha256": "01f7c9f063e1e8fa3c243cba3affa1532c0d9d5f5bde94398af063d295e03e6c"
+  },
+  {
+    "path": "dist/app-host/collection-setup-types.js",
+    "bytes": 364,
+    "sha256": "53fc0c8f7aa7278058c7e4833842a3ec8cea56f5b83a7f5f47826d5ccb910841"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/collection-setup.js",
+    "bytes": 420,
+    "sha256": "dfeca6e917e3b58a42600404c557da25144e402cbd5f77e294270eaac5bb44a9"
+  },
+  {
+    "path": "dist/app-storage/collection-sql.js",
+    "bytes": 4834,
+    "sha256": "af939856711834e19bcd650f26bcaba6139600f3dd54856ff6b08c75aa8c69e9"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/nodes/Collection.js",
+    "bytes": 5076,
+    "sha256": "f18de1edc4f5a3ae163a6ca894e2b4debd3a8c480338f580ac6cdffebbfc4bc9"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/Collection.js",
+    "bytes": 5221,
+    "sha256": "e2d3ffdc9a997774602e72b296fba641558bc7355c9f12a3ee0502fb1e541306"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/compatibility.js",
+    "bytes": 3470,
+    "sha256": "1e654c0e42bee344a94e5bc505f4daea04144003401626985e3b92164a753857"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/compose-collection.js",
+    "bytes": 3500,
+    "sha256": "7fa2b7a37902d99bf924c3e4db7b003202837597a7815d9917736dbd1861b7f6"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/compose-collection.js",
+    "bytes": 3613,
+    "sha256": "a7db11a1a7987d6412df8adbbb85ccd4370171f82265703b2b6af2d13c45d646"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/compose-doc.js",
+    "bytes": 1555,
+    "sha256": "0ec9140185c6d965783c4d3e9ae427fb4a377935dd20d8872eb35b56ec461579"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/compose-doc.js",
+    "bytes": 1615,
+    "sha256": "0f388537747b5c1a241639413f17fc2b5f831451b5017d6902e46db6842a5fe4"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/compose-node.js",
+    "bytes": 4122,
+    "sha256": "c6ddd844d89a2086cc1c4cc643cae6361e7fae0728dc0f71066ded02bb7b5d12"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/compose-node.js",
+    "bytes": 4269,
+    "sha256": "86562c85e4e5737d28b24aae2030b97bc9b672e1f2de5da9e4d25c4571e4345c"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/compose-scalar.js",
+    "bytes": 3316,
+    "sha256": "3b7d0f5876dd7c33b8f2bf896178008283be8e4a82495070dc638a922e202e07"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/compose-scalar.js",
+    "bytes": 3446,
+    "sha256": "37920472755bdaa76399b6d33872f0015ae1fd9ba7faa031c03d501aa8c3e903"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/composer.js",
+    "bytes": 8484,
+    "sha256": "214e221c39346468e4b7713d775bfa9dca87695463ac795399e66b91a06540cc"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/composer.js",
+    "bytes": 8692,
+    "sha256": "509c0bdb4cef641cc784c130b6cc2b350752f6841798daa1a13cbcaf4fc74c46"
+  },
+  {
+    "path": "dist/application/configuration.js",
+    "bytes": 30143,
+    "sha256": "f38eac68102d870bdbaaf31f8d5996bcca6aac9f228c17db03f0d551d0f4b200"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/connect-problems.generated.js",
+    "bytes": 23544,
+    "sha256": "d9dd7b8b22a6eef4b3c27c9f25545a7a6bbb90563b8fe26086737b5e0f95e954"
+  },
+  {
+    "path": "dist/contract-query.js",
+    "bytes": 678,
+    "sha256": "90b7b19e24b79943d15cea9e4f0919bd28b7d6831038825a9aa591ea6eaf84aa"
+  },
+  {
+    "path": "dist/contract-records.js",
+    "bytes": 918,
+    "sha256": "a186b5289f8cfb3dc3344d02dcd1eeda2b75eb095259301f043319e14c5e41b7"
+  },
+  {
+    "path": "dist/transport/control-route.js",
+    "bytes": 4216,
+    "sha256": "12b7b6ec64c0dd69a3ba75e76adfe09a1d48f116bb92b833da9db99e39233bf3"
+  },
+  {
+    "path": "dist/app-host/cp-authority.js",
+    "bytes": 11735,
+    "sha256": "47b6496094fbb8dbafb3a06ca4d4b1db1d61696b5f30178e6446992c4ad16a1e"
+  },
+  {
+    "path": "dist/app-host/cp-people.js",
+    "bytes": 7036,
+    "sha256": "489b6506a3c668178ffcb1a45afe3990c55fa43740f5683406ce4abcf2d3b7c0"
+  },
+  {
+    "path": "dist/app-host/cp-problem.js",
+    "bytes": 5463,
+    "sha256": "f7713ce780c908dd2176141ab9324208573f40e93d9ad95a337223fd3425da8a"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/doc/createNode.js",
+    "bytes": 3061,
+    "sha256": "80a8212199fa1591e0836c0b19e05f9734dd5e6a7dcd54d6da1e4f2a20f2450c"
+  },
+  {
+    "path": "node_modules/yaml/dist/doc/createNode.js",
+    "bytes": 3138,
+    "sha256": "a39d14026d4cc6ff8d76d90db30c41facc26a146ebed30783bcf28e40b5caa65"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/parse/cst-scalar.js",
+    "bytes": 9235,
+    "sha256": "e30a85b8b613badfb50039938fbb5bbbafbd5f9f95f3a630300ad3dec5fb3dc8"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/cst-scalar.js",
+    "bytes": 9382,
+    "sha256": "2f72b634348b04b395408ac427fb4f8ee67432244c327561d4b755a28a783b34"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/parse/cst-stringify.js",
+    "bytes": 1775,
+    "sha256": "275b500e3f1a0067d5d8671af5c536963a46d4921e49cf156547f796067b8810"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/cst-stringify.js",
+    "bytes": 1799,
+    "sha256": "4d14a7a286cff9c1a578ab15839388ea76f77ae79293db25b235394bcc377b51"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/parse/cst-visit.js",
+    "bytes": 3966,
+    "sha256": "0baadd57686b26163ba71e7323a9208fcba81978e9ecebbad80afaa8baa61788"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/cst-visit.js",
+    "bytes": 3986,
+    "sha256": "525535fc05841407420be6505804c74d873eb3aaa9319679896f7a24a474ca01"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/parse/cst.js",
+    "bytes": 2886,
+    "sha256": "8bf6c87dc02b9375750d550a9099cb1cd1cd71ca9da68f1a0798844a0f76bf8f"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/cst.js",
+    "bytes": 3242,
+    "sha256": "acc25760d010068844f36f4aefc7fe6f5f6048fd7f8fcc29d4290e154819d1a4"
+  },
+  {
+    "path": "dist/application/declaration.js",
+    "bytes": 5890,
+    "sha256": "ec047b0f6a52bacc130f1aae1c4e4652040b76f8a4508f0872687e44104ff549"
+  },
+  {
+    "path": "dist/describe-error.js",
+    "bytes": 43911,
+    "sha256": "750a36b3d5c4a5ec8839c71ba7830026439e95032814978803877bb39f7d984a"
+  },
+  {
+    "path": "dist/app-host/device-key-custody.js",
+    "bytes": 6524,
+    "sha256": "ecfe673bcb0b9e3004b8ee282083d9b84bdc395fde92050d139363ac2682a465"
+  },
+  {
+    "path": "dist/app-host/device-key-idb.js",
+    "bytes": 7522,
+    "sha256": "701a0eb643e1a0a0879355c060a82ca1cd977d9bca73c47048be81f1c5f41821"
+  },
+  {
+    "path": "dist/app-host/device-key-provider.js",
+    "bytes": 8064,
+    "sha256": "ba0e497fac946628bb57f9da6793cae80bd769860fab24c4f764cf9a849ce7d3"
+  },
+  {
+    "path": "dist/app-host/device-registration.js",
+    "bytes": 9388,
+    "sha256": "22824ef4bf483879252dfd0abc4097d507571c74e45a6ca484a7ebc7e7e4275c"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/doc/directives.js",
+    "bytes": 6188,
+    "sha256": "688805b988a34cf7c2f6e5b6c3f1e6a798b22b4eaa450286df095d6b741fedf0"
+  },
+  {
+    "path": "node_modules/yaml/dist/doc/directives.js",
+    "bytes": 6237,
+    "sha256": "8f02c3c03571e377e33680b68027d4336234d7a6da3d8c6a8b7f1183c1c428ff"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/doc/Document.js",
+    "bytes": 12903,
+    "sha256": "6b9c9187a04d13331c07d7193baf29b0547fd20de042e1fd57289f13d61ad196"
+  },
+  {
+    "path": "node_modules/yaml/dist/doc/Document.js",
+    "bytes": 13114,
+    "sha256": "9bc1c9a56de3902d554e77193125b6aadcfaec743073b3417b22c95a8f7d7923"
+  },
+  {
+    "path": "dist/application/entry.js",
+    "bytes": 55589,
+    "sha256": "746446df4ec9df22601107aa83231023b83baeaf01b785068939c9bd2b2ce68d"
+  },
+  {
+    "path": "dist/errors.js",
+    "bytes": 3776,
+    "sha256": "c5bf9b06a7ccddfe90237a5c0a68961f0094b864767654aa0886101c20cc62df"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/errors.js",
+    "bytes": 2023,
+    "sha256": "410bb3397beb0d3a8c649d048b6e087bddf1f7114832eaf94be0fcbb4a8af29b"
+  },
+  {
+    "path": "node_modules/yaml/dist/errors.js",
+    "bytes": 2118,
+    "sha256": "c389d9c448193ce1bcb9641f5eda62cbe56467b2104357d2fc8dd86df88cb07b"
+  },
+  {
+    "path": "node_modules/@noble/hashes/eskdf.js",
+    "bytes": 9911,
+    "sha256": "7ded32d320b0d1d71c59a4a3b493722a13c9c6a66de83f19f8a382b29af7a2f6"
+  },
+  {
+    "path": "dist/application/file-access.js",
+    "bytes": 4512,
+    "sha256": "0b1ab4683ab1770589f088b9875563b93e770c87f64d2cab9fc10c787c6fe100"
+  },
+  {
+    "path": "dist/application/file-readiness.js",
+    "bytes": 2361,
+    "sha256": "8be25b1f6993ddc09c4e052c241dd4f3a2f4710a8d0a861da6eeb00a8762f90f"
+  },
+  {
+    "path": "dist/files.js",
+    "bytes": 22783,
+    "sha256": "a11f7d41e022d3a70ebecf9bd547530e08fa7904e798129a2e3e5262e7df5d10"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/files.js",
+    "bytes": 19652,
+    "sha256": "f859d6a88d501e43512009f07ff28af7c3aa498395c13c9cffc2ce58c98227ab"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/core/float.js",
+    "bytes": 1399,
+    "sha256": "b24b968b6b714be9650480e07f10d039f145e88e4299ce2268eed57de02673a8"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/yaml-1.1/float.js",
+    "bytes": 1515,
+    "sha256": "40e68189590e6924d063f2b88c7b2415dcb2f796fbd6e9af18e9b119eed3ce23"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/core/float.js",
+    "bytes": 1510,
+    "sha256": "139e3964f0e626ad3741500faf51d855ff98eafa2d9e7523cac06260e4515382"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/float.js",
+    "bytes": 1626,
+    "sha256": "a90c44db83152e4d902d46f667737dac90aa86b401abdefe89371ac3bd03abfe"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/stringify/foldFlowLines.js",
+    "bytes": 4794,
+    "sha256": "1a6360496e3cb52767d4c346655307c978cb2c94853229152f97017c4209745a"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/foldFlowLines.js",
+    "bytes": 4885,
+    "sha256": "7819679e80222b80c564ea4a9cf3145fa4d5e28a6cfbac248283ac55b0249761"
+  },
+  {
+    "path": "dist/app-host/foreground-wake.js",
+    "bytes": 4346,
+    "sha256": "5402de3274f0d6e96ce1dfc1b738b9bea0a9857c1e6f6d98cf41d20a99eb5c43"
+  },
+  {
+    "path": "dist/application/forgotten.js",
+    "bytes": 2478,
+    "sha256": "e3947e3bf99ee568872398ac228dee5ef2e262b121b80d767a715f1aaf03fa62"
+  },
+  {
+    "path": "dist/application/front-door.js",
+    "bytes": 3292,
+    "sha256": "fbe92ed5b5505b524736b7bbd9576acc3b4a16ea0edccae97e9d4167486bfc70"
+  },
+  {
+    "path": "dist/app-grant/grant-store.js",
+    "bytes": 10065,
+    "sha256": "ed0343832154c764c3e28c3ca0edcd21b31e64519bd16e99339dbd3b181d9dd9"
+  },
+  {
+    "path": "dist/app-host/handover.js",
+    "bytes": 3820,
+    "sha256": "bbbf2f58793e819516b4f68ee980690e85fbdac262fa10f1eedf1d46c8e57fbd"
+  },
+  {
+    "path": "node_modules/@noble/hashes/hkdf.js",
+    "bytes": 7019,
+    "sha256": "ccb942a8008f974018965eeb1e33b8f4739bf767c6f95f2ceb06f5873a302f67"
+  },
+  {
+    "path": "node_modules/@noble/hashes/hmac.js",
+    "bytes": 3118,
+    "sha256": "fec9f8f3aeda785ea2de91cc4c059d54ef98196261c026c43f48341007ae52c9"
+  },
+  {
+    "path": "dist/holds.js",
+    "bytes": 5856,
+    "sha256": "e5301d7a29ab4c20257820a3fa9def9c03686d23ce801f490a72299009262648"
+  },
+  {
+    "path": "dist/app-host/http-log.js",
+    "bytes": 28058,
+    "sha256": "36e6eba16dae648c54d4acc33788715e4086ed8fb45058f786134d2207738781"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/nodes/identity.js",
+    "bytes": 1513,
+    "sha256": "da71af70da393500ab6e3cdbceba9c66965bc89c3401388c9ad422c91abf467f"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/identity.js",
+    "bytes": 1794,
+    "sha256": "1a7cb042ae725ff68d05dc503efbbecbe65281f18b23dfc23f12d1749a440cfe"
+  },
+  {
+    "path": "dist/app-grant/index.js",
+    "bytes": 689,
+    "sha256": "a190a38cedc8aaed4d1678b71ac64716625e67cedad1fb165849dce4a96b0247"
+  },
+  {
+    "path": "dist/app-host/index.js",
+    "bytes": 2940,
+    "sha256": "e5d6798fc5452579f67b908a0e93cb68466c761b56ff8a18e3aeb4c07e3f82ad"
+  },
+  {
+    "path": "dist/app-storage/index.js",
+    "bytes": 531,
+    "sha256": "4ac34dc82fd157ad4bb89c66f9f17971256db597b3b9ad546ed020b4ce6f1340"
+  },
+  {
+    "path": "dist/index.js",
+    "bytes": 1517,
+    "sha256": "91a7f54f267016672c17e9a3fc4e6394f9c4adb7c3f92b11e53ebce59acff8a0"
+  },
+  {
+    "path": "dist/testing/index.js",
+    "bytes": 337,
+    "sha256": "8847a01132c4ff2183bb346a809dd29b8407bd219d976960f808fc3fd88a00d4"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/index.js",
+    "bytes": 5044,
+    "sha256": "69aa38c76ac2a8eb66d7ebe8ef25e9c4d8b860f0b1586148c7bd84cb08133a8f"
+  },
+  {
+    "path": "node_modules/@noble/hashes/index.js",
+    "bytes": 1133,
+    "sha256": "b0d908a44e09a1b7c27a43d7b9036a6147a7a32db758bb64d9a668ea5c72d1af"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/index.js",
+    "bytes": 879,
+    "sha256": "c7d10350202ee8cb14febfce6b559c93760405cc4738a89c10abcb3c44fd6990"
+  },
+  {
+    "path": "node_modules/yaml/browser/index.js",
+    "bytes": 191,
+    "sha256": "5ae196b7abe55bed1d4d11f7eeba63aeda0c49fb73eb3c7359e3d6b9a080696b"
+  },
+  {
+    "path": "node_modules/yaml/dist/index.js",
+    "bytes": 1769,
+    "sha256": "2d58984e0ae80de4acbd8f009fab332f5ce77d9e1a5f138a3058a0ada6567fb9"
+  },
+  {
+    "path": "dist/app-host/initial-sync.js",
+    "bytes": 1710,
+    "sha256": "c87e43eb81a48fcff652ec16ac1b02cd799d68c51f9345e5de40a32fbc863673"
+  },
+  {
+    "path": "dist/transport/inprocess.js",
+    "bytes": 1494,
+    "sha256": "394d19185b0100da3e0b081186b3c6c8221efcac0b747462318f7b3706e692a8"
+  },
+  {
+    "path": "dist/app-host/installation-sign-in.js",
+    "bytes": 78142,
+    "sha256": "c76d6e7c6e1ac95da7b7c58eda8b60ed3c5d0d03dd756a55c2d36bcbd0877d7c"
+  },
+  {
+    "path": "dist/app-host/installation-store.js",
+    "bytes": 12836,
+    "sha256": "bc5b0e571727aaab54635712fcd214fbe94935384d0e3a63e9ec7db8f6f3c6e0"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/core/int.js",
+    "bytes": 1324,
+    "sha256": "dc7ae60f465273fd7e5dfd6b7f686ac47887fa02db3fe9ec603290003cc9baff"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/yaml-1.1/int.js",
+    "bytes": 2132,
+    "sha256": "6c83bf34c4ecfa722eff2c252c8bdf95661777738c9971c4ccda3a5413218d80"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/core/int.js",
+    "bytes": 1407,
+    "sha256": "f0e474254f6877d5dd23bb57017980931ab333a7eaa3d33872247a80d11f754d"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/int.js",
+    "bytes": 2232,
+    "sha256": "5ff72b08fecc3a924d4a76658a304859db5edb4fadf8893ee837aa06bba60a52"
+  },
+  {
+    "path": "dist/keys.js",
+    "bytes": 7187,
+    "sha256": "0a2878ca67581fb6a70c7637d3c05eaf45ff470b1a420fdf7f378be75dbfea32"
+  },
+  {
+    "path": "dist/app-host/ledger-rows.js",
+    "bytes": 996,
+    "sha256": "a2d4ecefabf297cc26284f7381b321507cd64832da24bda822ad4b59dfe7aae7"
+  },
+  {
+    "path": "node_modules/@noble/hashes/legacy.js",
+    "bytes": 12613,
+    "sha256": "690553a41af2fdd1e32ff6b534ba8508e95f1861c09c2d62fe762b6b501e09be"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/parse/lexer.js",
+    "bytes": 24138,
+    "sha256": "14d3a6e0f1bf7945a92dfa0366f61bcd122aa3c62addb6fbfdaadd796c634036"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/lexer.js",
+    "bytes": 24149,
+    "sha256": "cb30a2c4628e270ee810530217f3f7bb0f2730ab89f8fbaf1f8a73ccd1883cf5"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/parse/line-counter.js",
+    "bytes": 1419,
+    "sha256": "2428d1b9a18ad7d8dabc7e12276e0fd90446c9e3433f1501e6bb43e111ad63c0"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/line-counter.js",
+    "bytes": 1445,
+    "sha256": "ddfd11ca2cdd42d36bc6c3090a31c21e6bbcc90bf3498bf6aacfbb30c5d79436"
+  },
+  {
+    "path": "dist/live.js",
+    "bytes": 2855,
+    "sha256": "c157be618f44be28afe0d1517fec34f085c940fd15ca78193cd082dbae562272"
+  },
+  {
+    "path": "dist/application/local-build.js",
+    "bytes": 1008,
+    "sha256": "a5aff396ba15e28993409faa7f649518410011dc0e4c9d7ee8d8e9f615232499"
+  },
+  {
+    "path": "dist/local-build.js",
+    "bytes": 1369,
+    "sha256": "ddc5e6d71f1f9ba784fb52f7e90d0b66a997af8d2eef3a4d62fa8898cceb1a45"
+  },
+  {
+    "path": "dist/app-host/local-facade.js",
+    "bytes": 15539,
+    "sha256": "2c5115bb25a9694066b0b73dd84eab3d3e151ce160af7f2a06132e7b1d152969"
+  },
+  {
+    "path": "dist/transport/local-link.js",
+    "bytes": 3326,
+    "sha256": "52f334ec072bf75028436c3ea1bea2076f8e64535748e90f10788ab490146c1c"
+  },
+  {
+    "path": "dist/app-host/log-pump.js",
+    "bytes": 15642,
+    "sha256": "530bec7de78460ba7ce1cbea804c3dc3154799025d54478f57b9ec8a90748ffc"
+  },
+  {
+    "path": "dist/app-host/log-push.js",
+    "bytes": 13403,
+    "sha256": "529dc34c7dee8cd243eeb5c5141e22065708743b4bd5d1d55d31276652658b1b"
+  },
+  {
+    "path": "dist/app-host/log-token-cache.js",
+    "bytes": 2969,
+    "sha256": "561103202b0792a94cccd6d3ec3c0948da4d01e9a279202987cb08a968bae9ff"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/log.js",
+    "bytes": 260,
+    "sha256": "2e7d7edee783c901f36a8f986d126f15f33ac504fe17d4655e6846869d07b9e4"
+  },
+  {
+    "path": "node_modules/yaml/dist/log.js",
+    "bytes": 459,
+    "sha256": "f6ccc3593357801851aa1023b202f842733043ac3b25773048d836f89de8108d"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/manifest-validators.generated.js",
+    "bytes": 406765,
+    "sha256": "ac2eb9114eb6ba93744e415a5deb347c25621588973b5fb2917cbfcc763bf7ef"
+  },
+  {
+    "path": "dist/application/manifest.js",
+    "bytes": 2070,
+    "sha256": "4990bd4fca41204211cdfb435462c1c10cf124d042004a8da9e10ee36a940f50"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/manifest.js",
+    "bytes": 29298,
+    "sha256": "fd84f2acdbc6e4183286aa4a0f79022eb0c25aaef48fa66961440a4786344857"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/common/map.js",
+    "bytes": 439,
+    "sha256": "6094c4919ff0051a663866cf75df489be51987d808f0862b9b9e36d4090182a7"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/common/map.js",
+    "bytes": 483,
+    "sha256": "769207eaa56e34c113da10cdc22da845f92b4080ff2b921a72847a38d3ac03d8"
+  },
+  {
+    "path": "dist/browser/mdbase-sdk.js",
+    "bytes": 2118663,
+    "sha256": "1677b89aa1420a849aa31aa3697a6cb6d4d1df2a58311dd263c397edecf650eb"
+  },
+  {
+    "path": "dist/browser/mdbase-sdk.min.js",
+    "bytes": 1090488,
+    "sha256": "25f723a42b2c05c0aedb2f0dd717f4614df60ff5a495b8fa565db6d72a19c287"
+  },
+  {
+    "path": "dist/testing/memory-contracts.js",
+    "bytes": 5137,
+    "sha256": "6bfe620caa8f159bd7ed022f909f51d1d269c177ea3fb4d490cafc44842a3536"
+  },
+  {
+    "path": "dist/testing/memory-replica.js",
+    "bytes": 66953,
+    "sha256": "e9e6c235fe0b86fd364845fd1a07b591554d4b8394fe77dbbe8eb3d303af6a80"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/yaml-1.1/merge.js",
+    "bytes": 2524,
+    "sha256": "f3ac8d7fb4701053e97d5399bdacde15cdc662420cd7e85de349eb20330dab5e"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/merge.js",
+    "bytes": 2616,
+    "sha256": "9c85b5e026e4369a96f3f7b5bc6c05da102dfa2968950b17986201cfe0be542c"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/mutation-fingerprint.js",
+    "bytes": 5027,
+    "sha256": "56b65089fd79398b3a0a905e25f8f90ec29bda4929e43ea7985ef2cbbf0c5d53"
+  },
+  {
+    "path": "dist/application/native-assets.js",
+    "bytes": 2141,
+    "sha256": "023524b665291852507556ff6f8f838215e90a6413e00960ad02b56b54d89f62"
+  },
+  {
+    "path": "dist/application/native-authorization-rpc.js",
+    "bytes": 2240,
+    "sha256": "c3763ae5daf43738e6fcf121293c497de1136fc1cb0b4d495554fa7060241f32"
+  },
+  {
+    "path": "dist/app-grant/native-completion.js",
+    "bytes": 3521,
+    "sha256": "a4e684bd6038954f90b04c98b2ce409783eda3ed2b45576b0fcf5a5c1562280d"
+  },
+  {
+    "path": "dist/app-host/native-sign-in.js",
+    "bytes": 991,
+    "sha256": "d3f58747720fc2bbda0900bb937e3a8fefde84c440ff595574fedaf174ce253a"
+  },
+  {
+    "path": "dist/transport/next-relay.js",
+    "bytes": 9307,
+    "sha256": "d231677050a32d15c851b62113eaceb4ff7c33cf7a216eaf2e1433dd728e6769"
+  },
+  {
+    "path": "dist/node.js",
+    "bytes": 10442,
+    "sha256": "c21f2b1385dd7698f9da7321b4fee3ba3357f11a4b9d7405d0923bd93e6f4393"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/nodes/Node.js",
+    "bytes": 1339,
+    "sha256": "aaf0e1042d4b11f4760f7de032ec99ac49dda1742e55911f5a4df182cbd5471f"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/Node.js",
+    "bytes": 1382,
+    "sha256": "b57b42071f7ebab633626858656ec5187617f2290c272e87edc57467ef591215"
+  },
+  {
+    "path": "dist/app-host/noise-custody.js",
+    "bytes": 11435,
+    "sha256": "e9f8093a62e2a86d52955bdc23de7a948b5142751d7a2ab82d2a64c2faa16644"
+  },
+  {
+    "path": "dist/app-host/noise-idb.js",
+    "bytes": 7768,
+    "sha256": "6d0beb9567782d8088d3b1c6f61e939da8160904869570bd75b6ff28be6f199f"
+  },
+  {
+    "path": "dist/testing/noise-server.js",
+    "bytes": 2448,
+    "sha256": "26272b1f414edfa1abcbda00cdc8a713c8aaba3f6b27d75b1b3049af19ae4a20"
+  },
+  {
+    "path": "dist/transport/noise-session.js",
+    "bytes": 9887,
+    "sha256": "0dd5c618ae4042c4708e8f4da52d239e169f31d7e42aef66605df350aac9fc1b"
+  },
+  {
+    "path": "dist/transport/noise.js",
+    "bytes": 10063,
+    "sha256": "70fd498cae678efbf93c2f4243d5142149167125255d02e6c066847af871ca24"
+  },
+  {
+    "path": "dist/application/notification-readiness.js",
+    "bytes": 8862,
+    "sha256": "2d23b8d1c565c2db0c34072d2bbc03e714afbd7d658bd6c7532a901bfe2ca055"
+  },
+  {
+    "path": "dist/notifications.js",
+    "bytes": 9692,
+    "sha256": "47335e445ec0eb3282dcc0c19793181c556a9a9acf322e65827dc49747761db3"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/common/null.js",
+    "bytes": 434,
+    "sha256": "6666e819b0dd4c9eac1498e8520e23943abf2c9d92cee72b9c5607557800eb14"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/common/null.js",
+    "bytes": 469,
+    "sha256": "f5d5f694ea3a42ef136e0fbcc674dfd7aa0a3da2b8d62183fb750166a12e52bb"
+  },
+  {
+    "path": "dist/offline-shell-build.js",
+    "bytes": 4129,
+    "sha256": "2391df376f245c0078f7a38ed809b33ebc9d1c9c37f0d54b384f2466ffd39ac0"
+  },
+  {
+    "path": "dist/offline-shell-worker.js",
+    "bytes": 5603,
+    "sha256": "dfb57539dc74b9089794f8046e713cf8143cebd4dfda585ef71ecb1114ab8ad6"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/yaml-1.1/omap.js",
+    "bytes": 2473,
+    "sha256": "fb3d04682a48ec1e0ad26c1afc8a85d1e6c814942ca6eba8bfb94a6571d3e9a6"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/omap.js",
+    "bytes": 2581,
+    "sha256": "3174270cd59c0f0e3ffd73b3b44c4de679efd5c681325b7aac8e0935d547bee8"
+  },
+  {
+    "path": "dist/app-host/open-wait.js",
+    "bytes": 689,
+    "sha256": "16f5d584e021af8272f4e34547cb3e9a061599ecafe1c866c67c153ab8093991"
+  },
+  {
+    "path": "dist/app-host/opening-progress.js",
+    "bytes": 318,
+    "sha256": "0a428d2f07fbde10b1ab9b30eaf93cf730e5c47836f658b9adc670267fff034e"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/operations.js",
+    "bytes": 5498,
+    "sha256": "be12fd597bb49e6d9b1c417775605f8c9b53885f20a77f72a47a578ed4ad8ea4"
+  },
+  {
+    "path": "dist/transport/original-session.js",
+    "bytes": 376,
+    "sha256": "ec579da29dd10d9b99c81da15460e68fd4632380390926873bdb1cde18135b62"
+  },
+  {
+    "path": "dist/app-host/owner.js",
+    "bytes": 11644,
+    "sha256": "c1492eacb2b47e6efd147ad7f83d78039cb2626c7c8a34ef7c9f0ab039b9566e"
+  },
+  {
+    "path": "dist/application/packaged-assets.js",
+    "bytes": 3136,
+    "sha256": "c6e711cff8dd4ec1a846c7d2c0783c79ac7d20f85507ef58e831705b9eef2e7b"
+  },
+  {
+    "path": "dist/application/packaged-trust.js",
+    "bytes": 1286,
+    "sha256": "cf9690968d68b3c1eed2356ccfa2c72198b2f8cf07b9b24b1bb7be499b05bffb"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/nodes/Pair.js",
+    "bytes": 1124,
+    "sha256": "a9f0acf0f06eab7852a99418a07628fd0e26476895c90af3ae66bab8704e9b11"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/Pair.js",
+    "bytes": 1232,
+    "sha256": "d5dad67916ba0e864a892da63265a062c45c15a191349ef50a540f2ddbae93e5"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/yaml-1.1/pairs.js",
+    "bytes": 2751,
+    "sha256": "3c37806050903fd81b51e597bfe7acfff972e788e9a1b3c0148f17b32da3f568"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/pairs.js",
+    "bytes": 2854,
+    "sha256": "46ba76da72ad65a6202358c486c6a3084ab7c48a8eb5be60d241d9e198c5a9b5"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/parse/parser.js",
+    "bytes": 35393,
+    "sha256": "761580b1ad5b36b6fd5e2ffb411798cb5603f8fc46ff11ad8e68ca2ba32a405f"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/parser.js",
+    "bytes": 35551,
+    "sha256": "0adc5ffa51ffa4c0ceed1f80efa8b188d10f58c7b9389a6d46bc861e6bff34e1"
+  },
+  {
+    "path": "node_modules/@noble/hashes/pbkdf2.js",
+    "bytes": 7644,
+    "sha256": "62b75b5465a89af052a80bdebe7e0383ba01648b12f64877ce285a2e9896c713"
+  },
+  {
+    "path": "dist/application/people-readiness.js",
+    "bytes": 7885,
+    "sha256": "f86385fa399b825adadb882f8621bf12bd2a3994f7661a8b35efce22400e703d"
+  },
+  {
+    "path": "dist/app-grant/people.js",
+    "bytes": 3850,
+    "sha256": "5c8e3875d4059b52bed258c9f608ebd4cb32fc9093692318c0d175a722b6d743"
+  },
+  {
+    "path": "dist/people.js",
+    "bytes": 10239,
+    "sha256": "d54b0a2382e92842ce14278ef17e2a0644167fce8ce34ec70fcf8613d432c0a0"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/people.js",
+    "bytes": 1331,
+    "sha256": "cb16caaa26f20e110677a8afb361c6c2fc768440da0fe2adb8fbf52ad7b1dd5f"
+  },
+  {
+    "path": "dist/application/phase.js",
+    "bytes": 7384,
+    "sha256": "855f2257c324a5bfa86090bc42658f58bc1cbe6b3def82b10447ceaea55e2fb7"
+  },
+  {
+    "path": "dist/transport/port.js",
+    "bytes": 5913,
+    "sha256": "1e909fb9631740f38fb11f6eec726626e266fe330c3f1607834d075b379b76f3"
+  },
+  {
+    "path": "dist/application/portal-reservation.js",
+    "bytes": 7448,
+    "sha256": "2e33c8cca3e63071bbaf255db3342b28b4dcf797d9a5b30c12b546a67d2316c2"
+  },
+  {
+    "path": "dist/presence.js",
+    "bytes": 3901,
+    "sha256": "e803932e20eed6ad88d054284c1fe0f7a99985bdd2ec91f8897764cac9308d5f"
+  },
+  {
+    "path": "dist/private-account.js",
+    "bytes": 23217,
+    "sha256": "44d21e8188dd74c58237761e56aaa3e179d554a3e9eeacdc7d29d146388f5e1f"
+  },
+  {
+    "path": "dist/app-host/private-bootstrap.js",
+    "bytes": 13890,
+    "sha256": "928fd4525acc4c859a09f7678c315e7c643b2398d0eb1e93683462c7cd26aa23"
+  },
+  {
+    "path": "dist/application/private-collections.js",
+    "bytes": 22614,
+    "sha256": "cd4b13e921585637cd7408b2a84f853a512cbfe37edc75bbc2a2acf689c19318"
+  },
+  {
+    "path": "dist/app-host/private-persistence-idb.js",
+    "bytes": 8013,
+    "sha256": "09a7cfc797d19279b876547dc79ea65a0f16f99ab2987f6a584007bfbdbb577f"
+  },
+  {
+    "path": "dist/app-host/private-persistence.js",
+    "bytes": 13781,
+    "sha256": "9d203974733e28ae2ab433f6306745bd89c976d8c6ce2f08d0765347d54bf085"
+  },
+  {
+    "path": "dist/private.js",
+    "bytes": 2640,
+    "sha256": "ea64e977459a0352bdb7630c7bbab5c72bcf4ec678202b4a0ebfd2cfd7b36a7c"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/public-api.js",
+    "bytes": 3992,
+    "sha256": "1635da91bae6389b88d38bc99c57fa6ed71c017b026cb80be9cead10bbafa499"
+  },
+  {
+    "path": "node_modules/yaml/dist/public-api.js",
+    "bytes": 4187,
+    "sha256": "9b318ac7b3a3751127c74f59dd1dd209230a70ca116000348b82faae189f72f0"
+  },
+  {
+    "path": "dist/transport/read-fence-policy.js",
+    "bytes": 426,
+    "sha256": "6eedc81cddbb796483ed552b7dc3a5c2c83cf583b0a9fd464804304edc3883d9"
+  },
+  {
+    "path": "dist/read-helpers.js",
+    "bytes": 8141,
+    "sha256": "2697ad522106a1a36e347a406009abe936715a07efcfe212566376d3183cf8dc"
+  },
+  {
+    "path": "dist/application/readiness.js",
+    "bytes": 11217,
+    "sha256": "c17e34619d4ff0fd551b4eb7b429bb85dd960d61333c471884b9116685b14cb1"
+  },
+  {
+    "path": "dist/records.js",
+    "bytes": 9307,
+    "sha256": "31c313f2943bfece87d303cc1833a99cb79c8b6420ff9fbaec61425db5712411"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/records.js",
+    "bytes": 193,
+    "sha256": "52c83d250d0130a8542441f874f90ee0adfa0348f95a9acc393388c808b41695"
+  },
+  {
+    "path": "dist/application/registration-refusal.js",
+    "bytes": 2069,
+    "sha256": "93b001c48cd6dc491c20245f2e12c6f3012062fe1143814fb023decb6d79bdc2"
+  },
+  {
+    "path": "dist/application/registration.js",
+    "bytes": 16026,
+    "sha256": "43fd54b47729b135f789aa413fa854a3df0acaffda7717beda42a074f7fc8b57"
+  },
+  {
+    "path": "dist/transport/relay-close.js",
+    "bytes": 1307,
+    "sha256": "e52636171408cd33f55602120ed70929a586ad8ab5a66361c14390e608d5c83b"
+  },
+  {
+    "path": "dist/transport/relay-pipe.js",
+    "bytes": 8372,
+    "sha256": "ab884b7dfc53a3cd050008da501eef4ee49aedf6d7b193785254488d4465a6be"
+  },
+  {
+    "path": "dist/transport/relay.js",
+    "bytes": 2143,
+    "sha256": "a8175dab213b7bbcf9a53960a30d61702b43fdb44e5bb28c0f631c74d5447b1c"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/resolve-block-map.js",
+    "bytes": 4915,
+    "sha256": "ffa61d87f9f0e58a5e05c54073f67c34c4575234f357bcaba6fb164e36996b97"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-block-map.js",
+    "bytes": 5071,
+    "sha256": "dcfada448c8fc532ebba96d6788a4b41bb015fc5e697a9544ff429b9c4e4c70a"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/resolve-block-scalar.js",
+    "bytes": 7447,
+    "sha256": "2a89c2b128e143a98f61751b9ab7dd08d140105c185ece6a687015ea8e0be036"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-block-scalar.js",
+    "bytes": 7500,
+    "sha256": "af562e2e3cd7ee7b3cb9342984177f6b5c77de73121e87695db3ff635e12d152"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/resolve-block-seq.js",
+    "bytes": 1740,
+    "sha256": "7905b607f90dc9078463fd40e3fbb22537e45e0ef2514fc6c662526b4cdc2ec6"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-block-seq.js",
+    "bytes": 1812,
+    "sha256": "18f54a39d73b600ebbd74a343e6671d0d08423f125bd86963b72dc24d6261911"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/resolve-end.js",
+    "bytes": 1239,
+    "sha256": "e0a32e1b8c5649ea14152b0c0d45fbd64d46dbfa299a7328b71421e49ee48db2"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-end.js",
+    "bytes": 1264,
+    "sha256": "532bf56299183e75bb7c20db75321367c28393b66ecb8ffd540faedd9817f116"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/resolve-flow-collection.js",
+    "bytes": 8778,
+    "sha256": "957722ee22cb72b48e9d78ed6dabdca97fcbff188cad1f362864a959b184925f"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-flow-collection.js",
+    "bytes": 8927,
+    "sha256": "242470b54c0deba1507babba2e879f3005ed2ee3bd53a36affb6ecf82fddd375"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/resolve-flow-scalar.js",
+    "bytes": 7355,
+    "sha256": "5516b92d61fedb6dbfb4523a7aa6c44c12b627e18da5178eafa28324aef4ff7d"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-flow-scalar.js",
+    "bytes": 7417,
+    "sha256": "13bcd9d37afd4ffec4b1b3bc9ae1ecc2cff97e7f7c91b5f58b71c99ddd526b05"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/resolve-props.js",
+    "bytes": 5552,
+    "sha256": "4b6c34fe620ddaf31e06c44a1acbbbe8e49a617ae805bb8dca70a278812c16cb"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-props.js",
+    "bytes": 5579,
+    "sha256": "0b49c6af0145c309883dbf24d1a00260c0c090412be10aaa301de126dad15983"
+  },
+  {
+    "path": "dist/application/return-url.js",
+    "bytes": 2028,
+    "sha256": "0e4b7d1b57afb56e2be9343612bc04aeaf1077c0fe81c77aee9c805184e73300"
+  },
+  {
+    "path": "dist/runtime-wire.js",
+    "bytes": 4401,
+    "sha256": "d9d8816f241247707ed43db51ceaa772be211d243563bff8621b46d0b1814296"
+  },
+  {
+    "path": "dist/application/runtime.js",
+    "bytes": 19695,
+    "sha256": "91071dadd7f503ef71e3479fcabb8a19a6f2014b3e1ec11de8918cbb4590d53c"
+  },
+  {
+    "path": "dist/saved-views.js",
+    "bytes": 9370,
+    "sha256": "ef89bfb13a87a8ae2d42d7ef925396ed4e1132239dd2a4a67d5934cbb6539701"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/nodes/Scalar.js",
+    "bytes": 700,
+    "sha256": "80a4961d380ec00c5eb9a47f29dfb378437d055910e163a9ebd9accf032b6e03"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/Scalar.js",
+    "bytes": 759,
+    "sha256": "616ac0f6a0a5a6565307a4bb4443691b0dd019c03d6bb8777353750bd3459487"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/core/schema.js",
+    "bytes": 480,
+    "sha256": "92e75125989595b02d9b9f8d6788076d4c1ec173bfa4b0f04eabaaff86153dd9"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/json/schema.js",
+    "bytes": 1867,
+    "sha256": "a33036dc6f8916682f9494431ad7ffb1116af7616aa83439b1a956b628e44068"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/Schema.js",
+    "bytes": 1495,
+    "sha256": "515d6576e94a5cc96c999cd9da230f7ef79d8fbea1f4c6c6939631ef122fb50e"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/yaml-1.1/schema.js",
+    "bytes": 860,
+    "sha256": "1e684cad435d9e9601aa56dd4d55243369a010e75edba21ff31d7be84c8600eb"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/core/schema.js",
+    "bytes": 509,
+    "sha256": "481d7c64817b40090d519fb65bd83730dadd4c6baec1440b9bf85d29e52c046e"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/json/schema.js",
+    "bytes": 1900,
+    "sha256": "9efdd848455f6e0621feb13f3eb762453cb02b09d5e04b6501163cfb26af27ed"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/Schema.js",
+    "bytes": 1547,
+    "sha256": "d3b1bc956a766e2489c36114366f3b3f89762a257ae05ff6271ee3fc8c2a9bf5"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/schema.js",
+    "bytes": 912,
+    "sha256": "a7320808484dc6d04817b33b2d09b65ead7ffc1c672ab54e068a80972b17702e"
+  },
+  {
+    "path": "dist/application/scope.js",
+    "bytes": 9749,
+    "sha256": "2f7b7cd26c472f6a5ab9e26e53552448b1dbccc41527e19deca2bebd8b7af24a"
+  },
+  {
+    "path": "dist/app-host/scoped-sign-in-session.js",
+    "bytes": 12529,
+    "sha256": "ecbf12fb08e354a13071a1635b6613b5c83b2350259be862203d17c5c95a5039"
+  },
+  {
+    "path": "node_modules/@noble/hashes/scrypt.js",
+    "bytes": 13621,
+    "sha256": "a38a020620776fa5c57c00f151bdc1033c192827c9d841996daaf29122ea82c1"
+  },
+  {
+    "path": "dist/semver.js",
+    "bytes": 2614,
+    "sha256": "0a5e47a84a377c840d04bf90e6f22a16d7a02203211a1e4559b92a9ce84d4b51"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/common/seq.js",
+    "bytes": 440,
+    "sha256": "446dc09d297b2b9823d981f3c44e595f8d87c2ce97e2435e1ecc01bc6c31f4b9"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/common/seq.js",
+    "bytes": 484,
+    "sha256": "51fc0e8bfc63d1d9c7c66b0370a069bb33e0dad865080ff76802803597b9909a"
+  },
+  {
+    "path": "dist/application/session-hint.js",
+    "bytes": 3772,
+    "sha256": "8b01f5fddabb95720f00992d64611a7cd2c4e3390060d90e5ebc26f9cbdcd430"
+  },
+  {
+    "path": "dist/records/session.js",
+    "bytes": 21671,
+    "sha256": "8bddce5382d26c8beca2ad8e76648e09cbeb58ea43f55d5977a19ebda2270672"
+  },
+  {
+    "path": "dist/session.js",
+    "bytes": 14152,
+    "sha256": "84953af197d2e8e66c95b7a607fe68f21095b8db2b7b413c98f7094eab80fa8b"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/yaml-1.1/set.js",
+    "bytes": 3030,
+    "sha256": "0cdce6c41328c116fc17f5660a79f8995af8d0227e424e89177a30894138b687"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/set.js",
+    "bytes": 3114,
+    "sha256": "e4553b0cbde79090884908f44bb3b4afd04935fc23656a1b87ec1af87f24427a"
+  },
+  {
+    "path": "dist/app-grant/setup-attempt.js",
+    "bytes": 3151,
+    "sha256": "6466657a10e10408ca80bd75b14bd7b2dfd0ebdb16bcc5eafee420e3556fa884"
+  },
+  {
+    "path": "dist/app-host/setup-engine.js",
+    "bytes": 3450,
+    "sha256": "fd43e8b9996a587f909963714737d917747824465042e57ed3670f31b3940f92"
+  },
+  {
+    "path": "dist/app-grant/setup-producer.js",
+    "bytes": 3502,
+    "sha256": "9f97b4c164d6d9383465e5476d59b528c91e93c87e116ee75663aabe59783717"
+  },
+  {
+    "path": "dist/app-grant/setup.js",
+    "bytes": 12687,
+    "sha256": "4ceefa0a4c72de59465bd61d1de1f7e586f05b3e22e13f0b5f753dfe3fb41e6c"
+  },
+  {
+    "path": "dist/application/setup.js",
+    "bytes": 7773,
+    "sha256": "dc7710e41a82dd5612f61a79bea7d6c69892abbbb4d42534ef96f40823ecf16d"
+  },
+  {
+    "path": "node_modules/@noble/hashes/sha2.js",
+    "bytes": 18997,
+    "sha256": "471746bba6ec4c6238ca41358d1d3b40b6ff31cf3363f0b4d550c649c1a8e83b"
+  },
+  {
+    "path": "node_modules/@noble/hashes/sha3-addons.js",
+    "bytes": 38268,
+    "sha256": "e979866a213955afba24c105966bc42afa5d1377d77fe1017dea29a958fddcb7"
+  },
+  {
+    "path": "node_modules/@noble/hashes/sha3.js",
+    "bytes": 17469,
+    "sha256": "9a81e1edb24eae27b335533220167609cfb58008c5690e140ce478acdc669f32"
+  },
+  {
+    "path": "dist/app-host/sign-out-erase.js",
+    "bytes": 7589,
+    "sha256": "f30aca2c845a67176f806e17c5214925b606b70fec7ea5bd45ff3e0184a1c341"
+  },
+  {
+    "path": "dist/application/sign-out.js",
+    "bytes": 1261,
+    "sha256": "05527a4046ba76be14d23954a09dca08aca141cf31eccead5e9618e78c21f794"
+  },
+  {
+    "path": "dist/app-storage/sqlite-index.js",
+    "bytes": 11330,
+    "sha256": "0ceaeac75a1b6534e2f43dd10b420e89e1a09d379bfc970d8ea3364ae141b437"
+  },
+  {
+    "path": "dist/native/sqlite3.js",
+    "bytes": 642742,
+    "sha256": "a6d3fe46aa3f924e7686329f97b0564549ef1f787e0c19924179aef7f72bcc01"
+  },
+  {
+    "path": "dist/app-host/status.js",
+    "bytes": 2194,
+    "sha256": "f21948cb2250f8b2c27094f08adb4ee7551dd148f0bd3c7c6cc5bac216514f9b"
+  },
+  {
+    "path": "dist/status.js",
+    "bytes": 3042,
+    "sha256": "39d9fab1b65d0b6ffdaf3f68837e5ef754c7ba5be1565f2a9c7badfa710bc713"
+  },
+  {
+    "path": "dist/app-host/storage-probe.js",
+    "bytes": 2535,
+    "sha256": "27263fe451bc532e78bfb5655a2e37e0a5ec63648b314f6de8131029beba99d3"
+  },
+  {
+    "path": "dist/strength.js",
+    "bytes": 9153,
+    "sha256": "db1cf74740ba7bc3a5539a05134776767b4f72d5316b86ac8d790ab629c7f408"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/common/string.js",
+    "bytes": 421,
+    "sha256": "830740273a4f0a39b94549377cb12183ab8ce558dfb12818f7b295fe261fc08e"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/common/string.js",
+    "bytes": 457,
+    "sha256": "51d0b3aafab2ffa4ad9d86656a3b92c4b4824d0a8806423882ea5f92a1bf8d11"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/stringify/stringify.js",
+    "bytes": 4400,
+    "sha256": "af3ccd112cba318ff9b4686ed9afd0b33fc238da51954fd431dc4c7a9db0b455"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringify.js",
+    "bytes": 4534,
+    "sha256": "38efb5bc5553e98fee58c825a88131c59184368d8689e3e6f43c652a06e9c167"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/stringify/stringifyCollection.js",
+    "bytes": 5552,
+    "sha256": "0d2babd8428322fe6a9f5cd10fde361a1d8dedae662fd4245c6d151e4a5ae013"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyCollection.js",
+    "bytes": 5718,
+    "sha256": "b55fd3b6e3f1346bbcd1fcdc48a59c089b7a4b0e6fac2b46846f7828f9488600"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/stringify/stringifyComment.js",
+    "bytes": 724,
+    "sha256": "20d3dc6bebda3efc2394ca162455ce9e4691b6c60995b5b4418b30659e09e03e"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyComment.js",
+    "bytes": 801,
+    "sha256": "490bff57104b7cfdb1893f14528610bb4d0a63c29b314e122233cf308cf96662"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/stringify/stringifyDocument.js",
+    "bytes": 2983,
+    "sha256": "3ca3818dc9e81ee7e45f0e26792065f47fccee99b6150e76a94fcbb3d0306421"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyDocument.js",
+    "bytes": 3104,
+    "sha256": "dd5ba1813a16b62955c466bce8d1c16254e90b36d688f863c508dc8fe38f2afe"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/stringify/stringifyNumber.js",
+    "bytes": 778,
+    "sha256": "e0d02220e66fedc267b435e5d13d2383e24c8460562d815f670a169dadc2859f"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyNumber.js",
+    "bytes": 808,
+    "sha256": "26a1980d34a21a80704d356d475a0187a24ebcbeb37a2e3b149d4d791bb65598"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/stringify/stringifyPair.js",
+    "bytes": 5285,
+    "sha256": "4074dc125fdad4ef2ec8bab4fbf7ece4b399ecd2fbd1813c4a316e88243f1179"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyPair.js",
+    "bytes": 5470,
+    "sha256": "bc03ae533d85bf9122e87c0a256c841ae7fbf063499bc3034d49fd9f7b200659"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/stringify/stringifyString.js",
+    "bytes": 13164,
+    "sha256": "0fd2e43243792cfa0a1d8cea13ba8e05ddaf6fb1296a4fde497b956454bfa44c"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyString.js",
+    "bytes": 13345,
+    "sha256": "4113b71a9c4c087a197f71452794a6acb9929111f569c973ff4efe7caee8f777"
+  },
+  {
+    "path": "dist/application/tabs.js",
+    "bytes": 15953,
+    "sha256": "35ec097688bc7f5f4e1bc3db5402fb743a288dba6898381d9e9a11225e25df68"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/tags.js",
+    "bytes": 2962,
+    "sha256": "c8085f537d22c3f7f17ea2906ddc11fc69b0106d5447aac2953eec19c025f136"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/tags.js",
+    "bytes": 3239,
+    "sha256": "dba2f42d4dbe8cc8b13f662fd97d253da2da5567e71c47115305efede5a888f2"
+  },
+  {
+    "path": "dist/testing/test-app.js",
+    "bytes": 9318,
+    "sha256": "168d21ccaeafd097fd73b947effcdfd38faed2b549f2bcbddf61ec38f83e1e85"
+  },
+  {
+    "path": "node_modules/yaml/dist/test-events.js",
+    "bytes": 4274,
+    "sha256": "5ff5e7f170702d75d4bfd5ef24a35fc95dc2871680c0ae4d714137d4c2cde571"
+  },
+  {
+    "path": "dist/thin-client.js",
+    "bytes": 2945,
+    "sha256": "91f29cafd643beeab675ce753aa76c736f667e8c43249b2e9f82bf854b678574"
+  },
+  {
+    "path": "dist/application/timer-criteria.js",
+    "bytes": 854,
+    "sha256": "2cd8dcda92d097bb8ed60196506dd80fc4cc6f6559be99b7f171ea103be77d5e"
+  },
+  {
+    "path": "dist/app-host/timer-port.js",
+    "bytes": 27158,
+    "sha256": "56e0445d24deaddc6599117034ae3695e651be5a08ba86834034e2e2d4c4d837"
+  },
+  {
+    "path": "dist/timers.js",
+    "bytes": 14008,
+    "sha256": "8708fa9bf5bba4cec87c8803855930c22b334d0deba0b66406020146df762ea4"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/schema/yaml-1.1/timestamp.js",
+    "bytes": 3698,
+    "sha256": "18fb9beee49f0f3452601ba01b46ae1d6e49bf4a63b499e9eff28366e3dfcb5d"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/timestamp.js",
+    "bytes": 3775,
+    "sha256": "b157c946dc1b8854aadc4e7994b268ec8afe6d916721cb3580e0752c7d15a5f7"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/nodes/toJS.js",
+    "bytes": 1266,
+    "sha256": "80f2431eaef0c531ab93b1a8883206394ae3fac75732cc683cdabfdcc00dd724"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/toJS.js",
+    "bytes": 1292,
+    "sha256": "34de93bb4e16abbf317210a7bd1b062ed20acb028cd8395b69b591f433e277b6"
+  },
+  {
+    "path": "dist/type-packs.js",
+    "bytes": 9983,
+    "sha256": "8c96f3adecfa34e9c908387566aebac3115c5e5ce1f9f6f8d3f7615a97a97b88"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/type-packs.js",
+    "bytes": 1352,
+    "sha256": "5625e49fc08984a60a8499198ac6311c230fc610aa8f65e7443834d50374db93"
+  },
+  {
+    "path": "dist/records/types.js",
+    "bytes": 44,
+    "sha256": "01ae2a5b120382f9a648ced7ee8507493a134f216d100fc61600c6c9738235d2"
+  },
+  {
+    "path": "dist/application/ui-connections.js",
+    "bytes": 7037,
+    "sha256": "50efb3cfc45ff819c77222734f2698c7ea756d512391942c63b8976ddebdb157"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/util-contains-newline.js",
+    "bytes": 1051,
+    "sha256": "4810ffba0d74ebb913731e1369ea17f6fef20df2feb2ef0bd8553e439f4a6b78"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/util-contains-newline.js",
+    "bytes": 1081,
+    "sha256": "60182618fc9fa669e74ab74f4231c15b5d24bc52ab0a419684bb827a00d69be6"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/util-empty-scalar-position.js",
+    "bytes": 816,
+    "sha256": "571d615e24fd379998df23e29df09f127349f4757fc4cbad176aecbfe77b7d82"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/util-empty-scalar-position.js",
+    "bytes": 850,
+    "sha256": "460516395ef7e961d5248e047ee6d52084f279b76e8af9f3c2bac92da1c7d656"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/util-flow-indent-check.js",
+    "bytes": 494,
+    "sha256": "ebab50fc461c9eaffe07c807dde4aff4f8c5976f5aa4e8f02608ed57ef52a690"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/util-flow-indent-check.js",
+    "bytes": 547,
+    "sha256": "c7c0c9837a1f828de19eb3ee0947dff39c4f69222c762aed9fa2fe14fc46ee3e"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/compose/util-map-includes.js",
+    "bytes": 428,
+    "sha256": "584a79bdaf93b530fee951c888daf844a6a329f672ffb57450b39f72b0bdfb95"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/util-map-includes.js",
+    "bytes": 471,
+    "sha256": "0330dc34072cb499493176b293228631ca8ebaaaddcdc0e63b02bf24f6a25c2d"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/util.js",
+    "bytes": 594,
+    "sha256": "e6b73d7297c4253e5299d4f97dc2c05e6e30d69ace66962412f6ab9690d4d412"
+  },
+  {
+    "path": "node_modules/yaml/dist/util.js",
+    "bytes": 1008,
+    "sha256": "193b1d92fb7641d78f17a8f560cbe44dd7cdede2eb8935bacd4ca30df2f1a17a"
+  },
+  {
+    "path": "node_modules/yaml/util.js",
+    "bytes": 80,
+    "sha256": "2f1db26f6cc426ef698210b592f40cec49be1b6c4b34e7f2d61904786242bd85"
+  },
+  {
+    "path": "node_modules/@noble/hashes/utils.js",
+    "bytes": 26035,
+    "sha256": "037ad49adb78168b6b699598fd33f85f7877456b1d28b4d032e2a1a16807947c"
+  },
+  {
+    "path": "dist/validation.js",
+    "bytes": 5016,
+    "sha256": "12e0197d7244848f05b9fb31f9f49dbffe5c9c4f4e5e11e1f9f98a30579068d1"
+  },
+  {
+    "path": "dist/values.js",
+    "bytes": 4383,
+    "sha256": "37ff65fec04a3c8cde7b3afc10e93873aded60b9ca36c78a55d4475bedae5109"
+  },
+  {
+    "path": "dist/view-sources.js",
+    "bytes": 3989,
+    "sha256": "74a487a33e162c36c8b1462d983db9692a98bfb5468e8cd0a44e2538c055c968"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/visit.js",
+    "bytes": 9107,
+    "sha256": "d9daffd11ec68755a7238684ae3f9c64f59dc86338d0e7cbe521a8fc1d45bd19"
+  },
+  {
+    "path": "node_modules/yaml/dist/visit.js",
+    "bytes": 9253,
+    "sha256": "a757e3b924af184b25e2386d1678b1fe341805a516ebf9bccee219b47aebd5e7"
+  },
+  {
+    "path": "dist/app-host/wasm-runtime.js",
+    "bytes": 52493,
+    "sha256": "53edf121dcc1370071224b06d298e6685e05e83e766f40ac65e5931f61755369"
+  },
+  {
+    "path": "dist/runtime/wasm.js",
+    "bytes": 10740,
+    "sha256": "62f14f9978df9abe6c9b919229d5d00eaa3e65109902f42cbc9940fa9e7ec62a"
+  },
+  {
+    "path": "dist/app-host/web-collection.js",
+    "bytes": 32656,
+    "sha256": "ee7dfac5d70ad4e50b599df1324dfb037cf5756857bacfb8de9ad6fd52481c65"
+  },
+  {
+    "path": "dist/app-host/web-sign-in-problem.js",
+    "bytes": 4158,
+    "sha256": "a946b439390b1718a74b33873ed7bbd3453bf771f47796fff8c1dea9968d2721"
+  },
+  {
+    "path": "dist/app-host/web-sign-in-session.js",
+    "bytes": 63623,
+    "sha256": "8b0e82764ff35b51e75b6e74471e8ab58fe4667ecdcbc42f40efb766e3b253bd"
+  },
+  {
+    "path": "node_modules/@noble/hashes/webcrypto.js",
+    "bytes": 9633,
+    "sha256": "83f476a634233b999ce6e6cd67dc03e64f07b8d5a826e67ad4a50c940d9ce7ee"
+  },
+  {
+    "path": "dist/wire.js",
+    "bytes": 28814,
+    "sha256": "ea1c7c4f63ee3911d8043ac23582cfc794de1e28906722e6a358de723977982d"
+  },
+  {
+    "path": "dist/records/witness.js",
+    "bytes": 2812,
+    "sha256": "655899d83c99b9cb3f9d210cf40ab5a3e46c6c8e4b0a25b7ae417549ff70ce65"
+  },
+  {
+    "path": "dist/witness.js",
+    "bytes": 3166,
+    "sha256": "fd562547b49e2554e5be2267a7d8d09cec1c1fe9ae2866f7b968a3d568a6459e"
+  },
+  {
+    "path": "dist/application/worker-client.js",
+    "bytes": 18216,
+    "sha256": "1c969b7f4de46c066bf3e8efdf8a020877f904aeaca47a47938293fd60b067a8"
+  },
+  {
+    "path": "dist/application/worker-host.js",
+    "bytes": 26673,
+    "sha256": "83630aaf6b6115c866959c2d7236a9bb704359c0cd5ae2d0054852bfee9cb3d3"
+  },
+  {
+    "path": "dist/application/worker-protocol.js",
+    "bytes": 5633,
+    "sha256": "7cba151721b2ee549b1b8fd205b1dfa38898d8db7a9f1ff83b7a0245ba66eb75"
+  },
+  {
+    "path": "dist/application/worker-session.js",
+    "bytes": 2588,
+    "sha256": "5f066d59504bd026a3521e511e4a2010d2404026ffacbb3c253c39f4039cfc13"
+  },
+  {
+    "path": "dist/application/worker.js",
+    "bytes": 1406171,
+    "sha256": "9762ac8c6111fc5f561111afdce6a6e798a9369f7a2e2efd8bc97e7a239df31f"
+  },
+  {
+    "path": "dist/write-ledger.js",
+    "bytes": 7208,
+    "sha256": "29b83ee26d51f9eba680b8cefc18a612fa14954d6b3d73153c34745fd541f2bd"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/nodes/YAMLMap.js",
+    "bytes": 4957,
+    "sha256": "42b884f36dfb23248e9f2200bce5e7a6007f90e0adfd228de8079346e9627737"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/YAMLMap.js",
+    "bytes": 5105,
+    "sha256": "d140cfc5aa8d28737bd3c993d977d5a10ab81efe221e36708ac45b3cf18f5dce"
+  },
+  {
+    "path": "node_modules/yaml/browser/dist/nodes/YAMLSeq.js",
+    "bytes": 3573,
+    "sha256": "75d12e1a5edbf1e3d04d6310ffdaf553a3a1ff7d12643cfa428330ca7189604d"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/YAMLSeq.js",
+    "bytes": 3667,
+    "sha256": "9f89417f3cba5f22a4436f67a9ff9dce627344b5874d2ed7957ff9acffb030e4"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/interop/v0.1/action-cancellation.schema.json",
+    "bytes": 256,
+    "sha256": "a6c5a077847c43a3a4a938cb213786afb45438fe152443130eaaff802b3eac3b"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/interop/v0.1/action-invocation.schema.json",
+    "bytes": 251,
+    "sha256": "5d37f4a6f464c66ee1e5d0adef2cd16bc7810bff690f34c46be75b8ce8efd824"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/interop/v0.1/action-outcome.schema.json",
+    "bytes": 233,
+    "sha256": "a7a4cfdfbf92c652857d86dff7943cf109ee3356e213380d9da5ea2544d369cb"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/interop/v0.1/action-provider-declaration.schema.json",
+    "bytes": 271,
+    "sha256": "4f1013aa65fde513195cb3aef6fee938dd4f964922fc7be67e0e61b32c5f28d2"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/interop/v0.1/action-request.schema.json",
+    "bytes": 233,
+    "sha256": "8532420edaa3c948610ea0225bf9f8a76b56f24167f1348b9699df1a0af2b9ab"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/application-capability-catalog.v1.json",
+    "bytes": 2270,
+    "sha256": "1b14f8bd3897a464b0dc670352d4d177481ab67e02ca39add50fc4f759cc277d"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/application-capability-catalog.v2.json",
+    "bytes": 1317,
+    "sha256": "c95f3c93390ff35772b294288e373925fcfaed3b6948271fb09e12865a236c9b"
+  },
+  {
+    "path": "dist/application/asset-pins.json",
+    "bytes": 631,
+    "sha256": "b585f7e0b82dc522b5580e0f0f0b24ae74205bba315d181949919b1871710ee9"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/catalog.json",
+    "bytes": 735,
+    "sha256": "473d2878f09e66c272d5051c9dc429085c808d941fe6f03e95169f6670595282"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/change-events.v1.json",
+    "bytes": 1382,
+    "sha256": "c67bcef90a1d0b51547cd9b9bf117ad92168bf7ec28632ffb1366c68251b5a99"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/interop/v0.1/conformance-claim.schema.json",
+    "bytes": 259,
+    "sha256": "ce0e627bc26db4c0bb2bedd7c341ab98954a44566ddde197f752a34ad54c7f08"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/connect-problem.v1.schema.json",
+    "bytes": 108723,
+    "sha256": "7c31019786a5ed0342bb8b5f322de29f285b122546ba34b7b7cd67ddb7a50cac"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/connect-problems.v1.catalog.json",
+    "bytes": 16601,
+    "sha256": "aea9b25d67f4d89d3d24858f62ef1426bf2979c64a52841571b3acf2984fc894"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/connect-protocol.v1.schema.json",
+    "bytes": 37704,
+    "sha256": "6cc9b4498b3a5c94e169e0857427d1e4729e682927cce9c511c3d158a04f52b5"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/data-contract.schema.json",
+    "bytes": 3932,
+    "sha256": "800d30942bac9f421732ae0ac1cc70544ae2638b60b148740d9c1727bbef16d1"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/encrypted-relay.v1.schema.json",
+    "bytes": 3028,
+    "sha256": "7b2fab6d8f1c9f1f42d396bd816351535ee6f28c58d4ba2533db4a8758286065"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/encrypted-relay.v2.schema.json",
+    "bytes": 3041,
+    "sha256": "f8f32cc65ed1645bc001081b87671d2ad954e33cc0dd96427269a7e19d3d6b5b"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/encrypted-relay.v3.schema.json",
+    "bytes": 3135,
+    "sha256": "4b007fc10e27fc23e15bb23abe19b81a5c52afb5809738cad16d190b3124a287"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/interop/v0.1/event-source-declaration.schema.json",
+    "bytes": 262,
+    "sha256": "507677f49589832bd44e8af09f7780b97da0c3a39c7f06c12c4d2741acfe650a"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/interop/v0.1/event.schema.json",
+    "bytes": 228,
+    "sha256": "734f597782ead2eb01fb961eeab57e283ba09ed84ce21de8ad3ae9ea54cc881e"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/files.v1.schema.json",
+    "bytes": 19588,
+    "sha256": "2d1979e1299c3dd4198bc4395c88b7a073ef0a841d8e222d6654e171f8f3d9b3"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/mdbase-app.legacy-v1.schema.json",
+    "bytes": 13551,
+    "sha256": "72f5b82bb0c38e53cfe48ec346c6195df623df737829b3d0796a840d28dd7578"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/mdbase-app.schema.json",
+    "bytes": 14032,
+    "sha256": "b9f4b4be5fe64749142448e36796fdc945704166a647fc647e0a12638945ee8a"
+  },
+  {
+    "path": "vendor/mdbase-connect-sdk-c280cd194ffd.json",
+    "bytes": 418,
+    "sha256": "e887a677d53ff8fa347af2def32575454167a982e1d7714ae70e0fa4caa97afc"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/mdbase-query.v0.3.schema.json",
+    "bytes": 5185,
+    "sha256": "1679288ddf573bba00104a6f53234dea2258ced403c1c0c7b45d2a9ce25be4a7"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/next-trust.v1.schema.json",
+    "bytes": 2736,
+    "sha256": "01dee1de74865b0ffe633c17cc34928ff1ed3610306742a3155fa4fcc80c9e19"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/notification-webhook.v1.schema.json",
+    "bytes": 1727,
+    "sha256": "79f789869c4589216b0b266485ea9be9d837919818343677702d18eb93d07954"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/operation-catalog.v1.json",
+    "bytes": 3095,
+    "sha256": "5e5158ca92bd7edbc2f38d43cd5ab61e58b69cd4847a212631e2a28fde70b123"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/operation-mutation-classification.v1.json",
+    "bytes": 11266,
+    "sha256": "6d6b9da457242daf170874e0f15e62ef909cd7793a98fa05551df82a9653f021"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/package.json",
+    "bytes": 1402,
+    "sha256": "e88638df428e980a237532318a4d94979af65a24de1f0ef756e0c789c197f2fd"
+  },
+  {
+    "path": "node_modules/@noble/hashes/package.json",
+    "bytes": 2583,
+    "sha256": "3e361734f5269de162fa362483d7f45dee7efb533ec217157945338f7591baaf"
+  },
+  {
+    "path": "node_modules/yaml/browser/package.json",
+    "bytes": 23,
+    "sha256": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a"
+  },
+  {
+    "path": "node_modules/yaml/package.json",
+    "bytes": 3254,
+    "sha256": "1c6441703d8204a23ded0d37ddf57c3b69d821dc392f20852d1f605bb9b8861c"
+  },
+  {
+    "path": "package.json",
+    "bytes": 2928,
+    "sha256": "5f4b7c4e75796d03acaed3706fbcf24bc6080de6d4eff1e32f216fcc1af1ccc3"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/interop/v0.1/profile.schema.json",
+    "bytes": 15951,
+    "sha256": "e821ecdf08f1854ac3c857a38bd4fe4787cc21e337cb611591b3163b0e7f0ebf"
+  },
+  {
+    "path": "dist/native/provenance.json",
+    "bytes": 2411,
+    "sha256": "b41ea130e0bc957661c0c585f7c463bba872046e15e41e27bb6b676ecfbf2cf7"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/schemas/sync.v1.schema.json",
+    "bytes": 18715,
+    "sha256": "c32ba665b22b11c3fd98e844d404dfd29ccfdcb8cbb18562bf531ffa6ca21c6b"
+  },
+  {
+    "path": "dist/account-key.js.map",
+    "bytes": 16275,
+    "sha256": "930a57e57bbd758d94188d3a39a24eeaeebbe3d4f11548493b8fee40816bc7b7"
+  },
+  {
+    "path": "dist/account.js.map",
+    "bytes": 548,
+    "sha256": "cd94924903ec3575ea7d35a07afaf5f7bb2b98f570cc5dfcd540d88cac20a12b"
+  },
+  {
+    "path": "dist/app-storage/app-binary-index.js.map",
+    "bytes": 12239,
+    "sha256": "39b059ba2bd202d68ce0d60d1ac46a3450b2db9f5e01060f8200d9e98fa54363"
+  },
+  {
+    "path": "dist/app-host/app-environment.js.map",
+    "bytes": 2688,
+    "sha256": "64fd7f06c684b705ce4ec807dd4fd71a78380465f04daa75d1b2fcd43e2c0078"
+  },
+  {
+    "path": "dist/app-host/app-origin.js.map",
+    "bytes": 2181,
+    "sha256": "1cd1c53861938d6fdb937f716b33ec86f4853d3ea89f49c3e451407c4675fdc7"
+  },
+  {
+    "path": "dist/app-storage/app-sqlite-index.js.map",
+    "bytes": 3747,
+    "sha256": "1280030be6a9ee2941a19a45770dab51fde04fbca97fc0f3b68edd33830a3d93"
+  },
+  {
+    "path": "dist/testing/application.js.map",
+    "bytes": 10302,
+    "sha256": "f796d87c5c6c593c19d4ec0f6e0bb83a0394547ee8d7cf459a311a51287c00e2"
+  },
+  {
+    "path": "dist/application/asset-loader.js.map",
+    "bytes": 5498,
+    "sha256": "818aba7f110fcfbd23d467f58df5fe608feb270d62dfd27ff7d3836bbffd2dca"
+  },
+  {
+    "path": "dist/attachment-wire.js.map",
+    "bytes": 2643,
+    "sha256": "dd617f22418c0b7a36cf65512cd63366612baa59adcd365541f0f175285e1008"
+  },
+  {
+    "path": "dist/app-host/bases-pages.js.map",
+    "bytes": 1747,
+    "sha256": "cbf5e0527030b95ec107daff688eae7d2b4a0c7e2bc77621e565c0bd11c4e725"
+  },
+  {
+    "path": "dist/transport/bases-rpc.js.map",
+    "bytes": 2142,
+    "sha256": "9dddc2d72a92032d117bef70cbc6326c7996f7925ebea3933fdc59a75652147f"
+  },
+  {
+    "path": "dist/app-host/bases-wire.js.map",
+    "bytes": 21533,
+    "sha256": "5d6f360f0b3a9de8ef3ea7243be3af0535beed69b09b6c7d8ae779771569a3e3"
+  },
+  {
+    "path": "dist/application/browser-capabilities.js.map",
+    "bytes": 2880,
+    "sha256": "4284701a1fc0725b90376e7c3c0b4fdb42cd87a74f6bcec8b6e357dcf27d6b4e"
+  },
+  {
+    "path": "dist/app-host/browser-direct-access.js.map",
+    "bytes": 584,
+    "sha256": "4da8f55e3f6836cfc0656036395dd728bcdcd5bce4a7bf9fa728c3757bab52a6"
+  },
+  {
+    "path": "dist/application/browser-selection.js.map",
+    "bytes": 7417,
+    "sha256": "fe2db59f20a91f804bf07993825d64f3c1a587e35bef33d3307709c140989d0a"
+  },
+  {
+    "path": "dist/browser.js.map",
+    "bytes": 212,
+    "sha256": "39f93089b214b9aa03d4690ac76ae75bfcae3f395e0c730c8e1f4b390cf7518e"
+  },
+  {
+    "path": "dist/application/capabilities.js.map",
+    "bytes": 1477,
+    "sha256": "b3ad6618f06243c6985ff029f4ab065a501d6b6037a47afd956eb1a1a2ee2496"
+  },
+  {
+    "path": "dist/cbor.js.map",
+    "bytes": 16339,
+    "sha256": "1a8d96c9a057e6656679cfd284fd273a8b3ce2782f9b48d0950e4cd4d3753118"
+  },
+  {
+    "path": "dist/app-grant/client.js.map",
+    "bytes": 43316,
+    "sha256": "fa89905b3e28e9f018953b2362148e8be07495318525828aa8fbfe57204cd1d6"
+  },
+  {
+    "path": "dist/client.js.map",
+    "bytes": 78188,
+    "sha256": "35647b16e4e9ff7d6d1024102751dc3268ee28ecd54f6dc1d8e3dcb45739f4e9"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-bootstrap.js.map",
+    "bytes": 22747,
+    "sha256": "e78f13652f0bdcfca847e07bd4af6aa42fe2ff7596300bf7bd0b25a695a13081"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-host.js.map",
+    "bytes": 39647,
+    "sha256": "9a144046c5a64c6587002b2c864ae95097aa6eecf00def0db4678306d6b636b2"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-persistence-idb.js.map",
+    "bytes": 8887,
+    "sha256": "925177987191aff2e6c816db80366b53778992966e71edb122f6a65290668032"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-persistence.js.map",
+    "bytes": 13319,
+    "sha256": "9b6d3bb0317039f6417dd31b431d0441628fe7e61275ea2d5e834fea223276af"
+  },
+  {
+    "path": "dist/codec.js.map",
+    "bytes": 14127,
+    "sha256": "fac74795d7bc1230b7439bc35160def998b41e8ccb3caa69fc152812406dc1a7"
+  },
+  {
+    "path": "dist/collection-availability.js.map",
+    "bytes": 1799,
+    "sha256": "fffae45600db579db73428887abfb241fa9ad81cf6b8563b27bda5abe7316b34"
+  },
+  {
+    "path": "dist/app-host/collection-control.js.map",
+    "bytes": 30037,
+    "sha256": "39827167a4441b798ddce738f6b10feca8eb17a452152c27eba24eb8d80fc789"
+  },
+  {
+    "path": "dist/app-host/collection-delete.js.map",
+    "bytes": 1672,
+    "sha256": "b2529c48942689455f25f08f7c462354cd9af4f96255e5acf9f81861d502c60d"
+  },
+  {
+    "path": "dist/app-host/collection-display-name.js.map",
+    "bytes": 968,
+    "sha256": "2a50ce0c7a5d4d67e26aa76441b21889dd9885251fbc5d8925974f2424bb20f4"
+  },
+  {
+    "path": "dist/app-host/collection-join-ledger.js.map",
+    "bytes": 8171,
+    "sha256": "8f93ccf0a9357de67b62b4a149e9f4393331c86a5bfad6a1a1d9e595307035a5"
+  },
+  {
+    "path": "dist/app-host/collection-people.js.map",
+    "bytes": 5298,
+    "sha256": "ce8a5779926475df9f58f3543031f5bb8cc02154e2bbdb452de67ebdf1e5c4b9"
+  },
+  {
+    "path": "dist/app-host/collection-readiness.js.map",
+    "bytes": 21952,
+    "sha256": "06e22c91f911c1740bbe6f77e9fc047e73e854627171de02de6f700e43bb7d6a"
+  },
+  {
+    "path": "dist/application/collection-selection.js.map",
+    "bytes": 16069,
+    "sha256": "672467d83a929243040cf2897bc3ecd113be85d4d4ef4b65987def567c5b5e05"
+  },
+  {
+    "path": "dist/app-host/collection-setup-journal.js.map",
+    "bytes": 32723,
+    "sha256": "5bfe5f8d9f9d659d74578550c6fb5d292e2e2e155af66789ab5c3c406198e0cd"
+  },
+  {
+    "path": "dist/app-host/collection-setup-types.js.map",
+    "bytes": 319,
+    "sha256": "5228ff07bbfb9af2d95e47f323b780a92c0e04e74628496ddf3466982ea74df8"
+  },
+  {
+    "path": "dist/app-storage/collection-sql.js.map",
+    "bytes": 4641,
+    "sha256": "03bdd7f5f7f298d326f922a246f3e43ccee9dd65f967aa7fff64234044d18c52"
+  },
+  {
+    "path": "dist/application/configuration.js.map",
+    "bytes": 29035,
+    "sha256": "1824327f9d21c934a34d875b28b64c85a2d6abe9ba507f4e67fd26ea64837acf"
+  },
+  {
+    "path": "dist/contract-query.js.map",
+    "bytes": 829,
+    "sha256": "dd9cb1f5b807a382da421cd09b7690abf4c66c1274dc473121f8a2b99a879e2f"
+  },
+  {
+    "path": "dist/contract-records.js.map",
+    "bytes": 1215,
+    "sha256": "9966ac4b5effa1bd3b80a71ad54c2315f7ce528a21f4cf6031c6285dcac9294b"
+  },
+  {
+    "path": "dist/transport/control-route.js.map",
+    "bytes": 2695,
+    "sha256": "5f2270291cb0e98cd909a752cb65f8144faa8f36ace4618249f2fa2f86d655e8"
+  },
+  {
+    "path": "dist/app-host/cp-authority.js.map",
+    "bytes": 12099,
+    "sha256": "f54f6dfa4f07713ef99898e88a2298625da7659f163fe2712c16ffcb9599b85f"
+  },
+  {
+    "path": "dist/app-host/cp-people.js.map",
+    "bytes": 6733,
+    "sha256": "b6c36e655cfdd33bb9b928b793643a6767738a8b8e2a2c01365899bf894e068c"
+  },
+  {
+    "path": "dist/app-host/cp-problem.js.map",
+    "bytes": 5339,
+    "sha256": "682089ad88ede334b07bf4eb7fa2124b1ab6598cef3f802b84b01ed7386192ea"
+  },
+  {
+    "path": "dist/application/declaration.js.map",
+    "bytes": 5692,
+    "sha256": "597335ae156083f38f57151b784621ab05e1990f68dc72709e174e74c13b84f8"
+  },
+  {
+    "path": "dist/describe-error.js.map",
+    "bytes": 22642,
+    "sha256": "8a6828aadd3aed7306897a391a7936cb6bbd8051746421512ef956ffa3401aeb"
+  },
+  {
+    "path": "dist/app-host/device-key-custody.js.map",
+    "bytes": 6586,
+    "sha256": "85ff8380fc0e90c17492020ffc3a6d1589990149885654175c42319accdf9b79"
+  },
+  {
+    "path": "dist/app-host/device-key-idb.js.map",
+    "bytes": 8263,
+    "sha256": "a8d35dd26a152bb5181f31d6b349570a211a36fd3f2e94c3c04c6f0d0b5cff35"
+  },
+  {
+    "path": "dist/app-host/device-key-provider.js.map",
+    "bytes": 8628,
+    "sha256": "aabe6e0649cad07a26a0a7383be29872d4c05311daf8de9ab623a2df93947523"
+  },
+  {
+    "path": "dist/app-host/device-registration.js.map",
+    "bytes": 9732,
+    "sha256": "216dd1379375d761ff06f954a1f41f3b5780c5f7083160342cd535c54e03efd9"
+  },
+  {
+    "path": "dist/application/entry.js.map",
+    "bytes": 50832,
+    "sha256": "d5842028630187b1542643492c9304a0d276ee1f9c110b5ed002aeb5fbf7991e"
+  },
+  {
+    "path": "dist/errors.js.map",
+    "bytes": 3164,
+    "sha256": "09d5c6ce3ad1c9a9ff1a953bee532d303924f55caab1b1182618432db15e9d1e"
+  },
+  {
+    "path": "dist/application/file-access.js.map",
+    "bytes": 4806,
+    "sha256": "8e22bb5d862131edd02a97cee82fbbac929cb28f8eae02d5ca2d0f509c7ae419"
+  },
+  {
+    "path": "dist/application/file-readiness.js.map",
+    "bytes": 2452,
+    "sha256": "7d7a9e352e1c6841a0c4ce9519771f28421f1d2d43c707e784b5c3c5d4db8809"
+  },
+  {
+    "path": "dist/files.js.map",
+    "bytes": 21295,
+    "sha256": "6c55dab2f45750a35a160f60eaefc35359e9a245d74f6d00de565000c3f33df2"
+  },
+  {
+    "path": "dist/app-host/foreground-wake.js.map",
+    "bytes": 4054,
+    "sha256": "c009226e49cd764782066832eefd230c0ee622990cf5da18643f188558c39398"
+  },
+  {
+    "path": "dist/application/forgotten.js.map",
+    "bytes": 3018,
+    "sha256": "ee94b759f167f84949f8d6cefdbcfa84b053a915853c56c678da382c87880f61"
+  },
+  {
+    "path": "dist/application/front-door.js.map",
+    "bytes": 3375,
+    "sha256": "711b6049637e7c66afe681bc70ad2c5660967331b973a435d921418d8400f2ed"
+  },
+  {
+    "path": "dist/app-grant/grant-store.js.map",
+    "bytes": 9394,
+    "sha256": "970c8b1da50d518096032d5b73af247b7b9204d27f1bcde7e26cc9d7696b99f8"
+  },
+  {
+    "path": "dist/app-host/handover.js.map",
+    "bytes": 3692,
+    "sha256": "970fa5e0ba922538e71d16f6a00299011514be8b9d7c6995e673a654fedd6635"
+  },
+  {
+    "path": "dist/holds.js.map",
+    "bytes": 4496,
+    "sha256": "444686b5b26114dd8078c759ee87270dea0f879d9f241b8b2cdc16371c9d9645"
+  },
+  {
+    "path": "dist/app-host/http-log.js.map",
+    "bytes": 30480,
+    "sha256": "cefff47f2aff3e3734d20e2657ef40da6065fa7ed1533a82f90ae964136aff6a"
+  },
+  {
+    "path": "dist/app-grant/index.js.map",
+    "bytes": 325,
+    "sha256": "7d96c5b2fe4fa4389755ae63cc1a5bcd97265f0d4a1a0b001678f0e436b33cf8"
+  },
+  {
+    "path": "dist/app-host/index.js.map",
+    "bytes": 1862,
+    "sha256": "74287f75e6c5fe96c7a17689e617a6990649a6b6be9b6adb30b582f1d5f7355e"
+  },
+  {
+    "path": "dist/app-storage/index.js.map",
+    "bytes": 380,
+    "sha256": "00385d2c9744843ad8d7ffd36551ff026dd7a48f01b3e93cc8d9189afdc8a3f8"
+  },
+  {
+    "path": "dist/index.js.map",
+    "bytes": 910,
+    "sha256": "4c8de17242a3ac3db419c059a0c97914c9f52d34d1e4e5e4d98a1d8f3f19bfb0"
+  },
+  {
+    "path": "dist/testing/index.js.map",
+    "bytes": 308,
+    "sha256": "bb2ba52091c394869017c28e905de85136eabd3ba75dae42628a4e1cead75a19"
+  },
+  {
+    "path": "dist/app-host/initial-sync.js.map",
+    "bytes": 1622,
+    "sha256": "0938e53827cc33ad055d06627b671a6171746944ba7ba753073973d3ef4297cc"
+  },
+  {
+    "path": "dist/transport/inprocess.js.map",
+    "bytes": 1346,
+    "sha256": "803a674a689781bd641b9a8735ba488c30c1652d8e4b51803c993e8480a5222b"
+  },
+  {
+    "path": "dist/app-host/installation-sign-in.js.map",
+    "bytes": 75015,
+    "sha256": "9efdb13e6add9c744aeb626315571f95cf718fefa4cc446267d6b2ecef7bc407"
+  },
+  {
+    "path": "dist/app-host/installation-store.js.map",
+    "bytes": 14119,
+    "sha256": "0cdc8a9e3ec4dabba233290edc91ced6f315150b29f5533a677badba669942ca"
+  },
+  {
+    "path": "dist/keys.js.map",
+    "bytes": 7050,
+    "sha256": "f0ced7b590aa939a0f934eb9915857d5d571b51e8b3c4e820b0ff8f6636c23bc"
+  },
+  {
+    "path": "dist/app-host/ledger-rows.js.map",
+    "bytes": 1363,
+    "sha256": "052902a0f5df27077a58354f62bb0de7415bcd094250487c047957be234749f4"
+  },
+  {
+    "path": "dist/live.js.map",
+    "bytes": 3150,
+    "sha256": "0dde90873e350cb353b4278dee00e4756e5b22d233d78f0073c1f0a1b617b773"
+  },
+  {
+    "path": "dist/application/local-build.js.map",
+    "bytes": 985,
+    "sha256": "73a62c5742e64517d3d52fb24934c3445f15190698a0dd3b54d1b51910274448"
+  },
+  {
+    "path": "dist/local-build.js.map",
+    "bytes": 1088,
+    "sha256": "437856334a30650877f95c983f6a91a379dda748aadbb0af07ee0377ad2e3770"
+  },
+  {
+    "path": "dist/app-host/local-facade.js.map",
+    "bytes": 13705,
+    "sha256": "276b3c34c783bd72ec6dbf420592d672ea89003dd8f652c754ca5aa9c7010a9c"
+  },
+  {
+    "path": "dist/transport/local-link.js.map",
+    "bytes": 2024,
+    "sha256": "fe148c2312eb549f4adc94286ded48d46bcc5155259536cc3bd0d586d00af86f"
+  },
+  {
+    "path": "dist/app-host/log-pump.js.map",
+    "bytes": 12875,
+    "sha256": "73b6845940b79b99f39c4990b0a9fa9c902aebc2c9864da914cc8b539d92cb2a"
+  },
+  {
+    "path": "dist/app-host/log-push.js.map",
+    "bytes": 13777,
+    "sha256": "5711b436fba7ee083b4bebfab67c59be0492486c080ef766141ad3a2ec5c68b0"
+  },
+  {
+    "path": "dist/app-host/log-token-cache.js.map",
+    "bytes": 3200,
+    "sha256": "3a0d936b60844c659514373a9901c148f94b2365f7160adf0eb7fe5bb19d6028"
+  },
+  {
+    "path": "dist/application/manifest.js.map",
+    "bytes": 1632,
+    "sha256": "e85820e8886e59279787ab2483b45b5f54818313979290a64b7d3a41ec08ce2c"
+  },
+  {
+    "path": "dist/testing/memory-contracts.js.map",
+    "bytes": 6021,
+    "sha256": "227ffe1fc9710bf91e4f24b1d4a20f97a076f606848e393d50e6cae0eb9306fd"
+  },
+  {
+    "path": "dist/testing/memory-replica.js.map",
+    "bytes": 79060,
+    "sha256": "ab9c7eff3c150c058cb6d1134dd54077493a865b1547fd717efea69396c38d11"
+  },
+  {
+    "path": "dist/application/native-assets.js.map",
+    "bytes": 2062,
+    "sha256": "ff245651d62df5838670c1350671dfc46e0d185814a8b5deeb83ba5087c59c29"
+  },
+  {
+    "path": "dist/application/native-authorization-rpc.js.map",
+    "bytes": 2876,
+    "sha256": "025ebc265d7e73906487cc2730631c1a5851928558fceac372cfacb06fdc5316"
+  },
+  {
+    "path": "dist/app-grant/native-completion.js.map",
+    "bytes": 3136,
+    "sha256": "65d8d19b6f710e605da11c559c441d01c1a7bd9c10299ce06da5c99945373580"
+  },
+  {
+    "path": "dist/app-host/native-sign-in.js.map",
+    "bytes": 722,
+    "sha256": "ec91be84f710b6a2578b46470e95bc8cc17d18ff5b591c2c268a492b18399672"
+  },
+  {
+    "path": "dist/transport/next-relay.js.map",
+    "bytes": 7642,
+    "sha256": "dc097205f05da26f926a94dc483d6a352d62fcb1dee3fc6e1b9c959085fb12bd"
+  },
+  {
+    "path": "dist/node.js.map",
+    "bytes": 8615,
+    "sha256": "f94836f2fc087a5f87c15fd208f25f12fb98f4c291401f17d65052ab3eee4d53"
+  },
+  {
+    "path": "dist/app-host/noise-custody.js.map",
+    "bytes": 12703,
+    "sha256": "7bf8fb330c6f62e834850cabf1fddd2f8ecd234c62d19e8c6898c95f37c41651"
+  },
+  {
+    "path": "dist/app-host/noise-idb.js.map",
+    "bytes": 8014,
+    "sha256": "c7ea5842eb3e7325b930ec02ec95d7c7b8a9b5dc5d8a79185893d50b9470c065"
+  },
+  {
+    "path": "dist/testing/noise-server.js.map",
+    "bytes": 2318,
+    "sha256": "7c7f63089ed1b6fc6c5f0b6f2fdf057d0dab476851424e86b96470b7d92061ab"
+  },
+  {
+    "path": "dist/transport/noise-session.js.map",
+    "bytes": 9064,
+    "sha256": "dded67685e72edbc28276ef38e64390f6c123b3bdd3711226e7d63b15c84ad61"
+  },
+  {
+    "path": "dist/transport/noise.js.map",
+    "bytes": 10612,
+    "sha256": "e148d4d0e34934ebe9d6eb40b79f6adf85e763d634dab2bbe5ad0061a7b723ec"
+  },
+  {
+    "path": "dist/application/notification-readiness.js.map",
+    "bytes": 7121,
+    "sha256": "2af2a34cceeebcbb95341f140b1a6ba600f1955aaa02960b6d22435c42f7d9d5"
+  },
+  {
+    "path": "dist/notifications.js.map",
+    "bytes": 8743,
+    "sha256": "24b772b59a07a5518f5df80cf8a5ed026d955741eb19b65392310d7ad63633b2"
+  },
+  {
+    "path": "dist/offline-shell-build.js.map",
+    "bytes": 3812,
+    "sha256": "b92f26d3953476ed61c81f4bcd53ccaf17594d77bfac3d803b4c152cfe85bd97"
+  },
+  {
+    "path": "dist/offline-shell-worker.js.map",
+    "bytes": 5306,
+    "sha256": "32c1fee950d9a32ae6fb6f277e579cba6477f51a9c51759dbb531776a2dec8d4"
+  },
+  {
+    "path": "dist/app-host/open-wait.js.map",
+    "bytes": 705,
+    "sha256": "5de999c8f840448000ac33931f25d54a3846d47e7d123215e0f629e2f59d3fd5"
+  },
+  {
+    "path": "dist/app-host/opening-progress.js.map",
+    "bytes": 382,
+    "sha256": "8d290beb40cbc397284a9a0aa73eb629652290f8ee80f125cf22eb3f72d8f215"
+  },
+  {
+    "path": "dist/transport/original-session.js.map",
+    "bytes": 543,
+    "sha256": "57b606297c8971cad4037743a2c2109bc125e7839d01a644cb48eaa8da668ed0"
+  },
+  {
+    "path": "dist/app-host/owner.js.map",
+    "bytes": 9909,
+    "sha256": "91f5c004bb28a1e6ea0b12371e089e874be9cb435382d3ac392e786ebcbab567"
+  },
+  {
+    "path": "dist/application/packaged-assets.js.map",
+    "bytes": 2519,
+    "sha256": "a1a16fd2e005682317814056b298976884142831a30ec107156d51ffe78d5684"
+  },
+  {
+    "path": "dist/application/packaged-trust.js.map",
+    "bytes": 280,
+    "sha256": "ec78c5e47cd093aa9af5e52efc6beed89a50967299fb50b5c6b0130d0b185ee7"
+  },
+  {
+    "path": "dist/application/people-readiness.js.map",
+    "bytes": 7221,
+    "sha256": "7a9f267ca4b439a7048b06ed5b501d98d02ae7c2d363090833c4c12c656eeeb5"
+  },
+  {
+    "path": "dist/app-grant/people.js.map",
+    "bytes": 3254,
+    "sha256": "072ec75510a606b863bc39025a232ebb71f3b9305c5d643ba9875af920e2ae56"
+  },
+  {
+    "path": "dist/people.js.map",
+    "bytes": 11156,
+    "sha256": "bfda5678226d9cddb57ed0948e7364b2cac181b0bf9388b49389ee9dc472172d"
+  },
+  {
+    "path": "dist/application/phase.js.map",
+    "bytes": 6847,
+    "sha256": "0dc9b694c6015a6f5ef2f6572e9a7c39517d86b137c329f8f3bf0c85bcfdd135"
+  },
+  {
+    "path": "dist/transport/port.js.map",
+    "bytes": 5366,
+    "sha256": "7e3c3bd63e080bbceb34746f982a523b52225ddc3088726101caaf765b168d01"
+  },
+  {
+    "path": "dist/application/portal-reservation.js.map",
+    "bytes": 6372,
+    "sha256": "441491c0ac7b132933eddb4d511bf096f1b9fdbd623277bbdba19dfd2f02c16f"
+  },
+  {
+    "path": "dist/presence.js.map",
+    "bytes": 4684,
+    "sha256": "a817d56a9d48dbef78099ee2deba54f785846c74be7cbd0048d7527da202a0a0"
+  },
+  {
+    "path": "dist/private-account.js.map",
+    "bytes": 20998,
+    "sha256": "47e439e5fb09a3955585ce0758f1eba3ad5d48e305606a3dd746d90c37fdd710"
+  },
+  {
+    "path": "dist/app-host/private-bootstrap.js.map",
+    "bytes": 14929,
+    "sha256": "134e949aad3a01542603ad31743b9238da43a7f650963bafd584068df0dffeb7"
+  },
+  {
+    "path": "dist/application/private-collections.js.map",
+    "bytes": 22634,
+    "sha256": "9793a467c172875e9a7a5a2150264671e8ad62f06c660a8cf5fab09d9061a09e"
+  },
+  {
+    "path": "dist/app-host/private-persistence-idb.js.map",
+    "bytes": 8598,
+    "sha256": "401aa5425ee1ded1dbf66884b49beb02caf7b0fdfa2f5cd529223ced84211a91"
+  },
+  {
+    "path": "dist/app-host/private-persistence.js.map",
+    "bytes": 15848,
+    "sha256": "1cee92ed14bd5f801a884e3ea3cdf5db472a0e4a610edf5ac341be979fb7d495"
+  },
+  {
+    "path": "dist/private.js.map",
+    "bytes": 2431,
+    "sha256": "50df1dcdbdd182abe831b7b5660430c7ad81afd3b31d04382d6c93cbbb1cb404"
+  },
+  {
+    "path": "dist/transport/read-fence-policy.js.map",
+    "bytes": 401,
+    "sha256": "d1efc14ea02c5e22d1f637a45457f8163ac48b8f6ba95f02828c0bbd0fb7a7ce"
+  },
+  {
+    "path": "dist/read-helpers.js.map",
+    "bytes": 7269,
+    "sha256": "987fb4fbe03b805158e62f087ab1b588b6b5a0a916cbfa3732c18906a3d009fc"
+  },
+  {
+    "path": "dist/application/readiness.js.map",
+    "bytes": 10786,
+    "sha256": "82a4f95b2e5c6bbd2fff9e6101cb76daea241b6dc05b5f41831139da891f186e"
+  },
+  {
+    "path": "dist/records.js.map",
+    "bytes": 8845,
+    "sha256": "a16508896b2f5b37a1c54061cbb04b57d9caca05fc52b8f0271acaff2908b5e9"
+  },
+  {
+    "path": "dist/application/registration-refusal.js.map",
+    "bytes": 2144,
+    "sha256": "8a37f69d5db846fb7a059ed88e685f7a650287786f37ff8751dc7ed68c2a55de"
+  },
+  {
+    "path": "dist/application/registration.js.map",
+    "bytes": 14057,
+    "sha256": "edc70082220d24f77251b3e2d3051475ae1da906dc610a68605a451bd826747c"
+  },
+  {
+    "path": "dist/transport/relay-close.js.map",
+    "bytes": 1225,
+    "sha256": "59968fd06d5215d56511c678e21f16d83279ee17bb51250c649383483dfb4421"
+  },
+  {
+    "path": "dist/transport/relay-pipe.js.map",
+    "bytes": 6714,
+    "sha256": "6c795ecf1c39f7eec2fdc60060f24d8e2ea8e6db1f174294ee140229e1b108fa"
+  },
+  {
+    "path": "dist/transport/relay.js.map",
+    "bytes": 1457,
+    "sha256": "eac8f4e3ebd7a5cd1a323a4567dff63142b033512097deb711186906a349a2bd"
+  },
+  {
+    "path": "dist/application/return-url.js.map",
+    "bytes": 1894,
+    "sha256": "6f143a6fe3eb8f17f49124a29069903158b337916da06b2beaec665ae9867245"
+  },
+  {
+    "path": "dist/runtime-wire.js.map",
+    "bytes": 5533,
+    "sha256": "50f602eb66b37b17e235a44d5402257e09d003e4177315aaeac2edc3eacff4b5"
+  },
+  {
+    "path": "dist/application/runtime.js.map",
+    "bytes": 18711,
+    "sha256": "de288776295e6ff42ab431d451534ec0ae60848c95c64d0212a80db957a0519e"
+  },
+  {
+    "path": "dist/saved-views.js.map",
+    "bytes": 11474,
+    "sha256": "f27f0db69e7969094d7a11adb3bf50cf2c5fb364a3b7231ada519f9e716d4062"
+  },
+  {
+    "path": "dist/application/scope.js.map",
+    "bytes": 9318,
+    "sha256": "cd1fb384ac9db58abda70b72265de6d98df0ef1fc80c68fb9a632d1c36a8edcc"
+  },
+  {
+    "path": "dist/app-host/scoped-sign-in-session.js.map",
+    "bytes": 13334,
+    "sha256": "f4aee78b3d2d9cd486627b4df810f837d1ecda8c22c0a91a4dd0890db3ee9e16"
+  },
+  {
+    "path": "dist/semver.js.map",
+    "bytes": 3314,
+    "sha256": "2bc80f83e509beb454e73cab6e889509c7cbac1abf439230a6b0d56c0bac3a7b"
+  },
+  {
+    "path": "dist/application/session-hint.js.map",
+    "bytes": 4671,
+    "sha256": "75db7ac7cdacd398c39097e2e996eed98f17273a3e113bff57c14014a152728b"
+  },
+  {
+    "path": "dist/records/session.js.map",
+    "bytes": 20913,
+    "sha256": "d1c873162d7f7f1cde4338afcc62b09ab0d332efc619e66da934a481cb88127a"
+  },
+  {
+    "path": "dist/session.js.map",
+    "bytes": 13100,
+    "sha256": "aa3694fc2e0b082c659aa6a9a5012b9704867771aa190475bae993f0dd64e8b3"
+  },
+  {
+    "path": "dist/app-grant/setup-attempt.js.map",
+    "bytes": 3651,
+    "sha256": "6e77c3b9b2008b3fb789e0c14ef863ebc7500b50cbd70b027596e003afa37f90"
+  },
+  {
+    "path": "dist/app-host/setup-engine.js.map",
+    "bytes": 3153,
+    "sha256": "1a3463725fb98317da45439318d0d14bc845ff1456a7dded7cb3e8f6b70a34f0"
+  },
+  {
+    "path": "dist/app-grant/setup-producer.js.map",
+    "bytes": 5508,
+    "sha256": "6d1460ed3f81376d7d456d2cd20bc0a6431e0ab267a4203b24ec560e3bcd1af0"
+  },
+  {
+    "path": "dist/app-grant/setup.js.map",
+    "bytes": 12786,
+    "sha256": "5ffe1024ad164de59d0f474fec5fa2e9165145798055ccb5b93c818a2048be58"
+  },
+  {
+    "path": "dist/application/setup.js.map",
+    "bytes": 7755,
+    "sha256": "b3168b81e04c8dd5a8802210d25bdc4ca516018c3a11a750c82f228b3f0f9723"
+  },
+  {
+    "path": "dist/app-host/sign-out-erase.js.map",
+    "bytes": 6696,
+    "sha256": "d8d424010537f6d00feda6cf02243e6d644d41fcb15b33b20b625ac12ca1c12b"
+  },
+  {
+    "path": "dist/application/sign-out.js.map",
+    "bytes": 1063,
+    "sha256": "813239a6b678addb6e1d18711a282cc98de0f17a48de4bce46a4f0fd49488978"
+  },
+  {
+    "path": "dist/app-storage/sqlite-index.js.map",
+    "bytes": 9715,
+    "sha256": "61aaabdae2d7713b0ffab461de11797fe5636361c2f87b810a0895ce66326936"
+  },
+  {
+    "path": "dist/native/sqlite3.js.map",
+    "bytes": 318,
+    "sha256": "d0c029920bad6aff62c466ab5fea6c8a7a019d53205f8308d04e60dcc739b0f9"
+  },
+  {
+    "path": "dist/app-host/status.js.map",
+    "bytes": 1434,
+    "sha256": "4e3807ce55f00d356d3bd5a3604eecc4ad5194ef858ef0d24ce0322e6c9c204a"
+  },
+  {
+    "path": "dist/status.js.map",
+    "bytes": 2851,
+    "sha256": "31817cee0dc0ed4e9a23ddd22588171aef239029e343acad593c9ae39b18cd9d"
+  },
+  {
+    "path": "dist/app-host/storage-probe.js.map",
+    "bytes": 2453,
+    "sha256": "cec230e116cdf1fdb2a64e234318ad376ed174b2509f36ab054b632b1bad0d8c"
+  },
+  {
+    "path": "dist/strength.js.map",
+    "bytes": 10250,
+    "sha256": "fcb1b8b436c14eca1f994f2012164ba3469f59ed86eab2ed703142f125aa0ab1"
+  },
+  {
+    "path": "dist/application/tabs.js.map",
+    "bytes": 15821,
+    "sha256": "ff6c6083c94b0e3e571390151b93f2bf3ce6c6325d9b2210cc83678d496118bf"
+  },
+  {
+    "path": "dist/testing/test-app.js.map",
+    "bytes": 10378,
+    "sha256": "ba103a2c2b5beb50e029ebe4d859e41466dc3d3e6819ab49d40c8912ea01a41b"
+  },
+  {
+    "path": "dist/thin-client.js.map",
+    "bytes": 1733,
+    "sha256": "ff1f4fa875a86f078bd6f533bd7091d3465d20fba575c13a6c2c9f69846b60a0"
+  },
+  {
+    "path": "dist/application/timer-criteria.js.map",
+    "bytes": 726,
+    "sha256": "0c17706366114eb9fc2f00e9e2d802d0056690cb94e56bf31ca8c6b1ad18fe19"
+  },
+  {
+    "path": "dist/app-host/timer-port.js.map",
+    "bytes": 27497,
+    "sha256": "68507b4064bde9769a0b8693c5291af1d66d3d8bb0a43c694132e72df7e0e906"
+  },
+  {
+    "path": "dist/timers.js.map",
+    "bytes": 14935,
+    "sha256": "b92ce5648dc12f6b08d88c06f67262040b853139feea0704644a6a873aab3fe0"
+  },
+  {
+    "path": "dist/type-packs.js.map",
+    "bytes": 11750,
+    "sha256": "71054e8d2e3dcf66c0a899c6c2eb5f6f03c68551ec18113d501d1e1b8951e65c"
+  },
+  {
+    "path": "dist/records/types.js.map",
+    "bytes": 113,
+    "sha256": "cff2e1f868d73ed04b35f519c297c4964cbd223a3e238af3e7b0a30fd83811d5"
+  },
+  {
+    "path": "dist/application/ui-connections.js.map",
+    "bytes": 7035,
+    "sha256": "e22ca6fcdccda525ae907550d382be10095b9aab3aec65b10f1de0bcbac077e3"
+  },
+  {
+    "path": "dist/validation.js.map",
+    "bytes": 5363,
+    "sha256": "8e5ef3d37a9050b074ecc800160623ef578c2d10786ec674e805745f6b07803a"
+  },
+  {
+    "path": "dist/values.js.map",
+    "bytes": 5111,
+    "sha256": "d165c3ae447bdceaf64b6e8a21453a012a49059cf5bc0c455361fbaf0188a3ca"
+  },
+  {
+    "path": "dist/view-sources.js.map",
+    "bytes": 3245,
+    "sha256": "b63868b5d416f2a5641622af88a5f5e45f03825516367122ece1bde37aa68f7c"
+  },
+  {
+    "path": "dist/app-host/wasm-runtime.js.map",
+    "bytes": 53416,
+    "sha256": "0e42c7f3700c98eaea73cb122fca31edcbeaa656074621c3d0a70c567354a7f4"
+  },
+  {
+    "path": "dist/runtime/wasm.js.map",
+    "bytes": 10043,
+    "sha256": "b60a05a19c35ff2b1ba52d6bedcfcde7f099127270a509a4fbc6a90ad27d3160"
+  },
+  {
+    "path": "dist/app-host/web-collection.js.map",
+    "bytes": 27684,
+    "sha256": "08ea0d5e8f52b27683d3e981519712b573a41f913470590ceedd9715a87c59c9"
+  },
+  {
+    "path": "dist/app-host/web-sign-in-problem.js.map",
+    "bytes": 3387,
+    "sha256": "a3c61ae72516c29539078705747f3de24015e73797eb499329914c0eb8d09e67"
+  },
+  {
+    "path": "dist/app-host/web-sign-in-session.js.map",
+    "bytes": 56697,
+    "sha256": "52895e689cd5c8b5a557aba9e1bad104859d87ff4bbe5b355cff23323158e7d7"
+  },
+  {
+    "path": "dist/wire.js.map",
+    "bytes": 34377,
+    "sha256": "2467fc81891e1bda2ff0dfcdc2571012428ec89b75de73928e046cdf19bce584"
+  },
+  {
+    "path": "dist/records/witness.js.map",
+    "bytes": 2723,
+    "sha256": "ea1cae531349c2de1d8527720a7fed0fe13e9218bd7c3626414c9881a6a9fe09"
+  },
+  {
+    "path": "dist/witness.js.map",
+    "bytes": 2300,
+    "sha256": "b65f403b8619c5b2c068819f076865ff520a61d8e84e02e69b80218ea399de91"
+  },
+  {
+    "path": "dist/application/worker-client.js.map",
+    "bytes": 16268,
+    "sha256": "856d0ff87e774e878244ed9f41153139dc4e2f27777e2b8dc98ff28732f11be1"
+  },
+  {
+    "path": "dist/application/worker-host.js.map",
+    "bytes": 23505,
+    "sha256": "390f4ddf6383675a350d15f0e7c2ee3e92e9151a7957ddc94e103eb0eb8af7c6"
+  },
+  {
+    "path": "dist/application/worker-protocol.js.map",
+    "bytes": 5418,
+    "sha256": "bbc47a9985ef4ea7c1c9c90b7b591b96fc2c72a6f4dd876b8e228af9168823b3"
+  },
+  {
+    "path": "dist/application/worker-session.js.map",
+    "bytes": 1830,
+    "sha256": "3da9dde2eb7e40535738a347084dd25ec60d8834d5a23bb7e3ca8ec8a93effcd"
+  },
+  {
+    "path": "dist/application/worker.js.map",
+    "bytes": 3000,
+    "sha256": "85bc3e84139203c48922ce3e1d58c48e3c6dd0f5c22ec44800d40b9c8dd5da78"
+  },
+  {
+    "path": "dist/write-ledger.js.map",
+    "bytes": 7758,
+    "sha256": "88412f7ab78bd84a37cfe43ae1bf1dbc3e878959be4e2be75186447dadecc364"
+  },
+  {
+    "path": "node_modules/@noble/hashes/README.md",
+    "bytes": 19021,
+    "sha256": "668a613b90e2d867df4f8d610566e4a874d6e33f799d9770714a26702c6d7dd0"
+  },
+  {
+    "path": "node_modules/yaml/README.md",
+    "bytes": 6266,
+    "sha256": "c8aa393826fb1c55ae195399864e7f454a2c66c4d9491459545b26cac4b958e6"
+  },
+  {
+    "path": "README.md",
+    "bytes": 46561,
+    "sha256": "c522f6e1d51e3ac99bec023d0ccd8e60f635cc3c2b969f797af2309dc6d44fa1"
+  },
+  {
+    "path": "node_modules/yaml/bin.mjs",
+    "bytes": 310,
+    "sha256": "faebbf70669988b5be13130907adf7b788145960448eab08e92e66189e72f448"
+  },
+  {
+    "path": "node_modules/yaml/dist/cli.mjs",
+    "bytes": 7462,
+    "sha256": "0ad1d42d88c0648fb6fbd158b21dcc2b4daa2e34e4d4df7aa949d6978d343d4d"
+  },
+  {
+    "path": "vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz",
+    "bytes": 107322,
+    "sha256": "cd1e15236ab7e25c511a4ba13af6a9df23f4b41715161479bba97b0445e1c138"
+  },
+  {
+    "path": "node_modules/@noble/hashes/_blake.d.ts",
+    "bytes": 740,
+    "sha256": "c32b86abfcd4514e98a2f27b4f67672cb1446ac081d2e715d0dca60e96e8120a"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/_blake.ts",
+    "bytes": 3001,
+    "sha256": "9eda40c7520d7ccaabf7accca24225ba6bac9ca7b1b7486fc960e15870af1f97"
+  },
+  {
+    "path": "node_modules/@noble/hashes/_md.d.ts",
+    "bytes": 4306,
+    "sha256": "f5ffc0d52997445b4531a0e1e67ee0f6f376e0ed5c66f978e80288973d50cd06"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/_md.ts",
+    "bytes": 9933,
+    "sha256": "d469c5ca7f638b0ec14df23acd9e631f7f04592bfb8cdd7a13918f178ebeb19d"
+  },
+  {
+    "path": "node_modules/@noble/hashes/_u64.d.ts",
+    "bytes": 1994,
+    "sha256": "78744410de5b7594879963d315b7a339a06ecafa73b0a0ddf63fdabdb926dd25"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/_u64.ts",
+    "bytes": 5799,
+    "sha256": "3dd3e0a061dfedf2fd3a0c622e746b2927c141dcde8045e5f7cbc5df0b758a74"
+  },
+  {
+    "path": "dist/account-key.d.ts",
+    "bytes": 8087,
+    "sha256": "65f4420fa5d27448eab4149df4e0a6e73d113997ee30072a771c2d1bac83f584"
+  },
+  {
+    "path": "dist/account.d.ts",
+    "bytes": 1311,
+    "sha256": "99e19299e93fb260ce09dea285fd978e6ca12b668d8ea9a29b4485601145c43e"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/addPairToJSMap.d.ts",
+    "bytes": 236,
+    "sha256": "8f648847b52020c1c0cdfcc40d7bcab72ea470201a631004fde4d85ccbc0c4c7"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/Alias.d.ts",
+    "bytes": 1077,
+    "sha256": "a971cba9f67e1c87014a2a544c24bc58bad1983970dfa66051b42ae441da1f46"
+  },
+  {
+    "path": "node_modules/yaml/dist/doc/anchors.d.ts",
+    "bytes": 958,
+    "sha256": "17b91b170b12687f10167b9e0a712e25ef4bfdc8b1f465e0b756e4512be08773"
+  },
+  {
+    "path": "dist/app-storage/app-binary-index.d.ts",
+    "bytes": 1540,
+    "sha256": "aca8bb284691ec7799322c1a71c6b57e045dec630a594b51cffbd268f18a9e21"
+  },
+  {
+    "path": "dist/app-host/app-environment.d.ts",
+    "bytes": 1361,
+    "sha256": "7920e6f247bfcfd58330a07e74bcc4a1455c5d5551477ccc1986e5abc237a4d3"
+  },
+  {
+    "path": "dist/app-host/app-origin.d.ts",
+    "bytes": 527,
+    "sha256": "11b53012e1fbfe32fd12bed85ea5fb1cfd59fae0692eef3e3f76799e9c449fe7"
+  },
+  {
+    "path": "dist/app-storage/app-sqlite-index.d.ts",
+    "bytes": 1930,
+    "sha256": "361fc21a1071c07c3c1fc3258a919dc63a3861c2c60b08acfb69d5518eaa75ec"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/application-authorization.d.ts",
+    "bytes": 1418,
+    "sha256": "51fb999fd9934869466d6672230e8f02e24dfc23263a9ac6d243f32ba3a5e73e"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/application-contract.d.ts",
+    "bytes": 2015,
+    "sha256": "a333465a770c5e6a9da07bd458644aabd8fb61df90dd22e0af90baf306871b86"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/application-declaration.d.ts",
+    "bytes": 5171,
+    "sha256": "37cdead7b1e361f6d70e720cd09652cf92e1a63785e2fd2600ff91d2238b56d9"
+  },
+  {
+    "path": "dist/testing/application.d.ts",
+    "bytes": 3787,
+    "sha256": "c7d965f98e03e8b83409c4b64334546c48c2bc9012fbf5151adcbd6b04152d84"
+  },
+  {
+    "path": "node_modules/yaml/dist/doc/applyReviver.d.ts",
+    "bytes": 445,
+    "sha256": "bc41a8e33caf4d193b0c49ec70d1e8db5ce3312eafe5447c6c1d5a2084fece12"
+  },
+  {
+    "path": "node_modules/@noble/hashes/argon2.d.ts",
+    "bytes": 5719,
+    "sha256": "a455841ea6f034d54790094ac67afc9311a78a39abb967009a605c37122c03d9"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/argon2.ts",
+    "bytes": 26777,
+    "sha256": "6672b2cca5a86f7b3d9c9de75d2d12bf4fea8711fa7f43dcf185d8033839795d"
+  },
+  {
+    "path": "dist/application/asset-loader.d.ts",
+    "bytes": 1058,
+    "sha256": "851f5b9ccd03bb3bc622e7cf6f297d4e7f57d80adbcf13e9e8a67da0e61f4777"
+  },
+  {
+    "path": "dist/attachment-wire.d.ts",
+    "bytes": 505,
+    "sha256": "fc143c0324ed838a9e1eee7d27957eb0f46a77b4f3a1f96ad547474bb9f98d4b"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/authorization-errors.d.ts",
+    "bytes": 2085,
+    "sha256": "56168804239efb45356f607f8e6ed251e9ad5212981051a1e65daec036ded157"
+  },
+  {
+    "path": "dist/app-host/bases-pages.d.ts",
+    "bytes": 1183,
+    "sha256": "73e84e3337a6245b75fb099b27eaadd6792e69705280273b5c66884c3145fc38"
+  },
+  {
+    "path": "dist/transport/bases-rpc.d.ts",
+    "bytes": 702,
+    "sha256": "47851897393b23070caceb2713bc8587da9d0e16e4d5698790c3eabec445490a"
+  },
+  {
+    "path": "dist/app-host/bases-wire.d.ts",
+    "bytes": 4920,
+    "sha256": "12e278969d6153bdd51fe213006a9841df3ecba289e4cca539c22f365d00dcec"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/binary.d.ts",
+    "bytes": 83,
+    "sha256": "d67098dd1ebde01f58645901458c5f7b4fe6a32558e92c91db4883e74d1b5a4d"
+  },
+  {
+    "path": "node_modules/@noble/hashes/blake1.d.ts",
+    "bytes": 5143,
+    "sha256": "f1cc242d614865d7277362ba8a90b58f755aae260881be79e0119ce85a1f6017"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/blake1.ts",
+    "bytes": 26178,
+    "sha256": "a4864dcddbfe4e03df638463339d953aca3cb0995ae0b498d1dd3ecc7d50bdb7"
+  },
+  {
+    "path": "node_modules/@noble/hashes/blake2.d.ts",
+    "bytes": 6526,
+    "sha256": "e60ec6813a51e31751919e471daedaab9510d7a88dc0ef6b4dc05c7de502736e"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/blake2.ts",
+    "bytes": 24114,
+    "sha256": "edee1cce752a6e86cea251f11282adb34b5bb8e20e023d317849bbc2920a38ad"
+  },
+  {
+    "path": "node_modules/@noble/hashes/blake3.d.ts",
+    "bytes": 2529,
+    "sha256": "b9a9fdcc7b04f07674c609fa40b0fdf1252c3ccf024968038fff06e6da00c627"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/blake3.ts",
+    "bytes": 12764,
+    "sha256": "7d7f9432a069cdb05516549091344d525a2762ea698993f5e05f7180ed3aa873"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/core/bool.d.ts",
+    "bytes": 108,
+    "sha256": "10e79425c8cb25ab4039f10bd844fb147bace0bbc1ea50b14cd6684e0e54d8b8"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/bool.d.ts",
+    "bytes": 174,
+    "sha256": "4ec1099a421a4519d614a09f4d88aebd4e2eae1f1840d7b6d06c648f1624e426"
+  },
+  {
+    "path": "dist/application/browser-capabilities.d.ts",
+    "bytes": 2557,
+    "sha256": "5d0511f29603443376efb52828b18d5dbacd81ad8ef250c2610b75a6b361c078"
+  },
+  {
+    "path": "dist/app-host/browser-direct-access.d.ts",
+    "bytes": 968,
+    "sha256": "35a7aa4653eb3f241415c2aa9bb5e7112f8533fcae6784edb080d80c6a6c83a3"
+  },
+  {
+    "path": "dist/application/browser-selection.d.ts",
+    "bytes": 3059,
+    "sha256": "456f03e1f1a089aafd17ac8c39ba2bcbbffa7094cb5f5112f9e66f70e1992f94"
+  },
+  {
+    "path": "dist/browser.d.ts",
+    "bytes": 208,
+    "sha256": "fd9948715be9df2615a8d6113469fbac75630cc392e97bccc66f92c9948246ee"
+  },
+  {
+    "path": "dist/application/capabilities.d.ts",
+    "bytes": 1272,
+    "sha256": "e7c98639cd314210acc7a8bee4ce0da0d71b68ec90f775e80c725188b19887ee"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/capabilities.d.ts",
+    "bytes": 4772,
+    "sha256": "73d25e526b785bfd955895642db80bdd34122c413fbfb6a8944adc2c7a164dab"
+  },
+  {
+    "path": "dist/cbor.d.ts",
+    "bytes": 2879,
+    "sha256": "21c83a2ec34a169bd9bb34f92b9be747590d19c446e0c5d1773495e794a0c47b"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/change-events.generated.d.ts",
+    "bytes": 2005,
+    "sha256": "4932b5aa477bfa70efc2a56b7c71c22adc2dac4aa7c328b2f7006730dccda82d"
+  },
+  {
+    "path": "node_modules/yaml/dist/cli.d.ts",
+    "bytes": 1254,
+    "sha256": "e31d2f97aadbc0ff370a134851af7757885cfcfcfa3a675cd59feb7872e4f91e"
+  },
+  {
+    "path": "dist/app-grant/client.d.ts",
+    "bytes": 10163,
+    "sha256": "808823e1745a5b2df56d0022a25ab0664ac5cfd495deb6618b55896b29186eed"
+  },
+  {
+    "path": "dist/client.d.ts",
+    "bytes": 32342,
+    "sha256": "0b49e814cd1defdc92a602563e5330887205dae5a150c0b2fb0b3a37f63d11a5"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-bootstrap.d.ts",
+    "bytes": 5333,
+    "sha256": "3d10f01700b574fecb967fb65a6c78d1f50da7b9b9c6279e9245ff7e1c3d3bec"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-host.d.ts",
+    "bytes": 12244,
+    "sha256": "c9c59c7559bd5c421125bc800c10f328a99968a23858e006894835b5c7eb9ad6"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-persistence-idb.d.ts",
+    "bytes": 1222,
+    "sha256": "9de56aaa414111df19ad2982a22757111e9318fb631f6daa16be62cd81477d75"
+  },
+  {
+    "path": "dist/app-host/cloud-copy-persistence.d.ts",
+    "bytes": 2213,
+    "sha256": "1f8f64d5a7c1df1ae33fc53ea0297c6c1a653da3dceeb5cca970053ba97d8483"
+  },
+  {
+    "path": "dist/codec.d.ts",
+    "bytes": 4180,
+    "sha256": "84bda273228a031f557c62b113f827e684386349b2235592c794c682e6fce9fd"
+  },
+  {
+    "path": "dist/collection-availability.d.ts",
+    "bytes": 1972,
+    "sha256": "2076e9c0688b83f6c0a6f68a50c5d8fdd1af969ec88aca7c08cfa0016c31b210"
+  },
+  {
+    "path": "dist/app-host/collection-control.d.ts",
+    "bytes": 5751,
+    "sha256": "b8ed581d32ac6bcb115c1137120221becd14436666c331cc45e2af9e48bcdbd2"
+  },
+  {
+    "path": "dist/app-host/collection-delete.d.ts",
+    "bytes": 690,
+    "sha256": "88544b8b84e58497a4d106f90c0b3ae3caf6a73c717d1b3b922b5c9761835221"
+  },
+  {
+    "path": "dist/app-host/collection-display-name.d.ts",
+    "bytes": 148,
+    "sha256": "2152b0dab90e983b8d1192ada7f3fd4d06c83bd70c6016955d6347580c65e339"
+  },
+  {
+    "path": "dist/app-host/collection-join-ledger.d.ts",
+    "bytes": 2383,
+    "sha256": "53095d6409ee0f1c1a531d27b2e32cf100819cc22f67176e4b51022697f1a7fa"
+  },
+  {
+    "path": "dist/app-host/collection-people.d.ts",
+    "bytes": 1536,
+    "sha256": "0dbc4f735d6452b2eb29065e62d1be2f06bf59ba51d1c3c3229d5df536457ef1"
+  },
+  {
+    "path": "dist/app-host/collection-readiness.d.ts",
+    "bytes": 5239,
+    "sha256": "0db982b5b1062d3ccbcd64033f98e4b8bbb9d9d13cc71ec78cd70c254b0d53fb"
+  },
+  {
+    "path": "dist/application/collection-selection.d.ts",
+    "bytes": 7738,
+    "sha256": "b7c441cef445ca822ffa59bf2f707bbcdb3c886e5552f4392e96c341c41c65b5"
+  },
+  {
+    "path": "dist/app-host/collection-setup-journal.d.ts",
+    "bytes": 3484,
+    "sha256": "5f5edd48682a0c4337bb056b52b428b89c68312653c74afff3211c996d129376"
+  },
+  {
+    "path": "dist/app-host/collection-setup-types.d.ts",
+    "bytes": 6692,
+    "sha256": "48b4f7f4cc96e9f09b44e9d1095fca1d1c6accda254ec06b0f526d16c0a95194"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/collection-setup.d.ts",
+    "bytes": 3764,
+    "sha256": "7a5b2631e0b7fcfb6638c025f6bb054b8fab7139d822454301a4c011b2fb37f4"
+  },
+  {
+    "path": "dist/app-storage/collection-sql.d.ts",
+    "bytes": 1656,
+    "sha256": "d1618ab206ea14f92ab97f148359cc5d96653f2cd7eb4fddcaf30d16bdd8bf86"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/Collection.d.ts",
+    "bytes": 2909,
+    "sha256": "06b37153d512000a91cad6fcbae75ca795ecec00469effaa8916101a00d5b9e2"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/compatibility.d.ts",
+    "bytes": 2551,
+    "sha256": "96c8c08b2729ed0d69282fc4723e8c7ca051e0d547c4425d7b7635e9fac599af"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/compose-collection.d.ts",
+    "bytes": 582,
+    "sha256": "88460b54f95b8bc0294d2071430ec0e2c1e8f8aef2206646c027425a94767faf"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/compose-doc.d.ts",
+    "bytes": 623,
+    "sha256": "ba8002d807e2b012f40e877b56bdad9ce0a6e215da96dc2319688b56e2a57212"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/compose-node.d.ts",
+    "bytes": 1225,
+    "sha256": "8045fa3122bf1c4b97dfb13a404f17d2d2b490521a4607b2ed5eb09b1f9c2a1a"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/compose-scalar.d.ts",
+    "bytes": 393,
+    "sha256": "fc7fb9cb5044dfbfc552aed73d8b8e33b7e0de07bd3421f1d28c46b8ef4d5ba6"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/composer.d.ts",
+    "bytes": 2652,
+    "sha256": "3e7ae921a43416e155d7bbe5b4229b7686cfa6a20af0a3ae5a79dfe127355c21"
+  },
+  {
+    "path": "dist/application/configuration.d.ts",
+    "bytes": 3234,
+    "sha256": "727c9f29ee48404a87b446b55a5953737992c50c54af032ca130c964a21c671f"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/connect-problems.generated.d.ts",
+    "bytes": 47961,
+    "sha256": "a73bdc9b8a5f7f0d44fcc7371511e10b625ec990a94a74286d78a39f616ceee8"
+  },
+  {
+    "path": "dist/contract-query.d.ts",
+    "bytes": 1069,
+    "sha256": "9b33136209248c49953617ec0e890da875f37f84f8c9b4727d1378c435a8215f"
+  },
+  {
+    "path": "dist/contract-records.d.ts",
+    "bytes": 1466,
+    "sha256": "f2cb9c46557561cc2ea0cc362d3f16c0346dacf8cf0032b03e3009ad4d22cb3f"
+  },
+  {
+    "path": "dist/transport/control-route.d.ts",
+    "bytes": 1420,
+    "sha256": "84f41122fcb3c8e61b60e9fc841247bd76a77bdffd80f625c09ca4e2f52c0237"
+  },
+  {
+    "path": "dist/app-host/cp-authority.d.ts",
+    "bytes": 2943,
+    "sha256": "a1590ad25a54186094fd75c840d2c840b94f388112d1f9400a960db504d9dd03"
+  },
+  {
+    "path": "dist/app-host/cp-people.d.ts",
+    "bytes": 905,
+    "sha256": "0fe425374cb090faccd8caa1b459b02964671eba7898de1c630c732a088dc73e"
+  },
+  {
+    "path": "dist/app-host/cp-problem.d.ts",
+    "bytes": 2471,
+    "sha256": "4471ef885b255bec42ba56d37f0e8b46956847624dcf49abcb26313b816efb2a"
+  },
+  {
+    "path": "node_modules/yaml/dist/doc/createNode.d.ts",
+    "bytes": 662,
+    "sha256": "33a6d7b07c85ac0cef9a021b78b52e2d901d2ebfd5458db68f229ca482c1910c"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/cst-scalar.d.ts",
+    "bytes": 3528,
+    "sha256": "079c02dc397960da2786db71d7c9e716475377bcedd81dede034f8a9f94c71b8"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/cst-stringify.d.ts",
+    "bytes": 310,
+    "sha256": "a7595cbb1b354b54dff14a6bb87d471e6d53b63de101a1b4d9d82d3d3f6eddec"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/cst-visit.d.ts",
+    "bytes": 2241,
+    "sha256": "1f49a85a97e01a26245fd74232b3b301ebe408fb4e969e72e537aa6ffbd3fe14"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/cst.d.ts",
+    "bytes": 3500,
+    "sha256": "9c38563e4eabfffa597c4d6b9aa16e11e7f9a636f0dd80dd0a8bce1f6f0b2108"
+  },
+  {
+    "path": "dist/application/declaration.d.ts",
+    "bytes": 2926,
+    "sha256": "e7f6e2b72dcbffaff3d841a0fad6c5abd0a7a8c45c40cb8ca1914d7b4586c6ad"
+  },
+  {
+    "path": "dist/describe-error.d.ts",
+    "bytes": 8954,
+    "sha256": "b5cb10c8cd0b1191b45666fcf7b24f11983653429ff001c9c31a14fa7894c8f7"
+  },
+  {
+    "path": "dist/app-host/device-key-custody.d.ts",
+    "bytes": 2485,
+    "sha256": "5935e1cbb4f7af99436a05ee46c077e21c8ef15786de8a4bf200645d17d4bbee"
+  },
+  {
+    "path": "dist/app-host/device-key-idb.d.ts",
+    "bytes": 1107,
+    "sha256": "45debcbe3543703cd751b541391177728172445970b45b2fdce50be3249ae907"
+  },
+  {
+    "path": "dist/app-host/device-key-provider.d.ts",
+    "bytes": 1154,
+    "sha256": "60186268d768ceccd55d2caf15a6f9bc9e94fb9d4e4f706080467d8110305507"
+  },
+  {
+    "path": "dist/app-host/device-registration.d.ts",
+    "bytes": 2137,
+    "sha256": "4b9cc69e5be50a88afc281a2ee9b7c602d7e96e9946ad7746062eb35a19fb1fd"
+  },
+  {
+    "path": "node_modules/yaml/dist/doc/directives.d.ts",
+    "bytes": 1910,
+    "sha256": "9e5b8137b7ee679d31b35221503282561e764116d8b007c5419b6f9d60765683"
+  },
+  {
+    "path": "node_modules/yaml/dist/doc/Document.d.ts",
+    "bytes": 6540,
+    "sha256": "df9b266bceb94167c2e8ae25db37d31a28de02ae89ff58e8174708afdec26738"
+  },
+  {
+    "path": "dist/application/entry.d.ts",
+    "bytes": 19189,
+    "sha256": "cc59ed2b1bc50ae8fd98893bc7c169f914a0edc91156e0dc788aea3fc3dfdd04"
+  },
+  {
+    "path": "dist/errors.d.ts",
+    "bytes": 3054,
+    "sha256": "5e619b9a60eec36aa1b10faae9e5ab266bcd37e5ea2368f8be33591d8288abdd"
+  },
+  {
+    "path": "node_modules/yaml/dist/errors.d.ts",
+    "bytes": 1260,
+    "sha256": "bea7cae6a8b2d41fd1a9d70475b54d741dd7ca2103904934858108eec0336a69"
+  },
+  {
+    "path": "node_modules/@noble/hashes/eskdf.d.ts",
+    "bytes": 3729,
+    "sha256": "d5f8b356eb63754539034e40c22ef45e58af9eb51e121ed7ef1c757eb47f7fe7"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/eskdf.ts",
+    "bytes": 11076,
+    "sha256": "fc953318a9f6cc95eced18543f29022a2a1da81795aa63622299180ce37de579"
+  },
+  {
+    "path": "dist/application/file-access.d.ts",
+    "bytes": 2843,
+    "sha256": "f719f3db45463289e412ec0f6a1a9c7a97739d3f14b9938d40e0c33dbb442316"
+  },
+  {
+    "path": "dist/application/file-readiness.d.ts",
+    "bytes": 1025,
+    "sha256": "2fe2f7ad1b42806b3a41a6a354850e35efb1f8facb488e4a7628f2e295c04dc2"
+  },
+  {
+    "path": "dist/files.d.ts",
+    "bytes": 6526,
+    "sha256": "526a7ba53dbb39fab6cee2cb1054e625fb1937e6ab3a22d9db9721ef6f04f922"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/files.d.ts",
+    "bytes": 8979,
+    "sha256": "1cfcfc457af5ad8f93ff2cdc2ac16753fab44cdb0c1564f18d066d0cc6e6fcc1"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/core/float.d.ts",
+    "bytes": 166,
+    "sha256": "68f5e28618d07e0cd09f3c016fc2b5c597d41730cf7a5bc165bb137ee5d239c5"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/float.d.ts",
+    "bytes": 166,
+    "sha256": "68f5e28618d07e0cd09f3c016fc2b5c597d41730cf7a5bc165bb137ee5d239c5"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/foldFlowLines.d.ts",
+    "bytes": 1273,
+    "sha256": "e27605c8932e75b14e742558a4c3101d9f4fdd32e7e9a056b2ca83f37f973945"
+  },
+  {
+    "path": "dist/app-host/foreground-wake.d.ts",
+    "bytes": 1929,
+    "sha256": "4aad56824cea26c400287c16de19b70f47902425f76db579206186b1af092e0c"
+  },
+  {
+    "path": "dist/application/forgotten.d.ts",
+    "bytes": 807,
+    "sha256": "bfebf3ea0a7055fd9fcbeb0856d77f270a76849b9a7b145ede89e69ca2df9ec2"
+  },
+  {
+    "path": "dist/application/front-door.d.ts",
+    "bytes": 4885,
+    "sha256": "35dee6ddde1c9e3614abb56cc442f2f1b07419e9ebd770909efd3ac10f02e771"
+  },
+  {
+    "path": "dist/app-grant/grant-store.d.ts",
+    "bytes": 4222,
+    "sha256": "5131482212147c9252c8856a0c94894b3d9d64a20375b6627aaba02f768541db"
+  },
+  {
+    "path": "dist/app-host/handover.d.ts",
+    "bytes": 1466,
+    "sha256": "36d81079373aebc1f538b6bb858b4e34ece2a752462c156c7d755c6f3e6adf0e"
+  },
+  {
+    "path": "node_modules/@noble/hashes/hkdf.d.ts",
+    "bytes": 3557,
+    "sha256": "b31b80e958e55dcff73eebfed1061ab4a49ef5cadc2fca1cf0999e1dd06f2786"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/hkdf.ts",
+    "bytes": 7193,
+    "sha256": "0f145497126d9943373c6830d8c67f91f177bf9827bc18e99149909315186423"
+  },
+  {
+    "path": "node_modules/@noble/hashes/hmac.d.ts",
+    "bytes": 1662,
+    "sha256": "e98501df98e30aadc27a2fac0c725b7755bb297ed8f722b4d9edbad0a52eabce"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/hmac.ts",
+    "bytes": 4200,
+    "sha256": "74a1ac9f74e3cb97076665c6deada914c3b8e3d645fc65e7e64b71b6d43728fe"
+  },
+  {
+    "path": "dist/holds.d.ts",
+    "bytes": 3454,
+    "sha256": "2fc4698cab3f36e88ba28f3c5cf28648e2208bf7df7af97749bf029ec5a18ba7"
+  },
+  {
+    "path": "dist/app-host/http-log.d.ts",
+    "bytes": 3860,
+    "sha256": "635236d00af6912f66798ae16ab04eb85b61fbfcf95237af1378cb52fff74a73"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/identity.d.ts",
+    "bytes": 1379,
+    "sha256": "a00362ee43d422bcd8239110b8b5da39f1122651a1809be83a518b1298fa6af8"
+  },
+  {
+    "path": "dist/app-grant/index.d.ts",
+    "bytes": 1335,
+    "sha256": "67a580f6151874db3a1889b4289b801ed500c99f80fb699159eeb497b6ee69d7"
+  },
+  {
+    "path": "dist/app-host/index.d.ts",
+    "bytes": 7246,
+    "sha256": "7bf0bae7e73a96ae97374c4885f9a922a0ef15be375fef04cf4a02f25afbaf70"
+  },
+  {
+    "path": "dist/app-storage/index.d.ts",
+    "bytes": 838,
+    "sha256": "e49e6bbcdf1697216871589c6029afd8227b6dcd5f30ec8a5240cdca60dc7fba"
+  },
+  {
+    "path": "dist/index.d.ts",
+    "bytes": 4294,
+    "sha256": "aae9c8cd5cd36a498db8f96892466910c6b73a87c19a445551e58a7dcbf791bc"
+  },
+  {
+    "path": "dist/testing/index.d.ts",
+    "bytes": 819,
+    "sha256": "0d638fc25c53727ecface606de728b55c7089657549d16f48030b9bda1c9c16d"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/index.d.ts",
+    "bytes": 26171,
+    "sha256": "5780d27d162c420665986c492e38c11736ec886f8721f621f42614ee196fb0de"
+  },
+  {
+    "path": "node_modules/@noble/hashes/index.d.ts",
+    "bytes": 11,
+    "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+  },
+  {
+    "path": "node_modules/yaml/dist/index.d.ts",
+    "bytes": 1394,
+    "sha256": "9f85a1810d42f75e1abb4fc94be585aae1fdac8ae752c76b912d95aef61bf5de"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/index.ts",
+    "bytes": 1122,
+    "sha256": "9f2034ab7b5c452fd7b2b9df6ec7ef0266830cd11f05908e9f5e862993a19c30"
+  },
+  {
+    "path": "dist/app-host/initial-sync.d.ts",
+    "bytes": 1244,
+    "sha256": "a085481b7a7bd2164c842d243dd1ac959c0a0dc7124d32d77933fb1ca7fdc07f"
+  },
+  {
+    "path": "dist/transport/inprocess.d.ts",
+    "bytes": 630,
+    "sha256": "a200241a72765d8641123e2369c8acb0df757289afeb7bbe2028ef1d4b2bacda"
+  },
+  {
+    "path": "dist/app-host/installation-sign-in.d.ts",
+    "bytes": 18954,
+    "sha256": "f6af9b70bd5b87dbbb18f4023ed1273cb7a5b735ef79627fcdae3330bedf558f"
+  },
+  {
+    "path": "dist/app-host/installation-store.d.ts",
+    "bytes": 2180,
+    "sha256": "22fea1faa519c3b1ec28fe6c324003732c8a54ca8245deb96f8282523778816d"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/core/int.d.ts",
+    "bytes": 160,
+    "sha256": "5b1d8c847722d2137a61465051289c85b42cb7fbcd16c4a2818ae21f4cca32dd"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/int.d.ts",
+    "bytes": 200,
+    "sha256": "c2a157c5321741265c9e070abdb168bd62c960a8e42fe19b268a13f019e0866b"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/json-schema.d.ts",
+    "bytes": 1998,
+    "sha256": "c82708af4dcb3fb9dfacbadc6faf9cad4f2d07ffce12407f8cf9778af37bbefe"
+  },
+  {
+    "path": "dist/keys.d.ts",
+    "bytes": 1840,
+    "sha256": "23472fa56151c72e6e556cd90c964c0b6678f9cfa2828cf91a762a244fc76637"
+  },
+  {
+    "path": "dist/app-host/ledger-rows.d.ts",
+    "bytes": 212,
+    "sha256": "fbc788703295b528ce3986da1436904f06b2eba84849c0b6774d6b527a47ecb3"
+  },
+  {
+    "path": "node_modules/@noble/hashes/legacy.d.ts",
+    "bytes": 3661,
+    "sha256": "efea3066bab29b907291bb209c8e0ebf33aa7c7de7e284debdf70800ef0c7cfa"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/legacy.ts",
+    "bytes": 12512,
+    "sha256": "2bacb7fed94e9d0c33d98313bf764989d9d9c23c2fa13d8f7f5ad5a4fea4751f"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/lexer.d.ts",
+    "bytes": 2921,
+    "sha256": "c7200ae85e414d5ed1d3c9507ae38c097050161f57eb1a70bef021d796af87a7"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/line-counter.d.ts",
+    "bytes": 733,
+    "sha256": "3dfcd0a3bfa70b53135db3cf2e4ddcb7eccc3e4418ce833ae24eecd06928328f"
+  },
+  {
+    "path": "dist/live.d.ts",
+    "bytes": 1592,
+    "sha256": "6ce46d6eddeca10da48ad272582156ae9e9c387c27701689fb9da48c8a10beba"
+  },
+  {
+    "path": "dist/application/local-build.d.ts",
+    "bytes": 441,
+    "sha256": "0080c2a5468a91a251bfeaea81dcf3028f9bfca2db71aa3bb8dca2b258949bee"
+  },
+  {
+    "path": "dist/local-build.d.ts",
+    "bytes": 680,
+    "sha256": "310eed4f208fd2b99d2c347ce94d50ac6ce111618f049a970f2167a012a7286c"
+  },
+  {
+    "path": "dist/app-host/local-facade.d.ts",
+    "bytes": 1431,
+    "sha256": "9298c665941a6197c201914f9edfcb0f0a5a4bbfc29e55c8591e5b1ebc21bdd4"
+  },
+  {
+    "path": "dist/transport/local-link.d.ts",
+    "bytes": 2812,
+    "sha256": "5dc961cb544cf0f843465334fbcf1428a1a751c1f23a0f1bd98c9fe8eabf8bb3"
+  },
+  {
+    "path": "dist/app-host/log-pump.d.ts",
+    "bytes": 5621,
+    "sha256": "f6482a7a30476876a266ff2b8196fc3447d09e8ddfb447cb9bdeb66418b3931c"
+  },
+  {
+    "path": "dist/app-host/log-push.d.ts",
+    "bytes": 3313,
+    "sha256": "138277a543a0d7d2d5b0629f3fdda188b700e9d633ec26259019edec25d11d34"
+  },
+  {
+    "path": "dist/app-host/log-token-cache.d.ts",
+    "bytes": 918,
+    "sha256": "50aab67c8f19d16c71fa491de0df4347476d78eda7442bc6e9ac4d555ce3e2eb"
+  },
+  {
+    "path": "node_modules/yaml/dist/log.d.ts",
+    "bytes": 226,
+    "sha256": "7c33f11a56ba4e79efc4ddae85f8a4a888e216d2bf66c863f344d403437ffc74"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/manifest-validators.generated.d.ts",
+    "bytes": 595,
+    "sha256": "6c36e182fd692691acac8b9abfe16a61ee19acce8e217847625e88b05b7a1374"
+  },
+  {
+    "path": "dist/application/manifest.d.ts",
+    "bytes": 1620,
+    "sha256": "3315f8b7617e6c071af6e36d259295a525183ae47debaa0239c18817f6aaf580"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/manifest.d.ts",
+    "bytes": 3679,
+    "sha256": "98b795a75f401d8de3fb7d08595be387bf31769d06be69b512ae97ffbffb4263"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/common/map.d.ts",
+    "bytes": 88,
+    "sha256": "e1b042779d17b69719d34f31822ddba8aa6f5eb15f221b02105785f4447e7f5b"
+  },
+  {
+    "path": "dist/testing/memory-contracts.d.ts",
+    "bytes": 1599,
+    "sha256": "294ef8c2806470431d3673493bf727d274861498f31f5e574815c147ee436f4f"
+  },
+  {
+    "path": "dist/testing/memory-replica.d.ts",
+    "bytes": 7116,
+    "sha256": "b3355480488f73cb7dfa7c3e3ff718060ecd28e0392c0b0fdc44f410eb4ea8f5"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/merge.d.ts",
+    "bytes": 459,
+    "sha256": "d0f51295f868055927afc9c23e5077f17b0db247978becf7644612290b18cc45"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/mutation-fingerprint.d.ts",
+    "bytes": 522,
+    "sha256": "44540e2a8bf2739ff344678c40ee9c4b7eb3f8442a4891fa3932f14118f27484"
+  },
+  {
+    "path": "dist/application/native-assets.d.ts",
+    "bytes": 1604,
+    "sha256": "44eac7aea2aa9d9b4b59ae7f1337e2860f48abff2994ed813d1d2394bffb1d4f"
+  },
+  {
+    "path": "dist/application/native-authorization-rpc.d.ts",
+    "bytes": 877,
+    "sha256": "7567c5b0cb6e3b9310d4ddac1daf0dba6cb762b3046d1dbff6621b05d9a77c72"
+  },
+  {
+    "path": "dist/app-grant/native-completion.d.ts",
+    "bytes": 1242,
+    "sha256": "d6db1bbe088cc38d44426be24493dd265113e0315b0348c5b3ad6cf0ee7c78c1"
+  },
+  {
+    "path": "dist/app-host/native-sign-in.d.ts",
+    "bytes": 1294,
+    "sha256": "20e24c8b9b67943d412ddd7ecbcab929764284ccdb8dc401b77ce4dfb6b5d01d"
+  },
+  {
+    "path": "dist/transport/next-relay.d.ts",
+    "bytes": 2833,
+    "sha256": "75671342c93e2ba9852d48f940a933f3b21ca1af8fa62db4885273d843c497af"
+  },
+  {
+    "path": "dist/node.d.ts",
+    "bytes": 3011,
+    "sha256": "be7fab3e9bd8f021c488a5da95f484dcfd28641d74464ed4d50f24ce582fc193"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/Node.d.ts",
+    "bytes": 2538,
+    "sha256": "961fa18e1658f3f8e38c23e1a9bc3f4d7be75b056a94700291d5f82f57524ff0"
+  },
+  {
+    "path": "dist/app-host/noise-custody.d.ts",
+    "bytes": 2997,
+    "sha256": "9b3522a9c93640889c24475628624e09236dd6f5fc1e65ecc7929aca75efb83c"
+  },
+  {
+    "path": "dist/app-host/noise-idb.d.ts",
+    "bytes": 1296,
+    "sha256": "8cb115e23cf2a403f0dbb5388df0d4d29fc9874bd841a229b9a16f1199e3736c"
+  },
+  {
+    "path": "dist/testing/noise-server.d.ts",
+    "bytes": 576,
+    "sha256": "3832db76917fd5885fd9b263b629a1d72fc77ea926ae01968b8e626377ff7401"
+  },
+  {
+    "path": "dist/transport/noise-session.d.ts",
+    "bytes": 4114,
+    "sha256": "6bcf4a5e23f09f18de6a5fbb5dd802479813fff1e370762c429f3a2c110f2c9b"
+  },
+  {
+    "path": "dist/transport/noise.d.ts",
+    "bytes": 3674,
+    "sha256": "2ba05d3b4656d15f0b2f9c85858a662c64f7856050ab8993f7973c48e9791354"
+  },
+  {
+    "path": "dist/application/notification-readiness.d.ts",
+    "bytes": 2014,
+    "sha256": "3d27f23051d12670cf5f7a73fe17e6a09be2bca706207fa1dfb6fb3d5ac4963c"
+  },
+  {
+    "path": "dist/notifications.d.ts",
+    "bytes": 4300,
+    "sha256": "c834c819c34fee38c04a64c87ed8fa229c0c9b6a888814dcb1e0e4bbf02acaf9"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/common/null.d.ts",
+    "bytes": 108,
+    "sha256": "68c7d5fe67e3dd9e0ae4809a37541e79c86c639758f6d93c478c900a23b3c715"
+  },
+  {
+    "path": "dist/offline-shell-build.d.ts",
+    "bytes": 1056,
+    "sha256": "b5106545e54f8bad11ad54566535e3a367a0eb8b3488527f7189f3aef14cede8"
+  },
+  {
+    "path": "dist/offline-shell-worker.d.ts",
+    "bytes": 1517,
+    "sha256": "83abf875f62851cf1e742ffb1be899bdaa5cdabc3d66f60225c74bd189c1184e"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/omap.d.ts",
+    "bytes": 936,
+    "sha256": "9c37dc73c97cd17686edc94cc534486509e479a1b8809ef783067b7dde5c6713"
+  },
+  {
+    "path": "dist/app-host/open-wait.d.ts",
+    "bytes": 253,
+    "sha256": "afdc33e51540d766fcd66e42e91a5cf649354a1e715e9f44a37cfcbe3ae2e9ee"
+  },
+  {
+    "path": "dist/app-host/opening-progress.d.ts",
+    "bytes": 360,
+    "sha256": "227e0200d5d19dc82ed63f1e8aa6ce7cfbad060608b21bd76ad37671a8f29f2b"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/operations.d.ts",
+    "bytes": 2281,
+    "sha256": "94b465a68b2ec65cdcf271a68f391dc4b52ba2efa4c5361b523bf912af155483"
+  },
+  {
+    "path": "node_modules/yaml/dist/options.d.ts",
+    "bytes": 11186,
+    "sha256": "1720be851bdb7cdbff68061522a71d9ddaa69db1fe90c6819a26953da05942f2"
+  },
+  {
+    "path": "dist/transport/original-session.d.ts",
+    "bytes": 475,
+    "sha256": "320654c77c0d82ba3ba40f6425ca6ada4d65e9eb932ffbdb0defb980587f2302"
+  },
+  {
+    "path": "dist/app-host/owner.d.ts",
+    "bytes": 5407,
+    "sha256": "55fe9985f59505d1b06789523945a037911687ee4e16bda426964cb5bfd62b5f"
+  },
+  {
+    "path": "dist/application/packaged-assets.d.ts",
+    "bytes": 457,
+    "sha256": "e80e6509055393806be4d1199028fd9750ec606760f40f76bafe30991e852aa3"
+  },
+  {
+    "path": "dist/application/packaged-trust.d.ts",
+    "bytes": 389,
+    "sha256": "7d9ad5bb82755d2e0b4fe2d7578a2d2eab77590ec0e03fca8f129182b2350757"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/Pair.d.ts",
+    "bytes": 1118,
+    "sha256": "7821d3b702e0c672329c4d036c7037ecf2e5e758eceb5e740dde1355606dc9f2"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/pairs.d.ts",
+    "bytes": 725,
+    "sha256": "e2e85e40eb6108d06a7c2116bb4fbaad323709f979c8135588619b63089efec9"
+  },
+  {
+    "path": "node_modules/yaml/dist/parse/parser.d.ts",
+    "bytes": 2534,
+    "sha256": "4edb4ff36b17b2cf19014b2c901a6bdcdd0d8f732bcf3a11aa6fd0a111198e27"
+  },
+  {
+    "path": "node_modules/@noble/hashes/pbkdf2.d.ts",
+    "bytes": 3062,
+    "sha256": "5e992532a48c56c72d23a01491702f259637fe7d14bb13cea7ce731d74aea9d2"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/pbkdf2.ts",
+    "bytes": 8260,
+    "sha256": "1a6230a1c1b18a090601667b28b32b2b7843dfb80539bd33d9be5bb3d20d23ca"
+  },
+  {
+    "path": "dist/application/people-readiness.d.ts",
+    "bytes": 1353,
+    "sha256": "07fc93ac0cbdc3fa4d44780912f2dbf7cd2146cbbda64715b4be6fb0deaccecb"
+  },
+  {
+    "path": "dist/app-grant/people.d.ts",
+    "bytes": 533,
+    "sha256": "4b38fd8848546008a2f40dbe5b8dd2d0fc10decc2bdbeced0b47c865f0cb6310"
+  },
+  {
+    "path": "dist/people.d.ts",
+    "bytes": 2777,
+    "sha256": "19c4a9ae9a730eeedb9ab6d9557a0d318f07b60c423b337ecc8a35e5aab626b7"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/people.d.ts",
+    "bytes": 1355,
+    "sha256": "31d480dcbe8865b9c6876c1c94ceb2b0e9568deed52a84ad5e92fe4f4812bac4"
+  },
+  {
+    "path": "dist/application/phase.d.ts",
+    "bytes": 4903,
+    "sha256": "c73c169e97237234f4b28caccb4dcd9c83a3acf5933d61e7023a069d9b30929e"
+  },
+  {
+    "path": "dist/transport/port.d.ts",
+    "bytes": 3017,
+    "sha256": "9109966ddc66bb31732253f97554ff4b6836016cfc84d87f91353b0348300961"
+  },
+  {
+    "path": "dist/application/portal-reservation.d.ts",
+    "bytes": 2250,
+    "sha256": "df4fc1c713387534fe90df9fd2c6fe83776cbf3d6f7dcc79f0cc5ba0521f0b6e"
+  },
+  {
+    "path": "dist/presence.d.ts",
+    "bytes": 801,
+    "sha256": "cf383f06d1b092e1bcad5ee1f08f2195f222990b2947b9fd0d61371dd16a000c"
+  },
+  {
+    "path": "dist/private-account.d.ts",
+    "bytes": 10214,
+    "sha256": "a86c99dd2d3add26e0febee0b1d4622e06eb044c176996f39cd2e59aa9f383c7"
+  },
+  {
+    "path": "dist/app-host/private-bootstrap.d.ts",
+    "bytes": 2960,
+    "sha256": "09c9a35a876f5f14980e94d90e927acf7a59ce9a4e5ad52b7e4df941022eb493"
+  },
+  {
+    "path": "dist/application/private-collections.d.ts",
+    "bytes": 6520,
+    "sha256": "8b71b8c01bd607573989ad96ad511ce1f14344a135e20ec2675f2d9a68f90f9d"
+  },
+  {
+    "path": "dist/app-host/private-persistence-idb.d.ts",
+    "bytes": 1265,
+    "sha256": "11c4ed118f9b7183434cbf85e0d52ae42d45ac8245a485eef3e890411f4a4c4b"
+  },
+  {
+    "path": "dist/app-host/private-persistence.d.ts",
+    "bytes": 2316,
+    "sha256": "7e6714eb30ad8396fdf7306e410322ff4b695000292e4c6fd185778b8bc86095"
+  },
+  {
+    "path": "dist/private.d.ts",
+    "bytes": 2419,
+    "sha256": "f2dbd182eb8eb43b12b48595396523a80d1920d0fbe1972d34a47a06214bbd20"
+  },
+  {
+    "path": "node_modules/yaml/dist/public-api.d.ts",
+    "bytes": 2864,
+    "sha256": "810f0d14ce416a343dcdd0d3074c38c094505e664c90636b113d048471c292e2"
+  },
+  {
+    "path": "dist/transport/read-fence-policy.d.ts",
+    "bytes": 205,
+    "sha256": "c20dd6b00d91fe90170e501a199b1fe69530e5e8ecd47c6606a8004dac8302bf"
+  },
+  {
+    "path": "dist/read-helpers.d.ts",
+    "bytes": 2002,
+    "sha256": "b9d388cca28e6d47b1f4253c4ef7468cfd8c45efd8e306aecd60213372242182"
+  },
+  {
+    "path": "dist/application/readiness.d.ts",
+    "bytes": 2929,
+    "sha256": "0cdf8ee317d8089e255bdd95289ba366ae7ca3022c041f004335ea13e53faac5"
+  },
+  {
+    "path": "dist/records.d.ts",
+    "bytes": 1139,
+    "sha256": "a90de9c7244bbc1882dcc42aa5d0c39e3a10d93088346febb86a1071d9d669d1"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/records.d.ts",
+    "bytes": 3488,
+    "sha256": "bbd13b238850e9ec1d5135706a2987a9bb8909d54c3808f5d102aefd8db53192"
+  },
+  {
+    "path": "dist/application/registration-refusal.d.ts",
+    "bytes": 972,
+    "sha256": "5de2638210c85c6d57f2573dd731eb8968ca537ed6654bfa25599fdb33df7667"
+  },
+  {
+    "path": "dist/application/registration.d.ts",
+    "bytes": 1513,
+    "sha256": "c811b94008f0d668a7fb472da6f5bca423fd7596978d8e27568bfd7baf00fb9c"
+  },
+  {
+    "path": "dist/transport/relay-close.d.ts",
+    "bytes": 1291,
+    "sha256": "4903b075314de1eca79b064ea137f5aa35a0c7b04be8d193d9ec10a7d651b536"
+  },
+  {
+    "path": "dist/transport/relay-pipe.d.ts",
+    "bytes": 755,
+    "sha256": "7266d6d77a7c871ac05a4d7757554ead88716e54bba523dbec10460f63dda8be"
+  },
+  {
+    "path": "dist/transport/relay.d.ts",
+    "bytes": 1516,
+    "sha256": "553a35da88cfa93b6b817ae10ac1d61e0d150aa7999e8971b2b62dea7ad1213f"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-block-map.d.ts",
+    "bytes": 457,
+    "sha256": "905f841ddfebf6b28a63423c0ff43fc17d4067f4021f7ba0fac4e93bc0c2d449"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-block-scalar.d.ts",
+    "bytes": 484,
+    "sha256": "acf6a9b33859e4409b56e68e919061f6daf40132529ec49bd5ba36b7ac2a1f92"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-block-seq.d.ts",
+    "bytes": 467,
+    "sha256": "ffd6665710fd9c50d2eb87a584547b4ec583b39e8b639741b770be7ebcb757ea"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-end.d.ts",
+    "bytes": 283,
+    "sha256": "df9c83d8eac50c9214400faa415eaee2199288d3b87aaf381fc396799a128407"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-flow-collection.d.ts",
+    "bytes": 636,
+    "sha256": "3f4d40133ff3c69fbb42e7eb758645c4288a52aaa3b1c9b6936339342ca07bd1"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-flow-scalar.d.ts",
+    "bytes": 437,
+    "sha256": "1e52c1052cad40acf62ba232ff1678c132aff44563e8fd553988c8bd7d282333"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/resolve-props.d.ts",
+    "bytes": 848,
+    "sha256": "f79e69096d500e49deeabf6b4e6bd5d3a51a52170e2ad07300349b963d110547"
+  },
+  {
+    "path": "dist/application/return-url.d.ts",
+    "bytes": 110,
+    "sha256": "063f3f1113c98ced9086b79554872faa66d87f4895857d2a4c92dbddff3d8826"
+  },
+  {
+    "path": "dist/runtime-wire.d.ts",
+    "bytes": 2432,
+    "sha256": "e40362a69dd4cfccdf2669f708a65fb3889653ac5da3db3e70d69fedef43e7af"
+  },
+  {
+    "path": "dist/application/runtime.d.ts",
+    "bytes": 6696,
+    "sha256": "828e3c9ee56979423bb8ef57d3391097ca350f5f5e7878074c332ca4d2900ebe"
+  },
+  {
+    "path": "dist/saved-views.d.ts",
+    "bytes": 1389,
+    "sha256": "5304d5fdebebe9e395305c39c911a1c5dbdf218a7caa03be19cadad754841f9b"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/Scalar.d.ts",
+    "bytes": 1792,
+    "sha256": "afb5e9a110ff72b60783e0fe65ce1a28adbe6ab5f30d2dc31e2fb099e0f86de4"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/core/schema.d.ts",
+    "bytes": 98,
+    "sha256": "4763b3c6a3bfc9864e5712ca1d4a5ac2817e9d05aef44a0a1556bb449bb2bd06"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/json/schema.d.ts",
+    "bytes": 118,
+    "sha256": "4cb584df88ebd02a7f14013b5d83a7cedd9b1551ad871a58c94dff44520fb1ea"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/Schema.d.ts",
+    "bytes": 787,
+    "sha256": "a820499a28a5fcdbf4baec05cc069362041d735520ab5a94c38cc44db7df614c"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/schema.d.ts",
+    "bytes": 98,
+    "sha256": "4763b3c6a3bfc9864e5712ca1d4a5ac2817e9d05aef44a0a1556bb449bb2bd06"
+  },
+  {
+    "path": "dist/application/scope.d.ts",
+    "bytes": 1909,
+    "sha256": "571eb1e2ddf8330d43f7d83594fc8544d215902a0cf22b166f3abb656e424d64"
+  },
+  {
+    "path": "dist/app-host/scoped-sign-in-session.d.ts",
+    "bytes": 2221,
+    "sha256": "3d169c79f185f2c93e6a706e83778e627c4085831a190dc3d2b58e160f67c280"
+  },
+  {
+    "path": "node_modules/@noble/hashes/scrypt.d.ts",
+    "bytes": 3852,
+    "sha256": "f3b2a890f8b6564a0f4c8fd3dc80f443501cdd8f4dd18760d472773923329902"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/scrypt.ts",
+    "bytes": 14813,
+    "sha256": "5f03c5bef264a42f413d199bbee69918f6ca8828be8f2e9f710143043b662b80"
+  },
+  {
+    "path": "dist/semver.d.ts",
+    "bytes": 1372,
+    "sha256": "8ab15794e50a3670c3e93ea0226382208ecba3326b221a7c757511cf46d9cdd7"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/common/seq.d.ts",
+    "bytes": 88,
+    "sha256": "6858337936b90bd31f1674c43bedda2edbab2a488d04adc02512aef47c792fd0"
+  },
+  {
+    "path": "dist/application/session-hint.d.ts",
+    "bytes": 1116,
+    "sha256": "f389d3b022d66217b796423b036510f135e82e66f122e813bc0c2f45213eee00"
+  },
+  {
+    "path": "dist/records/session.d.ts",
+    "bytes": 2133,
+    "sha256": "7fb820c195ae9638e431f90c4e5f132ca8503944955f784bf454167416af103f"
+  },
+  {
+    "path": "dist/session.d.ts",
+    "bytes": 2921,
+    "sha256": "fb702bcc930076de7ce0c46147915c200a0e24637630022df522e4857e006443"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/set.d.ts",
+    "bytes": 1259,
+    "sha256": "5fe2ef29b33889d3279d5bc92f8e554ffd32145a02f48d272d30fc1eea8b4c89"
+  },
+  {
+    "path": "dist/app-grant/setup-attempt.d.ts",
+    "bytes": 469,
+    "sha256": "51b288fa51dec9404884e4e728d8b1134ec287a6eb46780ec9fc9775e9fa63e4"
+  },
+  {
+    "path": "dist/app-host/setup-engine.d.ts",
+    "bytes": 871,
+    "sha256": "22cd1e7f043ff7cd466c4633093b0c955fd19f185d6209374f75adbfa3a1654a"
+  },
+  {
+    "path": "dist/app-grant/setup-producer.d.ts",
+    "bytes": 1159,
+    "sha256": "0cff7d1d2da906baf2aac31eb0c4b54a24b55fb13c7c9a9e67adab0c1603b0b7"
+  },
+  {
+    "path": "dist/app-grant/setup.d.ts",
+    "bytes": 501,
+    "sha256": "da5c84676eacea2dfac344a6c356e883bf78cc2de65ef0c75873a64eaf66b986"
+  },
+  {
+    "path": "dist/application/setup.d.ts",
+    "bytes": 5003,
+    "sha256": "6f940751eb2ca5a9d491bd97776cfb722788a25463e1b190ea6a7cea2134753c"
+  },
+  {
+    "path": "node_modules/@noble/hashes/sha2.d.ts",
+    "bytes": 5974,
+    "sha256": "5b1c09cb23f0c1e7018d31d28f4eec2b18eec6454f07c0f69ff2eb3c8decdb21"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/sha2.ts",
+    "bytes": 19175,
+    "sha256": "27447d36015d30a97dbe68a08978af65094208ba6f093d9197785105d95c20bc"
+  },
+  {
+    "path": "node_modules/@noble/hashes/sha3-addons.d.ts",
+    "bytes": 19527,
+    "sha256": "2d838c7d9eaa1e89d8cc45e894ef92cdf7db60bf9bd2eb04b89e2570510fcf47"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/sha3-addons.ts",
+    "bytes": 42765,
+    "sha256": "8f0ed953b9194fa0b0f6164ab02d33ee78f491fc2b264876a3e4080522bc55ce"
+  },
+  {
+    "path": "node_modules/@noble/hashes/sha3.d.ts",
+    "bytes": 6466,
+    "sha256": "6f8d601930e11339441fffbaec65a66c76d62c5c62b91c49230d64e75fa6457a"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/sha3.ts",
+    "bytes": 17915,
+    "sha256": "a4a94b8b6755466a6972a3ab7816ec8cb2cabc013c1f4107dd09f235b4815415"
+  },
+  {
+    "path": "dist/app-host/sign-out-erase.d.ts",
+    "bytes": 2097,
+    "sha256": "9deed8905fddb979eab10bf4e44aba8436fd0a24431c0be12b98ab8d0a357cd6"
+  },
+  {
+    "path": "dist/application/sign-out.d.ts",
+    "bytes": 719,
+    "sha256": "62060ba05ddc6c61ceefcf64b47df89f8e78a4d49e73f9c852c7ad957ebd9238"
+  },
+  {
+    "path": "dist/app-storage/sqlite-index.d.ts",
+    "bytes": 3250,
+    "sha256": "7e26cd626c5b21ecb94ff69d962a80c62d38b1e282b8498fec1b21544d228de7"
+  },
+  {
+    "path": "dist/native/sqlite3.d.ts",
+    "bytes": 329,
+    "sha256": "99ba56b421c27b400102b935bbdb519f6230f314f20227b8ed66975cda287317"
+  },
+  {
+    "path": "dist/app-host/status.d.ts",
+    "bytes": 2719,
+    "sha256": "e19e4285f5f6af9213cf3dc0911383d53cf08a45019578aa451c782f1065af1e"
+  },
+  {
+    "path": "dist/status.d.ts",
+    "bytes": 2352,
+    "sha256": "6e4cd368ad3e687ef1341addf17c2071a1a7e7d2ad5aed752bf1033409e4d1d9"
+  },
+  {
+    "path": "dist/app-host/storage-probe.d.ts",
+    "bytes": 1764,
+    "sha256": "2de5bc35938a1e572b234f60c41855a550225f9ff057230d0513f13b5ee55d20"
+  },
+  {
+    "path": "dist/strength.d.ts",
+    "bytes": 515,
+    "sha256": "bedb83913c7a93ec5a958d771352dcc65a32ebd9dfa0311f9e4e4fb9bcc0281d"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/common/string.d.ts",
+    "bytes": 83,
+    "sha256": "15cb3deecc635efb26133990f521f7f1cc95665d5db8d87e5056beaea564b0ce"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringify.d.ts",
+    "bytes": 865,
+    "sha256": "0132f67b7f128d4a47324f48d0918ec73cf4220a5e9ea8bd92b115397911254f"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyCollection.d.ts",
+    "bytes": 528,
+    "sha256": "7f03bfa106e6045d0ed9b1b3812df4c6edf70e231be92acb54c910530aefb7c4"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyComment.d.ts",
+    "bytes": 419,
+    "sha256": "318c659afa92036e0c838821c40509e34506831f05acc9c2b182ccd39faa265f"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyDocument.d.ts",
+    "bytes": 260,
+    "sha256": "10eafb672440a5e93d378943b497a7dbd16ac5e63d843edec753d1fa3c3e8e20"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyNumber.d.ts",
+    "bytes": 147,
+    "sha256": "f0443725119ecde74b0d75c82555b1f95ee1c3cd371558e5528a83d1de8109de"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyPair.d.ts",
+    "bytes": 248,
+    "sha256": "c0629a169c48068fc384a22bde7e0c4ec35c34e7e6b19b83fba4c378b8fe05cc"
+  },
+  {
+    "path": "node_modules/yaml/dist/stringify/stringifyString.d.ts",
+    "bytes": 357,
+    "sha256": "7794810c4b3f03d2faa81189504b953a73eb80e5662a90e9030ea9a9a359a66f"
+  },
+  {
+    "path": "dist/application/tabs.d.ts",
+    "bytes": 4379,
+    "sha256": "05e42a0b9b0915d1245ebda8a5e51d54327cdf75cfe8a3d247eb745047d3d627"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/tags.d.ts",
+    "bytes": 1423,
+    "sha256": "213e4f26ee5853e8ba314ecad3a73cd06ab244a0809749bb777cbc1619aa07d8"
+  },
+  {
+    "path": "dist/testing/test-app.d.ts",
+    "bytes": 4184,
+    "sha256": "9f9142326b766b42339347ea44c673624a24e897e665f19639baff6ec81a2912"
+  },
+  {
+    "path": "node_modules/yaml/dist/test-events.d.ts",
+    "bytes": 96,
+    "sha256": "5e75986c9b907573b9ea4880e226f96dd189acc668cb24db0ac08651e6cf3068"
+  },
+  {
+    "path": "dist/thin-client.d.ts",
+    "bytes": 6218,
+    "sha256": "cf5e6723c5c1f985fa410c853989625bc8b7c5141ca8616995b8d158f05160c0"
+  },
+  {
+    "path": "dist/application/timer-criteria.d.ts",
+    "bytes": 440,
+    "sha256": "228b9bb240d39bd9e7440159db205e3319697b47594fb23adddd4b3a1698c12e"
+  },
+  {
+    "path": "dist/app-host/timer-port.d.ts",
+    "bytes": 1103,
+    "sha256": "74ce7b538dec66fc32d17828dc3a664ac65f4d0380df595c593b8e9e59bc9b7e"
+  },
+  {
+    "path": "dist/timers.d.ts",
+    "bytes": 6396,
+    "sha256": "82dfce5571d6ab1dcfad174901991388c7198e4c4869cd9a5c9138b0e89a09c7"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/yaml-1.1/timestamp.d.ts",
+    "bytes": 194,
+    "sha256": "90e99573b3ab716e9203d32e8d9dd1fdb78c125128ffb8deed821c096885338e"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/toJS.d.ts",
+    "bytes": 986,
+    "sha256": "cbef1abd1f8987dee5c9ed8c768a880fbfbff7f7053e063403090f48335c8e4e"
+  },
+  {
+    "path": "dist/type-packs.d.ts",
+    "bytes": 5404,
+    "sha256": "646936aea4099a66526ec8bf0f0e39b5d49f4d3619401b1d7ab3a8fad8e41345"
+  },
+  {
+    "path": "node_modules/@mdbase-dev/connect-protocol/dist/type-packs.d.ts",
+    "bytes": 5879,
+    "sha256": "2c62e30502aaf61ec1bdd0d96692be05216390271b46bb15794ea85a59b555f6"
+  },
+  {
+    "path": "dist/records/types.d.ts",
+    "bytes": 2813,
+    "sha256": "4855297f9d048a742f14f72fb02d37eb2036875df659c52acfdb7f95ddcffcb3"
+  },
+  {
+    "path": "node_modules/yaml/dist/schema/types.d.ts",
+    "bytes": 3763,
+    "sha256": "281744305ba2dcb2d80e2021fae211b1b07e5d85cfc8e36f4520325fcf698dbb"
+  },
+  {
+    "path": "dist/application/ui-connections.d.ts",
+    "bytes": 1919,
+    "sha256": "307548896e20b4f47903951e46fa6848e1dc7c7e2620fb50bb349a80c965f2b9"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/util-contains-newline.d.ts",
+    "bytes": 131,
+    "sha256": "29d5bb59a4240ce49fb0bea3689f4a7ea6ba936374029db1f16931f50faecb97"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/util-empty-scalar-position.d.ts",
+    "bytes": 161,
+    "sha256": "cd2cc1240eb3720e7154b4ae91116822cc59a5349436ed7631fb9f43302871c3"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/util-flow-indent-check.d.ts",
+    "bytes": 221,
+    "sha256": "60a9bbaf35ee0007d0925f376c067a3aa21b32485627cfcba948900a75eb42eb"
+  },
+  {
+    "path": "node_modules/yaml/dist/compose/util-map-includes.d.ts",
+    "bytes": 260,
+    "sha256": "5424ca8906bc44d732c1b677a250bc85cd0942461c1d53e6408930cdd9e6e029"
+  },
+  {
+    "path": "node_modules/yaml/dist/util.d.ts",
+    "bytes": 835,
+    "sha256": "b074516a691a30279f0fe6dff33cd76359c1daacf4ae024659e44a68756de602"
+  },
+  {
+    "path": "node_modules/@noble/hashes/utils.d.ts",
+    "bytes": 22567,
+    "sha256": "cfccade8c719b698bd8b0313ff996941f5d5a384654ec2886d9141224f6db439"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/utils.ts",
+    "bytes": 35685,
+    "sha256": "df2e7c132fb6c451c792dd32dc8a7643de449bcb7782f50fd23664696fbc5962"
+  },
+  {
+    "path": "dist/validation.d.ts",
+    "bytes": 1200,
+    "sha256": "b667ce2014af9274aaf84068c37ec26e841c67f1de85724a279aec9eee504366"
+  },
+  {
+    "path": "dist/values.d.ts",
+    "bytes": 1863,
+    "sha256": "eec1ea20cc5b123ccd3454e55936c713de729ac33e5b2b330cb7221e1eb7df21"
+  },
+  {
+    "path": "dist/view-sources.d.ts",
+    "bytes": 1975,
+    "sha256": "b7d76c4463314a07cc6e75678c03f2027fcdc9f9a80b25590723777a64801f0d"
+  },
+  {
+    "path": "node_modules/yaml/dist/visit.d.ts",
+    "bytes": 5048,
+    "sha256": "e39090ffe9c45c59082c3746e2aa2546dc53e3c5eeb4ad83f8210be7e2e58022"
+  },
+  {
+    "path": "dist/app-host/wasm-runtime.d.ts",
+    "bytes": 15538,
+    "sha256": "1b93e05f125da8cde76c72e7a200b981e223c9bcd2fe010ae41efccfd9e7d961"
+  },
+  {
+    "path": "dist/runtime/wasm.d.ts",
+    "bytes": 2556,
+    "sha256": "979186f603c273e9d0fa2e12ce871bf8eae330a26ab84dc3ba48fad07f8c04f3"
+  },
+  {
+    "path": "dist/app-host/web-collection.d.ts",
+    "bytes": 4229,
+    "sha256": "f2b943e63f5fee8b8d43d6c3fc6b8d678e14439aa3b814d9a6ccfa2f2f6da34d"
+  },
+  {
+    "path": "dist/app-host/web-sign-in-problem.d.ts",
+    "bytes": 831,
+    "sha256": "39fd6974d0fd2dfc1520c84cbd3a47135c588accb85c6ac82ee9a5d483c5c3be"
+  },
+  {
+    "path": "dist/app-host/web-sign-in-session.d.ts",
+    "bytes": 21242,
+    "sha256": "c21a01a1bed6721647f74b916ee1638bdb2895e366dfe253ad5482a4fde07fdf"
+  },
+  {
+    "path": "node_modules/@noble/hashes/webcrypto.d.ts",
+    "bytes": 5243,
+    "sha256": "e56b2ea68f6b6b21e14ed99b2520bc754ac900c178d23fe7d6d451ae2a7d12c8"
+  },
+  {
+    "path": "node_modules/@noble/hashes/src/webcrypto.ts",
+    "bytes": 10882,
+    "sha256": "799203593e71f7658d2a6aa7863ac082eee1b725024630e300669c7770378628"
+  },
+  {
+    "path": "dist/wire.d.ts",
+    "bytes": 27448,
+    "sha256": "e5811674f83384dc407d4d42061d19725e05575d8a4e04a72dd1c31af93e2422"
+  },
+  {
+    "path": "dist/records/witness.d.ts",
+    "bytes": 1069,
+    "sha256": "8fe9de192003e6fdf074b2300841f57eb4a4ce8917b819d823952fdcd7fb4605"
+  },
+  {
+    "path": "dist/witness.d.ts",
+    "bytes": 476,
+    "sha256": "88312efd10d8cd2191cca4f9d94a81b221a3e5072f834d878875ec06e1526cc6"
+  },
+  {
+    "path": "dist/application/worker-client.d.ts",
+    "bytes": 3219,
+    "sha256": "4d68f210cc8adb97000723efdaf19fb7b610f2eb7d3feab3e6c98a8fd3da90cb"
+  },
+  {
+    "path": "dist/application/worker-host.d.ts",
+    "bytes": 4397,
+    "sha256": "a63874363c69e36109c4013aae857e2e038858251850c2b9798d52af8aac3b13"
+  },
+  {
+    "path": "dist/application/worker-protocol.d.ts",
+    "bytes": 3410,
+    "sha256": "84d13bc49b765aac3f6e5f9c27784fa275d1eba3305a8f3fc4294aea859919cf"
+  },
+  {
+    "path": "dist/application/worker-session.d.ts",
+    "bytes": 3042,
+    "sha256": "70700b74369ab57519efaebe0bc90eed9df05c1df89c538654971b0e90462e4e"
+  },
+  {
+    "path": "dist/application/worker.d.ts",
+    "bytes": 11,
+    "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+  },
+  {
+    "path": "dist/write-ledger.d.ts",
+    "bytes": 1721,
+    "sha256": "1e761535a45422c467b5d9a6b9d643e179b722cb7df6e30cd507e2a77dbf4e9b"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/YAMLMap.d.ts",
+    "bytes": 2376,
+    "sha256": "57cbeb55ec95326d068a2ce33403e1b795f2113487f07c1f53b1eaf9c21ff2ce"
+  },
+  {
+    "path": "node_modules/yaml/dist/nodes/YAMLSeq.d.ts",
+    "bytes": 2511,
+    "sha256": "8a641e3402f2988bf993007bd814faba348b813fc4058fce5b06de3e81ed511a"
+  },
+  {
+    "path": "dist/native/runtime.wasm",
+    "bytes": 3676583,
+    "sha256": "6984f87d98e29d9f99c6b07f7728f716d1f7b2e3585a74bcc2046ba259a8afab"
+  },
+  {
+    "path": "dist/native/sqlite3.wasm",
+    "bytes": 868907,
+    "sha256": "2ee8f3dab694532afc8840e07703127287662d08b74e6ff50491ce63f00d5752"
+  }
+]

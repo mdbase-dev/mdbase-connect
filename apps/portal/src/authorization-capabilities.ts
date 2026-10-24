@@ -1,4 +1,5 @@
 import { groupAuthorizationOperations } from "@mdbase/connect-ui/access";
+import { projectNextAuthorizationGroups } from "@mdbase-dev/connect-protocol/next-authorization";
 import {
   APPLICATION_CAPABILITY_V1_DEFINITIONS,
   capabilityOperations,
@@ -59,13 +60,15 @@ const PRESENTATION: Record<ApplicationCapabilityId, {
   }
 };
 
+const UPDATE_REQUIRED_MESSAGE = "This app needs an update before it can connect. Try again after it updates.";
+
 // Inspect the wire declaration before constructing consent controls. Never interpret
 // an unknown or mixed declaration as predecessor intent.
 export function authorizationRequirementsError(requirements: ApplicationRequirements): string | undefined {
   const declared = requirements.capabilities;
   const version = declared?.contract_version;
   const files = requirements.files;
-  const invalid = "This application requests an unsupported or mixed permission version. Access cannot be approved.";
+  const invalid = UPDATE_REQUIRED_MESSAGE;
   if (version !== undefined && version !== 1 && version !== 2) return invalid;
   if (declared && version === undefined) return invalid;
   const definitions = version === 2 ? PRESENTATION : APPLICATION_CAPABILITY_V1_DEFINITIONS;
@@ -151,10 +154,6 @@ export function selectedOperationsForCapabilityGroups(
   ));
 }
 
-const NEXT_FILES: Partial<Record<ApplicationCapabilityId, readonly ApplicationFileAction[]>> = {
-  "collection.read": ["list", "read"], "records.create": ["add"],
-  "records.edit": ["replace", "move"], "records.delete": ["delete"]
-};
 const NEXT_COPY: Partial<Record<ApplicationCapabilityId, { label: string; description: string }>> = {
   "collection.read": { label: "Read records and files", description: "Open, search, validate, and follow records and saved views; list file names and read file contents." },
   "records.create": { label: "Create records and add files", description: "Add new records and files to this collection." },
@@ -162,23 +161,17 @@ const NEXT_COPY: Partial<Record<ApplicationCapabilityId, { label: string; descri
   "records.delete": { label: "Delete records and files", description: "Permanently delete records and files from this collection." }
 };
 
-/** Refuse undeclared rights instead of manufacturing file or record consent. */
+/** Offer only representable groups; never manufacture file or record consent. */
 export function nextAuthorizationGroups(requirements: ApplicationRequirements, requested: readonly string[]): { groups: AuthorizationCapabilityGroup[]; error?: string } {
-  const groups = authorizationCapabilityGroups(requirements, requested);
-  const refuse = { groups: [], error: "This application must update its permissions and request access again. The next runtime requires records and their matching file actions to be approved together." };
-  if (authorizationRequirementsError(requirements) || requirements.capabilities?.contract_version !== 2) return refuse;
-  const files = requirements.files;
-  if (files && "actions" in files) return refuse;
-  const declaredFiles = new Set(files ? [...files.required, ...(files.optional ?? [])] : []);
-  const requiredFiles = new Set(files?.required ?? []);
-  const result = groups.map(group => {
-    const id = group.id as ApplicationCapabilityId;
-    const fileActions = NEXT_FILES[id] ?? [];
-    return { ...group, ...NEXT_COPY[id], fileActions, required: group.required || fileActions.some(action => requiredFiles.has(action)) };
-  });
-  if (result.some(group => group.id === "offline.replica" || !group.fileActions.every(action => declaredFiles.has(action)))
-      || [...requiredFiles].some(action => !result.some(group => group.fileActions.includes(action)))) return refuse;
-  return { groups: result };
+  if (authorizationRequirementsError(requirements)) return { groups: [], error: UPDATE_REQUIRED_MESSAGE };
+  const projection = projectNextAuthorizationGroups(requirements, requested);
+  return {
+    ...projection,
+    groups: projection.groups.map(group => ({
+      ...PRESENTATION[group.id], ...NEXT_COPY[group.id], ...group,
+      higherImpact: PRESENTATION[group.id].higherImpact === true
+    }))
+  };
 }
 
 /** Optional saved groups restore only when both halves were explicitly approved. */

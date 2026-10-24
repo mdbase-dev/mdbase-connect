@@ -242,8 +242,10 @@ To run the local development environment:
 ```bash
 cp .env.example .env
 pnpm dev:environment:up
-pnpm dev:desktop:fresh
 ```
+
+The desktop app runs on an mdbn-daemon build:
+`MDBN_DAEMON_BIN=<absolute path to mdbase> pnpm dev:desktop:fresh`.
 
 See [Testing](docs/testing-environment.md),
 [Functional stress testing](docs/functional-stress-testing.md),

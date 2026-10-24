@@ -1,5 +1,6 @@
 import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import Fastify from "fastify";
+import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
@@ -32,7 +33,7 @@ pgDescribe("local retirement and enrollment (isolated real Postgres)", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerLocalTakeoverRoutes(app, { db, relay });
-    registerNextDeviceRoutes(app, { db, log: noLog });
+    registerNextDeviceRoutes(app, { db, log: noLog, relay });
     registerConnectorInventoryRoutes(app, { db });
     await app.ready();
   }, 60_000);
@@ -84,6 +85,20 @@ pgDescribe("local retirement and enrollment (isolated real Postgres)", () => {
     const restarted = Fastify(); registerLocalTakeoverRoutes(restarted, { db, relay });
     try { expect((await post(f, f.input, restarted)).json()).toEqual(first.json()); } finally { await restarted.close(); }
     expect(await state(f)).toEqual(after);
+  });
+  it("carries the owner's app grants over when the collection is already on Private sync", async () => {
+    const f = await fixture();
+    await db.query(`UPDATE grants SET operations=$2::jsonb, application_installation_id=$3,
+      file_capability='{"kind":"files","protocol_version":1,"actions":["list","read"],"scope":{"kind":"collection"}}',
+      application_authorization='{"binding":{"protocol_version":5,"application_declaration_id":"dev.example.reader","contracts":{"semantic_capabilities":2}}}'
+      WHERE id=$1`, [f.old, JSON.stringify(capabilityOperations("collection.read")), randomUUID()]);
+    await db.query("INSERT INTO next_grant_client_keys(grant_id,client_pk) VALUES($1,$2)", [f.old, randomBytes(32)]);
+    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$1,'next','private',$2)", [f.old, Buffer.alloc(16)]);
+    expect((await post(f)).statusCode).toBe(200);
+    const grant = (await db.query("SELECT collection_id, next_collection_id FROM grants WHERE id=$1", [f.old])).rows[0];
+    expect(grant).toEqual({ collection_id: null, next_collection_id: f.old });
+    expect((await db.query("SELECT 1 FROM next_grant_bindings WHERE grant_id=$1 AND active", [f.old])).rows).toHaveLength(1);
+    expect((await state(f)).rows[0]).toMatchObject({ authority_state: "retired", enabled: false });
   });
   it("includes retired legacy authorities and uses local IDs rather than Connect row IDs", async () => {
     const f = await fixture(), local = randomUUID();
@@ -225,7 +240,7 @@ pgDescribe("local retirement and enrollment (isolated real Postgres)", () => {
     } }) as DatabasePool;
     const staleApp = Fastify();
     if (operation === "inventory") registerConnectorInventoryRoutes(staleApp, { db: wrapped });
-    else registerNextDeviceRoutes(staleApp, { db: wrapped, log: noLog });
+    else registerNextDeviceRoutes(staleApp, { db: wrapped, log: noLog, relay });
     try {
       const rows = (await state(f)).rows, grants = (await state(f)).grants;
       const response = operation === "inventory" ? await inventory(request, staleApp)

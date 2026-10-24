@@ -21,8 +21,8 @@ test("packages the verified canonical CLI for each release filename mode", async
       // Use a real host-native executable on Windows. The adjacent extensionless
       // script lets node accept the CLI's multi-word help invocation without
       // weakening the production packager's native-binary verification.
-      await writeFile(join(root, "connect"), `
-if (process.argv.slice(2).join(" ") !== "daemon run --help") process.exit(1);
+      await writeFile(join(root, "daemon"), `
+if (process.argv.slice(2).join(" ") !== "run --help") process.exit(1);
 `);
       process.chdir(root);
       changedWorkingDirectory = true;
@@ -31,7 +31,7 @@ if (process.argv.slice(2).join(" ") !== "daemon run --help") process.exit(1);
       binary = join(root, "mdbase");
       await writeFile(binary, `#!/usr/bin/env bash
 case "$*" in
-  --help|"connect daemon run --help") exit 0 ;;
+  --help|"daemon run --help") exit 0 ;;
   *) exit 1 ;;
 esac
 `);

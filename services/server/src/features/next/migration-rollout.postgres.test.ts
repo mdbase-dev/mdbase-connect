@@ -1,3 +1,4 @@
+import { fakeLegacyProvider, migratedTimerGate, recordEmptyTimerImport } from "./legacy-provider.test-helper.js";
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
@@ -119,7 +120,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     const a = await account(["active", "active", "transferred"]);
     await released([a.user]);
     await setPaused(db, false, "go", OP);
-    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("account_not_started");
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0), await migratedTimerGate(db, a.user, a.ids)))).toBe("account_not_started");
     expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(10, digest(1))))).toBe("account_not_started");
     await startAccountMigration(db, a.user);
     await setPaused(db, true, "paused mid-cutover", OP);
@@ -131,7 +132,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(11, digest(1))))).toBe("cutover_conflict");
     expect(await collectionMigrationRecord(db, a.ids[0]!, a.user)).toMatchObject({ ids_preserved: true, s_final: "3", cutover_seq: "10", barrier_f: "10" });
     expect(await localTakeoverAllowed(db, a.user)).toEqual({ local_takeover: false, account_backend: "legacy" });
-    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("collections_not_cut_over");
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0), await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_not_cut_over");
     await cloudCopy(a.ids[1]!, a.user);
     await recordCollectionCutover(db, a.ids[1]!, facts(11, digest(2)));
     expect((await db.query("SELECT runtime FROM next_collections WHERE collection_id=$1", [a.ids[1]])).rows[0].runtime).toBe("next");
@@ -139,13 +140,17 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
       { collection_id: a.ids[0]!, barrier_f: 10, final_digest: digest(1) },
       { collection_id: a.ids[1]!, barrier_f: 11, final_digest: digest(2) }
     ]);
-    expect(await code(flipAccountBackend(db, a.user, a.ids.slice(1), evidence))).toBe("collections_mismatch");
-    expect(await code(flipAccountBackend(db, a.user, [a.ids[0]!, a.ids[0]!], evidence))).toBe("collections_duplicated");
-    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(7)))).toBe("evidence_mismatch");
-    const flipped = await flipAccountBackend(db, a.user, [...a.ids].reverse(), evidence);
+    expect(await code(flipAccountBackend(db, a.user, a.ids.slice(1), evidence, await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_mismatch");
+    expect(await code(flipAccountBackend(db, a.user, [a.ids[0]!, a.ids[0]!], evidence, await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_duplicated");
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(7), await migratedTimerGate(db, a.user, a.ids)))).toBe("evidence_mismatch");
+    // Even valid cutover evidence cannot admit an unknown quarantine reason.
+    await db.query("UPDATE hosted_collections SET quarantined_at=now(),quarantine_reason=NULL WHERE id=$1", [a.ids[0]]);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_unsettled");
+    await db.query("UPDATE hosted_collections SET quarantined_at=NULL WHERE id=$1", [a.ids[0]]);
+    const flipped = await flipAccountBackend(db, a.user, [...a.ids].reverse(), evidence, await migratedTimerGate(db, a.user, a.ids));
     expect(flipped.backend).toBe("next");
-    expect((await flipAccountBackend(db, a.user, a.ids, evidence)).flipped_at).toBe(flipped.flipped_at);
-    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(9)))).toBe("account_already_next");
+    expect((await flipAccountBackend(db, a.user, a.ids, evidence, await migratedTimerGate(db, a.user, a.ids))).flipped_at).toBe(flipped.flipped_at);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(9), await migratedTimerGate(db, a.user, a.ids)))).toBe("account_already_next");
     expect(await migrationsInProgress(db, 100)).not.toContain(a.user);
     expect(await localTakeoverAllowed(db, a.user)).toEqual({ local_takeover: true, account_backend: "next" });
     expect(await localTakeoverAllowed(db, randomUUID())).toEqual({ local_takeover: false, account_backend: null });
@@ -160,8 +165,8 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     await startAccountMigration(db, a.user);
     await startAccountMigration(db, empty.user);
     expect((await accountMigrationView(db, a.user))!.unsettled_collections).toHaveLength(1);
-    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("collections_unsettled");
-    expect((await flipAccountBackend(db, empty.user, [], flipEvidenceDigest([]))).backend).toBe("next");
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0), await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_unsettled");
+    expect((await flipAccountBackend(db, empty.user, [], flipEvidenceDigest([]), { enabled: true })).backend).toBe("next");
   });
 
   it("a deleted account is terminal mid-migration; a migrating account is never quarantined", async () => {
@@ -178,14 +183,17 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     expect(await migrationsInProgress(db, 100)).not.toContain(a.user);
     expect(await accountMigrationView(db, a.user)).toBeNull();
     expect(await code(startAccountMigration(db, a.user))).toBe("account_not_found");
-    expect(await code(flipAccountBackend(db, a.user, [], flipEvidenceDigest([])))).toBe("account_not_found");
+    expect(await code(flipAccountBackend(db, a.user, [], flipEvidenceDigest([]), { enabled: true }))).toBe("account_not_found");
     expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(1, digest(1))))).toBe("collection_not_found");
   });
 
   it("serves the dedicated migration token only", async () => {
-    const app = Fastify();
-    registerMigrationRolloutRoutes(app, { db, token, environment: "production" });
     const a = await account(["active"]);
+    const legacy = fakeLegacyProvider(a.ids[0]!, { state: "migrated", retain_until: "2027-01-12T00:00:00.000Z" });
+    const app = Fastify();
+    registerMigrationRolloutRoutes(app, { db, token, environment: "production", provider: legacy, timers: true });
+    const untimed = Fastify();
+    registerMigrationRolloutRoutes(untimed, { db, token, environment: "production", provider: legacy });
     await released([a.user]);
     await setPaused(db, false, "go", OP);
     const call = (method: "GET" | "POST", url: string, auth?: string, payload?: object) =>
@@ -201,10 +209,76 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     expect((await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids })).statusCode).toBe(400);
     expect((await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids, evidence_digest: digest(5) })).statusCode).toBe(409);
     expect((await call("POST", `/internal/v1/next/migration/collections/${a.ids[0]}/cutover`, token, { barrier_f: 1, final_digest: digest(1) })).statusCode).toBe(400);
+    await recordEmptyTimerImport(db, a.user, legacy.source);
+    const disabled = await untimed.inject({ method: "POST", url: `/internal/v1/next/migration/accounts/${a.user}/flip`,
+      headers: { authorization: `Bearer ${token}` }, payload: { collections: a.ids, evidence_digest: evidence } });
+    expect(disabled.json().error.code).toBe("next_timers_disabled");
     const ok = await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids, evidence_digest: evidence });
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ backend: "next" });
-    await app.close();
+    await app.close(); await untimed.close();
+  });
+
+  it("carries the starter reservation unchanged and refuses the flip when it drifted since start", async () => {
+    const a = await account(["active"]), b = await account(["active"]);
+    const reserve = (user: string, claimed: boolean) => db.query(
+      `INSERT INTO account_onboarding(user_id,starter_collection_id,template_version,timezone,provisioning_started_at)
+       VALUES($1,$2,'starter-v1','Pacific/Chatham',CASE WHEN $3 THEN now() END)`, [user, randomUUID(), claimed]);
+    const reservation = async (user: string) => (await db.query(
+      "SELECT starter_collection_id::text,template_version,timezone,provisioned_at,provisioning_started_at FROM account_onboarding WHERE user_id=$1", [user])).rows[0];
+    await reserve(a.user, false); await reserve(b.user, true);
+    await released([a.user, b.user]);
+    await setPaused(db, false, "go", OP);
+    await startAccountMigration(db, a.user); await startAccountMigration(db, b.user);
+    const original = await reservation(a.user);
+    const evidence = await cutAll(a), gate = await migratedTimerGate(db, a.user, a.ids);
+    const restore = () => db.query(
+      `INSERT INTO account_onboarding(user_id,starter_collection_id,template_version,timezone,provisioned_at,provisioning_started_at) VALUES($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (user_id) DO UPDATE SET starter_collection_id=EXCLUDED.starter_collection_id,template_version=EXCLUDED.template_version,
+         timezone=EXCLUDED.timezone,provisioned_at=EXCLUDED.provisioned_at,provisioning_started_at=EXCLUDED.provisioning_started_at`,
+      [a.user, original.starter_collection_id, original.template_version, original.timezone, original.provisioned_at, original.provisioning_started_at]);
+    for (const drift of [
+      ["UPDATE account_onboarding SET starter_collection_id=$2 WHERE user_id=$1", [randomUUID()]],
+      ["UPDATE account_onboarding SET timezone='UTC' WHERE user_id=$1", []],
+      ["UPDATE account_onboarding SET template_version='starter-v2' WHERE user_id=$1", []],
+      ["UPDATE account_onboarding SET provisioned_at=now() WHERE user_id=$1", []],
+      ["UPDATE account_onboarding SET provisioning_started_at=now() WHERE user_id=$1", []],
+      ["DELETE FROM account_onboarding WHERE user_id=$1", []]
+    ] as const) {
+      await db.query(drift[0], [a.user, ...drift[1]]);
+      expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, gate))).toBe("starter_reservation_changed");
+      await restore();
+    }
+    // A start that recorded no reservation is not evidence of an unchanged one.
+    await db.query("UPDATE audit_events SET metadata=metadata-'starter_reservation' WHERE event_type='next_migration.start' AND user_id=$1", [a.user]);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, gate))).toBe("starter_reservation_changed");
+    await db.query("UPDATE audit_events SET metadata=metadata||jsonb_build_object('starter_reservation',NULL) WHERE event_type='next_migration.start' AND user_id=$1", [a.user]);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, gate))).toBe("starter_reservation_changed");
+    await db.query("DELETE FROM account_onboarding WHERE user_id=$1", [a.user]);
+    // Recorded as none, but a reservation appeared after the start.
+    await reserve(a.user, false);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, gate))).toBe("starter_reservation_changed");
+    await restore();
+    await db.query("UPDATE audit_events SET metadata=metadata||jsonb_build_object('starter_reservation',$2::text) WHERE event_type='next_migration.start' AND user_id=$1",
+      [a.user, "0".repeat(64)]);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, gate))).toBe("starter_reservation_changed");
+    expect((await db.query("SELECT account_backend FROM users WHERE id=$1", [a.user])).rows[0].account_backend).toBe("legacy");
+    // A provisioning attempt in flight at start stays refused, not reset.
+    const bEvidence = await cutAll(b);
+    expect(await code(flipAccountBackend(db, b.user, b.ids, bEvidence, await migratedTimerGate(db, b.user, b.ids)))).toBe("starter_provisioning_in_flight");
+    expect((await reservation(b.user)).provisioning_started_at).not.toBeNull();
+  });
+
+  it("flips with the starter reservation the start recorded and leaves it in place", async () => {
+    const a = await account(["active"]);
+    await db.query("INSERT INTO account_onboarding(user_id,starter_collection_id,template_version,timezone) VALUES($1,$2,'starter-v1','Pacific/Chatham')", [a.user, randomUUID()]);
+    const before = (await db.query("SELECT * FROM account_onboarding WHERE user_id=$1", [a.user])).rows[0];
+    await released([a.user]);
+    await setPaused(db, false, "go", OP);
+    await startAccountMigration(db, a.user);
+    const evidence = await cutAll(a);
+    expect((await flipAccountBackend(db, a.user, a.ids, evidence, await migratedTimerGate(db, a.user, a.ids))).backend).toBe("next");
+    expect((await db.query("SELECT * FROM account_onboarding WHERE user_id=$1", [a.user])).rows[0]).toEqual(before);
   });
 
   async function insertLegacyHostedCollection(db: DatabasePool, row: Parameters<typeof insertOnClient>[1]) {
@@ -243,6 +317,6 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     await released([b.user]);
     await setPaused(db, false, "go", OP);
     await startAccountMigration(db, b.user);
-    expect(await code(flipAccountBackend(db, b.user, [], flipEvidenceDigest([])))).toBe("collections_mismatch");
+    expect(await code(flipAccountBackend(db, b.user, [], flipEvidenceDigest([]), { enabled: true }))).toBe("collections_mismatch");
   });
 });

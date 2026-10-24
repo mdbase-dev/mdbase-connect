@@ -1,0 +1,27 @@
+/ QueryUpdate / {
+  / sub / 0: 3,
+  / kind / 1: 1 / Diff /,
+  / changed / 3: [
+    / RecordView / {
+      / id / 0: h'0192f3a45b6c7d8e9f0123456789abcd',
+      / path / 1: "tasks/write contracts.md",
+      / revision / 2: h'd1e0bf3037ac348384b2cfbf6dbbb5fb384f13e53c5b57e33cfa212b2cc504aa',
+      / frontmatter / 3: {
+        "status": "done"
+      },
+      / body / 5: "Notes\n",
+      / types / 7: [
+        "task"
+      ],
+      / state / 8: / RecordState / {
+        / state / 0: 1 / Pending /,
+        / confirmed_seq / 1: 41
+      }
+    }
+  ],
+  / removed / 4: [
+    h'0192f3a45b6c7d8e9f01fedcba987654'
+  ],
+  / complete / 6: true,
+  / as_of / 7: 99
+}

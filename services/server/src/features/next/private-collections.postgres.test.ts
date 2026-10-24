@@ -1,4 +1,10 @@
-import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import { capabilityOperations } from "@mdbase-dev/connect-protocol";
+import { nativeReadApp } from "./test/native-grant.js";
+import { buildApp } from "../../app.js";
+import { provisionNewAccountBackend } from "./account-backend-flip.js";
+import { registerAuthorizationRoutes } from "../authorizations/routes.js";
+import type { RelayHub } from "../../relay.js";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";
@@ -11,8 +17,10 @@ import { LogServiceClient } from "./log-service-client.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./policy-keys.js";
 import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { certDigest, chainHash, decodeCbor, encodeCbor, keyId, type Cbor, type Decoded, type PolicyOp } from "./policy-wire.js";
-import { inTransaction, refuse } from "./bootstrap-common.js";
+import { enrolOp, inTransaction, refuse } from "./bootstrap-common.js";
 import { privateApprovalRequestDigest, privateCreateDigest, privateDeviceEnrolDigest, registerPrivateCollectionRoutes } from "./private-collections.js";
+import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
+import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -109,6 +117,8 @@ describePg("private collections", () => {
     await app.register(cookie);
     registerErrorHandler(app);
     registerPrivateCollectionRoutes(app, { db, next: config, emitter, log: client });
+    registerAuthorizationRoutes(app, {db,relay:{registerAuthorizationHandler:()=>{},authorizationOffers:async()=>({paused:false,collections:[]}),pushPolicy:async()=>{}} as unknown as RelayHub,
+      publicUrl:"https://connect.example",nextClientKeys:true,drainProviderRevocations:async()=>{}});
   }, 60_000);
   afterAll(async () => {
     await app.close(); await db?.end();
@@ -174,6 +184,129 @@ describePg("private collections", () => {
     expect(response.statusCode, response.body).toBe(200);
     return collection;
   };
+
+  async function completedOwnerMigration(who: Who) {
+    const account=who.connector.user_id,cohort=`private-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
+    await createCohort(db,cohort,actor);await addToCohort(db,cohort,[account],actor);await releaseCohort(db,cohort,actor);await setCohortFrozen(db,cohort,true,"synthetic archive",actor);
+    const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
+    await acceptCohortArchive(db,cohort,{schema:ZERO_HOSTED_ARCHIVE_SCHEMA,environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/14/${cohort}`,backup_id:cohort,
+      complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"c".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
+      retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"d".repeat(64),count:"2"}},"lab");
+    await setPaused(db,false,"synthetic migration",actor);await startAccountMigration(db,account,"lab");await flipAccountBackend(db,account,[],flipEvidenceDigest([]),{enabled:true},"lab");
+    return cohort;
+  }
+
+  it.each(["fresh","migrated"] as const)("appends the original app request under the retained Native Private genesis root (%s)",async mode=>{
+    const who=await identity(),account=who.connector.user_id,collection=randomUUID();
+    if(mode==="fresh"){
+      const tx=await db.connect();
+      try{await tx.query("BEGIN");await provisionNewAccountBackend(tx,account,"next");await tx.query("COMMIT");}
+      finally{tx.release();}
+    }else{
+      // Retired local authority remains metadata after Native takeover. Private
+      // enable precedes the account's original accepted-archive/empty flip.
+      await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,authority_state) VALUES($1,$2,$3,$4,'Taken over','0.3.0','retired')",
+        [randomUUID(),account,who.connector.id,collection]);
+    }
+    const creation=await create(who,await createProof(who,collection));
+    expect(creation.statusCode,creation.body).toBe(200);
+    const originalGenesis=Buffer.from(creation.json().genesis.item,"hex");
+    const originalRoot=(await db.query<{root_key_id:Buffer}>("SELECT root_key_id FROM next_collections WHERE collection_id=$1",[collection])).rows[0]!.root_key_id;
+    const signer=loadPolicySigner(config,Date.now());
+    expect(originalRoot.equals(Buffer.from(signer.cert.root))).toBe(true);
+    if(mode==="migrated")await completedOwnerMigration(who);
+    const consent=await(await nativeReadApp(db,app))(account,collection);
+    const approved=await consent.approve();expect(approved.statusCode,approved.body).toBe(200);
+    // Exercise claim()/root checking independently of the new direct wake:
+    // this is the same canonical collection drain the background worker uses.
+    await drain(collection);
+    const binding=(await db.query<{log_grant_id:string;client_pk:Buffer}>(`SELECT b.log_grant_id,k.client_pk FROM authorization_requests ar
+      JOIN next_grant_bindings b ON b.grant_id=ar.grant_id JOIN next_grant_client_keys k ON k.grant_id=ar.grant_id WHERE ar.id=$1`,[consent.id])).rows[0]!;
+    const items=log.logs.get(collection.replaceAll("-",""))!;
+    expect(items[0]).toEqual(originalGenesis);
+    expect((await db.query<{root_key_id:Buffer}>("SELECT root_key_id FROM next_collections WHERE collection_id=$1",[collection])).rows[0]!.root_key_id).toEqual(originalRoot);
+    const request=items.flatMap(opsOf).find(op=>field(op,0)===6&&hex(field(op,1) as Uint8Array)===binding.log_grant_id.replaceAll("-",""));
+    expect(request).toBeDefined();
+    expect(hex(field(request!,4) as Uint8Array)).toBe(account.replaceAll("-",""));
+    expect(Buffer.from(field(request!,6) as Uint8Array)).toEqual(binding.client_pk);
+    expect((await db.query(`SELECT 1 FROM next_policy_outbox o JOIN next_policy_batches b ON b.id=o.batch_id
+      WHERE o.collection_id=$1 AND o.ops->'ops' @> $2::jsonb AND b.state='appended' AND b.lost_at IS NULL`,
+      [collection,JSON.stringify([{op:"grant",grant:binding.log_grant_id}])])).rows).toHaveLength(1);
+  });
+
+  it("allows completed migrated accounts to create, enrol another device, rename and delete a new Private collection without thaw",async()=>{
+    const who=await identity(),account=who.connector.user_id,cohort=await completedOwnerMigration(who);
+    const collection=await created(who),second=await identity(account);
+    const added=await enrol(second,collection,await enrolProof(second,collection,commit()));expect(added.statusCode,added.body).toBe(200);
+    const renamed=await app.inject({method:"PATCH",url:`/v1/next/collections/${collection}/name`,headers:who.headers,payload:{display_name:"After migration"}});
+    expect(renamed.statusCode,renamed.body).toBe(200);
+    const deleted=await app.inject({method:"DELETE",url:`/v1/next/collections/${collection}`,headers:who.headers,payload:{confirm_name:"After migration"}});
+    expect(deleted.statusCode,deleted.body).toBe(200);
+    expect((await db.query("SELECT frozen_at,completed_at FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0]).toEqual({frozen_at:expect.any(Date),completed_at:expect.any(Date)});
+  });
+  it("projects only exact appended own computer enrollments, never pending, other-account, changed-key or revoked devices",async()=>{
+    const who=await identity(),account=who.connector.user_id,collection=await created(who);
+    const pending=await identity(account),unlinked=await identity(account),other=await identity();
+    const device=async(id:string)=>(await db.query<{kind:"desktop";sign_pk:Buffer;kem_pk:Buffer;noise_pk:Buffer}>("SELECT kind,sign_pk,kem_pk,noise_pk FROM next_devices WHERE id=$1",[id])).rows[0]!;
+    await queue(collection,[enrolOp(other.device,other.connector.user_id,await device(other.device))]);await drain(collection);
+    await queue(collection,[enrolOp(pending.device,account,await device(pending.device))]);
+    const {app:portal}=await buildApp({db,devAuth:true,publicUrl:"https://connect.test"});
+    try {
+      const session=await portal.inject({method:"POST",url:"/v1/dev/session",payload:{name:"Owner",email:`${account}@example.test`}});
+      expect(session.statusCode,session.body).toBe(200);
+      const raw=session.headers["set-cookie"]!;
+      const cookie=(Array.isArray(raw)?raw[0]!:raw).split(";")[0]!;
+      const computers=async()=>{
+        const response=await portal.inject({url:"/v1/me",headers:{cookie}});
+        expect(response.statusCode,response.body).toBe(200);
+        const row=response.json().native_collections.find((value:{id:string})=>value.id===collection);
+        expect(row).toBeDefined();
+        return row.computer_ids.sort();
+      };
+      const initial=await computers();
+      expect(initial).toEqual([who.connector.id]);
+      expect(initial).not.toContain(unlinked.connector.id);
+      expect(initial).not.toContain(other.connector.id);
+      await drain(collection);
+      expect(await computers()).toEqual([who.connector.id,pending.connector.id].sort());
+      const original=await device(pending.device);
+      await db.query("UPDATE next_devices SET noise_pk=$2 WHERE id=$1",[pending.device,rawX()]);
+      expect(await computers()).toEqual([who.connector.id]);
+      await db.query("UPDATE next_devices SET noise_pk=$2 WHERE id=$1",[pending.device,original.noise_pk]);
+      await queue(collection,[{op:"device-revoke",device:pending.device}]);
+      expect(await computers()).toEqual([who.connector.id]);
+      await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1",[who.connector.id]);
+      expect(await computers()).toEqual([]);
+    } finally {await portal.close();}
+  });
+
+  it("carries the owner's app grants over from a collection taken over from mdbase Connect", async () => {
+    const who = await identity(); const owner = who.connector.user_id; const collection = randomUUID();
+    await db.query("UPDATE users SET account_backend = 'next' WHERE id = $1", [owner]);
+    const legacyConnector = randomUUID(); const legacyRow = randomUUID(); const grant = randomUUID();
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash,relay_generation,revoked_at) VALUES($1,$2,'Old Connect',$3,2,now())", [legacyConnector, owner, randomUUID()]);
+    await db.query(`INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,present,enabled,authority_state)
+      VALUES($1,$2,$3,$4,'Journal','0.3.0',true,false,'retired')`, [legacyRow, owner, legacyConnector, collection]);
+    await db.query(`INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris,application_declaration)
+      VALUES($1::uuid,$1::text,'Journal','https://journal.example','[]','{"id":"dev.mdbase.journal"}')`, [grant]);
+    await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,scope,file_capability,application_installation_id,application_authorization,activated_at)
+      VALUES($1,$2,$1,$3,$5::jsonb,'{"access":"full_collection","contracts":[]}',
+      '{"kind":"files","protocol_version":1,"actions":["list","read"],"scope":{"kind":"collection"}}',$4,
+      '{"binding":{"protocol_version":5,"application_declaration_id":"dev.mdbase.journal","contracts":{"semantic_capabilities":2}}}',now())`,
+    [grant, owner, legacyRow, randomUUID(), JSON.stringify(capabilityOperations("collection.read"))]);
+    await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [grant, randomBytes(32)]);
+    const response = await create(who, await createProof(who, collection));
+    expect(response.statusCode, response.body).toBe(200);
+    const moved = (await db.query("SELECT collection_id, next_collection_id FROM grants WHERE id = $1", [grant])).rows[0];
+    expect(moved).toEqual({ collection_id: null, next_collection_id: collection });
+    const binding = (await db.query("SELECT log_grant_id FROM next_grant_bindings WHERE grant_id = $1 AND active", [grant])).rows[0];
+    const ops = (await db.query<{ ops: { ops: Array<Record<string, unknown>> } }>("SELECT ops FROM next_policy_outbox WHERE collection_id = $1 ORDER BY id", [collection])).rows.flatMap(r => r.ops.ops);
+    expect(ops.filter(op => op.op === "grant")).toEqual([expect.objectContaining({ grant: binding.log_grant_id, account: owner })]);
+    // A create retry moves nothing more and answers the same genesis.
+    const retry = await create(who, await createProof(who, collection));
+    expect(retry.statusCode, retry.body).toBe(200);
+    expect(retry.json().genesis).toEqual(response.json().genesis);
+  });
 
   it("creates an e2e genesis that enrols only the owner's device", async () => {
     const who = await identity(); const collection = randomUUID();

@@ -1,0 +1,15 @@
+{
+  "label": "PUBLIC SYNTHETIC ONLY: not an operational trust bundle or signature",
+  "payload": {
+    "schema_version": 1,
+    "environment": "lab",
+    "control_plane_origin": "https://cp.example.test",
+    "log_origin": "https://log.example.test",
+    "issued_at": 10000,
+    "source": {"repository": "mdbase-dev/mdbase-connect", "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "version": "0.0.0-synthetic"},
+    "roots": [{"key_id": "10ba682c8ad13513971e8b56881aab8b", "public_key": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"}],
+    "policy_keys": [{"key_id": "e37abcd79efd08db94518a903952ffe9", "certificate": {"policy_public_key": "31debe55d37c722768b137131caa6087080b2e0b60b94bd785d14575cfa498bc", "not_before": 1000, "not_after": 20000, "root_key_id": "10ba682c8ad13513971e8b56881aab8b", "signature": "c10ed15fcc51dc46ef21c0a18a95450c8813f52367951b52536674e6d23a35faba2c30b22056c8fa40c08e1d42a664d00b7d35c785fa66c6dab416469157c000"}}]
+  },
+  "canonical_utf8": "{\"control_plane_origin\":\"https://cp.example.test\",\"environment\":\"lab\",\"issued_at\":10000,\"log_origin\":\"https://log.example.test\",\"policy_keys\":[{\"certificate\":{\"not_after\":20000,\"not_before\":1000,\"policy_public_key\":\"31debe55d37c722768b137131caa6087080b2e0b60b94bd785d14575cfa498bc\",\"root_key_id\":\"10ba682c8ad13513971e8b56881aab8b\",\"signature\":\"c10ed15fcc51dc46ef21c0a18a95450c8813f52367951b52536674e6d23a35faba2c30b22056c8fa40c08e1d42a664d00b7d35c785fa66c6dab416469157c000\"},\"key_id\":\"e37abcd79efd08db94518a903952ffe9\"}],\"roots\":[{\"key_id\":\"10ba682c8ad13513971e8b56881aab8b\",\"public_key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}],\"schema_version\":1,\"source\":{\"commit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repository\":\"mdbase-dev/mdbase-connect\",\"version\":\"0.0.0-synthetic\"}}",
+  "sha256": "62aeec4b57f26d5e61d1e74d9b2fb95b69bfc7cfea5f0662ab2fd78d99054a02"
+}

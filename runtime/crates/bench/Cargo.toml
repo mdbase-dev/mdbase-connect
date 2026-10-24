@@ -1,0 +1,24 @@
+[package]
+name = "mdbn-bench"
+description = "Benchmarks for native, replicated and WASM runtime performance."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies: any library crate. Test-only: never shipped.
+[dependencies]
+mdbn-core.workspace = true
+mdbn-wire.workspace = true
+mdbn-replica = { workspace = true, features = ["testing"] }
+mdbase.workspace = true
+mdbn-local-host.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+mdbn-store-file.workspace = true
+mdbn-platform-native.workspace = true
+
+[lints]
+workspace = true

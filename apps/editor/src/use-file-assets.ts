@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { FileAssetStore, type FileAssetSnapshot } from "./file-asset-store";
-import { isInlinePreviewable } from "./file-reference-resolution";
+import { fileAssetKey, isInlinePreviewable } from "./file-reference-resolution";
 import type { FileReference } from "./file-references";
 import type { CollectionFile, CollectionGateway } from "./model";
 
@@ -59,13 +59,13 @@ export function useEmbeddedFileAssets(
     return () => { active = false; };
   }, [files, source, sourcePath]);
   const acquired = references.filter(({ file }) => (
-    isInlinePreviewable(file) && (!visibleKeys || visibleKeys.has(`${file.fileId}:${file.revision}`))
+    isInlinePreviewable(file) && (!visibleKeys || visibleKeys.has(fileAssetKey(file)))
   ));
-  const key = acquired.map(({ file }) => `${file.fileId}:${file.revision}`).join("\n");
+  const key = acquired.map(({ file }) => fileAssetKey(file)).join("\n");
   useEffect(() => {
     const releases = acquired.map(({ file }) => store.acquire(file));
     return () => { for (const release of releases) release(); };
-    // key captures file identity, revision, and viewport membership.
+    // key captures complete selection metadata and viewport membership.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, store]);
   return useMemo(() => references.map((reference) => ({ ...reference, asset: store.get(reference.file) })), [references, store, version]);

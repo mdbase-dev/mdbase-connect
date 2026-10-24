@@ -1,3 +1,4 @@
+import { migratedTimerGate } from "./legacy-provider.test-helper.js";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -6,7 +7,7 @@ import { HostedAuthorityRegistry } from "../../hosted.js";
 import { deleteAccountLocally, drainDeferredAccountDeletions } from "../../account-management.js";
 import { createHostedCollectionForUser, deleteHostedCollectionForUser, renameHostedCollectionForUser } from "../hosted/service.js";
 import { acceptCohortArchive, accountMigrationView, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates, migrationsInProgress, recordCollectionCutover, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
-import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
+import { nextAccountsMigrationFrozen, requireAccountNotMigrationFrozen, requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 import { recoverExpiredAuthorityTransfers } from "../authority-transfer/lifecycle.js";
 import { recoverExpiredAuthorityAdoptions } from "../authority-adoption/adoption-store.js";
 import { recoverAccountImportCancellation } from "../authority-transfer/account-cancellation.js";
@@ -14,6 +15,7 @@ import { audit } from "../../platform/audit-events.js";
 import { ProviderRevocationWorker, quarantineMissingHostedCollection, quarantineMissingHostedCollectionOnTransaction } from "../../hosted-capability-lifecycle.js";
 import { HostedProviderClient, HostedProviderResponseError, HostedProviderUnavailableError } from "../../hosted-provider.js";
 import { materializePublicSignupEntitlement, reconcileHostedAccountCollections } from "../../entitlements.js";
+import { reconcileActiveHostedEntitlements } from "../../auth-admin-entitlements.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -145,6 +147,69 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     await setPaused(db, false, "synthetic migration", OP);
     return { name, body };
   }
+  async function nextGuard(...accounts: string[]) {
+    const client=await db.connect();
+    try { await client.query("BEGIN"); const completed=await requireNextAccountNotMigrationFrozen(client,accounts[0]!,...accounts.slice(1));await client.query("COMMIT");return completed; }
+    catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+  }
+  async function completedAccount() {
+    const account=await user(),{name}=await acceptedBatch([account]);
+    await startAccountMigration(db,account,"production");await flipAccountBackend(db,account,[],flipEvidenceDigest([]),{enabled:true});
+    return {account,name};
+  }
+  it("permits completed flipped next authority without permitting legacy topology or changing the archive freeze",async()=>{
+    const {account,name}=await completedAccount();
+    const before=(await db.query("SELECT frozen_at,completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1",[name])).rows;
+    expect(await nextGuard(account)).toBe(true);expect(await nextAccountsMigrationFrozen(db,[account])).toBe(false);
+    await expect(guard(account)).rejects.toMatchObject({code:"migration_frozen"});
+    await expect(setCohortFrozen(db,name,false,"must stay frozen",OP)).rejects.toMatchObject({code:"migration_frozen"});
+    expect((await db.query("SELECT frozen_at,completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1",[name])).rows).toEqual(before);
+  });
+  it("retains older actual flips without a batch audit binding only on their exact original inventory revision",async()=>{
+    const {account}=await completedAccount();
+    await db.query("UPDATE audit_events SET metadata=metadata-'migration_batch' WHERE event_type='next_migration.flip' AND subject_id=$1",[account]);
+    expect(await nextGuard(account)).toBe(true);
+  });
+  it("rejects another account batch's completion rather than treating moved membership as erasure",async()=>{
+    const first=await completedAccount(),second=await completedAccount();
+    // Negative corruption: a real flip from another batch is not this batch's proof.
+    await db.query("UPDATE next_migration_cohort_members SET cohort=$2 WHERE account_id=$1",[first.account,second.name]);
+    await expect(nextGuard(first.account)).rejects.toMatchObject({code:"migration_frozen"});
+    expect(await nextAccountsMigrationFrozen(db,[first.account])).toBe(true);
+  });
+  it.each(["completion","flip","backend","start","excluded","order","flip-digest","flip-audit","flip-batch"])("does not treat an incomplete or inconsistent %s as next authority",async field=>{
+    const {account,name}=await completedAccount();
+    // Privileged isolated fault injection, never a public completion substitute.
+    if(field==="completion")await db.query("UPDATE next_migration_cohorts SET completed_at=NULL,completed_revision=NULL WHERE name=$1",[name]);
+    if(field==="flip")await db.query("DELETE FROM next_migration_account_flips WHERE account_id=$1",[account]);
+    if(field==="backend")await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1",[account]);
+    if(field==="start")await db.query("UPDATE next_migration_cohort_members SET started_at=NULL WHERE account_id=$1",[account]);
+    if(field==="excluded")await db.query("UPDATE next_migration_cohort_members SET terminal_excluded_at=now() WHERE account_id=$1",[account]);
+    if(field==="order")await db.query("UPDATE next_migration_cohorts SET completed_at=completed_at-interval '1 day' WHERE name=$1",[name]);
+    if(field==="flip-digest")await db.query("UPDATE next_migration_account_flips SET evidence_digest=$2 WHERE account_id=$1",[account,"0".repeat(64)]);
+    if(field==="flip-audit")await db.query("DELETE FROM audit_events WHERE event_type='next_migration.flip' AND subject_id=$1",[account]);
+    if(field==="flip-batch")await db.query("UPDATE audit_events SET metadata=jsonb_set(metadata,'{migration_batch,batch_id}',to_jsonb($2::text)) WHERE event_type='next_migration.flip' AND subject_id=$1",[account,"different-batch"]);
+    await expect(nextGuard(account)).rejects.toMatchObject({code:"migration_frozen"});expect(await nextAccountsMigrationFrozen(db,[account])).toBe(true);
+  });
+  it("keeps every owner blocked until the entire batch completes, including an account already flipped",async()=>{
+    const a=await user(),b=await user();await acceptedBatch([a,b]);
+    for(const id of [a,b])await startAccountMigration(db,id,"production");
+    await flipAccountBackend(db,a,[],flipEvidenceDigest([]),{enabled:true});
+    await expect(nextGuard(a)).rejects.toMatchObject({code:"migration_frozen"});
+    await expect(nextGuard(a,b)).rejects.toMatchObject({code:"migration_frozen"});
+    await flipAccountBackend(db,b,[],flipEvidenceDigest([]),{enabled:true});expect(await nextGuard(b,a)).toBe(true);
+  });
+  it("retains completed next authority after a terminal account erasure advances membership revision",async()=>{
+    const a=await user(),b=await user(),{name}=await acceptedBatch([a,b]);
+    for(const id of [a,b]){await startAccountMigration(db,id,"production");await flipAccountBackend(db,id,[],flipEvidenceDigest([]),{enabled:true});}
+    await deletion(b);await drainDeferredAccountDeletions(db);
+    expect((await db.query("SELECT 1 FROM users WHERE id=$1",[b])).rows).toEqual([]);
+    const row=(await db.query("SELECT completed_revision::text,membership_revision::text FROM next_migration_cohorts WHERE name=$1",[name])).rows[0];
+    expect(BigInt(row.membership_revision)).toBeGreaterThan(BigInt(row.completed_revision));
+    expect(await nextGuard(a)).toBe(true);await expect(guard(a)).rejects.toMatchObject({code:"migration_frozen"});
+    await db.query("UPDATE audit_events SET metadata=metadata-'migration_batch' WHERE event_type='next_migration.flip' AND subject_id=$1",[a]);
+    await expect(nextGuard(a)).rejects.toMatchObject({code:"migration_frozen"});
+  });
   async function assertNeverMigrated(account: string, collections: string[] = []) {
     expect((await db.query("SELECT 1 FROM audit_events WHERE subject_id=ANY($1::text[]) AND event_type IN ('next_migration.cutover','next_migration.flip')", [[account, ...collections]])).rowCount).toBe(0);
   }
@@ -161,14 +226,14 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     expect(await migrationCandidates(db, 100)).not.toContain(a);
     await expect(startAccountMigration(db, a, "production")).rejects.toMatchObject({ code: "account_deletion_accepted" });
     await expect(recordCollectionCutover(db, collection.id, { s_final: 3, cutover_seq: 10, barrier_f: 10, final_digest: "a".repeat(64) })).rejects.toMatchObject({ code: "account_deletion_accepted" });
-    await expect(flipAccountBackend(db, a, [collection.id], flipEvidenceDigest([]))).rejects.toMatchObject({ code: "account_deletion_accepted" });
+    await expect(flipAccountBackend(db, a, [collection.id], flipEvidenceDigest([]), await migratedTimerGate(db, a, [collection.id]))).rejects.toMatchObject({ code: "account_deletion_accepted" });
     expect(await drainDeferredAccountDeletions(db)).toBe(0);
     expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [collection.id])).rowCount).toBe(1);
     expect((await db.query("SELECT 1 FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id])).rowCount).toBe(0);
     const connect = db.connect.bind(db);
     const fault = vi.spyOn(db, "connect").mockImplementationOnce(connect).mockRejectedValueOnce(new Error("synthetic interruption after batch completion"));
     try {
-      await expect(flipAccountBackend(db, b, [], flipEvidenceDigest([]))).rejects.toThrow("synthetic interruption");
+      await expect(flipAccountBackend(db, b, [], flipEvidenceDigest([]), { enabled: true })).rejects.toThrow("synthetic interruption");
     } finally { fault.mockRestore(); }
     const work = (await db.query("SELECT ready_at,ready_revision::text FROM next_migration_deferred_account_deletions WHERE account_id=$1", [a])).rows[0];
     expect(work.ready_at).not.toBeNull(); expect(work.ready_revision).toBe(body.migration_batch.membership_revision);
@@ -189,7 +254,7 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     const a = await user(), b = await user(), collection = await hosted(a);
     const { name, body } = await acceptedBatch([a, b]);
     await startAccountMigration(db, b, "production");
-    await flipAccountBackend(db, b, [], flipEvidenceDigest([]));
+    await flipAccountBackend(db, b, [], flipEvidenceDigest([]), { enabled: true });
     await deletion(a); // Never started: even discovery/start must exclude it.
     expect(await cohortArchiveBinding(db, name)).toEqual(body.migration_batch);
     expect(await migrationCandidates(db, 100)).not.toContain(a);
@@ -226,7 +291,7 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     const { name, body } = await acceptedBatch([excluded, account]);
     await deletion(excluded);
     await startAccountMigration(db, account, "production");
-    await flipAccountBackend(db, account, [], flipEvidenceDigest([]));
+    await flipAccountBackend(db, account, [], flipEvidenceDigest([]), { enabled: true });
     expect((await db.query("SELECT 1 FROM users WHERE id=$1", [excluded])).rowCount).toBe(0);
     const batchState = (await db.query("SELECT frozen_at,completed_at,completed_revision::text,membership_revision::text FROM next_migration_cohorts WHERE name=$1", [name])).rows[0];
     expect(batchState.frozen_at).not.toBeNull(); expect(batchState.completed_at).not.toBeNull();
@@ -512,6 +577,43 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     expect(await run()).toMatchObject({ reconciledCollections: 0 });
     expect(reconcile).toHaveBeenCalledOnce();
     expect((await db.query("SELECT quarantined_at FROM hosted_collections WHERE id=$1", [collection.id])).rows[0].quarantined_at).not.toBeNull();
+  });
+
+  it("skips migration-frozen accounts in the active-hosted entitlement batch instead of failing it", async () => {
+    const frozen = await user(), open = await user(), name = await batch([frozen]), reference = new HostedAuthorityRegistry(db);
+    for (const account of [frozen, open]) {
+      await createHostedCollectionForUser({ db, hostedCollections: true }, reference, "https://synthetic.example.test", account, "Synthetic", "mdbase", "UTC");
+      await materializePublicSignupEntitlement(db, account);
+    }
+    await setCohortFrozen(db, name, true, "capture", OP);
+    const storage = new Map((await db.query<{ user_id: string; provider_account_id: string }>(
+      "SELECT user_id, provider_account_id FROM account_storage_accounts WHERE user_id = ANY($1::uuid[])", [[frozen, open]]
+    )).rows.map((row) => [row.user_id, row.provider_account_id]));
+    const upsert = vi.fn(async () => ({})), usage = vi.fn(async () => ({})), reconcile = vi.fn(async () => undefined);
+    const provider = { upsertAccount: upsert, accountUsage: usage, reconcileCollectionAccount: reconcile } as unknown as HostedProviderClient;
+    const mutation = { operationId: randomUUID(), actor: "operator:synthetic", reason: "Synthetic release reconciliation" };
+    // The batch selects every active hosted account in this shared schema; keep it to this case's two accounts.
+    const others = (await db.query<{ id: string }>(
+      "UPDATE users SET suspended_at = now() WHERE suspended_at IS NULL AND NOT (id = ANY($1::uuid[])) RETURNING id", [[frozen, open]]
+    )).rows.map((row) => row.id);
+    try {
+      const result = await reconcileActiveHostedEntitlements(db, provider, mutation);
+      expect(result).toMatchObject({ reconciled_accounts: 1, migration_frozen_accounts: 1 });
+      expect(JSON.stringify(result)).not.toContain(frozen);
+      const accounts = upsert.mock.calls.map((call) => (call as unknown[])[0]);
+      expect(accounts).toContain(storage.get(open));
+      if (storage.has(frozen)) expect(accounts).not.toContain(storage.get(frozen));
+      const audited = (await db.query<{ user_id: string }>(
+        "SELECT user_id FROM audit_events WHERE event_type = 'entitlement.reconciled' AND metadata->>'operation_id' = $1", [mutation.operationId]
+      )).rows.map((row) => row.user_id);
+      expect(audited).toContain(open);
+      expect(audited).not.toContain(frozen);
+      const calls = upsert.mock.calls.length;
+      expect(await reconcileActiveHostedEntitlements(db, provider, mutation)).toEqual(result);
+      expect(upsert).toHaveBeenCalledTimes(calls);
+    } finally {
+      await db.query("UPDATE users SET suspended_at = NULL WHERE id = ANY($1::uuid[])", [others]);
+    }
   });
 
   it("serializes two actual creates and a freeze before effects without a parent-lock upgrade deadlock", async () => {

@@ -1,0 +1,9 @@
+{
+  "_type": "Item",
+  "fmt": 1,
+  "kind": "BlobPart",
+  "collection": "h'4c18af2eb04a4b77b83e493c3695962e'",
+  "epoch": 1,
+  "salt": "h'00112233445566778899aabbccddeeff'",
+  "body": "h'0808080808080808080808080808080808080808'"
+}

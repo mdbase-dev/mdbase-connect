@@ -63,26 +63,18 @@ there are no screenshot baselines to update and no container is required.
 ## Deployment
 
 The production application is configured for
-`https://editor.mdbase.dev/` on Cloudflare Pages. The independent
-`editor-pages.yml` workflow runs the complete verification and browser suites,
-rebuilds the application for its
-dedicated origin, then uploads `dist` with Wrangler. Create a Direct Upload
-Pages project named `mdbase-editor` with production branch `main`.
-
-Configure the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub
-repository secrets, then set the `CLOUDFLARE_PAGES_ENABLED` repository variable
-to `1`.
+`https://editor.mdbase.dev/` and staging for `https://editor-staging.mdbase.dev/`,
+both on the Direct Upload Pages project `mdbase-editor` (production branch
+`main`, staging branch `staging`). The `editor-pages.yml` workflow runs the
+complete verification and browser suites on main and pull requests but never
+publishes from them. Both origins change only through the native publication
+path: an explicit dispatch on `release/native-<target>` with that branch's exact
+`source_sha` (see `NATIVE_PUBLISHER.md`). Cloudflare DNS must proxy
+`editor-staging.mdbase.dev` to `staging.mdbase-editor.pages.dev`.
 
 This monorepo is the sole source and publisher for the editor. The retired
 standalone `mdbase-dev/mdbase-editor` repository must remain archived and must
 never publish to the shared Cloudflare Pages project.
-
-The same workflow publishes a permanent staging build at
-`https://editor-staging.mdbase.dev/`. It uses the `staging` Pages branch,
-generates a manifest for the staging editor origin, and targets the same-site
-`https://connect-staging.mdbase.dev` control-plane origin. The Pages API attaches the
-custom domain idempotently; Cloudflare DNS must proxy
-`editor-staging.mdbase.dev` to `staging.mdbase-editor.pages.dev`.
 
 LAB is a separate Direct Upload Pages project, `mdbase-editor-lab`, with the
 allowlisted `candidate-b` production branch and canonical custom origin

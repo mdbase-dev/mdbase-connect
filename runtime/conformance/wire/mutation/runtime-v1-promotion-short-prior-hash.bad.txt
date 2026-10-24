@@ -1,0 +1,1 @@
+Op17 prior digest must be exactly32bytes
