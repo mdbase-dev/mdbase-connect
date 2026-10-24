@@ -2,11 +2,11 @@ import { setupI18n, type I18n, type Messages } from "@lingui/core";
 import { mergeCatalogues } from "../scripts/catalogues.mjs";
 export { mergeCatalogues } from "../scripts/catalogues.mjs";
 
-export const locales = ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh"] as const;
+export const locales = ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh", "it"] as const;
 export type Locale = (typeof locales)[number];
 export const localeNames: Record<Locale, string> = {
   en: "English", fr: "Français", de: "Deutsch", es: "Español",
-  ja: "日本語", ko: "한국어", pt: "Português (Brasil)", ru: "Русский", zh: "简体中文",
+  ja: "日本語", ko: "한국어", pt: "Português (Brasil)", ru: "Русский", zh: "简体中文", it: "Italiano",
 };
 export function isLocale(value: unknown): value is Locale {
   return typeof value === "string" && locales.includes(value as Locale);
@@ -50,7 +50,7 @@ export function createI18nRuntime(options: RuntimeOptions) {
   const syncDocument = () => {
     if (document) {
       document.documentElement.lang = i18n.locale;
-      document.documentElement.dir = "ltr"; // All nine supported languages use LTR scripts.
+      document.documentElement.dir = "ltr"; // All supported languages use LTR scripts.
     }
   };
   syncDocument();

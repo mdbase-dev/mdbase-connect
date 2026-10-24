@@ -9,6 +9,7 @@ const loaders = {
   pt: () => import("./locales/pt/messages.json", { with: { type: "json" } }),
   ru: () => import("./locales/ru/messages.json", { with: { type: "json" } }),
   zh: () => import("./locales/zh/messages.json", { with: { type: "json" } }),
+  it: () => import("./locales/it/messages.json", { with: { type: "json" } }),
 };
 export const uiCatalogues: CatalogueSource = {
   english,

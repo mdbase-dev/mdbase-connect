@@ -12,7 +12,7 @@ describe("portal catalogue integration", () => {
     expect(runtime.i18n._("dEgA5A")).toBe("Cancel");
   });
   it("loads target app catalogue chunks without activating them", async () => {
-    for (const locale of ["fr", "de", "es", "ja", "ko", "pt", "ru", "zh"] as const) {
+    for (const locale of ["fr", "de", "es", "ja", "ko", "pt", "ru", "zh", "it"] as const) {
       const catalogue = await appCatalogues.loadLocale(locale);
       expect(Object.keys(catalogue.messages).sort()).toEqual(Object.keys(appCatalogues.english.messages).sort());
     }
@@ -20,7 +20,7 @@ describe("portal catalogue integration", () => {
   });
   it("activates every authored app/library composition without filtering shared IDs", async () => {
     try {
-      for (const locale of ["fr", "de", "es", "ja", "ko", "pt", "ru", "zh"] as const) {
+      for (const locale of ["fr", "de", "es", "ja", "ko", "pt", "ru", "zh", "it"] as const) {
         await runtime.selectLocale(locale);
         expect(runtime.i18n.locale).toBe(locale);
         expect(document.documentElement.lang).toBe(locale);

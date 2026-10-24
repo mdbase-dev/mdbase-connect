@@ -15,7 +15,8 @@ const loaders = {
   ko: () => import("./locales/ko/messages.json"),
   pt: () => import("./locales/pt/messages.json"),
   ru: () => import("./locales/ru/messages.json"),
-  zh: () => import("./locales/zh/messages.json")
+  zh: () => import("./locales/zh/messages.json"),
+  it: () => import("./locales/it/messages.json")
 };
 
 export function createEditorLocaleRuntime(options: Partial<RuntimeOptions> = {}) {

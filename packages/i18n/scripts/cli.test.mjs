@@ -43,7 +43,7 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
   assert.match(invalid.stderr, /Usage: mdbase-i18n/);
   const extracted = run("extract");
   assert.equal(extracted.status, 0, extracted.stdout + extracted.stderr);
-  const translations = { en: "Hello", fr: "Bonjour", de: "Hallo", es: "Hola", ja: "こんにちは", ko: "안녕하세요", pt: "Olá", ru: "Здравствуйте", zh: "你好" };
+  const translations = { en: "Hello", fr: "Bonjour", de: "Hallo", es: "Hola", ja: "こんにちは", ko: "안녕하세요", pt: "Olá", ru: "Здравствуйте", zh: "你好", it: "Ciao" };
   for (const locale of locales) {
     const filename = resolve(root, "src/i18n/locales", locale, "messages.po");
     const existing = await readFile(filename, "utf8");
