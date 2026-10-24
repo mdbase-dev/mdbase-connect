@@ -12,7 +12,7 @@ import {
   type ApplicationCapabilityId, type FileCapability
 } from "@mdbase-dev/connect-protocol";
 import { exactNextPermissionCapabilities } from "@mdbase-dev/connect-protocol/next-authorization";
-import type { DatabasePool } from "../../database-types.js";
+import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import type { RelayBrokerReply } from "../../relay-broker.js";
 import { ConnectorOperationError } from "../../relay-errors.js";
 import { NOISE_PIPE_CAPABILITY, type NoisePipes } from "./noise-pipes.js";
@@ -113,8 +113,9 @@ export function deviceRegistrationDigest(input: { challenge: Uint8Array; connect
 
 /**
  * Register (or re-register with identical keys) the daemon device of a connector.
- * A daemon that signed in again moves its device to the new connector and returns
- * the old connector it retired, for the caller to fence on the relay.
+ * A daemon that signed in again moves its device and collections to the new
+ * connector and returns the old connectors it retired, for the caller to fence
+ * on the relay.
  * The challenge is consumed in the same transaction.
  */
 export async function registerDevice(
@@ -122,7 +123,7 @@ export async function registerDevice(
   connector: { id: string; user_id: string },
   body: Record<string, unknown>,
   originalTokenHash: string
-): Promise<{ device_id: string; retired?: { connector_id: string; fence_generation: string } }> {
+): Promise<{ device_id: string; retired?: Array<{ connector_id: string; fence_generation: string }> }> {
   if (typeof originalTokenHash !== "string" || originalTokenHash.length === 0) {
     throw new DeviceRegistrationError("identity_not_current", "The connector credential is no longer current.");
   }
@@ -211,11 +212,83 @@ export async function registerDevice(
     }
     const generation = String(retired.rows[0].fence_generation);
     await client.query("UPDATE next_devices SET connector_id = $2 WHERE id = $1", [deviceId, connector.id]);
+    await moveConnectorCollections(client, connector.user_id, row.connector_id, connector.id);
     await audit(client, connector.user_id, "connector.revoked", row.connector_id, {
       reason: "device_signed_in_again", device_id: deviceId, replaced_by: connector.id, fence_generation: generation
     });
-    return { device_id: deviceId, retired: { connector_id: row.connector_id, fence_generation: generation } };
+    // Earlier sign-ins on this computer whose device registration was refused
+    // (before devices could move) left connectors that nothing can use: their
+    // tokens were forgotten locally and they never had a device. Retire them,
+    // as removing a computer would, but only this computer's: same account and
+    // name, created after the device's previous connector and before this one,
+    // never a legacy connector (those report a relay key), an app installation
+    // or anything with a device.
+    const leftovers = await client.query<{ id: string; fence_generation: string }>(
+      `UPDATE connectors c SET revoked_at = now(), relay_generation = c.relay_generation + 1
+       FROM connectors current_connector, connectors previous_connector
+       WHERE current_connector.id = $2 AND previous_connector.id = $3
+         AND c.user_id = $1 AND c.revoked_at IS NULL AND c.id <> $2
+         AND c.name = current_connector.name AND c.relay_public_key IS NULL
+         AND c.created_at > previous_connector.created_at AND c.created_at < current_connector.created_at
+         AND NOT EXISTS (SELECT 1 FROM next_devices d WHERE d.connector_id = c.id)
+         AND NOT EXISTS (SELECT 1 FROM installation_device_credentials i WHERE i.connector_id = c.id)
+       RETURNING c.id, c.relay_generation::text AS fence_generation`,
+      [connector.user_id, connector.id, row.connector_id]
+    );
+    for (const leftover of leftovers.rows) {
+      await audit(client, connector.user_id, "connector.revoked", leftover.id, {
+        reason: "unregistered_sign_in_replaced", device_id: deviceId, replaced_by: connector.id, fence_generation: leftover.fence_generation
+      });
+    }
+    return {
+      device_id: deviceId,
+      retired: [
+        { connector_id: row.connector_id, fence_generation: generation },
+        ...leftovers.rows.map(leftover => ({ connector_id: leftover.id, fence_generation: leftover.fence_generation }))
+      ]
+    };
   });
+}
+
+/**
+ * Move a rebound device's collection rows from its retired connector to its new
+ * one, keeping their IDs, authority and grants, so apps the user approved keep
+ * working without approving again. A row the new connector already reported
+ * (as a candidate, while the old connector still held authority) is replaced
+ * when nothing refers to it. Grants are not otherwise changed: a revoked grant
+ * stays revoked; one still awaiting the old connector's acknowledgement is bound
+ * again by the new connector's next policy snapshot, which never contains it.
+ */
+async function moveConnectorCollections(client: DatabaseQueryable, userId: string, from: string, to: string): Promise<void> {
+  await client.query(
+    `DELETE FROM collections r
+     WHERE r.connector_id = $3 AND r.user_id = $1 AND r.authority_state = 'candidate'
+       AND EXISTS (SELECT 1 FROM collections o WHERE o.connector_id = $2 AND o.user_id = $1
+                     AND o.local_id = r.local_id AND o.authority_state = 'active')
+       AND NOT EXISTS (SELECT 1 FROM grants g WHERE g.collection_id = r.id)
+       AND NOT EXISTS (SELECT 1 FROM authority_transfers t WHERE t.local_collection_id = r.id)
+       AND NOT EXISTS (SELECT 1 FROM hosted_collections h WHERE h.transferred_collection_id = r.id)`,
+    [userId, from, to]
+  );
+  // The new connector's inventory revisions start again: the next inventory it
+  // sends confirms or removes each moved row, exactly as for its own rows.
+  const moved = await client.query<{ id: string }>(
+    `UPDATE collections o SET connector_id = $3, last_inventory_revision = 0
+     WHERE o.connector_id = $2 AND o.user_id = $1
+       AND NOT EXISTS (SELECT 1 FROM collections r WHERE r.connector_id = $3 AND r.local_id = o.local_id)
+     RETURNING o.id`,
+    [userId, from, to]
+  );
+  if (!moved.rows.length) return;
+  // Revocation barriers were sequences of the retired connector's policy, which
+  // can never be acknowledged now. Clearing them lets the new connector's next
+  // snapshot bind them (buildPolicySnapshot) and its acknowledgement confirm them.
+  await client.query(
+    `UPDATE grants SET revocation_policy_sequence = NULL
+     WHERE collection_id = ANY($1::uuid[]) AND revoked_at IS NOT NULL
+       AND revocation_confirmed_at IS NULL AND hosted_replica_id IS NULL`,
+    [moved.rows.map(r => r.id)]
+  );
 }
 
 /** `H("mdbase/v1/relay-device", connector ‖ session ‖ device_nonce)`; session is the relay generation. */

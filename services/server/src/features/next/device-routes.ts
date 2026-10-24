@@ -26,9 +26,9 @@ export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: Da
     if (!connector) return reply;
     try {
       const { device_id, retired } = await registerDevice(options.db, connector, (request.body ?? {}) as Record<string, unknown>, tokenHash(bearerToken(request)!));
-      // The old connector's revocation and generation are committed; closing its
-      // relay socket is best effort and converges with the connector lease.
-      if (retired) await options.relay.fenceConnector(retired.connector_id, retired.fence_generation).catch(() => undefined);
+      // The old connectors' revocations and generations are committed; closing
+      // their relay sockets is best effort and converges with the connector lease.
+      for (const old of retired ?? []) await options.relay.fenceConnector(old.connector_id, old.fence_generation).catch(() => undefined);
       return { device_id };
     } catch (error) {
       if (isLockTimeout(error)) return reply.code(503).send(apiError("busy", "Device registration was not confirmed."));

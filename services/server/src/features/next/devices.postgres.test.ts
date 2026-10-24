@@ -22,6 +22,7 @@ import { ed25519RawPublicKey } from "./policy-keys.js";
 import { clientKeyDigest } from "./grant-approval.js";
 import { registerNextDeviceRoutes } from "./device-routes.js";
 import { tokenHash } from "../../security.js";
+import { confirmLocalGrantRevocations } from "../../local-grant-revocation.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -203,6 +204,8 @@ describePostgres("mdbase-next registered devices", () => {
     (await db.query("SELECT connector_id FROM next_devices WHERE id = $1", [deviceId])).rows[0]?.connector_id;
   const connectorState = async (db: DatabasePool, id: string) =>
     (await db.query("SELECT revoked_at, relay_generation::text AS generation FROM connectors WHERE id = $1", [id])).rows[0];
+  const collectionConnector = async (db: DatabasePool, id: string) =>
+    (await db.query("SELECT connector_id FROM collections WHERE id = $1", [id])).rows[0]?.connector_id;
 
   it("moves the same computer's device to its new connector after sign-out and sign-in, and fences the old one", async () => {
     const s = await signedInAgain(db);
@@ -257,6 +260,7 @@ describePostgres("mdbase-next registered devices", () => {
     const body = await registration(db, connector.id, s.deviceId, keys, kind);
     await expect(registerDeviceProduct(db, connector, body, hash)).rejects.toMatchObject({ code: "device_already_bound" });
     expect(await deviceConnector(db, s.deviceId)).toBe(s.old);
+    expect(await collectionConnector(db, s.user)).toBe(s.old);
     expect(await connectorState(db, s.old)).toEqual(before);
     expect((await db.query("SELECT used_at FROM next_device_challenges WHERE challenge = $1", [Buffer.from(body.challenge, "hex")])).rows[0].used_at).toBeNull();
     // Signing the original account in again on this computer still works.
@@ -264,6 +268,78 @@ describePostgres("mdbase-next registered devices", () => {
       expect(await registerDeviceProduct(db, { id: s.next, user_id: s.user }, await registration(db, s.next, s.deviceId, s.keys), tokenHash(s.token))).toMatchObject({ device_id: s.deviceId });
       expect(await deviceConnector(db, s.deviceId)).toBe(s.next);
     }
+  });
+
+  it("carries the computer's collections and app grants to its new connector, never restoring a revoked grant", async () => {
+    const s = await signedInAgain(db);
+    // Another app's grant was revoked while signed out; the old connector never acknowledged it.
+    const revoked = randomUUID();
+    await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,scope,application_installation_id,application_authorization,revoked_at,revocation_policy_sequence)
+      SELECT $1,user_id,application_id,collection_id,operations,scope,'revoked-installation',application_authorization,now(),7 FROM grants WHERE id = $2`, [revoked, s.user]);
+    // Before devices could move, the new connector already reported the collection, as a candidate.
+    await db.query(`INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,authority_state,enabled)
+      VALUES($1,$2,$3,$4,'Fixture collection','0.3.0','candidate',false)`, [randomUUID(), s.user, s.next, s.user]);
+    expect(await registerDeviceProduct(db, { id: s.next, user_id: s.user }, await registration(db, s.next, s.deviceId, s.keys), tokenHash(s.token)))
+      .toMatchObject({ device_id: s.deviceId });
+
+    expect((await db.query("SELECT id, connector_id, authority_state, enabled FROM collections WHERE local_id = $1", [s.user])).rows)
+      .toEqual([{ id: s.user, connector_id: s.next, authority_state: "active", enabled: true }]);
+    const grants = async () => (await db.query(
+      "SELECT id, revoked_at IS NOT NULL AS revoked, revocation_policy_sequence::text AS barrier, revocation_confirmed_at IS NOT NULL AS confirmed FROM grants WHERE collection_id = $1 ORDER BY revoked", [s.user]
+    )).rows;
+    expect(await grants()).toEqual([
+      { id: s.user, revoked: false, barrier: null, confirmed: false },
+      { id: revoked, revoked: true, barrier: null, confirmed: false }
+    ]);
+    // The new connector serves the approved grant; its acknowledgement confirms the revocation.
+    const snapshot = await buildPolicySnapshot(db, s.next, 55_000, undefined, () => true, "lease_v1", true, true) as LeasePolicySnapshot;
+    expect(snapshot.grants.map(grant => grant.id)).toEqual([s.user]);
+    await confirmLocalGrantRevocations(db, s.next, (await connectorState(db, s.next)).generation, snapshot.sequence);
+    expect(await grants()).toEqual([
+      { id: s.user, revoked: false, barrier: null, confirmed: false },
+      { id: revoked, revoked: true, barrier: String(snapshot.sequence), confirmed: true }
+    ]);
+    expect(await buildPolicySnapshot(db, s.old, 55_000)).toBeNull();
+  });
+
+  it("retires this computer's earlier sign-ins that never got a device, and nothing else", async () => {
+    const s = await signedInAgain(db);
+    await db.query("UPDATE connectors SET created_at = now() - interval '1 day' WHERE id = $1", [s.old]);
+    const connector = async (name: string, created: string, user = s.user, relayKey: string | null = null) => {
+      const id = randomUUID();
+      await db.query(`INSERT INTO connectors(id,user_id,name,token_hash,relay_public_key,created_at) VALUES($1,$2,$3,$4,$5,now() + $6::interval)`,
+        [id, user, name, tokenHash(id), relayKey, created]);
+      return id;
+    };
+    const leftover = await connector("Same computer", "-1 hour");
+    const kept = {
+      otherComputer: await connector("Other computer", "-1 hour"),
+      legacyAgent: await connector("Same computer", "-1 hour", s.user, "legacy-relay-key"),
+      beforeDevice: await connector("Same computer", "-2 days"),
+      afterSignIn: await connector("Same computer", "1 hour"),
+      otherAccount: await connector("Same computer", "-1 hour", await localGrantFixture(db)),
+      withDevice: await connector("Same computer", "-1 hour")
+    };
+    await registerDeviceProduct(db, { id: kept.withDevice, user_id: s.user }, await registration(db, kept.withDevice, randomUUID(), deviceKeys()), tokenHash(kept.withDevice));
+    const before = Object.fromEntries(await Promise.all(Object.entries(kept).map(async ([key, id]) => [key, await connectorState(db, id)])));
+    const leftoverGeneration = (await connectorState(db, leftover)).generation as string;
+
+    const fences: Array<[string, string]> = [];
+    const app = Fastify();
+    registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null }, relay: { fenceConnector: async (id, generation) => { fences.push([id, generation]); return "closed"; } } });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/next/devices", headers: { authorization: `Bearer ${s.token}` }, payload: await registration(db, s.next, s.deviceId, s.keys) });
+      expect(response.statusCode).toBe(200);
+    } finally { await app.close(); }
+
+    const retired = await connectorState(db, leftover);
+    expect(retired.revoked_at).not.toBeNull();
+    expect(retired.generation).toBe(String(BigInt(leftoverGeneration) + 1n));
+    expect(fences).toEqual([[s.old, (await connectorState(db, s.old)).generation], [leftover, retired.generation]]);
+    expect((await db.query("SELECT metadata FROM audit_events WHERE event_type = 'connector.revoked' AND subject_id = $1", [leftover])).rows)
+      .toEqual([{ metadata: expect.objectContaining({ reason: "unregistered_sign_in_replaced", device_id: s.deviceId, replaced_by: s.next }) }]);
+    for (const [key, id] of Object.entries(kept)) expect([key, await connectorState(db, id)]).toEqual([key, before[key]]);
+    expect((await connectorState(db, s.next)).revoked_at).toBeNull();
   });
 
   it.each(["mobile", "app-runtime"])("never moves a per-installation %s device to another connector", async kind => {
