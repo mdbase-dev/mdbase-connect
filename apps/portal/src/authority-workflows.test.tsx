@@ -67,6 +67,14 @@ describe("approval collection chooser",()=>{
     fireEvent.click(screen.getByRole("option",{name}));
     expect(screen.getByText(/^Selected:/)).toHaveTextContent(`Selected: ${name}`);
   });
+  it("shows backslash application and collection names literally",async()=>{
+    const app=String.raw`C:\x41pps\u0042 Planner`, name=String.raw`Notes\x41 \u0042 a\\b`;
+    vi.mocked(api).mockClear();
+    vi.mocked(api).mockResolvedValue({pairing:{connector_name:app,approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,account_email:"test@example.test",app_origin:"https://planner.example",can_create_collection:false,collections:[{collection_id:"c",display_name:name,role:"owner"}]}});
+    render(<Pairing pairingId="pairing"/>);
+    fireEvent.click(await screen.findByRole("option",{name}));
+    expect(screen.getByRole("button",{name:`Open ${app} with ${name}`})).toBeInTheDocument();
+  });
   async function privateChoice(native="native-request") {
     vi.mocked(api).mockClear();
     vi.mocked(api).mockImplementation(async path=>String(path).endsWith("/approve") ? {ok:true} : {pairing:{
