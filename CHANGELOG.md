@@ -4,6 +4,12 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.145
+
+### Fixed
+
+- Allow managed route-back to roll back a stopped migration whose outstanding action is a legacy read (open source or read page) at `created`, matching native rollback cancellation.
+
 ## 0.1.0-beta.144
 
 ### Fixed
