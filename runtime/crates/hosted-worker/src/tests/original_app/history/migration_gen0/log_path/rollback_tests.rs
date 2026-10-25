@@ -296,6 +296,109 @@ fn rollback_intent_refuses_pending_and_source_drift_before_mutation() {
 }
 
 #[test]
+fn fenced_gen0_rollback_cancels_staged_or_evicted_work_then_unfences() {
+    for kind in [4, 5] {
+        for evicted in [false, true] {
+            SEED.set(140);
+            let mut r = run();
+            if kind == 5 {
+                r.windows(&mut Objects::default(), 90);
+                r.d.gen0_finish(&r.p, &mut r.h.e, &r.target).unwrap();
+            } else {
+                let input = window_input(r.c(), resource_rows(&r.l));
+                r.d.gen0_window(&r.p, &mut r.h.e, &r.target, &input)
+                    .unwrap();
+            }
+            let original = r.d.saved_pending().unwrap().unwrap();
+            assert_eq!(original.kind, kind);
+            assert!(r.d.test_checkpoint().fenced);
+            if evicted {
+                r = reopen(r);
+            }
+            let source = drain(&r);
+            assert_eq!(
+                r.d.request_rollback(2, &binding(&r.target), &source, &mut r.h.e, &r.target),
+                Err(LedgerError::Conflict)
+            );
+            assert_eq!(
+                r.d.request_rollback(1, &binding(&r.target), &[], &mut r.h.e, &r.target),
+                Err(LedgerError::Invalid)
+            );
+            assert_eq!(r.d.saved_pending().unwrap(), Some(original.clone()));
+            request(&mut r);
+            assert!(r.d.saved_pending().unwrap().is_none());
+            assert!(
+                r.d.assert_prepared(&r.p).is_err(),
+                "old gen0 ticket cannot replay"
+            );
+            let after: Vec<u8> =
+                r.d.test_index_mut()
+                    .db
+                    .query_row(
+                        "SELECT after_cp FROM mig_native_action WHERE seq=?1 AND settled=1",
+                        [original.sequence],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+            assert_eq!(after, r.d.test_checkpoint().to_bytes().unwrap());
+            r = reopen(r);
+            r.advance(180);
+            assert_eq!(r.p.data().kind, 21);
+            let body = enc(receipt(&mut r, false));
+            r.d.settle_rollback(&r.p, &body).unwrap();
+            assert!(!r.d.test_checkpoint().fenced);
+            assert!(r.d.prepare(&mut TestEntropy::new(224)).is_err());
+            assert_eq!(r.d.test_checkpoint().step, Step::RolledBack);
+            r.d.restart_on_target(
+                1,
+                &binding(&r.target),
+                &mut TestEntropy::new(225),
+                &mut r.h.e,
+                &r.target,
+            )
+            .unwrap();
+            assert_eq!(r.d.test_checkpoint().step, Step::Start);
+        }
+    }
+}
+
+#[test]
+fn gen0_rollback_checkpoint_drift_never_clears_the_pending() {
+    let mut r = run();
+    let source = drain(&r);
+    let original = r.d.saved_pending().unwrap();
+    let settled = r.d.test_settled();
+    r.d.test_index_mut()
+        .db
+        .execute("UPDATE mig_checkpoint SET v=x'00' WHERE k=0", [])
+        .unwrap();
+    assert_eq!(
+        r.d.request_rollback(1, &binding(&r.target), &source, &mut r.h.e, &r.target),
+        Err(LedgerError::StorageUnknown)
+    );
+    assert_eq!(r.d.saved_pending().unwrap(), original);
+    assert_eq!(r.d.test_settled(), settled);
+}
+
+#[test]
+fn gen0_rollback_lost_transaction_ack_reopens_cancelled_not_replayable() {
+    let mut r = run();
+    let source = drain(&r);
+    r.d.test_lose_settlement();
+    assert_eq!(
+        r.d.request_rollback(1, &binding(&r.target), &source, &mut r.h.e, &r.target),
+        Err(LedgerError::StorageUnknown)
+    );
+    r = reopen(r);
+    assert!(r.d.saved_pending().unwrap().is_none());
+    assert_eq!(r.d.test_checkpoint().step, Step::RollingBack);
+    assert!(
+        r.d.test_checkpoint().fenced,
+        "unfence is still a required receipt-qualified action"
+    );
+}
+
+#[test]
 fn evicted_unknown_base_needs_actual_exact_native_log_and_cannot_be_replayed() {
     for sent in [false, true] {
         let mut r = run();

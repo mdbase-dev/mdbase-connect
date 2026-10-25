@@ -67,7 +67,7 @@ const MAX_SAFE: u64 = 9_007_199_254_740_991;
 /// The custody slot of the current read's generation 0, and the files sealed
 /// for the retained window not yet staged.
 pub(super) struct Custody {
-    handle: HostedGen0Handle,
+    pub(super) handle: HostedGen0Handle,
     bits: u64,
     action: Uuid,
     files: BTreeMap<Uuid, (Gen0File, Vec<B32>)>,

@@ -45,6 +45,11 @@ describe("route-back decision table", () => {
     ["a stopped pre-cutover run rolls back on its sequence", st("stopped", 8, { seq: 1 }), "start", { action: "rollback", sequence: 1 }],
     ["a lost Unrevoke reply resolves from the receipt", st("stopped", STEP.rollingBack, { outstanding: { sequence: 9, kind: 20 } }), "rolling_back", { action: "resolve", sequence: 9 }],
     ["a lost Unfence reply resolves from the receipt", st("stopped", STEP.rollingBack, { outstanding: { sequence: 10, kind: 21 } }), "start", { action: "resolve", sequence: 10 }],
+    ["an evicted pre-fence gen0 window rolls back", st("stopped", 2, { outstanding: { sequence: 7, kind: 4 } }), "start", { action: "rollback", sequence: 1 }],
+    ["an evicted pre-fence gen0 finish rolls back", st("stopped", 2, { outstanding: { sequence: 8, kind: 5 } }), "start", { action: "rollback", sequence: 1 }],
+    ["fence-first gen0 rolls back even at step 2", st("stopped", 2, { fenced: true, outstanding: { sequence: 7, kind: 4 } }), "start", { action: "rollback", sequence: 1 }],
+    ["gen0 at a later step stays unknown", st("stopped", 6, { outstanding: { sequence: 8, kind: 5 } }), "start", { action: "stop", reason: "outstanding_unknown:5" }],
+    ["gen0 without a run sequence stops", st("stopped", 2, { seq: null, outstanding: { sequence: 7, kind: 4 } }), "start", { action: "stop", reason: "run_sequence_unavailable" }],
     ["any other outstanding action stops", st("stopped", 4, { outstanding: { sequence: 3, kind: 6 } }), "start", { action: "stop", reason: "outstanding_unknown:6" }],
     ["rolled back cleans timers then restarts", st("done", STEP.rolledBack, { seq: 2 }), "rolling_back", { action: "cleanup_restart", sequence: 2, migrationId: run1 }],
     ["rollback_needs_operator stops", st("stopped", STEP.rollingBack, { reason: "rollback_needs_operator" }), "rolling_back", { action: "stop", reason: "rollback_needs_operator" }],
@@ -309,6 +314,16 @@ describe("pre-cutover pause and explicit resume", () => {
 });
 
 describe("route-back", () => {
+  it.each([4, 5])("rolls back an evicted fenced gen0 kind %s through the stock operator", async kind => {
+    const w = fakeWorker([
+      ok(st("stopped", 2, { reason: `outstanding_unknown:${kind}`, fenced: true, outstanding: { sequence: 7, kind } })),
+      ok(st("done", STEP.rolledBack)),
+      ok(st("running", STEP.drained, { seq: 2 }))
+    ]);
+    expect(await routeBack(account, deps(w.worker, fakeConnect().connect))).toHaveProperty("done");
+    expect(w.calls.filter(call => call !== "status")).toEqual(["rollback:1", "restart:1"]);
+  });
+
   it("rolls back, resolves a lost rollback reply from the receipt, cleans timers, restarts and waits for the re-fence", async () => {
     const w = fakeWorker([
       ok(st("stopped", 8, { reason: "operator_requested" })),
@@ -687,6 +702,14 @@ describe("managed two-phase orchestration", () => {
       expect.objectContaining({ collection_id: second, intent: true, worker: { kind: "unknown", reason: "worker_unreachable" } })
     ]);
     expect(d.connect.preflight).toHaveBeenCalledWith(account, { inspect: true });
+  });
+  it.each([4, 5])("managed route-back clears fenced gen0 kind %s without restarting the wave", async kind => {
+    const d = managed();
+    stopAt(d, collection, st("stopped", 2, { fenced: true, reason: `outstanding_unknown:${kind}`, outstanding: { sequence: 12, kind } }));
+    await labRun(account, hold, d);
+    expect(await routeBack(account, d)).toMatchObject({ done: { disposition: "legacy_post_bulk_follow_up" } });
+    expect(d.order).toEqual([`run:${collection}`, "latch:route_back", `rollback:${collection}`, `unfence:${second}`]);
+    expect(d.worker.restart).not.toHaveBeenCalled();
   });
   it("scoped route-back rolls every dispatched member back to verified legacy and never restarts", async () => {
     const d = managed(undefined, { operatorStop: true });

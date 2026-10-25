@@ -195,10 +195,25 @@ impl<I: IndexStorage> JournalDriver<I> {
         if self.poisoned {
             return Err(LedgerError::Refused);
         }
-        if self.pending.is_some() || self.saved_pending()?.is_some() {
+        let pending = self.saved_pending()?;
+        let cp = self.driver.checkpoint();
+        // Gen0 has only unrooted uploads, never a legacy/log effect. Cancel it
+        // with rollback, not a fabricated Gen0Progress/Gen0Built result. Step
+        // remains Created even after a fence-first run fences the source;
+        // the existing source/fence binding checks below still apply.
+        if pending
+            .as_ref()
+            .is_some_and(|p| !matches!(p.kind, 4 | 5) || cp.step != Step::Created)
+            || (self.pending.is_some() && pending.is_none())
+        {
             return Err(LedgerError::OutstandingUnknown);
         }
-        let cp = self.driver.checkpoint();
+        if let Some(p) = &pending
+            && (p.driver != self.id
+                || p.before != cp.to_bytes().map_err(|_| LedgerError::Corrupt)?)
+        {
+            return Err(LedgerError::Conflict);
+        }
         if cp.step == Step::RollingBack {
             if cp.fenced || !cp.revoked.is_empty() {
                 self.rollback_context()?;
@@ -266,21 +281,33 @@ impl<I: IndexStorage> JournalDriver<I> {
                 return Err(LedgerError::Corrupt);
             }
         };
-        let mut statements = vec![
-            Stmt::new(
-                "INSERT INTO mig_checkpoint(k,v) VALUES(0,?1) ON CONFLICT(k) DO NOTHING",
-                vec![blob(&before)],
-            ),
+        let mut statements = vec![Stmt::new(
+            "INSERT INTO mig_checkpoint(k,v) VALUES(0,?1) ON CONFLICT(k) DO NOTHING",
+            vec![blob(&before)],
+        )];
+        if let Some(p) = &pending {
+            let result = codec::digest(
+                "mdbase/v1/native-gen0-rollback",
+                vec![Cbor::Bytes(p.action.0.to_vec()), Cbor::Bytes(after.clone())],
+            )?;
+            // The existing settlement trigger binds the original row/checkpoint
+            // and advances it to RollingBack in this SAME transaction.
+            statements.push(Stmt::new(
+                "UPDATE mig_native_action SET settled=1,after_cp=?1,result=?2 WHERE seq=?3 AND driver=?4 AND action=?5 AND fingerprint=?6 AND before_cp=?7 AND settled=0",
+                vec![blob(&after), blob(&result.0), SqlValue::Integer(p.sequence as i64), blob(&self.id.0), blob(&p.action.0), blob(&p.fingerprint.0), blob(&before)],
+            ));
+        }
+        statements.push(
             // Fail the entire transaction, not just a zero-row CAS, on drift.
             Stmt::new(
                 "UPDATE mig_checkpoint SET v=CASE WHEN v=?1 AND EXISTS(SELECT 1 FROM mig_native_run WHERE seq=?2 AND driver=?3 AND seq=(SELECT MAX(seq) FROM mig_native_run)) AND NOT EXISTS(SELECT 1 FROM mig_native_action WHERE driver=?3 AND settled=0) THEN v ELSE NULL END WHERE k=0",
                 vec![
-                    blob(&before),
+                    blob(if pending.is_some() { &after } else { &before }),
                     SqlValue::Integer(expected as i64),
                     blob(&self.id.0),
                 ],
             ),
-        ];
+        );
         if let Some(context) = context {
             statements.push(Stmt::new("INSERT INTO mig_native_rollback_context(driver,provider,started,head) VALUES(?1,?2,?3,?4)", vec![blob(&self.id.0), blob(&context.run.migration.0), SqlValue::Text(context.run.started_at), SqlValue::Integer(context.head as i64)]));
         }
@@ -296,6 +323,15 @@ impl<I: IndexStorage> JournalDriver<I> {
                 if rows.pop().and_then(|r| r.values.into_iter().next()) != Some(blob(&after)) {
                     self.poisoned = true;
                     return Err(LedgerError::Corrupt);
+                }
+                if pending.is_some() {
+                    self.pending = None;
+                    self.gen0_staged = None;
+                    if let Some(custody) = self.gen0_custody.take() {
+                        let _ = engine
+                            .migration_gen0_replica(target)
+                            .map(|r| r.hosted_gen0_abort(target.admission(), &custody.handle));
+                    }
                 }
                 self.idle = Idle::Refused;
                 Ok(())
