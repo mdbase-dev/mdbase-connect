@@ -2649,12 +2649,6 @@ msgstr "标识"
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "影响评估基于当前已索引的笔记。你确认时，集合会验证完整定义。"
 
-#. placeholder {0}: contract.id
-#. placeholder {1}: contract.version
-#: src/type-contracts.ts
-msgid "Implements {0} {1}."
-msgstr "实现 {0} {1}。"
-
 #: src/editor-commands.ts
 msgid "in the list"
 msgstr "在列表中"

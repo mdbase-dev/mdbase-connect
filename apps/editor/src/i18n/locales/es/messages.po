@@ -2649,12 +2649,6 @@ msgstr "Identidad"
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "El impacto se calcula según las notas indexadas actualmente. La colección valida la definición completa cuando la confirmas."
 
-#. placeholder {0}: contract.id
-#. placeholder {1}: contract.version
-#: src/type-contracts.ts
-msgid "Implements {0} {1}."
-msgstr "Implementa {0} {1}."
-
 #: src/editor-commands.ts
 msgid "in the list"
 msgstr "en la lista"

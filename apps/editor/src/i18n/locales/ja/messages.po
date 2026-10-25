@@ -2649,12 +2649,6 @@ msgstr "識別情報"
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "影響範囲は現在索引に登録されているノートに基づきます。確定時にコレクションが定義全体を検証します。"
 
-#. placeholder {0}: contract.id
-#. placeholder {1}: contract.version
-#: src/type-contracts.ts
-msgid "Implements {0} {1}."
-msgstr "{0} {1}を実装しています。"
-
 #: src/editor-commands.ts
 msgid "in the list"
 msgstr "リスト内"

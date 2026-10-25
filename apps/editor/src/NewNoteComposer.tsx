@@ -349,7 +349,7 @@ function shortcutModifier(): string {
 }
 
 function suggestedPath(title: string, folder = ""): string {
-  const name = slug(title) || t`Untitled`;
+  const name = slug(title) || "Untitled";
   const cleanFolder = folder.replace(/^\/+|\/+$/g, "");
   return cleanFolder ? `${cleanFolder}/${name}.md` : `${name}.md`;
 }

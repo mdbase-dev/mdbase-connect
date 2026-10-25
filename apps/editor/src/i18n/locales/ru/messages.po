@@ -2649,12 +2649,6 @@ msgstr "Личность"
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "Оценка влияния основана на заметках в текущем индексе. При подтверждении коллекция проверит полное определение."
 
-#. placeholder {0}: contract.id
-#. placeholder {1}: contract.version
-#: src/type-contracts.ts
-msgid "Implements {0} {1}."
-msgstr "Реализует {0} {1}."
-
 #: src/editor-commands.ts
 msgid "in the list"
 msgstr "в списке"

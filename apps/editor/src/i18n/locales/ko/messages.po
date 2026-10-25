@@ -2649,12 +2649,6 @@ msgstr "ID"
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "영향은 현재 색인된 노트를 기준으로 합니다. 확인을 마치면 컬렉션이 전체 정의를 검증합니다."
 
-#. placeholder {0}: contract.id
-#. placeholder {1}: contract.version
-#: src/type-contracts.ts
-msgid "Implements {0} {1}."
-msgstr "{0} {1} 구현."
-
 #: src/editor-commands.ts
 msgid "in the list"
 msgstr "목록에"
