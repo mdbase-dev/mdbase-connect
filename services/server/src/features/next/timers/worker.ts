@@ -9,7 +9,6 @@ import {
 } from "./grants.js";
 import { cancelRevokedGrantTimers } from "./store.js";
 import { requireTimerMigrationEffects } from "./migration-effects.js";
-import { legacyTaskReminderRetired } from "./tasknotes-retirement.js";
 import { InvitationMigrationPending } from "../migration-sharing.js";
 
 /**
@@ -99,8 +98,7 @@ export function notificationsConsumer(
       // Usable-grant check at consumption (SEC-043): an event for a grant that
       // is no longer usable is consumed without producing a signal.
       const grant = await resolver.resolve(db, event.grant_id);
-      if (!grant || !grantMayFire(grant, event.criterion_id)
-        || await legacyTaskReminderRetired(db, grant, event.namespace, event.criterion_id)) return;
+      if (!grant || !grantMayFire(grant, event.criterion_id)) return;
       await insertNotificationSignal(db, {
         signalId: event.event_id,
         grantId: event.grant_id,
@@ -113,7 +111,6 @@ export function notificationsConsumer(
 }
 
 interface DueRow {
-  criterion_id: string;
   grant_id: string;
   namespace: string;
   timer_id: string;
@@ -186,7 +183,7 @@ export class TimerWorker {
   async fireDue(): Promise<number> {
     const resolver = this.options.resolver ?? legacyTimerGrantResolver;
     const due = await this.db.query<DueRow>(
-      `SELECT grant_id, namespace, timer_id, generation, criterion_id FROM next_timers
+      `SELECT grant_id, namespace, timer_id, generation FROM next_timers
        WHERE status IN ('scheduled', 'firing') AND fire_at <= now()
        ORDER BY (legacy_import_origin IS NOT NULL), fire_at, grant_id, namespace, timer_id
        LIMIT $1`,
@@ -202,19 +199,7 @@ export class TimerWorker {
         await requireTimerMigrationEffects(connection, row.grant_id);
         // Native resolution holds current principal/policy/consent locks before
         // any timer row is written; legacy resolution retains its own semantics.
-        const current = await resolver.resolve(connection, row.grant_id);
-        if (current && await legacyTaskReminderRetired(connection, current, row.namespace, row.criterion_id)) {
-          // Cancel rather than skip: a skipped due row would be re-selected
-          // ahead of every later timer on each tick.
-          await connection.query(
-            `UPDATE next_timers SET status = 'cancelled', updated_at = now()
-             WHERE grant_id = $1 AND namespace = $2 AND timer_id = $3
-               AND generation = $4 AND status IN ('scheduled', 'firing')`,
-            [row.grant_id, row.namespace, row.timer_id, Number(row.generation)]
-          );
-          await connection.query("COMMIT");
-          continue;
-        }
+        await resolver.resolve(connection, row.grant_id);
         // Compare-and-set on the generation. A concurrent worker blocks on the
         // row lock and then matches nothing.
         const claimed = await connection.query<{
