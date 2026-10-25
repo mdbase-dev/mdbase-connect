@@ -4,6 +4,12 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.144
+
+### Fixed
+
+- Allow operator rollback and managed route-back to cancel an outstanding generation-0 window or finish before base append, including fence-first runs still at `created`. Cancellation is atomic with rollback intent; fenced sources still require the existing source binding and receipt-qualified unfence.
+
 ## 0.1.0-beta.143
 
 ### Fixed
