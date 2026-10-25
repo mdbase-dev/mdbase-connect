@@ -1,4 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from "./test/locale";
+import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
+import { render as renderLocalized } from "@testing-library/react";
+import { LocaleProvider } from "@mdbase-dev/i18n/react";
+import { editorLocaleRuntime } from "./i18n/runtime";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -22,6 +25,25 @@ async function openRowMenu(name = /Garden notes 2/) {
 }
 
 describe("Note actions", () => {
+  it("keeps the mobile rename-path action independent of its translated label", async () => {
+    vi.stubGlobal("innerWidth", 600);
+    await editorLocaleRuntime.initialize();
+    await editorLocaleRuntime.selectLocale("it");
+    const user = userEvent.setup();
+    const view = renderLocalized(<LocaleProvider runtime={editorLocaleRuntime} onError={(error) => { throw error; }}>
+      <App gateway={new DemoCollectionGateway(4)} />
+    </LocaleProvider>);
+    try {
+      await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
+      await user.click(screen.getByRole("menuitem", { name: "Rinomina il percorso" }));
+      expect(await screen.findByRole("textbox", { name: "Percorso Markdown" })).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      await act(() => editorLocaleRuntime.selectLocale("en"));
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("uses the same actions in the row menu and toolbar, copies durable links and paths without opening the row", async () => {
     const user = userEvent.setup();
     const gateway = new DemoCollectionGateway(4);

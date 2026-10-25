@@ -1325,9 +1325,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       return next;
     });
   }
-  function noteActions(path: string): ActionMenuItem[] {
+  function noteActions(path: string, renameLabel?: string): ActionMenuItem[] {
     return [
-      menuCommand("rename", <Pencil aria-hidden="true" />, () => void renameNote(path), mutationsFrozen || !canRenameNotes),
+      menuCommand("rename", <Pencil aria-hidden="true" />, () => void renameNote(path), mutationsFrozen || !canRenameNotes, renameLabel),
       menuCommand("move", <Folder aria-hidden="true" />, () => setMovePaths([path]), mutationsFrozen || !canRenameNotes),
       menuCommand("duplicate", <Copy aria-hidden="true" />, () => void duplicateNote(path), mutationsFrozen || !canCreateNotes),
       menuCommand("copy-link", <Link2 aria-hidden="true" />, () => copyFacet(`[[${path.replace(/\.md$/i, "")}]]`, t`note link`)),
@@ -1955,7 +1955,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
                 ...(canCreateNotes ? [menuCommand("new-note", <FilePlus2 aria-hidden="true" />, beginCreate, mutationsFrozen)] : []),
                 menuCommand("quick-open", <Search aria-hidden="true" />, () => { setQuickOpenCommandMode(false); setQuickOpen(true); })
               ] : []),
-              ...noteActions(document.path).map((item) => mobileLayout && item.label === "Rename" ? { ...item, label: t`Rename path` } : item),
+              ...noteActions(document.path, mobileLayout ? t`Rename path` : undefined),
               { ...menuCommand("outline", <ListBullets aria-hidden="true" />, () => setOutlineOpen(true)), separatorBefore: true },
               menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); }),
               menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? "Exit focus mode" : undefined),
