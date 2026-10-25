@@ -53,6 +53,7 @@ import {
   relativeTime
 } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
+import { literal } from "./literal";
 export function DeviceAuthorization() {
   useLocaleRevision();
   const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? "");
@@ -297,12 +298,12 @@ export function RequestOutcome({ status, applicationName, portable = false, retu
     return () => window.clearTimeout(timer);
   }, [status]);
   const returnLink = late && returnUrl
-    ? <a className="button secondary link-button outcome-return" href={returnUrl}><Trans>Return to {applicationName}</Trans></a>
+    ? <a className="button secondary link-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>
     : null;
   if (status === "expired") return <div className="request-outcome" role="status">
     <p className="eyebrow outcome-label"><Trans>Request unavailable</Trans></p>
     <Heading>{t(i18n)({ message: "This request has expired or was already answered." })}</Heading>
-    <p><Trans>Return to {applicationName} and connect again to start a new request.</Trans></p>
+    <p>{t(i18n)`Return to ${applicationName} and connect again to start a new request.`}</p>
   </div>;
   if (status === "setting_up") return <div className="request-outcome" role="status">
     <p className="eyebrow outcome-label"><Trans>Approval recorded</Trans></p>
@@ -339,9 +340,9 @@ export function RequestIdentity({ request, showClientKey = true }: { request: Pe
           ? <>{t(i18n)({ message: "Application using a device code" })}{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
           : <code>{host(request.application_origin ?? request.homepage)}</code>}</p>
         {native
-          ? <p className="request-guidance" role="note"><Trans>Application identity unverified. This app calls itself {request.application_name}. Continue only if you started this connection intentionally.</Trans></p>
+          ? <p className="request-guidance" role="note"><Trans>Application identity unverified. This app calls itself {literal(request.application_name)}. Continue only if you started this connection intentionally.</Trans></p>
           : portable
-          ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null}</Trans></p>
+          ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null}</Trans></p>
           : <p className="request-guidance"><Trans>Only continue if you recognize this exact site.</Trans></p>}
         {showClientKey && request.client_fingerprint
           ? <p className="request-fingerprint"><Trans>App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</Trans></p>
@@ -361,7 +362,7 @@ function DesktopContinuation({ request, onReviewHere }: {
   return (
     <section className="desktop-continuation" aria-live="polite">
       <h2><Trans>Choose the folder in mdbase connect.</Trans></h2>
-      <p><Trans>This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {request.application_name}.</Trans></p>
+      <p><Trans>This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {literal(request.application_name)}.</Trans></p>
       <div className="desktop-continuation-status">
         <span className="status-dot connecting" aria-hidden="true" />
         <div><strong><Trans>Waiting for mdbase connect</Trans></strong><small><Trans>The page will notice when the request is approved.</Trans></small></div>
@@ -796,9 +797,9 @@ function SupportedApprovalForm({
                 <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
               </div>}
               {unavailableConnectors.length > 0 && <p className="field-note" role="status"><Trans>
-                {unavailableConnectors.map((connector) => connector.reason === "paused"
+                {literal(unavailableConnectors.map((connector) => connector.reason === "paused"
                   ? t(i18n)`${connector.connector_name} has remote access paused.`
-                  : t(i18n)`${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available.
+                  : t(i18n)`${connector.connector_name} is offline.`).join(" "))} Those local collections cannot be selected until their computer is available.
               </Trans></p>}
               {request.requirements.collection_kind !== "hosted"
                 && !request.collection_id
@@ -890,7 +891,7 @@ function SupportedApprovalForm({
       {reviewing && <section className="approval-section" aria-labelledby={`permissions-${request.id}`}>
         <h2 className="approval-section-title" id={`permissions-${request.id}`}><Trans>What it can do</Trans></h2>
         <p className="approval-section-note"><Trans>
-          Covers every record in {selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })}.
+          Covers every record in {literal(selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" }))}.
           {existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""}
         </Trans></p>
         <PermissionList
@@ -942,7 +943,7 @@ function SupportedApprovalForm({
               return <li className="configuration-setup-item" key={`${provision.requirement}:${provision.path}`}>
                 <span aria-hidden="true">+</span>
                 <div>
-                  <strong><Trans>Ensure <code>{summary.setting}</code> includes <code>{summary.value}</code></Trans></strong>
+                  <strong><Trans>Ensure <code>{literal(summary.setting)}</code> includes <code>{literal(summary.value)}</code></Trans></strong>
                   <small><Trans>If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy.</Trans></small>
                 </div>
               </li>;
@@ -957,7 +958,7 @@ function SupportedApprovalForm({
           <p>{request.distribution === "portable"
             ? t(i18n)`${request.application_name} can use ${selectedName} while it remains connected. You can revoke access in mdbase connect.`
             : t(i18n)`${request.application_name} can use ${selectedName} until you revoke access in mdbase connect.`}</p>
-          {privateCollection && <p><Trans>This is a Private collection: it stays on your computer. {request.application_name} can use it while a computer that has it is running mdbase and is signed in to your account.</Trans></p>}
+          {privateCollection && <p><Trans>This is a Private collection: it stays on your computer. {literal(request.application_name)} can use it while a computer that has it is running mdbase and is signed in to your account.</Trans></p>}
           {higherImpactLabels.length > 0 && <p className="receipt-impact"><Trans><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</Trans></p>}
           {approvalBlocker && <p className="receipt-blocker" id={blockerId}>{approvalBlocker}</p>}
         </div>

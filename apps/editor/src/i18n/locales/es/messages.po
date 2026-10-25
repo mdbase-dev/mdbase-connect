@@ -3523,7 +3523,7 @@ msgstr "Las notas están listas. Permite el acceso a las definiciones de tipo so
 msgid "Notes belong to this type when every configured condition group below matches."
 msgstr "Las notas pertenecen a este tipo cuando coinciden todos los grupos de condiciones configurados a continuación."
 
-#. placeholder {0}: definition.name
+#. placeholder {0}: literal(definition.name)
 #. placeholder {1}: explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)
 #: src/TypeBrowser.tsx
 msgid "Notes can name <0>{0}</0> through {1}. When any configured key is present, automatic rules are skipped."
@@ -4464,7 +4464,7 @@ msgstr "Guardando"
 msgid "Saving affects every matching note"
 msgstr "Guardar afecta a todas las notas coincidentes"
 
-#. placeholder {0}: type!.name
+#. placeholder {0}: literal(type!.name)
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "Al guardar, se verán afectadas todas las notas del tipo <0>{0}</0>"
@@ -4859,7 +4859,7 @@ msgstr "La operación «{subject}» aún no está confirmada. Revisa la colecci�
 msgid "The {subject} was rejected."
 msgstr "Se rechazó la operación «{subject}»."
 
-#. placeholder {0}: outdatedStarter!.typeName
+#. placeholder {0}: literal(outdatedStarter!.typeName)
 #: src/YourPersonPanel.tsx
 msgid "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
 msgstr "El tipo <0>{0}</0> es una versión anterior del tipo inicial Person. Revisa el tipo inicial actual antes de crear tu registro. No cambiará nada sin tu aprobación."
@@ -5333,7 +5333,7 @@ msgid "This application does not have permission to make that change."
 msgstr "Esta aplicación no tiene permiso para hacer ese cambio."
 
 #. placeholder {0}: conversion.path
-#. placeholder {1}: conversion.typeName
+#. placeholder {1}: literal(conversion.typeName)
 #: src/YourPersonPanel.tsx
 msgid "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."
 msgstr "Esto solo convierte <0>{0}</0> al tipo <1>{1}</1>, que implementa tanto Person como Contact. Se conservan su información de contacto y su cuerpo Markdown. No se modifica ningún otro contacto ni ninguna otra definición de tipo."

@@ -3523,7 +3523,7 @@ msgstr "Notes are ready. Allow type-definition access only if you want to inspec
 msgid "Notes belong to this type when every configured condition group below matches."
 msgstr "Notes belong to this type when every configured condition group below matches."
 
-#. placeholder {0}: definition.name
+#. placeholder {0}: literal(definition.name)
 #. placeholder {1}: explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)
 #: src/TypeBrowser.tsx
 msgid "Notes can name <0>{0}</0> through {1}. When any configured key is present, automatic rules are skipped."
@@ -4464,7 +4464,7 @@ msgstr "Saving"
 msgid "Saving affects every matching note"
 msgstr "Saving affects every matching note"
 
-#. placeholder {0}: type!.name
+#. placeholder {0}: literal(type!.name)
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "Saving affects every note of type <0>{0}</0>"
@@ -4859,7 +4859,7 @@ msgstr "The {subject} is not confirmed yet. Check the collection before trying a
 msgid "The {subject} was rejected."
 msgstr "The {subject} was rejected."
 
-#. placeholder {0}: outdatedStarter!.typeName
+#. placeholder {0}: literal(outdatedStarter!.typeName)
 #: src/YourPersonPanel.tsx
 msgid "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
 msgstr "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
@@ -5333,7 +5333,7 @@ msgid "This application does not have permission to make that change."
 msgstr "This application does not have permission to make that change."
 
 #. placeholder {0}: conversion.path
-#. placeholder {1}: conversion.typeName
+#. placeholder {1}: literal(conversion.typeName)
 #: src/YourPersonPanel.tsx
 msgid "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."
 msgstr "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."

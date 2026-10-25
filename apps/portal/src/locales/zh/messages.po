@@ -25,7 +25,7 @@ msgstr "（影响较大）"
 msgid " {0} can also create new collections for you."
 msgstr " {0} 还可以为你创建新集合。"
 
-#. placeholder {0}: host(request.project_url)
+#. placeholder {0}: literal(host(request.project_url))
 #: src/authorization-view.tsx
 msgid " {0} does not verify its origin."
 msgstr " {0} 无法验证其来源。"
@@ -44,7 +44,7 @@ msgstr "，且显示 <0>{0}</0>"
 msgid " File actions are included in the collection permissions above."
 msgstr " 文件操作已包含在上面的集合权限中。"
 
-#. placeholder {0}: pairing.app_origin
+#. placeholder {0}: literal(pairing.app_origin)
 #: src/authority-workflows.tsx
 msgid " from <0>{0}</0>"
 msgstr "，来自 <0>{0}</0>"
@@ -90,7 +90,7 @@ msgstr "{0, plural, other {# 项权限}}"
 msgid "{0} · {1} · {2} Markdown · {3} files"
 msgstr "{0} · {1} · {2} 个 Markdown 文件 · {3} 个文件"
 
-#. placeholder {0}: entry.application_origin
+#. placeholder {0}: literal(entry.application_origin)
 #. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
 #. placeholder {2}: entry.installation_id.slice(-8)
 #: src/ApplicationAccess.tsx
@@ -161,7 +161,7 @@ msgstr "{0} 已不可用。请选择其他集合。"
 msgid "{0} is now connected."
 msgstr "{0} 现已连接。"
 
-#. placeholder {0}: adoption.display_name
+#. placeholder {0}: literal(adoption.display_name)
 #: src/authority-workflows.tsx
 msgid "{0} is now hosted."
 msgstr "{0} 现已由云端托管。"
@@ -232,7 +232,7 @@ msgstr "{0} 条记录"
 msgid "{0} retained file storage included"
 msgstr "包含 {0} 保留文件存储空间"
 
-#. placeholder {0}: unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")
+#. placeholder {0}: literal(unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" "))
 #: src/authorization-view.tsx
 msgid "{0} Those local collections cannot be selected until their computer is available."
 msgstr "{0} 在这些本地集合所在的电脑可用之前，无法选择它们。"
@@ -249,13 +249,13 @@ msgstr "{0} 使用 mdbase {1}。请将一个副本升级到 mdbase 0.3 并验证
 msgid "{0} v{1}"
 msgstr "{0} v{1}"
 
-#. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" })
+#. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "{0} will begin syncing automatically. You can close this page."
 msgstr "{0} 将自动开始同步。你可以关闭此页面。"
 
-#. placeholder {0}: pairing.connector_name
-#. placeholder {1}: pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
+#. placeholder {0}: literal(pairing.connector_name)
+#. placeholder {1}: literal(pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "{0} will lose access to {1} on all its devices. Previously downloaded data cannot be erased."
 msgstr "{0} 的所有设备都将失去对 {1} 的访问权限。已下载的数据无法删除。"
@@ -405,7 +405,7 @@ msgid "<0/>Sync a folder"
 msgstr "<0/>同步文件夹"
 
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
-#. placeholder {3}: request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null
+#. placeholder {3}: request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
 msgid "<0>Application origin unverified.</0> Continue only if you started this connection intentionally{1}.{3}"
 msgstr "<0>无法验证应用来源。</0>只有在你主动发起此连接时才继续{1}。{3}"
@@ -472,7 +472,7 @@ msgctxt "Application access approval"
 msgid "Access denied"
 msgstr "访问已拒绝"
 
-#. placeholder {0}: createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : ""
+#. placeholder {0}: literal(createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : "")
 #. placeholder {1}: pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""
 #: src/authority-workflows.tsx
 msgid "Access includes the notes and files in the collection you pick.{0}{1}"
@@ -532,7 +532,7 @@ msgstr "账户升级已暂停"
 msgid "Account upgrade scheduled"
 msgstr "账户升级已安排"
 
-#. placeholder {0}: installationAccountLabel(pairing)
+#. placeholder {0}: literal(installationAccountLabel(pairing))
 #: src/authority-workflows.tsx
 msgid "Account: {0}"
 msgstr "账户：{0}"
@@ -609,12 +609,12 @@ msgctxt "Collection connection"
 msgid "Allow"
 msgstr "允许"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Allow {0} to create new collections"
 msgstr "允许 {0} 创建新集合"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Allow {0} to send you reminders"
 msgstr "允许 {0} 向你发送提醒"
@@ -758,12 +758,12 @@ msgstr "批准已记录"
 msgid "Approve computer"
 msgstr "批准电脑"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Approve will create this collection and open it in {0}."
 msgstr "批准后将创建此集合，并在 {0} 中打开。"
 
-#. placeholder {0}: adoption.source_name
+#. placeholder {0}: literal(adoption.source_name)
 #: src/authority-workflows.tsx
 msgid "Approving uploads the complete collection from {0}, validates it as one snapshot, and then makes the hosted version the main copy."
 msgstr "批准后将从 {0} 上传整个集合，验证为一个快照，然后将托管版本设为主副本。"
@@ -933,7 +933,7 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "选择集合"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Choose a collection to use in {0}."
 msgstr "选择要在 {0} 中使用的集合。"
@@ -1193,7 +1193,7 @@ msgctxt "Account sign-in"
 msgid "Couldn’t connect"
 msgstr "无法连接"
 
-#. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })
+#. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" }))
 #. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
 msgid "Covers every record in {0}.{1}"
@@ -1486,8 +1486,8 @@ msgctxt "Account management"
 msgid "Email and password"
 msgstr "电子邮箱和密码"
 
-#. placeholder {0}: summary.setting
-#. placeholder {1}: summary.value
+#. placeholder {0}: literal(summary.setting)
+#. placeholder {1}: literal(summary.value)
 #: src/authorization-view.tsx
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
 msgstr "确保 <0>{0}</0> 包含 <1>{1}</1>"
@@ -1996,7 +1996,7 @@ msgstr "mdbase connect 导航"
 msgid "mdbase connect needs to restart"
 msgstr "需要重启 mdbase connect"
 
-#. placeholder {0}: adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." })
+#. placeholder {0}: literal(adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." }))
 #: src/authority-workflows.tsx
 msgid "mdbase now keeps the main copy of this collection.{0}"
 msgstr "mdbase 现在保管此集合的主副本。{0}"
@@ -2274,6 +2274,7 @@ msgstr "只更改此类型定义。现有记录保持不变。访问权限生效
 msgid "Open"
 msgstr "打开"
 
+#. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0}"
@@ -2620,7 +2621,7 @@ msgctxt "Connect interface"
 msgid "Remove access"
 msgstr "移除访问权限"
 
-#. placeholder {0}: pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
+#. placeholder {0}: literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
 msgstr "正在移除对 {0} 的访问权限…"
@@ -2673,24 +2674,24 @@ msgctxt "Application access approval"
 msgid "Requested access"
 msgstr "请求的访问权限"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Requested by {0}. No requesting origin is available."
 msgstr "由 {0} 请求。无法获取请求来源。"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
-#. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>
+#. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
 msgstr "由 {0}{1}{2} 请求。只有在你主动通过此应用登录时才批准。"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
 msgstr "此请求来自在此计算机上运行的应用。应用身份未经验证。此应用自称为 {0}。仅当您在此应用中主动发起登录时才批准。"
 
-#. placeholder {0}: pairing.app_origin
+#. placeholder {0}: literal(pairing.app_origin)
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
 msgstr "请求来自 <0>{0}</0>。此处显示的来源不能证明请求者的身份。"
@@ -2723,12 +2724,12 @@ msgctxt "Connect interface"
 msgid "Retry Google sign-in"
 msgstr "重试 Google 登录"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Return to {0}"
 msgstr "返回 {0}"
 
-#. placeholder {0}: adoption.source_name
+#. placeholder {0}: literal(adoption.source_name)
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
@@ -2900,6 +2901,7 @@ msgctxt "Connect interface"
 msgid "Role"
 msgstr "角色"
 
+#. placeholder {0}: literal(member.name)
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Role for {0}"
@@ -2955,7 +2957,7 @@ msgstr "查看于 {0}"
 msgid "Select a collection to continue."
 msgstr "请选择一个集合以继续。"
 
-#. placeholder {0}: selected.name
+#. placeholder {0}: literal(selected.name)
 #: src/CollectionPicker.tsx
 msgid "Selected: <0>{0}</0>"
 msgstr "已选择：<0>{0}</0>"
@@ -3421,7 +3423,7 @@ msgstr "此文件夹将从 mdbase 接收 Markdown，不会上传本地编辑内�
 msgid "This installation has no approved collections."
 msgstr "此安装实例没有获批准的集合。"
 
-#. placeholder {0}: request.application_name
+#. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "This is a Private collection: it stays on your computer. {0} can use it while a computer that has it is running mdbase and is signed in to your account."
 msgstr "这是私有集合：它保留在你的电脑上。只要存有它的电脑正在运行 mdbase 且已登录你的账户，{0} 就可以使用它。"
@@ -3446,7 +3448,7 @@ msgstr "此操作将永久删除："
 msgid "This request has expired or was already answered."
 msgstr "此请求已过期或已处理。"
 
-#. placeholder {0}: request.application_name
+#. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {0}."
 msgstr "连接电脑或添加集合期间，此请求会保持打开。请在桌面应用中批准，然后返回此处继续前往 {0}。"

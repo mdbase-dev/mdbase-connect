@@ -318,6 +318,21 @@ test("access: pending approvals, new-access notices and revocation reach the dae
   } finally { await page.close(); }
 });
 
+test("access: markup-shaped app names are shown literally in the key check", async () => {
+  const name = "<0/> <b>Planner</b>";
+  const access = [
+    entry({ grant: "keyed", app_name: name, state: "pending_approval", fingerprint: "abcd1234" }),
+    entry({ grant: "unkeyed", collection: "c-private", app_name: name, state: "pending_approval" })
+  ];
+  const { page, errors } = await desktop({ collections: [collection(), collection({ id: "c-private", name: "Diary" })], access });
+  try {
+    await nav(page, "App access").click();
+    await page.getByText(`Check that ${name} shows the same key.`, { exact: true }).waitFor();
+    await page.getByText(`mdbase shows the app's key when you approve. Check that ${name} shows the same key.`, { exact: true }).waitFor();
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test("a new device is approved only with the code shown on its screen", async () => {
   const { page, errors, calls } = await desktop({
     collections: [collection({ id: "c-private", name: "Diary", mode: "synced_e2e" })],

@@ -3523,7 +3523,7 @@ msgstr "笔记已就绪。只有在你想查看或管理集合类型时，才需
 msgid "Notes belong to this type when every configured condition group below matches."
 msgstr "当下方配置的所有条件组都匹配时，笔记属于此类型。"
 
-#. placeholder {0}: definition.name
+#. placeholder {0}: literal(definition.name)
 #. placeholder {1}: explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)
 #: src/TypeBrowser.tsx
 msgid "Notes can name <0>{0}</0> through {1}. When any configured key is present, automatic rules are skipped."
@@ -4464,7 +4464,7 @@ msgstr "正在保存"
 msgid "Saving affects every matching note"
 msgstr "保存会影响所有匹配的笔记"
 
-#. placeholder {0}: type!.name
+#. placeholder {0}: literal(type!.name)
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "保存会影响所有类型为 <0>{0}</0> 的笔记"
@@ -4859,7 +4859,7 @@ msgstr "{subject} 尚未确认。请检查集合后再重试。"
 msgid "The {subject} was rejected."
 msgstr "{subject} 已被拒绝。"
 
-#. placeholder {0}: outdatedStarter!.typeName
+#. placeholder {0}: literal(outdatedStarter!.typeName)
 #: src/YourPersonPanel.tsx
 msgid "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
 msgstr "<0>{0}</0> 类型是较早版本的 Person 初始类型。创建你的记录前，请检查当前的初始类型。未经你批准，不会进行任何更改。"
@@ -5333,7 +5333,7 @@ msgid "This application does not have permission to make that change."
 msgstr "此应用无权进行此更改。"
 
 #. placeholder {0}: conversion.path
-#. placeholder {1}: conversion.typeName
+#. placeholder {1}: literal(conversion.typeName)
 #: src/YourPersonPanel.tsx
 msgid "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."
 msgstr "这只会将 <0>{0}</0> 更改为同时实现 Person 和 Contact 的 <1>{1}</1> 类型。其联系信息和 Markdown 正文将保留。不会更改其他联系人或类型定义。"

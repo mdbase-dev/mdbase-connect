@@ -25,7 +25,7 @@ msgstr " (maior impacto)"
 msgid " {0} can also create new collections for you."
 msgstr " {0} também pode criar novas coleções para você."
 
-#. placeholder {0}: host(request.project_url)
+#. placeholder {0}: literal(host(request.project_url))
 #: src/authorization-view.tsx
 msgid " {0} does not verify its origin."
 msgstr " {0} não verifica sua origem."
@@ -44,7 +44,7 @@ msgstr " e mostra <0>{0}</0>"
 msgid " File actions are included in the collection permissions above."
 msgstr " As ações em arquivos estão incluídas nas permissões da coleção acima."
 
-#. placeholder {0}: pairing.app_origin
+#. placeholder {0}: literal(pairing.app_origin)
 #: src/authority-workflows.tsx
 msgid " from <0>{0}</0>"
 msgstr " de <0>{0}</0>"
@@ -90,7 +90,7 @@ msgstr "{0, plural, one {# permissão} other {# permissões}}"
 msgid "{0} · {1} · {2} Markdown · {3} files"
 msgstr "{0} · {1} · {2} Markdown · {3} arquivos"
 
-#. placeholder {0}: entry.application_origin
+#. placeholder {0}: literal(entry.application_origin)
 #. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
 #. placeholder {2}: entry.installation_id.slice(-8)
 #: src/ApplicationAccess.tsx
@@ -161,7 +161,7 @@ msgstr "{0} não está mais disponível. Escolha outra coleção."
 msgid "{0} is now connected."
 msgstr "{0} agora está conectado."
 
-#. placeholder {0}: adoption.display_name
+#. placeholder {0}: literal(adoption.display_name)
 #: src/authority-workflows.tsx
 msgid "{0} is now hosted."
 msgstr "{0} agora está hospedada."
@@ -232,7 +232,7 @@ msgstr "{0} registros"
 msgid "{0} retained file storage included"
 msgstr "{0} de armazenamento de arquivos retidos incluídos"
 
-#. placeholder {0}: unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")
+#. placeholder {0}: literal(unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" "))
 #: src/authorization-view.tsx
 msgid "{0} Those local collections cannot be selected until their computer is available."
 msgstr "{0} Essas coleções locais só podem ser selecionadas quando o computador delas estiver disponível."
@@ -249,13 +249,13 @@ msgstr "{0} usa mdbase {1}. Atualize uma cópia para mdbase 0.3 e verifique-a an
 msgid "{0} v{1}"
 msgstr "{0} v{1}"
 
-#. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" })
+#. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "{0} will begin syncing automatically. You can close this page."
 msgstr "{0} começará a sincronizar automaticamente. Você pode fechar esta página."
 
-#. placeholder {0}: pairing.connector_name
-#. placeholder {1}: pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
+#. placeholder {0}: literal(pairing.connector_name)
+#. placeholder {1}: literal(pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "{0} will lose access to {1} on all its devices. Previously downloaded data cannot be erased."
 msgstr "{0} perderá o acesso a {1} em todos os seus dispositivos. Os dados baixados anteriormente não podem ser apagados."
@@ -405,7 +405,7 @@ msgid "<0/>Sync a folder"
 msgstr "<0/>Sincronizar uma pasta"
 
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
-#. placeholder {3}: request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null
+#. placeholder {3}: request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
 msgid "<0>Application origin unverified.</0> Continue only if you started this connection intentionally{1}.{3}"
 msgstr "<0>Origem do aplicativo não verificada.</0> Continue apenas se você iniciou esta conexão intencionalmente{1}.{3}"
@@ -472,7 +472,7 @@ msgctxt "Application access approval"
 msgid "Access denied"
 msgstr "Acesso negado"
 
-#. placeholder {0}: createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : ""
+#. placeholder {0}: literal(createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : "")
 #. placeholder {1}: pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""
 #: src/authority-workflows.tsx
 msgid "Access includes the notes and files in the collection you pick.{0}{1}"
@@ -532,7 +532,7 @@ msgstr "Atualização da conta pausada"
 msgid "Account upgrade scheduled"
 msgstr "Atualização da conta agendada"
 
-#. placeholder {0}: installationAccountLabel(pairing)
+#. placeholder {0}: literal(installationAccountLabel(pairing))
 #: src/authority-workflows.tsx
 msgid "Account: {0}"
 msgstr "Conta: {0}"
@@ -609,12 +609,12 @@ msgctxt "Collection connection"
 msgid "Allow"
 msgstr "Permitir"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Allow {0} to create new collections"
 msgstr "Permitir que {0} crie novas coleções"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Allow {0} to send you reminders"
 msgstr "Permitir que {0} envie lembretes para você"
@@ -758,12 +758,12 @@ msgstr "Aprovação registrada"
 msgid "Approve computer"
 msgstr "Aprovar computador"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Approve will create this collection and open it in {0}."
 msgstr "A aprovação criará esta coleção e a abrirá em {0}."
 
-#. placeholder {0}: adoption.source_name
+#. placeholder {0}: literal(adoption.source_name)
 #: src/authority-workflows.tsx
 msgid "Approving uploads the complete collection from {0}, validates it as one snapshot, and then makes the hosted version the main copy."
 msgstr "A aprovação envia a coleção completa de {0}, valida tudo como uma única cópia e torna a versão hospedada a cópia principal."
@@ -933,7 +933,7 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "Escolha uma coleção"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Choose a collection to use in {0}."
 msgstr "Escolha uma coleção para usar em {0}."
@@ -1193,7 +1193,7 @@ msgctxt "Account sign-in"
 msgid "Couldn’t connect"
 msgstr "Não foi possível conectar"
 
-#. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })
+#. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" }))
 #. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
 msgid "Covers every record in {0}.{1}"
@@ -1486,8 +1486,8 @@ msgctxt "Account management"
 msgid "Email and password"
 msgstr "E-mail e senha"
 
-#. placeholder {0}: summary.setting
-#. placeholder {1}: summary.value
+#. placeholder {0}: literal(summary.setting)
+#. placeholder {1}: literal(summary.value)
 #: src/authorization-view.tsx
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
 msgstr "Garanta que <0>{0}</0> inclua <1>{1}</1>"
@@ -1996,7 +1996,7 @@ msgstr "Navegação do mdbase connect"
 msgid "mdbase connect needs to restart"
 msgstr "O mdbase connect precisa reiniciar"
 
-#. placeholder {0}: adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." })
+#. placeholder {0}: literal(adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." }))
 #: src/authority-workflows.tsx
 msgid "mdbase now keeps the main copy of this collection.{0}"
 msgstr "O mdbase agora mantém a cópia principal desta coleção.{0}"
@@ -2274,6 +2274,7 @@ msgstr "Somente a definição deste tipo muda. Os registros existentes permanece
 msgid "Open"
 msgstr "Abrir"
 
+#. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0}"
@@ -2620,7 +2621,7 @@ msgctxt "Connect interface"
 msgid "Remove access"
 msgstr "Remover acesso"
 
-#. placeholder {0}: pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
+#. placeholder {0}: literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
 msgstr "Removendo o acesso a {0}…"
@@ -2673,24 +2674,24 @@ msgctxt "Application access approval"
 msgid "Requested access"
 msgstr "Acesso solicitado"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Requested by {0}. No requesting origin is available."
 msgstr "Solicitado por {0}. A origem da solicitação não está disponível."
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
-#. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>
+#. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
 msgstr "Solicitado por {0}{1}{2}. Aprove apenas se você iniciou a entrada neste aplicativo."
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
 msgstr "Pedido de uma aplicação em execução neste computador. Identidade da aplicação não verificada. Esta aplicação identifica-se como {0}. Aprove apenas se iniciou sessão nesta aplicação."
 
-#. placeholder {0}: pairing.app_origin
+#. placeholder {0}: literal(pairing.app_origin)
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
 msgstr "Solicitado de <0>{0}</0>. A origem exibida aqui não comprova quem fez a solicitação."
@@ -2723,12 +2724,12 @@ msgctxt "Connect interface"
 msgid "Retry Google sign-in"
 msgstr "Tentar entrar com Google novamente"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Return to {0}"
 msgstr "Voltar para {0}"
 
-#. placeholder {0}: adoption.source_name
+#. placeholder {0}: literal(adoption.source_name)
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
@@ -2900,6 +2901,7 @@ msgctxt "Connect interface"
 msgid "Role"
 msgstr "Função"
 
+#. placeholder {0}: literal(member.name)
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Role for {0}"
@@ -2955,7 +2957,7 @@ msgstr "Visto em {0}"
 msgid "Select a collection to continue."
 msgstr "Selecione uma coleção para continuar."
 
-#. placeholder {0}: selected.name
+#. placeholder {0}: literal(selected.name)
 #: src/CollectionPicker.tsx
 msgid "Selected: <0>{0}</0>"
 msgstr "Selecionada: <0>{0}</0>"
@@ -3421,7 +3423,7 @@ msgstr "Esta pasta receberá Markdown do mdbase e não enviará edições locais
 msgid "This installation has no approved collections."
 msgstr "Esta instalação não tem coleções aprovadas."
 
-#. placeholder {0}: request.application_name
+#. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "This is a Private collection: it stays on your computer. {0} can use it while a computer that has it is running mdbase and is signed in to your account."
 msgstr "Esta é uma coleção privada: ela permanece no seu computador. {0} pode usá-la enquanto um computador que a contém estiver executando o mdbase e conectado à sua conta."
@@ -3446,7 +3448,7 @@ msgstr "Isto exclui permanentemente:"
 msgid "This request has expired or was already answered."
 msgstr "Esta solicitação expirou ou já foi respondida."
 
-#. placeholder {0}: request.application_name
+#. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {0}."
 msgstr "Esta solicitação permanece aberta enquanto você conecta o computador ou adiciona uma coleção. Aprove-a no aplicativo para desktop e volte aqui para continuar em {0}."

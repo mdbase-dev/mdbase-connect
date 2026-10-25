@@ -234,7 +234,7 @@ export function NotificationAccess({ applicationName, notifications }: {
           <code>{criterion.event.id}  {t(i18n)({ message: "v", context: "Application access approval" })}{criterion.event.version}</code>
         </li>
       ))}</ul>
-      <p><Trans>The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed.</Trans></p>
+      <p>{t(i18n)`The rules run inside the collection. A notification tells ${applicationName} that something changed, not what changed.`}</p>
     </details>
   );
 }
@@ -280,8 +280,8 @@ export function ContractSetupEditor({
       <div className="contract-setup-consequence">
         <span className="setup-change-mark" aria-hidden="true">+</span>
         <div>
-          <strong><Trans>{applicationName} needs a {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong>
-          <small><Trans>Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged.</Trans></small>
+          <strong>{t(i18n)`${applicationName} needs a ${setupLabel(contract).toLocaleLowerCase()} type`}</strong>
+          <small>{t(i18n)`Allowing access adds a separate type supplied by ${applicationName}. Existing records stay unchanged.`}</small>
           <details className="contract-expert-details">
             <summary><Trans>Expert details</Trans></summary>
             <code>{contract.id} · {contract.version}</code>
@@ -297,7 +297,7 @@ export function ContractSetupEditor({
     <div className="contract-setup-editor">
       <div className="contract-setup-heading">
         <div>
-          <strong><Trans>Help {applicationName} understand {setupLabel(contract).toLocaleLowerCase()}</Trans></strong>
+          <strong>{t(i18n)`Help ${applicationName} understand ${setupLabel(contract).toLocaleLowerCase()}`}</strong>
           <small>{contract.description ?? t(i18n)`Choose whether to add a new ${setupLabel(contract).toLocaleLowerCase()} type or use one you already have.`}</small>
         </div>
         <details className="contract-expert-details">
@@ -308,7 +308,7 @@ export function ContractSetupEditor({
       <div className="contract-setup-mode" role="radiogroup" aria-label={t(i18n)`Setup for ${setupLabel(contract)}`}>
         <label className={value.mode === "starter" ? "selected" : undefined}>
           <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "starter"} disabled={disabled} onChange={() => onChange({ ...value, mode: "starter" })} />
-          <span><strong><Trans>Add a new {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong><small><Trans>Create a separate type supplied by {applicationName}.</Trans></small></span>
+          <span><strong><Trans>Add a new {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong><small>{t(i18n)`Create a separate type supplied by ${applicationName}.`}</small></span>
         </label>
         <label className={value.mode === "existing" ? "selected" : undefined}>
           <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "existing"} disabled={disabled} onChange={() => onChange({ ...value, mode: "existing" })} />
@@ -352,7 +352,7 @@ export function ContractSetupEditor({
           </label>;
         })}</div>
         {bindingFields.length > 0 && <fieldset className="contract-binding">
-          <legend><Trans>How this type behaves in {applicationName}</Trans></legend>
+          <legend>{t(i18n)`How this type behaves in ${applicationName}`}</legend>
           {bindingFields.map((field) => <SchemaInput key={field.name} field={field} required={requiredBinding.has(field.name)} value={value.binding[field.name]} disabled={disabled} onChange={(next) => onChange({ ...value, binding: { ...value.binding, [field.name]: next } })} />)}
         </fieldset>}
         <p className="field-note"><Trans>Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active.</Trans></p>

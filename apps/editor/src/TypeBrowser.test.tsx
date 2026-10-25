@@ -369,6 +369,28 @@ schema:
     expect(screen.queryByRole("button", { name: "Add field" })).not.toBeInTheDocument();
   });
 
+  it("shows markup-shaped type, field, key and schema names literally", () => {
+    const named = recursiveSource
+      .replace("name: person", `name: "<b>Draft</b> <0/>"`)
+      .replace("      title:\n", `      "<i>flag</i>":\n        type: string\n      title:\n`)
+      .replace("description: A person", `description: A person\nmatch:\n  "<1/> rule": true`);
+    const view = render(<InspectorHarness source={named} explicitTypeKeys={["type"]} />);
+    expect(view.container).toHaveTextContent("Notes can name <b>Draft</b> <0/> through type.");
+    expect(screen.getByText("<i>flag</i> field type")).toBeInTheDocument();
+    expect(screen.getByText("<1/> rule. These rules combine with the visual rules above.")).toBeInTheDocument();
+    view.unmount();
+
+    render(<InspectorHarness source={`---
+kind: mdbase.type
+name: person
+schema:
+  dialect: json-schema-2020-12
+  ref: "<0/> <b>person</b>.json"
+---
+`} />);
+    expect(screen.getByText("<0/> <b>person</b>.json").tagName).toBe("CODE");
+  });
+
   it("blocks review until required contract fields are mapped", async () => {
     const user = userEvent.setup();
     render(<InspectorHarness source={contractSource} contracts={[legalPersonContract]} />);

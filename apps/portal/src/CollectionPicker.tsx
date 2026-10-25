@@ -3,6 +3,7 @@ import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { readRememberedCollection } from "./portal-model";
+import { literal } from "./literal";
 
 interface CollectionChoice { id: string; name: string; hint?: string; kind?: "private" }
 
@@ -85,6 +86,6 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
     {filtered.length === 0 && <p className="field-note" role="status">{collections.length ? t(i18n)({ message: "No collections match. Try another name." }) : t(i18n)({ message: "No collections are available." })}</p>}
     {onCreate && <button className="collection-picker-create" type="button" disabled={disabled} aria-pressed={creationSelected}
       onClick={() => { setHighlighted(null); onCreate(); }}><Trans>Create a new collection…</Trans></button>}
-    {selected && <p className="field-note collection-picker-selection" aria-live="polite"><Trans>Selected: <strong>{selected.name}</strong></Trans></p>}
+    {selected && <p className="field-note collection-picker-selection" aria-live="polite"><Trans>Selected: <strong>{literal(selected.name)}</strong></Trans></p>}
   </div>;
 }

@@ -3,6 +3,7 @@ import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useRef, useState } from "react";
+import { literal } from "./literal";
 import {
   api,
   ApiError,
@@ -269,13 +270,13 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     return <main className="mdbase-connect-screen installation-approval"><section>
       <PageBrand label="connect" error={error} />
       <h1>{refusal.heading}</h1>
-      {installationAccountLabel(pairing) && <p className="installation-account-label"><Trans>Account: {installationAccountLabel(pairing)}</Trans></p>}
+      {installationAccountLabel(pairing) && <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>}
       <p className="mdbase-connect-lead" role="alert">{refusal.message}</p>
       {!outcome && <button className="mdbase-button" disabled={busy} onClick={() => setAttempt(value => value + 1)}><Trans>Check again</Trans></button>}
       {retry && <button className="mdbase-button" disabled={busy} onClick={() => void act(retry)}><Trans>Try again</Trans></button>}
       {(!outcome || retry) && <div className="decision-actions"><button className="mdbase-button" disabled={busy} onClick={() => void act("deny")}><Trans>Cancel</Trans></button></div>}
       <p className="mdbase-connect-lead">{pairing.return_url
-        ? <a href={pairing.return_url}><Trans>Return to {pairing.connector_name}</Trans></a>
+        ? <a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>
         : t(i18n)`Return to ${pairing.connector_name}.`}</p>
     </section></main>;
   }
@@ -292,25 +293,25 @@ export function Pairing({ pairingId }: { pairingId: string }) {
           {pairing.approved_at ? (
             <>
               <h1><Trans>Allowed</Trans></h1>
-              <p className="mdbase-connect-lead"><Trans>{app} now has this file access in {collection}. Return to {app} to continue.</Trans></p>
+              <p className="mdbase-connect-lead">{t(i18n)`${app} now has this file access in ${collection}. Return to ${app} to continue.`}</p>
               {permissions}
             </>
           ) : declined ? (
             <>
               <h1><Trans>Not allowed</Trans></h1>
-              <p className="mdbase-connect-lead"><Trans>{app} was not given this file access in {collection}. Return to {app}; everything else works as before.</Trans></p>
+              <p className="mdbase-connect-lead">{t(i18n)`${app} was not given this file access in ${collection}. Return to ${app}; everything else works as before.`}</p>
               {permissions}
             </>
           ) : (
             <>
-              <h1><Trans>Allow {app} this file access?</Trans></h1>
-              <p className="mdbase-connect-lead"><Trans>In {collection}. Allow only if you just asked for this in {app}.</Trans></p>
+              <h1>{t(i18n)`Allow ${app} this file access?`}</h1>
+              <p className="mdbase-connect-lead">{t(i18n)`In ${collection}. Allow only if you just asked for this in ${app}.`}</p>
               {permissions}
               <blockquote className="installation-file-access-reason">
-                <p><Trans>{app} says: {request.reason}</Trans></p>
+                <p>{t(i18n)`${app} says: ${request.reason}`}</p>
               </blockquote>
-              {installationAccountLabel(pairing) && <p className="installation-account-label"><Trans>Account: {installationAccountLabel(pairing)}</Trans></p>}
-              <p className="field-note"><Trans>mdbase remembers your choice and {app} follows it. {app} keeps its copy of this collection either way.</Trans></p>
+              {installationAccountLabel(pairing) && <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>}
+              <p className="field-note">{t(i18n)`mdbase remembers your choice and ${app} follows it. ${app} keeps its copy of this collection either way.`}</p>
               <button className="mdbase-button is-primary" disabled={busy || !pairing.fingerprint} onClick={() => void act("approve")}>
                 {busy ? t(i18n)({ message: "Allowing…", context: "Collection connection" }) : t(i18n)({ message: "Allow", context: "Collection connection" })}
               </button>
@@ -334,14 +335,14 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               <>
                 <h1><Trans>Sign-in cancelled</Trans></h1>
                 <p className="mdbase-connect-lead">{pairing.return_url
-                  ? <a href={pairing.return_url}><Trans>Return to {pairing.connector_name}</Trans></a>
+                  ? <a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>
                   : t(i18n)`Return to ${pairing.connector_name}.`}</p>
               </>
             ) : pairing.approved_at ? (
               <>
                 <h1><Trans>Access approved</Trans></h1>
                 <p className="mdbase-connect-lead">{pairing.return_url
-                  ? <a href={pairing.return_url}><Trans>Return to {pairing.connector_name}</Trans></a>
+                  ? <a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>
                   : t(i18n)`Return to ${pairing.connector_name}.`}</p>
                 {pairing.timer_declaration && <p role="status">{pairing.timer_consent
                   ? t(i18n)({ message: "You allowed reminders for the selected collections." })
@@ -349,11 +350,11 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               </>
             ) : (
               <>
-                <h1><Trans>Open {pairing.connector_name}</Trans></h1>
-                <p className="mdbase-connect-lead"><Trans>Choose a collection to use in {pairing.connector_name}.</Trans></p>
-                <p className="installation-account-label">{pairing.app_platform === "native" && isNativeLoopbackOrigin(pairing.app_origin) ? <Trans>Requested by an app running on this computer. Application identity unverified. This app calls itself {pairing.connector_name}. Approve only if you started sign-in in this app.</Trans> : <Trans>Requested by {pairing.connector_name}{appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""}{pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>}. Approve only if you started sign-in in this app.</Trans>}</p>
+                <h1><Trans>Open {literal(pairing.connector_name)}</Trans></h1>
+                <p className="mdbase-connect-lead"><Trans>Choose a collection to use in {literal(pairing.connector_name)}.</Trans></p>
+                <p className="installation-account-label">{pairing.app_platform === "native" && isNativeLoopbackOrigin(pairing.app_origin) ? <Trans>Requested by an app running on this computer. Application identity unverified. This app calls itself {literal(pairing.connector_name)}. Approve only if you started sign-in in this app.</Trans> : <Trans>Requested by {literal(pairing.connector_name)}{appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""}{pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>}. Approve only if you started sign-in in this app.</Trans>}</p>
                 {installationAccountLabel(pairing) ? (
-                  <p className="installation-account-label"><Trans>Account: {installationAccountLabel(pairing)}</Trans></p>
+                  <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>
                 ) : (
                   <>
                     <p><Trans>We couldn't identify your account. Sign in again to continue.</Trans></p>
@@ -372,12 +373,12 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     {selectedCollectionId === NEW_COLLECTION && <div className="installation-choice">
                       <label htmlFor="installation-collection-name"><Trans>New collection name</Trans></label>
                       <input id="installation-collection-name" aria-describedby="installation-collection-note" value={newCollectionName} maxLength={200} disabled={busy} readOnly={!!pairing.creation} onChange={event=>setNewCollectionName(event.target.value)} />
-                      <small id="installation-collection-note"><Trans>Approve will create this collection and open it in {pairing.connector_name}.</Trans></small>
+                      <small id="installation-collection-note"><Trans>Approve will create this collection and open it in {literal(pairing.connector_name)}.</Trans></small>
                       {pairing.creation && <small role="status"><Trans>Creation hasn't finished. Approve continues the same named collection.</Trans></small>}
                     </div>}
                     {privateChoice && <p className="field-note"><Trans>This collection stays on your computer. It can connect when a computer signed in to this account is available.</Trans></p>}
                     {privateChoice && !pairing.native_authorization_id && <p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>}
-                    <p className="mdbase-connect-footnote"><Trans>Access includes the notes and files in the collection you pick.{createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : ""}{pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""}</Trans></p>
+                    <p className="mdbase-connect-footnote"><Trans>Access includes the notes and files in the collection you pick.{literal(createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : "")}{pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""}</Trans></p>
                     {!privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || pairing.retained_collection_ids?.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="installation-advanced">
                       <summary><Trans>Advanced: allow more collections</Trans></summary>
                       <CheckboxGroup legend={t(i18n)({ message: "Additional collection access" })} disabled={busy}>
@@ -391,22 +392,22 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                         ))}
                         {(pairing.retained_collection_ids??[]).filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><div key={id}><p><Trans>Already allowed collection (currently unavailable)</Trans></p><button type="button" className="button secondary installation-account-action" onClick={()=>setRemovingId(id)}><Trans>Remove access</Trans></button></div>)}
                         {(pairing.requested_create_collections || pairing.retained_create_collections) && <Checkbox checked={createCollections} disabled={pairing.retained_create_collections} onChange={event=>setCreateCollections(event.target.checked)}>
-                           <Trans>Allow {pairing.connector_name} to create new collections</Trans> </Checkbox>}
+                           <Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans> </Checkbox>}
                       </CheckboxGroup>
                       {pairing.scope_only && <p><Trans>Already-allowed access stays in place. Remove access separately if you no longer want it.</Trans></p>}
                     </details> : null}
                     {!privateChoice && pairing.timer_declaration && <div className="installation-choice">
                       <Checkbox disabled={busy} checked={allowReminders} onChange={event=>setAllowReminders(event.target.checked)}>
-                         <Trans>Allow {pairing.connector_name} to send you reminders</Trans> </Checkbox>
+                         <Trans>Allow {literal(pairing.connector_name)} to send you reminders</Trans> </Checkbox>
                       <p className="field-note"><Trans>Applies to the collection you chose to open and any new collections selected here. Other collections are not included.</Trans></p>
                       {!allowReminders && <p role="status"><Trans>Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged.</Trans></p>}
                     </div>}
                     {removingId && <div role="group" aria-label={t(i18n)({ message: "Confirm removal", context: "Collection connection" })}>
-                      <p><Trans>{pairing.connector_name} will lose access to {pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })} on all its devices. Previously downloaded data cannot be erased.</Trans></p>
+                      <p><Trans>{literal(pairing.connector_name)} will lose access to {literal(pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))} on all its devices. Previously downloaded data cannot be erased.</Trans></p>
                       <button className="button secondary installation-account-action" disabled={busy} onClick={()=>setRemovingId("")}><Trans>Keep access</Trans></button>
                       <button className="button primary installation-account-action" disabled={busy} onClick={()=>void act("remove-access")}><Trans>Remove access</Trans></button>
                     </div>}
-                    {revokingId && <p role="status"><Trans>Removing access to {pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })}…</Trans></p>}
+                    {revokingId && <p role="status"><Trans>Removing access to {literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))}…</Trans></p>}
                     <button className="mdbase-button is-primary"
                       disabled={busy || !installationAccountLabel(pairing) || !selectedCollectionId || (selectedCollectionId===NEW_COLLECTION ? !pairing.can_create_collection || !newCollectionName.trim() : !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId))}
                       onClick={()=>void act("approve")}>
@@ -426,8 +427,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             {outcome !== "cancelled" && <details className="installation-details">
               <summary><Trans>Details</Trans></summary>
               {pairing.app_origin?.trim()
-                ? <p><Trans>Requested from <code>{pairing.app_origin}</code>. The origin shown here is not proof of who made the request.</Trans></p>
-                : <p><Trans>Requested by {pairing.connector_name}. No requesting origin is available.</Trans></p>}
+                ? <p><Trans>Requested from <code>{literal(pairing.app_origin)}</code>. The origin shown here is not proof of who made the request.</Trans></p>
+                : <p><Trans>Requested by {literal(pairing.connector_name)}. No requesting origin is available.</Trans></p>}
               <p><Trans>This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow.</Trans></p>
               {pairing.fingerprint && <p><Trans>Device key: <code>{pairing.fingerprint}</code></Trans></p>}
             </details>}
@@ -570,7 +571,7 @@ export function MirrorPairing({ pairingId }: { pairingId: string }) {
             <p className="eyebrow outcome-label"><Trans>Folder approved</Trans></p>
             <h1><Trans>Return to your computer.</Trans></h1>
             <p><Trans>
-              {selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" })} will begin syncing
+              {literal(selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" }))} will begin syncing
               automatically. You can close this page.
             </Trans></p>
           </>
@@ -707,12 +708,12 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
         {adoption.state === "completed" ? (
           <>
             <p className="eyebrow outcome-label"><Trans>Move complete</Trans></p>
-            <h1><Trans>{adoption.display_name} is now hosted.</Trans></h1>
+            <h1><Trans>{literal(adoption.display_name)} is now hosted.</Trans></h1>
             <p><Trans>
               mdbase now keeps the main copy of this collection.
-              {adoption.retain_mirror
+              {literal(adoption.retain_mirror
                 ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.`
-                : t(i18n)({ message: " The original local files are no longer the main copy." })}
+                : t(i18n)({ message: " The original local files are no longer the main copy." }))}
             </Trans></p>
             <div className="transfer-status" role="status">
               <span className="status-dot connected" aria-hidden="true" />
@@ -739,7 +740,7 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
         ) : adoption.state !== "requested" ? (
           <>
             <p className="eyebrow outcome-label"><Trans>Move approved</Trans></p>
-            <h1><Trans>Return to {adoption.source_name}.</Trans></h1>
+            <h1><Trans>Return to {literal(adoption.source_name)}.</Trans></h1>
             <p><Trans>
               The app is uploading and checking a final collection snapshot. The
               main copy will move only after that exact snapshot is complete.
@@ -764,7 +765,7 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
             <h1>{adoption.display_name}</h1>
             <p><Trans>
               Approving uploads the complete collection from{" "}
-              {adoption.source_name}, validates it as one snapshot, and then
+              {literal(adoption.source_name)}, validates it as one snapshot, and then
               makes the hosted version the main copy.
             </Trans></p>
             <div className="message">
@@ -866,14 +867,11 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
         {transfer.state === "completed" ? (
           <>
             <p className="eyebrow outcome-label"><Trans>Transfer complete</Trans></p>
-            <h1><Trans>{collectionName} now lives on your computer.</Trans></h1>
-            <p><Trans>
-              The folder on {mirrorName} is now the main copy. Hosted access has
-              stopped and previous application connections were revoked.
-            </Trans></p>
+            <h1>{t(i18n)`${collectionName} now lives on your computer.`}</h1>
+            <p>{t(i18n)`The folder on ${mirrorName} is now the main copy. Hosted access has stopped and previous application connections were revoked.`}</p>
             <div className="transfer-status" role="status">
               <span className="status-dot connected" aria-hidden="true" />
-              <span><Trans>Main copy on {mirrorName}</Trans></span>
+              <span>{t(i18n)`Main copy on ${mirrorName}`}</span>
             </div>
             <a className="button primary link-button" href="/"><Trans>
               Return to your account
@@ -883,7 +881,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
           <>
             <p className="eyebrow"><Trans>Transfer ended</Trans></p>
             <h1><Trans>The main copy stayed hosted.</Trans></h1>
-            <p><Trans>{collectionName} remains hosted. Its main copy did not move.</Trans></p>
+            <p>{t(i18n)`${collectionName} remains hosted. Its main copy did not move.`}</p>
             {error && (
               <div className="message error" role="alert">
                 {error}
@@ -896,7 +894,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
         ) : waiting ? (
           <>
             <p className="eyebrow outcome-label"><Trans>Transfer approved</Trans></p>
-            <h1><Trans>Return to {mirrorName}.</Trans></h1>
+            <h1>{t(i18n)`Return to ${mirrorName}.`}</h1>
             <p><Trans>
               mdbase connect is checking the latest hosted changes, registering
               the folder, and making it the main copy.
@@ -927,12 +925,8 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
         ) : (
           <>
             <p className="eyebrow"><Trans>Move the main copy</Trans></p>
-            <h1><Trans>Use the folder on {mirrorName} as the main copy?</Trans></h1>
-            <p><Trans>
-              {collectionName} will stop being hosted and become a
-              computer-owned collection. This changes where every future edit is
-              accepted.
-            </Trans></p>
+            <h1>{t(i18n)`Use the folder on ${mirrorName} as the main copy?`}</h1>
+            <p>{t(i18n)`${collectionName} will stop being hosted and become a computer-owned collection. This changes where every future edit is accepted.`}</p>
             <dl className="transfer-consequences">
               <div>
                 <dt><Trans>Folder</Trans></dt>

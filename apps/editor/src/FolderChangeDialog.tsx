@@ -75,7 +75,7 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
         <p><Trans>Notes in subfolders move too. Links to these notes will be updated.</Trans></p>
       </form>}
       {plan && !result && <div><p><Trans>From <code>{plan.from}</code> to <code>{plan.to}</code>. This changes paths across the collection, including subfolders.</Trans></p>
-        {plan.warnings.length > 0 && <p><Trans>{plan.warnings.length.toLocaleString(displayLocale())} link warnings need attention and will not be fixed automatically: {plan.warnings.join("; ")}</Trans></p>}
+        {plan.warnings.length > 0 && <p>{t`${plan.warnings.length.toLocaleString(displayLocale())} link warnings need attention and will not be fixed automatically: ${plan.warnings.join("; ")}`}</p>}
       </div>}
       {progress && busy && <p role="status"><Trans>Moved {progress.completed} of {progress.total} notes. {progress.path}</Trans>{progress.detail ? ` — ${progress.detail}` : ""}</p>}
       {result && <div role={result.failures.length ? "alert" : "status"}>
