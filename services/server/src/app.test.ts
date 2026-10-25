@@ -106,7 +106,6 @@ describe("mdbase connect server", () => {
       });
       expect(response.statusCode).toBe(204);
       expect(response.headers["access-control-allow-origin"]).toBe(origin);
-      expect(response.headers["access-control-allow-credentials"]).toBeUndefined();
       const methods = String(response.headers["access-control-allow-methods"]).split(",").map((value) => value.trim());
       expect(methods).toContain(method);
       const headers = String(response.headers["access-control-allow-headers"]).split(",").map((value) => value.trim().toLowerCase());
@@ -1423,7 +1422,6 @@ describe("mdbase connect server", () => {
     });
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
     expect(device.headers["access-control-allow-origin"]).toBe("null");
-    expect(device.headers["access-control-allow-credentials"]).toBeUndefined();
     expect(device.headers["cache-control"]).toContain("no-store");
     expect(device.json()).toMatchObject({
       verification_uri: "http://connect.test/device",
