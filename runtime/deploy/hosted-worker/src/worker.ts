@@ -414,7 +414,8 @@ export class HostedCollection extends DurableObject<Env> {
         return;
       }
       if (input.operation === "rollback" || input.operation === "restart") {
-        if (native.outstanding) throw new Error("migration_operator_outstanding_unknown");
+        if (native.outstanding && !(input.operation === "rollback" && [4, 5].includes(native.outstanding.kind)
+            && native.checkpoint?.step === STEP.created)) throw new Error("migration_operator_outstanding_unknown");
         if (input.operation === "restart") {
           engine.restartMigrationDriver(cpp, claim, input.expectedSequence);
         } else {

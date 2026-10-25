@@ -168,7 +168,7 @@ export class Probe extends HostedCollection {
         // Config/CPP/source transports remain PUBLIC synthetic fixture DATA.
         const response = await super.fetch(new Request("https://worker.test/v1/hosted/migration/operator?collection=" + f.collection, {
           method: "POST", headers: { authorization: "Bearer " + "public-native-token".repeat(3), "content-type": "application/json" },
-          body: JSON.stringify({ collection: f.collection, operation: "resume", expected_run_sequence: Number(query.get("sequence")) })
+          body: JSON.stringify({ collection: f.collection, operation: query.get("operation") ?? "resume", expected_run_sequence: Number(query.get("sequence")) })
         }));
         await this.ctx.storage.deleteAlarm();
         return Response.json({ status: response.status, body: await response.json() });
@@ -213,6 +213,11 @@ export class Probe extends HostedCollection {
     // Override transports only. ALL prepare/seal/settle/physical-confirmation
     // operations still go through HostedCollection.migrationHost unmodified.
     const host = this.migrationHost();
+    if (query.get("fault") === "gen0") {
+      const method = query.get("faultKind") === "5" ? "gen0Finish" : "gen0Window";
+      const seal = host[method];
+      host[method] = (...args) => { seal(...args); throw Error("public_gen0_output_lost"); };
+    }
     host.putObject = async (collection, object) => {
       if (collection !== f.collection) throw Error("foreign object collection");
       await this.external("put", [object.address, object.bytes]);
@@ -534,7 +539,19 @@ async function scenario(name, config, qualify) {
     bindings: { CP_URL: "https://connect-lab.mdbase.dev", CP_MIGRATION_TOKEN: "public-native-token".repeat(3),
       HOSTED_SERVICE_TOKEN: "public-native-token".repeat(3) },
     durableObjects: { COLLECTIONS: { className: "Probe", useSQLite: true } },
-    serviceBindings: { FIXTURES: service.fixtureService }, resourcePersistencePath: scratch, resourceTmpPath: scratch
+    serviceBindings: { FIXTURES: service.fixtureService },
+    // No external calls: exercise the production operator's real Connect client
+    // against only the synthetic source endpoint; refuse every other outbound.
+    outboundService: async request => {
+      const url = new URL(request.url);
+      assert.equal(url.hostname, "connect-lab.mdbase.dev");
+      assert.equal(url.pathname, "/internal/v1/next/migration/collections/" + f.collection + "/source");
+      const reply = await service.fixtureService(new Request("http://fixture.test/connect", {
+        method: "POST", body: JSON.stringify(["source", [f.collection]])
+      })).then(r => r.json());
+      return Response.json(reply.body, { status: reply.status });
+    },
+    resourcePersistencePath: scratch, resourceTmpPath: scratch
   });
   let mf, passed = false;
   const call = async (query = {}) => {
@@ -707,6 +724,38 @@ await scenario("lost physical pause ACK persists stopped H1 across reopen withou
   assert.deepEqual((await ctx.state()).ledger, before.ledger);
   assert.ok(!ctx.service.effects.includes("cutoverPolicy"));
 });
+for (const kind of [4, 5]) {
+  await scenario("fenced staged gen0 kind " + kind + " authenticated rollback survives reopen", {}, async ctx => {
+    const stopped = await ctx.call({ fault: "gen0", faultKind: kind });
+    assert.match(stopped.reason, /^gen0_window_unknown:/);
+    const before = await ctx.state();
+    assert.equal(before.native.checkpoint.step, 2);
+    assert.equal(before.native.checkpoint.fenced, true);
+    assert.equal(before.native.outstanding.kind, kind);
+    assert.equal(ctx.service.providerState.fenced, true);
+    await ctx.reopen();
+    const stale = await ctx.call({ op: "operator", operation: "rollback", sequence: before.native.runSequence + 1 });
+    assert.equal(stale.status, 409);
+    assert.equal((await ctx.state()).native.outstanding.kind, kind);
+    const rolled = await ctx.call({ op: "operator", operation: "rollback", sequence: before.native.runSequence });
+    assert.equal(rolled.status, 200, JSON.stringify(rolled));
+    await ctx.reopen();
+    assert.equal((await ctx.state()).native.outstanding, null);
+    await ctx.call();
+    const terminal = await ctx.state();
+    assert.equal(terminal.native.checkpoint.step, 21);
+    assert.equal(terminal.native.checkpoint.fenced, false);
+    assert.equal(ctx.service.providerState.fenced, false);
+    assert.ok(terminal.ledger.every(row => row.settled === 1));
+    assert.equal(ctx.service.effects.filter(e => e === "rollback").length, 1);
+    assert.equal(ctx.service.effects.includes("append"), false);
+    assert.equal(ctx.service.effects.includes("cutover"), false);
+    const restarted = await ctx.call({ op: "restart", sequence: before.native.runSequence });
+    assert.equal(restarted.native.runSequence, before.native.runSequence + 1);
+    assert.equal(restarted.native.checkpoint.step, 0);
+  });
+}
+
 await scenario("small signed-policy native cutover + persistent reopen", {}, cutover);
 await scenario("gen0 multi-window, paged hydration and streamRecord native cutover", { many: true }, async ctx => {
   const final = await cutover(ctx);
