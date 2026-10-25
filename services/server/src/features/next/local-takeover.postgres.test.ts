@@ -33,7 +33,7 @@ pgDescribe("local retirement and enrollment (isolated real Postgres)", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerLocalTakeoverRoutes(app, { db, relay });
-    registerNextDeviceRoutes(app, { db, log: noLog, relay });
+    registerNextDeviceRoutes(app, { db, log: noLog });
     registerConnectorInventoryRoutes(app, { db });
     await app.ready();
   }, 60_000);
@@ -240,7 +240,7 @@ pgDescribe("local retirement and enrollment (isolated real Postgres)", () => {
     } }) as DatabasePool;
     const staleApp = Fastify();
     if (operation === "inventory") registerConnectorInventoryRoutes(staleApp, { db: wrapped });
-    else registerNextDeviceRoutes(staleApp, { db: wrapped, log: noLog, relay });
+    else registerNextDeviceRoutes(staleApp, { db: wrapped, log: noLog });
     try {
       const rows = (await state(f)).rows, grants = (await state(f)).grants;
       const response = operation === "inventory" ? await inventory(request, staleApp)

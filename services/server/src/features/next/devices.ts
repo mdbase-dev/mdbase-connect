@@ -19,7 +19,6 @@ import { NOISE_PIPE_CAPABILITY, type NoisePipes } from "./noise-pipes.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, uuidBytes } from "./policy-wire.js";
 import { inTransaction } from "./bootstrap-common.js";
-import { audit } from "../../platform/audit-events.js";
 
 export const NEXT_DEVICE_CAPABILITY = "next_device_v1";
 
@@ -113,8 +112,6 @@ export function deviceRegistrationDigest(input: { challenge: Uint8Array; connect
 
 /**
  * Register (or re-register with identical keys) the daemon device of a connector.
- * A daemon that signed in again moves its device to the new connector and returns
- * the old connector it retired, for the caller to fence on the relay.
  * The challenge is consumed in the same transaction.
  */
 export async function registerDevice(
@@ -122,7 +119,7 @@ export async function registerDevice(
   connector: { id: string; user_id: string },
   body: Record<string, unknown>,
   originalTokenHash: string
-): Promise<{ device_id: string; retired?: { connector_id: string; fence_generation: string } }> {
+): Promise<{ device_id: string }> {
   if (typeof originalTokenHash !== "string" || originalTokenHash.length === 0) {
     throw new DeviceRegistrationError("identity_not_current", "The connector credential is no longer current.");
   }
@@ -169,52 +166,26 @@ export async function registerDevice(
       [challenge, connector.id]
     );
     if (used.rowCount !== 1) throw new DeviceRegistrationError("challenge_invalid", "The challenge is unknown, used or expired.");
-    const existing = await client.query<{ id: string; connector_id: string; user_id: string; kind: string; sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer }>(
-      "SELECT id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk FROM next_devices WHERE id = $1 OR connector_id = $2 FOR UPDATE",
+    const existing = await client.query<{ id: string; connector_id: string; sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer }>(
+      "SELECT id, connector_id, sign_pk, kem_pk, noise_pk FROM next_devices WHERE id = $1 OR connector_id = $2 FOR UPDATE",
       [deviceId, connector.id]
     );
-    if (existing.rows.some(row => row.id !== deviceId)) {
-      throw new DeviceRegistrationError("device_already_bound", "This connector or device is already registered to another.");
-    }
     const row = existing.rows[0];
-    if (!row) {
+    if (row) {
+      if (row.id !== deviceId || row.connector_id !== connector.id) {
+        throw new DeviceRegistrationError("device_already_bound", "This connector or device is already registered to another.");
+      }
+      if (!row.sign_pk.equals(signPk) || !row.kem_pk.equals(kemPk) || !row.noise_pk.equals(noisePk)) {
+        throw new DeviceRegistrationError("device_keys_changed", "A device's keys never change; register a new device.");
+      }
+    } else {
       await client.query(
         `INSERT INTO next_devices (id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [deviceId, connector.id, connector.user_id, kind, signPk, kemPk, noisePk]
       );
-      return { device_id: deviceId };
     }
-    const sameKeys = row.sign_pk.equals(signPk) && row.kem_pk.equals(kemPk) && row.noise_pk.equals(noisePk);
-    if (row.connector_id === connector.id) {
-      if (!sameKeys) throw new DeviceRegistrationError("device_keys_changed", "A device's keys never change; register a new device.");
-      return { device_id: deviceId };
-    }
-    // The same computer signed in again (sign-out forgets the connector token
-    // locally, so the device row still names the old connector). Move the
-    // device to the new connector and retire the old one, but only for the same
-    // account's desktop/CLI device with identical keys (the signature above
-    // proves possession of them) whose old connector is still live. A connector
-    // that was revoked (computer removed, account revoked) keeps its device
-    // retired. Device enrolments and revocations in collection logs are untouched.
-    if (row.user_id !== connector.user_id || row.kind !== kind || (kind !== "desktop" && kind !== "cli") || !sameKeys) {
-      throw new DeviceRegistrationError("device_already_bound", "This connector or device is already registered to another.");
-    }
-    const retired = await client.query<{ fence_generation: string | number }>(
-      `UPDATE connectors SET revoked_at = now(), relay_generation = relay_generation + 1
-       WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
-       RETURNING relay_generation AS fence_generation`,
-      [row.connector_id, connector.user_id]
-    );
-    if (!retired.rows[0]) {
-      throw new DeviceRegistrationError("device_already_bound", "This device belongs to a computer that was removed.");
-    }
-    const generation = String(retired.rows[0].fence_generation);
-    await client.query("UPDATE next_devices SET connector_id = $2 WHERE id = $1", [deviceId, connector.id]);
-    await audit(client, connector.user_id, "connector.revoked", row.connector_id, {
-      reason: "device_signed_in_again", device_id: deviceId, replaced_by: connector.id, fence_generation: generation
-    });
-    return { device_id: deviceId, retired: { connector_id: row.connector_id, fence_generation: generation } };
+    return { device_id: deviceId };
   });
 }
 

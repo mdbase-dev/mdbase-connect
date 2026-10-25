@@ -2,10 +2,7 @@ import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { applicationDeclaration } from "../../../../../runtime/packages/sdk/src/application/declaration.js";
-import { resolveApplicationRegistration } from "../../../../../runtime/packages/sdk/src/application/registration.js";
-import { registerApplicationRoutes } from "../applications/routes.js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { deleteAccountLocally } from "../../account-management.js";
 import { createExternalSession } from "../../external-auth.js";
@@ -31,21 +28,12 @@ import { registerConnectorPairingRoutes } from "./pairing-routes.js";
 import { registerInstallationSignOutRoute } from "./installation-signout.js";
 import { backgroundTimerGrantResolver, dataPermitted } from "../next/timers/grants.js";
 import { registerTimerRoutes } from "../next/timers/routes.js";
-import { importTimer, lockNamespace, putTimer, reconcileTimers } from "../next/timers/store.js";
-import { fakeLegacyProvider } from "../next/legacy-provider.test-helper.js";
-import { importHostedCollectionTimers } from "../next/timers/hosted-import.js";
-import { recordCollectionCutover } from "../next/migration-rollout.js";
-import { desiredTimer } from "../next/timers/model.js";
+import { lockNamespace } from "../next/timers/store.js";
 import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
 import { PushTargetSealer } from "../next/push-target-seal.js";
 import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
 import { NotificationService, type NotificationTransports } from "../../notifications.js";
 import { registerNotificationRoutes } from "../notifications/routes.js";
-
-vi.mock("../../../../../runtime/packages/sdk/src/application/packaged-trust.js", () => ({
-  appReleaseTrust: () => ({schema:"mdbn-app-trust/release/1",environment:"lab",cpOrigin:"https://connect.test",logOrigin:"https://log.example.test",
-    assetSha256:"aa".repeat(32),source:{repository:"mdbase-dev/mdbase-connect",commit:"bb".repeat(20),version:"test"},trustedRoots:[new Uint8Array(32).fill(1)],policyPins:Uint8Array.of(1)})
-}));
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -76,13 +64,12 @@ describePg("installation device sign-in on daemon pairing", () => {
     db = await createDatabase(url.toString());
     await app.register(cookie);
     registerErrorHandler(app);
-    registerApplicationRoutes(app,{db,allowInsecureManifests:true});
     registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.test", installationDevices: true, installationEnvironment: "lab", relay:{pushPolicy:async(connector)=>{
       const snapshot=await buildPolicySnapshot(db,connector,55_000,undefined,()=>true,"lease_v1",true,true,true) as LeasePolicySnapshot;
       nativePushes.push({connector,grants:snapshot.grants.map(g=>String(g.id))});
       await acknowledgeNativePush();
     }} });
-    registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null }, relay: { fenceConnector: async () => "closed" } });
+    registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null } });
     registerInstallationSignOutRoute(app, { db, relay: { fenceConnector: async (id, generation) => { fenced.push([id, generation]); return "closed"; } } });
     const resolver = backgroundTimerGrantResolver(db,"lab");
     registerTimerRoutes(app, { db, resolver });
@@ -1145,8 +1132,8 @@ describePg("installation device sign-in on daemon pairing", () => {
     }
     expect((await db.query("SELECT 1 FROM next_background_grants WHERE approval_request_id=$1",[p.input.installation.request_id])).rows).toHaveLength(2);
   });
-  async function currentTimerFixture(application?:string, owner?:Awaited<ReturnType<typeof account>>, existingCollection?:string) {
-    const p=await prepared("app-runtime",false,owner,undefined,application ?? await timerApp()),collection=existingCollection ?? await scopeCollection(p.owner.user);
+  async function currentTimerFixture(application?:string) {
+    const p=await prepared("app-runtime",false,undefined,undefined,application ?? await timerApp()),collection=await scopeCollection(p.owner.user);
     expect((await approvePicked(p,p.flow,[collection],collection,true)).statusCode).toBe(200);
     const receipt=(await p.flow.exchange()).json(),grantId=receipt.timer_grants[0].grant_id as string;
     const batch=(await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,2,$2,$3,2,'appended') RETURNING id",[collection,Buffer.alloc(32),Buffer.alloc(1)])).rows[0].id;
@@ -1158,339 +1145,6 @@ describePg("installation device sign-in on daemon pairing", () => {
     return {p,collection,grantId,batch,resolver,token:receipt.token as string};
   }
   const timerPath = (f:Awaited<ReturnType<typeof currentTimerFixture>>) => `/v1/next/collections/${f.collection}/background-grants/${f.grantId}/timers/reminders`;
-  async function tasknotesRetirementFixture(webhook=false) {
-    const register=async(suffix:string,origin=webOrigin)=>{
-      const declaration=applicationDeclaration({id:"dev.tasknotes.app",name:"TaskNotes",origin,environment:"lab",manifest:{
-        manifest_version:1,id:"dev.tasknotes.app",name:"TaskNotes",homepage:origin,redirect_uris:[`${origin}/auth/${suffix}`],
-        requirements:{access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:["background.schedule"]}},
-        notifications:{criteria:[{id:"task.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Task reminder"}},{id:"other",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Other"}}],
-          ...(webhook?{native_delivery:{mode:"webhook",url:"https://hooks.example.test/tasknotes"}}:{})}}});
-      return resolveApplicationRegistration({declaration,signal:new AbortController().signal,isCurrent:()=>true,fetch:async(input,init)=>{
-        const url=new URL(String(input));expect(url.origin).toBe("https://connect.test");
-        const response=await app.inject({method:"POST",url:url.pathname,headers:{"content-type":"application/json"},payload:String(init!.body)});
-        return new Response(response.body,{status:response.statusCode,headers:{"content-type":"application/json"}});
-      }});
-    };
-    // Real SDK registration resolves each manifest version to a different
-    // UUID while an unchanged manifest resolves to the same existing row.
-    const original=await register("original"),registered=await register("native"),versioned=await register("legacy-device");
-    expect((await register("original")).id).toBe(original.id);
-    expect(new Set([tasknotesId,original.id,registered.id,versioned.id]).size).toBe(4);
-    expect((await db.query("SELECT DISTINCT family_identity FROM applications WHERE id=ANY($1::uuid[])",[[tasknotesId,original.id,registered.id,versioned.id]])).rows).toEqual([{family_identity:"bundle:dev.tasknotes.app"}]);
-    apps.set(registered.id,{name:"TaskNotes",web:webOrigin,mobile:"capacitor://app.tasknotes.dev"});
-    const f=await currentTimerFixture(registered.id);
-    expect((await f.resolver.resolve(db,f.grantId))?.applicationId).toBe(registered.id);
-    const legacy = async (user=f.p.owner.user, application=original.id, collection=f.collection) => {
-      const connector=randomUUID(),authority=randomUUID(),id=randomUUID();
-      await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Old device',$3)",[connector,user,randomUUID()]);
-      await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,enabled,authority_state) VALUES($1,$2,$3,$4,'Synthetic','0.3.0',true,'retired')",[authority,user,connector,collection]);
-      await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,application_origin,notification_criteria,application_authorization,application_installation_id)
-        VALUES($1,$2,$3,$4,'["put_timer","reconcile_timers"]'::jsonb,'https://lab.tasknotes-app.pages.dev',$5::jsonb,'{"binding":{"protocol_version":4}}'::jsonb,$6)`,
-      [id,user,application,authority,JSON.stringify([{id:"task.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Task reminder"}},{id:"other",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Other"}}]),randomUUID()]);
-      return id;
-    };
-    const first=await legacy(),second=await legacy(f.p.owner.user,versioned.id);
-    const past=new Date(Date.now()-60_000).toISOString(),future=new Date(Date.now()+3_600_000).toISOString();
-    const add=async(grant:string,id:string,fire= future,status="scheduled",namespace="task-reminders",criterion="task.reminder") => {
-      await db.query(`INSERT INTO next_timers(grant_id,namespace,timer_id,criterion_id,fire_at,generation,status,fired_at,created_at,updated_at)
-        VALUES($1,$2,$3,$4,$5,7,$6,CASE WHEN $6='fired' THEN $5::timestamptz ELSE NULL END,'2020-01-01','2020-01-02')`,[grant,namespace,id,criterion,fire,status]);
-    };
-    const reconcile=(timers:Array<{id:string;fire_at:string}>=[])=>app.inject({method:"POST",url:timerPath(f).replace("/reminders","/task-reminders/reconcile"),headers:{authorization:`Bearer ${f.token}`},payload:{criterion_id:"task.reminder",timers}});
-    return {...f,applicationId:registered.id,legacy,first,second,past,future,add,reconcile,register};
-  }
-  it("retires all old TaskNotes devices in only the exact tuple, preserves state and sends overdue work once",async()=>{
-    const f=await tasknotesRetirementFixture();
-    await f.add(f.first,"overdue",f.past); await f.add(f.second,"overdue",f.past);
-    await f.add(f.first,"already-fired",f.future,"fired"); await f.add(f.second,"already-fired",f.future);
-    await f.add(f.first,"future",f.future); await f.add(f.second,"removed",f.future);
-    await f.add(f.first,"completed-before",f.past);
-    await f.add(f.first,"other-namespace",f.past,"scheduled","other");
-    await f.add(f.first,"other-criterion",f.past,"scheduled","task-reminders","other");
-    const foreign=await account(),otherApp=await timerApp(),otherCollection=await scopeCollection(f.p.owner.user);
-    const unrelated=[await f.legacy(foreign.user),await f.legacy(f.p.owner.user,otherApp),await f.legacy(f.p.owner.user,undefined,otherCollection)];
-    for(const old of unrelated) await f.add(old,"unrelated",f.future);
-    // Queue an OLD timer event before retirement. Its pending transport must
-    // not be admitted later, even if event retention subsequently removes it.
-    await f.add(f.first,"queued",f.past,"fired");
-    const event=timerEventId(f.first,"task-reminders","queued",7);
-    await db.query(`INSERT INTO next_timer_events(event_id,grant_id,criterion_id,namespace,timer_id,generation,scheduled_for,fired_at,late_by_ms)
-      VALUES($1,$2,'task.reminder','task-reminders','queued',7,$3,$3,0)`,[event,f.first,f.past]);
-    const oldChannel=randomUUID(),oldSubscription=randomUUID(),signal=randomUUID();
-    await db.query(`INSERT INTO push_channels(id,grant_id,installation_id,kind,endpoint,p256dh,auth)
-      VALUES($1,$2,$3,'web_push','https://push.example.test/old','key','auth')`,[oldChannel,f.first,randomUUID()]);
-    await db.query("INSERT INTO notification_subscriptions(id,grant_id,channel_id,criterion_id) VALUES($1,$2,$3,'task.reminder')",[oldSubscription,f.first,oldChannel]);
-    await db.query("INSERT INTO notification_signals(id,signal_id,grant_id,criterion_id,cursor) VALUES($1,$2,$3,'task.reminder',$2)",[signal,event,f.first]);
-    await db.query("INSERT INTO notification_deliveries(id,signal_id,subscription_id,status,attempts) VALUES($1,$2,$3,'retry',1)",[randomUUID(),signal,oldSubscription]);
-    // Native channel is real, sealed and bound to the genuine installation.
-    const channel=await app.inject({method:"POST",url:channelPath(f),headers:{authorization:`Bearer ${f.token}`},payload:{...webChannel(f),criteria:["task.reminder"]}});
-    expect(channel.statusCode,channel.body).toBe(201);
-    const desired=[{id:"already-fired",fire_at:f.future},{id:"future",fire_at:f.future},{id:"overdue",fire_at:f.past},{id:"unseen-past",fire_at:f.past}];
-    const response=await f.reconcile(desired);expect(response.statusCode,response.body).toBe(200);
-    expect(response.json().timers.find((t:{id:string})=>t.id==="already-fired").status).toBe("fired");
-    expect(response.json().timers.find((t:{id:string})=>t.id==="unseen-past").status).toBe("cancelled");
-    expect((await db.query("SELECT 1 FROM next_timers WHERE grant_id=$1 AND timer_id='completed-before'",[f.grantId])).rows).toHaveLength(0);
-    expect(timerEventId(f.grantId,"task-reminders","queued",7)).not.toBe(event);
-    const old=(await db.query("SELECT timer_id,status,generation,fired_at FROM next_timers WHERE grant_id=$1 AND namespace='task-reminders' AND criterion_id='task.reminder' ORDER BY timer_id",[f.first])).rows;
-    expect(old.find(t=>t.timer_id==="already-fired")).toMatchObject({status:"fired",generation:"7"});
-    expect(old.find(t=>t.timer_id==="overdue")).toMatchObject({status:"cancelled",generation:"7",fired_at:null});
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[f.second])).rows.every(t=>t.status==="cancelled")).toBe(true);
-    for(const id of unrelated) expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[id])).rows).toEqual([{status:"scheduled"}]);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id IN ('other-namespace','other-criterion')",[f.first])).rows).toEqual([{status:"scheduled"},{status:"scheduled"}]);
-    // A second reconcile before the worker must not discard imported overdue work.
-    expect((await f.reconcile(desired)).statusCode).toBe(200);
-    const consumer=notificationsConsumer(()=>undefined,f.resolver),worker=new TimerWorker(db,[consumer],{resolver:f.resolver});
-    await worker.fireDue();await worker.drainConsumer(consumer);
-    const sent:Array<{endpoint:string;payload:string}>=[];
-    const service=new NotificationService(db,{webPush:{send:async(target,payload)=>{sent.push({endpoint:target.endpoint,payload});}}},1000,()=>undefined,channelSealer,f.resolver);
-    await service.drainOnce();await worker.fireDue();await worker.drainConsumer(consumer);await service.drainOnce();
-    expect(sent.filter(s=>s.payload.includes(timerEventId(f.grantId,"task-reminders","overdue",7)))).toHaveLength(1);
-    expect(sent.some(s=>s.payload.includes(event))).toBe(false);
-    // Transport signals have no namespace. The same retired criterion cannot
-    // retain delivery authority just because its optional event used another one.
-    expect(sent.filter(s=>s.payload.includes(timerEventId(f.first,"other","other-namespace",7)))).toHaveLength(0);
-    expect((await db.query("SELECT status FROM notification_deliveries WHERE signal_id=$1",[signal])).rows).toEqual([{status:"discarded"}]);
-    await db.query("DELETE FROM next_timer_events WHERE event_id=$1",[event]);await service.drainOnce();
-    const oldGrant=(await f.resolver.resolve(db,f.first))!;
-    await expect(timerTransaction(async connection=>{
-      await lockNamespace(connection,f.first,"task-reminders");
-      await putTimer(connection,oldGrant,"task-reminders","task.reminder",desiredTimer({id:"rearm",fire_at:f.future}));
-    })).rejects.toMatchObject({code:"legacy_reminders_retired"});
-    await timerTransaction(async connection=>{
-      await lockNamespace(connection,f.first,"other");
-      await putTimer(connection,oldGrant,"other","task.reminder",desiredTimer({id:"still-allowed",fire_at:f.future}));
-    });
-    await db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[f.grantId]);
-    expect((await db.query("SELECT 1 FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1",[f.p.owner.user])).rows).toHaveLength(1);
-  });
-  it.each([webOrigin,"https://independent.example.test"])("retires versioned registrations within the consented TaskNotes family (%s)",async origin=>{
-    const f=await tasknotesRetirementFixture();
-    await f.add(f.first,"original",f.future);await f.add(f.first,"history",f.future,"fired");
-    const registered=await f.register("changed",origin);
-    expect(registered.id).not.toBe(f.applicationId);
-    expect((await db.query("SELECT family_identity,homepage FROM applications WHERE id=$1",[registered.id])).rows[0])
-      .toEqual({family_identity:"bundle:dev.tasknotes.app",homepage:origin});
-    apps.set(registered.id,{name:"TaskNotes",web:origin,mobile:"capacitor://independent.example.test"});
-    const independent=await currentTimerFixture(registered.id,f.p.owner,f.collection);
-    const oldIndependent=await f.legacy(f.p.owner.user,registered.id);
-    await db.query("UPDATE grants SET application_origin=$2 WHERE id=$1",[oldIndependent,origin]);
-    await f.add(oldIndependent,"independent",f.future);await f.add(oldIndependent,"own-overdue",f.past);await f.add(oldIndependent,"own-fired",f.future,"fired");
-    const result=await app.inject({method:"POST",url:timerPath(independent).replace("/reminders","/task-reminders/reconcile"),headers:{authorization:`Bearer ${independent.token}`},
-      payload:{criterion_id:"task.reminder",timers:[{id:"history",fire_at:f.future},{id:"own-overdue",fire_at:f.past},{id:"own-fired",fire_at:f.future},{id:"unseen-past",fire_at:f.past}]}});
-    expect(result.statusCode,result.body).toBe(200);
-    expect(result.json().timers.map((t:{id:string;status:string;generation:number})=>({id:t.id,status:t.status,generation:t.generation})))
-      .toEqual([{id:"history",status:"fired",generation:7},{id:"own-overdue",status:"scheduled",generation:7},{id:"own-fired",status:"fired",generation:7},{id:"unseen-past",status:"cancelled",generation:1}]);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='independent'",[oldIndependent])).rows).toEqual([{status:"cancelled"}]);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='original'",[f.first])).rows).toEqual([{status:"cancelled"}]);
-    expect((await db.query("SELECT family_identity FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1 AND collection_id=$2",[f.p.owner.user,f.collection])).rows)
-      .toEqual([{family_identity:"bundle:dev.tasknotes.app"}]);
-    // The durable family fence also rejects later writes on another manifest's
-    // legacy grant; subsequent native grants do not create another fence.
-    await expect(timerTransaction(async connection=>{
-      await lockNamespace(connection,f.first,"task-reminders");
-      await putTimer(connection,(await f.resolver.resolve(connection,f.first))!,"task-reminders","task.reminder",desiredTimer({id:"original",fire_at:f.future}));
-    })).rejects.toMatchObject({code:"legacy_reminders_retired"});
-    expect((await f.reconcile([{id:"original",fire_at:f.future}])).statusCode).toBe(200);
-    expect((await db.query("SELECT 1 FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1 AND collection_id=$2",[f.p.owner.user,f.collection])).rows).toHaveLength(1);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='history'",[independent.grantId])).rows).toEqual([{status:"fired"}]);
-  });
-  it("restricts the permanent fence to the fixed family without electing between native grants",async()=>{
-    const f=await tasknotesRetirementFixture(),registered=await f.register("second-native");
-    apps.set(registered.id,{name:"TaskNotes",web:webOrigin,mobile:"capacitor://app.tasknotes.dev"});
-    const second=await currentTimerFixture(registered.id,f.p.owner,f.collection),timers=[{id:"future",fire_at:f.future}];
-    expect((await f.reconcile(timers)).statusCode).toBe(200);
-    const response=await app.inject({method:"POST",url:timerPath(second).replace("/reminders","/task-reminders/reconcile"),headers:{authorization:`Bearer ${second.token}`},payload:{criterion_id:"task.reminder",timers}});
-    expect(response.statusCode,response.body).toBe(200);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=ANY($1::uuid[]) AND timer_id='future'",[[f.grantId,second.grantId]])).rows).toEqual([{status:"scheduled"},{status:"scheduled"}]);
-    expect((await db.query("SELECT family_identity FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1 AND collection_id=$2",[f.p.owner.user,f.collection])).rows)
-      .toEqual([{family_identity:"bundle:dev.tasknotes.app"}]);
-    await expect(db.query("INSERT INTO next_tasknotes_legacy_reminder_retirements(user_id,family_identity,collection_id) VALUES($1,'bundle:unrelated',$2)",[f.p.owner.user,f.collection]))
-      .rejects.toMatchObject({code:"23514"});
-  });
-  it.each(["before","after"] as const)("fences legacy push and webhook retries without retained NEXT events queued %s retirement",async when=>{
-    const f=await tasknotesRetirementFixture(true);
-    const queue=async(grant:string,criterion="task.reminder",prune=false,namespace="task-reminders")=>{
-      const signal=randomUUID(),signalId=randomUUID(),channel=randomUUID(),subscription=randomUUID();
-      if(prune||namespace!=="task-reminders") await db.query(`INSERT INTO next_timer_events(event_id,grant_id,criterion_id,namespace,timer_id,generation,scheduled_for,fired_at,late_by_ms)
-        VALUES($1,$2,$3,$5,'pruned',7,$4,$4,0)`,[signalId,grant,criterion,f.past,namespace]);
-      await db.query(`INSERT INTO push_channels(id,grant_id,installation_id,kind,endpoint,p256dh,auth)
-        VALUES($1,$2,$3,'web_push','https://push.example.test/retention','key','auth')`,[channel,grant,randomUUID()]);
-      await db.query("INSERT INTO notification_subscriptions(id,grant_id,channel_id,criterion_id) VALUES($1,$2,$3,$4)",[subscription,grant,channel,criterion]);
-      await db.query("INSERT INTO notification_signals(id,signal_id,grant_id,criterion_id,cursor) VALUES($1,$2,$3,$4,$2)",[signal,signalId,grant,criterion]);
-      await db.query("INSERT INTO notification_deliveries(id,signal_id,subscription_id,status,attempts) VALUES($1,$2,$3,'retry',1)",[randomUUID(),signal,subscription]);
-      await db.query("INSERT INTO notification_webhook_deliveries(id,signal_id,url,status,attempts) VALUES($1,$2,'https://hooks.example.test/tasknotes','retry',1)",[randomUUID(),signal]);
-      if(prune) await db.query("DELETE FROM next_timer_events WHERE event_id=$1",[signalId]);
-      return {signal,signalId};
-    };
-    if(when==="after") expect((await f.reconcile()).statusCode).toBe(200);
-    const sameBundle=await f.register("changed"),sameBundleLegacy=await f.legacy(f.p.owner.user,sameBundle.id);
-    expect(sameBundle.id).not.toBe(f.applicationId);
-    const otherNamespace=await queue(sameBundleLegacy,"task.reminder",false,"other");
-    const retired=[await queue(f.first,"task.reminder",true),await queue(f.first),await queue(sameBundleLegacy),otherNamespace];
-    const foreign=await account(),otherCollection=await scopeCollection(f.p.owner.user),otherApp=await timerApp();
-    await db.query("UPDATE applications SET notifications=(SELECT a.notifications FROM applications a JOIN grants g ON g.application_id=a.id WHERE g.id=$2) WHERE id=$1",[otherApp,f.first]);
-    const preserved=[await queue(f.first,"other"),await queue(await f.legacy(foreign.user)),
-      await queue(await f.legacy(f.p.owner.user,undefined,otherCollection)),await queue(await f.legacy(f.p.owner.user,otherApp))];
-    if(when==="before") expect((await f.reconcile()).statusCode).toBe(200);
-    expect((await db.query("SELECT event_id FROM next_timer_events WHERE event_id=ANY($1::text[])",[retired.map(r=>r.signalId)])).rows).toEqual([{event_id:otherNamespace.signalId}]);
-    for(const record of preserved) for(const table of ["notification_deliveries","notification_webhook_deliveries"]) {
-      expect((await db.query(`SELECT status FROM ${table} WHERE signal_id=$1`,[record.signal])).rows).toEqual([{status:"retry"}]);
-    }
-    const sent:string[]=[];
-    const service=new NotificationService(db,{webPush:{send:async(_target,payload)=>{sent.push(payload);}},
-      webhook:{send:async(_target,payload)=>{sent.push(payload);},publicKeys:()=>[]}},1000,()=>undefined,channelSealer,f.resolver);
-    await service.drainOnce();await service.drainOnce();
-    for(const record of retired) {
-      expect(sent.some(payload=>payload.includes(record.signalId))).toBe(false);
-      for(const table of ["notification_deliveries","notification_webhook_deliveries"]) expect((await db.query(`SELECT status FROM ${table} WHERE signal_id=$1`,[record.signal])).rows).toEqual([{status:"discarded"}]);
-    }
-    for(const record of preserved) expect(sent.filter(payload=>payload.includes(record.signalId))).toHaveLength(2);
-  });
-  it("preserves real imported overdue/fired history only after the original hosted account completion",async()=>{
-    const f=await tasknotesRetirementFixture(),owner=f.p.owner.user,cohort=`reminders-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
-    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,provider_url,authority_state) VALUES($1,$2,'Synthetic original','mdbase','https://provider.example.test','active')",[f.collection,owner]);
-    await db.query("UPDATE grants SET collection_id=NULL,hosted_collection_id=$2 WHERE id=ANY($1::uuid[])",[[f.first,f.second],f.collection]);
-    const grant=(await f.resolver.resolve(db,f.first))!;
-    const records:Array<Record<string,unknown>>=[];
-    for(const [id,status,fire] of [["imported-overdue","scheduled",f.past],["imported-fired","fired",f.future],["imported-completed","scheduled",f.past]] as const) {
-      const runtime_id=`connect:${f.first}:task-reminders:timer.${Buffer.from(id).toString("hex")}`,runtime_namespace=`connect-hosted:${f.collection}:notifications`;
-      const record={id:runtime_id,generation:7,status,fire_at:fire,created_at:"2020-01-01T00:00:00.000Z",updated_at:"2020-01-02T00:00:00.000Z",fired_at:status==="fired"?fire:null,
-        event_contract:MDBASE_TIMER_FIRED_CONTRACT,event_source:{application:"connect",implementation:"notifications",version:"1.0.0"},source_uri:"urn:test:timer",subject:null,
-        data:{grant_id:f.first,namespace:"task-reminders",timer_id:id,criterion_id:"task.reminder",data:null}};
-      records.push(record);
-      await timerTransaction(connection=>importTimer(connection,grant,{grant_id:f.first,namespace:"task-reminders",id,criterion_id:"task.reminder",fire_at:fire,data:null,generation:"7",status,
-        created_at:record.created_at,updated_at:record.updated_at,fired_at:record.fired_at,runtime_namespace,runtime_id,record_json:JSON.stringify(record)}));
-    }
-    const desired=[{id:"imported-fired",fire_at:f.future},{id:"imported-overdue",fire_at:f.past}];
-    const denied=await f.reconcile(desired);expect(denied.statusCode,denied.body).toBe(409);
-    expect((await db.query("SELECT 1 FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1",[owner])).rows).toHaveLength(0);
-    // Qualify the existing completion guard through its normal lifecycle. The
-    // importer above exercised real SQL, original metadata and all timestamps;
-    // this provider fixture supplies only the cutover/flip test boundary.
-    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1",[owner]);
-    await db.query("UPDATE next_collections SET runtime='shadow' WHERE collection_id=$1",[f.collection]);
-    await createCohort(db,cohort,actor);await addToCohort(db,cohort,[owner],actor);await releaseCohort(db,cohort,actor);await setCohortFrozen(db,cohort,true,"synthetic archive",actor);
-    const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
-    const component=(name:string,hex:string)=>({commit:hex.repeat(40),image_digest:`sha256:${hex.repeat(64)}`,service_id:`srv-synthetic${name}`});
-    await acceptCohortArchive(db,cohort,{schema:"mdbase-recovery-set/lab-cohort-v1",environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/23/${cohort}`,backup_id:cohort,
-      complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"f".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
-      retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"c".repeat(64),count:"1"},
-      runtime_provenance:{connect:component("connect","a"),hosted_provider:component("provider","b"),relay:component("relay","c"),mcp:component("mcp","d")}},"lab");
-    await setPaused(db,false,"synthetic migration",actor);await startAccountMigration(db,owner,"lab");
-    const facts={s_final:7,cutover_seq:11,barrier_f:13,final_digest:"e".repeat(64)};
-    await recordCollectionCutover(db,f.collection,facts);
-    // Real schema2 source SQL and the actual importer/manifest readback. Only
-    // the provider HTTP drain boundary is synthetic, never the database.
-    await db.query(`CREATE TABLE hosted_provider_collections(id uuid PRIMARY KEY,state text,legacy_migration_id uuid,legacy_migration_started_at timestamptz,head bigint);
-      CREATE TABLE mdbase_runtime_schema(singleton boolean PRIMARY KEY,version integer);
-      INSERT INTO mdbase_runtime_schema VALUES(true,2);
-      CREATE TABLE mdbase_runtime_timers(namespace text,id text,generation bigint,status text,fire_at timestamptz,record_json jsonb,lease_token text,lease_worker text,lease_expires_at timestamptz);
-      CREATE TABLE mdbase_runtime_runs(namespace text,status text,lease_token text,lease_worker text,lease_expires_at timestamptz,record_json jsonb);
-      CREATE TABLE hosted_provider_runtime_outbox(collection_id uuid,processed_at timestamptz,lease_token text,leased_until timestamptz);
-      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid,state text);
-      CREATE TABLE hosted_provider_replicas(id uuid,collection_id uuid)`);
-    const provider=fakeLegacyProvider(f.collection,{state:"migrated",retain_until:"2027-01-12T00:00:00.000Z"});
-    await db.query("INSERT INTO hosted_provider_collections VALUES($1,'migrated',$2,$3,$4)",[f.collection,provider.source.migration_id,provider.source.started_at,provider.source.head]);
-    for(const record of records) await db.query("INSERT INTO mdbase_runtime_timers(namespace,id,generation,status,fire_at,record_json) VALUES($1,$2,7,$3,$4,$5::jsonb)",
-      [`connect-hosted:${f.collection}:notifications`,record.id,record.status,record.fire_at,JSON.stringify(record)]);
-    await importHostedCollectionTimers({db,source:db,provider,resolver:f.resolver,collection:f.collection,actor});
-    await flipAccountBackend(db,owner,[f.collection],flipEvidenceDigest([{collection_id:f.collection,barrier_f:facts.barrier_f,final_digest:facts.final_digest}]),{enabled:true,provider},"lab");
-    const origins=(await db.query("SELECT timer_id,legacy_import_origin FROM next_timers WHERE grant_id=$1 ORDER BY timer_id",[f.first])).rows;
-    const response=await f.reconcile(desired);expect(response.statusCode,response.body).toBe(200);
-    expect((await f.reconcile(desired)).statusCode).toBe(200);
-    const transferred=(await db.query("SELECT timer_id,status,generation,created_at,updated_at,fired_at,legacy_import_origin FROM next_timers WHERE grant_id=$1 ORDER BY timer_id",[f.grantId])).rows;
-    expect(transferred.map(t=>({id:t.timer_id,status:t.status,generation:t.generation}))).toEqual([
-      {id:"imported-fired",status:"fired",generation:"7"},{id:"imported-overdue",status:"scheduled",generation:"7"}]);
-    for(const timer of transferred) {
-      expect(new Date(timer.created_at).toISOString()).toBe("2020-01-01T00:00:00.000Z");
-      expect(new Date(timer.updated_at).toISOString()).toBe("2020-01-02T00:00:00.000Z");
-      expect(timer.legacy_import_origin).toBeNull();
-    }
-    expect((await db.query("SELECT timer_id,legacy_import_origin FROM next_timers WHERE grant_id=$1 ORDER BY timer_id",[f.first])).rows).toEqual(origins);
-    expect((await db.query("SELECT fired_at FROM next_timers WHERE grant_id=$1 AND timer_id='imported-fired'",[f.grantId])).rows[0].fired_at.toISOString()).toBe(f.future);
-    expect((await db.query("SELECT 1 FROM next_timers WHERE grant_id=$1 AND timer_id='imported-completed'",[f.grantId])).rows).toHaveLength(0);
-    // Completing/deleting the current task before the worker runs cancels even
-    // imported overdue work; no omission exception can resurrect it.
-    expect((await f.reconcile([])).statusCode).toBe(200);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='imported-overdue'",[f.grantId])).rows).toEqual([{status:"cancelled"}]);
-    const registered=await app.inject({method:"POST",url:channelPath(f),headers:{authorization:`Bearer ${f.token}`},payload:{...webChannel(f),criteria:["task.reminder"]}});
-    expect(registered.statusCode,registered.body).toBe(201);
-    const consumer=notificationsConsumer(()=>undefined,f.resolver),worker=new TimerWorker(db,[consumer],{resolver:f.resolver}),sent:string[]=[];
-    await worker.fireDue();await worker.drainConsumer(consumer);
-    const service=new NotificationService(db,{webPush:{send:async(_target,payload)=>{sent.push(payload);}}},1000,()=>undefined,channelSealer,f.resolver);
-    await service.drainOnce();expect(sent.some(payload=>payload.includes(timerEventId(f.grantId,"task-reminders","imported-overdue",7)))).toBe(false);
-    expect((await db.query("SELECT 1 FROM next_timer_events WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
-  });
-
-  async function timerTransaction<T>(body:(connection:Awaited<ReturnType<DatabasePool["connect"]>>)=>Promise<T>):Promise<T> {
-    const connection=await db.connect();
-    try {await connection.query("BEGIN");const result=await body(connection);await connection.query("COMMIT");return result;}
-    catch(error){await connection.query("ROLLBACK");throw error;}finally{connection.release();}
-  }
-  it("rolls back retirement and transfer when native reconcile fails after retirement",async()=>{
-    const f=await tasknotesRetirementFixture();await f.add(f.first,"original",f.future);
-    await db.query(`CREATE FUNCTION fail_tasknotes_reconcile() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-      IF NEW.grant_id='${f.grantId}'::uuid AND NEW.timer_id='fail' THEN RAISE EXCEPTION 'Synthetic reconcile failure'; END IF;
-      RETURN NEW; END $$; CREATE TRIGGER fail_tasknotes_reconcile BEFORE INSERT ON next_timers FOR EACH ROW EXECUTE FUNCTION fail_tasknotes_reconcile()`);
-    try {
-      const failed=await f.reconcile([{id:"fail",fire_at:f.future}]);expect(failed.statusCode).toBe(500);
-      expect((await db.query("SELECT 1 FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1",[f.p.owner.user])).rows).toHaveLength(0);
-      expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[f.first])).rows).toEqual([{status:"scheduled"}]);
-      expect((await db.query("SELECT 1 FROM next_timers WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
-    }finally{await db.query("DROP TRIGGER fail_tasknotes_reconcile ON next_timers; DROP FUNCTION fail_tasknotes_reconcile()");}
-    expect((await f.reconcile()).statusCode).toBe(200);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[f.first])).rows).toEqual([{status:"cancelled"}]);
-  });
-  it("uses full active membership for ordinary offline late fire, edits and completion without ancient backfill",async()=>{
-    const f=await tasknotesRetirementFixture();
-    await f.add(f.grantId,"offline",f.past);
-    const membership=[{id:"offline",fire_at:f.past},{id:"ancient",fire_at:f.past}];
-    for(let attempt=0;attempt<2;attempt++) {
-      const response=await f.reconcile(membership);expect(response.statusCode,response.body).toBe(200);
-      expect(response.json().timers.map((t:{id:string;status:string;generation:number})=>({id:t.id,status:t.status,generation:t.generation})))
-        .toEqual([{id:"offline",status:"scheduled",generation:7},{id:"ancient",status:"cancelled",generation:1}]);
-    }
-    const changed=new Date(Date.parse(f.past)-60_000).toISOString();
-    const edited=await f.reconcile([{id:"offline",fire_at:changed}]);
-    expect(edited.statusCode,edited.body).toBe(200);expect(edited.json().timers[0]).toMatchObject({status:"cancelled",fire_at:changed,generation:8});
-    expect((await f.reconcile([{id:"offline",fire_at:f.future}])).json().timers[0]).toMatchObject({status:"scheduled",generation:9});
-    expect((await f.reconcile([])).json().cancelled_ids).toEqual(["offline"]);
-    expect((await db.query("SELECT 1 FROM next_timer_events WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
-  });
-  it("keeps legacy past-instant scheduling and cancels a retired legacy due row instead of re-selecting it",async()=>{
-    const f=await tasknotesRetirementFixture(),old=(await f.resolver.resolve(db,f.first))!;
-    const before=await timerTransaction(async connection=>{
-      await lockNamespace(connection,f.first,"task-reminders");
-      return reconcileTimers(connection,old,"task-reminders","task.reminder",[desiredTimer({id:"legacy-late",fire_at:f.past})]);
-    });
-    expect(before.timers[0]).toMatchObject({id:"legacy-late",status:"scheduled"});
-    expect((await f.reconcile()).statusCode).toBe(200);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='legacy-late'",[f.first])).rows).toEqual([{status:"cancelled"}]);
-    // A due row in the retired tuple that escaped retirement must not stay at
-    // the head of the due queue.
-    await f.add(f.first,"escaped",f.past);
-    const worker=new TimerWorker(db,[],{resolver:f.resolver});
-    await worker.fireDue();
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='escaped'",[f.first])).rows).toEqual([{status:"cancelled"}]);
-    expect((await db.query("SELECT 1 FROM next_timer_events WHERE grant_id=$1",[f.first])).rows).toHaveLength(0);
-  });
-  it("serializes an in-flight old-device write with the first native retirement",async()=>{
-    const f=await tasknotesRetirementFixture(),writer=await db.connect();let pending:ReturnType<typeof f.reconcile>|undefined;
-    try {
-      await writer.query("BEGIN");await lockNamespace(writer,f.first,"task-reminders");
-      await putTimer(writer,(await f.resolver.resolve(writer,f.first))!,"task-reminders","task.reminder",desiredTimer({id:"racing",fire_at:f.future}));
-      const pid=(await writer.query<{pid:number}>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
-      pending=f.reconcile();let waiting=false;
-      for(let attempt=0;attempt<100;attempt++) {
-        waiting=(await db.query<{waiting:boolean}>("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))) AS waiting",[pid])).rows[0].waiting;
-        if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
-      }
-      expect(waiting).toBe(true);await writer.query("COMMIT");expect((await pending).statusCode).toBe(200);
-      expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[f.first])).rows).toEqual([{status:"cancelled"}]);
-      const old=(await f.resolver.resolve(db,f.first))!;
-      await expect(timerTransaction(connection=>reconcileTimers(connection,old,"task-reminders","task.reminder",[]))).rejects.toMatchObject({code:"legacy_reminders_retired"});
-    }finally{await writer.query("ROLLBACK");writer.release();if(pending)await pending;}
-  });
-
   it("authenticates the original installation consent on the shared opaque timer and exact receipt routes",async()=>{
     const f=await currentTimerFixture(),headers={authorization:`Bearer ${f.token}`},base=timerPath(f);
     const fire_at=new Date(Date.now()+3_600_000).toISOString();

@@ -325,18 +325,12 @@ export async function buildApp(options: BuildOptions) {
     runFirst: true
   });
   await app.register(cors, {
-    delegator: (request, callback) => callback(null, {
-      // Browser SDK bearer-token requests keep origin reflection. Only the
-      // account/management origins (which include the configured editor) may
-      // use the session cookie (see origin_denied below), so only they get
-      // credentialed CORS; apps and third-party SDKs authenticate with bearers.
-      origin: true,
-      credentials: request.headers.origin !== undefined && accountOrigins.has(request.headers.origin),
-      methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      // Let browsers reuse a preflight for 2 hours (Chromium's cap) instead of
-      // paying an OPTIONS round trip before every cross-origin app call.
-      maxAge: 7200
-    })
+    origin: true,
+    credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    // Let browsers reuse a preflight for 2 hours (Chromium's cap) instead of
+    // paying an OPTIONS round trip before every cross-origin app call.
+    maxAge: 7200
   });
   await app.register(websocket);
   app.addContentTypeParser(
@@ -618,7 +612,7 @@ export async function buildApp(options: BuildOptions) {
   if (options.nextControlPlane) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
     const nextLog = new LogServiceClient(options.nextControlPlane.logService);
-    registerNextDeviceRoutes(app, { db: options.db, log: nextLog, relay });
+    registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
     registerLocalRollbackBindingRoutes(app, options.db);
     registerLocalTakeoverRoutes(app, { db: options.db, relay, ...(nextPolicyEmitter ? { emitter: nextPolicyEmitter } : {}) });
     registerNextRolloutRoutes(app, options.db);
