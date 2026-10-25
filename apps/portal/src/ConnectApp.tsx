@@ -548,7 +548,7 @@ function Collections({ data, busy, perform, navigate, editorOrigin }: {
   useLocaleRevision();
   const [creating, setCreating] = useState(false);
   const [intent, setIntent] = useState<CollectionCreationIntent | null>(() => readCollectionCreation(data.user.id));
-  const [name, setName] = useState(() => readCollectionCreation(data.user.id)?.displayName ?? t(i18n)`My collection`);
+  const [name, setName] = useState(() => readCollectionCreation(data.user.id)?.displayName ?? "My collection");
   const [creationError, setCreationError] = useState<string | null>(null);
   const [location, setLocation] = useState("");
   const hostedEnabled = data.hosted_collections_available === true;
@@ -578,7 +578,7 @@ function Collections({ data, busy, perform, navigate, editorOrigin }: {
     }, true);
     if (created) {
       try {finishCollectionCreation(original);} catch {setCreationError(t(i18n)({ message: "Created, but this browser could not clear its request. Retrying will use the same collection." })); return;}
-      setIntent(null); setCreating(false); setName(t(i18n)`My collection`);
+      setIntent(null); setCreating(false); setName("My collection");
     }
   }
   return <Page title={t(i18n)({ message: "Collections", context: "Connect interface" })} intro={t(i18n)({ message: "Open a collection in the editor or manage where its main copy lives." })}>

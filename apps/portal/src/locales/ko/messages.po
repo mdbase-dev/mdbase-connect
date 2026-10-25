@@ -2084,10 +2084,6 @@ msgctxt "Connect interface"
 msgid "Moving to a computer"
 msgstr "컴퓨터로 이동하는 중"
 
-#: src/ConnectApp.tsx
-msgid "My collection"
-msgstr "내 컬렉션"
-
 #: src/AccountManagement.tsx
 msgid "Name"
 msgstr "이름"

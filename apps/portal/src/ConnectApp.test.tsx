@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectApp } from "./ConnectApp";
 import { chooseOption } from "./test/select";
+import { runtime } from "./i18n";
 
 let overview: ManagementOverview;
 
@@ -512,6 +513,36 @@ describe("ConnectApp", () => {
     expect(await screen.findByRole("heading", { name: "Newest collection" })).toBeInTheDocument();
     expect(overviewCall).toBe(2);
     expect(screen.queryByRole("heading", { name: "Garden notes" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the default collection name stable in Italian for initial and subsequent creations", async () => {
+    history.replaceState(null, "", "/collections");
+    await runtime.initialize();
+    await runtime.selectLocale("it");
+    const user = userEvent.setup();
+    const view = render(<ConnectApp />);
+    try {
+      await user.click(await screen.findByRole("button", { name: "Aggiungi raccolta" }));
+      expect(screen.getByLabelText("Nome della raccolta")).toHaveValue("My collection");
+      await user.click(screen.getByRole("button", { name: "Crea" }));
+      await waitFor(() => expect(screen.queryByLabelText("Nome della raccolta")).not.toBeInTheDocument());
+      const request = vi.mocked(fetch).mock.calls.find(([url, init]) =>
+        new URL(String(url)).pathname === "/v1/account/collections" && init?.method === "POST")!;
+      expect(JSON.parse(String(request[1]!.body)).display_name).toBe("My collection");
+      await user.click(screen.getByRole("button", { name: "Aggiungi raccolta" }));
+      const name = screen.getByLabelText("Nome della raccolta");
+      expect(name).toHaveValue("My collection");
+      await user.clear(name);
+      await user.type(name, "La raccolta scelta da me");
+      await user.click(screen.getByRole("button", { name: "Crea" }));
+      await waitFor(() => expect(screen.queryByLabelText("Nome della raccolta")).not.toBeInTheDocument());
+      const authored = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+        new URL(String(url)).pathname === "/v1/account/collections" && init?.method === "POST")[1];
+      expect(JSON.parse(String(authored[1]!.body)).display_name).toBe("La raccolta scelta da me");
+    } finally {
+      view.unmount();
+      await act(() => runtime.selectLocale("en"));
+    }
   });
 
   it("keeps collection input open after a failed creation", async () => {

@@ -2084,10 +2084,6 @@ msgctxt "Connect interface"
 msgid "Moving to a computer"
 msgstr "Déplacement vers un ordinateur"
 
-#: src/ConnectApp.tsx
-msgid "My collection"
-msgstr "Ma collection"
-
 #: src/AccountManagement.tsx
 msgid "Name"
 msgstr "Nom"
