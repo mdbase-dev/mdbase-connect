@@ -44,6 +44,24 @@ describe("Note actions", () => {
     }
   });
 
+  it("translates the exit-focus action in the note menu", async () => {
+    await editorLocaleRuntime.initialize();
+    await editorLocaleRuntime.selectLocale("it");
+    const user = userEvent.setup();
+    const view = renderLocalized(<LocaleProvider runtime={editorLocaleRuntime} onError={(error) => { throw error; }}>
+      <App gateway={new DemoCollectionGateway(4)} />
+    </LocaleProvider>);
+    try {
+      await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
+      await user.click(screen.getByRole("menuitem", { name: "Modalità concentrazione" }));
+      await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
+      expect(screen.getByRole("menuitem", { name: "Esci dalla modalità concentrazione" })).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      await act(() => editorLocaleRuntime.selectLocale("en"));
+    }
+  });
+
   it("uses the same actions in the row menu and toolbar, copies durable links and paths without opening the row", async () => {
     const user = userEvent.setup();
     const gateway = new DemoCollectionGateway(4);
