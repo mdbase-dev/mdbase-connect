@@ -492,7 +492,7 @@ export function decideRouteBack(status: WorkerStatus, phase: RouteBackPhase): Ro
   if (run.state !== "stopped" && run.state !== "done") return { action: "stop", reason: `worker_state_unknown:${run.state}` };
   if (phase === "restarted") return { action: "stop", reason: run.reason ?? "restarted_run_stopped" };
   if (outstanding) {
-    if ([4, 5].includes(outstanding.kind) && step === 2) return sequence === null ? { action: "stop", reason: "run_sequence_unavailable" } : { action: "rollback", sequence }; // Native rollback cancels unrooted gen0 work.
+    if ([2, 3, 4, 5].includes(outstanding.kind) && step === 2) return sequence === null ? { action: "stop", reason: "run_sequence_unavailable" } : { action: "rollback", sequence }; // Native rollback cancels a legacy read (2, 3) or unrooted gen0 work (4, 5).
     return ROLLBACK_KINDS[outstanding.kind] ? { action: "resolve", sequence: outstanding.sequence }
       : { action: "stop", reason: `outstanding_unknown:${outstanding.kind}` };
   }
