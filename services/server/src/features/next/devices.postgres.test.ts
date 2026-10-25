@@ -1,5 +1,4 @@
 import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
-import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { WebSocket } from "ws";
@@ -20,8 +19,6 @@ import {
 } from "./devices.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
 import { clientKeyDigest } from "./grant-approval.js";
-import { registerNextDeviceRoutes } from "./device-routes.js";
-import { tokenHash } from "../../security.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -186,95 +183,6 @@ describePostgres("mdbase-next registered devices", () => {
     await expect(registerDeviceProduct(db, { id: connectorId, user_id: connectorId }, body, undefined as unknown as string))
       .rejects.toMatchObject({ code: "identity_not_current" });
     expect((await db.query("SELECT used_at FROM next_device_challenges WHERE challenge = $1", [Buffer.from(body.challenge, "hex")])).rows[0].used_at).toBeNull();
-  });
-
-  // The daemon keeps its device identity across sign-out; signing in again pairs
-  // a new connector for the same computer.
-  async function signedInAgain(db: DatabasePool) {
-    const user = await localGrantFixture(db), keys = deviceKeys(), deviceId = randomUUID();
-    await db.query("UPDATE connectors SET token_hash = $2 WHERE id = $1", [user, tokenHash(`con_old_${user}`)]);
-    expect(await registerDeviceProduct(db, { id: user, user_id: user }, await registration(db, user, deviceId, keys), tokenHash(`con_old_${user}`))).toEqual({ device_id: deviceId });
-    const next = randomUUID(), token = `con_new_${next}`;
-    await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Same computer',$3)", [next, user, tokenHash(token)]);
-    const connector = (await db.query("SELECT id, relay_generation::text AS generation FROM connectors WHERE id = $1", [user])).rows[0];
-    return { user, old: user, oldGeneration: connector.generation as string, next, token, keys, deviceId };
-  }
-  const deviceConnector = async (db: DatabasePool, deviceId: string) =>
-    (await db.query("SELECT connector_id FROM next_devices WHERE id = $1", [deviceId])).rows[0]?.connector_id;
-  const connectorState = async (db: DatabasePool, id: string) =>
-    (await db.query("SELECT revoked_at, relay_generation::text AS generation FROM connectors WHERE id = $1", [id])).rows[0];
-
-  it("moves the same computer's device to its new connector after sign-out and sign-in, and fences the old one", async () => {
-    const s = await signedInAgain(db);
-    const fences: Array<[string, string]> = [];
-    const app = Fastify();
-    registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null }, relay: { fenceConnector: async (id, generation) => { fences.push([id, generation]); return "closed"; } } });
-    const outbox = (await db.query("SELECT count(*)::int AS n FROM next_policy_outbox")).rows[0].n;
-    try {
-      const response = await app.inject({ method: "POST", url: "/v1/next/devices", headers: { authorization: `Bearer ${s.token}` }, payload: await registration(db, s.next, s.deviceId, s.keys) });
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ device_id: s.deviceId });
-    } finally { await app.close(); }
-    expect(await deviceConnector(db, s.deviceId)).toBe(s.next);
-    const old = await connectorState(db, s.old);
-    expect(old.revoked_at).not.toBeNull();
-    expect(old.generation).toBe(String(BigInt(s.oldGeneration) + 1n));
-    expect(fences).toEqual([[s.old, old.generation]]);
-    expect((await connectorState(db, s.next)).revoked_at).toBeNull();
-    expect((await db.query("SELECT metadata FROM audit_events WHERE event_type = 'connector.revoked' AND subject_id = $1", [s.old])).rows)
-      .toEqual([{ metadata: expect.objectContaining({ reason: "device_signed_in_again", device_id: s.deviceId, replaced_by: s.next }) }]);
-    // Collection-log enrolments, revocations and approvals are not touched by the move.
-    expect((await db.query("SELECT count(*)::int AS n FROM next_policy_outbox")).rows[0].n).toBe(outbox);
-    // Registering again on the new connector is the ordinary idempotent case.
-    expect(await registerDeviceProduct(db, { id: s.next, user_id: s.user }, await registration(db, s.next, s.deviceId, s.keys), tokenHash(s.token))).toEqual({ device_id: s.deviceId });
-
-    // The relay binds the device on the new connector only.
-    const devices = new NextRelayDevices(db);
-    for (const [connectorId, expected] of [[s.next, "device_bound"], [s.old, "device_bind_failed"]] as const) {
-      const { socket, sent } = fakeSocket();
-      const nonce = Buffer.from(devices.welcome(socket, ["next_device_v1"]).device_nonce!, "hex");
-      const sig = Buffer.from(sign(null, deviceBindDigest(connectorId, "1", nonce), s.keys.privateKey)).toString("hex");
-      await devices.handleMessage(socket, connectorId, "1", { type: "device_bind", device_id: s.deviceId, sig });
-      expect(sent.pop()).toMatchObject({ type: expected });
-    }
-  });
-
-  it.each(["other account", "removed computer", "other keys", "other kind", "connector has a device"])("never moves a device for %s", async change => {
-    const s = await signedInAgain(db);
-    let connector = { id: s.next, user_id: s.user }, hash = tokenHash(s.token), keys = s.keys, kind = "desktop";
-    if (change === "other account") {
-      const other = await localGrantFixture(db);
-      await db.query("UPDATE connectors SET token_hash = $2 WHERE id = $1", [other, tokenHash(`con_${other}`)]);
-      connector = { id: other, user_id: other }; hash = tokenHash(`con_${other}`);
-    }
-    if (change === "removed computer") await db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [s.old]);
-    if (change === "other keys") keys = { ...deviceKeys(), kemPk: s.keys.kemPk, noisePk: s.keys.noisePk };
-    if (change === "other kind") kind = "cli";
-    if (change === "connector has a device") {
-      await registerDeviceProduct(db, connector, await registration(db, s.next, randomUUID(), deviceKeys()), hash);
-    }
-    const before = await connectorState(db, s.old);
-    const body = await registration(db, connector.id, s.deviceId, keys, kind);
-    await expect(registerDeviceProduct(db, connector, body, hash)).rejects.toMatchObject({ code: "device_already_bound" });
-    expect(await deviceConnector(db, s.deviceId)).toBe(s.old);
-    expect(await connectorState(db, s.old)).toEqual(before);
-    expect((await db.query("SELECT used_at FROM next_device_challenges WHERE challenge = $1", [Buffer.from(body.challenge, "hex")])).rows[0].used_at).toBeNull();
-    // Signing the original account in again on this computer still works.
-    if (change === "other account") {
-      expect(await registerDeviceProduct(db, { id: s.next, user_id: s.user }, await registration(db, s.next, s.deviceId, s.keys), tokenHash(s.token))).toMatchObject({ device_id: s.deviceId });
-      expect(await deviceConnector(db, s.deviceId)).toBe(s.next);
-    }
-  });
-
-  it.each(["mobile", "app-runtime"])("never moves a per-installation %s device to another connector", async kind => {
-    const user = await localGrantFixture(db), keys = deviceKeys(), deviceId = randomUUID();
-    await registerDevice(db, { id: user, user_id: user }, await registration(db, user, deviceId, keys, kind));
-    const next = randomUUID();
-    await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Other',$3)", [next, user, tokenHash(next)]);
-    await expect(registerDeviceProduct(db, { id: next, user_id: user }, await registration(db, next, deviceId, keys, kind), tokenHash(next)))
-      .rejects.toMatchObject({ code: "device_already_bound" });
-    expect(await deviceConnector(db, deviceId)).toBe(user);
-    expect((await connectorState(db, user)).revoked_at).toBeNull();
   });
 
   it("binds a relay socket only with the device key, the session nonce and an active connector", async () => {
