@@ -19,6 +19,7 @@
       "description": "Stable reverse-domain application identifier. This is presentation metadata, not publisher authentication."
     },
     "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "platform": { "const": "native", "description": "Unverified native app; permits literal IPv4 loopback HTTP on any port." },
     "homepage": { "type": "string", "format": "uri", "pattern": "^https://" },
     "project_url": { "type": "string", "format": "uri", "pattern": "^https://" },
     "icon": { "type": "string", "format": "uri", "pattern": "^https://" },
@@ -88,6 +89,7 @@
       "required": ["distribution"],
       "properties": {
         "distribution": { "const": "portable" },
+        "platform": false,
         "homepage": false,
         "redirect_uris": false
       }
@@ -323,6 +325,7 @@
         "id": { "$ref": "#/$defs/identifier" },
         "version": { "$ref": "#/$defs/contract/properties/version" },
         "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "platform": { "const": "native", "description": "Unverified native app; permits literal IPv4 loopback HTTP on any port." },
         "description": { "type": "string", "maxLength": 500 },
         "resources": {
           "type": "array",
