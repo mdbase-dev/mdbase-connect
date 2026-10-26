@@ -462,3 +462,84 @@ fn rolled_back_run_supersedes_on_target_only_for_a_newer_start() {
     );
     assert_eq!(r.d.read_run(2).unwrap().unwrap().binding, newer);
 }
+
+/// Supersede a rolled-back run for a newer start, then import the legacy
+/// content as changed after the route-back (one note created, one edited, one
+/// deleted) through fence, drain, generation 0 and the base to `Shadowed`.
+#[track_caller]
+fn second_attempt_reaches_shadowed(r: &mut Run) {
+    assert_eq!(r.d.test_checkpoint().step, Step::RolledBack);
+    assert!(r.refresh());
+    let mut newer = binding(&r.target);
+    newer.started_us = "10413792000000002".into();
+    r.d.supersede_on_target(1, &newer, &mut TestEntropy::new(227), &mut r.h.e, &r.target)
+        .unwrap();
+    assert_eq!(r.d.test_checkpoint().step, Step::Start);
+    RUN_SALT.set(0x5a);
+    let mut l = legacy();
+    l.records.retain(|(n, ..)| *n != 2);
+    l.records[0].2 = "# A\nedited after route-back\n".into();
+    l.records
+        .push((4, "notes/n1.md", "# N1\ncreated after route-back\n".into()));
+    r.l = l;
+    let second = Attempt {
+        hold: 0x45,
+        run: [0x52; 16],
+        started: "2026-10-12T09:00:00.000000Z",
+    };
+    r.p = read_attempt(
+        &mut r.d,
+        &mut r.h,
+        &r.target,
+        &r.l,
+        None,
+        &second,
+        &mut |seed| seed,
+    );
+    // The host re-observes the target before every call (`abi.rs`).
+    assert!(r.refresh());
+    r.reach_rebuild();
+    r.compare(130);
+    assert_eq!(r.d.run_sequence(), 2);
+    assert_eq!(r.d.test_checkpoint().step, Step::Shadowed);
+    assert_eq!(
+        r.d.test_checkpoint().state_digest,
+        Some(expected_digest(&r.l))
+    );
+    let store = r.h.e.replica().store();
+    for (n, path, doc) in &r.l.records {
+        let installed = store.record(&B16(id(*n))).unwrap().unwrap();
+        assert_eq!(&installed.path, path);
+        assert_eq!(installed.doc.as_bytes(), doc.as_bytes());
+    }
+    assert!(store.record(&B16(id(2))).unwrap().is_none());
+    RUN_SALT.set(0);
+}
+
+/// Re-arm before the base: run 1 was rolled back from its fenced generation-0
+/// import (window pending, or staged by `gen0_finish`), so nothing reached the
+/// log and run 2 imports the post-route-back legacy content from scratch.
+#[test]
+fn superseded_run_imports_legacy_changed_after_a_pre_base_rollback() {
+    for kind in [4, 5] {
+        SEED.set(140);
+        let mut r = run();
+        if kind == 5 {
+            r.windows(&mut Objects::default(), 90);
+            r.d.gen0_finish(&r.p, &mut r.h.e, &r.target).unwrap();
+        } else {
+            let input = window_input(r.c(), resource_rows(&r.l));
+            r.d.gen0_window(&r.p, &mut r.h.e, &r.target, &input)
+                .unwrap();
+        }
+        assert_eq!(r.d.saved_pending().unwrap().unwrap().kind, kind);
+        request(&mut r);
+        r = reopen(r);
+        r.advance(180);
+        assert_eq!(r.p.data().kind, 21);
+        let body = enc(receipt(&mut r, false));
+        r.d.settle_rollback(&r.p, &body).unwrap();
+        assert!(r.d.prepare(&mut TestEntropy::new(224)).is_err());
+        second_attempt_reaches_shadowed(&mut r);
+    }
+}

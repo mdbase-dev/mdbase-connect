@@ -74,11 +74,25 @@ fn binding(target: &ObservedNativeTarget) -> RunBinding {
         target: target_fingerprint(target),
     }
 }
+thread_local! {
+    /// Nonzero for a second run on one ledger, so the same fixed seeds never
+    /// repeat the first run's action IDs.
+    static RUN_SALT: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+}
+struct Salted(TestEntropy);
+impl mdbn_replica::crypto::Entropy for Salted {
+    fn fill(&mut self, buf: &mut [u8]) {
+        self.0.fill(buf);
+        if let Some(last) = buf.last_mut() {
+            *last ^= RUN_SALT.get();
+        }
+    }
+}
 #[track_caller]
 fn next(d: &mut JournalDriver<Sqlite>, seed: u8) -> (PreparedAction, Action) {
     loop {
         // Metadata work polls consume no entropy or action IDs.
-        match d.prepare(&mut TestEntropy::new(seed)) {
+        match d.prepare(&mut Salted(TestEntropy::new(seed))) {
             Err(LedgerError::Unsupported) => {}
             other => return other.unwrap(),
         }
@@ -123,52 +137,81 @@ fn page(collection: Uuid, table: &str, rows: Vec<Cbor>) -> Vec<u8> {
 /// Backup, actual native creation, fence, drain and the S0 read of `l`'s
 /// metadata (with `file_size` overriding declared file sizes); the resource window
 /// is pending.
+/// One attempt's backup hold and provider migration run.
+struct Attempt {
+    hold: u8,
+    run: [u8; 16],
+    started: &'static str,
+}
+const FIRST: Attempt = Attempt {
+    hold: HOLD[0],
+    run: RUN,
+    started: STARTED,
+};
 fn read_with(
     h: &mut AppHosted,
     target: &ObservedNativeTarget,
     l: &Legacy,
     file_size: Option<u64>,
 ) -> (JournalDriver<Sqlite>, PreparedAction) {
-    let bound = binding(target);
-    let c = bound.collection;
-    let mut d = JournalDriver::resume(Sqlite::new(), bound, &mut TestEntropy::new(81)).unwrap();
-    let (p, _) = next(&mut d, 20);
-    d.settle_provider(&p, &crate::migration_action_ledger::tests::backup(HOLD[0]))
-        .unwrap();
-    let (p, a) = next(&mut d, 30);
+    let mut d =
+        JournalDriver::resume(Sqlite::new(), binding(target), &mut TestEntropy::new(81)).unwrap();
+    let p = read_attempt(&mut d, h, target, l, file_size, &FIRST, &mut |seed| seed);
+    (d, p)
+}
+/// From `Start`: hold, create, fence, drain and read every legacy page;
+/// `ImportGen0` pending. `seed` maps each step's entropy seed.
+fn read_attempt(
+    d: &mut JournalDriver<Sqlite>,
+    h: &mut AppHosted,
+    target: &ObservedNativeTarget,
+    l: &Legacy,
+    file_size: Option<u64>,
+    attempt: &Attempt,
+    seed: &mut dyn FnMut(u8) -> u8,
+) -> PreparedAction {
+    let c = target.admission().collection();
+    let hold = [attempt.hold; 16];
+    let (p, _) = next(d, seed(20));
+    d.settle_provider(
+        &p,
+        &crate::migration_action_ledger::tests::backup(attempt.hold),
+    )
+    .unwrap();
+    let (p, a) = next(d, seed(30));
     assert_eq!(a, Action::CreateCollection);
     d.settle_created(&p, &mut h.e, target).unwrap();
-    let (p, a) = next(&mut d, 40);
+    let (p, a) = next(d, seed(40));
     assert_eq!(a, Action::MayFence);
     d.settle_provider(&p, &account(c, target.genesis_owner()))
         .unwrap();
-    let (p, a) = next(&mut d, 50);
+    let (p, a) = next(d, seed(50));
     assert_eq!(a, Action::Fence);
     let fence = enc(vec![
         Cbor::Uint(2),
         b(c.0),
         t("migrating"),
-        b(RUN),
-        t(STARTED),
+        b(attempt.run),
+        t(attempt.started),
         Cbor::Null,
         Cbor::Array(vec![]),
     ]);
     d.settle_provider(&p, &fence).unwrap();
-    let (p, _) = next(&mut d, 60);
+    let (p, _) = next(d, seed(60));
     let drain = enc(vec![
         Cbor::Uint(3),
         b(c.0),
         t("migrating"),
-        b(RUN),
+        b(attempt.run),
         Cbor::Uint(HEAD),
-        t(STARTED),
+        t(attempt.started),
         Cbor::Null,
         Cbor::Uint(0),
         Cbor::Uint(1),
         Cbor::Uint(0),
     ]);
     d.settle_provider(&p, &drain).unwrap();
-    let (p, a) = next(&mut d, 64);
+    let (p, a) = next(d, seed(64));
     assert!(matches!(a, Action::OpenSource { .. }));
     let opened = enc(vec![
         Cbor::Uint(0),
@@ -176,13 +219,13 @@ fn read_with(
         t("migrating"),
         Cbor::Uint(HEAD),
         b(SESSION),
-        b(HOLD),
+        b(hold),
     ]);
     d.settle_source(&p, &opened).unwrap();
-    let mut seed = 70;
+    let mut s = 70;
     for table in [Table::Resources, Table::Records, Table::Files] {
-        let (mut p, a) = next(&mut d, seed);
-        seed += 1;
+        let (mut p, a) = next(d, seed(s));
+        s += 1;
         assert!(matches!(a, Action::ReadPage { table: t, .. } if t == table));
         let body = match table {
             Table::Resources => page(
@@ -227,8 +270,8 @@ fn read_with(
         let mut after = Cbor::Null;
         for (i, chunk) in rows.chunks(64).enumerate() {
             if i > 0 {
-                p = next(&mut d, seed).0;
-                seed += 1;
+                p = next(d, seed(s)).0;
+                s += 1;
             }
             let last = if (i + 1) * 64 < rows.len() {
                 let Cbor::Array(row) = chunk.last().unwrap() else {
@@ -255,7 +298,7 @@ fn read_with(
             d.settle_source(&p, &body).unwrap();
         }
     }
-    let (p, a) = next(&mut d, 80);
+    let (p, a) = next(d, seed(80));
     assert!(matches!(
         a,
         Action::ImportGen0 {
@@ -264,7 +307,7 @@ fn read_with(
             ..
         }
     ));
-    (d, p)
+    p
 }
 
 struct Run {
