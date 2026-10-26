@@ -136,12 +136,12 @@ describe("migration job environment gate (deployment configuration only)", () =>
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ scoped: true }] });
+      .mockResolvedValueOnce({ rows: [{ scoped: true, rearmed: false }] });
     const db = { query } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
     const connect = postgresLabConnect({ db, source: db, actor: "operator", timers: true, environment,
       provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] });
     expect(await connect.preflight(account)).toEqual(managed
-      ? { job: "managed", collections: [collection], backend: "legacy", cut_over_collections: [], run: null, intents: [], quiet_intents: [], archive_scoped: true, phase_latch: null }
+      ? { job: "managed", collections: [collection], backend: "legacy", cut_over_collections: [], run: null, intents: [], quiet_intents: [], archive_scoped: true, phase_latch: null, rearmed: false }
       : { collection, backend: "legacy" });
     expect(query.mock.calls[1]).toEqual([expect.stringContaining("LIMIT 2"), [account]]);
     expect(query.mock.calls[1]![0]).not.toContain("metadata->>"); // Never filter away contradictory starts.

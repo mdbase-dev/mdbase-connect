@@ -28,9 +28,11 @@ import { audit } from "../../platform/audit-events.js";
 import { flipEvidenceDigest } from "./account-backend-flip.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { SCOPED_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
-import { BINDING, bindManagedRun, latchPhase, latchRefused, latchUnboundRouteBack, lockManagedAccount, type ManagedRun, type PhaseLatch, readIntents,
+import { BINDING, bindManagedRun, CURRENT_ATTEMPT, latchPhase, latchRefused, latchUnboundRouteBack, lockManagedAccount, type ManagedRun, type PhaseLatch, readIntents,
   readManagedRun, readPhaseLatch, readQuietIntents, recordedStartContract, requireBoundHeldSet, WORKER_INTENT } from "./migration-managed-ledger.js";
 import { claim } from "./migration-provider.js";
+import { currentAttempt, statusSchema, STEP, type WorkerStatus } from "./migration-lab-status.js";
+export { STEP, type WorkerStatus } from "./migration-lab-status.js";
 import { unfenceUndispatched } from "./migration-replicas.js";
 import { labTargetSubCause, labTargetUnavailable, migrationJobEnvironment } from "./migration-lab-target.js";
 import { cutOverCollection, flipAccountBackend, RolloutRefused } from "./migration-rollout.js";
@@ -43,28 +45,9 @@ const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/u;
 const CLI = "pnpm --filter @mdbase/connect-server next:migration-lab";
 const MAX_REPLY_BYTES = 64 * 1024;
 
-/** Native Driver steps (`hosted_import::Step`, mirrored by the Worker's status). */
 export const PAUSE_REASON = "operator_pause_before_cutover";
-export const STEP = { fenced: 6, drained: 7, verified: 8, cutoverIntent: 10, routed: 13, rollingBack: 20, rolledBack: 21, failed: 22, gone: 23 } as const;
 /** Native rollback action kinds whose lost reply the Worker resolves from the provider receipt. */
 const ROLLBACK_KINDS: Readonly<Record<number, string>> = { 20: "Unrevoke", 21: "Unfence" };
-
-const statusSchema = z.object({
-  run: z.object({ state: z.string(), reason: z.string().nullable(), backup_hold: z.string(), migration_id: z.string().nullable(),
-    stop_before_flip: z.boolean().optional(), resumed_run_sequence: z.number().int().positive().nullable().optional(),
-    /** The last prepared action; timeline DATA only, absent from older Workers. */
-    last: z.object({ sequence: z.number().int().nonnegative(), kind: z.number().int().nonnegative() }).nullable().optional() }).nullable(),
-  native: z.union([
-    z.object({ error: z.string() }),
-    z.object({
-      /** Current immutable native run sequence; absent from Workers without the operator entry. */
-      run_sequence: z.number().int().positive().nullable().optional(),
-      checkpoint: z.object({ step: z.number().int().nonnegative(), fenced: z.boolean() }).nullable(),
-      outstanding: z.object({ sequence: z.number().int().positive(), kind: z.number().int().nonnegative() }).nullable()
-    })
-  ])
-});
-export type WorkerStatus = z.infer<typeof statusSchema>;
 
 // Ready-stage wire v1: finite diagnostic DATA, never error messages or native tails.
 const readyStage = z.enum([
@@ -133,9 +116,9 @@ export interface LabWorker extends WorkerOperator {
 /** Bounded, content-free refusal facts: UUIDs and finite predicates only. */
 type RefusalDetails = Readonly<Record<string, unknown>>;
 type ManagedPreflight = { job: "managed"; collections: string[]; backend: "legacy" | "next"; cut_over_collections: string[]; run: ManagedRun | null;
-  /** Members with a durable dispatch intent (a read; claimWorkerRun stays authoritative), those past
-   * the UNKNOWN quiet period, and whether the accepted archive is scoped (every source pre-fenced). */
-  intents: string[]; quiet_intents: string[]; archive_scoped: boolean; phase_latch: PhaseLatch | null;
+  /** Members with a durable dispatch intent (a read; claimWorkerRun stays authoritative), those past the UNKNOWN quiet period,
+   * whether the accepted archive is scoped (every source pre-fenced) and whether the account was re-armed (migration-rearm.ts). */
+  intents: string[]; quiet_intents: string[]; archive_scoped: boolean; phase_latch: PhaseLatch | null; rearmed?: boolean;
   /** Inspection only: the admission refusal `status` reports instead of throwing. */
   refusal?: { code: string; details?: RefusalDetails } };
 type Preflight = { collection: string; backend: "legacy" | "next" } | ManagedPreflight;
@@ -157,7 +140,7 @@ export interface LabConnect {
   cleanupTimers(collection: string, migrationId: string): Promise<{ deleted: number }>;
 }
 
-interface LabDeps {
+export interface LabDeps {
   /** Literal LAB only enables token-free target sub-cause retention/capture. */
   environment?: string;
   worker: LabWorker;
@@ -263,10 +246,17 @@ export function labWorkerClient(config: { url: string; token: string; environmen
   };
 }
 
-const refusalDetails = (error: unknown): { details?: RefusalDetails } =>
+export const refusalDetails = (error: unknown): { details?: RefusalDetails } =>
   error instanceof RolloutRefused && error.details ? { details: error.details } : {};
 
 /** The control-plane port over the Connect database and the legacy provider. */
+/** Deployment admission, independent of each account's recorded start contract. */
+export function labDeployment(environment: string | undefined): string {
+  const deployment = localBuild() ? (environment === "local" ? "lab" : undefined) : migrationJobEnvironment(environment);
+  if (!deployment) throw new RolloutRefused("lab_only", "The migration job is unavailable in this build/environment.", 503);
+  return deployment;
+}
+
 export function postgresLabConnect(options: {
   db: DatabasePool; source: DatabasePool; actor: string; timers: boolean; environment?: string;
   provider: Pick<HostedProviderClient, "legacyMigrationSource" | "legacyMigrationDrain" | "legacyMigrationRetain">
@@ -275,9 +265,7 @@ export function postgresLabConnect(options: {
   prepareTarget?: (collection: string) => Promise<void>;
 }): LabConnect {
   const { db, provider } = options;
-  // Deployment admission, independent of each account's recorded start contract.
-  const deployment = localBuild() ? (options.environment === "local" ? "lab" : undefined) : migrationJobEnvironment(options.environment);
-  if (!deployment) throw new RolloutRefused("lab_only", "The migration job is unavailable in this build/environment.", 503);
+  const deployment = labDeployment(options.environment);
   return {
     async preflight(account, { inspect = false } = {}) {
       const row = (await db.query<{ backend: string; member: boolean; released: boolean; frozen: boolean; started: boolean; excluded: boolean }>(
@@ -317,11 +305,12 @@ export function postgresLabConnect(options: {
         }
         const intents = await readIntents(db, account), quiet = await readQuietIntents(db, account);
         // The same predicate as the CP's original-archive fence (migration-provider.ts).
-        const scoped = (await db.query<{ scoped: boolean }>(
+        const flags = (await db.query<{ scoped: boolean; rearmed: boolean }>(
           `SELECT EXISTS (SELECT 1 FROM next_migration_cohort_members m JOIN next_migration_archive_acceptances a ON a.cohort=m.cohort
-             WHERE m.account_id=$1 AND m.started_at IS NOT NULL AND a.verified_result->>'schema'=$2) AS scoped`,
-          [account, SCOPED_HOSTED_ARCHIVE_SCHEMA])).rows[0]?.scoped === true;
-        return { job, collections, backend: row.backend === "next" ? "next" : "legacy", run, intents, quiet_intents: quiet, archive_scoped: scoped, phase_latch: latch,
+             WHERE m.account_id=$1 AND m.started_at IS NOT NULL AND a.verified_result->>'schema'=$2) AS scoped,
+             EXISTS (SELECT 1 FROM next_migration_rearms r WHERE r.account_id=$1) AS rearmed`, [account, SCOPED_HOSTED_ARCHIVE_SCHEMA])).rows[0];
+        return { job, collections, backend: row.backend === "next" ? "next" : "legacy", run, intents, quiet_intents: quiet, archive_scoped: flags?.scoped === true,
+          phase_latch: latch, rearmed: flags?.rearmed === true,
           cut_over_collections: hosted.filter(c => c.cut_over).map(c => c.id), ...(refusal ? { refusal } : {}) };
       }
       if (hosted.length !== 1 || hosted[0]!.state !== "active") {
@@ -346,7 +335,7 @@ export function postgresLabConnect(options: {
         await requireBoundHeldSet(client, account, run);
         const current = await claim(client, collection, true);
         if (current.account !== account || current.started_us !== run.started_us) throw new RolloutRefused("migration_source_changed", "The original migration claim changed.");
-        const prior = await client.query("SELECT 1 FROM audit_events WHERE user_id=$1 AND subject_id=$2 AND event_type=$3", [account, collection, WORKER_INTENT]);
+        const prior = await client.query(`SELECT 1 FROM audit_events WHERE user_id=$1 AND subject_id=$2 AND event_type=$3 AND ${CURRENT_ATTEMPT()}`, [account, collection, WORKER_INTENT]);
         if (prior.rows.length) return false;
         // COMMIT precedes dispatch. An unknown COMMIT or lost Worker reply can
         // only reconcile by status, including after process loss; never replay.
@@ -432,7 +421,7 @@ export function postgresLabConnect(options: {
 }
 
 /** A stable code for an error, never its message (which may carry configuration). */
-function codeOf(error: unknown): string {
+export function codeOf(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
   if (typeof code === "string" && /^[a-z][a-z0-9_:.-]{0,120}$/u.test(code)) return code;
   if (typeof code === "string" && /^[0-9A-Z]{5}$/u.test(code)) return `postgres_${code}`;
@@ -503,11 +492,11 @@ export function decideRouteBack(status: WorkerStatus, phase: RouteBackPhase): Ro
   return { action: "rollback", sequence };
 }
 
-const commands = (account: string, hold?: string) => ({
+export const commands = (account: string, hold?: string) => ({
   inspect: `${CLI} status ${account}`,
   labRun: `${CLI} lab-run ${account} ${hold ?? "<backup-hold-id>"}`,
   resume: `${CLI} resume ${account}`,
-  routeBack: `${CLI} route-back ${account}`
+  routeBack: `${CLI} route-back ${account}`, rearm: `${CLI} re-arm ${account}`
 });
 
 /** One timeline line per Worker status change (DATA only, no decisions). */
@@ -724,7 +713,7 @@ async function driveManaged(account: string, hold: string, pre: ManagedPreflight
       current = collection;
       const reply = await readStatus(deps, collection, pace);
       if (reply.kind !== "ok") return stop("worker_status", reply.kind === "refused" ? reply.code : reply.reason);
-      observed.set(collection, reply.status);
+      observed.set(collection, currentAttempt(reply.status, pre.rearmed, hold));
     }
     current = undefined;
     committed = pre.phase_latch === "cutover" || collections.some(c => committedMember(observed.get(c)!, cutOver(c)));
@@ -872,7 +861,7 @@ export async function routeBack(account: string, deps: LabDeps): Promise<LabOutc
       const refuse = (reason: string): LabOutcome => ({ stopped: { step: "worker_status", reason, inspect: cmd.inspect, resume: cmd.routeBack,
         collection_id: collection, collection_ids: managed.collections } });
       if (reply.kind !== "ok") return refuse(reply.kind === "refused" ? reply.code : reply.reason);
-      const { status } = reply;
+      const status = currentAttempt(reply.status, managed.rearmed, managed.run?.backup_hold);
       // A routed sibling keeps its serving custody: partial cutover is forward only.
       if (committedMember(status, managed.cut_over_collections.includes(collection))) return refuse("migration_post_cutover");
       if (resumedMember(status)) return refuse("managed_cutover_started");

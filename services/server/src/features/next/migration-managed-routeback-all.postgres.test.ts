@@ -9,10 +9,12 @@ import { HostedProviderResponseError, type LegacyMigrationDrain } from "../../ho
 import type { LegacyMigrationRollbackReceipt, LegacyNotificationWatermark } from "../../hosted-provider-replies.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { labRun, postgresLabConnect, routeBack, STEP, type LabWorker, type WorkerReply, type WorkerStatus } from "./migration-lab.js";
+import { readIntents, readManagedRun, readPhaseLatch } from "./migration-managed-ledger.js";
 import { claim, registerMigrationProviderRoutes } from "./migration-provider.js";
+import { postgresRearm, rearm } from "./migration-rearm.js";
 import { registerMigrationReplicaRoutes } from "./migration-replicas.js";
 import { prearchiveInventory } from "./migration-prearchive-inventory.js";
-import { acceptCohortArchive, addToCohort, createCohort, readCohortCaptureSnapshot, releaseCohort,
+import { acceptCohortArchive, accountMigrationView, addToCohort, cohortArchiveBinding, createCohort, readCohortCaptureSnapshot, releaseCohort,
   RolloutRefused, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -42,25 +44,10 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
     await admin?.end();
   });
 
-  async function fixture(options: { bind?: boolean; beforeFence?: boolean } = {}) {
-    const account = randomUUID(), storage = randomUUID(), collections = [randomUUID(), randomUUID()].sort();
-    const [first, second] = collections as [string, string], cohort = `routeback-${randomUUID()}`;
-    await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Synthetic route-back')", [account, `${account}@example.test`]);
-    await db.query("INSERT INTO account_storage_accounts(user_id,provider_account_id) VALUES($1,$2)", [account, storage]);
-    for (const id of collections) await db.query(`INSERT INTO hosted_collections(id,user_id,display_name,template,provider_url,authority_state)
-      VALUES($1,$2,'Synthetic','mdbase','https://provider.example.test','active')`, [id, account]);
-    await createCohort(db, cohort, actor); await addToCohort(db, cohort, [account], actor); await releaseCohort(db, cohort, actor);
-    await setCohortFrozen(db, cohort, true, "synthetic original scope", actor);
-    const capture = await inTransaction(db, client => readCohortCaptureSnapshot(client, cohort)), inventory = prearchiveInventory(capture);
-    const clock = (await db.query<{ now: Date }>("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0]!.now;
-    // Both members were physically fenced BEFORE archive acceptance and CP start,
-    // independently of whether a Worker was ever dispatched.
-    const sources = new Map<string, LegacyMigrationDrain>(collections.map(id => [id, {
-      collection_id: id, state: "migrating", migration_id: randomUUID(), head: 42,
-      started_at: new Date(clock.getTime() - 1000).toISOString(), retain_until: null,
-      in_flight: 0, unresolved: 0, applied_unreceipted: 0
-    } satisfies LegacyMigrationDrain]));
-    const archive = { schema: "mdbase-recovery-set/scoped-hosted-v1", environment,
+  function scopedArchive(cohort: string, account: string, collections: readonly string[], sources: ReadonlyMap<string, LegacyMigrationDrain>,
+    capture: Awaited<ReturnType<typeof readCohortCaptureSnapshot>>, clock: Date) {
+    const inventory = prearchiveInventory(capture);
+    return { schema: "mdbase-recovery-set/scoped-hosted-v1", environment,
       bucket: "synthetic-archive", prefix: `legacy-archive/${environment}/2026/10/23/${cohort}`, backup_id: cohort,
       complete_sha256: "a".repeat(64), manifest_sha256: "b".repeat(64), source_commit: "c".repeat(40), migration_batch: capture.binding,
       archive_created_at: clock.toISOString(), archive_completed_at: clock.toISOString(),
@@ -71,6 +58,31 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
         source_fences: collections.map(collection_id => ({ account_id: account, collection_id, migration_id: sources.get(collection_id)!.migration_id,
           started_at: sources.get(collection_id)!.started_at, head: 42, in_flight: 0, unresolved: 0, applied_unreceipted: 0,
           notification_watermark: watermark, fence_reply_sha256: "2".repeat(64), drain_reply_sha256: "3".repeat(64) })) } };
+  }
+
+  async function fixture(options: { bind?: boolean; beforeFence?: boolean; missing?: boolean } = {}) {
+    const account = randomUUID(), storage = randomUUID(), collections = [randomUUID(), randomUUID()].sort();
+    const [first, second] = collections as [string, string], cohort = `routeback-${randomUUID()}`;
+    await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Synthetic route-back')", [account, `${account}@example.test`]);
+    await db.query("INSERT INTO account_storage_accounts(user_id,provider_account_id) VALUES($1,$2)", [account, storage]);
+    for (const id of collections) await db.query(`INSERT INTO hosted_collections(id,user_id,display_name,template,provider_url,authority_state)
+      VALUES($1,$2,'Synthetic','mdbase','https://provider.example.test','active')`, [id, account]);
+    // A provider-missing quarantine is outside every migration inventory.
+    const missing = options.missing ? randomUUID() : null;
+    if (missing) await db.query(`INSERT INTO hosted_collections(id,user_id,display_name,template,provider_url,authority_state,quarantined_at,quarantine_reason)
+      VALUES($1,$2,'Synthetic missing','mdbase','https://provider.example.test','active',now(),'provider_collection_missing')`, [missing, account]);
+    await createCohort(db, cohort, actor); await addToCohort(db, cohort, [account], actor); await releaseCohort(db, cohort, actor);
+    await setCohortFrozen(db, cohort, true, "synthetic original scope", actor);
+    const capture = await inTransaction(db, client => readCohortCaptureSnapshot(client, cohort));
+    const clock = (await db.query<{ now: Date }>("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0]!.now;
+    // Both members were physically fenced BEFORE archive acceptance and CP start,
+    // independently of whether a Worker was ever dispatched.
+    const sources = new Map<string, LegacyMigrationDrain>(collections.map(id => [id, {
+      collection_id: id, state: "migrating", migration_id: randomUUID(), head: 42,
+      started_at: new Date(clock.getTime() - 1000).toISOString(), retain_until: null,
+      in_flight: 0, unresolved: 0, applied_unreceipted: 0
+    } satisfies LegacyMigrationDrain]));
+    const archive = scopedArchive(cohort, account, collections, sources, capture, clock);
     await acceptCohortArchive(db, cohort, archive, environment);
     await startAccountMigration(db, account, environment); // Ordinary, never lab-fixture-v1.
     const originalSources = structuredClone([...sources.values()]);
@@ -154,7 +166,8 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
       expect(await worker.run(id, hold, true)).toHaveProperty("kind", "ok");
     };
     const deps = { connect, worker, sleep: async () => undefined, now: () => 0 };
-    return { account, cohort, collections, first, second, sources, originalSources, archive, provider, unexpected, connect, worker, states, nativeRollbackSources, dispatch, deps, cp };
+    const rearmer = postgresRearm({ db, actor, environment, provider });
+    return { account, storage, missing, cohort, collections, first, second, sources, originalSources, archive, provider, unexpected, connect, worker, states, nativeRollbackSources, dispatch, deps, cp, rearmer };
   }
   type Fixture = Awaited<ReturnType<typeof fixture>>;
   const events = async (f: Fixture, type: string) => (await db.query("SELECT subject_id,metadata FROM audit_events WHERE user_id=$1 AND event_type=$2 ORDER BY subject_id", [f.account, type])).rows;
@@ -168,7 +181,7 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
     expect((await db.query("SELECT 1 FROM next_migration_account_flips WHERE account_id=$1", [f.account])).rows).toEqual([]);
     expect((await db.query("SELECT 1 FROM next_migration_collections WHERE account_id=$1", [f.account])).rows).toEqual([]);
     expect((await db.query("SELECT account_backend FROM users WHERE id=$1", [f.account])).rows).toEqual([{ account_backend: "legacy" }]);
-    expect((await db.query("SELECT id,authority_state FROM hosted_collections WHERE user_id=$1 ORDER BY id", [f.account])).rows)
+    expect((await db.query("SELECT id,authority_state FROM hosted_collections WHERE user_id=$1 AND quarantine_reason IS NULL ORDER BY id", [f.account])).rows)
       .toEqual(f.collections.map(id => ({ id, authority_state: "active" })));
     expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1", [f.cohort])).rows[0]!.verified_result).toEqual(f.archive);
   }
@@ -374,5 +387,100 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
     expect(reads).toBe(2); expect(await events(f, "next_migration.managed_route_back")).toHaveLength(1);
     expect(f.provider.legacyMigrationRollback).not.toHaveBeenCalled(); expect(f.provider.legacyMigrationUnfence).not.toHaveBeenCalled();
     expect(await canonicalSources(f)).toEqual(f.originalSources); await noForwardEffects(f);
+  });
+
+  describe("operator re-arm of a routed-back account", () => {
+    const rearms = async (account: string) => (await db.query<{ cohort: string; collections: string[]; retired: number }>(
+      "SELECT cohort, collections::text[] AS collections, cardinality(retired_events) AS retired FROM next_migration_rearms WHERE account_id=$1", [account])).rows;
+    const revision = async (cohort: string) => (await db.query<{ r: string }>("SELECT membership_revision::text AS r FROM next_migration_cohorts WHERE name=$1", [cohort])).rows[0]!.r;
+    const member = async (account: string) => (await db.query("SELECT cohort FROM next_migration_cohort_members WHERE account_id=$1", [account])).rows;
+    /** A routed-back E-shaped account: every member dispatched, one provider-missing collection outside the set. */
+    async function routedBack() {
+      const f = await fixture({ missing: true }); await f.dispatch(f.first); await f.dispatch(f.second);
+      expect(await routeBack(f.account, f.deps)).toHaveProperty("done.disposition", "legacy_post_bulk_follow_up");
+      return f;
+    }
+    const code = (error: unknown) => (error as { code?: unknown }).code;
+
+    it("detaches the account into history, keeps the old cohort's accepted binding current, and is idempotent", async () => {
+      const f = await routedBack(), before = await revision(f.cohort);
+      const result = await rearm(f.account, f.deps, f.rearmer);
+      expect(result).toMatchObject({ done: { account_id: f.account, rearmed: true, previous_cohort: f.cohort, collection_ids: f.collections } });
+      expect(result).not.toHaveProperty("done.already_rearmed");
+      // The old cohort still counts the account: same revision, digest and accepted archive binding.
+      expect(await revision(f.cohort)).toBe(before);
+      expect(await cohortArchiveBinding(db, f.cohort)).toEqual(f.archive.migration_batch);
+      expect(await rearms(f.account)).toEqual([{ cohort: f.cohort, collections: f.collections, retired: 5 }]);
+      expect(await member(f.account)).toEqual([]);
+      expect(await accountMigrationView(db, f.account)).toMatchObject({ backend: "legacy", cohort: null, released: false, started: false,
+        hosted_collections: f.collections, unsettled_collections: [], cut_over_collections: [] });
+      // The attempt's ledger is retired: no start, binding, intent or latch remains current.
+      expect(await readManagedRun(db, f.account)).toBeNull(); expect(await readPhaseLatch(db, f.account)).toBeNull();
+      expect(await readIntents(db, f.account)).toEqual([]);
+      expect(await events(f, "next_migration.rearm")).toHaveLength(1);
+      // Replay: the recorded re-arm, with no second history row or Worker read.
+      vi.mocked(f.worker.status).mockClear();
+      expect(await rearm(f.account, f.deps, f.rearmer)).toEqual({ done: { ...(result as { done: object }).done, already_rearmed: true } });
+      expect(f.worker.status).not.toHaveBeenCalled(); expect(await rearms(f.account)).toHaveLength(1);
+      await noForwardEffects(f);
+    });
+
+    it("never adopts the stale archive: the next attempt needs its own cohort, acceptance and start", async () => {
+      const f = await routedBack(); await rearm(f.account, f.deps, f.rearmer);
+      const oldRevision = await revision(f.cohort);
+      expect(code(await startAccountMigration(db, f.account, environment).catch(e => e))).toBe("account_not_released");
+      expect(code(await addToCohort(db, f.cohort, [f.account], actor).catch(e => e))).toBe("migration_frozen");
+      const next = `rearmed-${randomUUID()}`;
+      await createCohort(db, next, actor);
+      expect(await addToCohort(db, next, [f.account], actor)).toEqual([f.account]);
+      await releaseCohort(db, next, actor); await setCohortFrozen(db, next, true, "synthetic fresh attempt", actor);
+      expect(code(await startAccountMigration(db, f.account, environment).catch(e => e))).toBe("backup_missing");
+      // New prearchive fences, a new archive over the new cohort's binding, then a fresh start.
+      const clock = (await db.query<{ now: Date }>("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0]!.now;
+      for (const id of f.collections) Object.assign(f.sources.get(id)!, { state: "migrating", migration_id: randomUUID(),
+        started_at: new Date(clock.getTime() - 1000).toISOString() });
+      const capture = await inTransaction(db, client => readCohortCaptureSnapshot(client, next));
+      expect(capture.members.map(m => [m.view.account_id, m.export_collections])).toEqual([[f.account, f.collections]]);
+      await acceptCohortArchive(db, next, scopedArchive(next, f.account, f.collections, f.sources, capture, clock), environment);
+      await startAccountMigration(db, f.account, environment);
+      expect(await f.connect.preflight(f.account)).toMatchObject({ job: "managed", run: null, intents: [], phase_latch: null, rearmed: true,
+        collections: f.collections });
+      const fresh = "60000000-0000-4000-8000-000000000006";
+      await f.connect.bindRun!(f.account, f.collections, fresh, false);
+      expect(await readManagedRun(db, f.account)).toMatchObject({ backup_hold: fresh });
+      expect(await f.connect.claimWorkerRun!(f.account, f.first)).toBe(true);
+      expect(await readIntents(db, f.account)).toEqual([f.first]);
+      expect(await claim(db, f.first)).toMatchObject({ account: f.account });
+      expect(await revision(f.cohort)).toBe(oldRevision);
+      expect(await cohortArchiveBinding(db, f.cohort)).toEqual(f.archive.migration_batch);
+    });
+
+    it.each(["none", "cutover", "sources", "intent", "held", "flip"] as const)("refuses %s before any change", async refusal => {
+      const f = await fixture({ missing: true }); await f.dispatch(f.first);
+      const active = () => { for (const s of f.sources.values()) Object.assign(s, { state: "active", migration_id: null, started_at: null }); };
+      let collections: readonly string[] = f.collections, expected: string;
+      if (refusal === "none") { active(); expected = "rearm_not_routed_back"; }
+      else if (refusal === "cutover") { await f.connect.latchPhase!(f.account, "cutover"); active(); expected = "managed_cutover_started"; }
+      else if (refusal === "sources") { await f.connect.latchPhase!(f.account, "route_back"); expected = "rearm_source_not_active"; }
+      else if (refusal === "intent") {
+        await f.connect.claimWorkerRun!(f.account, f.second); await f.connect.latchPhase!(f.account, "route_back"); active();
+        expected = "worker_run_outcome_unknown";
+      } else {
+        expect(await routeBack(f.account, f.deps)).toHaveProperty("done");
+        if (refusal === "held") { collections = [f.first]; expected = "collections_mismatch"; }
+        else { await db.query("INSERT INTO next_migration_account_flips(account_id,collections,evidence_digest) VALUES($1,$2::uuid[],$3)",
+          [f.account, f.collections, "0".repeat(64)]); expected = "rearm_cutover_recorded"; }
+      }
+      const before = await revision(f.cohort);
+      expect(code(await f.rearmer.rearm(f.account, collections, []).catch(e => e))).toBe(expected);
+      expect(await rearms(f.account)).toEqual([]); expect(await member(f.account)).toEqual([{ cohort: f.cohort }]);
+      expect(await revision(f.cohort)).toBe(before); expect(await events(f, "next_migration.rearm")).toEqual([]);
+    });
+
+    it("an ordinary member deletion still changes its cohort's revision", async () => {
+      const f = await fixture({ bind: false }), before = BigInt(await revision(f.cohort));
+      await db.query("DELETE FROM next_migration_cohort_members WHERE account_id=$1", [f.account]);
+      expect(BigInt(await revision(f.cohort))).toBe(before + 1n);
+    });
   });
 });

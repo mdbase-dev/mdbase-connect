@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // substituted: no database, provider, Worker or cloud endpoint is contacted.
 const effects = vi.hoisted(() => ({
   controlEnd: vi.fn(), sourceEnd: vi.fn(), createDatabase: vi.fn(), openDatabase: vi.fn(),
-  connect: vi.fn(), worker: vi.fn(), run: vi.fn(), resume: vi.fn(), routeBack: vi.fn(), status: vi.fn(),
+  connect: vi.fn(), worker: vi.fn(), run: vi.fn(), resume: vi.fn(), routeBack: vi.fn(), rearm: vi.fn(), rearmConnect: vi.fn(), status: vi.fn(),
   providerConfig: vi.fn()
 }));
 vi.mock("../../db.js", () => ({ createDatabase: effects.createDatabase, openDatabase: effects.openDatabase }));
@@ -13,10 +13,11 @@ vi.mock("./migration-lab.js", () => ({
   postgresLabConnect: effects.connect, labWorkerClient: effects.worker, labRun: effects.run,
   resumeLab: effects.resume, routeBack: effects.routeBack, labStatus: effects.status
 }));
+vi.mock("./migration-rearm.js", () => ({ postgresRearm: effects.rearmConnect, rearm: effects.rearm }));
 const account = "10000000-0000-4000-8000-000000000001", hold = "20000000-0000-4000-8000-000000000002";
 const sourceUrl = "postgres://synthetic:synthetic@source.invalid/source?sslmode=verify-full";
 const origins = { lab: "https://connect-lab.mdbase.dev", staging: "https://connect-staging.mdbase.dev", production: "https://connect.mdbase.dev" };
-const commands = ["lab-run", "resume", "route-back", "status"];
+const commands = ["lab-run", "resume", "route-back", "re-arm", "status"];
 const argv = process.argv, exitCode = process.exitCode;
 afterEach(() => {
   process.argv = argv; process.exitCode = exitCode;
@@ -27,10 +28,11 @@ async function invoke(environment: keyof typeof origins, command: string, overri
   vi.resetModules(); vi.resetAllMocks();
   effects.createDatabase.mockResolvedValue({ end: effects.controlEnd });
   effects.openDatabase.mockResolvedValue({ end: effects.sourceEnd });
-  effects.connect.mockReturnValue({}); effects.worker.mockReturnValue({});
+  effects.connect.mockReturnValue({}); effects.worker.mockReturnValue({}); effects.rearmConnect.mockReturnValue({});
   effects.providerConfig.mockReturnValue({ url: "https://provider.invalid", internalToken: "p".repeat(40) });
   for (const method of [effects.run, effects.resume]) method.mockResolvedValue({ done: { account_id: account, collection_ids: [hold], backend: "next", migration_complete: true } });
   effects.routeBack.mockResolvedValue({ done: { account_id: account, collection_ids: [hold], refenced: true } });
+  effects.rearm.mockResolvedValue({ done: { account_id: account, rearmed: true } });
   effects.status.mockResolvedValue({ status: "observed" });
   for (const [key, value] of Object.entries({
     MDBASE_CONNECT_ENVIRONMENT: environment, PUBLIC_URL: origins[environment], DATABASE_URL: "postgres://synthetic@control.invalid/control",
@@ -50,19 +52,19 @@ async function invoke(environment: keyof typeof origins, command: string, overri
 function noIO() {
   expect(effects.createDatabase).not.toHaveBeenCalled(); expect(effects.openDatabase).not.toHaveBeenCalled();
   expect(effects.worker).not.toHaveBeenCalled(); expect(effects.connect).not.toHaveBeenCalled();
-  for (const method of [effects.run, effects.resume, effects.routeBack, effects.status]) expect(method).not.toHaveBeenCalled();
+  for (const method of [effects.run, effects.resume, effects.routeBack, effects.rearm, effects.status]) expect(method).not.toHaveBeenCalled();
 }
 
 describe("LAB owner-readonly CLI override", () => {
   const source = "postgresql://synthetic_lab_owner:synthetic@dpg-dabpdaon74is7380br1g-a:5432/mdbase_lab_beta94_202609020323211110102?options=-cdefault_transaction_read_only%3Don";
   const overrides = { MDBASE_LEGACY_PROVIDER_DATABASE_URL: source, MDBASE_LEGACY_PROVIDER_LAB_OWNER_READONLY_ROLE: "synthetic_lab_owner" };
   it.each([
-    ["lab-run", []], ["lab-run", ["--stop-before-flip"]], ["resume", []], ["status", []], ["route-back", []],
+    ["lab-run", []], ["lab-run", ["--stop-before-flip"]], ["resume", []], ["status", []], ["route-back", []], ["re-arm", []],
   ] as const)("allows %s %j with the same readonly source", async (command, extra) => {
     const { error } = await invoke("lab", command, overrides, [...extra]);
     expect(error).not.toHaveBeenCalled();
     expect(effects.openDatabase).toHaveBeenCalledExactlyOnceWith(source, { rejectUnauthorized: false });
-    const selected = { "lab-run": effects.run, resume: effects.resume, status: effects.status, "route-back": effects.routeBack }[command];
+    const selected = { "lab-run": effects.run, resume: effects.resume, status: effects.status, "route-back": effects.routeBack, "re-arm": effects.rearm }[command];
     expect(selected).toHaveBeenCalledOnce();
     expect(effects.sourceEnd).toHaveBeenCalledOnce(); expect(effects.controlEnd).toHaveBeenCalledOnce();
   });
@@ -77,7 +79,8 @@ describe.each(["staging", "production"] as const)("%s product CLI entry composit
     expect(effects.connect).toHaveBeenCalledWith(expect.objectContaining({ environment, actor: "migration-operator", timers: true,
       ...(["lab-run", "resume"].includes(command) ? { prepareTarget: expect.any(Function) } : {}) }));
     expect(effects.worker).toHaveBeenCalledWith(expect.objectContaining({ environment }));
-    const selected = command === "lab-run" ? effects.run : command === "resume" ? effects.resume : command === "route-back" ? effects.routeBack : effects.status;
+    const selected = command === "lab-run" ? effects.run : command === "resume" ? effects.resume : command === "route-back" ? effects.routeBack
+      : command === "re-arm" ? effects.rearm : effects.status;
     expect(selected).toHaveBeenCalledOnce();
     if (["lab-run", "resume"].includes(command)) expect(log).toHaveBeenCalledExactlyOnceWith(JSON.stringify({ done: { account_id: account, collection_ids: [hold], backend: "next", migration_complete: true } }));
     if (command !== "status") expect(selected.mock.calls[0]![command === "lab-run" ? 2 : 1]).toMatchObject({ environment });
@@ -96,6 +99,6 @@ describe.each(["staging", "production"] as const)("%s product CLI entry composit
     const { error } = await invoke(environment, command, { MDBASE_LEGACY_PROVIDER_LAB_OWNER_READONLY_ROLE: "synthetic_lab_owner" });
     expect(error).toHaveBeenCalledOnce();
     expect(effects.createDatabase).not.toHaveBeenCalled(); expect(effects.openDatabase).not.toHaveBeenCalled();
-    for (const method of [effects.run, effects.resume, effects.routeBack, effects.status]) expect(method).not.toHaveBeenCalled();
+    for (const method of [effects.run, effects.resume, effects.routeBack, effects.rearm, effects.status]) expect(method).not.toHaveBeenCalled();
   });
 });

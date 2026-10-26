@@ -182,13 +182,46 @@ the binding; the account stays legacy and its `next_migration.managed_route_back
 latch event puts it on the post-bulk follow-up list.
 The fixture job keeps the restart and re-fence.
 
+## Re-arm after route-back
+
+`next-migration-lab re-arm <account>` lets a routed-back managed account migrate
+again through a fresh attempt. It re-runs the idempotent route-back, requires
+every member's Worker idle (no run, or stopped/done at RolledBack, unfenced,
+nothing outstanding) and then re-arms in the CP: a fresh provider read must
+show every held source settled active, and one transaction under the account
+lock (`migration-rearm.ts`) refuses unless the account is legacy, its started
+member is not excluded, the route-back latch is recorded and no cutover latch,
+collection row or flip exists, the held set matches the bound run, and every
+dispatch intent is quiet or settled by a run under the attempt's hold that the
+driver observed idle. It then records the account, previous cohort, start and
+held set in `next_migration_rearms` (migration 0087) together with the
+attempt's ledger events (start, run binding, dispatch intents, phase latch),
+deletes the member row and audits `next_migration.rearm`. A replay returns the
+recorded re-arm with `already_rearmed: true`.
+
+Every ledger read then ignores the retired events, so the account is a legacy
+account in no cohort. The next attempt needs a new cohort, archive, acceptance
+and start; the old archive is never adopted, and `add` never re-adds the
+account to its old cohort. The old cohort keeps counting the account from the
+history row with its recorded collections, so its revision, membership digest
+and accepted archive stay current and its completion counts it. Its receiving
+and capture snapshots refuse a re-armed member.
+
+The Worker DOs keep the old rolled-back runs. For a re-armed account the
+driver treats a run under an earlier hold that is stopped/done at RolledBack,
+unfenced and with nothing outstanding as not dispatched. The Worker's `run`
+with the new hold supersedes such a run and natively starts a new run for the
+strictly newer start; anything else is still `migration_run_exists`.
+
 ## Known gaps
 
 - `lab-run` and `resume` never resolve an intent with no visible run; only
   route-back does, after the quiet period. The CP cannot read provider holds;
   the route-back fence refusal, not hold release, is what stops a late run.
-- A routed-back account stays legacy. Migrating it again is post-bulk follow-up
-  work; there is no fresh attempt.
+- A routed-back account stays legacy until an operator re-arms it (above).
+  Re-arm needs the hosted Worker that supersedes a rolled-back run; with an
+  older Worker the fresh attempt stops at `worker_run` with
+  `migration_run_exists` for every member that was dispatched before.
 - A phase 2 Worker stop with an unsettled forward action (an outstanding
   non-rollback action, or a Route whose ticket was already released) has no
   driver operation to settle it; the account stays stopped forward-only, as a
