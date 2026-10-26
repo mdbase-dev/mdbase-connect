@@ -182,87 +182,101 @@ export class TimerWorker {
   /** Fire every due timer, one transaction each. Returns the number fired. */
   async fireDue(): Promise<number> {
     const resolver = this.options.resolver ?? legacyTimerGrantResolver;
-    const due = await this.db.query<DueRow>(
-      `SELECT grant_id, namespace, timer_id, generation FROM next_timers
-       WHERE status IN ('scheduled', 'firing') AND fire_at <= now()
-       ORDER BY (legacy_import_origin IS NOT NULL), fire_at, grant_id, namespace, timer_id
-       LIMIT $1`,
-      [this.options.batchSize ?? 100]
-    );
+    let remaining = this.options.batchSize ?? 100;
+    const migrationPending = new Set<string>();
     let fired = 0;
-    for (const row of due.rows) {
-      const connection = await this.db.connect();
-      try {
-        await connection.query("BEGIN");
-        await connection.query("SET LOCAL lock_timeout = '5s'");
-        await connection.query("SET LOCAL statement_timeout = '5s'");
-        await requireTimerMigrationEffects(connection, row.grant_id);
-        // Native resolution holds current principal/policy/consent locks before
-        // any timer row is written; legacy resolution retains its own semantics.
-        await resolver.resolve(connection, row.grant_id);
-        // Compare-and-set on the generation. A concurrent worker blocks on the
-        // row lock and then matches nothing.
-        const claimed = await connection.query<{
-          criterion_id: string;
-          fire_at: Date | string;
-          data: unknown;
-          now: Date | string;
-        }>(
-          `UPDATE next_timers
-           SET status = 'fired', fired_at = now(), updated_at = now()
-           WHERE grant_id = $1 AND namespace = $2 AND timer_id = $3
-             AND generation = $4 AND status IN ('scheduled', 'firing')
-             AND fire_at <= now()
-           RETURNING criterion_id, fire_at, data, now() AS now`,
-          [row.grant_id, row.namespace, row.timer_id, Number(row.generation)]
-        );
-        const timer = claimed.rows[0];
-        if (!timer) {
-          await connection.query("ROLLBACK");
-          continue;
-        }
-        const grant = await resolver.resolve(connection, row.grant_id);
-        if (!grant || !grantMayFire(grant, timer.criterion_id)) {
+    while (remaining > 0) {
+      const due = await this.db.query<DueRow>(
+        `SELECT grant_id, namespace, timer_id, generation FROM next_timers
+         WHERE status IN ('scheduled', 'firing') AND fire_at <= now()
+           AND NOT (grant_id = ANY($2::uuid[]))
+         ORDER BY (legacy_import_origin IS NOT NULL), fire_at, grant_id, namespace, timer_id
+         LIMIT $1`,
+        [remaining, [...migrationPending]]
+      );
+      if (due.rows.length === 0) break;
+      for (const row of due.rows) {
+        if (migrationPending.has(row.grant_id)) continue;
+        remaining -= 1;
+        const connection = await this.db.connect();
+        try {
+          await connection.query("BEGIN");
+          await connection.query("SET LOCAL lock_timeout = '5s'");
+          await connection.query("SET LOCAL statement_timeout = '5s'");
+          await requireTimerMigrationEffects(connection, row.grant_id);
+          // Native resolution holds current principal/policy/consent locks before
+          // any timer row is written; legacy resolution retains its own semantics.
+          await resolver.resolve(connection, row.grant_id);
+          // Compare-and-set on the generation. A concurrent worker blocks on the
+          // row lock and then matches nothing.
+          const claimed = await connection.query<{
+            criterion_id: string;
+            fire_at: Date | string;
+            data: unknown;
+            now: Date | string;
+          }>(
+            `UPDATE next_timers
+             SET status = 'fired', fired_at = now(), updated_at = now()
+             WHERE grant_id = $1 AND namespace = $2 AND timer_id = $3
+               AND generation = $4 AND status IN ('scheduled', 'firing')
+               AND fire_at <= now()
+             RETURNING criterion_id, fire_at, data, now() AS now`,
+            [row.grant_id, row.namespace, row.timer_id, Number(row.generation)]
+          );
+          const timer = claimed.rows[0];
+          if (!timer) {
+            await connection.query("ROLLBACK");
+            continue;
+          }
+          const grant = await resolver.resolve(connection, row.grant_id);
+          if (!grant || !grantMayFire(grant, timer.criterion_id)) {
+            await connection.query(
+              `UPDATE next_timers SET status = 'cancelled', fired_at = NULL
+               WHERE grant_id = $1 AND namespace = $2 AND timer_id = $3`,
+              [row.grant_id, row.namespace, row.timer_id]
+            );
+            await connection.query("COMMIT");
+            continue;
+          }
+          const scheduledFor = new Date(timer.fire_at);
+          const firedAt = new Date(timer.now);
+          const generation = Number(row.generation);
           await connection.query(
-            `UPDATE next_timers SET status = 'cancelled', fired_at = NULL
-             WHERE grant_id = $1 AND namespace = $2 AND timer_id = $3`,
-            [row.grant_id, row.namespace, row.timer_id]
+            `INSERT INTO next_timer_events
+               (event_id, grant_id, criterion_id, namespace, timer_id, generation,
+                scheduled_for, fired_at, late_by_ms, data)
+             SELECT $1, $2, $3, $4, $5, generation, fire_at, fired_at, $7::bigint, $8::jsonb
+             FROM next_timers WHERE grant_id=$2 AND namespace=$4 AND timer_id=$5
+               AND generation=$6 AND status='fired'
+             ON CONFLICT (event_id) DO NOTHING`,
+            [
+              timerEventId(row.grant_id, row.namespace, row.timer_id, generation),
+              row.grant_id,
+              timer.criterion_id,
+              row.namespace,
+              row.timer_id,
+              generation,
+              Math.max(0, firedAt.getTime() - scheduledFor.getTime()),
+              dataPermitted(grant) && timer.data !== null && timer.data !== undefined
+                ? JSON.stringify(timer.data)
+                : null
+            ]
           );
           await connection.query("COMMIT");
-          continue;
+          fired += 1;
+        } catch (error) {
+          await connection.query("ROLLBACK");
+          if (error instanceof InvitationMigrationPending) {
+            // Leave the timer untouched, but don't let this grant occupy the
+            // batch again during this pass. Completion is rechecked next tick.
+            migrationPending.add(row.grant_id);
+            remaining += 1;
+            continue;
+          }
+          throw error;
+        } finally {
+          connection.release();
         }
-        const scheduledFor = new Date(timer.fire_at);
-        const firedAt = new Date(timer.now);
-        const generation = Number(row.generation);
-        await connection.query(
-          `INSERT INTO next_timer_events
-             (event_id, grant_id, criterion_id, namespace, timer_id, generation,
-              scheduled_for, fired_at, late_by_ms, data)
-           SELECT $1, $2, $3, $4, $5, generation, fire_at, fired_at, $7::bigint, $8::jsonb
-           FROM next_timers WHERE grant_id=$2 AND namespace=$4 AND timer_id=$5
-             AND generation=$6 AND status='fired'
-           ON CONFLICT (event_id) DO NOTHING`,
-          [
-            timerEventId(row.grant_id, row.namespace, row.timer_id, generation),
-            row.grant_id,
-            timer.criterion_id,
-            row.namespace,
-            row.timer_id,
-            generation,
-            Math.max(0, firedAt.getTime() - scheduledFor.getTime()),
-            dataPermitted(grant) && timer.data !== null && timer.data !== undefined
-              ? JSON.stringify(timer.data)
-              : null
-          ]
-        );
-        await connection.query("COMMIT");
-        fired += 1;
-      } catch (error) {
-        await connection.query("ROLLBACK");
-        if (error instanceof InvitationMigrationPending) continue;
-        throw error;
-      } finally {
-        connection.release();
       }
     }
     return fired;
