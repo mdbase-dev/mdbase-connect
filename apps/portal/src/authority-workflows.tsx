@@ -1,3 +1,4 @@
+import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import React, { useEffect, useRef, useState } from "react";
 import {
   api,
@@ -346,7 +347,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               <>
                 <h1>Open {pairing.connector_name}</h1>
                 <p className="mdbase-connect-lead">Choose a collection to use in {pairing.connector_name}.</p>
-                <p className="installation-account-label">Requested by {pairing.connector_name}{appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""}{pairing.app_origin?.trim() && <> from <code>{pairing.app_origin}</code></>}. Approve only if you started sign-in in this app.</p>
+                <p className="installation-account-label">{pairing.app_platform === "native" && isNativeLoopbackOrigin(pairing.app_origin) ? <>Requested by an app running on this computer. Application identity unverified. This app calls itself {pairing.connector_name}. Approve only if you started sign-in in this app.</> : <>Requested by {pairing.connector_name}{appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""}{pairing.app_origin?.trim() && <> from <code>{pairing.app_origin}</code></>}. Approve only if you started sign-in in this app.</>}</p>
                 {installationAccountLabel(pairing) ? (
                   <p className="installation-account-label">Account: {installationAccountLabel(pairing)}</p>
                 ) : (

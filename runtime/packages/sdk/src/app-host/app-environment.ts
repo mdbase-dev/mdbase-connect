@@ -23,11 +23,12 @@ function origin(value: unknown, loopbackAllowed: boolean): string {
 }
 /** No environment or app-origin default. CP/log origins come only from the
  * preauthenticated build release, whose environment must match exactly.
- * LAB app loopback is explicit; production never permits app loopback.
+ * LAB app loopback is explicit; production loopback requires a native manifest.
  * Same-origin storage preservation is an app gate, not a runtime fallback. */
 export function selectAppEnvironment(input: {
   environment: "lab" | "production" | "local";
   appOrigin: string;
+  platform?: "native";
   release: AppBundledReleaseTrust;
 }): AppEnvironmentSelection {
   const {environment, release} = input;
@@ -44,7 +45,7 @@ export function selectAppEnvironment(input: {
   const cpOrigin = origin(release.cpOrigin, local), logOrigin = origin(release.logOrigin, local);
   const appOrigin = input.appOrigin;
   if (local && ![cpOrigin, logOrigin, appOrigin].every(localApplicationOrigin)) throw invalid();
-  if (!isAppOrigin(appOrigin, applicationLoopbackAllowed(environment))) throw invalid();
+  if (!isAppOrigin(appOrigin, applicationLoopbackAllowed(environment), input.platform)) throw invalid();
   const selected = Object.freeze({environment, appOrigin, cpOrigin, logOrigin, assetSha256: release.assetSha256,
     allowLoopbackHttp: new URL(appOrigin).protocol === "http:"});
   selections.add(selected); return selected;

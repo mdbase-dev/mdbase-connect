@@ -1092,6 +1092,22 @@ describe("mdbase connect server", () => {
     expect(pending.json().authorization.application_name).toBe("Workout Tracker");
     expect(pending.json().authorization.collection_id).toBe(collectionId);
     expect(pending.json().authorization.account_backend).toBe("legacy");
+    // Retained declarations may predate native-origin validation. Consent must
+    // classify the actual persisted authorization origin independently.
+    const declaredApp = (await db.query("SELECT application_declaration FROM applications WHERE id=$1",[applicationId])).rows[0].application_declaration;
+    await db.query("UPDATE applications SET application_declaration=$2::jsonb WHERE id=$1",[applicationId,JSON.stringify({...declaredApp,platform:"native"})]);
+    for (const flow of ["authorization_code","device_code"]) for (const origin of ["http://127.0.0.1:49152","https://remote.example.test","http://localhost:49152","http://[::1]:49152"]) {
+      await db.query("UPDATE authorization_requests SET flow=$2,redirect_uri=$3,device_origin=$4 WHERE id=$1",[requestId,flow,`${origin}/callback`,origin]);
+      const preview = await app.inject({method:"GET",url:`/v1/authorization-requests/${requestId}`,headers:{cookie}});
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json().authorization.application_origin).toBe(origin);
+      expect(preview.json().authorization).not.toHaveProperty("redirect_uri");
+      expect(preview.json().authorization).not.toHaveProperty("device_origin");
+      expect(preview.json().authorization.platform).toBe(origin === "http://127.0.0.1:49152" ? "native" : undefined);
+    }
+    await db.query("UPDATE authorization_requests SET flow='authorization_code',redirect_uri=$2,device_origin=NULL WHERE id=$1",[requestId,manifestServer.redirectUri]);
+    await db.query("UPDATE applications SET application_declaration=$2::jsonb WHERE id=$1",[applicationId,JSON.stringify(declaredApp)]);
+
     await db.query("UPDATE users SET account_backend='next' WHERE email='callum@example.com'");
     const nextPending = await app.inject({ method: "GET", url: `/v1/authorization-requests/${requestId}`, headers: { cookie } });
     expect(nextPending.statusCode).toBe(200);

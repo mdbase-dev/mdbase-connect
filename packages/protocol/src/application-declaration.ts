@@ -72,6 +72,8 @@ interface MdbaseAppManifestBase {
 export interface MdbaseWebAppManifest extends MdbaseAppManifestBase {
   /** Omitted by existing v1 declarations; explicit `web` is equivalent. */
   distribution?: "web";
+  /** Runtime claim, not publisher identity. Enables literal 127.0.0.1 HTTP. */
+  platform?: "native";
   homepage: string;
   icon?: string;
   redirect_uris: string[];

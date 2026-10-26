@@ -16,11 +16,11 @@ const unavailable = () => mdbaseError("unavailable", "SDK packaged application a
 /** Private SDK selector, not an application configuration callback. UI and
  * Worker use the same ESM artifact anchor. Selection performs no IO, storage,
  * Worker construction, dynamic imports or WASM initialization. */
-export function packagedApplicationAssets(environment:"lab"|"production"|"local",appOrigin:string):PackagedApplicationNativeAssets {
+export function packagedApplicationAssets(environment:"lab"|"production"|"local",appOrigin:string,platform?:"native"):PackagedApplicationNativeAssets {
   if(!applicationEnvironmentAllowed(environment))throw unavailable();
   if(environment==="production")throw mdbaseError("unavailable", "production trust unavailable", "application_production_trust_unavailable");
   const release=appReleaseTrust();
-  selectAppEnvironment({environment,appOrigin,release});
+  selectAppEnvironment({environment,appOrigin,platform,release});
   // Literal `new URL(<asset>, import.meta.url)` forms let a consumer bundler
   // (Vite/Rollup/webpack) emit and rewrite the native assets.
   let runtimeUrl:URL,sqliteUrl:URL;

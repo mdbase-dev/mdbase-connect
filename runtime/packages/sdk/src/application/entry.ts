@@ -538,7 +538,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     });
   }
   private check():void{if(this.closed||this.hidden||this.lifetime.signal.aborted)throw mdbaseError("cancelled","Application entry fenced","application_entry_fenced");}
-  private environment(){return selectAppEnvironment({environment:this.declaration.environment,appOrigin:this.declaration.origin,release:appReleaseTrust()});}
+  private environment(){return selectAppEnvironment({environment:this.declaration.environment,appOrigin:this.declaration.origin,platform:this.declaration.manifest.platform === "native" ? "native" : undefined,release:appReleaseTrust()});}
   private initialize():Promise<ApplicationRuntime>{
     if(this.initialization)return this.initialization;
     const incarnation=this.incarnation;
@@ -549,7 +549,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       if(typeof import.meta.url!=="string")throw unavailable();
       const moduleUrl=new URL(import.meta.url);
       if(urlOrigin(moduleUrl)!==this.declaration.origin||currentAppOrigin()!==this.declaration.origin)throw mdbaseError("unavailable","Application module binding unavailable","application_worker_module_binding");
-      const environment=this.environment();packagedApplicationAssets(this.declaration.environment,this.declaration.origin);
+      const environment=this.environment();packagedApplicationAssets(this.declaration.environment,this.declaration.origin,this.declaration.manifest.platform === "native" ? "native" : undefined);
       // A browser below the SDK's feature floor fails here, once, with a typed
       // problem — before any registration, Worker, key or storage allocation.
       const capabilities=await probeBrowserCapabilities();this.check();

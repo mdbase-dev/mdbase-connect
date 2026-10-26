@@ -136,7 +136,8 @@ function validateManifest(
       "must declare supported contract version 1 or 2"
     )]);
   }
-  const candidate = options.allowLocal ? localManifestSchemaCandidate(value) : value;
+  const native = asObject(value).platform === "native";
+  const candidate = options.allowLocal || native ? localManifestSchemaCandidate(value, !options.allowLocal) : value;
   const schemaResult = validationResult(
     version === 1 ? legacyAppManifestValidator : appManifestValidator, candidate
   );
@@ -302,19 +303,24 @@ function validateManifestOrigins(
   allowLocal: boolean
 ): ManifestValidationIssue[] {
   const manifest = asObject(value);
+  const native = manifest.platform === "native";
   for (const [environment, policy] of Object.entries(asObject(manifest.installation_origins))) {
     for (const [kind, origins] of Object.entries(asObject(policy))) {
       for (const [index, origin] of (origins as string[]).entries()) {
         const path = `/installation_origins/${environment}/${kind}/${index}`;
         try {
+          if (native && (kind !== "app-runtime" || !isNativeLoopbackOrigin(origin))) {
+            return [issue(path, "origin", "native applications require canonical IPv4 loopback HTTP app-runtime origins")];
+          }
           const url = new URL(origin);
-          const web = secureOrAllowedLocal(url, true) && url.origin === origin;
-          const native = kind === "mobile" && url.protocol === "capacitor:"
+          const web = (secureOrAllowedLocal(url, environment === "lab")
+            || (native && isNativeLoopbackOrigin(origin))) && url.origin === origin;
+          const mobile = kind === "mobile" && url.protocol === "capacitor:"
             && /^[a-z0-9.-]+$/u.test(url.hostname) && `${url.protocol}//${url.host}` === origin;
           // A Chrome extension ID is stable (derived from its key), so it can be
           // declared exactly. Firefox extension origins are random per profile.
           const extension = kind === "app-runtime" && /^chrome-extension:\/\/[a-p]{32}$/u.test(origin);
-          if ((!web && !native && !extension) || origin.includes("*") || url.username || url.password || url.search || url.hash) {
+          if ((!web && !mobile && !extension) || origin.includes("*") || url.username || url.password || url.search || url.hash) {
             return [issue(path, "origin", "must be an exact HTTPS, loopback HTTP, mobile capacitor or Chrome extension origin without wildcards")];
           }
         } catch {
@@ -348,11 +354,11 @@ function validateManifestOrigins(
 
   try {
     const homepage = new URL(String(manifest.homepage));
-    if (!secureOrAllowedLocal(homepage, allowLocal)) {
+    if (native ? !isNativeLoopbackUrl(String(manifest.homepage)) : !secureOrAllowedLocal(homepage, allowLocal)) {
       return [issue(
         "/homepage",
         "protocol",
-        "must use HTTPS (or loopback HTTP in local mode)"
+        native ? "native applications require canonical IPv4 loopback HTTP" : "must use HTTPS (or loopback HTTP in local mode)"
       )];
     }
     for (const [index, redirect] of (manifest.redirect_uris as unknown[]).entries()) {
@@ -361,7 +367,11 @@ function validateManifestOrigins(
         return [issue(`/redirect_uris/${index}`, "url", "must be an exact URI without wildcards")];
       }
       const url = new URL(String(redirect));
-      if (url.origin === homepage.origin && !secureOrAllowedLocal(url, allowLocal)) {
+      if (native && ["http:", "https:"].includes(url.protocol) && !isNativeLoopbackUrl(String(redirect))) {
+        return [issue(`/redirect_uris/${index}`, "origin", "native HTTP(S) redirects require canonical IPv4 loopback HTTP")];
+      }
+      if (url.origin === homepage.origin && !secureOrAllowedLocal(url, allowLocal)
+        && !(native && isNativeLoopbackUrl(String(redirect)))) {
         return [issue(
           `/redirect_uris/${index}`,
           "protocol",
@@ -828,7 +838,7 @@ function validateLegacyCapabilityRequirements(value: unknown): ManifestValidatio
   return issues;
 }
 
-function localManifestSchemaCandidate(value: unknown): unknown {
+function localManifestSchemaCandidate(value: unknown, nativeOnly = false): unknown {
   const source = asObject(value);
   if (source.distribution === "portable") return value;
   // Only URL fields need a schema-safe local substitute. A shallow copy keeps
@@ -836,25 +846,37 @@ function localManifestSchemaCandidate(value: unknown): unknown {
   const object = { ...source };
   for (const field of ["homepage", "icon"] as const) {
     if (typeof object[field] === "string") {
-      object[field] = schemaSafeLocalUrl(object[field]);
+      object[field] = schemaSafeLocalUrl(object[field], nativeOnly);
     }
   }
   if (Array.isArray(object.redirect_uris)) {
     object.redirect_uris = object.redirect_uris.map((url) =>
-      typeof url === "string" ? schemaSafeLocalUrl(url) : url
+      typeof url === "string" ? schemaSafeLocalUrl(url, nativeOnly) : url
     );
   }
   return object;
 }
 
-function schemaSafeLocalUrl(value: string): string {
+function schemaSafeLocalUrl(value: string, nativeOnly: boolean): string {
   try {
     const url = new URL(value);
-    if (url.protocol === "http:" && isLoopback(url.hostname)) url.protocol = "https:";
+    if (url.protocol === "http:" && (nativeOnly ? isNativeLoopbackUrl(value) : isLoopback(url.hostname))) url.protocol = "https:";
     return url.href;
   } catch {
     return value;
   }
+}
+
+/** RFC 8252 §7.3 native exception: canonical literal IPv4 only, any valid port.
+ * This classifies transport; the registered manifest, consent and pairing grant authority. */
+export function isNativeLoopbackOrigin(value: unknown): value is string {
+  if (typeof value !== "string" || !/^http:\/\/127\.0\.0\.1(?::[1-9][0-9]{0,4})?$/.test(value)) return false;
+  try { return new URL(value).origin === value; } catch { return false; }
+}
+
+function isNativeLoopbackUrl(value: string): boolean {
+  const origin = /^http:\/\/[^/?#]+/.exec(value)?.[0];
+  return isNativeLoopbackOrigin(origin);
 }
 
 function secureOrAllowedLocal(url: URL, allowLocal: boolean): boolean {

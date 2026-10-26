@@ -1,3 +1,4 @@
+import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 /** Installation devices extend daemon pairing, never application OAuth grants.
  * Public account selection precedes key custody; attestation precedes explicit
  * device approval. Original request/tuple and outcome are immutable. */
@@ -39,8 +40,6 @@ const strict = (): never => {
     "this account uses strict device approval; add this device from your desktop",
   );
 };
-/** Resolve exact origins from the registered declaration, never caller metadata.
- * Extra native/loopback origins retain their declared environment/device kind. */
 export async function installationApp(db: DatabaseQueryable, environment: string | undefined, appId: string, origin: string | undefined, kind: "app-runtime" | "mobile") {
   if (!environment || !installationEnvironment(environment, origin, environment) || !origin || origin === "null" || origin.includes("*")) return fail("installation_app_not_allowed", 403);
   const app = await findInstallationApplication(db, appId);
@@ -60,7 +59,9 @@ export async function installationApp(db: DatabaseQueryable, environment: string
     const declared = new URL(value);
     return declared.origin !== "null" && declared.origin === origin;
   });
-  if (!declaredOrigin && !allowed.includes(origin)) return fail("installation_app_not_allowed", 403);
+  const nativeOrigin = declaration && "platform" in declaration && declaration.platform === "native" && kind === "app-runtime" && isNativeLoopbackOrigin(origin);
+  if (["staging", "production"].includes(environment) && origin.startsWith("http:") && !nativeOrigin) return fail("installation_app_not_allowed", 403);
+  if (!declaredOrigin && !allowed.includes(origin) && !nativeOrigin) return fail("installation_app_not_allowed", 403);
   if (!app.name || !app.family_identity) throw new Error("Invalid registered installation identity.");
   const timerDeclaration = installationTimerDeclaration(app, { environment: environment as InstallationTimerBinding["environment"], app_origin: origin, kind }, environment);
   const optionalFileActions = [...declaredOptionalFileActions(app.requirements)];
@@ -368,11 +369,10 @@ export async function inspectInstallationPairing(
   live(r);
   if (r.user_id && r.user_id !== user)
     fail("installation_account_changed", 403);
-  // Display the signed-in person's readiness before consent, without selecting
-  // the account or relaxing the independent mutation-time checks.
   const accountUpgrade = await active(db, user, false, true);
-  // First-party authenticated portal preview only. No account is selected and
-  // the requesting SDK learns nothing until the person's explicit confirmation.
+  const declaration = (await findInstallationApplication(db, r.app_id))?.application_declaration;
+  const native = declaration && "platform" in declaration && declaration.platform === "native" && isNativeLoopbackOrigin(r.app_origin);
+  // First-party portal preview only; no account selection or SDK disclosure.
   const eligible = await tx(db, async c => {
     const hosted=await installationCollections(c,user,undefined,r.device_id);
     const native=r.file_access_collection_id ? [] : await privateInstallationChoices(c,user,r.app_id);
@@ -388,8 +388,7 @@ export async function inspectInstallationPairing(
     }
     fail("installation_collection_unavailable",403);
   }
-  // A URL-carried UX hint, not persisted selection or consent. Never look up the
-  // target: unavailable and nonexistent IDs produce the same response.
+  // URL hint only, never selection or consent; unavailable/nonexistent IDs are equivalent.
   const hint = r.portal_account_confirmed_at && collections.some(collection => collection.collection_id === collectionHint) ? collectionHint : null;
   return {
     pairing: {
@@ -402,6 +401,7 @@ export async function inspectInstallationPairing(
       kind: r.kind,
       app_id: r.app_id,
       app_origin: r.app_origin,
+      ...(native ? { app_platform: "native" as const } : {}),
       ...(r.timer_declaration ? { timer_declaration: r.timer_declaration } : {}),
       timer_consent: r.timer_consent,
       account_selected: !!r.account_selected_at,

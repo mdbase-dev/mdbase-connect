@@ -4,7 +4,7 @@ import { sign } from 'node:crypto';
 import { once } from 'node:events';
 import WebSocket from 'ws';
 export async function corsCases({base,token,transport,encode,decode,map,sha,h,fetch=globalThis.fetch}) {
-  const origins=['http://127.0.0.1:48218','https://lab.tasknotes-app.pages.dev'];
+  const origins=['http://127.0.0.1:1','http://127.0.0.1:49152','http://127.0.0.1:65535','http://127.0.0.1:48218','https://lab.tasknotes-app.pages.dev'];
   const signing='authorization,content-type,x-mdbase-nonce,x-mdbase-sig';
   const preflight=(origin,method='POST',headers=signing)=>fetch(`${base}/v1/rpc`,{method:'OPTIONS',headers:{...(origin?{origin}:{}),'access-control-request-method':method,'access-control-request-headers':headers}});
   function cors(r,origin){assert.equal(r.headers.get('access-control-allow-origin'),origin);assert.match(r.headers.get('vary'),/(^|,\s*)Origin(,|$)/i);assert.equal(r.headers.get('access-control-allow-credentials'),null);}
@@ -21,7 +21,7 @@ export async function corsCases({base,token,transport,encode,decode,map,sha,h,fe
       assert.ok(r.headers.get('access-control-expose-headers').split(',').map(x=>x.trim()).includes('x-mdbase-next-nonce'));
     }
   }
-  for(const origin of [undefined,'null','https://evil.test','https://lab.tasknotes-app.pages.dev.evil.test','http://127.0.0.1:48219','https://app.tasknotes.dev','https://lab.tasknotes-app.pages.dev/']){
+  for(const origin of [undefined,'null','https://evil.test','https://lab.tasknotes-app.pages.dev.evil.test','http://localhost:48219','http://127.0.0.2:48219','http://127.0.0.1.evil.test:48219','http://127.1:48219','http://2130706433:48219','http://127.0.0.1:0','app://obsidian.md','https://app.tasknotes.dev','https://lab.tasknotes-app.pages.dev/']){
     const r=await preflight(origin);assert.equal(r.status,403);assert.equal(await r.text(),'');assert.equal(r.headers.get('access-control-allow-origin'),null);assert.equal(r.headers.get('access-control-max-age'),null);
     const real=await fetch(`${base}/health`,{headers:origin?{origin}:{}});assert.equal(real.status,200);cors(real,null);
   }

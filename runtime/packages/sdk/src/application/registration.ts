@@ -1,3 +1,4 @@
+import {isNativeLoopbackOrigin} from "@mdbase-dev/connect-protocol/manifest";
 import {
     APPLICATION_MANIFEST_MAX_BYTES,
     parseVersionedAppManifest,
@@ -153,6 +154,7 @@ export async function resolveApplicationRegistration(
         environment = selectAppEnvironment({
             environment: declaration.environment,
             appOrigin: declaration.origin,
+            platform: declaration.manifest.platform === "native" ? "native" : undefined,
             release: appReleaseTrust(),
         });
     } catch {
@@ -181,7 +183,8 @@ export async function resolveApplicationRegistration(
         manifest.name !== declaration.name ||
         manifest.distribution === "portable" ||
         (new URL(manifest.homepage).origin !== declaration.origin &&
-            !declaredOrigins.includes(declaration.origin))
+            !declaredOrigins.includes(declaration.origin) &&
+            !("platform" in manifest && manifest.platform === "native" && declaration.installationKind === "app-runtime" && isNativeLoopbackOrigin(declaration.origin)))
     )
         throw binding();
     const body = JSON.stringify({ manifest }),

@@ -87,7 +87,7 @@
     "@mdbase-dev/connect-protocol"
   ],
   "dependencies": {
-    "@mdbase-dev/connect-protocol": "file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz",
+    "@mdbase-dev/connect-protocol": "file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz",
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0"

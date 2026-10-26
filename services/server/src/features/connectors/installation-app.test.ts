@@ -137,3 +137,19 @@ describe("self-registered application pairing origins", () => {
     } finally { await db.end(); }
   });
 });
+
+describe("native platform installation admission", () => {
+  it("uses the registered native claim for any port and keeps exact origins in the result", async () => {
+    const db = await createDatabase("memory");
+    try {
+      const app = await upsertApplication(db, registerApplicationManifest({...journal, platform:"native", homepage:local, redirect_uris:[`${local}/callback`]}));
+      for (const origin of ["http://127.0.0.1:1", "http://127.0.0.1:49152", "http://127.0.0.1:65535"])
+        expect(await installationApp(db,"production",app.id,origin,"app-runtime")).toEqual({id:app.id,origin,name:"Journal"});
+      for (const origin of ["http://localhost:49152", "http://127.0.0.2:49152", "http://[::1]:49152", "http://127.1:49152", "app://obsidian.md", "http://127.0.0.1:49152/", "http://127.0.0.1:0"])
+        await expect(installationApp(db,"production",app.id,origin,"app-runtime")).rejects.toMatchObject({code:"installation_app_not_allowed"});
+      await expect(installationApp(db,"production",app.id,"http://127.0.0.1:49152","mobile")).rejects.toThrow();
+      const web = await upsertApplication(db, registerApplicationManifest(journal));
+      await expect(installationApp(db,"production",web.id,"http://127.0.0.1:49152","app-runtime")).rejects.toMatchObject({code:"installation_app_not_allowed"});
+    } finally {await db.end();}
+  });
+});

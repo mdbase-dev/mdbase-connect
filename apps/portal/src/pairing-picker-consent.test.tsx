@@ -31,6 +31,16 @@ async function fixture(extra: Partial<DevicePairing> = {}) {
 }
 
 describe("one explicit collection consent", () => {
+  it("describes native pairing as an unverified app running on this computer", async () => {
+    const f = await fixture({app_platform:"native",app_origin:"http://127.0.0.1:49152"});
+    expect(screen.getByText(/Requested by an app running on this computer/)).toHaveTextContent("Application identity unverified. This app calls itself Reader.");
+    expect(f.posts()).toEqual([]);
+  });
+  it.each(["https://remote.example.test", "http://localhost:49152", "http://[::1]:49152", undefined])("shows the actual pairing origin instead of native wording for %s", async app_origin => {
+    await fixture({app_platform:"native",app_origin});
+    expect(screen.queryByText(/Requested by an app running on this computer/)).not.toBeInTheDocument();
+    if (app_origin) expect(screen.getByText(/Approve only if you started sign-in/)).toHaveTextContent(app_origin);
+  });
   it("lands directly on the picker with app/origin/warning, and no account or approval mutation", async () => {
     const f = await fixture();
     expect(f.container.querySelector("select")).toBeNull();

@@ -1,7 +1,18 @@
-//! Browser transport visibility, never RPC/grant authority. No wildcard or cookies.
+//! Browser transport visibility, never RPC/grant authority. Only literal IPv4 loopback has a port pattern; no cookies.
 use worker::{Headers, Response, Result, Url};
 
 pub const ENV: &str = "LOGSVC_CORS_ORIGINS";
+const LOOPBACK_PATTERN: &str = "http://127.0.0.1:*";
+
+fn loopback_origin(origin: &str) -> bool {
+    origin.starts_with("http://127.0.0.1")
+        && Url::parse(origin).is_ok_and(|url| {
+            url.scheme() == "http"
+                && url.host_str() == Some("127.0.0.1")
+                && url.port() != Some(0)
+                && url.origin().ascii_serialization() == origin
+        })
+}
 const METHODS: &str = "GET, POST, PUT";
 const HEADERS: &str =
     "authorization, content-type, x-mdbase-nonce, x-mdbase-sig, range, x-amz-checksum-sha256";
@@ -49,12 +60,12 @@ impl Cors {
             for origin in raw.split(',').map(str::trim) {
                 if origins.len() == 32
                     || origin.len() > 256
-                    || origin.contains('*')
+                    || (origin.contains('*') && origin != LOOPBACK_PATTERN)
                     || origins.iter().any(|x| x == origin)
                 {
                     return Err(());
                 }
-                if !app_origin(origin) {
+                if origin != LOOPBACK_PATTERN && !app_origin(origin) {
                     let url = Url::parse(origin).map_err(|_| ())?;
                     if !matches!(url.scheme(), "http" | "https")
                         || url.origin().ascii_serialization() != origin
@@ -74,12 +85,15 @@ impl Cors {
         origin.is_none() || self.allowed(origin).is_some()
     }
 
-    fn allowed(&self, origin: Option<&str>) -> Option<&str> {
+    fn allowed<'a>(&self, origin: Option<&'a str>) -> Option<&'a str> {
         let origin = origin?;
         self.origins
             .iter()
-            .find(|x| x.as_str() == origin)
-            .map(String::as_str)
+            .any(|configured| {
+                (configured != LOOPBACK_PATTERN && configured == origin)
+                    || (configured == LOOPBACK_PATTERN && loopback_origin(origin))
+            })
+            .then_some(origin)
     }
 
     fn permits_preflight(
@@ -186,6 +200,48 @@ impl Cors {
 mod tests {
     use super::*;
     const LAB: &str = "http://127.0.0.1:48218,https://lab.tasknotes-app.pages.dev";
+    #[test]
+    fn literal_loopback_port_pattern_only() {
+        let cors = Cors::parse(Some(LOOPBACK_PATTERN)).unwrap();
+        for origin in [
+            "http://127.0.0.1",
+            "http://127.0.0.1:1",
+            "http://127.0.0.1:49152",
+            "http://127.0.0.1:65535",
+        ] {
+            assert_eq!(cors.allowed(Some(origin)), Some(origin));
+            assert!(cors.permits_preflight(Some(origin), Some("POST"), Some(HEADERS)));
+            assert!(cors.permits_upgrade(Some(origin)));
+            assert_eq!(Cors::parse(None).unwrap().allowed(Some(origin)), None);
+        }
+        for origin in [
+            "http://localhost:49152",
+            "http://127.0.0.2:49152",
+            "http://[::1]:49152",
+            "http://127.1:49152",
+            "http://2130706433:49152",
+            "http://127.0.0.1.evil.test:49152",
+            "http://127.0.0.1:0",
+            "http://127.0.0.1:65536",
+            "http://user@127.0.0.1:49152",
+            "http://127.0.0.1:49152/",
+            "https://127.0.0.1:49152",
+            "app://obsidian.md",
+            LOOPBACK_PATTERN,
+        ] {
+            assert_eq!(cors.allowed(Some(origin)), None, "{origin}");
+            assert!(!cors.permits_upgrade(Some(origin)));
+        }
+        for pattern in [
+            "http://localhost:*",
+            "http://127.0.0.2:*",
+            "https://127.0.0.1:*",
+            "http://127.*",
+            "http://127.0.0.1:*/",
+        ] {
+            assert!(Cors::parse(Some(pattern)).is_err(), "{pattern}");
+        }
+    }
     #[test]
     fn exact_origins_only() {
         let c = Cors::parse(Some(LAB)).unwrap();

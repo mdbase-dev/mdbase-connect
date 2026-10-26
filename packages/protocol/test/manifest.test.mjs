@@ -10,7 +10,8 @@ import {
 import {
   AppManifestValidationError,
   parseAppManifest,
-  validateAppManifest
+  validateAppManifest,
+  validateVersionedAppManifest
 } from "../dist/manifest.js";
 
 const document = "---\nkind: mdbase.type\nname: scratch\nversion: 1\n---\n";
@@ -335,4 +336,16 @@ test("configuration requirements are pointer-safe and exactly provisioned", () =
     issue.path === "/provisions/configuration/0/value"
     && issue.keyword === "configurationRequirement"
   ));
+});
+
+test("application platform cannot be declared inside type-pack manifests", () => {
+  for (const version of [1,2]) {
+    const input = manifest();
+    if (version === 1) delete input.requirements.capabilities;
+    assert.equal(validateVersionedAppManifest(input).valid,true);
+    input.provisions.type_packs[0].manifest.platform = "native";
+    const result = validateVersionedAppManifest(input);
+    assert.equal(result.valid,false);
+    assert.ok(result.issues.some(issue=>issue.path === "/provisions/type_packs/0/manifest/platform"));
+  }
 });
