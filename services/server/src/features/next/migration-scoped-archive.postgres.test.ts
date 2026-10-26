@@ -95,7 +95,20 @@ suite("accepted scoped archive original-H6 bridge (isolated real PostgreSQL)",()
     }finally{await f.app.close();}
   });
 
-  it.each(["inventory","selection","owner","collection","missing","duplicate","future-fence","unsafe-head","production","count"])("rejects bad complete scoped evidence before acceptance/start: %s",async kind=>{
+  it("accepts retained unresolved/applied journal evidence when in_flight is zero (provider H6 settlement)",async()=>{
+    const f=await fixture("lab",2);try{
+      const original=f.verified.scoped_recovery.source_fences.find(value=>value.collection_id===f.collection)!;
+      original.unresolved=f.source.unresolved=4;original.applied_unreceipted=f.source.applied_unreceipted=2;
+      parseVerifiedBatchArchive(f.verified);
+      await f.accept();await f.start();
+      const fenced=await f.request();expect(fenced.statusCode,fenced.body).toBe(200);
+      const drained=await f.request("source");expect(drained.statusCode,drained.body).toBe(200);
+      expect(drained.json()).toMatchObject({in_flight:0,unresolved:4,applied_unreceipted:2});
+      expect(f.provider.legacyMigrationFence).not.toHaveBeenCalled();
+    }finally{await f.app.close();}
+  });
+
+  it.each(["inventory","selection","owner","collection","missing","duplicate","future-fence","unsafe-head","in-flight","negative-unresolved","fractional-unresolved","unsafe-unresolved","negative-applied","unsafe-applied","production","count"])("rejects bad complete scoped evidence before acceptance/start: %s",async kind=>{
     const f=await fixture();try{
       const proof=f.verified.scoped_recovery;
       if(kind==="inventory")proof.inventory_sha256="0".repeat(64);
@@ -106,6 +119,12 @@ suite("accepted scoped archive original-H6 bridge (isolated real PostgreSQL)",()
       if(kind==="duplicate")proof.source_fences.push({...proof.source_fences[0]!});
       if(kind==="future-fence")proof.source_fences[0]!.started_at=new Date(Date.parse(f.verified.archive_created_at)+1000).toISOString();
       if(kind==="unsafe-head")proof.source_fences[0]!.head=9007199254740992;
+      if(kind==="in-flight")proof.source_fences[0]!.in_flight=1;
+      if(kind==="negative-unresolved")proof.source_fences[0]!.unresolved=-1;
+      if(kind==="fractional-unresolved")proof.source_fences[0]!.unresolved=1.5;
+      if(kind==="unsafe-unresolved")proof.source_fences[0]!.unresolved=9007199254740992;
+      if(kind==="negative-applied")proof.source_fences[0]!.applied_unreceipted=-1;
+      if(kind==="unsafe-applied")proof.source_fences[0]!.applied_unreceipted=9007199254740992;
       if(kind==="production")f.verified.environment="production";
       if(kind==="count")f.verified.retention.count="2";
       await expect(f.accept()).rejects.toMatchObject({code:expect.stringMatching(/backup_missing|migration_archive_source_changed/)});
@@ -147,13 +166,22 @@ suite("accepted scoped archive original-H6 bridge (isolated real PostgreSQL)",()
       // Function accepts only millisecond trusted timestamps.
       const check=async(value:unknown)=>(await db.query<{valid:boolean}>("SELECT next_migration_archive_elapsed_valid($1::jsonb,date_trunc('milliseconds',now()),date_trunc('milliseconds',now())) AS valid",[JSON.stringify(value)])).rows[0]!.valid;
       expect(await check(f.verified)).toBe(true);
-      for(const kind of ["in-flight","relative-stamp","duplicate","unknown","unsafe-head"]){
+      const retained=structuredClone(f.verified);Object.assign(retained.scoped_recovery.source_fences[0]!,{unresolved:4,applied_unreceipted:9007199254740991});
+      expect(await check(retained)).toBe(true);
+      for(const kind of ["in-flight","relative-stamp","duplicate","unknown","unsafe-head","negative-unresolved","fractional-unresolved","unsafe-unresolved","string-unresolved","negative-applied","unsafe-applied","null-applied"]){
         const malformed=structuredClone(f.verified), fence=malformed.scoped_recovery.source_fences[0]!;
         if(kind==="in-flight")fence.in_flight=1;
         if(kind==="relative-stamp")fence.started_at="yesterday";
         if(kind==="duplicate")malformed.scoped_recovery.source_fences.push({...fence});
         if(kind==="unknown")Object.assign(fence,{pre_fenced:true});
         if(kind==="unsafe-head")fence.head=9007199254740992;
+        if(kind==="negative-unresolved")fence.unresolved=-1;
+        if(kind==="fractional-unresolved")fence.unresolved=1.5;
+        if(kind==="unsafe-unresolved")fence.unresolved=9007199254740992;
+        if(kind==="string-unresolved")Object.assign(fence,{unresolved:"4"});
+        if(kind==="negative-applied")fence.applied_unreceipted=-1;
+        if(kind==="unsafe-applied")fence.applied_unreceipted=9007199254740992;
+        if(kind==="null-applied")Object.assign(fence,{applied_unreceipted:null});
         expect(await check(malformed),kind).toBe(false);
       }
       const old={...f.verified,schema:"mdbase-recovery-set/v4",environment:"staging"};delete (old as Partial<typeof old>).scoped_recovery;

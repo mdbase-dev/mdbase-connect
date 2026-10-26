@@ -19,7 +19,7 @@ const suite = testUrl && approved ? describe : describe.skip;
 const token = "synthetic-migration-token-".repeat(2);
 const sorted = (ids: string[]) => [...ids].sort();
 
-interface Source { state: string; run: string | null; storageOwner: string; replicas: Map<string, string | null>; inFlight: number }
+interface Source { state: string; run: string | null; storageOwner: string; replicas: Map<string, string | null>; inFlight: number; retained?: number }
 
 suite("migration replica, unfence and cutover-policy fronts (isolated real PostgreSQL, synthetic provider)", () => {
   let db: DatabasePool, admin: pg.Pool, schema: string;
@@ -81,7 +81,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       async legacyMigrationDrain(id) {
         const s = src(id);
         return { collection_id: id, state: s.state, migration_id: s.run, head: 42, started_at: s.run ? "2026-10-12T00:00:00.000Z" : null,
-          retain_until: null, in_flight: s.inFlight, unresolved: 0, applied_unreceipted: 0 };
+          retain_until: null, in_flight: s.inFlight, unresolved: s.retained ?? 0, applied_unreceipted: s.retained ?? 0 };
       },
       async legacyMigrationReplicas(id) {
         return { replicas: [...src(id).replicas].filter(([, by]) => by === null).map(([r]) => ({ id: r, head: 42, acknowledged_sequence: 42,
@@ -267,6 +267,22 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       expect(await f.events("next_migration.appendbase_abort_barrier")).toEqual([{ digest: result.digest, binding: input }]);
       expect(f.effects).toEqual([]);
     } finally { await f.app.close(); }
+  });
+
+  it("queues a barrier over retained unresolved/applied evidence; live in_flight still refuses", async () => {
+    const f = await fixture(); try {
+      f.src(f.a).retained = 4;
+      const queued = await f.call("appendbase-abort-barrier", f.abortBody());
+      expect(queued.statusCode, queued.body).toBe(200);
+      expect(queued.json()).toMatchObject({ state: "queued" });
+    } finally { await f.app.close(); }
+    const g = await fixture(); try {
+      g.src(g.a).inFlight = 1;
+      const refused = await g.call("appendbase-abort-barrier", g.abortBody());
+      expect(refused.statusCode, refused.body).toBe(409);
+      expect(refused.json().error.code).toBe("migration_source_not_drained");
+      expect(await g.events("next_migration.appendbase_abort_barrier")).toEqual([]);
+    } finally { await g.app.close(); }
   });
 
   it("serializes concurrent barrier creation and rejects changed full-tuple retries", async () => {

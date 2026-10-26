@@ -67,7 +67,7 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
       CREATE TABLE mdbase_runtime_runs(namespace text,id text,status text,lease_worker text,lease_token text,lease_expires_at timestamptz,record_json jsonb);
       CREATE TABLE hosted_provider_runtime_outbox(collection_id uuid,processed_at timestamptz,lease_token text,leased_until timestamptz);
       CREATE TABLE hosted_provider_replicas(id uuid PRIMARY KEY,collection_id uuid);
-      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid,state text);
+      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid,state text,lease_expires_at timestamptz);
     `);
     src.searchParams.set("options", `-csearch_path=${schemas[1]} -cdefault_transaction_read_only=on`);
     source = await openDatabase(src.toString());

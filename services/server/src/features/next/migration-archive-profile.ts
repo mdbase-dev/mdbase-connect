@@ -115,7 +115,10 @@ const originalScopedFence = z.object({
   account_id: migrationUuid, collection_id: migrationUuid, migration_id: migrationUuid,
   started_at: z.string().max(64).pipe(z.iso.datetime({ offset: true })),
   head: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-  in_flight: z.literal(0), unresolved: z.literal(0), applied_unreceipted: z.literal(0),
+  // Provider H6 settlement: only live in_flight work could still apply. Retained
+  // unresolved/applied_unreceipted journal evidence is bound, not required zero.
+  in_flight: z.literal(0), unresolved: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  applied_unreceipted: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   notification_watermark: legacyNotificationWatermarkSchema,
   fence_reply_sha256: z.string().regex(HEX64), drain_reply_sha256: z.string().regex(HEX64)
 }).strict();

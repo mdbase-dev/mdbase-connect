@@ -51,7 +51,8 @@ suite("strict hosted timer import and the account-flip timer gate (synthetic Pos
       CREATE TABLE hosted_provider_runtime_outbox(collection_id uuid NOT NULL,processed_at timestamptz,
         lease_token text,leased_until timestamptz);
       CREATE TABLE hosted_provider_replicas(id uuid PRIMARY KEY,collection_id uuid NOT NULL REFERENCES hosted_provider_collections(id));
-      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid NOT NULL REFERENCES hosted_provider_replicas(id),state text NOT NULL);
+      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid NOT NULL REFERENCES hosted_provider_replicas(id),state text NOT NULL,
+        lease_expires_at timestamptz);
     `);
     providerUrl.searchParams.set("options", `-csearch_path=${provider} -cdefault_transaction_read_only=on`);
     sourcePool = await openDatabase(providerUrl.toString());

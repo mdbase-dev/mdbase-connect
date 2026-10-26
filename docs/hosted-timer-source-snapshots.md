@@ -5,9 +5,10 @@ lossy legacy projection with SELECT-only keyset pages over the original runtime
 namespace and ID. It does not initialize or migrate runtime storage.
 
 Every page requires existing runtime schema 2, a migrating collection with its
-original fence identity/start/head, and no unfinished mutation or notification
-work. Missing, firing, leased, UNKNOWN, malformed or unsupported records refuse;
-expiry is not settlement. Scheduled, fired and cancelled rows are all included.
+original fence identity/start/head, no live in-flight mutation (provider H6 rule:
+expired claimed/prepared and applied journal rows are retained evidence), and no
+unfinished notification work. Missing, firing, leased, UNKNOWN, malformed or
+unsupported timer/run records refuse; their expiry is not settlement. Scheduled, fired and cancelled rows are all included.
 
 Pages contain at most 64 timers and 48 KiB, reserving native envelope space below
 128 rows/64 KiB. `nextCursor` names the last **included** `(namespace,id)` and the

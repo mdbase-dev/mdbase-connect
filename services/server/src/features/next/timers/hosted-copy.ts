@@ -55,7 +55,9 @@ function refuse(why: string): never { throw new Error(`Legacy timer snapshot ref
  * One SELECT-only statement/snapshot, all statuses, original namespace. Requires
  * existing schema2 and a drained fence; does not initialize runtime storage.
  * Run settlement matches the provider's drain rule: an unleased `failed` run
- * whose attempts all have outcomes is settled.
+ * whose attempts all have outcomes is settled. Mutation journal settlement is
+ * the provider's in_flight rule: only a live claimed/prepared lease can still
+ * apply; expired and applied rows are retained evidence (fenced, or in head).
  * The authenticated original caller must independently bind returned fence DATA
  * to its original source session, and re-read the provider watermark pre-flip.
  * Keyset pages preserve the original fence and reserve native envelope bytes.
@@ -87,7 +89,7 @@ export async function readHostedLegacyTimers(
          AND (o.processed_at IS NULL OR o.lease_token IS NOT NULL OR o.leased_until IS NOT NULL))
        OR EXISTS (SELECT 1 FROM hosted_provider_mutation_journal j
          JOIN hosted_provider_replicas r ON r.id=j.replica_id WHERE r.collection_id=c.id
-         AND j.state IN ('claimed','prepared','applied')) AS unsettled,
+         AND j.state IN ('claimed','prepared') AND j.lease_expires_at > now()) AS unsettled,
        t.namespace AS runtime_namespace, t.id AS runtime_id, t.generation::text AS generation,
        t.status, to_char(t.fire_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS fire_at,
        CASE WHEN octet_length(t.record_json::text)<=49152 THEN t.record_json->>'created_at' END AS created_at,

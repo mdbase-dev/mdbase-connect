@@ -5,6 +5,9 @@ The existing trusted ONE-verifier acceptance route accepts the common archive
 metadata plus strict `scoped_recovery`: complete inventory/selection/row/native
 recovery inventory hashes, original H6 journal hash, and ordered original source
 fences with exact run/start/head/counters/watermark and raw-reply hashes.
+Each fence requires `in_flight` 0; `unresolved` and `applied_unreceipted` are
+retained journal evidence (non-negative safe integers), bound exactly but not
+required to be zero (provider H6 settlement, docs/hosted-migration-provider.md).
 The parser/SQL guard do not verify signatures or substitute for the ONE verifier.
 There is no public pre-fenced flag or unsigned receipt-adoption endpoint.
 
