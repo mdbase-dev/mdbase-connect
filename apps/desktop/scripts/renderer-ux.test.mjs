@@ -105,10 +105,13 @@ test("renderer loads real locale chunks and restores the preload language prefer
   try {
     await page.locator(".product-sidebar-link").filter({ hasText: "Settings" }).click();
     const picker = page.locator('select:has(option[value="ja"])');
-    assert.equal(await picker.locator("option").count(), 9);
+    assert.deepEqual(await picker.locator("option").evaluateAll(options => options.map(option => option.value)),
+      ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh", "it"]);
+    await picker.selectOption("it");
+    await page.waitForFunction(() => document.documentElement.lang === "it");
     await picker.selectOption("ja");
     await page.waitForFunction(() => document.documentElement.lang === "ja");
-    assert.deepEqual(await calls("setLocale"), [["ja"]]);
+    assert.deepEqual(await calls("setLocale"), [["it"], ["ja"]]);
     assert.equal(await page.getByRole("alert").count(), 0);
     await page.reload();
     await page.waitForFunction(() => document.documentElement.lang === "ja");
