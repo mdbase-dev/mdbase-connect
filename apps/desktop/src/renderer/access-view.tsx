@@ -35,8 +35,8 @@ function AppRequest({ entry, names, busy, onAct, onNotice }: {
       ? t(i18n)({ message: "mdbase could not fetch what this app is asking for, or which folders. Approval is possible once it can." })
       : t(i18n)`If you approve, ${entry.app_name} will be able to ${capabilityPhrase(entry.capabilities)} in ${where}, through this computer. You can revoke this at any time.`}
     check={unknown ? null : entry.fingerprint
-      ? <><span><Trans>App key</Trans></span> <code>{groupedFingerprint(entry.fingerprint)}</code> <span><Trans>Check that {entry.app_name} shows the same key.</Trans></span></>
-      : <span><Trans>mdbase shows the app&apos;s key when you approve. Check that {entry.app_name} shows the same key.</Trans></span>}
+      ? <><span><Trans>App key</Trans></span> <code>{groupedFingerprint(entry.fingerprint)}</code> <span>{t(i18n)`Check that ${entry.app_name} shows the same key.`}</span></>
+      : <span>{t(i18n)`mdbase shows the app's key when you approve. Check that ${entry.app_name} shows the same key.`}</span>}
     note={t(i18n)`Asked ${relativeTime(new Date(entry.first_seen_ms).toISOString())}`}
     approveLabel={t(i18n)({ message: "Approve…", context: "Connect interface" })}
     approveDisabled={unknown}

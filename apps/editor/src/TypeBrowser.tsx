@@ -1,8 +1,9 @@
 import { i18n } from "@lingui/core";
 import { displayLocale } from "./i18n/format";
 import { Trans } from "@lingui/react/macro";
-import { t, plural } from "@lingui/core/macro";
+import { t, plural, ph } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
+import { literal } from "./i18n/literal";
 import {
   ArrowCounterClockwiseIcon as RotateCcw,
   ArrowLeftIcon as ArrowLeft,
@@ -298,7 +299,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
             <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}><Trans>YAML</Trans></button>
           </div>
           <div className="type-editor-actions">
-            {dirty && <span className="type-change-scope" id="type-change-scope"><CircleAlert aria-hidden="true" />{creating ? t`Saving affects every matching note` : <Trans>Saving affects every note of type <code>{type!.name}</code></Trans>}</span>}
+            {dirty && <span className="type-change-scope" id="type-change-scope"><CircleAlert aria-hidden="true" />{creating ? t`Saving affects every matching note` : <Trans>Saving affects every note of type <code>{literal(type!.name)}</code></Trans>}</span>}
             <button className="type-secondary-action mdbase-button is-tertiary" onClick={creating ? onCancel : onRevert} disabled={readOnly || saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? t`Cancel` : t`Revert`}</button>
             <button className="save-type-button mdbase-button is-primary" aria-describedby={dirty ? "type-change-scope" : undefined} onClick={() => setReviewing(true)} disabled={readOnly || loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? t`Saving…` : t`Review changes`}</button>
           </div></>}
@@ -393,7 +394,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
         <div>
           <strong><Trans>Assigned by name</Trans></strong>
           {explicitTypeKeys.length
-            ? <p><Trans>Notes can name <code>{definition.name}</code> through {explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)}. When any configured key is present, automatic rules are skipped.</Trans></p>
+            ? <p><Trans>Notes can name <code>{literal(definition.name)}</code> through {explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)}. When any configured key is present, automatic rules are skipped.</Trans></p>
             : <p><Trans>This collection has explicit type assignment disabled. Every note is classified by automatic rules.</Trans></p>}
         </div>
         {onOpenSettings && <button onClick={onOpenSettings}><Trans>View settings</Trans></button>}
@@ -433,7 +434,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
         && <p className="type-explicit-only"><Trans>No inferred rules. Records must declare this type explicitly.</Trans></p>}
       {definition.advancedMatch && <div className="advanced-match-note">
         <Info aria-hidden="true" />
-        <div><strong><Trans>More inferred rules in YAML</Trans></strong><p><Trans>{definition.advancedMatchKeys.map(matchRuleLabel).join(" · ")}. These rules combine with the visual rules above.</Trans></p></div>
+        <div><strong><Trans>More inferred rules in YAML</Trans></strong><p>{t`${definition.advancedMatchKeys.map(matchRuleLabel).join(" · ")}. These rules combine with the visual rules above.`}</p></div>
         <button onClick={onOpenYaml}><Trans>Open YAML</Trans></button>
       </div>}
       {impact && <TypeMembershipPreview impact={impact.membership} advanced={definition.advancedMatch} />}
@@ -455,7 +456,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
       {linkedSchema ? <>
         <div className="linked-schema-notice">
           <Link2 aria-hidden="true" />
-          <div><strong><Trans>Schema-managed fields</Trans></strong><p><Trans><code>{linkedSchema}</code> is installed with this type. Field structure is edited at the schema source.</Trans></p></div>
+          <div><strong><Trans>Schema-managed fields</Trans></strong><p><Trans><code>{ph({ linkedSchema: literal(linkedSchema) as unknown as string /* ph is typed for strings; <Trans> accepts nodes */ })}</code> is installed with this type. Field structure is edited at the schema source.</Trans></p></div>
         </div>
         {linkedSchemaFields.map((field) => <div className="linked-schema-field" key={field.reference}>
           <div><span>{field.label}</span>{field.description && <small>{field.description}</small>}</div>
@@ -686,7 +687,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                       <small>{field.description || t`${kindName(field.kind)} value`}</small>
                     </div>
                     <label className="contract-field-source">
-                      <span className="sr-only"><Trans>{implementation.contract} {field.reference} source field</Trans></span>
+                      <span className="sr-only">{t`${implementation.contract} ${field.reference} source field`}</span>
                       <Select
                         aria-label={t`${implementation.contract} ${field.reference} type field`}
                         aria-invalid={displayed.level === "error" || undefined}
@@ -942,7 +943,7 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
         </div>
         <div className="contract-catalog-pack-actions">
           {status === "installed" && pack.primaryType && onOpenType
-            ? <button onClick={() => onOpenType(pack.primaryType!)}><Trans>Open {primaryTypeLabel}</Trans></button>
+            ? <button onClick={() => onOpenType(pack.primaryType!)}>{t`Open ${primaryTypeLabel}`}</button>
             : status !== "installed" && onInstall && (canInstall
               ? <button
                   disabled={installing}
@@ -977,7 +978,7 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
         </button>
       </div>}
       {installError?.key === key && <div className="contract-catalog-install-error" role="alert">
-        <div><strong><Trans>Couldn’t install {pack.displayName}</Trans></strong><p>{installError.message}</p></div>
+        <div><strong>{t`Couldn’t install ${pack.displayName}`}</strong><p>{installError.message}</p></div>
         <button onClick={() => setConfirmingKey(key)}><Trans>Try again</Trans></button>
       </div>}
     </div>;
@@ -1165,7 +1166,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
             suggestions={["any", ...typeNames]}
             onChange={(values) => onChange((source) => setTypeLinkTargets(source, rule.field, values))}
           />
-          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline"><Trans>Additional link settings remain in YAML: {rule.advancedKeys.join(", ")}.</Trans></p>}
+          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline">{t`Additional link settings remain in YAML: ${rule.advancedKeys.join(", ")}.`}</p>}
         </div>)}
         {!collection.links.length && <p className="collection-empty-rule"><Trans>No properties are marked as links.</Trans></p>}
       </div>
@@ -1203,7 +1204,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
             onChange={(event) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "path_glob", event.target.value || undefined))}
           /></label>}
           <InlineRemoveButton className="collection-rule-remove" label={t`Remove uniqueness rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeUniqueRule(source, rule.sourceIndex))} />
-          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline"><Trans>Additional uniqueness settings remain in YAML: {rule.advancedKeys.join(", ")}.</Trans></p>}
+          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline">{t`Additional uniqueness settings remain in YAML: ${rule.advancedKeys.join(", ")}.`}</p>}
         </div>)}
         {!collection.unique.length && <p className="collection-empty-rule"><Trans>No cross-record uniqueness rules.</Trans></p>}
       </div>
@@ -1237,7 +1238,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
 
     {advancedKeys.length > 0 && <div className="advanced-match-note collection-advanced-note">
       <Info aria-hidden="true" />
-      <div><strong><Trans>More collection behaviour in YAML</Trans></strong><p><Trans>{advancedKeys.join(" · ")}. These settings remain intact.</Trans></p></div>
+      <div><strong><Trans>More collection behaviour in YAML</Trans></strong><p>{t`${advancedKeys.join(" · ")}. These settings remain intact.`}</p></div>
       <button onClick={onOpenYaml}><Trans>Open YAML</Trans></button>
     </div>}
   </TypeEditorDisclosure>;
@@ -1658,7 +1659,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
       <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only"><Trans>Field name</Trans></span><input aria-label={t`${fieldLabel} field name`} type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title={t`Notes use this field to declare their type. Edit it in YAML if you need to change it.`}><Trans>Type key</Trans></small>}</label>
-      <label className="visual-field-kind"><span className="sr-only"><Trans>{fieldLabel} field type</Trans></span><Select aria-label={t`${fieldLabel} field type`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
+      <label className="visual-field-kind"><span className="sr-only">{t`${fieldLabel} field type`}</span><Select aria-label={t`${fieldLabel} field type`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
       <label className="visual-field-required"><input className="mdbase-checkbox" type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span><Trans>Required</Trans></span></label>
       <div className="type-field-actions">{!typeKey && <ActionMenu label={t`${fieldLabel} field options`} items={[
         { label: t`Remove ${fieldLabel} field`, icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => onChange((current) => removeTypeField(current, field.path)) }
@@ -1722,7 +1723,7 @@ function ListItemEditor({ item, source, depth, activeField, onActivate, onChange
   return <div className="list-item-editor">
     <div className="list-item-heading">
       <div><strong><Trans>List items</Trans></strong><span>{itemLabel}</span></div>
-      <label><span className="sr-only"><Trans>{itemLabel} field type</Trans></span><Select aria-label={t`${itemLabel} field type`} value={item.kind} options={kindOptions(item.kind)} onChange={(kind) => {
+      <label><span className="sr-only">{t`${itemLabel} field type`}</span><Select aria-label={t`${itemLabel} field type`} value={item.kind} options={kindOptions(item.kind)} onChange={(kind) => {
         if (kind === "advanced" || kind === item.kind) return;
         const nextKind = kind as Exclude<TypeFieldKind, "advanced">;
         if (typeFieldConversionImpact(source, item.path, nextKind).length) setPendingKind(nextKind);

@@ -1,0 +1,10 @@
+{
+  "reason": "Lingui's <Trans> reparses interpolated strings as rich-text markup, so user and application names such as `<0/>` or `<b>x</b>` rendered as tags. The editor and portal each gain one presentation helper that passes such values to <Trans> as text nodes while keeping message IDs and authored translations unchanged; the desktop app needs no helper. Seven relative imports cover the editor and portal components with markup-capable user values. The kit is deliberately untouched because outside consumers pin its tarball.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 7,
+    "typeScriptExportDeclarations": 2,
+    "apps/editor": 1,
+    "apps/portal": 1
+  }
+}

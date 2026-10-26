@@ -49,14 +49,14 @@ export function persistedBody(title: string, body: string, source: TitleSource):
   if (source.kind === "frontmatter") return body;
   // A display stand-in is never written into another app's record unless the person retitles it.
   if (source.kind === "path" && title.trim() === source.title) return body;
-  const cleanTitle = title.trim() || t`Untitled`;
+  const cleanTitle = title.trim() || "Untitled";
   const cleanBody = body.replace(/^\s*\n/, "");
   return cleanBody ? `# ${cleanTitle}\n\n${cleanBody}` : `# ${cleanTitle}\n`;
 }
 
 export function titlePatch(title: string, source: TitleSource, frontmatter: JsonObject = {}): JsonObject {
   return source.kind === "frontmatter"
-    ? fieldReferencePatch(frontmatter, source.field, title.trim() || t`Untitled`)
+    ? fieldReferencePatch(frontmatter, source.field, title.trim() || "Untitled")
     : {};
 }
 

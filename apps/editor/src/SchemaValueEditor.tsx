@@ -241,7 +241,7 @@ function ObjectMapValueEditor({ name, schema, rootSchema, value, required, hideL
     <div className="schema-map-entries">
       {entries.map(([entryName, entryValue], index) => <div className="schema-map-entry" key={index}>
         <label className="schema-map-key">
-          <span className="sr-only"><Trans>{name} entry {index + 1} key</Trans></span>
+          <span className="sr-only">{t`${name} entry ${index + 1} key`}</span>
           <input
             aria-label={t`${name} entry ${index + 1} key`}
             value={entryName}

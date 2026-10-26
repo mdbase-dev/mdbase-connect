@@ -18,7 +18,7 @@ describe("editor language preference", () => {
     expect(screen.getByRole("combobox", { name: "Interface language" })).toHaveValue("en");
     expect(loadLocale).not.toHaveBeenCalled();
     expect(document.documentElement.lang).toBe("en");
-    expect(screen.getAllByRole("option")).toHaveLength(9);
+    expect(screen.getAllByRole("option")).toHaveLength(10);
   });
 
   it("preserves the active language and saved choice after a failed download", async () => {

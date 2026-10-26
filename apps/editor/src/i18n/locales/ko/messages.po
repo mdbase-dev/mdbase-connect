@@ -2649,12 +2649,6 @@ msgstr "ID"
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "영향은 현재 색인된 노트를 기준으로 합니다. 확인을 마치면 컬렉션이 전체 정의를 검증합니다."
 
-#. placeholder {0}: contract.id
-#. placeholder {1}: contract.version
-#: src/type-contracts.ts
-msgid "Implements {0} {1}."
-msgstr "{0} {1} 구현."
-
 #: src/editor-commands.ts
 msgid "in the list"
 msgstr "목록에"
@@ -3529,7 +3523,7 @@ msgstr "노트가 준비되었습니다. 컬렉션 유형을 확인하거나 관
 msgid "Notes belong to this type when every configured condition group below matches."
 msgstr "아래에서 설정한 모든 조건 그룹이 일치하는 노트는 이 유형에 속합니다."
 
-#. placeholder {0}: definition.name
+#. placeholder {0}: literal(definition.name)
 #. placeholder {1}: explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)
 #: src/TypeBrowser.tsx
 msgid "Notes can name <0>{0}</0> through {1}. When any configured key is present, automatic rules are skipped."
@@ -4470,7 +4464,7 @@ msgstr "저장 중"
 msgid "Saving affects every matching note"
 msgstr "저장하면 일치하는 모든 노트에 영향을 줍니다."
 
-#. placeholder {0}: type!.name
+#. placeholder {0}: literal(type!.name)
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "저장하면 <0>{0}</0> 유형의 모든 노트에 영향을 줍니다"
@@ -4865,7 +4859,7 @@ msgstr "{subject}이(가) 아직 확인되지 않았습니다. 다시 시도하�
 msgid "The {subject} was rejected."
 msgstr "{subject}이(가) 거부되었습니다."
 
-#. placeholder {0}: outdatedStarter!.typeName
+#. placeholder {0}: literal(outdatedStarter!.typeName)
 #: src/YourPersonPanel.tsx
 msgid "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
 msgstr "<0>{0}</0> 유형은 이전 Person 기본 유형입니다. 레코드를 만들기 전에 현재 기본 유형을 검토하세요. 승인 없이는 변경되지 않습니다."
@@ -5339,7 +5333,7 @@ msgid "This application does not have permission to make that change."
 msgstr "이 애플리케이션에는 해당 변경을 수행할 권한이 없습니다."
 
 #. placeholder {0}: conversion.path
-#. placeholder {1}: conversion.typeName
+#. placeholder {1}: literal(conversion.typeName)
 #: src/YourPersonPanel.tsx
 msgid "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."
 msgstr "Person과 Contact를 모두 구현하는 유형으로 <0>{0}</0>만 <1>{1}</1> 변경합니다. 연락처 정보와 Markdown 본문은 유지됩니다. 다른 연락처나 유형 정의는 변경되지 않습니다."

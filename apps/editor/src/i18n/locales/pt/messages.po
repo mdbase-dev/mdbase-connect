@@ -2649,12 +2649,6 @@ msgstr "Identidade"
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "O impacto se baseia nas notas indexadas no momento. A coleção valida a definição completa quando você confirma."
 
-#. placeholder {0}: contract.id
-#. placeholder {1}: contract.version
-#: src/type-contracts.ts
-msgid "Implements {0} {1}."
-msgstr "Implementa {0} {1}."
-
 #: src/editor-commands.ts
 msgid "in the list"
 msgstr "na lista"
@@ -3529,7 +3523,7 @@ msgstr "As notas estão prontas. Permita acesso às definições de tipos apenas
 msgid "Notes belong to this type when every configured condition group below matches."
 msgstr "As notas pertencem a este tipo quando todos os grupos de condições configurados abaixo correspondem."
 
-#. placeholder {0}: definition.name
+#. placeholder {0}: literal(definition.name)
 #. placeholder {1}: explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)
 #: src/TypeBrowser.tsx
 msgid "Notes can name <0>{0}</0> through {1}. When any configured key is present, automatic rules are skipped."
@@ -4470,7 +4464,7 @@ msgstr "Salvando"
 msgid "Saving affects every matching note"
 msgstr "Salvar afeta todas as notas correspondentes"
 
-#. placeholder {0}: type!.name
+#. placeholder {0}: literal(type!.name)
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "Salvar afeta todas as notas do tipo <0>{0}</0>"
@@ -4865,7 +4859,7 @@ msgstr "{subject} ainda não foi confirmado. Verifique a coleção antes de tent
 msgid "The {subject} was rejected."
 msgstr "{subject} foi rejeitado."
 
-#. placeholder {0}: outdatedStarter!.typeName
+#. placeholder {0}: literal(outdatedStarter!.typeName)
 #: src/YourPersonPanel.tsx
 msgid "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
 msgstr "O tipo <0>{0}</0> é um modelo inicial anterior de Pessoa. Revise o modelo atual antes de criar seu registro. Nada será alterado sem sua aprovação."
@@ -5339,7 +5333,7 @@ msgid "This application does not have permission to make that change."
 msgstr "Este aplicativo não tem permissão para fazer essa alteração."
 
 #. placeholder {0}: conversion.path
-#. placeholder {1}: conversion.typeName
+#. placeholder {1}: literal(conversion.typeName)
 #: src/YourPersonPanel.tsx
 msgid "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."
 msgstr "Isso altera apenas <0>{0}</0> para o tipo <1>{1}</1>, que implementa Pessoa e Contato. Seus dados de contato e o corpo Markdown são preservados. Nenhum outro contato ou definição de tipo é alterado."

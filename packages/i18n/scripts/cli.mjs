@@ -57,7 +57,7 @@ export async function main(command, args = []) {
   catch (error) { if (error.code !== "ENOENT") throw error; }
   if (command === "check") {
     if (JSON.stringify(config.locales) !== JSON.stringify(locales) || config.sourceLocale !== "en" || config.compileNamespace !== "json")
-      throw new Error("Use the nine-locale English-source strict-JSON kit preset");
+      throw new Error("Use the ten-locale English-source strict-JSON kit preset");
     run(["check", "sync", ...args]);
     for (const catalogue of config.catalogs) {
       const load = async (locale) => formatter({}).parse(

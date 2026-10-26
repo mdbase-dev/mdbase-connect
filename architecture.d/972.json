@@ -1,0 +1,9 @@
+{
+  "reason": "Italian adds one CodeMirror phrase dictionary, packages/i18n/src/codemirror/it.ts, with one exported phrase map and one lazy relative import from codemirror.ts, matching the existing per-language lazy dictionary boundary. No new runtime mechanism or workspace package is introduced.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 1,
+    "packages/i18n": 1
+  }
+}

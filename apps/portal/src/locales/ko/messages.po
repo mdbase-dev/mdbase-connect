@@ -25,7 +25,7 @@ msgstr " (영향이 큼)"
 msgid " {0} can also create new collections for you."
 msgstr " {0}에서 새 컬렉션을 만들 수도 있습니다."
 
-#. placeholder {0}: host(request.project_url)
+#. placeholder {0}: literal(host(request.project_url))
 #: src/authorization-view.tsx
 msgid " {0} does not verify its origin."
 msgstr " {0}만으로 출처를 확인할 수 없습니다."
@@ -44,7 +44,7 @@ msgstr " 표시된 코드가 <0>{0}</0>이며"
 msgid " File actions are included in the collection permissions above."
 msgstr " 파일 작업은 위 컬렉션 권한에 포함됩니다."
 
-#. placeholder {0}: pairing.app_origin
+#. placeholder {0}: literal(pairing.app_origin)
 #: src/authority-workflows.tsx
 msgid " from <0>{0}</0>"
 msgstr " 출처: <0>{0}</0>"
@@ -90,7 +90,7 @@ msgstr "{0, plural, other {권한 #개}}"
 msgid "{0} · {1} · {2} Markdown · {3} files"
 msgstr "{0} · {1} · {2} Markdown · 파일 {3}개"
 
-#. placeholder {0}: entry.application_origin
+#. placeholder {0}: literal(entry.application_origin)
 #. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
 #. placeholder {2}: entry.installation_id.slice(-8)
 #: src/ApplicationAccess.tsx
@@ -161,7 +161,7 @@ msgstr "{0}을(를) 더 이상 사용할 수 없습니다. 다른 컬렉션을 �
 msgid "{0} is now connected."
 msgstr "{0}이(가) 연결되었습니다."
 
-#. placeholder {0}: adoption.display_name
+#. placeholder {0}: literal(adoption.display_name)
 #: src/authority-workflows.tsx
 msgid "{0} is now hosted."
 msgstr "{0}이(가) 호스팅 컬렉션으로 전환되었습니다."
@@ -232,7 +232,7 @@ msgstr "레코드 {0}개"
 msgid "{0} retained file storage included"
 msgstr "포함된 보관 파일 저장 공간 {0}"
 
-#. placeholder {0}: unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")
+#. placeholder {0}: literal(unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" "))
 #: src/authorization-view.tsx
 msgid "{0} Those local collections cannot be selected until their computer is available."
 msgstr "{0} 해당 컴퓨터를 사용할 수 있을 때까지 로컬 컬렉션을 선택할 수 없습니다."
@@ -249,13 +249,13 @@ msgstr "{0}은(는) mdbase {1}을(를) 사용합니다. 사본을 mdbase 0.3으�
 msgid "{0} v{1}"
 msgstr "{0} v{1}"
 
-#. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" })
+#. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "{0} will begin syncing automatically. You can close this page."
 msgstr "{0}의 동기화가 자동으로 시작됩니다. 이 페이지를 닫아도 됩니다."
 
-#. placeholder {0}: pairing.connector_name
-#. placeholder {1}: pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
+#. placeholder {0}: literal(pairing.connector_name)
+#. placeholder {1}: literal(pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "{0} will lose access to {1} on all its devices. Previously downloaded data cannot be erased."
 msgstr "{0}이(가) 모든 기기에서 {1}에 대한 액세스 권한을 잃습니다. 이미 다운로드한 데이터는 삭제할 수 없습니다."
@@ -405,7 +405,7 @@ msgid "<0/>Sync a folder"
 msgstr "<0/>폴더 동기화"
 
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
-#. placeholder {3}: request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null
+#. placeholder {3}: request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
 msgid "<0>Application origin unverified.</0> Continue only if you started this connection intentionally{1}.{3}"
 msgstr "<0>애플리케이션 출처를 확인할 수 없습니다.</0> 직접 시작한 연결인 경우에만 계속하세요{1}.{3}"
@@ -472,7 +472,7 @@ msgctxt "Application access approval"
 msgid "Access denied"
 msgstr "액세스 거부됨"
 
-#. placeholder {0}: createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : ""
+#. placeholder {0}: literal(createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : "")
 #. placeholder {1}: pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""
 #: src/authority-workflows.tsx
 msgid "Access includes the notes and files in the collection you pick.{0}{1}"
@@ -532,7 +532,7 @@ msgstr "계정 업그레이드 일시 중지됨"
 msgid "Account upgrade scheduled"
 msgstr "계정 업그레이드 예정"
 
-#. placeholder {0}: installationAccountLabel(pairing)
+#. placeholder {0}: literal(installationAccountLabel(pairing))
 #: src/authority-workflows.tsx
 msgid "Account: {0}"
 msgstr "계정: {0}"
@@ -609,12 +609,12 @@ msgctxt "Collection connection"
 msgid "Allow"
 msgstr "허용"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Allow {0} to create new collections"
 msgstr "{0}에서 새 컬렉션을 만들도록 허용"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Allow {0} to send you reminders"
 msgstr "{0}에서 리마인더를 보내도록 허용"
@@ -710,7 +710,7 @@ msgctxt "Application access approval"
 msgid "Application connection"
 msgstr "애플리케이션 연결"
 
-#. placeholder {0}: request.application_name
+#. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
 msgstr "애플리케이션의 신원이 확인되지 않았습니다. 이 앱은 자신을 {0}(이)라고 합니다. 의도적으로 이 연결을 시작한 경우에만 계속하세요."
@@ -758,12 +758,12 @@ msgstr "승인 기록됨"
 msgid "Approve computer"
 msgstr "컴퓨터 승인"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Approve will create this collection and open it in {0}."
 msgstr "승인하면 이 컬렉션을 만들고 {0}에서 엽니다."
 
-#. placeholder {0}: adoption.source_name
+#. placeholder {0}: literal(adoption.source_name)
 #: src/authority-workflows.tsx
 msgid "Approving uploads the complete collection from {0}, validates it as one snapshot, and then makes the hosted version the main copy."
 msgstr "승인하면 {0}에서 전체 컬렉션을 업로드해 단일 스냅샷으로 검증한 다음, 호스팅 버전을 기본 사본으로 만듭니다."
@@ -933,7 +933,7 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "컬렉션 선택"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Choose a collection to use in {0}."
 msgstr "{0}에서 사용할 컬렉션을 선택하세요."
@@ -1193,7 +1193,7 @@ msgctxt "Account sign-in"
 msgid "Couldn’t connect"
 msgstr "연결할 수 없습니다"
 
-#. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })
+#. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" }))
 #. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
 msgid "Covers every record in {0}.{1}"
@@ -1486,8 +1486,8 @@ msgctxt "Account management"
 msgid "Email and password"
 msgstr "이메일 및 비밀번호"
 
-#. placeholder {0}: summary.setting
-#. placeholder {1}: summary.value
+#. placeholder {0}: literal(summary.setting)
+#. placeholder {1}: literal(summary.value)
 #: src/authorization-view.tsx
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
 msgstr "<0>{0}</0>에 <1>{1}</1>이(가) 포함되도록 설정"
@@ -1996,7 +1996,7 @@ msgstr "mdbase connect 탐색"
 msgid "mdbase connect needs to restart"
 msgstr "mdbase connect를 다시 시작해야 합니다"
 
-#. placeholder {0}: adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." })
+#. placeholder {0}: literal(adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." }))
 #: src/authority-workflows.tsx
 msgid "mdbase now keeps the main copy of this collection.{0}"
 msgstr "이제 mdbase가 이 컬렉션의 기본 사본을 보관합니다.{0}"
@@ -2083,10 +2083,6 @@ msgstr "새 런타임으로 이동됨"
 msgctxt "Connect interface"
 msgid "Moving to a computer"
 msgstr "컴퓨터로 이동하는 중"
-
-#: src/ConnectApp.tsx
-msgid "My collection"
-msgstr "내 컬렉션"
 
 #: src/AccountManagement.tsx
 msgid "Name"
@@ -2278,6 +2274,7 @@ msgstr "이 유형 정의만 변경됩니다. 기존 레코드는 그대로 유�
 msgid "Open"
 msgstr "열기"
 
+#. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0}"
@@ -2624,7 +2621,7 @@ msgctxt "Connect interface"
 msgid "Remove access"
 msgstr "액세스 제거"
 
-#. placeholder {0}: pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
+#. placeholder {0}: literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
 msgstr "{0}에 대한 액세스 제거하는 중…"
@@ -2677,24 +2674,24 @@ msgctxt "Application access approval"
 msgid "Requested access"
 msgstr "요청된 액세스"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Requested by {0}. No requesting origin is available."
 msgstr "{0}에서 요청했습니다. 요청 출처 정보가 없습니다."
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
-#. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>
+#. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
 msgstr "{0}{1}{2}에서 요청했습니다. 이 앱에서 로그인을 시작한 경우에만 승인하세요."
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
 msgstr "이 컴퓨터에서 실행 중인 앱의 요청입니다. 애플리케이션의 신원이 확인되지 않았습니다. 이 앱은 자신을 {0}(이)라고 합니다. 이 앱에서 로그인을 시작한 경우에만 승인하세요."
 
-#. placeholder {0}: pairing.app_origin
+#. placeholder {0}: literal(pairing.app_origin)
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
 msgstr "<0>{0}</0>에서 요청했습니다. 여기 표시된 출처만으로 요청자를 확인할 수 없습니다."
@@ -2727,12 +2724,12 @@ msgctxt "Connect interface"
 msgid "Retry Google sign-in"
 msgstr "Google 로그인 다시 시도"
 
-#. placeholder {0}: pairing.connector_name
+#. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
 msgid "Return to {0}"
 msgstr "{0}(으)로 돌아가기"
 
-#. placeholder {0}: adoption.source_name
+#. placeholder {0}: literal(adoption.source_name)
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
@@ -2904,6 +2901,7 @@ msgctxt "Connect interface"
 msgid "Role"
 msgstr "역할"
 
+#. placeholder {0}: literal(member.name)
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Role for {0}"
@@ -2959,7 +2957,7 @@ msgstr "마지막 확인: {0}"
 msgid "Select a collection to continue."
 msgstr "계속하려면 컬렉션을 선택하세요."
 
-#. placeholder {0}: selected.name
+#. placeholder {0}: literal(selected.name)
 #: src/CollectionPicker.tsx
 msgid "Selected: <0>{0}</0>"
 msgstr "선택됨: <0>{0}</0>"
@@ -3425,7 +3423,7 @@ msgstr "이 폴더는 mdbase에서 Markdown을 받아오며 로컬 편집 내용
 msgid "This installation has no approved collections."
 msgstr "이 설치에는 승인된 컬렉션이 없습니다."
 
-#. placeholder {0}: request.application_name
+#. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "This is a Private collection: it stays on your computer. {0} can use it while a computer that has it is running mdbase and is signed in to your account."
 msgstr "비공개 컬렉션이므로 내 컴퓨터에 남습니다. {0}은(는) 이 컬렉션이 있는 컴퓨터에서 mdbase가 실행되고 내 계정에 로그인되어 있는 동안 사용할 수 있습니다."
@@ -3450,7 +3448,7 @@ msgstr "다음 항목이 영구적으로 삭제됩니다:"
 msgid "This request has expired or was already answered."
 msgstr "요청이 만료되었거나 이미 처리되었습니다."
 
-#. placeholder {0}: request.application_name
+#. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {0}."
 msgstr "컴퓨터를 연결하거나 컬렉션을 추가하는 동안 이 요청은 열린 상태로 유지됩니다. 데스크톱 앱에서 승인한 뒤 이 페이지로 돌아와 {0}에서 계속하세요."

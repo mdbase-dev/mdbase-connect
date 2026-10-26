@@ -44,6 +44,7 @@ import {
 import "./connect.css";
 import "@mdbase-dev/ui/feedback.css";
 import { Select } from "@mdbase-dev/ui/select";
+import { literal } from "./literal";
 
 type MemberRole = "viewer" | "editor";
 
@@ -490,7 +491,7 @@ function CollectionSharingPanel({ collection, busy, perform, sharingAvailable }:
     {members?.map((member) => <div className="connect-row connect-member-row" key={member.id ?? "owner"}>
       <div><strong>{member.name}</strong><small>{member.kind === "owner" ? t(i18n)({ message: "Collection owner", context: "Connect interface" }) : member.state === "changing" ? t(i18n)({ message: "Updating access…", context: "Connect interface" }) : member.state === "revoking" ? t(i18n)({ message: "Removing application and folder access…" }) : member.role === "editor" ? t(i18n)({ message: "Can edit notes and manage types" }) : t(i18n)({ message: "Can view and connect read-only apps" })}</small></div>
       {member.kind === "owner" ? <span><Trans>Owner</Trans></span> : <>
-        <label className="connect-role-select"><span className="sr-only"><Trans>Role for {member.name}</Trans></span><Select aria-label={t(i18n)`Role for ${member.name}`} value={member.role as MemberRole} options={memberRoles} disabled={member.state !== "active" || (!sharingAvailable && member.role === "viewer") || busy.has(`member-role-${member.id}`)} onChange={(next) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(collection.id, member.id!, next, options))} /></label>
+        <label className="connect-role-select"><span className="sr-only"><Trans>Role for {literal(member.name)}</Trans></span><Select aria-label={t(i18n)`Role for ${member.name}`} value={member.role as MemberRole} options={memberRoles} disabled={member.state !== "active" || (!sharingAvailable && member.role === "viewer") || busy.has(`member-role-${member.id}`)} onChange={(next) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(collection.id, member.id!, next, options))} /></label>
         <ConfirmAction className="danger" label={member.state === "revoking" ? t(i18n)({ message: "Removing…", context: "Connect interface" }) : t(i18n)({ message: "Remove", context: "Connect interface" })} question={collection.display_name ? t(i18n)`Remove ${member.name} from ${collection.display_name}? Their application and folder access will also be revoked.` : t(i18n)`Remove ${member.name} from the unnamed collection? Their application and folder access will also be revoked.`} confirmLabel={t(i18n)({ message: "Remove access", context: "Connect interface" })} busy={member.state === "revoking" || busy.has(`member-revoke-${member.id}`)} onConfirm={() => void mutate(`member-revoke-${member.id}`, (options) => management.revokeCollectionMember(collection.id, member.id!, options))} />
       </>}
     </div>)}
@@ -548,7 +549,7 @@ function Collections({ data, busy, perform, navigate, editorOrigin }: {
   useLocaleRevision();
   const [creating, setCreating] = useState(false);
   const [intent, setIntent] = useState<CollectionCreationIntent | null>(() => readCollectionCreation(data.user.id));
-  const [name, setName] = useState(() => readCollectionCreation(data.user.id)?.displayName ?? t(i18n)`My collection`);
+  const [name, setName] = useState(() => readCollectionCreation(data.user.id)?.displayName ?? "My collection");
   const [creationError, setCreationError] = useState<string | null>(null);
   const [location, setLocation] = useState("");
   const hostedEnabled = data.hosted_collections_available === true;
@@ -578,7 +579,7 @@ function Collections({ data, busy, perform, navigate, editorOrigin }: {
     }, true);
     if (created) {
       try {finishCollectionCreation(original);} catch {setCreationError(t(i18n)({ message: "Created, but this browser could not clear its request. Retrying will use the same collection." })); return;}
-      setIntent(null); setCreating(false); setName(t(i18n)`My collection`);
+      setIntent(null); setCreating(false); setName("My collection");
     }
   }
   return <Page title={t(i18n)({ message: "Collections", context: "Connect interface" })} intro={t(i18n)({ message: "Open a collection in the editor or manage where its main copy lives." })}>

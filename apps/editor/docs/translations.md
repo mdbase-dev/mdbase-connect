@@ -3,11 +3,11 @@
 The editor uses `@mdbase-dev/i18n` through `workspace:*`, with Lingui generated
 IDs derived from English and semantic context. Source is
 `src/i18n/locales/<locale>/messages.po`; JSON is generated build input.
-English is statically imported and renders before any locale request. The eight
+English is statically imported and renders before any locale request. The nine
 other catalogues are lazy chunks from this deployment, not a remote service.
 
 Settings → Language offers en, fr, de, es, ja, ko, pt (Brazilian Portuguese), ru,
-and zh (Simplified Chinese). A successful explicit choice is stored under
+zh (Simplified Chinese), and it (Italiano). A successful explicit choice is stored under
 `mdbase-editor:locale`; otherwise the kit negotiates browser languages and falls
 back to English. The kit updates `html.lang` and retains the working language on
 load failure. Notes, paths, schema field names, installed pack content, contract
@@ -93,7 +93,10 @@ The generic Details collision alignment to 详情 is retained over that import.
 The zh allowlist preserves `.md`, ICU-only layout, shortcuts, YAML, Phosphor
 Regular and literal schema/search/path tokens (`status`, `tasks`, `type:{0}`, path
 globs and templates). These are reviewed identical values, not English filler.
-Nine-locale release readiness still requires the full strict gates and browser
+The Italian scaffold adds a ninth target PO with all 1407 translations deliberately
+empty; shared UI and CodeMirror Italian are complete. See
+[`translations-italian.md`](../../../docs/translations-italian.md) for the pending
+scopes. Ten-locale release readiness requires the full strict gates and browser
 acceptance; a scoped authored audit or authoring compile never replaces them.
 
 The approved mechanical-only plural delta replaces positional aliases for the

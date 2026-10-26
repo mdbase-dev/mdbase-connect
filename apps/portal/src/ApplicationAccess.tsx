@@ -7,6 +7,7 @@ import { ConnectManagementClient, type ManagementOverview, type ManagementReques
 import { groupApplicationAccess, authorizationOperationLabel, applicationAccessOriginLabel } from "@mdbase/connect-ui/access";
 import { usePermissionSelection } from "@mdbase-dev/ui/permission-selection";
 import { ConfirmAction, ConnectPage as Page, ConnectSectionTitle as SectionTitle, ConnectEmpty as Empty } from "./ConnectPrimitives";
+import { literal } from "./literal";
 
 type Grant = ManagementOverview["grants"][number];
 type Installation = NonNullable<ManagementOverview["installation_access"]>[number];
@@ -62,7 +63,7 @@ export function AppAccess({ groups, client, busy, perform, collectionName }: {
             <div><strong>{entries[0]!.collection_name ?? t(i18n)({ message: "No collection access", context: "Connect interface" })}</strong><small>{countLabel(entries.length, "installation")}</small>
               <details className="connect-installation-details"><summary><Trans>Installation details</Trans></summary>
                 {entries.map(entry => <div key={entry.connector_id}>
-                  <small><Trans>{entry.application_origin} · {entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })} · ID {entry.installation_id.slice(-8)}</Trans></small>
+                  <small><Trans>{literal(entry.application_origin)} · {entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })} · ID {entry.installation_id.slice(-8)}</Trans></small>
                   <small><Trans>Registered <time dateTime={entry.created_at}>{formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })}</time></Trans></small>
                   <small>{entry.collection_id ? entry.available ? t(i18n)`Entire collection · Access as your account (${entry.role})` : t(i18n)({ message: "Previously approved · Collection no longer visible to your account" }) : t(i18n)({ message: "This installation has no approved collections." })}</small>
                   {entry.create_collections && <small><Trans>Can create collections for your account</Trans></small>}

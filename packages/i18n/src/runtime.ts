@@ -1,12 +1,12 @@
-import { setupI18n, type I18n, type Messages } from "@lingui/core";
+import { setupI18n, type I18n, type MessageDescriptor, type MessageOptions, type Messages } from "@lingui/core";
 import { mergeCatalogues } from "../scripts/catalogues.mjs";
 export { mergeCatalogues } from "../scripts/catalogues.mjs";
 
-export const locales = ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh"] as const;
+export const locales = ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh", "it"] as const;
 export type Locale = (typeof locales)[number];
 export const localeNames: Record<Locale, string> = {
   en: "English", fr: "Français", de: "Deutsch", es: "Español",
-  ja: "日本語", ko: "한국어", pt: "Português (Brasil)", ru: "Русский", zh: "简体中文",
+  ja: "日本語", ko: "한국어", pt: "Português (Brasil)", ru: "Русский", zh: "简体中文", it: "Italiano",
 };
 export function isLocale(value: unknown): value is Locale {
   return typeof value === "string" && locales.includes(value as Locale);
@@ -37,8 +37,29 @@ export interface RuntimeOptions extends CatalogueSource {
   preferences?: readonly string[];
   document?: Pick<Document, "documentElement">;
 }
+type Values = MessageDescriptor["values"];
+const literalInstances = new WeakSet<I18n>();
+/** Copies values with backslashes encoded, so the user's text survives Lingui's decoding pass. */
+const literalValues = (values: Values): Values => values && Object.fromEntries(Object.entries(values)
+  .map(([key, value]) => [key, typeof value === "string" ? value.replace(/\\/g, "\\u005c") : value]));
+/**
+ * Lingui decodes \uXXXX/\xXX after interpolation, so `C:\x41dir` would render as `C:Adir`.
+ * Wrap `_` (and `t`, bound to the original `_`) once per instance; shared singletons stay single-encoded.
+ */
+function renderValuesLiterally(i18n: I18n) {
+  if (literalInstances.has(i18n)) return;
+  literalInstances.add(i18n);
+  const render = i18n._.bind(i18n) as (id: string | MessageDescriptor, values?: Values, options?: MessageOptions) => string;
+  const translate = (id: string | MessageDescriptor, values?: Values, options?: MessageOptions) =>
+    typeof id === "object" && id !== null
+      ? render({ ...id, values: literalValues(id.values) }, literalValues(values), options)
+      : render(id, literalValues(values), options);
+  i18n._ = translate as I18n["_"];
+  i18n.t = translate as I18n["_"];
+}
 export function createI18nRuntime(options: RuntimeOptions) {
   const i18n = options.i18n ?? setupI18n();
+  renderValuesLiterally(i18n);
   const sources: readonly CatalogueSource[] = [options, ...(options.libraries ?? [])];
   i18n.load("en", mergeCatalogues(sources.map((source) => source.english)).messages as Messages);
   i18n.activate("en");
@@ -50,7 +71,7 @@ export function createI18nRuntime(options: RuntimeOptions) {
   const syncDocument = () => {
     if (document) {
       document.documentElement.lang = i18n.locale;
-      document.documentElement.dir = "ltr"; // All nine supported languages use LTR scripts.
+      document.documentElement.dir = "ltr"; // All supported languages use LTR scripts.
     }
   };
   syncDocument();

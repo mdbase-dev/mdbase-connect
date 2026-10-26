@@ -105,10 +105,13 @@ test("renderer loads real locale chunks and restores the preload language prefer
   try {
     await page.locator(".product-sidebar-link").filter({ hasText: "Settings" }).click();
     const picker = page.locator('select:has(option[value="ja"])');
-    assert.equal(await picker.locator("option").count(), 9);
+    assert.deepEqual(await picker.locator("option").evaluateAll(options => options.map(option => option.value)),
+      ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh", "it"]);
+    await picker.selectOption("it");
+    await page.waitForFunction(() => document.documentElement.lang === "it");
     await picker.selectOption("ja");
     await page.waitForFunction(() => document.documentElement.lang === "ja");
-    assert.deepEqual(await calls("setLocale"), [["ja"]]);
+    assert.deepEqual(await calls("setLocale"), [["it"], ["ja"]]);
     assert.equal(await page.getByRole("alert").count(), 0);
     await page.reload();
     await page.waitForFunction(() => document.documentElement.lang === "ja");
@@ -314,6 +317,21 @@ test("access: pending approvals, new-access notices and revocation reach the dae
     await page.getByText("Reader can no longer use Notes through this computer.", { exact: true }).waitFor();
     assert.deepEqual(await calls("revokeAccess"), [["new"]]);
     await screenshot(page, "access");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("access: markup-shaped app names are shown literally in the key check", async () => {
+  const name = "<0/> <b>Planner</b>";
+  const access = [
+    entry({ grant: "keyed", app_name: name, state: "pending_approval", fingerprint: "abcd1234" }),
+    entry({ grant: "unkeyed", collection: "c-private", app_name: name, state: "pending_approval" })
+  ];
+  const { page, errors } = await desktop({ collections: [collection(), collection({ id: "c-private", name: "Diary" })], access });
+  try {
+    await nav(page, "App access").click();
+    await page.getByText(`Check that ${name} shows the same key.`, { exact: true }).waitFor();
+    await page.getByText(`mdbase shows the app's key when you approve. Check that ${name} shows the same key.`, { exact: true }).waitFor();
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

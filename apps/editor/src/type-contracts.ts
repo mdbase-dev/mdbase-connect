@@ -134,7 +134,7 @@ export function createTypeSourceFromContract(
     delete (schema as Record<string, unknown>).$id;
     document.setIn(["name"], name);
     document.setIn(["version"], 1);
-    document.setIn(["description"], t`Implements ${contract.id} ${contract.version}.`);
+    document.setIn(["description"], `Implements ${contract.id} ${contract.version}.`);
     document.setIn(["schema"], {
       dialect: "json-schema-2020-12",
       value: schema

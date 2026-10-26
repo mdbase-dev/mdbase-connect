@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { compileMessageOrThrow } from "@lingui/message-utils/compileMessage";
-import { i18n as globalI18n } from "@lingui/core";
+import { i18n as globalI18n, setupI18n } from "@lingui/core";
 import { createI18nRuntime, negotiateLocale, formatters, locales, mergeCatalogues } from "./runtime.js";
 import { loadCodeMirrorPhrases, englishCodeMirrorPhrases } from "./codemirror.js";
 const catalogue = (text: string) => ({ messages: { greeting: compileMessageOrThrow(text) } });
@@ -87,10 +87,73 @@ describe("real Lingui runtime", () => {
     await runtime.initialize();
     expect(runtime.i18n.locale).toBe("en");
   });
+  it("negotiates Italian OS variants and restores a persisted choice over browser preferences", async () => {
+    expect(negotiateLocale(["xx", "it-IT"])).toBe("it");
+    expect(negotiateLocale(["it_CH"])).toBe("it");
+    let saved: string | null = null;
+    const runtime = createI18nRuntime({ english: catalogue("Hello"), preferences: ["it-IT"],
+      storage: { getLocale: () => saved, setLocale: (locale) => { saved = locale; } },
+      loadLocale: async () => catalogue("Ciao") });
+    await runtime.initialize();
+    expect(runtime.i18n.locale).toBe("it");
+    expect(runtime.i18n._("greeting")).toBe("Ciao");
+    await runtime.selectLocale("it");
+    expect(saved).toBe("it");
+    const restarted = createI18nRuntime({ english: catalogue("Hello"), preferences: ["de-DE"],
+      storage: { getLocale: () => saved, setLocale: () => {} },
+      loadLocale: async () => catalogue("Ciao") });
+    await restarted.initialize();
+    expect(restarted.i18n.locale).toBe("it");
+    expect(formatters("it").number(1234.5)).toBe(new Intl.NumberFormat("it-IT").format(1234.5));
+  });
   it("formats pt as Brazilian Portuguese without changing values", () => {
     expect(formatters("pt").number(1234.5)).toBe(new Intl.NumberFormat("pt-BR").format(1234.5));
     expect(formatters("fr").relativeTime(-1, "day")).toContain("jour");
     expect(formatters("ja").date(new Date("2026-01-02T12:00:00Z"), { timeZone: "UTC", year: "numeric" })).toContain("2026");
+  });
+});
+describe("user values render literally", () => {
+  const raw = String.raw`C:\x41dir\u0042 a\\b \u005c`;
+  const messages = (path: string) => ({ messages: {
+    path: compileMessageOrThrow(path),
+    files: compileMessageOrThrow("{count, plural, one {# file in {dir}} other {# files in {dir}}}"),
+    kind: compileMessageOrThrow("{kind, select, folder {Folder {dir}} other {Item {dir}}}"),
+    escaped: compileMessageOrThrow(String.raw`Tab\u0041 {dir}`),
+  } });
+  it("encodes backslashes for both call forms and t without mutating caller values", async () => {
+    const runtime = createI18nRuntime({ english: messages("Open {dir}"), preferences: ["it"],
+      loadLocale: async () => messages("Apri {dir}") });
+    const values = { dir: raw };
+    const { i18n } = runtime;
+    expect(i18n._("path", values)).toBe(`Open ${raw}`);
+    expect(i18n._({ id: "path", values })).toBe(`Open ${raw}`);
+    expect(i18n._({ id: "path" }, values)).toBe(`Open ${raw}`);
+    expect(i18n.t({ id: "path", values })).toBe(`Open ${raw}`);
+    expect(i18n.t("path", values)).toBe(`Open ${raw}`);
+    expect(values).toEqual({ dir: raw });
+    await runtime.initialize();
+    expect(i18n._("path", values)).toBe(`Apri ${raw}`);
+    expect(i18n.t({ id: "path", values })).toBe(`Apri ${raw}`);
+  });
+  it("keeps non-string values, plural, select and authored escapes unchanged", () => {
+    const { i18n } = createI18nRuntime({ english: messages("Open {dir}"), loadLocale: async () => messages("") });
+    const date = new Date(0);
+    expect(i18n._("path", { dir: 3 })).toBe("Open 3");
+    expect(i18n._("path", { dir: date })).toBe(`Open ${String(date)}`);
+    expect(i18n._("files", { count: 1, dir: raw })).toBe(`1 file in ${raw}`);
+    expect(i18n._("files", { count: 2, dir: raw })).toBe(`2 files in ${raw}`);
+    expect(i18n._("kind", { kind: "folder", dir: raw })).toBe(`Folder ${raw}`);
+    expect(i18n._("kind", { kind: "file", dir: raw })).toBe(`Item ${raw}`);
+    expect(i18n._("escaped", { dir: raw })).toBe(`TabA ${raw}`);
+  });
+  it("encodes a shared instance once when several runtimes wrap it", () => {
+    const shared = setupI18n();
+    createI18nRuntime({ i18n: shared, english: messages("Open {dir}"), loadLocale: async () => messages("") });
+    const wrapped = shared._;
+    createI18nRuntime({ i18n: shared, english: messages("Open {dir}"), loadLocale: async () => messages("") });
+    expect(shared._).toBe(wrapped);
+    expect(shared.t).toBe(wrapped);
+    expect(shared._("path", { dir: raw })).toBe(`Open ${raw}`);
   });
 });
 describe("library catalogue composition", () => {
