@@ -1,9 +1,0 @@
-{
-  "reason": "One executable catalogue-union implementation and its type declaration are shared by runtime and CLI, replacing the CLI's dependency on generated kit dist. The runtime re-export preserves the existing public API. Exact additional growth: two kit files, two relative imports, two declaration/export statements; no workspace package or user-facing state added.",
-  "growth": {
-    "productionFiles": 2,
-    "relativeImports": 2,
-    "typeScriptExportDeclarations": 2,
-    "packages/i18n": 2
-  }
-}
