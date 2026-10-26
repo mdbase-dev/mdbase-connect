@@ -3,7 +3,8 @@
 # under /tmp; removes the local target/ it pulls into.
 set -euo pipefail
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-repo=$(git -C "$here" rev-parse --show-toplevel)
+# The runtime Cargo workspace, not the repository root.
+repo=$(cd -- "$here/../.." && pwd)
 features=()
 output=hosted.wasm
 if [[ ${1:-} == --local-rehearsal && $# == 1 ]]; then
