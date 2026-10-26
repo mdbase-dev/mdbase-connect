@@ -34,8 +34,8 @@ function shape(parts) {
   return { args: sorted(args), tags: sorted(tags), selectors, pounds: (text.match(/#/g) ?? []).length };
 }
 /** Plural categories are language-specific; exact numeric and select cases are contracts. */
-export function assertMessageContract(source, target, locale) {
-  const check = (sourceParts, targetParts) => {
+export function assertMessageContract(source, target, locale, onWarning = () => {}, onInfo = () => {}) {
+  const check = (sourceParts, targetParts, path = []) => {
     const a = shape(sourceParts), b = shape(targetParts);
     assert.deepEqual(b.args, a.args, "ICU argument names/types changed");
     assert.deepEqual(b.tags, a.tags, "React placeholder tags changed");
@@ -53,18 +53,44 @@ export function assertMessageContract(source, target, locale) {
       if (selector.type === "select") assert.deepEqual(targetKeys.sort(), sourceKeys.sort(), "ICU select cases changed");
       else {
         const exact = (keys) => keys.filter((k) => /^=?\d/.test(k)).sort();
-        assert.deepEqual(exact(targetKeys), exact(sourceKeys), "ICU exact numeric cases changed");
-        const categories = new Intl.PluralRules(locale === "pt" ? "pt-BR" : locale, {
+        for (const key of exact(sourceKeys))
+          assert.ok(targetKeys.includes(key), "ICU exact numeric cases changed: missing " + key);
+        const rules = new Intl.PluralRules(locale === "pt" ? "pt-BR" : locale, {
           type: selector.type === "selectordinal" ? "ordinal" : "cardinal",
-        }).resolvedOptions().pluralCategories;
+        });
+        const categories = rules.resolvedOptions().pluralCategories;
         for (const key of targetKeys) assert.ok(/^=?\d/.test(key) || categories.includes(key), "Invalid plural category for " + locale + ": " + key);
+        if (locale !== "en") {
+          // A PO message has no call-site numeric domain: use integer counts.
+          // Exact cases match the original count; CLDR selects count - offset.
+          const reachable = new Set(), uncovered = new Set();
+          for (let count = 0; count <= 999; count++) {
+            const category = rules.select(count - (translated.options.offset ?? 0));
+            reachable.add(category);
+            if (!targetKeys.includes(category) && !targetKeys.includes(String(count))) uncovered.add(category);
+          }
+          const optional = categories.filter((key) => !reachable.has(key) && !targetKeys.includes(key));
+          const location = [...path, selector.name + ", " + selector.type].join(" > ");
+          if (optional.length) onInfo("Optional plural categories absent (outside integer counts 0..999) at " + location + ": " + optional.join(", "));
+          assert.equal(uncovered.size, 0, "Missing plural categories for " + locale + " " + selector.type + " " + selector.name + ": " + sorted(uncovered).join(", "));
+        }
       }
-      for (const key of targetKeys) check(selector.options[key] ?? selector.options.other, translated.options[key]);
+      for (const key of targetKeys) {
+        const sourceBranch = selector.options[key] ?? selector.options.other;
+        const targetBranch = translated.options[key];
+        const branchPath = [...path, selector.name + ", " + selector.type + ", " + key];
+        // Compare literal text byte-for-byte, not normalized whole-message copy.
+        // Argument names and nested selector keys are not English prose.
+        const text = sourceBranch.filter((part) => typeof part === "string").join("");
+        if (locale !== "en" && /\p{L}/u.test(text) && JSON.stringify(targetBranch) === JSON.stringify(sourceBranch))
+          onWarning("English-identical ICU branch: " + branchPath.join(" > "));
+        check(sourceBranch, targetBranch, branchPath);
+      }
     }
   };
   check(compileMessageOrThrow(source), compileMessageOrThrow(target));
 }
-export function assertCompleteCatalogue(english, target, locale, allowedIdentical = []) {
+export function assertCompleteCatalogue(english, target, locale, allowedIdentical = [], onWarning = console.warn, onInfo = console.info) {
   const active = (entries) => Object.fromEntries(Object.entries(entries).filter(([, e]) => !e.obsolete));
   const source = active(english), translated = active(target);
   assert.deepEqual(Object.keys(translated).sort(), Object.keys(source).sort(), locale + " active catalogue keys differ");
@@ -77,7 +103,11 @@ export function assertCompleteCatalogue(english, target, locale, allowedIdentica
     const normalized = (text) => text.replace(/\s+/g, " ").trim().toLowerCase();
     if (locale !== "en" && normalized(entry.translation) === normalized(entry.message))
       assert.ok(allowedIdentical.includes(id), locale + " English placeholder (allowlist reviewed proper nouns/terms by ID): " + id);
-    try { assertMessageContract(entry.message, entry.translation, locale); }
+    try {
+      assertMessageContract(entry.message, entry.translation, locale, (warning) => {
+        if (!allowedIdentical.includes(id)) onWarning(locale + " message " + id + ": " + warning);
+      }, (info) => onInfo("info: " + locale + " message " + id + ": " + info));
+    }
     catch (error) { throw new Error(locale + " message " + id + ": " + error.message, { cause: error }); }
   }
   return Object.keys(translated).length;

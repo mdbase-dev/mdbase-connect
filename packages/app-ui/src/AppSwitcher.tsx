@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { useLocaleRevision } from "./i18n.js";
 import { useId, useRef, useState, type JSX, type RefObject } from "react";
 
 import { mdbaseAppHref, withAppUrls, type MdbaseApp, type MdbaseAppId } from "./apps.js";
@@ -21,6 +23,7 @@ export function AppSwitcher({ current, urls = {}, motion }: {
   readonly urls?: Partial<Record<MdbaseAppId, string | undefined>>;
   readonly motion?: MdbaseMarkMotion | undefined;
 }): JSX.Element {
+  useLocaleRevision();
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -39,11 +42,11 @@ export function AppSwitcher({ current, urls = {}, motion }: {
       ref={triggerRef}
       type="button"
       className="mdbase-app-switcher"
-      aria-label={`mdbase ${current}: open this collection in another app`}
+      aria-label={t`mdbase ${current}: open this collection in another app`}
       aria-haspopup="menu"
       aria-expanded={open}
       aria-controls={open ? menuId : undefined}
-      title="Open in another mdbase app"
+      title={t({ message: "Open in another mdbase app" })}
       onClick={() => (open ? close(false) : setOpen(true))}
       onKeyDown={(event) => {
         if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
@@ -68,9 +71,10 @@ function AppMenu({ id, apps, current, triggerRef, onClose }: {
   readonly triggerRef: RefObject<HTMLButtonElement | null>;
   readonly onClose: (refocus: boolean) => void;
 }): JSX.Element {
+  useLocaleRevision();
   const menuRef = useRef<HTMLDivElement>(null);
   useMenuPopover(menuRef, triggerRef, onClose, { width: 320, focus: 'a[role="menuitem"]' });
-  const heading = new URL(location.href).searchParams.has("collection") ? "Open this collection in" : "mdbase apps";
+  const heading = new URL(location.href).searchParams.has("collection") ? t({ message: "Open this collection in" }) : t({ message: "mdbase apps" });
   return <div
     ref={menuRef}
     id={id}
@@ -85,7 +89,7 @@ function AppMenu({ id, apps, current, triggerRef, onClose }: {
     <div className="mdbase-menu-list">
       {apps.map((app) => <AppItem key={app.id} app={app} current={app.id === current} onOpen={() => onClose(false)} />)}
     </div>
-    <p className="mdbase-menu-note">Opens in a new tab</p>
+    <p className="mdbase-menu-note">{t({ message: "Opens in a new tab" })}</p>
   </div>;
 }
 
@@ -94,6 +98,7 @@ function AppItem({ app, current, onOpen }: {
   readonly current: boolean;
   readonly onOpen: () => void;
 }): JSX.Element {
+  useLocaleRevision();
   const copy = <>
     <MdbaseAppMark app={app.id} className="mdbase-app-menu-mark" />
     <span className="mdbase-menu-copy">
@@ -104,7 +109,7 @@ function AppItem({ app, current, onOpen }: {
   if (current) {
     return <div className="mdbase-menu-item is-current" role="menuitem" aria-current="page" aria-disabled="true" tabIndex={-1}>
       {copy}
-      <span className="mdbase-app-menu-current">Current</span>
+      <span className="mdbase-app-menu-current">{t({ message: "Current" })}</span>
     </div>;
   }
   return <a
@@ -119,6 +124,6 @@ function AppItem({ app, current, onOpen }: {
     <svg className="mdbase-app-menu-external" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M10 5.5H5.5v13h13V14M13.5 5.5h5v5M18.5 5.5 11 13" />
     </svg>
-    <span className="mdbase-visually-hidden"> (opens in a new tab)</span>
+    <span className="mdbase-visually-hidden">  {t({ message: "(opens in a new tab)" })}</span>
   </a>;
 }

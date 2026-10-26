@@ -1,0 +1,307 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-23 22:26+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: pt\n"
+
+#. placeholder {0}: typeField.label
+#. placeholder {1}: contractField.label
+#: contract-setup.ts
+msgid "{0} can supply {1}."
+msgstr "{0} pode fornecer {1}."
+
+#. placeholder {0}: typeField.label
+#. placeholder {1}: kindLabel(typeField.kind)
+#. placeholder {2}: contractField.label
+#. placeholder {3}: kindLabel(contractField.kind)
+#: contract-setup.ts
+msgid "{0} is {1}, but {2} needs {3}."
+msgstr "{0} é {1}, mas {2} precisa de {3}."
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a complex value"
+msgstr "um valor complexo"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a date"
+msgstr "uma data"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a date and time"
+msgstr "uma data e hora"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a group of values"
+msgstr "um grupo de valores"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a list"
+msgstr "uma lista"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a number"
+msgstr "um número"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a whole number"
+msgstr "um número inteiro"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a yes/no value"
+msgstr "um valor sim/não"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Add record types"
+msgstr "Adicionar tipos de registro"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Additional operations declared by this application."
+msgstr "Operações adicionais declaradas por este aplicativo."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Cancel this app's scheduled activity"
+msgstr "Cancelar a atividade agendada deste aplicativo"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change record types"
+msgstr "Alterar tipos de registro"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change records"
+msgstr "Alterar registros"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change saved views"
+msgstr "Alterar visualizações salvas"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check available record types"
+msgstr "Verificar tipos de registro disponíveis"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check collection validity"
+msgstr "Verificar a validade da coleção"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check what this app needs to set up"
+msgstr "Verificar o que este aplicativo precisa configurar"
+
+#. placeholder {0}: contractField.label
+#: contract-setup.ts
+msgid "Choose which field supplies {0}."
+msgstr "Escolha qual campo fornece {0}."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create and edit records"
+msgstr "Criar e editar registros"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create or change saved views and type definitions."
+msgstr "Criar ou alterar visualizações salvas e definições de tipos."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create or update this app's scheduled activity"
+msgstr "Criar ou atualizar a atividade agendada deste aplicativo"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create records"
+msgstr "Criar registros"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create saved views"
+msgstr "Criar visualizações salvas"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create, edit, rename, or move records."
+msgstr "Criar, editar, renomear ou mover registros."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Delete records"
+msgstr "Excluir registros"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Delete saved views"
+msgstr "Excluir visualizações salvas"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Describe the collection"
+msgstr "Descrever a coleção"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Doesn’t match"
+msgstr "Não corresponde"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Inspect saved-view definitions"
+msgstr "Inspecionar definições de visualizações salvas"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Install or update record types"
+msgstr "Instalar ou atualizar tipos de registro"
+
+#. placeholder {0}: url.host
+#: access.ts
+msgid "Local development ({0})"
+msgstr "Desenvolvimento local ({0})"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Manage collection structure"
+msgstr "Gerenciar a estrutura da coleção"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Matches"
+msgstr "Corresponde"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Not shared"
+msgstr "Não compartilhado"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Other permissions"
+msgstr "Outras permissões"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Permanently remove records from this collection."
+msgstr "Remover registros permanentemente desta coleção."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Read collection details, records, saved views, and type definitions."
+msgstr "Ler detalhes da coleção, registros, visualizações salvas e definições de tipos."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Read records"
+msgstr "Ler registros"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Rename or move records"
+msgstr "Renomear ou mover registros"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Replace this app's scheduled activity"
+msgstr "Substituir a atividade agendada deste aplicativo"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Required"
+msgstr "Obrigatório"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Review"
+msgstr "Revisar"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Run saved views"
+msgstr "Executar visualizações salvas"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Schedule app activity"
+msgstr "Agendar atividade do aplicativo"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Search and query"
+msgstr "Pesquisar e consultar"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See collection changes"
+msgstr "Ver alterações na coleção"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See saved views"
+msgstr "Ver visualizações salvas"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See this app's scheduled activity"
+msgstr "Ver a atividade agendada deste aplicativo"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Set up this app in the collection"
+msgstr "Configurar este aplicativo na coleção"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Some existing records may not have this required value."
+msgstr "Alguns registros existentes podem não ter este valor obrigatório."
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Some existing values are outside the application’s accepted set."
+msgstr "Alguns valores existentes estão fora do conjunto aceito pelo aplicativo."
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "The existing field allows values the application may not understand."
+msgstr "O campo existente permite valores que o aplicativo talvez não entenda."
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "The two fields allow different values."
+msgstr "Os dois campos permitem valores diferentes."
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "This optional value will not be shared with the application."
+msgstr "Este valor opcional não será compartilhado com o aplicativo."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View and find records"
+msgstr "Visualizar e localizar registros"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View and manage timers owned by this application."
+msgstr "Visualizar e gerenciar temporizadores pertencentes a este aplicativo."
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View record types"
+msgstr "Visualizar tipos de registro"

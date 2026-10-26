@@ -1,0 +1,307 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-23 22:26+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: ja\n"
+
+#. placeholder {0}: typeField.label
+#. placeholder {1}: contractField.label
+#: contract-setup.ts
+msgid "{0} can supply {1}."
+msgstr "{0}で{1}を指定できます。"
+
+#. placeholder {0}: typeField.label
+#. placeholder {1}: kindLabel(typeField.kind)
+#. placeholder {2}: contractField.label
+#. placeholder {3}: kindLabel(contractField.kind)
+#: contract-setup.ts
+msgid "{0} is {1}, but {2} needs {3}."
+msgstr "{0}は{1}ですが、{2}には{3}が必要です。"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a complex value"
+msgstr "複合値"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a date"
+msgstr "日付"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a date and time"
+msgstr "日時"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a group of values"
+msgstr "値のグループ"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a list"
+msgstr "リスト"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a number"
+msgstr "数値"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a whole number"
+msgstr "整数"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a yes/no value"
+msgstr "はい／いいえの値"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Add record types"
+msgstr "レコードタイプを追加"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Additional operations declared by this application."
+msgstr "このアプリが宣言する追加操作です。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Cancel this app's scheduled activity"
+msgstr "このアプリの予定されたアクティビティをキャンセル"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change record types"
+msgstr "レコードタイプを変更"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change records"
+msgstr "レコードを変更"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change saved views"
+msgstr "保存済みビューを変更"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check available record types"
+msgstr "利用可能なレコードタイプを確認"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check collection validity"
+msgstr "コレクションの有効性を確認"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check what this app needs to set up"
+msgstr "このアプリのセットアップに必要な項目を確認"
+
+#. placeholder {0}: contractField.label
+#: contract-setup.ts
+msgid "Choose which field supplies {0}."
+msgstr "{0}に使用するフィールドを選択してください。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create and edit records"
+msgstr "レコードを作成・編集"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create or change saved views and type definitions."
+msgstr "保存済みビューとタイプ定義を作成または変更します。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create or update this app's scheduled activity"
+msgstr "このアプリの予定されたアクティビティを作成または更新"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create records"
+msgstr "レコードを作成"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create saved views"
+msgstr "保存済みビューを作成"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create, edit, rename, or move records."
+msgstr "レコードの作成、編集、名前変更、移動を行います。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Delete records"
+msgstr "レコードを削除"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Delete saved views"
+msgstr "保存済みビューを削除"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Describe the collection"
+msgstr "コレクションの情報を取得"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Doesn’t match"
+msgstr "一致しません"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Inspect saved-view definitions"
+msgstr "保存済みビューの定義を確認"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Install or update record types"
+msgstr "レコードタイプをインストールまたは更新"
+
+#. placeholder {0}: url.host
+#: access.ts
+msgid "Local development ({0})"
+msgstr "ローカル開発（{0}）"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Manage collection structure"
+msgstr "コレクション構造を管理"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Matches"
+msgstr "一致します"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Not shared"
+msgstr "共有されません"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Other permissions"
+msgstr "その他の権限"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Permanently remove records from this collection."
+msgstr "このコレクションからレコードを完全に削除します。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Read collection details, records, saved views, and type definitions."
+msgstr "コレクションの詳細、レコード、保存済みビュー、タイプ定義を読み取ります。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Read records"
+msgstr "レコードを読み取る"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Rename or move records"
+msgstr "レコードの名前変更または移動"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Replace this app's scheduled activity"
+msgstr "このアプリの予定されたアクティビティを置き換え"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Required"
+msgstr "必須"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Review"
+msgstr "確認"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Run saved views"
+msgstr "保存済みビューを実行"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Schedule app activity"
+msgstr "アプリのアクティビティをスケジュール"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Search and query"
+msgstr "検索・クエリ"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See collection changes"
+msgstr "コレクションの変更を確認"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See saved views"
+msgstr "保存済みビューを確認"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See this app's scheduled activity"
+msgstr "このアプリの予定されたアクティビティを確認"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Set up this app in the collection"
+msgstr "コレクションでこのアプリをセットアップ"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Some existing records may not have this required value."
+msgstr "既存のレコードには、この必須値が設定されていないものがある可能性があります。"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Some existing values are outside the application’s accepted set."
+msgstr "既存の値の一部は、アプリが受け付ける値の範囲外です。"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "The existing field allows values the application may not understand."
+msgstr "既存のフィールドでは、アプリが認識できない値も許可されています。"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "The two fields allow different values."
+msgstr "2つのフィールドで許可される値が異なります。"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "This optional value will not be shared with the application."
+msgstr "この任意の値はアプリと共有されません。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View and find records"
+msgstr "レコードの表示・検索"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View and manage timers owned by this application."
+msgstr "このアプリが所有するタイマーを表示・管理します。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View record types"
+msgstr "レコードタイプを表示"

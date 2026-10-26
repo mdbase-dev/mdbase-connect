@@ -1,3 +1,5 @@
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision } from "@mdbase-dev/ui/i18n";
 import React from "react";
 
 /**
@@ -18,6 +20,7 @@ export function ApprovalPrompt({ title, can, check, note, approveLabel, approveD
   onApprove(): void;
   onDecline(): void;
 }) {
+  useLocaleRevision();
   return (
     <article className="grant-review approval-prompt">
       <div className="grant-identity">
@@ -27,7 +30,7 @@ export function ApprovalPrompt({ title, can, check, note, approveLabel, approveD
         {note && <small>{note}</small>}
       </div>
       <div className="decision-actions">
-        <button className="button secondary" disabled={busy} onClick={onDecline}>Decline</button>
+        <button className="button secondary" disabled={busy} onClick={onDecline}><Trans>Decline</Trans></button>
         <button className="button primary" disabled={busy || approveDisabled} onClick={onApprove}>{approveLabel}</button>
       </div>
     </article>

@@ -1,5 +1,5 @@
 import { useState, type ComponentProps } from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "./test/render";
 import { describe, expect, it, vi } from "vitest";
 import { CollectionPicker } from "./CollectionPicker";
 

@@ -1,0 +1,307 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-23 22:26+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: zh\n"
+
+#. placeholder {0}: typeField.label
+#. placeholder {1}: contractField.label
+#: contract-setup.ts
+msgid "{0} can supply {1}."
+msgstr "{0} 可提供 {1}。"
+
+#. placeholder {0}: typeField.label
+#. placeholder {1}: kindLabel(typeField.kind)
+#. placeholder {2}: contractField.label
+#. placeholder {3}: kindLabel(contractField.kind)
+#: contract-setup.ts
+msgid "{0} is {1}, but {2} needs {3}."
+msgstr "{0} 为 {1}，但 {2} 需要 {3}。"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a complex value"
+msgstr "复杂值"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a date"
+msgstr "日期"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a date and time"
+msgstr "日期和时间"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a group of values"
+msgstr "一组值"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a list"
+msgstr "列表"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a number"
+msgstr "数字"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a whole number"
+msgstr "整数"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a yes/no value"
+msgstr "是/否值"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Add record types"
+msgstr "添加记录类型"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Additional operations declared by this application."
+msgstr "此应用声明的其他操作。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Cancel this app's scheduled activity"
+msgstr "取消此应用的计划活动"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change record types"
+msgstr "更改记录类型"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change records"
+msgstr "更改记录"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change saved views"
+msgstr "更改已保存的视图"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check available record types"
+msgstr "检查可用的记录类型"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check collection validity"
+msgstr "检查集合是否有效"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check what this app needs to set up"
+msgstr "检查此应用需要进行哪些设置"
+
+#. placeholder {0}: contractField.label
+#: contract-setup.ts
+msgid "Choose which field supplies {0}."
+msgstr "选择提供 {0} 的字段。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create and edit records"
+msgstr "创建和编辑记录"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create or change saved views and type definitions."
+msgstr "创建或更改已保存的视图和类型定义。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create or update this app's scheduled activity"
+msgstr "创建或更新此应用的计划活动"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create records"
+msgstr "创建记录"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create saved views"
+msgstr "创建已保存的视图"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create, edit, rename, or move records."
+msgstr "创建、编辑、重命名或移动记录。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Delete records"
+msgstr "删除记录"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Delete saved views"
+msgstr "删除已保存的视图"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Describe the collection"
+msgstr "描述集合"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Doesn’t match"
+msgstr "不匹配"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Inspect saved-view definitions"
+msgstr "检查已保存视图的定义"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Install or update record types"
+msgstr "安装或更新记录类型"
+
+#. placeholder {0}: url.host
+#: access.ts
+msgid "Local development ({0})"
+msgstr "本地开发（{0}）"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Manage collection structure"
+msgstr "管理集合结构"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Matches"
+msgstr "匹配"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Not shared"
+msgstr "未共享"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Other permissions"
+msgstr "其他权限"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Permanently remove records from this collection."
+msgstr "从此集合中永久删除记录。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Read collection details, records, saved views, and type definitions."
+msgstr "读取集合详情、记录、已保存的视图和类型定义。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Read records"
+msgstr "读取记录"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Rename or move records"
+msgstr "重命名或移动记录"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Replace this app's scheduled activity"
+msgstr "替换此应用的计划活动"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Required"
+msgstr "必需"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Review"
+msgstr "检查"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Run saved views"
+msgstr "运行已保存的视图"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Schedule app activity"
+msgstr "安排应用活动"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Search and query"
+msgstr "搜索和查询"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See collection changes"
+msgstr "查看集合更改"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See saved views"
+msgstr "查看已保存的视图"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See this app's scheduled activity"
+msgstr "查看此应用的计划活动"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Set up this app in the collection"
+msgstr "在集合中设置此应用"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Some existing records may not have this required value."
+msgstr "一些现有记录可能没有此必需值。"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Some existing values are outside the application’s accepted set."
+msgstr "部分现有值不在应用接受的范围内。"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "The existing field allows values the application may not understand."
+msgstr "现有字段允许使用应用可能无法理解的值。"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "The two fields allow different values."
+msgstr "这两个字段允许的值不同。"
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "This optional value will not be shared with the application."
+msgstr "不会向应用共享此可选值。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View and find records"
+msgstr "查看和查找记录"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View and manage timers owned by this application."
+msgstr "查看和管理此应用拥有的计时器。"
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View record types"
+msgstr "查看记录类型"

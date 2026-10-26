@@ -9,11 +9,16 @@ import {
   nextAuthorizationGroups, selectedNextAuthorizationOperations
 } from "./src/authorization-capabilities.ts";
 
-const server = await createServer({ server: { middlewareMode: true }, appType: "custom" });
+const server = await createServer({ server: { middlewareMode: true }, appType: "custom",
+  ssr: { noExternal: ["@mdbase-dev/i18n", "@lingui/react", "@lingui/core"] },
+});
 const ui = await server.ssrLoadModule("/src/authorization-review.tsx");
 const { ApprovalForm, DeviceAuthorization, RequestIdentity, RequestOutcome } = await server.ssrLoadModule("/src/authorization-view.tsx");
+const { LocaleProvider } = await server.ssrLoadModule("@mdbase-dev/i18n/react");
+const { runtime } = await server.ssrLoadModule("/src/i18n.ts");
 await server.close();
-const render = (component, props) => renderToStaticMarkup(React.createElement(component, props));
+const render = (component, props) => renderToStaticMarkup(React.createElement(LocaleProvider,
+  { runtime, onError(error) { throw error; } }, React.createElement(component, props)));
 
 const list = (props) => render(ui.PermissionList, {
   selectedFiles: new Set(), disabled: false, onToggleGroup() {}, onToggleFile() {}, ...props

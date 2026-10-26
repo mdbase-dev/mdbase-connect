@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { i18n } from "@mdbase-dev/ui/i18n";
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -10,7 +12,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     throw new ApiError(
       response.status,
-      body?.error?.message ?? `Request failed with HTTP ${response.status}.`,
+      body?.error?.message ?? t(i18n)`Request failed with HTTP ${response.status}.`,
       typeof body?.error?.code === "string" ? body.error.code : undefined,
       body?.error?.details
     );

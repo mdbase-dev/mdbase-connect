@@ -1,5 +1,8 @@
+import { t } from "@lingui/core/macro";
+import { i18n } from "@mdbase-dev/ui/i18n";
 import type {
   AvailableCollection,
+  UnavailableConnector,
   ContractRequirement,
   PendingAuthorization
 } from "./api";
@@ -21,7 +24,7 @@ export function collectionCompatibility(
     return {
       compatible: false,
       code: "permissions",
-      label: "More access required",
+      label: t(i18n)({ message: "More access required", context: "Connect interface" }),
       detail: collection.authorization.detail
     };
   }
@@ -29,16 +32,16 @@ export function collectionCompatibility(
     return {
       compatible: false,
       code: "collection_kind",
-      label: "Cloud collection required",
-      detail: "This application needs a collection hosted by mdbase."
+      label: t(i18n)({ message: "Cloud collection required" }),
+      detail: t(i18n)({ message: "This application needs a collection hosted by mdbase." })
     };
   }
   if (requiresMdbase03(request.requested_operations) && !supportsMdbase03(collection.spec_version)) {
     return {
       compatible: false,
       code: "legacy_spec",
-      label: "Needs mdbase 0.3",
-      detail: `${collection.display_name} uses mdbase ${collection.spec_version}. Upgrade a copy to mdbase 0.3 and verify it before approving access; the original can stay untouched.`
+      label: t(i18n)({ message: "Needs mdbase 0.3", context: "Connect interface" }),
+      detail: t(i18n)`${collection.display_name} uses mdbase ${collection.spec_version}. Upgrade a copy to mdbase 0.3 and verify it before approving access; the original can stay untouched.`
     };
   }
   // A Private collection's types are end-to-end encrypted; the app checks them once connected.
@@ -53,8 +56,8 @@ export function collectionCompatibility(
     return {
       compatible: false,
       code: "missing_contracts",
-      label: "Missing required types",
-      detail: `This collection does not provide ${unavailable.map(contractLabel).join(" and ")}.`
+      label: t(i18n)({ message: "Missing required types", context: "Connect interface" }),
+      detail: t(i18n)`This collection does not provide ${new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(unavailable.map(contractLabel))}.`
     };
   }
   return { compatible: true };
@@ -88,5 +91,21 @@ function sameContract(left: ContractRequirement, right: ContractRequirement): bo
 }
 
 function contractLabel(contract: ContractRequirement): string {
-  return `${contract.id} v${contract.version}`;
+  return t(i18n)`${contract.id} v${contract.version}`;
+}
+
+export function lostCollectionNotice(
+  collection: AvailableCollection,
+  unavailable: Array<{ collection: AvailableCollection; compatibility: ReturnType<typeof collectionCompatibility> }>,
+  unavailableConnectors: UnavailableConnector[]
+): string {
+  const incompatible = unavailable.find((choice) => choice.collection.id === collection.id)?.compatibility;
+  if (incompatible && !incompatible.compatible) {
+    return t(i18n)`${collection.display_name} can no longer be used: ${incompatible.detail} Choose another collection.`;
+  }
+  const connector = unavailableConnectors.find((candidate) => candidate.connector_name === collection.connector_name);
+  if (connector) {
+    return connector.reason === "paused" ? t(i18n)`${collection.display_name} is unavailable because ${connector.connector_name} has remote access paused. Choose another collection.` : t(i18n)`${collection.display_name} is unavailable because ${connector.connector_name} is offline. Choose another collection.`;
+  }
+  return t(i18n)`${collection.display_name} is no longer available. Choose another collection.`;
 }

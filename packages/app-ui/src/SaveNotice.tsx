@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { useLocaleRevision } from "./i18n.js";
 import { useEffect, useRef, type JSX } from "react";
 
 import type { MdbaseMarkSignalKind } from "./brand.js";
@@ -21,10 +23,10 @@ export function saveToneSignal(before: SaveTone | null, tone: SaveTone): MdbaseM
 }
 
 const defaultLabels: Record<SaveTone, string> = {
-  saved: "Saved",
-  saving: "Saving",
-  pending: "Unsaved",
-  attention: "Needs attention"
+  get saved() { return t({ message: "Saved" }); },
+  get saving() { return t({ message: "Saving" }); },
+  get pending() { return t({ message: "Unsaved" }); },
+  get attention() { return t({ message: "Needs attention" }); }
 };
 
 /**
@@ -40,6 +42,7 @@ export function SaveNotice({ tone, label = defaultLabels[tone], className }: {
   readonly label?: string | undefined;
   readonly className?: string | undefined;
 }): JSX.Element {
+  useLocaleRevision();
   const previous = useRef<SaveTone | null>(null);
   useEffect(() => {
     const kind = saveToneSignal(previous.current, tone);

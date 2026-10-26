@@ -1,3 +1,6 @@
+import { t } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { readRememberedCollection } from "./portal-model";
 
@@ -14,6 +17,7 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
   onCreate?: () => void;
   creationSelected?: boolean;
 }) {
+  useLocaleRevision();
   const id = useId(), input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState<string | null>(null);
@@ -44,7 +48,7 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
       ref={input} id={`${id}-input`} role="combobox" type="search" autoComplete="off" data-value={value}
       aria-labelledby={`${id}-label`} aria-autocomplete="list" aria-expanded="true"
       aria-controls={`${id}-list`} aria-activedescendant={active >= 0 ? `${id}-option-${active}` : undefined}
-      aria-describedby={`${id}-help`} placeholder="Search collections by name" value={query} disabled={disabled}
+      aria-describedby={`${id}-help`} placeholder={t(i18n)({ message: "Search collections by name" })} value={query} disabled={disabled}
       onChange={event => { setQuery(event.currentTarget.value); setHighlighted(null); }}
       onKeyDown={event => {
         if (disabled || event.nativeEvent.isComposing) return;
@@ -62,7 +66,7 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
         }
       }}
     />
-    <span id={`${id}-help`} className="sr-only">Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice.</span>
+    <span id={`${id}-help`} className="sr-only"><Trans>Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice.</Trans></span>
     <div ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} aria-disabled={disabled} className="collection-picker-list">
       {filtered.map((collection, index) => <div
         key={collection.id} id={`${id}-option-${index}`} role="option" aria-label={collection.name} data-value={collection.id}
@@ -73,14 +77,14 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
       >
         <strong>{collection.kind === "private" && <span className="collection-picker-lock" aria-hidden="true">🔒 </span>}{collection.name}</strong>
         {(collection.kind === "private" || collection.hint || collection.id === recent) && <small id={`${id}-hint-${index}`}>
-          {[collection.id === recent ? "Recently used" : null, collection.kind === "private" ? "Private" : null, collection.hint].filter(Boolean).join(" · ")}
+          {[collection.id === recent ? t(i18n)`Recently used` : null, collection.kind === "private" ? t(i18n)`Private` : null, collection.hint].filter(Boolean).join(" · ")}
         </small>}
         {collection.id === value && <span className="collection-picker-check" aria-hidden="true">✓</span>}
       </div>)}
     </div>
-    {filtered.length === 0 && <p className="field-note" role="status">{collections.length ? "No collections match. Try another name." : "No collections are available."}</p>}
+    {filtered.length === 0 && <p className="field-note" role="status">{collections.length ? t(i18n)({ message: "No collections match. Try another name." }) : t(i18n)({ message: "No collections are available." })}</p>}
     {onCreate && <button className="collection-picker-create" type="button" disabled={disabled} aria-pressed={creationSelected}
-      onClick={() => { setHighlighted(null); onCreate(); }}>Create a new collection…</button>}
-    {selected && <p className="field-note collection-picker-selection" aria-live="polite">Selected: <strong>{selected.name}</strong></p>}
+      onClick={() => { setHighlighted(null); onCreate(); }}><Trans>Create a new collection…</Trans></button>}
+    {selected && <p className="field-note collection-picker-selection" aria-live="polite"><Trans>Selected: <strong>{selected.name}</strong></Trans></p>}
   </div>;
 }

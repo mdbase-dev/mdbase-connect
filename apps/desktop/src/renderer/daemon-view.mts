@@ -1,3 +1,6 @@
+import { t, plural } from "@lingui/core/macro";
+import { i18n } from "@mdbase-dev/ui/i18n";
+function missingOpenReason() { return t(i18n)`It failed to open.`; }
 // Presentation of the mdbase daemon's status, collections and app access. Pure, so
 // the wording and grouping are testable without a renderer.
 
@@ -16,16 +19,16 @@ export interface ConnectionPresentation {
 export function presentConnection(status: StatusLike | null, checked: boolean): ConnectionPresentation {
   if (!status) {
     return checked
-      ? { label: "mdbase is not running", settingsLabel: "Not running", dot: "danger" }
-      : { label: "Checking connection…", settingsLabel: "Checking", dot: "connecting" };
+      ? { label: t(i18n)({ message: "mdbase is not running", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Not running", context: "Local connection status" }), dot: "danger" }
+      : { label: t(i18n)({ message: "Checking connection…", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Checking", context: "Local connection status" }), dot: "connecting" };
   }
   const account = status.account;
-  if (account.pairing) return { label: "Waiting for sign-in approval", settingsLabel: "Signing in", dot: "connecting" };
-  if (!account.signed_in) return { label: "Not signed in", settingsLabel: "Not signed in", dot: "idle" };
-  if (account.online) return { label: "Connected securely", settingsLabel: "Connected", dot: "connected" };
+  if (account.pairing) return { label: t(i18n)({ message: "Waiting for sign-in approval" }), settingsLabel: t(i18n)({ message: "Signing in", context: "Local connection status" }), dot: "connecting" };
+  if (!account.signed_in) return { label: t(i18n)({ message: "Not signed in", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Not signed in", context: "Local connection status" }), dot: "idle" };
+  if (account.online) return { label: t(i18n)({ message: "Connected securely", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Connected", context: "Local connection status" }), dot: "connected" };
   return {
-    label: account.last_error ? "Account connection needs attention" : "Connecting securely…",
-    settingsLabel: account.last_error ? "Needs attention" : "Connecting",
+    label: account.last_error ? t(i18n)({ message: "Account connection needs attention" }) : t(i18n)({ message: "Connecting securely…", context: "Local connection status" }),
+    settingsLabel: account.last_error ? t(i18n)({ message: "Needs attention", context: "Local connection status" }) : t(i18n)({ message: "Connecting", context: "Local connection status" }),
     dot: account.last_error ? "danger" : "connecting"
   };
 }
@@ -50,31 +53,31 @@ export interface CollectionPresentation {
 }
 
 const MODES: Record<string, string> = {
-  local: "On this computer only",
-  synced: "Synced",
-  synced_e2e: "Private sync (end-to-end encrypted)"
+  get local() { return t(i18n)({ message: "On this computer only", context: "Local connection status" }); },
+  get synced() { return t(i18n)({ message: "Synced", context: "Local connection status" }); },
+  get synced_e2e() { return t(i18n)({ message: "Private sync (end-to-end encrypted)" }); }
 };
 
 const REASONS: Record<string, string> = {
-  folder_missing: "The folder is missing. Reconnect the drive or restore the folder.",
-  runtime_pending: "Waiting to open.",
-  account_identity_missing: "Sign in to serve this collection.",
-  collection_account_mismatch: "This collection belongs to a different mdbase account.",
-  collection_policy_required: "Waiting for the collection's access policy from mdbase.",
-  collection_membership_missing: "This computer is not a member of this collection yet.",
-  old_connector_running: "The old mdbase Connect is running on this computer. Quit it or update it; mdbase resumes on its own.",
-  hosted_elsewhere: "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go.",
-  sync_not_configured: "Sign in to sync this collection.",
-  sync_not_eligible: "Your mdbase account cannot sync this collection. Check your plan or the collection's owner.",
-  sync_unreachable: "mdbase cannot reach the sync service. It opens the collection when you are back online.",
-  trust_missing: "This build of mdbase cannot sync yet. Update mdbase.",
-  sync_config_invalid: "This collection's sync settings could not be verified. Turn sync off and on again, or contact support.",
-  not_joined: "This computer has not joined this collection yet.",
-  joining_sync: "Joining this collection…",
-  detached_sync: "This copy stopped following the collection. Join it again to keep it in sync.",
-  adopt_failed: "Turning on sync did not finish. Choose Turn on sync again to continue.",
-  adopting: "Turning on sync: uploading the files in the folder…",
-  private_sync_pending: "Turning on Private sync so apps that used this collection keep working. mdbase finishes this on its own; your files are untouched."
+  get folder_missing() { return t(i18n)({ message: "The folder is missing. Reconnect the drive or restore the folder." }); },
+  get runtime_pending() { return t(i18n)({ message: "Waiting to open.", context: "Local connection status" }); },
+  get account_identity_missing() { return t(i18n)({ message: "Sign in to serve this collection." }); },
+  get collection_account_mismatch() { return t(i18n)({ message: "This collection belongs to a different mdbase account." }); },
+  get collection_policy_required() { return t(i18n)({ message: "Waiting for the collection's access policy from mdbase." }); },
+  get collection_membership_missing() { return t(i18n)({ message: "This computer is not a member of this collection yet." }); },
+  get old_connector_running() { return t(i18n)({ message: "The old mdbase Connect is running on this computer. Quit it or update it; mdbase resumes on its own." }); },
+  get hosted_elsewhere() { return t(i18n)({ message: "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go." }); },
+  get sync_not_configured() { return t(i18n)({ message: "Sign in to sync this collection." }); },
+  get sync_not_eligible() { return t(i18n)({ message: "Your mdbase account cannot sync this collection. Check your plan or the collection's owner." }); },
+  get sync_unreachable() { return t(i18n)({ message: "mdbase cannot reach the sync service. It opens the collection when you are back online." }); },
+  get trust_missing() { return t(i18n)({ message: "This build of mdbase cannot sync yet. Update mdbase." }); },
+  get sync_config_invalid() { return t(i18n)({ message: "This collection's sync settings could not be verified. Turn sync off and on again, or contact support." }); },
+  get not_joined() { return t(i18n)({ message: "This computer has not joined this collection yet." }); },
+  get joining_sync() { return t(i18n)({ message: "Joining this collection…", context: "Local connection status" }); },
+  get detached_sync() { return t(i18n)({ message: "This copy stopped following the collection. Join it again to keep it in sync." }); },
+  get adopt_failed() { return t(i18n)({ message: "Turning on sync did not finish. Choose Turn on sync again to continue." }); },
+  get adopting() { return t(i18n)({ message: "Turning on sync: uploading the files in the folder…" }); },
+  get private_sync_pending() { return t(i18n)({ message: "Turning on Private sync so apps that used this collection keep working. mdbase finishes this on its own; your files are untouched." }); }
 };
 
 function reasonText(reason: string | undefined): string | undefined {
@@ -95,32 +98,32 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
     case "paused":
       // Taken over from mdbase Connect: an interrupted turn-on of Private sync, retried automatically.
       if (collection.reason === "private_sync_pending") {
-        return { ...base, status: "Turning on Private sync…", detail: reasonText(collection.reason), dot: "connecting" };
+        return { ...base, status: t(i18n)`Turning on Private sync…`, detail: reasonText(collection.reason), dot: "connecting" };
       }
-      return { ...base, status: "Paused", detail: "Apps cannot use it until you resume it.", dot: "paused" };
+      return { ...base, status: t(i18n)`Paused`, detail: t(i18n)`Apps cannot use it until you resume it.`, dot: "paused" };
     case "opening":
-      return { ...base, status: "Opening…", detail: reasonText(collection.reason), dot: "connecting" };
+      return { ...base, status: t(i18n)`Opening…`, detail: reasonText(collection.reason), dot: "connecting" };
     case "moving":
-      return { ...base, status: "Changing sync…", detail: "Apps keep working while the change finishes.", dot: "connecting" };
+      return { ...base, status: t(i18n)`Changing sync…`, detail: t(i18n)`Apps keep working while the change finishes.`, dot: "connecting" };
     case "unavailable":
-      return { ...base, status: "Unavailable", detail: reasonText(collection.reason), dot: "idle" };
+      return { ...base, status: t(i18n)`Unavailable`, detail: reasonText(collection.reason), dot: "idle" };
     case "failed":
-      return { ...base, status: "Stopped", detail: `${reasonText(collection.reason) ?? "It failed to open."} Your files are untouched.`, dot: "danger" };
+      return { ...base, status: t(i18n)`Stopped`, detail: t(i18n)`${reasonText(collection.reason) ?? missingOpenReason()} Your files are untouched.`, dot: "danger" };
     default:
       break;
   }
   const sync = collection.sync;
   if (collection.mode === "local" || !sync) {
-    return { ...base, status: "Ready", detail: holds > 0 ? `${holds} ${holds === 1 ? "file is" : "files are"} waiting for you` : undefined, dot: holds > 0 ? "paused" : "connected" };
+    return { ...base, status: t(i18n)({ message: "Ready", context: "Local connection status" }), detail: holds > 0 ? t(i18n)`${plural(holds, { one: "# file is waiting for you", other: "# files are waiting for you" })}` : undefined, dot: holds > 0 ? "paused" : "connected" };
   }
   const waiting: string[] = [];
-  if (sync.pending > 0) waiting.push(`${sync.pending} ${sync.pending === 1 ? "change" : "changes"} to upload`);
-  if (holds > 0) waiting.push(`${holds} ${holds === 1 ? "file" : "files"} waiting for you`);
-  if (sync.unresolved > 0) waiting.push(`${sync.unresolved} unresolved ${sync.unresolved === 1 ? "conflict" : "conflicts"}`);
-  if (sync.last_error) waiting.push(`sync problem: ${sync.last_error.replaceAll("_", " ")}`);
-  const status = sync.resyncing ? "Catching up…"
-    : sync.connection === "online" ? (sync.pending > 0 ? "Syncing…" : "Up to date")
-      : sync.connection === "connecting" ? "Connecting…" : "Offline";
+  if (sync.pending > 0) waiting.push(t(i18n)`${plural(sync.pending, { one: "# change to upload", other: "# changes to upload" })}`);
+  if (holds > 0) waiting.push(t(i18n)`${plural(holds, { one: "# file waiting for you", other: "# files waiting for you" })}`);
+  if (sync.unresolved > 0) waiting.push(t(i18n)`${plural(sync.unresolved, { one: "# unresolved conflict", other: "# unresolved conflicts" })}`);
+  if (sync.last_error) waiting.push(t(i18n)`sync problem: ${sync.last_error.replaceAll("_", " ")}`);
+  const status = sync.resyncing ? t(i18n)({ message: "Catching up…", context: "Local connection status" })
+    : sync.connection === "online" ? (sync.pending > 0 ? t(i18n)({ message: "Syncing…", context: "Local connection status" }) : t(i18n)({ message: "Up to date", context: "Local connection status" }))
+      : sync.connection === "connecting" ? t(i18n)({ message: "Connecting…", context: "Local connection status" }) : t(i18n)({ message: "Offline", context: "Local connection status" });
   const dot: ConnectionDotState = sync.last_error ? "danger"
     : holds > 0 || sync.unresolved > 0 ? "paused"
       : sync.connection === "online" && !sync.resyncing ? "connected" : "connecting";
@@ -170,13 +173,13 @@ export function groupAccess<T extends EntryLike>(entries: T[]): AccessGroups<T> 
 /** Capability group names, for people. Unknown names are shown as they are. */
 export function capabilityLabel(capability: string): string {
   const labels: Record<string, string> = {
-    read: "Read",
-    write: "Create and edit",
-    delete: "Delete",
-    schema: "Change types",
-    views: "Views",
-    files: "Files",
-    timers: "Reminders"
+    read: t(i18n)({ message: "Read", context: "Local connection status" }),
+    write: t(i18n)({ message: "Create and edit", context: "Local connection status" }),
+    delete: t(i18n)({ message: "Delete", context: "Local connection status" }),
+    schema: t(i18n)({ message: "Change types", context: "Local connection status" }),
+    views: t(i18n)({ message: "Views", context: "Local connection status" }),
+    files: t(i18n)({ message: "Files", context: "Local connection status" }),
+    timers: t(i18n)({ message: "Reminders", context: "Local connection status" })
   };
   return labels[capability] ?? capability.replaceAll("_", " ");
 }
@@ -184,17 +187,17 @@ export function capabilityLabel(capability: string): string {
 /** What an app with these capabilities will be able to do, as one phrase. */
 export function capabilityPhrase(capabilities: readonly string[]): string {
   const phrases: Record<string, string> = {
-    read: "read notes",
-    write: "create and edit notes",
-    delete: "delete notes",
-    schema: "change note types",
-    views: "save views",
-    files: "read and add files",
-    timers: "set reminders"
+    read: t(i18n)({ message: "read notes", context: "Local connection status" }),
+    write: t(i18n)({ message: "create and edit notes", context: "Local connection status" }),
+    delete: t(i18n)({ message: "delete notes", context: "Local connection status" }),
+    schema: t(i18n)({ message: "change note types", context: "Local connection status" }),
+    views: t(i18n)({ message: "save views", context: "Local connection status" }),
+    files: t(i18n)({ message: "read and add files", context: "Local connection status" }),
+    timers: t(i18n)({ message: "set reminders", context: "Local connection status" })
   };
   const parts = capabilities.map((capability) => phrases[capability] ?? capability.replaceAll("_", " "));
-  if (parts.length === 0) return "do nothing yet";
-  return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  if (parts.length === 0) return t(i18n)({ message: "do nothing yet", context: "Local connection status" });
+  return parts.length === 1 ? parts[0] : t(i18n)`${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }
 
 /** A device kind (`desktop`, `mobile`, ...) as people say it. */
@@ -216,27 +219,27 @@ interface ActivityLike {
 
 /** One activity entry as a sentence. Unknown kinds are shown as they are. */
 export function describeActivity(entry: ActivityLike): string {
-  const collection = entry.collection_name ?? "a collection";
-  const app = entry.app_name ?? "An app";
+  const collection = entry.collection_name ?? t(i18n)({ message: "a collection", context: "Local connection status" });
+  const app = entry.app_name ?? t(i18n)({ message: "An app", context: "Local connection status" });
   switch (entry.kind) {
-    case "collection_added": return `${collection} was added`;
-    case "collection_removed": return `${collection} was removed (its files were not touched)`;
-    case "collection_updated": return `${collection} was renamed or described`;
-    case "collection_paused": return `${collection} was paused`;
-    case "collection_resumed": return `${collection} was resumed`;
-    case "collection_joined": return `${collection} was joined from your account`;
-    case "collection_taken_over": return `${collection} moved here from mdbase Connect (its files were not touched)`;
-    case "sync_enabled": return `${collection} now syncs${entry.detail === "synced_e2e" ? " privately" : ""}`;
-    case "sync_disabled": return `${collection} stopped syncing`;
-    case "app_connected": return `${app} can now use ${collection}`;
-    case "app_requested": return `${app} asked to use ${collection}`;
-    case "app_approved": return `You approved ${app} for ${collection}`;
-    case "app_declined": return `You declined ${app} for ${collection}`;
-    case "app_revoked": return `You revoked ${app} on ${collection}`;
-    case "app_revoked_in_account": return `${app} lost access to ${collection} in your account`;
-    case "signed_in": return "This computer signed in";
-    case "signed_out": return "This computer signed out";
-    case "computer_renamed": return `This computer is now called ${entry.detail ?? "something new"}`;
+    case "collection_added": return t(i18n)`${collection} was added`;
+    case "collection_removed": return t(i18n)`${collection} was removed (its files were not touched)`;
+    case "collection_updated": return t(i18n)`${collection} was renamed or described`;
+    case "collection_paused": return t(i18n)`${collection} was paused`;
+    case "collection_resumed": return t(i18n)`${collection} was resumed`;
+    case "collection_joined": return t(i18n)`${collection} was joined from your account`;
+    case "collection_taken_over": return t(i18n)`${collection} moved here from mdbase Connect (its files were not touched)`;
+    case "sync_enabled": return t(i18n)`${collection} now syncs${entry.detail === "synced_e2e" ? " privately" : ""}`;
+    case "sync_disabled": return t(i18n)`${collection} stopped syncing`;
+    case "app_connected": return t(i18n)`${app} can now use ${collection}`;
+    case "app_requested": return t(i18n)`${app} asked to use ${collection}`;
+    case "app_approved": return t(i18n)`You approved ${app} for ${collection}`;
+    case "app_declined": return t(i18n)`You declined ${app} for ${collection}`;
+    case "app_revoked": return t(i18n)`You revoked ${app} on ${collection}`;
+    case "app_revoked_in_account": return t(i18n)`${app} lost access to ${collection} in your account`;
+    case "signed_in": return t(i18n)`This computer signed in`;
+    case "signed_out": return t(i18n)`This computer signed out`;
+    case "computer_renamed": return t(i18n)`This computer is now called ${entry.detail ?? "something new"}`;
     default: return entry.kind.replaceAll("_", " ");
   }
 }

@@ -1,10 +1,12 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import { t } from "@lingui/core/macro";
+import { useLocaleRevision } from "./i18n.js";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
 
 export interface Command {
   readonly id: string;
   readonly label: string;
   readonly detail?: string | undefined;
-  /** Commands show under their group's heading, in the order the groups first appear. */
+  /** Stable group ID; headings follow first appearance and may be presented by groupLabel. */
   readonly group: string;
   readonly keywords?: string | undefined;
   /** For example "mod+shift+f"; see shortcutLabel. */
@@ -67,24 +69,29 @@ export function matchingCommands(
  * Find or run anything: every mdbase app opens it with Mod+K. Typing filters commands; the
  * arrows move, Enter runs, Shift+Enter runs a command's alternate, Escape closes.
  */
-export function CommandPalette({ open, commands, onClose, label = "Commands", placeholder = "Search commands", showAll }: {
+export function CommandPalette({ open, commands, onClose, label = t({ message: "Commands" }), placeholder = t({ message: "Search commands" }), showAll, groupLabel }: {
   readonly open: boolean;
   readonly commands: readonly Command[];
   readonly onClose: () => void;
   readonly label?: string | undefined;
   readonly placeholder?: string | undefined;
   readonly showAll?: readonly string[] | undefined;
+  /** Presentation only: translate headings without changing group or showAll IDs. */
+  readonly groupLabel?: ((group: string) => string) | undefined;
 }): JSX.Element | null {
-  return open ? <OpenCommandPalette commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} /> : null;
+  useLocaleRevision();
+  return open ? <OpenCommandPalette commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} groupLabel={groupLabel} /> : null;
 }
 
-function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: {
+function OpenCommandPalette({ commands, onClose, label, placeholder, showAll, groupLabel }: {
   readonly commands: readonly Command[];
   readonly onClose: () => void;
   readonly label: string;
   readonly placeholder: string;
   readonly showAll?: readonly string[] | undefined;
+  readonly groupLabel?: ((group: string) => string) | undefined;
 }): JSX.Element {
+  useLocaleRevision();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -99,9 +106,9 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: 
     onClose();
     (alternate && command.alternate ? command.alternate.run : command.run)();
   };
-  const hintId = `${label.replace(/\W+/gu, "-").toLowerCase()}-hint`;
+  const hintId = useId();
   return <dialog className="mdbase-command-backdrop" open>
-    <button className="mdbase-command-dismiss" type="button" aria-label={`Close ${label.toLowerCase()}`} onClick={onClose} />
+    <button className="mdbase-command-dismiss" type="button" aria-label={t`Close ${label}`} onClick={onClose} />
     <section
       ref={paletteRef}
       className="mdbase-command-palette"
@@ -134,23 +141,23 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: 
           onKeyDown={(event) => handleKeys(event, matches, active, setActive, run, onClose)}
         />
       </label>
-      <div className="mdbase-command-results" role="listbox" aria-label="Results" aria-describedby={hintId}>
+      <div className="mdbase-command-results" role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
             {command.group !== matches[index - 1]?.group
-              ? <div className="mdbase-command-group" role="presentation">{command.group}</div>
+              ? <div className="mdbase-command-group" role="presentation">{groupLabel ? groupLabel(command.group) : command.group}</div>
               : null}
             <CommandRow command={command} active={index === active} onRun={run} />
           </Fragment>)
-          : <div className="mdbase-command-empty">Nothing matches</div>}
+          : <div className="mdbase-command-empty">{t({ message: "Nothing matches" })}</div>}
       </div>
       <footer className="mdbase-command-footer" id={hintId}>
-        <span><kbd>↑</kbd><kbd>↓</kbd> to move</span>
-        <span><kbd>↵</kbd> to open</span>
+        <span><kbd>↑</kbd><kbd>↓</kbd>  {t({ message: "to move" })}</span>
+        <span><kbd>↵</kbd>  {t({ message: "to open" })}</span>
         {matches[active]?.alternate
           ? <span><kbd>{shortcutLabel("shift")}</kbd><kbd>↵</kbd> {matches[active].alternate.label.toLocaleLowerCase()}</span>
           : null}
-        <span><kbd>Esc</kbd> to close</span>
+        <span><kbd>{t({ message: "Esc" })}</kbd>  {t({ message: "to close" })}</span>
       </footer>
     </section>
   </dialog>;
@@ -176,6 +183,7 @@ function CommandRow({ command, active, onRun }: {
   readonly active: boolean;
   readonly onRun: (command: Command, alternate?: boolean) => void;
 }): JSX.Element {
+  useLocaleRevision();
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (active) ref.current?.scrollIntoView({ block: "nearest" });

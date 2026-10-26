@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import "../i18n.js";
 /**
  * The headless collection view: one pure mapping from the SDK snapshot (whose
  * `phase` already says what state the app is in) to what the shared screens
@@ -277,6 +279,6 @@ export function collectionRows(
 export function accountLabel(signIn: MdbaseSnapshot["signIn"]): string | null {
   if (!signIn) return null;
   if (signIn.accountEmail) return signIn.accountEmail;
-  if (signIn.accountProvider === "github" && signIn.accountLogin) return `${signIn.accountLogin} on GitHub`;
+  if (signIn.accountProvider === "github" && signIn.accountLogin) return t`${signIn.accountLogin} on GitHub`;
   return null;
 }

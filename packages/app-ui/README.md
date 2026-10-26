@@ -36,6 +36,40 @@ applyThemePreference(loadThemePreference());
   collection in another app. Lab and local builds pass their own URLs to
   `withAppUrls`.
 
+## Languages
+
+The `/i18n` entry exports `uiCatalogues: CatalogueSource` with synchronous
+English and lazy local-deployment JSON for `fr de es ja ko pt ru zh`.
+Compose it once with the app's catalogue using `@mdbase-dev/i18n`:
+
+```tsx
+import { i18n, uiCatalogues } from "@mdbase-dev/ui/i18n";
+const runtime = createI18nRuntime({ i18n, english: appEnglish, loadLocale, libraries: [uiCatalogues] });
+// Wrap the app once in LocaleProvider with this runtime.
+```
+
+Core-macro presentation helpers use the shared Lingui singleton; do not compose
+into an unrelated isolated instance. Keep React and Lingui deduplicated in app
+bundlers. No form is remounted on a locale switch. Build output includes all
+nine catalogues and transformed macros; consumers do not compile library source.
+PO files are the only authoring format. Builds use the kit CLI to prune obsolete PO
+entries before compilation, including English fallback; `prepack` runs strict catalogue
+checks and rebuilds so stale compiled messages cannot enter a fresh tarball.
+Run strict `i18n:check` before release: a fallback-capable development build does
+not prove a language is complete.
+Reviewed identical terms are Esc/ID, the literal example email, and French
+Collection/Collections (allowlisted per generated ID).
+
+## Command palette
+
+`CommandPalette` from `@mdbase-dev/ui/command-palette` accepts an optional
+`groupLabel(groupId: string): string` callback for localized group headings.
+For example, pass `groupLabel={readerCommandGroupLabel}`. Without it, the heading
+remains the command's `group` string. This is presentation only: keep `Command.group`
+and `showAll` values as stable IDs. Group order, browsing limits and search matching
+still use those IDs; translated headings do not change matching or merge groups.
+Re-render with the current locale's callback to update the presentation.
+
 ## Collections
 
 Import `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`.

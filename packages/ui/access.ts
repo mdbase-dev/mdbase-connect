@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { i18n } from "@mdbase-dev/ui/i18n";
 export interface ApplicationAccessGrant {
   application_id: string;
   application_family_id?: string;
@@ -27,8 +29,8 @@ export interface AuthorizationOperationGroup {
 const authorizationOperationGroups = [
   {
     id: "view",
-    label: "View and find records",
-    description: "Read collection details, records, saved views, and type definitions.",
+    get label() { return t(i18n)({ message: "View and find records", context: "Application permission" }); },
+    get description() { return t(i18n)({ message: "Read collection details, records, saved views, and type definitions.", context: "Application permission" }); },
     operations: [
       "describe",
       "changes",
@@ -44,20 +46,20 @@ const authorizationOperationGroups = [
   },
   {
     id: "change",
-    label: "Create and edit records",
-    description: "Create, edit, rename, or move records.",
+    get label() { return t(i18n)({ message: "Create and edit records", context: "Application permission" }); },
+    get description() { return t(i18n)({ message: "Create, edit, rename, or move records.", context: "Application permission" }); },
     operations: ["create", "update", "rename"]
   },
   {
     id: "delete",
-    label: "Delete records",
-    description: "Permanently remove records from this collection.",
+    get label() { return t(i18n)({ message: "Delete records", context: "Application permission" }); },
+    get description() { return t(i18n)({ message: "Permanently remove records from this collection.", context: "Application permission" }); },
     operations: ["delete"]
   },
   {
     id: "manage",
-    label: "Manage collection structure",
-    description: "Create or change saved views and type definitions.",
+    get label() { return t(i18n)({ message: "Manage collection structure", context: "Application permission" }); },
+    get description() { return t(i18n)({ message: "Create or change saved views and type definitions.", context: "Application permission" }); },
     operations: [
       "create_view_source",
       "update_view_source",
@@ -69,8 +71,8 @@ const authorizationOperationGroups = [
   },
   {
     id: "schedule",
-    label: "Schedule app activity",
-    description: "View and manage timers owned by this application.",
+    get label() { return t(i18n)({ message: "Schedule app activity", context: "Application permission" }); },
+    get description() { return t(i18n)({ message: "View and manage timers owned by this application.", context: "Application permission" }); },
     operations: [
       "list_timers",
       "put_timer",
@@ -81,32 +83,32 @@ const authorizationOperationGroups = [
 ] as const;
 
 const authorizationOperationLabels: Record<string, string> = {
-  describe: "Describe the collection",
-  changes: "See collection changes",
-  read: "Read records",
-  query: "Search and query",
-  list_views: "See saved views",
-  execute_view: "Run saved views",
-  read_view_source: "Inspect saved-view definitions",
-  validate: "Check collection validity",
-  create: "Create records",
-  update: "Change records",
-  rename: "Rename or move records",
-  delete: "Delete records",
-  create_view_source: "Create saved views",
-  update_view_source: "Change saved views",
-  delete_view_source: "Delete saved views",
-  read_type: "View record types",
-  create_type: "Add record types",
-  update_type: "Change record types",
-  assess_type_pack: "Check available record types",
-  apply_type_pack: "Install or update record types",
-  assess_collection_setup: "Check what this app needs to set up",
-  apply_collection_setup: "Set up this app in the collection",
-  list_timers: "See this app's scheduled activity",
-  put_timer: "Create or update this app's scheduled activity",
-  cancel_timer: "Cancel this app's scheduled activity",
-  reconcile_timers: "Replace this app's scheduled activity"
+  get describe() { return t(i18n)({ message: "Describe the collection", context: "Application permission" }); },
+  get changes() { return t(i18n)({ message: "See collection changes", context: "Application permission" }); },
+  get read() { return t(i18n)({ message: "Read records", context: "Application permission" }); },
+  get query() { return t(i18n)({ message: "Search and query", context: "Application permission" }); },
+  get list_views() { return t(i18n)({ message: "See saved views", context: "Application permission" }); },
+  get execute_view() { return t(i18n)({ message: "Run saved views", context: "Application permission" }); },
+  get read_view_source() { return t(i18n)({ message: "Inspect saved-view definitions", context: "Application permission" }); },
+  get validate() { return t(i18n)({ message: "Check collection validity", context: "Application permission" }); },
+  get create() { return t(i18n)({ message: "Create records", context: "Application permission" }); },
+  get update() { return t(i18n)({ message: "Change records", context: "Application permission" }); },
+  get rename() { return t(i18n)({ message: "Rename or move records", context: "Application permission" }); },
+  get delete() { return t(i18n)({ message: "Delete records", context: "Application permission" }); },
+  get create_view_source() { return t(i18n)({ message: "Create saved views", context: "Application permission" }); },
+  get update_view_source() { return t(i18n)({ message: "Change saved views", context: "Application permission" }); },
+  get delete_view_source() { return t(i18n)({ message: "Delete saved views", context: "Application permission" }); },
+  get read_type() { return t(i18n)({ message: "View record types", context: "Application permission" }); },
+  get create_type() { return t(i18n)({ message: "Add record types", context: "Application permission" }); },
+  get update_type() { return t(i18n)({ message: "Change record types", context: "Application permission" }); },
+  get assess_type_pack() { return t(i18n)({ message: "Check available record types", context: "Application permission" }); },
+  get apply_type_pack() { return t(i18n)({ message: "Install or update record types", context: "Application permission" }); },
+  get assess_collection_setup() { return t(i18n)({ message: "Check what this app needs to set up", context: "Application permission" }); },
+  get apply_collection_setup() { return t(i18n)({ message: "Set up this app in the collection", context: "Application permission" }); },
+  get list_timers() { return t(i18n)({ message: "See this app's scheduled activity", context: "Application permission" }); },
+  get put_timer() { return t(i18n)({ message: "Create or update this app's scheduled activity", context: "Application permission" }); },
+  get cancel_timer() { return t(i18n)({ message: "Cancel this app's scheduled activity", context: "Application permission" }); },
+  get reconcile_timers() { return t(i18n)({ message: "Replace this app's scheduled activity", context: "Application permission" }); }
 };
 
 const TRANSPORT_CAPABILITIES = new Set(["sync"]);
@@ -166,8 +168,8 @@ export function groupAuthorizationOperations(
   if (other.length > 0) {
     groups.push({
       id: "other",
-      label: "Other permissions",
-      description: "Additional operations declared by this application.",
+      label: t(i18n)({ message: "Other permissions", context: "Application permission" }),
+      description: t(i18n)({ message: "Additional operations declared by this application.", context: "Application permission" }),
       operations: other.map((operation) => ({
         id: operation,
         label: authorizationOperationLabel(operation)
@@ -189,7 +191,7 @@ export function applicationAccessOriginLabel(origin: string): string {
   try {
     const url = new URL(origin);
     return ["http:", "https:"].includes(url.protocol) && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
-      ? `Local development (${url.host})` : url.host || origin;
+      ? t(i18n)`Local development (${url.host})` : url.host || origin;
   } catch { return origin; }
 }
 

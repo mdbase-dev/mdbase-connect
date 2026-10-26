@@ -1,4 +1,6 @@
 import { setupI18n, type I18n, type Messages } from "@lingui/core";
+import { mergeCatalogues } from "../scripts/catalogues.mjs";
+export { mergeCatalogues } from "../scripts/catalogues.mjs";
 
 export const locales = ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh"] as const;
 export type Locale = (typeof locales)[number];
@@ -25,26 +27,6 @@ export interface Catalogue { messages: object }
 export interface CatalogueSource {
   english: Catalogue;
   loadLocale: (locale: Exclude<Locale, "en">) => Promise<Catalogue>;
-}
-/** Stable union: identical generated IDs deduplicate; conflicting values fail closed. */
-export function mergeCatalogues(catalogues: readonly Catalogue[]): Catalogue {
-  const canonical = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(canonical);
-    if (value && typeof value === "object") return Object.fromEntries(
-      Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, value]) => [key, canonical(value)]));
-    return value;
-  };
-  const messages = new Map<string, unknown>();
-  const conflicts = new Set<string>();
-  for (const catalogue of catalogues) for (const [id, value] of Object.entries(catalogue.messages)) {
-    const normalized = canonical(value);
-    if (messages.has(id) && JSON.stringify(messages.get(id)) !== JSON.stringify(normalized)) {
-      conflicts.add("Conflicting compiled translation for message ID: " + id +
-        " — " + JSON.stringify(messages.get(id)) + " vs " + JSON.stringify(normalized));
-    } else messages.set(id, normalized);
-  }
-  if (conflicts.size) throw new Error([...conflicts].join("\n"));
-  return { messages: Object.fromEntries([...messages].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) };
 }
 export interface RuntimeOptions extends CatalogueSource {
   /** Inject the Lingui global singleton when existing core macros target it. */

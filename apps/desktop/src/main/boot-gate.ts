@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { i18n } from "@mdbase-dev/ui/i18n";
 interface BootGateOptions {
   initialize(): Promise<void>;
   start(): Promise<void>;
@@ -20,7 +22,7 @@ export class BootGate {
 
   private assertAdmission(): void {
     const reason = this.installing
-      ? "The application update is in progress."
+      ? t(i18n)({ message: "The application update is in progress.", context: "Desktop application" })
       : this.options.blockedReason();
     if (reason) throw new Error(reason);
   }
@@ -46,7 +48,7 @@ export class BootGate {
   }
 
   async install<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.installing) throw new Error("The application update is in progress.");
+    if (this.installing) throw new Error(t(i18n)({ message: "The application update is in progress.", context: "Desktop application" }));
     this.installing = true;
     try {
       await this.initialize();

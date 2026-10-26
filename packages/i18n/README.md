@@ -43,12 +43,31 @@ Don't translate eagerly at module scope, nest `t` inside another `t` interpolati
 or use translations in comparisons, lookups or CSS identifiers.
 
 Run extract, author all eight target PO files, then check. PO is the authoring source.
+The kit's `compile` and `check` commands prune obsolete entries from configured PO
+files before Lingui compilation or fallback resolution. Compiled JSON contains only
+active messages; still-active translations are preserved. Package builds must use
+`mdbase-i18n compile`, not direct `lingui compile`, which includes obsolete entries
+in Lingui 6.9. The Connect apps/shared UI use this same kit compile boundary.
 The check runs extraction sync, raw-PO completeness **before fallback**, generated IDs,
 ICU argument/type, select/exact numeric cases, offset, pound and numeric React-tag
 contracts, strict JSON compilation and the structural source guard. Plural categories
 follow the target locale's grammar (Japanese/Chinese need not have English `one`;
-Russian needs its own categories). Missing, fuzzy and English-placeholder translations
-fail. Nothing in CI authors translations.
+Russian needs its own categories). Translated plural/ordinal messages must cover
+categories selected by `Intl.PluralRules` for integer counts **0..999**, with plural
+offsets applied. PO messages contain no reliable call-site numeric domain, so the
+check does not infer fractional counts. `other` is always required; unknown categories
+fail. `pt` uses `pt-BR`. Source exact numeric arms must remain; extra `=N` arms are
+allowed. Exact arms satisfy a category only if they cover every integer in the domain
+that selects it (de/es `one`: `=1`; fr/pt `one`: both `=0` and `=1`). Exact arms match
+original counts, before subtracting an offset. Missing CLDR categories unreachable
+in that domain (e.g. fr/es/pt million-only `many`) produce **informational stdout
+notes**, not warnings or errors. They remain valid optional arms. Missing, fuzzy and whole-message
+English-placeholder translations fail. Plural/ordinal/select branches byte-identical
+to the corresponding English branch (or English `other` for added categories) warn
+when the branch contains literal letters. Warnings include locale, generated ID and
+selector path; the same reviewed `allowIdentical` IDs suppress them, but never waive
+ICU contracts. Numeric/punctuation-only branches and argument names do not warn.
+Nothing in CI authors translations.
 
 Reviewed identical terms/proper nouns require explicit per-locale generated-ID
 allowlisting. Optional `i18n-policy.json`:

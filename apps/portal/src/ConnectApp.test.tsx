@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "./test/render";
 import { StrictMode } from "react";
 import { ConnectManagementClient, type AccountData, type ManagementOverview } from "@mdbase/connect-management";
 import { AccountManagement } from "./AccountManagement";

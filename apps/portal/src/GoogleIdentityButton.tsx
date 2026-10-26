@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ConnectManagementClient } from "@mdbase/connect-management";
 import { observeProviderWidth } from "@mdbase/connect-ui/provider-button";
@@ -18,6 +20,7 @@ interface GoogleAccountsApi {
         theme: "outline" | "filled_black";
         size: "large";
         text: "continue_with";
+        locale?: string;
         shape: "rectangular";
         logo_alignment: "left";
         width: number;
@@ -34,6 +37,7 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
   onComplete(): void;
   onError(reason: unknown): void;
 }) {
+  const localeRevision = useLocaleRevision();
   const container = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
@@ -97,20 +101,21 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
       theme: dark ? "filled_black" : "outline",
       size: "large",
       text: "continue_with",
+      locale: i18n.locale === "pt" ? "pt-BR" : i18n.locale === "zh" ? "zh-CN" : i18n.locale,
       shape: "rectangular",
       logo_alignment: "left",
       width
     });
-  }, [dark, google, width]);
+  }, [dark, google, width, localeRevision]);
 
   const ready = Boolean(google && width);
   return <div ref={container} className={`connect-google-provider ${busy ? "busy" : ""}`} aria-busy={busy || (!ready && !failed)}>
     <div ref={button} className="connect-google-button" inert={busy || !ready} aria-hidden={busy || !ready} />
     {!ready && <button type="button" className="connect-provider-loading" disabled={!failed}
       onClick={() => setAttempt((value) => value + 1)}>
-      {failed ? "Retry Google sign-in" : "Continue with Google"}
+      {failed ? t(i18n)({ message: "Retry Google sign-in", context: "Connect interface" }) : t(i18n)({ message: "Continue with Google", context: "Connect interface" })}
     </button>}
-    <span className="sr-only" role="status">{busy ? "Signing in with Google…" : !ready && !failed ? "Loading Google sign-in…" : ""}</span>
+    <span className="sr-only" role="status">{busy ? t(i18n)({ message: "Signing in with Google…", context: "Connect interface" }) : !ready && !failed ? t(i18n)({ message: "Loading Google sign-in…", context: "Connect interface" }) : ""}</span>
   </div>;
 }
 
@@ -125,9 +130,9 @@ function loadGoogleIdentityServices(): Promise<GoogleAccountsApi> {
     script.onload = () => {
       const loaded = (window as unknown as { google?: GoogleAccountsApi }).google;
       if (loaded?.accounts?.id) resolve(loaded);
-      else reject(new Error("Google sign-in did not load correctly."));
+      else reject(new Error(t(i18n)({ message: "Google sign-in did not load correctly." })));
     };
-    script.onerror = () => reject(new Error("Google sign-in could not be loaded."));
+    script.onerror = () => reject(new Error(t(i18n)({ message: "Google sign-in could not be loaded." })));
     document.head.append(script);
   });
   googleLibrary = googleLibrary.catch((reason) => {

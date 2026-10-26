@@ -77,7 +77,8 @@ async function auditPortalLoading() {
           }),
           overflow: document.documentElement.scrollWidth > innerWidth
         }));
-        assert.equal(layout.edges.length, 4);
+        // Brand row, mark, language picker, theme picker, and status copy.
+        assert.equal(layout.edges.length, 5);
         for (const edge of layout.edges) {
           assert.ok(edge.left >= 20 && edge.right <= width - 20,
             `portal loading ${colorScheme}/${width}: branding and status retain a 20px viewport inset`);
@@ -955,6 +956,8 @@ async function auditDesktopRoutes() {
     });
     const updateStatus = { phase: "idle", current_version: "1.0.0", channel: "stable", message: "Up to date", can_check: true, can_install: false };
     window.mdbaseConnect = {
+      getLocale: async () => "en",
+      setLocale: async () => {},
       status: async () => ({ target: "isolated_profile", state_dir: "/home/example/.mdbase", account: { signed_in: true, online: true }, collections: [collection] }),
       updateStatus: async () => updateStatus,
       checkForUpdates: async () => updateStatus,
