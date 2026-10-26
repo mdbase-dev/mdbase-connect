@@ -75,6 +75,43 @@ suite("timer service on PostgreSQL", () => {
     return grantId;
   }
 
+  it.each(["scheduled", "firing"])("fires past more than a batch of migration-pending %s timers", async status => {
+    const pending = await grant();
+    const ready = await grant();
+    const binding = (await db.query("SELECT user_id, collection_id FROM grants WHERE id=$1", [pending])).rows[0];
+    await db.query(`INSERT INTO hosted_collections(id,user_id,display_name,template,provider_url)
+      VALUES($1,$2,'Migrating tasks','blank','https://provider.example.test')`, [binding.collection_id, binding.user_id]);
+    await db.query("UPDATE grants SET collection_id=NULL,hosted_collection_id=$2 WHERE id=$1", [pending, binding.collection_id]);
+    const cohort = `timer-batch-${randomUUID()}`;
+    await db.query("INSERT INTO next_migration_cohorts(name) VALUES($1)", [cohort]);
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [binding.user_id, cohort]);
+    await db.query(`INSERT INTO next_timers(grant_id,namespace,timer_id,criterion_id,fire_at,status)
+      SELECT $1,'batch','pending-' || n,'task.reminder','2020-01-01'::timestamptz,$2
+      FROM generate_series(1,101) n`, [pending, status]);
+    await db.query(`INSERT INTO next_timers(grant_id,namespace,timer_id,criterion_id,fire_at)
+      VALUES($1,'batch','ready','task.reminder','2020-01-02')`, [ready]);
+    const before = (await db.query("SELECT * FROM next_timers WHERE grant_id=$1 ORDER BY timer_id", [pending])).rows;
+    const worker = new TimerWorker(db, []);
+    expect(await worker.fireDue()).toBe(1);
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1", [ready])).rows).toEqual([{ status: "fired" }]);
+    expect((await db.query("SELECT timer_id FROM next_timer_events WHERE grant_id=$1", [ready])).rows).toEqual([{ timer_id: "ready" }]);
+    expect(await worker.fireDue()).toBe(0);
+    expect((await db.query("SELECT * FROM next_timers WHERE grant_id=$1 ORDER BY timer_id", [pending])).rows).toEqual(before);
+    expect((await db.query("SELECT 1 FROM next_timer_events WHERE grant_id=$1", [pending])).rows).toEqual([]);
+    await db.query("DELETE FROM users WHERE id=$1", [binding.user_id]);
+  });
+
+  it("retains the batch limit for timers that are not migration-pending", async () => {
+    const grantId = await grant();
+    await db.query(`INSERT INTO next_timers(grant_id,namespace,timer_id,criterion_id,fire_at)
+      SELECT $1,'batch','ready-' || n,'task.reminder','2020-01-02'::timestamptz
+      FROM generate_series(1,3) n`, [grantId]);
+    const worker = new TimerWorker(db, [], { batchSize: 2 });
+    expect(await worker.fireDue()).toBe(2);
+    expect(await worker.fireDue()).toBe(1);
+    expect(await worker.fireDue()).toBe(0);
+  });
+
   function operation(at = Date.now()): string {
     const time = at.toString(16).padStart(12, "0");
     const random = randomUUID();
