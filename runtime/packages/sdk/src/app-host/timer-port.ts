@@ -130,7 +130,8 @@ export function attachAppTimerReceiver(port:MessagePort, options:{
         if(typeof bearer!=="string" || !/^(idev_|ct_)[A-Za-z0-9_-]{43}$/.test(bearer)) throw error("unauthenticated","timer_credential");
         if(pending){await options.journal!.write(pending);check();ctrl.signal.throwIfAborted();}
         dispatched=write;
-        response=await options.fetch(`${options.cpOrigin}${request.path}`,{method:request.method,body,
+        const fetch=options.fetch;
+        response=await fetch(`${options.cpOrigin}${request.path}`,{method:request.method,body,
           headers:{authorization:`Bearer ${bearer}`,...(body===undefined?{}:{"content-type":"application/json"})},
           credentials:"omit",redirect:"error",cache:request.method==="GET"?"no-store":"default",referrerPolicy:"no-referrer",signal:ctrl.signal});
         check();ctrl.signal.throwIfAborted();

@@ -58,6 +58,29 @@ describe("native channel UI platform and fixed Worker journal admission",()=>{
     p.pushManager.getSubscription.mockResolvedValue(p.subscription);await f.api.unregisterWebPush(p.worker);expect(p.subscription.unsubscribe).toHaveBeenCalledOnce();expect(f.read()).toBeNull();
     expect(JSON.stringify(f.read())).not.toContain("push.example.test");
   });
+  it("calls the supplied fetch without an options receiver through Web Push VAPID lookup and Worker registration",async()=>{
+    const p=platform(),channel=new MessageChannel(),life=new AbortController();let retained:AppInstallationTimerChannel|null=null;
+    const request=vi.fn(async function(this:unknown,input:RequestInfo|URL,init?:RequestInit){
+      if(this!==undefined&&this!==globalThis)throw new TypeError("Illegal invocation");
+      expect(init).toMatchObject({credentials:"omit",redirect:"error",referrerPolicy:"no-referrer",headers:{authorization:`Bearer idev_${"a".repeat(43)}`}});
+      expect(init?.signal).toBeInstanceOf(AbortSignal);expect(init?.signal?.aborted).toBe(false);
+      if(String(input)==="https://cp.example.test/v1/notifications/vapid-public-key"){
+        expect(init).toMatchObject({method:"GET",cache:"no-store"});expect(p.pushManager.subscribe).not.toHaveBeenCalled();
+        return Response.json({public_key:encode(key)});
+      }
+      expect(String(input)).toBe(`https://cp.example.test/v1/next/collections/${scope.collection}/background-grants/${grant}/notifications/channels`);
+      expect(init?.method).toBe("POST");expect(retained).toMatchObject({grantId:grant,pending:"register"});
+      expect(JSON.parse(String(init?.body))).toEqual({installation_id:scope.installation,criteria:["reminder"],subscription:p.subscription.toJSON()});
+      return Response.json({channel_id:channelId});
+    });
+    const owner=attachAppTimerReceiver(channel.port1,{scope,generation,grantId:grant,cpOrigin:"https://cp.example.test",signal:life.signal,isCurrent:()=>true,bearer:async()=>`idev_${"a".repeat(43)}`,fetch:request,
+      journal:{read:()=>retained,write:async value=>{retained=value;}}});
+    const port=appTimerPortClient(channel.port2,{scope,generation},{signal:life.signal,onClose:()=>{}}),api=new TimersApi(port);
+    cleanup.push(async()=>{api.close();await owner.close();});
+    expect(await api.registerWebPush({serviceWorker:p.worker,criteria:["reminder"]})).toEqual({channelId,installationId:scope.installation,criteria:["reminder"]});
+    expect(request).toHaveBeenCalledTimes(2);expect(p.pushManager.subscribe).toHaveBeenCalledWith({userVisibleOnly:true,applicationServerKey:key});
+    expect(retained).toMatchObject({channelId,pending:null});expect(JSON.stringify(retained)).not.toContain("push.example.test");
+  });
   it("existing foreign VAPID key never silently resubscribes and no channel admission occurs",async()=>{
     const p=platform(true);p.subscription.options.applicationServerKey=new Uint8Array(65).buffer;
     const f=fixture(async()=>Response.json({public_key:encode(key)}));
