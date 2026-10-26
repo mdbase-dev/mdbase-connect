@@ -21,16 +21,16 @@
   "devDependencies": {
     "@mdbase-dev/i18n": "workspace:*",
     "typescript": "^7.0.2",
-    "@lingui/core": "6.9.0",
-    "@lingui/react": "6.9.0"
+    "@lingui/core": "6.10.1",
+    "@lingui/react": "6.10.1"
   },
   "dependencies": {
     "@mdbase-dev/ui": "workspace:*",
     "yaml": "^2.9.1"
   },
   "peerDependencies": {
-    "@lingui/core": "6.9.0",
-    "@lingui/react": "6.9.0",
+    "@lingui/core": "6.10.1",
+    "@lingui/react": "6.10.1",
     "@mdbase-dev/i18n": "*"
   }
 }

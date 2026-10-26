@@ -14,16 +14,16 @@
     "verify:i18n-integration": "pnpm --filter @mdbase-dev/i18n build && pnpm --filter @mdbase-dev/connect-protocol build && pnpm --filter @mdbase-dev/ui build && pnpm --filter @mdbase/connect-ui build && (result=0; pnpm build || result=1; pnpm typecheck || result=1; pnpm test || result=1; pnpm --filter @mdbase/connect-desktop build || result=1; pnpm --filter @mdbase/connect-desktop typecheck || result=1; pnpm --filter @mdbase/connect-desktop test || result=1; exit $result)"
   },
   "dependencies": {
-    "@lingui/core": "6.9.0",
-    "@lingui/react": "6.9.0",
+    "@lingui/core": "6.10.1",
+    "@lingui/react": "6.10.1",
     "@mdbase-dev/connect-protocol": "workspace:*",
     "@mdbase-dev/i18n": "workspace:*",
     "@mdbase-dev/ui": "workspace:*",
     "@mdbase/connect-management": "workspace:*",
     "@mdbase/connect-ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
