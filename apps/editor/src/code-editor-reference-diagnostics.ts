@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { syntaxTree } from "@codemirror/language";
 import { linter, type Diagnostic } from "@codemirror/lint";
 import type { Extension } from "@codemirror/state";
@@ -35,24 +36,24 @@ export function diagnosticsForReferences(
     if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(reference.target)) return [];
     if (!reference.target && reference.anchor) {
       return markdownFragment(source, reference.anchor) === undefined
-        ? [diagnostic(reference.from, reference.to, `This note has no “${reference.anchor}” section or block.`)]
+        ? [diagnostic(reference.from, reference.to, t`This note has no “${reference.anchor}” section or block.`)]
         : [];
     }
     const noteMatches = resolveLinkSuggestionMatches(reference.target, suggestions, sourcePath, reference.format);
     if (noteMatches.length > 1) {
-      return [diagnostic(reference.from, reference.to, `${noteMatches.length} notes match “${reference.target}”. Use a path to disambiguate it.`)];
+      return [diagnostic(reference.from, reference.to, t`${noteMatches.length} notes match “${reference.target}”. Use a path to disambiguate it.`)];
     }
     const note = noteMatches[0];
     const file = resolveFileReference(reference.target, reference.format, files, sourcePath);
     if (!note && !file) {
-      return [diagnostic(reference.from, reference.to, `No note or file matches “${reference.target}”.`)];
+      return [diagnostic(reference.from, reference.to, t`No note or file matches “${reference.target}”.`)];
     }
     if (note && reference.anchor) {
       const body = note.path === sourcePath
         ? source
         : notes.find((candidate) => candidate.path === note.path)?.body;
       if (body !== undefined && markdownFragment(body, reference.anchor) === undefined) {
-        return [diagnostic(reference.from, reference.to, `“${note.title}” has no “${reference.anchor}” section or block.`)];
+        return [diagnostic(reference.from, reference.to, t`“${note.title}” has no “${reference.anchor}” section or block.`)];
       }
     }
     return [];

@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import type { JsonObject } from "@mdbase-dev/connect";
 import { Document, isMap, isScalar, parseDocument } from "yaml";
 
@@ -17,10 +18,10 @@ export function replaceDocumentFrontmatter(source: string, next: JsonObject): st
   const document = parseDocument(parts.yaml, { keepSourceTokens: true });
   if (document.errors.length) throw new Error(document.errors[0].message);
   if (document.contents === null && parts.yaml.trim() !== "") {
-    throw new Error("Record frontmatter must be a YAML mapping.");
+    throw new Error(t`Record frontmatter must be a YAML mapping.`);
   }
   if (document.contents !== null && !isMap(document.contents)) {
-    throw new Error("Record frontmatter must be a YAML mapping.");
+    throw new Error(t`Record frontmatter must be a YAML mapping.`);
   }
   if (Object.keys(next).length === 0) return `${parts.bom}${parts.body}`;
   if (document.contents === null) {
@@ -28,7 +29,7 @@ export function replaceDocumentFrontmatter(source: string, next: JsonObject): st
     document.delete("__mdbase_placeholder");
   }
   const contents = document.contents;
-  if (!isMap(contents)) throw new Error("Record frontmatter must be a YAML mapping.");
+  if (!isMap(contents)) throw new Error(t`Record frontmatter must be a YAML mapping.`);
 
   const existing = new Set<string>();
   for (const item of contents.items) {
@@ -50,10 +51,10 @@ export function parseRecordSource(source: string): ParsedRecordSource {
   if (document.errors.length) throw new Error(document.errors[0].message);
   const value = document.toJS() as unknown;
   if (value === null && parts.yaml.trim() !== "") {
-    throw new Error("Record frontmatter must be a YAML mapping.");
+    throw new Error(t`Record frontmatter must be a YAML mapping.`);
   }
   if (value !== null && (!value || Array.isArray(value) || typeof value !== "object")) {
-    throw new Error("Record frontmatter must be a YAML mapping.");
+    throw new Error(t`Record frontmatter must be a YAML mapping.`);
   }
   return { frontmatter: (value ?? {}) as JsonObject, body: parts.body };
 }

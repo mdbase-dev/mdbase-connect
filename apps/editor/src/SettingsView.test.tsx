@@ -1,9 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { defaultPreferences } from "./preferences";
-import { SettingsView } from "./SettingsView";
+import { SettingsView } from "./settings/SettingsView";
 
 describe("quiet settings document", () => {
   it("keeps labelled switches keyboard-operable and technical facts in Details", async () => {

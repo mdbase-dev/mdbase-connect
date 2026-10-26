@@ -1,3 +1,8 @@
+import { i18n } from "@lingui/core";
+import { displayLocale } from "./i18n/format";
+import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import {
   FileCodeIcon as FileCode2,
   XIcon as X
@@ -35,9 +40,10 @@ export function PropertiesPanel({
   onSave,
   onSaveDocument
 }: PropertiesPanelProps) {
-  const initial = useMemo(() => structuredClone(note.frontmatter), [note]);
+  useLingui();
+  const initial = useMemo(() => structuredClone(note.frontmatter), [note, i18n.locale]);
   const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body ?? "");
-  const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types]);
+  const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types, i18n.locale]);
   const [draft, setDraft] = useState<JsonObject>(initial);
   const [persistedFrontmatter, setPersistedFrontmatter] = useState(initial);
   const [mode, setMode] = useState<"fields" | "json" | "source">("fields");
@@ -120,7 +126,7 @@ export function PropertiesPanel({
       }).catch((failure: unknown) => {
         if (generation === saveGeneration.current) {
           setAutoSaveState("waiting");
-          setAutoSaveError(failure instanceof Error ? failure.message : "Properties could not be saved.");
+          setAutoSaveError(failure instanceof Error ? failure.message : t`Properties could not be saved.`);
         }
       });
     }, 500);
@@ -154,12 +160,12 @@ export function PropertiesPanel({
     try {
       const parsed = JSON.parse(value) as unknown;
       if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-        throw new Error("Frontmatter must be a JSON object.");
+        throw new Error(t`Frontmatter must be a JSON object.`);
       }
       setDraft(parsed as JsonObject);
       setRawError(undefined);
     } catch (parseError) {
-      setRawError(parseError instanceof Error ? parseError.message : "Invalid JSON.");
+      setRawError(parseError instanceof Error ? parseError.message : t`Invalid JSON.`);
     }
   }
 
@@ -188,7 +194,7 @@ export function PropertiesPanel({
     sourceSavePromise.current = undefined;
     setSaving(false);
     if (!saved) {
-      setSourceSaveError("Source could not be saved. Your edits are still here.");
+      setSourceSaveError(t`Source could not be saved. Your edits are still here.`);
       lastSourceSubmitted.current = baseline;
       return;
     }
@@ -223,20 +229,20 @@ export function PropertiesPanel({
     onClose();
   }
 
-  return <aside className="properties-panel" aria-label="Note properties">
+  return <aside className="properties-panel" aria-label={t`Note properties`}>
     <header className="panel-header">
-      <div><h2>Properties</h2><p>{note.types.length ? note.types.join(", ") : "No type"}</p></div>
-      <button className="icon-button" aria-label="Close properties" data-inspector-close onClick={closePanel}><X aria-hidden="true" /></button>
+      <div><h2><Trans>Properties</Trans></h2><p>{note.types.length ? note.types.join(", ") : t`No type`}</p></div>
+      <button className="icon-button" aria-label={t`Close properties`} data-inspector-close onClick={closePanel}><X aria-hidden="true" /></button>
     </header>
 
     <dl className="file-facts">
-      <div><dt>Words</dt><dd>{wordCount.toLocaleString()}</dd></div>
-      {note.file?.size !== undefined && <div><dt>Size</dt><dd>{formatBytes(note.file.size)}</dd></div>}
-      {note.file?.mtime && !Number.isNaN(Date.parse(note.file.mtime)) && <div><dt>Modified</dt><dd>{formatDate(note.file.mtime)}</dd></div>}
+      <div><dt><Trans>Words</Trans></dt><dd>{wordCount.toLocaleString(displayLocale())}</dd></div>
+      {note.file?.size !== undefined && <div><dt><Trans>Size</Trans></dt><dd>{formatBytes(note.file.size)}</dd></div>}
+      {note.file?.mtime && !Number.isNaN(Date.parse(note.file.mtime)) && <div><dt><Trans>Modified</Trans></dt><dd>{formatDate(note.file.mtime)}</dd></div>}
     </dl>
 
     <div className="property-view-controls">
-      <div className="panel-tabs" role="tablist" aria-label="Properties format" onKeyDown={(event) => {
+      <div className="panel-tabs" role="tablist" aria-label={t`Properties format`} onKeyDown={(event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
         const modes = ["fields", "json"] as const;
@@ -245,11 +251,11 @@ export function PropertiesPanel({
         setMode(next);
         document.getElementById(`properties-${next}-tab`)?.focus();
       }}>
-        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}>Properties</button>
-        <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}>Advanced</button>
+        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}><Trans>Properties</Trans></button>
+        <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}><Trans>Advanced</Trans></button>
       </div>
-      <ActionMenu label="Property options" items={[
-        { label: mode === "source" ? "Back to fields" : "Edit as source", icon: <FileCode2 aria-hidden="true" />, onSelect: () => setMode(mode === "source" ? "fields" : "source") }
+      <ActionMenu label={t`Property options`} items={[
+        { label: mode === "source" ? t`Back to fields` : t`Edit as source`, icon: <FileCode2 aria-hidden="true" />, onSelect: () => setMode(mode === "source" ? "fields" : "source") }
       ]} />
     </div>
 
@@ -262,34 +268,34 @@ export function PropertiesPanel({
         recordPaths={recordPaths}
         onChange={change}
         onValidityChange={setStructuredFieldsValid}
-        emptyMessage="Add a property to keep details like tags, dates, or a status with this note."
+        emptyMessage={t`Add a property to keep details like tags, dates, or a status with this note.`}
       />
     </fieldset> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
-      <p className="raw-properties-note">Edit the underlying property values. Other apps use these values too.</p>
-      <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} readOnly={readOnly} />
+      <p className="raw-properties-note"><Trans>Edit the underlying property values. Other apps use these values too.</Trans></p>
+      <CodeEditor value={raw} onChange={updateRaw} label={t`Raw frontmatter JSON`} language="json" lineWrapping={false} readOnly={readOnly} />
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
-    </div> : <div id="properties-source-panel" className="record-source" role="region" aria-label="Record source">
-      <p>Exact Markdown source, including YAML frontmatter and body.</p>
-      <CodeEditor value={source} onChange={(value) => { if (!readOnly) setSource(value); }} onBlur={() => { if (!readOnly) void saveSource(); }} label="Complete record source" language="markdown" lineWrapping={false} readOnly={readOnly} />
+    </div> : <div id="properties-source-panel" className="record-source" role="region" aria-label={t`Record source`}>
+      <p><Trans>Exact Markdown source, including YAML frontmatter and body.</Trans></p>
+      <CodeEditor value={source} onChange={(value) => { if (!readOnly) setSource(value); }} onBlur={() => { if (!readOnly) void saveSource(); }} label={t`Complete record source`} language="markdown" lineWrapping={false} readOnly={readOnly} />
     </div>}
 
     <div className="property-footer">
-      {(error || (mode === "source" ? sourceSaveError : autoSaveError)) && <p className="property-error" role="alert">{error || (mode === "source" ? sourceSaveError : autoSaveError)}{mode !== "source" && autoSaveError && <button className="property-save mdbase-button is-secondary" onClick={() => setRetry((value) => value + 1)}>Retry save</button>}</p>}
+      {(error || (mode === "source" ? sourceSaveError : autoSaveError)) && <p className="property-error" role="alert">{error || (mode === "source" ? sourceSaveError : autoSaveError)}{mode !== "source" && autoSaveError && <button className="property-save mdbase-button is-secondary" onClick={() => setRetry((value) => value + 1)}><Trans>Retry save</Trans></button>}</p>}
       {mode === "source"
         ? <div className="source-save-actions">
           <p className="property-save-state" aria-live="polite">{slowSourceSave
-            ? "Saving…"
+            ? t`Saving…`
             : sourceChanged
-              ? "Source saves when focus leaves the editor"
+              ? t`Source saves when focus leaves the editor`
               : ""}</p>
-          <button className="property-save mdbase-button is-primary" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{slowSourceSave ? "Saving…" : "Save source"}</button>
+          <button className="property-save mdbase-button is-primary" disabled={readOnly || !sourceChanged || saving} onClick={() => void saveSource(true)}>{slowSourceSave ? t`Saving…` : t`Save source`}</button>
         </div>
         : <p className="property-save-state" aria-live="polite">{rawError
-          ? "Fix the JSON to continue saving"
+          ? t`Fix the JSON to continue saving`
           : fieldsInvalid
-            ? "Fix invalid fields to continue saving"
+            ? t`Fix invalid fields to continue saving`
             : slowFieldsSave
-              ? "Saving…"
+              ? t`Saving…`
               : ""}</p>}
     </div>
   </aside>;
@@ -320,5 +326,5 @@ function formatBytes(value: number): string {
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  return new Intl.DateTimeFormat(displayLocale(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }

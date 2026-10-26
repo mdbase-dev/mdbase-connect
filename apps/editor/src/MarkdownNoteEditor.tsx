@@ -1,3 +1,6 @@
+import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { lazy, Suspense, type CSSProperties, type ReactNode } from "react";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { LinkSuggestion } from "./links";
@@ -47,19 +50,20 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
   linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, onUploadAttachment, remoteApplyToken, onTitleChange, onBodyChange,
   onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
   onVisibleFileEmbeds, onVisibleNoteEmbeds, footer, autoFocus = true, readOnly = false, provenance }: MarkdownNoteEditorProps) {
+  useLingui();
   return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
     {provenance && <div className="note-provenance">{provenance}</div>}
-    <label className="sr-only" htmlFor="note-title">Note title</label>
+    <label className="sr-only" htmlFor="note-title"><Trans>Note title</Trans></label>
     <div className="note-title-field">
-      <span className="note-title-measure" aria-hidden="true">{draft.title || "Untitled"}{" "}</span>
+      <span className="note-title-measure" aria-hidden="true">{draft.title || t`Untitled`}{" "}</span>
       <textarea id="note-title" className="title-input" rows={1} value={draft.title}
         onChange={(event) => onTitleChange(event.target.value.replace(/[\r\n]+/g, " "))}
         onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) event.preventDefault(); }}
-        placeholder="Untitled" spellCheck="true" readOnly={readOnly} aria-readonly={readOnly} />
+        placeholder={t`Untitled`} spellCheck="true" readOnly={readOnly} aria-readonly={readOnly} />
     </div>
-    <Suspense fallback={<div className="body-editor code-editor-loading" role="status" aria-label="Loading note editor" aria-busy="true">Preparing editor…</div>}>
-      <CodeEditor key={editorKey} value={draft.body} onChange={onBodyChange} label="Note body" language="markdown" readOnly={readOnly}
-        variant="writer" placeholder="Start writing" vimEnabled={preferences.vim} lineWrapping={preferences.lineWrapping}
+    <Suspense fallback={<div className="body-editor code-editor-loading" role="status" aria-label={t`Loading note editor`} aria-busy="true"><Trans>Preparing editor…</Trans></div>}>
+      <CodeEditor key={editorKey} value={draft.body} onChange={onBodyChange} label={t`Note body`} language="markdown" readOnly={readOnly}
+        variant="writer" placeholder={t`Start writing`} vimEnabled={preferences.vim} lineWrapping={preferences.lineWrapping}
         typewriter={preferences.focusMode && preferences.typewriterScrolling} quietMarkdown={preferences.quietMarkdown} autoFocus={autoFocus} className="body-editor" documentId={documentId}
         currentPath={currentPath} recentPaths={recentPaths} linkSuggestions={linkSuggestions} linkTypes={linkTypes}
         onOpenLink={onOpenLink} onCreateLink={onCreateLink} onPreviewLink={onPreviewLink}

@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { useCallback, useEffect, useRef } from "react";
 import { gatewayError } from "./gateway";
 import type { CollectionGateway, CollectionSessionSnapshot } from "./model";
@@ -29,7 +30,7 @@ export function useSessionLifecycle({ gateway, acceptSnapshot, setNotice }: {
         const initial = await gateway.startSession();
         if (!alive || generation !== requestGeneration.current) return;
         if (initial.status === "start_failed") setNotice(initial.problem.message);
-        if (initial.status === "destroyed") setNotice("This editor session has been closed.");
+        if (initial.status === "destroyed") setNotice(t`This editor session has been closed.`);
         stopSessionChanges = gateway.onSessionChange((snapshot) => {
           if (!alive || !sameAuthoritativeSnapshot(snapshot, gateway.sessionSnapshot())) return;
           void acceptSnapshot(snapshot).catch((error) => { if (alive) setNotice(gatewayError(error)); });

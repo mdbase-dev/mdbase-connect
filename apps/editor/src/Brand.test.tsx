@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen } from "./test/locale";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
 import { describe, expect, it, vi } from "vitest";
 import { OpeningScreen } from "./LoadingScreens";

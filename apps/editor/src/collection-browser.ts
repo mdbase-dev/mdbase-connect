@@ -1,3 +1,5 @@
+import { i18n } from "@lingui/core";
+import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { CollectionFile, NoteSummary } from "./model";
 import { noteTitle } from "./note";
@@ -38,10 +40,10 @@ export function useCollectionBrowserEntries(
     const needle = query.trim().toLocaleLowerCase();
     return files.filter((file) => (!filter || file.path === filter.value || file.path.startsWith(`${filter.value}/`))
       && (!needle || file.path.toLocaleLowerCase().includes(needle)));
-  }, [files, filter, query]);
+  }, [files, filter, query, i18n.locale]);
   const entries = useMemo(
     () => collectionBrowserEntries(notes, visibleFiles, sort, types, Boolean(query.trim())),
-    [notes, query, sort, types, visibleFiles]
+    [notes, query, sort, types, visibleFiles, i18n.locale]
   );
   return { visibleFiles, entries };
 }
@@ -107,7 +109,7 @@ export function browserGroupLabel(entry: CollectionBrowserEntry, sort: NoteSort,
 }
 
 function entryPathFolder(path: string): string {
-  return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "Collection root";
+  return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : t`Collection root`;
 }
 
 function titleGroupLabel(title: string): string {
@@ -116,15 +118,15 @@ function titleGroupLabel(title: string): string {
 }
 
 function modifiedGroupLabel(timestamp: number | undefined, now: Date): string {
-  if (timestamp === undefined) return "Undated";
+  if (timestamp === undefined) return t`Undated`;
   const date = new Date(timestamp);
   const startOfToday = startOfDay(now);
   const day = Math.floor((startOfToday - startOfDay(date)) / 86_400_000);
-  if (day <= 0) return "Today";
-  if (day === 1) return "Yesterday";
-  if (day < 7) return "Previous 7 days";
-  if (day < 30) return "Previous 30 days";
-  return "Older";
+  if (day <= 0) return t`Today`;
+  if (day === 1) return t`Yesterday`;
+  if (day < 7) return t`Previous 7 days`;
+  if (day < 30) return t`Previous 30 days`;
+  return t`Older`;
 }
 
 function startOfDay(value: Date): number {
@@ -156,7 +158,7 @@ export function browserListItems(
   let currentLabel: string | undefined;
   let headerCount = 0;
   entries.forEach((entry, entryIndex) => {
-    const label = entry.kind === "note" && pinnedPaths.has(entry.path) ? "Pinned" : browserGroupLabel(entry, sort, types, now);
+    const label = entry.kind === "note" && pinnedPaths.has(entry.path) ? t`Pinned` : browserGroupLabel(entry, sort, types, now);
     if (label !== currentLabel) {
       currentLabel = label;
       items.push({ key: `header:${headerCount}:${label}`, kind: "header", label });

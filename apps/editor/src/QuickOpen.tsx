@@ -1,3 +1,7 @@
+import { i18n } from "@lingui/core";
+import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { MagnifyingGlassIcon as Search, XIcon as X } from "./icons";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
@@ -32,17 +36,18 @@ export function QuickOpen({ index, recentPaths, types, commands = [], initialCom
   onSelect: (path: string) => void;
   onClose: () => void;
 }) {
+  useLingui();
   const [query, setQuery] = useState(initialCommandMode ? ">" : "");
   const [activeIndex, setActiveIndex] = useState(0);
   const commandMode = query.trimStart().startsWith(">");
   const commandQuery = (commandMode ? query.trimStart().slice(1) : query).trim();
   const results = useMemo(() => commandMode ? [] : commandQuery
     ? searchNoteResults(index, commandQuery, 12)
-    : recentNotes(index, recentPaths).slice(0, 12), [commandMode, commandQuery, index, recentPaths]);
-  const filteredCommands = useMemo(() => filterCommands(commands, commandQuery), [commands, commandQuery]);
+    : recentNotes(index, recentPaths).slice(0, 12), [commandMode, commandQuery, index, recentPaths, i18n.locale]);
+  const filteredCommands = useMemo(() => filterCommands(commands, commandQuery), [commands, commandQuery, i18n.locale]);
   const showCommands = filteredCommands.length > 0 && (commandMode || !commandQuery || results.length === 0);
   const sections = useMemo(() => buildSections(results, filteredCommands, commandMode, showCommands),
-    [commandMode, filteredCommands, results, showCommands]);
+    [commandMode, filteredCommands, results, showCommands, i18n.locale]);
   const rows = sections.map((section) => section.row);
   useEffect(() => setActiveIndex(0), [query]);
   useEffect(() => {
@@ -62,10 +67,10 @@ export function QuickOpen({ index, recentPaths, types, commands = [], initialCom
   }
 
   return <Dialog titleId="quick-open-title" className="quick-open" onClose={onClose}>
-      <h2 id="quick-open-title" className="sr-only">Quick open</h2>
+      <h2 id="quick-open-title" className="sr-only"><Trans>Quick open</Trans></h2>
       <div className="quick-open-search">
         <Search aria-hidden="true" />
-        <label className="sr-only" htmlFor="quick-open-input">Find a note or action</label>
+        <label className="sr-only" htmlFor="quick-open-input"><Trans>Find a note or action</Trans></label>
         <input
           id="quick-open-input"
           data-autofocus
@@ -74,7 +79,7 @@ export function QuickOpen({ index, recentPaths, types, commands = [], initialCom
           aria-controls="quick-open-results"
           aria-activedescendant={rows[activeIndex] ? `quick-open-${activeIndex}` : undefined}
           value={query}
-          placeholder="Find a note by title or path, or type > for actions"
+          placeholder={t`Find a note by title or path, or type > for actions`}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
@@ -98,10 +103,10 @@ export function QuickOpen({ index, recentPaths, types, commands = [], initialCom
             }
           }}
         />
-        <button className="icon-button" aria-label="Close quick open" onClick={onClose}><X aria-hidden="true" /></button>
+        <button className="icon-button" aria-label={t`Close quick open`} onClick={onClose}><X aria-hidden="true" /></button>
       </div>
-      <p className="sr-only" aria-live="polite">{commandMode ? "Matching actions" : commandQuery ? "Best matches" : "Recent notes and actions"}</p>
-      <div id="quick-open-results" className="quick-open-results" role="listbox" aria-label="Matching notes and actions">
+      <p className="sr-only" aria-live="polite">{commandMode ? t`Matching actions` : commandQuery ? t`Best matches` : t`Recent notes and actions`}</p>
+      <div id="quick-open-results" className="quick-open-results" role="listbox" aria-label={t`Matching notes and actions`}>
         {sections.map((section, rowIndex) => {
           const selected = activeIndex === rowIndex;
           const row = section.row;
@@ -132,9 +137,9 @@ export function QuickOpen({ index, recentPaths, types, commands = [], initialCom
             })()}
           </Fragment>;
         })}
-        {!rows.length && <p>{commandMode ? "No matching actions." : "No matching notes."}</p>}
+        {!rows.length && <p>{commandMode ? t`No matching actions.` : t`No matching notes.`}</p>}
       </div>
-      <footer><span><kbd>↑↓</kbd> choose · <kbd>Enter</kbd> open · <kbd>&gt;</kbd> actions · <kbd>Esc</kbd> close</span></footer>
+      <footer><span><Trans><kbd>↑↓</kbd> choose · <kbd>Enter</kbd> open · <kbd>&gt;</kbd> actions · <kbd>Esc</kbd> close</Trans></span></footer>
   </Dialog>;
 }
 
@@ -146,20 +151,20 @@ function buildSections(
 ): QuickOpenSection[] {
   const sections: QuickOpenSection[] = [];
   if (commandMode) {
-    if (commands.length) sections.push({ header: "Actions", row: { kind: "command", command: commands[0] } });
+    if (commands.length) sections.push({ header: t`Actions`, row: { kind: "command", command: commands[0] } });
     for (let index = 1; index < commands.length; index += 1) {
       sections.push({ row: { kind: "command", command: commands[index] } });
     }
     return sections;
   }
   if (results.length) {
-    sections.push({ header: "Notes", row: { kind: "note", result: results[0] } });
+    sections.push({ header: t`Notes`, row: { kind: "note", result: results[0] } });
     for (let index = 1; index < results.length; index += 1) {
       sections.push({ row: { kind: "note", result: results[index] } });
     }
   }
   if (showCommands && commands.length) {
-    sections.push({ header: "Actions", row: { kind: "command", command: commands[0] } });
+    sections.push({ header: t`Actions`, row: { kind: "command", command: commands[0] } });
     for (let index = 1; index < commands.length; index += 1) {
       sections.push({ row: { kind: "command", command: commands[index] } });
     }
@@ -184,25 +189,26 @@ import { shortcutModifier } from "./editor-commands";
 export { shortcutModifier } from "./editor-commands";
 
 export function ShortcutHelp({ onClose }: { onClose: () => void }) {
+  useLingui();
   const modifier = shortcutModifier();
   const shortcuts = [
     ...Object.values(commandDefinitions).flatMap((definition) => {
       const entry: { label: string; shortcut?: string; scope?: string } = definition;
       return entry.shortcut ? [[formatShortcut(entry.shortcut), entry.label + (entry.scope ? `, ${entry.scope}` : "")]] : [];
     }),
-    [">", "Actions in quick open"],
-    ["↑ / ↓", "Move through the note list"],
-    [`${modifier} F`, "Find in note"],
-    [`${modifier} B / I`, "Bold or italic"],
-    [`${modifier} K`, "Add a link, in the note text"],
-    ["/", "Markdown commands"],
-    ["Alt ← / →", "Back or forward"],
-    ["Alt J / K", "Next or previous note"],
-    ["Shift F10", "Note actions, in the list"],
-    ["Esc", "Exit focus mode"]
+    [">", t`Actions in quick open`],
+    ["↑ / ↓", t`Move through the note list`],
+    [`${modifier} F`, t`Find in note`],
+    [`${modifier} B / I`, t`Bold or italic`],
+    [`${modifier} K`, t`Add a link, in the note text`],
+    ["/", t`Markdown commands`],
+    ["Alt ← / →", t`Back or forward`],
+    ["Alt J / K", t`Next or previous note`],
+    ["Shift F10", t`Note actions, in the list`],
+    ["Esc", t`Exit focus mode`]
   ];
   return <Dialog titleId="shortcut-help-title" className="shortcut-help" onClose={onClose}>
-      <header><h2 id="shortcut-help-title">Shortcuts</h2><button className="icon-button" aria-label="Close keyboard shortcuts" onClick={onClose}><X aria-hidden="true" /></button></header>
+      <header><h2 id="shortcut-help-title"><Trans>Shortcuts</Trans></h2><button className="icon-button" aria-label={t`Close keyboard shortcuts`} onClick={onClose}><X aria-hidden="true" /></button></header>
       <dl>{shortcuts.map(([keys, label]) => <div key={label}><dt>{label}</dt><dd><kbd>{keys}</kbd></dd></div>)}</dl>
   </Dialog>;
 }

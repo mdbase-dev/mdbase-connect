@@ -1,3 +1,4 @@
+import { t, plural } from "@lingui/core/macro";
 import { useRef, useState, type RefObject } from "react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { bulkFields, bulkFrontmatter, runNoteBatch, type BatchResult, type BulkPropertyChange } from "./bulk-note-actions";
@@ -58,10 +59,17 @@ type RecoveryAction =
   | { kind: "rename"; from: string; to: string }
   | { kind: "move"; paths: Array<{ from: string; to: string }>; references: number; message?: string };
 
-function batchMessage<Value>(verb: string, result: BatchResult<Value>): string {
+type BatchVerb = "Updated" | "Deleted" | "Moved" | "Restored";
+function batchMessage<Value>(verb: BatchVerb, result: BatchResult<Value>): string {
   const count = result.succeeded.length;
-  const failures = result.failed.length ? ` ${result.failed.length} couldn’t be changed: ${result.failed.map(({ path, error }) => `${path} — ${gatewayError(error)}`).join("; ")}` : "";
-  return `${verb} ${count} ${count === 1 ? "note" : "notes"}.${failures}`;
+  const failures = result.failed.length ? t` ${result.failed.length} couldn’t be changed: ${result.failed.map(({ path, error }) => `${path} — ${gatewayError(error)}`).join("; ")}` : "";
+  const summary = {
+    Updated: () => plural(count, { one: "Updated # note.", other: "Updated # notes." }),
+    Deleted: () => plural(count, { one: "Deleted # note.", other: "Deleted # notes." }),
+    Moved: () => plural(count, { one: "Moved # note.", other: "Moved # notes." }),
+    Restored: () => plural(count, { one: "Restored # note.", other: "Restored # notes." })
+  }[verb]();
+  return `${summary}${failures}`;
 }
 
 /** Coordinates explicit note actions through the existing collection scope and session queue.
@@ -95,7 +103,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
   async function actionSession(path: string): Promise<NoteSession> {
     const token = mutationScope.current.token();
     const cached = noteSessions.current.get(path);
-    if (cached?.recoveryDraft) throw new Error("Recover the unsaved edits in this note before changing it.");
+    if (cached?.recoveryDraft) throw new Error(t`Recover the unsaved edits in this note before changing it.`);
     if (cached && !cached.deleted) return cached;
     const next = await mutationScope.current.register(token, gateway.read(path));
     if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
@@ -127,8 +135,8 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       createSession(duplicated);
       indexController.create(summaryFromDocument(duplicated));
       navigateToNote(duplicated.path);
-      setNotice("Duplicated note.", "success");
-    } catch (error) { if (mutationScope.current.isCurrent(token)) setNotice(`Couldn’t duplicate note. ${gatewayError(error)}`); }
+      setNotice(t`Duplicated note.`, "success");
+    } catch (error) { if (mutationScope.current.isCurrent(token)) setNotice(t`Couldn’t duplicate note. ${gatewayError(error)}`); }
   }
 
   async function linkUnlinkedMention(mention: UnlinkedMention) {
@@ -151,7 +159,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       if (!mutationScope.current.isCurrent(token)) return;
       setRecoveryAction({ kind: "mention", path: mention.note.path, ...linked });
       touchSession(session);
-    } catch (error) { if (mutationScope.current.isCurrent(token)) setNotice(`Couldn’t link that mention. ${gatewayError(error)}`); }
+    } catch (error) { if (mutationScope.current.isCurrent(token)) setNotice(t`Couldn’t link that mention. ${gatewayError(error)}`); }
     finally { mentionRequest.current = false; if (mutationScope.current.isCurrent(token)) setLinkingMention(false); }
   }
 
@@ -171,7 +179,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     }
   }
 
-  function completePropertyBatch(verb: string, result: BatchResult<BatchUndo>) {
+  function completePropertyBatch(verb: BatchVerb, result: BatchResult<BatchUndo>) {
     const message = batchMessage(verb, result);
     if (result.succeeded.length) setRecoveryAction({ kind: "batch", changes: result.succeeded.map(({ value }) => value), message });
     else setNotice(message, result.failed.length ? "error" : "info");
@@ -183,7 +191,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       const session = await actionSession(path);
       await flushSession(session);
       const before = structuredClone(session.document);
-      if (change.kind === "property" && !bulkFields([before], typeDescriptors).some((field) => field.name === change.field && field.shared)) throw new Error("This property is not declared by the note’s type.");
+      if (change.kind === "property" && !bulkFields([before], typeDescriptors).some((field) => field.name === change.field && field.shared)) throw new Error(t`This property is not declared by the note’s type.`);
       const next = bulkFrontmatter(before, change);
       if (JSON.stringify(next) === JSON.stringify(before.frontmatter)) return;
       const token = mutationScope.current.token();
@@ -208,7 +216,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
   async function onMoveNotes(paths: string[], folder: string) {
     if (!canRenameNotes) return;
     const destination = folder ? safeRenamePath(folder) : "";
-    if (folder && !destination) { setNotice("Choose a collection-relative folder."); return; }
+    if (folder && !destination) { setNotice(t`Choose a collection-relative folder.`); return; }
     let references = 0;
     await executeBatch(paths, async (path) => {
       const to = [destination, path.split("/").at(-1)!].filter(Boolean).join("/");
@@ -219,11 +227,12 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       await refreshCachedNote(path);
       const preflight = await runNoteOperation(session, "validating", () => gateway.preflightRename(path, to, session.document.revision));
       const renamed = await performRename({ session, from: path, to, affectedPaths: preflight.affectedPaths, warnings: preflight.warnings }, true, undefined, false);
-      if (!renamed) throw new Error("The move did not complete.");
+      if (!renamed) throw new Error(t`The move did not complete.`);
       references += preflight.affectedPaths.length;
       return { from: path, to: renamed.path };
     }, (result) => {
-      const message = `${batchMessage("Moved", result)}${references ? ` Also updated links in ${references} ${references === 1 ? "note" : "notes"}.` : ""}`;
+      const links = references ? plural(references, { one: "Also updated links in # note.", other: "Also updated links in # notes." }) : "";
+      const message = [batchMessage("Moved", result), links].filter(Boolean).join(" ");
       if (result.succeeded.length) setRecoveryAction({ kind: "move", paths: result.succeeded.map(({ value }) => value), references, message });
       else setNotice(message, result.failed.length ? "error" : "info");
       clearSelection();
@@ -237,7 +246,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     if (!session) return;
     const nextPath = safeRenamePath(pathDraft);
     if (!nextPath || !nextPath.toLocaleLowerCase().endsWith(".md")) {
-      setNotice("Use a collection-relative path ending in .md.");
+      setNotice(t`Use a collection-relative path ending in .md.`);
       return;
     }
     if (nextPath === session.document.path) {
@@ -252,7 +261,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       const from = session.document.path;
       await flushSession(session);
       if (session.document.path !== from) {
-        throw new Error("This note moved before the rename check could begin.");
+        throw new Error(t`This note moved before the rename check could begin.`);
       }
       const preflight = await runNoteOperation(session, "validating", () => gateway.preflightRename(
         from,
@@ -283,7 +292,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       if (noteSessions.current.active === session) setPathDraft(session.document.path);
       setNotice(noteSessions.current.active === session
         ? message
-        : `Couldn’t check the rename for “${session.draft.title || session.document.path}”. ${message}`);
+        : t`Couldn’t check the rename for “${session.draft.title || session.document.path}”. ${message}`);
       renameRequest.current = undefined;
       touchSession(session);
     }
@@ -301,7 +310,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     try {
       if (!requestId) {
         await flushSession(session);
-        if (session.document.path !== from) throw new Error("This note moved before the rename could begin.");
+        if (session.document.path !== from) throw new Error(t`This note moved before the rename could begin.`);
       }
       const renamed = await runNoteOperation(session, updateRefs ? "renaming" : "moving", (token) => requestId
         ? recoveredNote(gateway, requestId)
@@ -351,7 +360,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       }
       setNotice(noteSessions.current.active === session
         ? message
-        : `Couldn’t rename “${session.draft.title || session.document.path}”. ${message}`);
+        : t`Couldn’t rename “${session.draft.title || session.document.path}”. ${message}`);
       touchSession(session);
       if (!reportUndo) throw error;
     } finally {
@@ -397,7 +406,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       setPropertiesError(message);
       setNotice(noteSessions.current.active === session
         ? message
-        : `Couldn’t update properties for “${session.draft.title || session.document.path}”. ${message}`);
+        : t`Couldn’t update properties for “${session.draft.title || session.document.path}”. ${message}`);
       touchSession(session);
       throw error;
     }
@@ -414,9 +423,9 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       if (!mutationScope.current.isCurrent(token)) return false;
       const currentSource = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body ?? "");
       if (currentSource !== previousSource) {
-        const message = "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record.";
+        const message = t`This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record.`;
         if (noteSessions.current.active === session) setPropertiesError(message);
-        else setNotice(`Couldn’t update source for “${session.draft.title || session.document.path}”. ${message}`);
+        else setNotice(t`Couldn’t update source for “${session.draft.title || session.document.path}”. ${message}`);
         return false;
       }
       const updated = await runNoteOperation(session, "properties", () => gateway.updateDocument(
@@ -436,7 +445,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       if (noteSessions.current.active === session) setPropertiesError(message);
       setNotice(noteSessions.current.active === session
         ? message
-        : `Couldn’t update source for “${session.draft.title || session.document.path}”. ${message}`);
+        : t`Couldn’t update source for “${session.draft.title || session.document.path}”. ${message}`);
       touchSession(session);
       return false;
     }
@@ -456,14 +465,14 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         () => gateway.validate(session.document.path)
       );
       if (mutationScope.current.isCurrent(token) && noteSessions.current.active === session) {
-        setNotice(diagnostics.length ? diagnostics.map((item) => item.message).join(" ") : "No validation issues.");
+        setNotice(diagnostics.length ? diagnostics.map((item) => item.message).join(" ") : t`No validation issues.`);
       }
     } catch (error) {
       if (!mutationScope.current.isCurrent(token)) return;
       const message = gatewayError(error);
       setNotice(noteSessions.current.active === session
         ? message
-        : `Couldn’t check “${session.draft.title || session.document.path}”. ${message}`);
+        : t`Couldn’t check “${session.draft.title || session.document.path}”. ${message}`);
     }
   }
 
@@ -475,7 +484,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       const session = await actionSession(path);
       await flushSession(session);
       if (mutationScope.current.isCurrent(token)) await deleteNote(session);
-    } catch (error) { if (mutationScope.current.isCurrent(token)) setNotice(`Couldn’t delete “${path}”. ${gatewayError(error)}`); }
+    } catch (error) { if (mutationScope.current.isCurrent(token)) setNotice(t`Couldn’t delete “${path}”. ${gatewayError(error)}`); }
     finally { deleteRequests.current.delete(path); }
   }
 
@@ -522,7 +531,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         session.deleted = false;
         indexController.rollbackRemoval(summaryFromDocument(session.document));
         session.error = gatewayError(error);
-        setNotice(`Couldn’t delete “${session.draft.title || path}”. ${session.error}`);
+        setNotice(t`Couldn’t delete “${session.draft.title || path}”. ${session.error}`);
         touchSession(session);
         throw error;
       }
@@ -557,33 +566,33 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         const failed = new Set(result.failed.map((item) => item.path));
         const remaining = action.changes.filter((change) => failed.has(change.document.path));
         setRecoveryAction(remaining.length ? { ...action, changes: remaining, message: batchMessage("Restored", result) } : undefined);
-        if (!remaining.length) setNotice("Restored selected notes.", "success");
+        if (!remaining.length) setNotice(t`Restored selected notes.`, "success");
         return;
       }
       if (action.kind === "mention") {
         const session = await actionSession(action.path);
         await flushSession(session);
         await runNoteOperation(session, "saving", async () => {
-          if (session.document.body !== action.after) throw new Error("That note changed after linking. Undo would overwrite its newer text.");
+          if (session.document.body !== action.after) throw new Error(t`That note changed after linking. Undo would overwrite its newer text.`);
           const restored = await gateway.update(session.document, { body: action.before });
           if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
           session.record.accept(restored);
         });
         if (!mutationScope.current.isCurrent(token)) return;
         touchSession(session);
-        setNotice("Restored unlinked mention.", "success");
+        setNotice(t`Restored unlinked mention.`, "success");
       } else if (action.kind === "delete") {
         const restored = await mutationScope.current.register(token, gateway.restore(action.document, restoreId(action.document)));
         if (!mutationScope.current.isCurrent(token)) return;
         createSession(restored);
         indexController.create(summaryFromDocument(restored));
-        setNotice(`Restored “${noteTitle(restored, typeDescriptors)}”.`, "success");
+        setNotice(t`Restored “${noteTitle(restored, typeDescriptors)}”.`, "success");
       } else {
         const moves = action.kind === "move" ? [...action.paths] : [action];
         const result = await runNoteBatch([...moves].reverse().map((move) => move.to), async (path) => {
           const move = moves.find((move) => move.to === path)!;
           const session = noteSessions.current.get(move.to);
-          if (!session || session.deleted) throw new Error("The renamed note is no longer available to restore.");
+          if (!session || session.deleted) throw new Error(t`The renamed note is no longer available to restore.`);
           await flushSession(session);
           await refreshCachedNote(move.to);
           if (!mutationScope.current.isCurrent(token)) return;
@@ -617,11 +626,11 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
           else setNotice(batchMessage("Restored", result));
           return;
         }
-        setNotice("Restored note paths.", "success");
+        setNotice(t`Restored note paths.`, "success");
       }
       setRecoveryAction(undefined);
     } catch (error) {
-      if (mutationScope.current.isCurrent(token)) setNotice(`Couldn’t undo that change. ${gatewayError(error)}`);
+      if (mutationScope.current.isCurrent(token)) setNotice(t`Couldn’t undo that change. ${gatewayError(error)}`);
     } finally {
       if (mutationScope.current.isCurrent(token)) setRecoveryBusy(false);
     }

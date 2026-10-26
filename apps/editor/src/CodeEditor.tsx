@@ -1,3 +1,8 @@
+import { useLingui } from "@lingui/react";
+import { i18n as editorI18n } from "@lingui/core";
+import { isLocale } from "@mdbase-dev/i18n";
+import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18n/codemirror";
+import { t } from "@lingui/core/macro";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
 import { markdown, markdownKeymap, pasteURLAsLink } from "@codemirror/lang-markdown";
@@ -153,6 +158,7 @@ export function CodeEditor({
   remoteApplyToken,
   footer
 }: CodeEditorProps) {
+  const { i18n } = useLingui();
   const parentRef = useRef<HTMLDivElement>(null);
   const [footerHost, setFooterHost] = useState<HTMLDivElement>();
   const viewRef = useRef<EditorView | undefined>(undefined);
@@ -172,6 +178,7 @@ export function CodeEditor({
   const interactionMode = useRef(new Compartment());
   const editorAttributes = useRef(new Compartment());
   const placeholderMode = useRef(new Compartment());
+  const phraseMode = useRef(new Compartment());
   const linkSuggestionsRef = useRef(linkSuggestions);
   const linkTypesRef = useRef(linkTypes);
   const recentPathsRef = useRef(recentPaths);
@@ -274,6 +281,7 @@ export function CodeEditor({
         spellcheck: variant === "writer" && language === "markdown" ? "true" : "false"
       })),
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
+      phraseMode.current.of(EditorState.phrases.of(englishCodeMirrorPhrases)),
       EditorView.updateListener.of((update) => {
         if (update.docChanged && !syncing.current) {
           onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
@@ -322,6 +330,18 @@ export function CodeEditor({
     // Runtime preferences are reconfigured by the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const apply = (phrases: Record<string, string>) => {
+      if (!cancelled) viewRef.current?.dispatch({ effects: phraseMode.current.reconfigure(EditorState.phrases.of(phrases)) });
+    };
+    if (i18n.locale === "en") apply(englishCodeMirrorPhrases);
+    else if (isLocale(i18n.locale)) void loadCodeMirrorPhrases(i18n.locale).then(apply).catch((error) => {
+      console.warn("CodeMirror language could not be loaded; retaining current phrases.", error);
+    });
+    return () => { cancelled = true; };
+  }, [i18n.locale]);
 
   useEffect(() => {
     viewRef.current?.dispatch({ effects: typewriterMode.current.reconfigure(typewriter && variant === "writer" ? typewriterScrolling : []) });
@@ -396,7 +416,7 @@ export function CodeEditor({
         variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []
       )
     });
-  }, [quietMarkdown, variant]);
+  }, [quietMarkdown, variant, i18n.locale]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -410,7 +430,7 @@ export function CodeEditor({
         ) : []
       )
     });
-  }, [embeddedFiles, language, canOpenEmbeddedFile, variant]);
+  }, [embeddedFiles, language, canOpenEmbeddedFile, variant, i18n.locale]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -424,7 +444,7 @@ export function CodeEditor({
         ) : []
       )
     });
-  }, [embeddedNotes, language, canOpenEmbeddedNote, variant]);
+  }, [embeddedNotes, language, canOpenEmbeddedNote, variant, i18n.locale]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -575,12 +595,6 @@ export function markdownEdit(doc: string, from: number, to: number, format: Mark
 const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
   highlightSpecialChars(),
   search({ top: true }),
-  // Sentence case belongs in the label, not a CSS transform ("Replace all", not "Replace All").
-  EditorState.phrases.of({
-    next: "Next", previous: "Previous", all: "All", replace: "Replace",
-    "replace all": "Replace all", "match case": "Match case", regexp: "Regular expression",
-    "by word": "Whole words", close: "Close", go: "Go"
-  }),
   highlightSelectionMatches({ minSelectionLength: 2 }),
   bracketMatching(),
   variant === "writer" ? [hasFooter ? [] : scrollPastEnd(), pasteURLAsLink] : [
@@ -670,7 +684,7 @@ const quietMarkdownPresentation = ViewPlugin.fromClass(class {
   }
 
   update(update: ViewUpdate) {
-    if (update.docChanged || update.selectionSet || update.viewportChanged) {
+    if (update.docChanged || update.selectionSet || update.viewportChanged || update.transactions.some((transaction) => transaction.reconfigured)) {
       this.decorations = markdownDecorations(update.view);
     }
   }
@@ -679,12 +693,13 @@ const quietMarkdownPresentation = ViewPlugin.fromClass(class {
 });
 
 class TaskCheckboxWidget extends WidgetType {
+  readonly locale = editorI18n.locale;
   constructor(readonly from: number, readonly checked: boolean) {
     super();
   }
 
   eq(other: TaskCheckboxWidget) {
-    return this.from === other.from && this.checked === other.checked;
+    return this.from === other.from && this.checked === other.checked && this.locale === other.locale;
   }
 
   toDOM() {
@@ -694,8 +709,8 @@ class TaskCheckboxWidget extends WidgetType {
     button.dataset.taskFrom = String(this.from);
     button.setAttribute("role", "checkbox");
     button.setAttribute("aria-checked", String(this.checked));
-    button.setAttribute("aria-label", this.checked ? "Mark task incomplete" : "Mark task complete");
-    button.title = this.checked ? "Mark task incomplete" : "Mark task complete";
+    button.setAttribute("aria-label", this.checked ? t`Mark task incomplete` : t`Mark task complete`);
+    button.title = this.checked ? t`Mark task incomplete` : t`Mark task complete`;
     return button;
   }
 
@@ -803,7 +818,7 @@ export function yamlFrontmatterDiagnostics(source: string): readonly Diagnostic[
       from: 0,
       to: Math.min(source.length, Math.max(1, source.indexOf("\n") < 0 ? source.length : source.indexOf("\n"))),
       severity: "error",
-      message: "Type definitions need YAML frontmatter between --- markers."
+      message: t`Type definitions need YAML frontmatter between --- markers.`
     }];
   }
 
@@ -814,7 +829,7 @@ export function yamlFrontmatterDiagnostics(source: string): readonly Diagnostic[
       from: Math.max(0, source.length - 1),
       to: source.length,
       severity: "error",
-      message: "Type definitions need a closing --- frontmatter marker."
+      message: t`Type definitions need a closing --- frontmatter marker.`
     }];
   }
 

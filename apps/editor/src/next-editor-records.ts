@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { isMdbaseError, MdbaseError, revisionOf, toPlain, type MdbaseClient, type PlainValue, type Write, type wire } from "@mdbase-dev/sdk";
 import type { JsonObject } from "@mdbase-dev/connect";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
@@ -75,7 +76,7 @@ export class NextEditorRecords {
 
   /** With `requestedId`, a restore retried after a lost reply lands once. */
   restore(document: NoteDocument, requestedId?: string, signal?: AbortSignal): Promise<NoteDocument> {
-    if (document.document === undefined) throw unsupported("The original complete note source is unavailable.");
+    if (document.document === undefined) throw unsupported(t`The original complete note source is unavailable.`);
     const id = requestedId ?? crypto.randomUUID();
     return this.write("create", id, current => this.client.create({ id, path: document.path, document: document.document }, current), signal, requestedId) as Promise<NoteDocument>;
   }
@@ -134,7 +135,7 @@ export class NextEditorRecords {
 
   async recover(mutationId: string, signal?: AbortSignal): Promise<NoteDocument | undefined> {
     const mutation = this.unknown.get(mutationId);
-    if (!mutation) throw new Error("The exact interrupted note operation is unavailable. No new write was attempted.");
+    if (!mutation) throw new Error(t`The exact interrupted note operation is unavailable. No new write was attempted.`);
     return this.confirm(mutation, this.signal(signal));
   }
 
@@ -146,9 +147,9 @@ export class NextEditorRecords {
     const record = this.seen.get(key)?.record ?? await this.client.get({ path }, noteInclude, signal);
     this.check(signal);
     if (record.path !== path || record.revision !== revision)
-      throw new MdbaseError({ code: "conflict", reason: "revision_mismatch", recovery: "refresh", message: "This note changed after it was opened. Reload before saving." });
+      throw new MdbaseError({ code: "conflict", reason: "revision_mismatch", recovery: "refresh", message: t`This note changed after it was opened. Reload before saving.` });
     if (record.state.hold || record.state.unresolved)
-      throw new MdbaseError({ code: "conflict", reason: "protected_edit", recovery: "resolve_conflict", message: "Resolve this note's protected edit before changing it." });
+      throw new MdbaseError({ code: "conflict", reason: "protected_edit", recovery: "resolve_conflict", message: t`Resolve this note's protected edit before changing it.` });
     completeSource(record);
     return record;
   }
@@ -159,8 +160,8 @@ export class NextEditorRecords {
     submit: (options: { mutationId?: string; intent?: string; signal: AbortSignal }) => Promise<Write>, signal?: AbortSignal,
     intent?: string): Promise<NoteDocument | undefined> {
     const current = this.signal(signal);
-    if (this.unknown.size) throw new Error("Check your unconfirmed change before making another one. Nothing new was saved.");
-    if (this.writing) throw new Error("Your previous change is still being saved. Try again in a moment.");
+    if (this.unknown.size) throw new Error(t`Check your unconfirmed change before making another one. Nothing new was saved.`);
+    if (this.writing) throw new Error(t`Your previous change is still being saved. Try again in a moment.`);
     const mutation = { mutationId: intent === undefined ? crypto.randomUUID() : "", operation, recordId, createdAt: new Date().toISOString() };
     this.writing = true;
     try {
@@ -168,7 +169,7 @@ export class NextEditorRecords {
         const write = await submit(intent === undefined ? { mutationId: mutation.mutationId, signal: current } : { intent, signal: current });
         if (intent !== undefined) mutation.mutationId = write.mutationId;
         this.check(current);
-        if (write.mutationId !== mutation.mutationId) throw new Error("The native write changed its mutation identity.");
+        if (write.mutationId !== mutation.mutationId) throw new Error(t`The native write changed its mutation identity.`);
       } catch (error) {
         if (!mutation.mutationId && error instanceof MdbaseError && error.mutationId) mutation.mutationId = error.mutationId;
         // An error code alone does not prove non-capture: only the exact receipt
@@ -197,20 +198,20 @@ export class NextEditorRecords {
       return this.client.receipt(mutation.mutationId, signal);
     });
     this.check(signal);
-    if (receipt.mutation !== mutation.mutationId) throw new Error("The native receipt changed its mutation identity.");
+    if (receipt.mutation !== mutation.mutationId) throw new Error(t`The native receipt changed its mutation identity.`);
     if (receipt.state === "unknown")
-      throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: "This note change is not confirmed. Check the interrupted operation before trying again." });
+      throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: t`This note change is not confirmed. Check the interrupted operation before trying again.` });
     if (receipt.state === "rejected" || receipt.status === "conflicted") this.unknown.delete(mutation.mutationId);
     if (receipt.state === "rejected")
-      throw new Refused(receipt.problem ?? { code: "conflict", recovery: "resolve_conflict", message: "The note change was rejected." });
+      throw new Refused(receipt.problem ?? { code: "conflict", recovery: "resolve_conflict", message: t`The note change was rejected.` });
     if (receipt.status === "conflicted")
-      throw new Refused({ code: "conflict", recovery: "resolve_conflict", message: "This note change has a conflict. Resolve it before continuing." });
+      throw new Refused({ code: "conflict", recovery: "resolve_conflict", message: t`This note change has a conflict. Resolve it before continuing.` });
     if (mutation.operation === "delete") { this.unknown.delete(mutation.mutationId); this.clearSeen(); return undefined; }
     const record = await this.client.get(mutation.recordId, noteInclude, signal);
     this.check(signal);
-    if (record.id !== mutation.recordId) throw new Error("The saved note changed its record identity.");
+    if (record.id !== mutation.recordId) throw new Error(t`The saved note changed its record identity.`);
     if (record.state.hold || record.state.unresolved)
-      throw new MdbaseError({ code: "outcome_unknown", reason: "unqualified_readback", recovery: "resolve_outcome", message: "The current note is protected. Keep the original operation for recovery before reporting it as saved." });
+      throw new MdbaseError({ code: "outcome_unknown", reason: "unqualified_readback", recovery: "resolve_outcome", message: t`The current note is protected. Keep the original operation for recovery before reporting it as saved.` });
     this.unknown.delete(mutation.mutationId);
     return this.remember(record);
   }
@@ -241,7 +242,7 @@ export class NextEditorRecords {
 
   private check(signal: AbortSignal): void {
     if (!this.isCurrent())
-      throw new MdbaseError({ code: "cancelled", recovery: "none", message: "This collection is no longer open in mdbase editor." });
+      throw new MdbaseError({ code: "cancelled", recovery: "none", message: t`This collection is no longer open in mdbase editor.` });
     signal.throwIfAborted();
   }
 
@@ -257,9 +258,9 @@ export class NextEditorRecords {
 const noteInclude = { body: true, effective: true, document: true };
 function completeSource(record: wire.RecordView): asserts record is wire.RecordView & { body: string; document: string } {
   if (record.body === undefined || record.document === undefined)
-    throw unsupported("Mdbase did not return the complete note source. No source was reconstructed.");
+    throw unsupported(t`Mdbase did not return the complete note source. No source was reconstructed.`);
   if (revisionOf(record.document) !== record.revision)
-    throw unsupported("The complete note source does not match its native revision. No source was reconstructed or submitted.");
+    throw unsupported(t`The complete note source does not match its native revision. No source was reconstructed or submitted.`);
 }
 /** Plain JSON view of native frontmatter, for the editor's JSON domain model. */
 export function plain(value: wire.FmMap): JsonObject { return Object.fromEntries([...value].map(([key, item]) => [key, toPlain(item)])) as JsonObject; }

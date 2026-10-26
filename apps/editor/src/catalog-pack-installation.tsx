@@ -1,3 +1,5 @@
+import { t, plural } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
 import type {
   CollectionDescription,
   TypePackAssessment,
@@ -45,7 +47,7 @@ export async function reviewCatalogPackInstallation(
   const adoptable = conflicts.filter((resource) =>
     resource.mode === "managed" && resource.currentDigest && !resource.installedDigest);
   if (!adoptable.length || adoptable.length !== conflicts.length) {
-    throw new Error(conflicts[0]?.reason ?? "This pack conflicts with collection definitions.");
+    throw new Error(conflicts[0]?.reason ?? t`This pack conflicts with collection definitions.`);
   }
 
   const adoptions = Object.fromEntries(adoptable.map((resource) => [
@@ -53,21 +55,21 @@ export async function reviewCatalogPackInstallation(
     resource.currentDigest!
   ]));
   callbacks.confirm({
-    title: `Let “${pack.displayName}” manage these definitions?`,
+    title: t`Let “${pack.displayName}” manage these definitions?`,
     body: <>
-      <p>The collection has older unmanaged files at the pack’s managed paths.</p>
+      <p><Trans>The collection has older unmanaged files at the pack’s managed paths.</Trans></p>
       <ul>{adoptable.map((resource) => <li key={resource.target}><code>{resource.target}</code></li>)}</ul>
-      <p>The editor will replace these reviewed files and record their exact source, version, and digest in <code>mdbase.lock.yaml</code>. Future upgrades stop instead of overwriting an unexpected edit.</p>
+      <p><Trans>The editor will replace these reviewed files and record their exact source, version, and digest in <code>mdbase.lock.yaml</code>. Future upgrades stop instead of overwriting an unexpected edit.</Trans></p>
     </>,
-    confirmLabel: "Adopt and update",
-    cancelLabel: "Not now",
+    confirmLabel: t`Adopt and update`,
+    cancelLabel: t`Not now`,
     initialFocus: "cancel",
     onConfirm: async () => {
       try {
         const reviewed = await gateway.assessTypePack(provision, adoptions);
         if (!reviewed.applicable) {
           throw new Error(reviewed.resources.find(({ action }) => action === "conflict")?.reason
-            ?? "The definitions changed while they were being reviewed.");
+            ?? t`The definitions changed while they were being reviewed.`);
         }
         await applyCatalogPack(pack, provision, reviewed, adoptions, gateway, callbacks);
       } catch (error) {
@@ -94,8 +96,11 @@ async function applyCatalogPack(
     : undefined;
   if (primaryType && !callbacks.isTypeDraftDirty()) {
     await callbacks.openType(primaryType.name);
-    callbacks.notify(`Added “${pack.displayName}” and opened the new type.`);
+    callbacks.notify(t`Added “${pack.displayName}” and opened the new type.`);
     return;
   }
-  callbacks.notify(`Installed “${pack.displayName}” (${installed.resources.length} resources, ${addedTypes.length} new ${addedTypes.length === 1 ? "type" : "types"}).`);
+  const packName = pack.displayName;
+  const resourceCount = installed.resources.length;
+  const newTypeCount = addedTypes.length;
+  callbacks.notify(plural(newTypeCount, { one: `Installed “${packName}” (${resourceCount} resources, # new type).`, other: `Installed “${packName}” (${resourceCount} resources, # new types).` }));
 }

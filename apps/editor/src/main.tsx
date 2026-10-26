@@ -1,3 +1,4 @@
+import { Trans } from "@lingui/react/macro";
 import "@mdbase-dev/ui/fonts.css";
 import "@mdbase-dev/ui/tokens.css";
 import "@mdbase-dev/ui/brand.css";
@@ -18,6 +19,12 @@ import "@mdbase-dev/ui/motion.css";
 import "./styles.css";
 import "./environment-badge.css";
 import { offlineShell } from "./offline-shell";
+import { LocaleProvider } from "@mdbase-dev/i18n/react";
+import { editorLocaleRuntime } from "./i18n/runtime";
+
+function reportLocaleLoadError(error: unknown) {
+  console.warn("Editor language could not be loaded; keeping the current language.", error);
+}
 
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
 // The Connect console is retired from the Editor: accounts, access and collection
@@ -61,14 +68,14 @@ function EditorWorkspace() {
     setContext((previous) => previous.surface === surface && previous.collectionName === collectionName ? previous : { surface, collectionName });
   }, []);
   return <FeedbackProvider endpoint={feedbackEndpoint()} turnstileSiteKey={turnstileSiteKey()} application={feedbackApplication("mdbase editor", context.surface, import.meta.env.VITE_MDBASE_REVISION, import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "development" : "production"))} collectionName={context.collectionName}>
-    <AppErrorBoundary>{grantCallback ? <p className="mdbase-connect-status">You can close this window.</p>
+    <AppErrorBoundary>{grantCallback ? <p className="mdbase-connect-status"><Trans>You can close this window.</Trans></p>
       : sdk ? <SdkEditorRoot sdk={sdk} onFeedbackContext={updateContext} />
       : demoGateway ? <EditorApp gateway={demoGateway} onFeedbackContext={updateContext} /> : null}</AppErrorBoundary>
   </FeedbackProvider>;
 }
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><AppErrorBoundary product="mdbase editor"><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}>{managementTarget ? <main aria-live="polite">Opening mdbase connect… <a href={managementTarget.href}>Continue</a></main> : <EditorWorkspace />}</Suspense></AppErrorBoundary></StrictMode>
+  <StrictMode><LocaleProvider runtime={editorLocaleRuntime} onError={reportLocaleLoadError}><AppErrorBoundary product="mdbase editor"><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite"><Trans>Opening mdbase…</Trans></div>}>{managementTarget ? <main aria-live="polite"><Trans>Opening mdbase connect… <a href={managementTarget.href}>Continue</a></Trans></main> : <EditorWorkspace />}</Suspense></AppErrorBoundary></LocaleProvider></StrictMode>
 );
 // Collection screens register the offline shell once usable; others after a delay.
 if (!managementTarget) offlineShell.start();

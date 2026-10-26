@@ -1,3 +1,7 @@
+import { i18n } from "@lingui/core";
+import { Trans } from "@lingui/react/macro";
+import { t, plural } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { PlusIcon as Plus } from "./icons";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { JsonObject } from "@mdbase-dev/connect";
@@ -16,8 +20,9 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
   onChange: (value: unknown) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
+  useLingui();
   const root = rootSchema ?? schema;
-  const resolved = useMemo(() => resolveSchema(root, schema), [root, schema]);
+  const resolved = useMemo(() => resolveSchema(root, schema), [root, schema, i18n.locale]);
   const supplied = suppliedValue(resolved);
   useEffect(() => {
     if (value === undefined && (required || supplied !== undefined)) {
@@ -46,7 +51,7 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
   if (choices.length) return <label className="schema-value">{label}<Select
     aria-label={name}
     value={choiceKey(value)}
-    placeholder="Choose"
+    placeholder={t`Choose`}
     options={choices.map((choice) => ({ value: choiceKey(choice), label: formatValue(choice) }))}
     onChange={(next) => {
       const choice = choices.find((item) => choiceKey(item) === next);
@@ -58,11 +63,11 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
     aria-label={name}
     type={schemaDateInputType(dateFormat)}
     step={dateFormat === "date-time" ? 1 : undefined}
-    title={dateFormat === "date-time" ? `Local time (${Intl.DateTimeFormat().resolvedOptions().timeZone})` : undefined}
+    title={dateFormat === "date-time" ? t`Local time (${Intl.DateTimeFormat().resolvedOptions().timeZone})` : undefined}
     value={schemaDateInputValue(value, dateFormat)}
     onChange={(event) => onChange(schemaDateValue(event.target.value, dateFormat))}
   /></label>;
-  if (type === "boolean") return <label className="schema-value schema-boolean">{label}<span><input className="mdbase-checkbox" aria-label={name} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />{value === true ? "True" : "False"}</span></label>;
+  if (type === "boolean") return <label className="schema-value schema-boolean">{label}<span><input className="mdbase-checkbox" aria-label={name} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />{value === true ? t`True` : t`False`}</span></label>;
   if (type === "number" || type === "integer") return <label className="schema-value">{label}<input
     aria-label={name}
     type="number"
@@ -94,6 +99,7 @@ function ObjectValueEditor({ name, schema, rootSchema, value, required, hideLabe
   onChange: (value: unknown) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
+  useLingui();
   const properties = schemaProperties(schema);
   const requiredFields = schemaRequired(schema);
   const objectValue = isObject(value) ? value : {};
@@ -136,15 +142,15 @@ function ObjectValueEditor({ name, schema, rootSchema, value, required, hideLabe
           onChange={(next) => updateField(field, next)}
           onValidityChange={onValidityChange}
         />
-        {!requiredFields.includes(field) && <InlineRemoveButton className="schema-remove-value" label={`Remove ${field}`} onClick={() => removeField(field)} />}
+        {!requiredFields.includes(field) && <InlineRemoveButton className="schema-remove-value" label={t`Remove ${field}`} onClick={() => removeField(field)} />}
       </div>)}
-      {!visibleFields.length && <p className="schema-empty-value">No declared values.</p>}
+      {!visibleFields.length && <p className="schema-empty-value"><Trans>No declared values.</Trans></p>}
     </div>
     {optionalFields.length > 0 && (adding ? <div className="schema-add-value">
-      <label><span className="sr-only">Optional field</span><Select aria-label="Optional field" value={fieldToAdd || optionalFields[0] || ""} options={optionalFields.map((field) => ({ value: field, label: humanizeName(field) }))} onChange={setFieldToAdd} /></label>
-      <button type="button" onClick={addField}>Add</button>
-      <button type="button" onClick={() => setAdding(false)}>Cancel</button>
-    </div> : <button type="button" className="schema-add-trigger" onClick={() => { setFieldToAdd(optionalFields[0]); setAdding(true); }}><Plus aria-hidden="true" />Add optional field</button>)}
+      <label><span className="sr-only"><Trans>Optional field</Trans></span><Select aria-label={t`Optional field`} value={fieldToAdd || optionalFields[0] || ""} options={optionalFields.map((field) => ({ value: field, label: humanizeName(field) }))} onChange={setFieldToAdd} /></label>
+      <button type="button" onClick={addField}><Trans>Add</Trans></button>
+      <button type="button" onClick={() => setAdding(false)}><Trans>Cancel</Trans></button>
+    </div> : <button type="button" className="schema-add-trigger" onClick={() => { setFieldToAdd(optionalFields[0]); setAdding(true); }}><Plus aria-hidden="true" /><Trans>Add optional field</Trans></button>)}
   </fieldset>;
 }
 
@@ -158,6 +164,7 @@ function ArrayValueEditor({ name, schema, rootSchema, value, required, hideLabel
   onChange: (value: unknown) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
+  useLingui();
   const items = isObject(schema?.items) ? schema.items as JsonObject : undefined;
   const list = Array.isArray(value) ? value : [];
   const minimum = typeof schema?.minItems === "number" ? Math.max(0, Math.floor(schema.minItems)) : 0;
@@ -177,15 +184,15 @@ function ArrayValueEditor({ name, schema, rootSchema, value, required, hideLabel
         <SchemaValueEditor name={`${name} item ${index + 1}`} schema={items} rootSchema={rootSchema} value={item} hideLabel={!isStructuredSchema(items, rootSchema)} onChange={(next) => updateItem(index, next)} onValidityChange={onValidityChange} />
         <InlineRemoveButton
           className="schema-remove-value"
-          label={`Remove ${name} item ${index + 1}`}
+          label={t`Remove ${name} item ${index + 1}`}
           disabled={list.length <= minimum}
-          title={list.length <= minimum ? `At least ${minimum} ${minimum === 1 ? "item is" : "items are"} required.` : undefined}
+          title={list.length <= minimum ? plural(minimum, { one: `At least # item is required.`, other: `At least # items are required.` }) : undefined}
           onClick={() => removeItem(index)}
         />
       </div>)}
-      {!list.length && <p className="schema-empty-value">No items yet.</p>}
+      {!list.length && <p className="schema-empty-value"><Trans>No items yet.</Trans></p>}
     </div>
-    <button type="button" className="schema-add-trigger" disabled={maximum !== undefined && list.length >= maximum} onClick={() => onChange([...list, schemaInitialValue(items, rootSchema)])}><Plus aria-hidden="true" />Add item</button>
+    <button type="button" className="schema-add-trigger" disabled={maximum !== undefined && list.length >= maximum} onClick={() => onChange([...list, schemaInitialValue(items, rootSchema)])}><Plus aria-hidden="true" /><Trans>Add item</Trans></button>
   </fieldset>;
 }
 
@@ -199,6 +206,7 @@ function ObjectMapValueEditor({ name, schema, rootSchema, value, required, hideL
   onChange: (value: unknown) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
+  useLingui();
   const objectValue = isObject(value) ? value : {};
   const entries = Object.entries(objectValue);
   const entrySchema = isObject(schema?.additionalProperties) ? schema.additionalProperties as JsonObject : undefined;
@@ -233,17 +241,17 @@ function ObjectMapValueEditor({ name, schema, rootSchema, value, required, hideL
     <div className="schema-map-entries">
       {entries.map(([entryName, entryValue], index) => <div className="schema-map-entry" key={index}>
         <label className="schema-map-key">
-          <span className="sr-only">{name} entry {index + 1} key</span>
+          <span className="sr-only"><Trans>{name} entry {index + 1} key</Trans></span>
           <input
-            aria-label={`${name} entry ${index + 1} key`}
+            aria-label={t`${name} entry ${index + 1} key`}
             value={entryName}
-            placeholder="Key"
+            placeholder={t`Key`}
             spellCheck={false}
             onChange={(event) => renameEntry(entryName, event.target.value)}
           />
         </label>
         <SchemaValueEditor
-          name={`${entryName || `Entry ${index + 1}`} value`}
+          name={entryName ? t`${entryName} value` : t`Entry ${index + 1} value`}
           schema={entrySchema}
           rootSchema={rootSchema}
           value={entryValue}
@@ -251,11 +259,11 @@ function ObjectMapValueEditor({ name, schema, rootSchema, value, required, hideL
           onChange={(next) => updateEntry(entryName, next)}
           onValidityChange={onValidityChange}
         />
-        <InlineRemoveButton className="schema-remove-value" label={`Remove ${entryName || `entry ${index + 1}`}`} onClick={() => removeEntry(entryName)} />
+        <InlineRemoveButton className="schema-remove-value" label={t`Remove ${entryName || `entry ${index + 1}`}`} onClick={() => removeEntry(entryName)} />
       </div>)}
-      {!entries.length && <p className="schema-empty-value">No entries yet.</p>}
+      {!entries.length && <p className="schema-empty-value"><Trans>No entries yet.</Trans></p>}
     </div>
-    <button type="button" className="schema-add-trigger" onClick={addEntry}><Plus aria-hidden="true" />Add entry</button>
+    <button type="button" className="schema-add-trigger" onClick={addEntry}><Plus aria-hidden="true" /><Trans>Add entry</Trans></button>
   </fieldset>;
 }
 
@@ -267,19 +275,20 @@ function JsonSchemaValueEditor({ name, type, label, value, onChange, onValidityC
   onChange: (value: unknown) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
-  const initial = useMemo(() => value ?? (type === "array" ? [] : {}), [type, value]);
+  useLingui();
+  const initial = useMemo(() => value ?? (type === "array" ? [] : {}), [type, value, i18n.locale]);
   const [text, setText] = useState(() => JSON.stringify(initial, null, 2));
   const [error, setError] = useState<string>();
-  return <label className="schema-value schema-json-value">{label}<CodeEditor value={text} label={`${name} JSON value`} language="json" lineWrapping={false} onChange={(next) => {
+  return <label className="schema-value schema-json-value">{label}<CodeEditor value={text} label={t`${name} JSON value`} language="json" lineWrapping={false} onChange={(next) => {
     setText(next);
     try {
       const parsed = JSON.parse(next) as unknown;
-      if ((type === "array" && !Array.isArray(parsed)) || (type === "object" && !isObject(parsed))) throw new Error(`Enter a JSON ${type}.`);
+      if ((type === "array" && !Array.isArray(parsed)) || (type === "object" && !isObject(parsed))) throw new Error(t`Enter a JSON ${type}.`);
       onChange(parsed);
       setError(undefined);
       onValidityChange?.(true);
     } catch (parseError) {
-      setError(parseError instanceof Error ? parseError.message : "Invalid JSON.");
+      setError(parseError instanceof Error ? parseError.message : t`Invalid JSON.`);
       onValidityChange?.(false);
     }
   }} />{error && <small className="schema-value-error" role="alert">{error}</small>}</label>;
@@ -439,7 +448,7 @@ function mergeSchemas(base: JsonObject, overlay: JsonObject): JsonObject {
 function schemaLabel(name: string, required: boolean, hideLabel: boolean, schema?: JsonObject): ReactNode {
   if (hideLabel) return <span className="sr-only">{name}</span>;
   return <span className="schema-value-label">
-    <span>{humanizeName(name)}{required && <small aria-hidden="true">Required</small>}</span>
+    <span>{humanizeName(name)}{required && <small aria-hidden="true"><Trans>Required</Trans></small>}</span>
     {typeof schema?.description === "string" && <small>{schema.description}</small>}
   </span>;
 }
