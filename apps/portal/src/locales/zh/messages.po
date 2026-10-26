@@ -670,6 +670,10 @@ msgstr "已允许的访问权限会保留。如果不再需要，请单独移除
 msgid "Always on"
 msgstr "始终开启"
 
+#: src/authorization-view.tsx
+msgid "an app running on this computer"
+msgstr "在此计算机上运行的应用"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Announcements"
@@ -705,6 +709,11 @@ msgstr "应用访问权限及{0}"
 msgctxt "Application access approval"
 msgid "Application connection"
 msgstr "应用连接"
+
+#. placeholder {0}: request.application_name
+#: src/authorization-view.tsx
+msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
+msgstr "应用身份未经验证。此应用自称为 {0}。仅当您主动发起此连接时才继续。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1109,6 +1118,10 @@ msgstr "确认你的身份"
 #: src/ConnectApp.tsx
 msgid "Connect a computer to add a collection."
 msgstr "连接一台电脑以添加集合。"
+
+#: src/authorization-view.tsx
+msgid "Connect an app"
+msgstr "连接应用"
 
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
@@ -2675,6 +2688,11 @@ msgstr "由 {0} 请求。无法获取请求来源。"
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
 msgstr "由 {0}{1}{2} 请求。只有在你主动通过此应用登录时才批准。"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
+msgstr "此请求来自在此计算机上运行的应用。应用身份未经验证。此应用自称为 {0}。仅当您在此应用中主动发起登录时才批准。"
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx

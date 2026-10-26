@@ -670,6 +670,10 @@ msgstr "El acceso permitido anteriormente permanece. Retira el acceso por separa
 msgid "Always on"
 msgstr "Siempre activado"
 
+#: src/authorization-view.tsx
+msgid "an app running on this computer"
+msgstr "una aplicación que se ejecuta en este ordenador"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Announcements"
@@ -705,6 +709,11 @@ msgstr "Acceso de aplicaciones y {0}"
 msgctxt "Application access approval"
 msgid "Application connection"
 msgstr "Conexión de aplicaciones"
+
+#. placeholder {0}: request.application_name
+#: src/authorization-view.tsx
+msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
+msgstr "Identidad de la aplicación no verificada. Esta aplicación se hace llamar {0}. Continúa solo si has iniciado esta conexión intencionadamente."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1109,6 +1118,10 @@ msgstr "Confirma tu identidad"
 #: src/ConnectApp.tsx
 msgid "Connect a computer to add a collection."
 msgstr "Conecta un ordenador para añadir una colección."
+
+#: src/authorization-view.tsx
+msgid "Connect an app"
+msgstr "Conectar una aplicación"
 
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
@@ -2675,6 +2688,11 @@ msgstr "Solicitado por {0}. No hay ningún origen disponible para la solicitud."
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
 msgstr "Solicitado por {0}{1}{2}. Apruébalo solo si iniciaste sesión desde esta aplicación."
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
+msgstr "Solicitud de una aplicación que se ejecuta en este ordenador. Identidad de la aplicación no verificada. Esta aplicación se hace llamar {0}. Aprueba solo si has iniciado sesión desde esta aplicación."
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx

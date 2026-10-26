@@ -670,6 +670,10 @@ msgstr "Already-allowed access stays in place. Remove access separately if you n
 msgid "Always on"
 msgstr "Always on"
 
+#: src/authorization-view.tsx
+msgid "an app running on this computer"
+msgstr "an app running on this computer"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Announcements"
@@ -705,6 +709,11 @@ msgstr "Application access and {0}"
 msgctxt "Application access approval"
 msgid "Application connection"
 msgstr "Application connection"
+
+#. placeholder {0}: request.application_name
+#: src/authorization-view.tsx
+msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
+msgstr "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1109,6 +1118,10 @@ msgstr "Confirm your identity"
 #: src/ConnectApp.tsx
 msgid "Connect a computer to add a collection."
 msgstr "Connect a computer to add a collection."
+
+#: src/authorization-view.tsx
+msgid "Connect an app"
+msgstr "Connect an app"
 
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
@@ -2675,6 +2688,11 @@ msgstr "Requested by {0}. No requesting origin is available."
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
 msgstr "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
+msgstr "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx

@@ -670,6 +670,10 @@ msgstr "許可済みのアクセスは維持されます。不要な場合は別
 msgid "Always on"
 msgstr "常にオン"
 
+#: src/authorization-view.tsx
+msgid "an app running on this computer"
+msgstr "このコンピューターで実行中のアプリ"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Announcements"
@@ -705,6 +709,11 @@ msgstr "アプリケーションへのアクセスと {0}"
 msgctxt "Application access approval"
 msgid "Application connection"
 msgstr "アプリケーションの接続"
+
+#. placeholder {0}: request.application_name
+#: src/authorization-view.tsx
+msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
+msgstr "アプリケーションの身元は未確認です。このアプリは {0} と名乗っています。意図的にこの接続を開始した場合にのみ続行してください。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1109,6 +1118,10 @@ msgstr "本人確認"
 #: src/ConnectApp.tsx
 msgid "Connect a computer to add a collection."
 msgstr "コレクションを追加するにはコンピューターを接続してください。"
+
+#: src/authorization-view.tsx
+msgid "Connect an app"
+msgstr "アプリを接続"
 
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
@@ -2675,6 +2688,11 @@ msgstr "{0} からの要求です。要求元の出所は確認できません�
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
 msgstr "{0}{1}{2} からの要求です。このアプリでログインを開始した場合のみ承認してください。"
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
+msgstr "このコンピューターで実行中のアプリからの要求です。アプリケーションの身元は未確認です。このアプリは {0} と名乗っています。このアプリでサインインを開始した場合にのみ承認してください。"
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx

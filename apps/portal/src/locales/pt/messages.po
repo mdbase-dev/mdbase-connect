@@ -670,6 +670,10 @@ msgstr "O acesso já permitido permanece. Remova-o separadamente se não quiser 
 msgid "Always on"
 msgstr "Sempre ativado"
 
+#: src/authorization-view.tsx
+msgid "an app running on this computer"
+msgstr "uma aplicação em execução neste computador"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Announcements"
@@ -705,6 +709,11 @@ msgstr "Acesso dos aplicativos e {0}"
 msgctxt "Application access approval"
 msgid "Application connection"
 msgstr "Conexão do aplicativo"
+
+#. placeholder {0}: request.application_name
+#: src/authorization-view.tsx
+msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
+msgstr "Identidade da aplicação não verificada. Esta aplicação identifica-se como {0}. Continue apenas se iniciou esta ligação intencionalmente."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1109,6 +1118,10 @@ msgstr "Confirme sua identidade"
 #: src/ConnectApp.tsx
 msgid "Connect a computer to add a collection."
 msgstr "Conecte um computador para adicionar uma coleção."
+
+#: src/authorization-view.tsx
+msgid "Connect an app"
+msgstr "Ligar uma aplicação"
 
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
@@ -2675,6 +2688,11 @@ msgstr "Solicitado por {0}. A origem da solicitação não está disponível."
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
 msgstr "Solicitado por {0}{1}{2}. Aprove apenas se você iniciou a entrada neste aplicativo."
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
+msgstr "Pedido de uma aplicação em execução neste computador. Identidade da aplicação não verificada. Esta aplicação identifica-se como {0}. Aprove apenas se iniciou sessão nesta aplicação."
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx

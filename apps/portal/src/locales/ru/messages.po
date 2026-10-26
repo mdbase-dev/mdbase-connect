@@ -670,6 +670,10 @@ msgstr "Ранее предоставленный доступ сохранит�
 msgid "Always on"
 msgstr "Всегда включено"
 
+#: src/authorization-view.tsx
+msgid "an app running on this computer"
+msgstr "приложение, работающее на этом компьютере"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Announcements"
@@ -705,6 +709,11 @@ msgstr "Доступ приложений и {0}"
 msgctxt "Application access approval"
 msgid "Application connection"
 msgstr "Подключение приложения"
+
+#. placeholder {0}: request.application_name
+#: src/authorization-view.tsx
+msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
+msgstr "Подлинность приложения не подтверждена. Это приложение называет себя {0}. Продолжайте, только если вы намеренно начали это подключение."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1109,6 +1118,10 @@ msgstr "Подтвердите свою личность"
 #: src/ConnectApp.tsx
 msgid "Connect a computer to add a collection."
 msgstr "Подключите компьютер, чтобы добавить коллекцию."
+
+#: src/authorization-view.tsx
+msgid "Connect an app"
+msgstr "Подключить приложение"
 
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
@@ -2675,6 +2688,11 @@ msgstr "Запрос от {0}. Источник запроса неизвест�
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
 msgstr "Запрос от {0}{1}{2}. Одобряйте, только если вы начали вход в этом приложении."
+
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
+msgstr "Запрос от приложения, работающего на этом компьютере. Подлинность приложения не подтверждена. Это приложение называет себя {0}. Подтверждайте, только если вы начали вход в этом приложении."
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
