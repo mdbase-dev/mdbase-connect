@@ -453,6 +453,52 @@ pub unsafe extern "C" fn hd_migration_restart(
     migration_open(h, &input, Some(sequence))
 }
 
+/// A re-armed account's fresh attempt: the same owned CPP slot and claim input
+/// as [`hd_migration_restart`], for a strictly newer CP start. Opens the stored
+/// run itself (its binding is older than the claim) and never resumes it.
+/// # Safety
+/// `ptr,len` is an owned alloc buffer consumed exactly once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_supersede(
+    h: f64,
+    sequence: f64,
+    ptr: *mut u8,
+    len: usize,
+) -> u32 {
+    let input = unsafe { take(ptr, len) };
+    let (Some(id), Some(sequence)) = (cpp_handle(h), cpp_handle(sequence)) else {
+        return 0;
+    };
+    with(|s| {
+        let Some(binding) = migration_binding(s, id, input.as_slice()) else {
+            return 0;
+        };
+        if s.migration_ticket.is_some() || s.migration_physical.is_some() {
+            return 0;
+        }
+        let Ok(target) = s.engine.observe_native_target() else {
+            return 0;
+        };
+        // Storage is the authority: an in-memory driver of the older run never survives.
+        s.migration = None;
+        let index = SharedMigrationIndex(s.migration_index.clone());
+        let Ok(mut driver) = JournalDriver::resume_superseded(index, &binding, &mut HostEntropy)
+        else {
+            return 0;
+        };
+        if driver
+            .supersede_on_target(sequence, &binding, &mut HostEntropy, &mut s.engine, &target)
+            .is_err()
+        {
+            return 0;
+        }
+        s.migration = Some(driver);
+        s.migration_target = Some(target);
+        1
+    })
+    .unwrap_or(0)
+}
+
 fn migration_binding(s: &mut State, id: u64, input: &[u8]) -> Option<RunBinding> {
     if input.len() > 256 {
         return None;

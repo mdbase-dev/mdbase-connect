@@ -64,6 +64,15 @@ impl RunBinding {
             && !self.started_us.starts_with('0')
             && self.started_us.bytes().all(|b| b.is_ascii_digit())
     }
+    /// The same collection, owner and target under a strictly newer CP start
+    /// (decimal microseconds; `valid` rules out leading zeros).
+    fn superseded_by(&self, newer: &RunBinding) -> bool {
+        self.collection == newer.collection
+            && self.owner == newer.owner
+            && self.target == newer.target
+            && (self.started_us.len(), self.started_us.as_bytes())
+                < (newer.started_us.len(), newer.started_us.as_bytes())
+    }
     fn params(&self, driver: Uuid) -> Vec<SqlValue> {
         vec![
             blob(&driver.0),
@@ -214,6 +223,26 @@ fn pending(row: &[SqlValue]) -> Result<PendingData> {
 }
 impl<I: IndexStorage> JournalDriver<I> {
     pub(crate) fn resume(index: I, binding: RunBinding, entropy: &mut dyn Entropy) -> Result<Self> {
+        Self::open_run(index, binding, entropy, false)
+    }
+
+    /// Open the newest run under its own recorded binding, only so that
+    /// [`Self::supersede_on_target`] can replace it: `newer` must be the same
+    /// collection, owner and target under a strictly newer start.
+    pub(crate) fn resume_superseded(
+        index: I,
+        newer: &RunBinding,
+        entropy: &mut dyn Entropy,
+    ) -> Result<Self> {
+        Self::open_run(index, newer.clone(), entropy, true)
+    }
+
+    fn open_run(
+        index: I,
+        mut binding: RunBinding,
+        entropy: &mut dyn Entropy,
+        superseded: bool,
+    ) -> Result<Self> {
         if !binding.valid() {
             return Err(LedgerError::Invalid);
         }
@@ -233,6 +262,20 @@ impl<I: IndexStorage> JournalDriver<I> {
         )?;
         let row = rows.pop().ok_or(LedgerError::Corrupt)?;
         let (sequence, id) = match row.rows().next() {
+            Some([seq, d, c, o, SqlValue::Text(start), t]) if superseded => {
+                let id = B16(bytes(d)?);
+                let stored = RunBinding {
+                    collection: B16(bytes(c)?),
+                    owner: B16(bytes(o)?),
+                    started_us: start.clone(),
+                    target: B32(bytes(t)?),
+                };
+                if id.0 == [0; 16] || !stored.superseded_by(&binding) {
+                    return Err(LedgerError::Conflict);
+                }
+                binding = stored;
+                (integer(seq)?, id)
+            }
             Some([seq, d, c, o, SqlValue::Text(start), t]) => {
                 let id = B16(bytes(d)?);
                 if id.0 == [0; 16]
@@ -249,7 +292,7 @@ impl<I: IndexStorage> JournalDriver<I> {
                 }
                 (integer(seq)?, id)
             }
-            None if driver.checkpoint().step == Step::Start => {
+            None if driver.checkpoint().step == Step::Start && !superseded => {
                 let id = uuid(entropy)?;
                 run(
                     spill.index_mut(),

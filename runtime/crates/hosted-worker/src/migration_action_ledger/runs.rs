@@ -140,6 +140,21 @@ impl<I: IndexStorage> JournalDriver<I> {
         self.restart(expected, binding, entropy)
     }
 
+    /// A re-armed account's fresh attempt: replace the rolled-back run with one
+    /// for a strictly newer CP start of the same collection, owner and target,
+    /// under every precondition of [`Self::restart_on_target`].
+    pub(crate) fn supersede_on_target<S: mdbn_replica::Store>(
+        &mut self,
+        expected: u64,
+        binding: &RunBinding,
+        entropy: &mut dyn Entropy,
+        engine: &mut crate::runtime::Engine<S>,
+        target: &crate::runtime::ObservedNativeTarget,
+    ) -> Result<()> {
+        self.pre_cutover_target(engine, target)?;
+        self.supersede(expected, binding, entropy)
+    }
+
     pub(super) fn pre_cutover_target<S: mdbn_replica::Store>(
         &self,
         engine: &mut crate::runtime::Engine<S>,
@@ -170,10 +185,36 @@ impl<I: IndexStorage> JournalDriver<I> {
         binding: &RunBinding,
         entropy: &mut dyn Entropy,
     ) -> Result<()> {
+        self.next_run(expected, binding, entropy, false)
+    }
+
+    /// The same compare-and-start for a strictly newer start; an equal or older
+    /// start, or another collection, owner or target, is a conflict.
+    fn supersede(
+        &mut self,
+        expected: u64,
+        binding: &RunBinding,
+        entropy: &mut dyn Entropy,
+    ) -> Result<()> {
+        self.next_run(expected, binding, entropy, true)
+    }
+
+    fn next_run(
+        &mut self,
+        expected: u64,
+        binding: &RunBinding,
+        entropy: &mut dyn Entropy,
+        supersede: bool,
+    ) -> Result<()> {
         if self.poisoned {
             return Err(LedgerError::StorageUnknown);
         }
-        if expected != self.sequence || binding != &self.binding || expected >= MAX_SEQ {
+        let admitted = if supersede {
+            self.binding.superseded_by(binding)
+        } else {
+            binding == &self.binding
+        };
+        if expected != self.sequence || !admitted || expected >= MAX_SEQ {
             return Err(LedgerError::Conflict);
         }
         if self.pending.is_some() || self.saved_pending()?.is_some() {
@@ -255,6 +296,7 @@ impl<I: IndexStorage> JournalDriver<I> {
             crate::migration_checkpoint::resume_fence_first(&mut self.spill, binding.collection)
                 .map_err(|_| LedgerError::StorageUnknown)?;
         self.poisoned = false;
+        self.binding = binding.clone();
         self.sequence += 1;
         self.id = id;
         self.instance = Rc::new(());

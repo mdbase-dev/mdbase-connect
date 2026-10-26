@@ -30,6 +30,7 @@ interface Exports extends WebAssembly.Exports {
   hd_cpp_claim_finish(h:number):void;
   hd_migration_open(h:number,p:number,n:number):number;
   hd_migration_restart(h:number,sequence:number,p:number,n:number):number;
+  hd_migration_supersede(h:number,sequence:number,p:number,n:number):number;
   hd_migration_run(sequence:number):bigint;
   hd_migration_rollback_request(h:number,sequence:number,p:number,n:number):number;
   hd_migration_rollback_scope(h:number):bigint;
@@ -294,6 +295,16 @@ export class Engine {
     this.migrationDriver(ticket, claim, expectedSequence);
   }
 
+  /** A re-armed account's fresh attempt: compare-and-start a new run bound to the
+   * claim's strictly newer start, over a rolled-back run of the same collection,
+   * owner and target. Not after openMigrationDriver. Caller MUST storage.sync. */
+  supersedeMigrationDriver(ticket: CppClaimTicket, claim: MigrationClaimData, expectedSequence: number): void {
+    if (!Number.isSafeInteger(expectedSequence) || expectedSequence <= 0 || this.#migrationLive || this.#physicalLive) {
+      throw new Error("migration_run_refused");
+    }
+    this.migrationDriver(ticket, claim, expectedSequence, true);
+  }
+
   /** Read-only run identity/checkpoint, newest for 0. No effect authority. */
   migrationRun(sequence = 0): CborValue {
     if (!Number.isSafeInteger(sequence) || sequence < 0) throw new Error("migration_run_refused");
@@ -359,12 +370,13 @@ export class Engine {
     return input;
   }
 
-  private migrationDriver(ticket: CppClaimTicket, claim: MigrationClaimData, restart?: number): void {
+  private migrationDriver(ticket: CppClaimTicket, claim: MigrationClaimData, restart?: number, supersede = false): void {
     const input = this.migrationClaimInput(ticket, claim);
     const state = this.#cppTickets.get(ticket)!;
     try {
       const opened = restart === undefined
         ? this.ex.hd_migration_open(state.handle, ...this.put(input))
+        : supersede ? this.ex.hd_migration_supersede(state.handle, restart, ...this.put(input))
         : this.ex.hd_migration_restart(state.handle, restart, ...this.put(input));
       if (opened !== 1) {
         throw new Error("migration_run_refused");

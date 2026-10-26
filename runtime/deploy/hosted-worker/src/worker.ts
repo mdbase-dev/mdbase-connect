@@ -48,7 +48,7 @@ import { IDLE, MigrationExecutor, SettlementRefused, SettlementUnknown, type Mig
 import { connectClient } from "./migration-connect.ts";
 import { hasGen0Objects, putGen0Object } from "./migration-objects.ts";
 import { migrationOperatorBody, migrationOperatorRequest, type MigrationOperatorRequest } from "./migration-operator.ts";
-import { PAUSE_REASON, STEP, atPreCutoverPause, migrationRunRequest, migrationStatus, migrationStatusRequest, newRun, readNativeState, storageRunStore } from "./migration-run.ts";
+import { PAUSE_REASON, STEP, atPreCutoverPause, migrationRunRequest, migrationStatus, migrationStatusRequest, newRun, readNativeState, storageRunStore, type RunRecord } from "./migration-run.ts";
 import { migrationSampleBody, migrationSampleRequest, nativeSampleRequest } from "./migration-sample.ts";
 import { LegacyBindingError, openLegacySource, type LegacySourceEnv, type PgConnect } from "./legacy-source/bindings.ts";
 import { isPermanentCustodyRefusal, withCustodyRetry } from "./custody-retry.ts";
@@ -327,7 +327,8 @@ export class HostedCollection extends DurableObject<Env> {
   /** Closed native/owned-Control exchange, then actual physical journal ACK.
    * Internal action-host seam only: no operator route or H1/effect permission.
    * No caller owner/key/audience/result/ACK inputs; original CPP receipt is DATA. */
-  private async ownedMigrationClaim<T>(signal: AbortSignal, use: (engine: Engine, generation: number, cpp: CppClaimTicket, claim: MigrationClaimData, check: () => void) => Promise<T>): Promise<T> {
+  private async ownedMigrationClaim<T>(signal: AbortSignal, use: (engine: Engine, generation: number, cpp: CppClaimTicket, claim: MigrationClaimData, check: () => void) => Promise<T>,
+    open = true): Promise<T> {
     const engine = this.engine, control = this.cppControl;
     if (!engine || !control || this.escrow) throw new Error("migration_host_unavailable");
     await this.requireBackground();
@@ -356,7 +357,7 @@ export class HostedCollection extends DurableObject<Env> {
         device_id: cpp.device, challenge: hex(challenge), sig: hex(signature),
       }, signal);
       check();
-      engine.openMigrationDriver(cpp, claim);
+      if (open) engine.openMigrationDriver(cpp, claim);
       return await use(engine, generation, cpp, claim, check);
     } finally {
       challenge?.fill(0); signature?.fill(0); engine.finishCppClaim(cpp);
@@ -469,6 +470,29 @@ export class HostedCollection extends DurableObject<Env> {
       }
     });
     if (input.operation !== "abandon") await this.alarms.schedule(Date.now() + 100, () => this.alarms.current);
+  }
+
+  /** A re-armed account's fresh attempt (`run` with a new hold): only a fully rolled-back,
+   * unfenced run with nothing outstanding is replaced, by a native run bound to the CP
+   * claim's strictly newer start; native refuses anything else. A committed supersede
+   * whose run record was lost reopens under the same claim. Caller holds the operator flag. */
+  private async supersedeMigration(run: RunRecord, hold: string, pauseBeforeCutover: boolean, signal: AbortSignal): Promise<void> {
+    const store = storageRunStore(this.ctx.storage);
+    await this.ownedMigrationClaim(signal, async (engine, _generation, cpp, claim, check) => {
+      const native = readNativeState(this.ctx.storage.sql), cp = native.checkpoint;
+      if (native.outstanding || !cp || native.runSequence === null) throw new Error("migration_run_exists");
+      if (cp.step === STEP.rolledBack && !cp.fenced) engine.supersedeMigrationDriver(cpp, claim, native.runSequence);
+      else if (cp.step === STEP.start && native.runSequence > 1) {
+        engine.openMigrationDriver(cpp, claim);
+        // Only a supersede changes the start; a lost operator restart keeps it.
+        const prior = engine.migrationRun(native.runSequence - 1);
+        if (!Array.isArray(prior) || typeof prior[4] !== "string" || prior[4] === claim.started_us) throw new Error("migration_run_exists");
+      } else throw new Error("migration_run_exists");
+      await this.ctx.storage.sync();
+      check();
+      // Each later action re-validates its own claim; the alarm runs the saved record.
+      await store.save(newRun(run.collection, hold, Date.now(), pauseBeforeCutover));
+    }, false);
   }
 
   /** VOID exact original host-confirmed pending, no H1/effect conversion. */
@@ -1281,7 +1305,21 @@ export class HostedCollection extends DurableObject<Env> {
       }
       try {
         const run = await store.load();
-        if (run && run.backupHold !== input.backupHold) return json(409, { error: "migration_run_exists", ...(await status()) });
+        if (run && run.backupHold !== input.backupHold) {
+          if ((run.state !== "stopped" && run.state !== "done") || this.#migrationOperatorRunning) {
+            return json(409, { error: "migration_run_exists", ...(await status()) });
+          }
+          this.#migrationOperatorRunning = true;
+          try {
+            await this.supersedeMigration(run, input.backupHold, input.pauseBeforeCutover, AbortSignal.timeout(60_000));
+          } catch {
+            // Native refused or the outcome is unknown; the stored run is unchanged
+            // unless the new run record itself landed, which status shows.
+            return json(409, { error: "migration_run_exists", ...(await status()) });
+          } finally { this.#migrationOperatorRunning = false; }
+          await this.alarms.schedule(Date.now() + 100, () => this.alarms.current);
+          return json(202, await status());
+        }
         if (run && run.pauseBeforeCutover !== input.pauseBeforeCutover) return json(409, { error: "migration_pause_mode_conflict", ...(await status()) });
         // A stopped run stays stopped: resuming it is an operator procedure.
         if (!run) await store.save(newRun(collection, input.backupHold, Date.now(), input.pauseBeforeCutover));

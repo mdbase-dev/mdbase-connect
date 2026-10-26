@@ -427,3 +427,38 @@ fn evicted_unknown_base_needs_actual_exact_native_log_and_cannot_be_replayed() {
         }
     }
 }
+
+#[test]
+fn rolled_back_run_supersedes_on_target_only_for_a_newer_start() {
+    let mut r = rollback(false);
+    let body = enc(receipt(&mut r, false));
+    r.d.settle_rollback(&r.p, &body).unwrap();
+    assert!(r.d.prepare(&mut TestEntropy::new(224)).is_err());
+    assert_eq!(r.d.test_checkpoint().step, Step::RolledBack);
+    assert!(r.refresh());
+    let mut newer = binding(&r.target);
+    newer.started_us = "10413792000000002".into();
+    let mut older = newer.clone();
+    older.started_us = "10413792000000000".into();
+    for refused in [binding(&r.target), older] {
+        assert_eq!(
+            r.d.supersede_on_target(
+                1,
+                &refused,
+                &mut TestEntropy::new(226),
+                &mut r.h.e,
+                &r.target
+            ),
+            Err(LedgerError::Conflict)
+        );
+    }
+    r.d.supersede_on_target(1, &newer, &mut TestEntropy::new(227), &mut r.h.e, &r.target)
+        .unwrap();
+    assert_eq!(r.d.run_sequence(), 2);
+    assert_eq!(r.d.test_checkpoint().step, Step::Start);
+    assert_eq!(
+        r.d.read_run(1).unwrap().unwrap().binding,
+        binding(&r.target)
+    );
+    assert_eq!(r.d.read_run(2).unwrap().unwrap().binding, newer);
+}

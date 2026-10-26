@@ -17,14 +17,15 @@ const collection = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", device = "bbbbbbbb-bb
 const claim = { collection_id: collection, owner_account: device, started_us: "123", target: {
   root_key_id: "cc".repeat(16), hosted: { device_id: device, sign_pk: "dd".repeat(32), kem_pk: "ee".repeat(32), noise_pk: "ff".repeat(32) } } };
 function fixture() {
-  const e = Object.create(Engine.prototype), ticket = Object.freeze({ collection, device }), calls = [];
+  const e = Object.create(Engine.prototype), ticket = Object.freeze({ collection, device }), calls = [], f = { supersede: 1 };
   const memory = new WebAssembly.Memory({ initial: 1 });
   e.test_cppLive = ticket;e.test_cppTickets = new WeakMap([[ticket, { handle: 7, signed: true }]]);
   e.test_migrationLive = null;e.test_physicalLive = null;
   e.ex = { memory, alloc: () => 16, hd_migration_run: () => 0n, hd_cpp_claim_current: h => { calls.push(["current", h]);return 1; },
     hd_migration_open: () => { calls.push(["open"]);return 1; },
-    hd_migration_restart: (h, seq, p, n) => { calls.push(["restart", h, seq, decode(new Uint8Array(memory.buffer, p, n))]);return 1; } };
-  return { e, ticket, calls };
+    hd_migration_restart: (h, seq, p, n) => { calls.push(["restart", h, seq, decode(new Uint8Array(memory.buffer, p, n))]);return 1; },
+    hd_migration_supersede: (h, seq, p, n) => { calls.push(["supersede", h, seq, decode(new Uint8Array(memory.buffer, p, n))]);return f.supersede; } };
+  return Object.assign(f, { e, ticket, calls });
 }
 test("retry passes exact expected sequence and the original signed CPP handle, never auto-restarts open", () => {
   const f = fixture();f.e.openMigrationDriver(f.ticket, claim);
@@ -47,4 +48,16 @@ test("foreign/unsigned CPP, changed target device, occupied tickets and invalid 
     const f = fixture();assert.throws(() => f.e.restartMigrationDriver(f.ticket, claim, seq), /refused/);assert.deepEqual(f.calls, []);
     assert.throws(() => f.e.migrationRun(seq || -1), /refused/);
   }
+});
+test("supersede passes the claim's own start and the expected sequence; a native refusal or invalid input throws", () => {
+  const f = fixture();f.e.supersedeMigrationDriver(f.ticket, { ...claim, started_us: "124" }, 2);
+  assert.deepEqual(f.calls.map(c => c[0]), ["current", "supersede", "current"]);
+  assert.equal(f.calls[1][1], 7);assert.equal(f.calls[1][2], 2);assert.equal(f.calls[1][3][1], "124");
+  const refused = fixture();refused.supersede = 0;
+  assert.throws(() => refused.e.supersedeMigrationDriver(refused.ticket, claim, 1), /migration_run_refused/);
+  for (const seq of [0, 1.5, NaN]) {
+    const g = fixture();assert.throws(() => g.e.supersedeMigrationDriver(g.ticket, claim, seq), /refused/);assert.deepEqual(g.calls, []);
+  }
+  const live = fixture();live.e.test_migrationLive = {};
+  assert.throws(() => live.e.supersedeMigrationDriver(live.ticket, claim, 1), /refused/);assert.deepEqual(live.calls, []);
 });
