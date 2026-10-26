@@ -4,6 +4,21 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.146
+
+### Added
+
+- Add the shared `@mdbase-dev/i18n` kit for locally authored Lingui catalogues, synchronous English startup, lazy language switching and deterministic translation checks. Application adoption is separate.
+
+- Applications may declare `platform: native` to pair from a literal IPv4 loopback HTTP origin on any port. Consent identifies these applications as local and unverified.
+
+### Fixed
+
+- Run `mdbase-i18n` checks through npm-style `.bin` symlinks instead of silently succeeding without validation. A dedicated bin invokes the CLI for every command; packed-consumer tests reject incomplete catalogues.
+
+- Recognize explicit-instance Lingui macros, nested ICU plural/select helpers and instance-field translations in the i18n source guard without exclusions. Check unmarked copy passed to locally rendered React state, including interpolated recovery notices. Track rendered object-state member paths independently from sibling discriminators; do not mistake type literals, truthiness gates or opaque component prop spreads for rendered copy.
+- Check app/library translation collisions before runtime with `mdbase-i18n check --compose 'library/{locale}/messages.json'`; report conflicting IDs, locales and values using the runtime's compiled-catalogue merge rules.
+
 ## 0.1.0-beta.145
 
 ### Fixed

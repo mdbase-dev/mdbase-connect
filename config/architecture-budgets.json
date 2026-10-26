@@ -20,6 +20,7 @@
     "packages/app-ui": 35,
     "packages/client": 83,
     "packages/devkit": 3,
+    "packages/i18n": 20,
     "packages/management": 1,
     "packages/pickle": 2,
     "packages/protocol": 20,
@@ -44,11 +45,11 @@
     "semanticProjectionFormatVersion": 9
   },
   "reviewBudgets": {
-    "productionFiles": 914,
-    "relativeImports": 2524,
-    "workspacePackages": 25,
+    "productionFiles": 934,
+    "relativeImports": 2539,
+    "workspacePackages": 26,
     "rustPublicDeclarations": 3458,
-    "typeScriptExportDeclarations": 3563,
+    "typeScriptExportDeclarations": 3601,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }
