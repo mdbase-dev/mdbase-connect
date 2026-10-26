@@ -473,7 +473,7 @@ export async function buildApp(options: BuildOptions) {
     } : undefined,
   });
   // Previously issued installations can be revoked after a feature rollback.
-  registerInstallationSignOutRoute(app, { db: options.db, relay });
+  registerInstallationSignOutRoute(app, { db: options.db, relay, emitter: nextPolicyEmitter });
   registerAccountSessionRoutes(app, {
     db: options.db,
     publicUrl,

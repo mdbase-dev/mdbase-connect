@@ -8,13 +8,13 @@ import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireInstallationDeviceConnector, requireSessionContext } from "../../platform/request-authentication.js";
 import { inTransaction, isLockTimeout, lock } from "../next/bootstrap-common.js";
-import { queueNextPolicy } from "../next/policy-outbox.js";
+import { queueNextPolicy, type PolicyEmitter } from "../next/policy-outbox.js";
 
 class SignOutError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) { super(message); }
 }
 
-type SignedOut = { collections: number; fenceGeneration: string };
+type SignedOut = { collections: string[]; fenceGeneration: string };
 
 /** One transaction: credential lock, per-collection device revoke + scope removal,
  * connector revoke with relay fence bump. Migration 0069's connector trigger
@@ -49,11 +49,11 @@ async function signOutInstallation(db: DatabasePool, connectorId: string, userId
     const fenceGeneration = String(removed.rows[0].fence_generation);
     await audit(c, userId, "device.installation_signed_out", connectorId,
       { device_id: deviceId, collections: scopes.rows.length, fence_generation: fenceGeneration });
-    return { collections: scopes.rows.length, fenceGeneration };
+    return { collections: scopes.rows.map(row => row.collection_id), fenceGeneration };
   });
 }
 
-export function registerInstallationSignOutRoute(app: FastifyInstance, options: { db: DatabasePool; relay: Pick<RelayHub, "fenceConnector"> }): void {
+export function registerInstallationSignOutRoute(app: FastifyInstance, options: { db: DatabasePool; relay: Pick<RelayHub, "fenceConnector">; emitter?: Pick<PolicyEmitter, "publishCommitted"> }): void {
   app.delete("/v1/account/installations/:connectorId", async (request, reply) => {
     reply.header("cache-control", "no-store");
     const session = await requireSessionContext(request, reply, options.db);
@@ -83,11 +83,13 @@ export function registerInstallationSignOutRoute(app: FastifyInstance, options: 
         return reply.code(503).send(apiError("busy", "Sign-out is busy. Try again."));
       throw error;
     }
+    // Deliver the committed device-revokes now, not on the next global outbox poll.
+    for (const collection of result.collections) options.emitter?.publishCommitted(collection).catch(() => undefined);
     let fence: "closed" | "committed_with_degraded_fence" = "committed_with_degraded_fence";
     try {
       // Revocation, fence generation and audit are already committed.
       if (await options.relay.fenceConnector(connectorId, result.fenceGeneration) === "closed") fence = "closed";
     } catch { /* degraded fence is still a completed sign-out */ }
-    return { ok: true, revoked: true, collections: result.collections, fence };
+    return { ok: true, revoked: true, collections: result.collections.length, fence };
   }
 }

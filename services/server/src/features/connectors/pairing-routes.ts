@@ -305,13 +305,20 @@ export function registerConnectorPairingRoutes(
     },
   );
 
+  // The committed device-revoke must reach the log ACL now, not on the next
+  // global outbox poll. The emitter owns delivery; the reply stays "revoking".
+  const wakeRevocation = async <T>(collection: string, removal: Promise<T>): Promise<T> => {
+    const result = await removal;
+    options.nativePolicyEmitter?.publishCommitted(collection).catch(() => undefined);
+    return result;
+  };
   // Revocation remains available after a feature rollback or pairing expiry.
   app.post("/v1/account/applications/:applicationId/remove-installation-access", { bodyLimit: 4096 }, async (request, reply) => {
     const session = await requireSessionContext(request, reply, options.db);
     if (!session) return;
     const { applicationId } = z.object({ applicationId: originalUuid }).parse(request.params);
     const { collection_id } = z.object({ collection_id: originalUuid, confirm: z.literal(true) }).strict().parse(request.body);
-    return installationResult(reply, () => removeInstallationAccess(options.db, { applicationId }, session.user.id, session.sessionId, collection_id, options.installationEnvironment));
+    return installationResult(reply, () => wakeRevocation(collection_id, removeInstallationAccess(options.db, { applicationId }, session.user.id, session.sessionId, collection_id, options.installationEnvironment)));
   });
 
   if (options.installationDevices) {
@@ -334,7 +341,7 @@ export function registerConnectorPairingRoutes(
       if(!session)return;
       const {pairingId}=z.object({pairingId:originalUuid}).parse(request.params);
       const {collection_id}=z.object({collection_id:originalUuid,confirm:z.literal(true)}).strict().parse(request.body);
-      return installationResult(reply,()=>removeInstallationAccess(options.db,pairingId,session.user.id,session.sessionId,collection_id,options.installationEnvironment));
+      return installationResult(reply,()=>wakeRevocation(collection_id,removeInstallationAccess(options.db,pairingId,session.user.id,session.sessionId,collection_id,options.installationEnvironment)));
     });
     app.post(
       "/v1/pairing-requests/:pairingId/select-account",

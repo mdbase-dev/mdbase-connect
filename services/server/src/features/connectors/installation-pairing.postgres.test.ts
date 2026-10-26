@@ -51,6 +51,8 @@ describePg("installation device sign-in on daemon pairing", () => {
   const app = Fastify();
   const fenced: [string, string][] = [];
   const nativePushes: Array<{connector:string;grants:string[]}> = [];
+  const policyWakes: string[] = [];
+  const emitter = { publishCommitted: async (collection: string) => { policyWakes.push(collection); } };
   let acknowledgeNativePush = async () => {};
   const channelSealer = new PushTargetSealer({keyId:"synthetic",key:Buffer.alloc(32,42),previousKeys:{}});
   const transports = {webPush:{send:async()=>undefined},fcm:{send:async()=>undefined}};
@@ -68,9 +70,9 @@ describePg("installation device sign-in on daemon pairing", () => {
       const snapshot=await buildPolicySnapshot(db,connector,55_000,undefined,()=>true,"lease_v1",true,true,true) as LeasePolicySnapshot;
       nativePushes.push({connector,grants:snapshot.grants.map(g=>String(g.id))});
       await acknowledgeNativePush();
-    }} });
+    }}, nativePolicyEmitter: emitter });
     registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null } });
-    registerInstallationSignOutRoute(app, { db, relay: { fenceConnector: async (id, generation) => { fenced.push([id, generation]); return "closed"; } } });
+    registerInstallationSignOutRoute(app, { db, emitter, relay: { fenceConnector: async (id, generation) => { fenced.push([id, generation]); return "closed"; } } });
     const resolver = backgroundTimerGrantResolver(db,"lab");
     registerTimerRoutes(app, { db, resolver });
     registerNotificationRoutes(app,{db,grantResolver:resolver,transports,
@@ -1798,8 +1800,10 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await remove(p.owner.headers,false)).statusCode).toBe(400);
     expect((await remove(stranger.headers)).statusCode).toBe(200); // opaque no-op, no foreign registry lookup
     expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toHaveLength(2);
-    const result=await remove(); expect(result.statusCode,result.body).toBe(200);
+    const woken=policyWakes.length, result=await remove(); expect(result.statusCode,result.body).toBe(200);
     expect(result.json()).toEqual({ok:true,state:"revoking",collection_id:collection});
+    // The committed device-revoke is delivered now, not left for the global outbox poll.
+    expect(policyWakes.slice(woken)).toEqual([collection]);
     expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([{collection_id:keep}]);
     expect((await remove()).statusCode).toBe(200);
     const revoked=(await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1",[collection])).rows.flatMap(row=>row.ops.ops).filter((op:{op:string})=>op.op==="device-revoke");
@@ -1837,8 +1841,9 @@ describePg("installation device sign-in on daemon pairing", () => {
       const stranger=await account();
       expect((await app.inject({method:"DELETE",url:`/v1/account/installations/${p.selected.connector_id}`,headers:stranger.headers})).statusCode).toBe(404);
     }
-    const out=await signOut();
+    const woken=policyWakes.length, out=await signOut();
     expect(out.statusCode,out.body).toBe(200); expect(out.json()).toEqual({ok:true,revoked:true,collections:1,fence:"closed"});
+    expect(policyWakes.slice(woken)).toEqual([collection]);
     expect(fenced.map(([id])=>id)).toContain(p.selected.connector_id);
     expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
     const revokes=(await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1",[collection])).rows.flatMap(row=>row.ops.ops).filter((op:{op:string})=>op.op==="device-revoke");
