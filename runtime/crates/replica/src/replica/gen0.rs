@@ -1061,6 +1061,13 @@ fn output_budget(
 }
 
 impl<S: crate::store::Store> super::Replica<S> {
+    /// Whether a generation-0 import could still begin: no content, freeze or
+    /// installed base. A rolled-back run's base stays in the log, so a fresh
+    /// run over it can never import.
+    pub fn hosted_gen0_open(&self, expected: &super::VerifiedHostedAdmission) -> bool {
+        self.gen0_current(expected)
+    }
+
     fn gen0_current(&self, expected: &super::VerifiedHostedAdmission) -> bool {
         !self.policy.content_seen
             && !self.policy.frozen
