@@ -381,19 +381,19 @@ use a separate provider encryption boundary. The complete trust, key, metadata,
 and rollout design is in
 [Encryption architecture](./encryption.md).
 
-The editor's Connect workspace is the primary remote collection, permission,
-computer, and account surface. The Electron controller remains primary for
-local-folder authority and mirror operations. The portal handles sign-in,
-pairing, account recovery, and authorization approval only.
+The Connect portal is the account, collection-management, permission, and
+computer surface, including sign-in, pairing, account recovery, and authorization
+approval. The Electron controller remains primary for local-folder authority
+and mirror operations. The editor edits collections through the native SDK;
+old editor `/connect` bookmarks redirect to the Connect portal.
 
-Account and collection authority stay separate. The editor sends the HttpOnly
-account cookie only to the Connect origin, with browser credentials enabled;
-the server accepts it only when `Origin` exactly matches
-`MDBASE_CONNECT_MANAGEMENT_ORIGINS`. That session can use account APIs but is
-not a collection grant. Opening a collection navigates to
-`?collection=<id>` and lets `MdbaseSession` reuse or request the editor's exact
-application grant. Managed deployments keep Connect and editor on the same
-site so `SameSite=Lax` remains effective while the two origins stay isolated.
+Account and collection authority stay separate. The editor does not send the
+Connect account cookie or use it for account management. The HttpOnly account
+session belongs to the Connect portal and is not a collection grant. The
+editor's SDK owns sign-in, collection choice, and approval; the editor opens
+only the connection handed over by the shared collection gate in phase `ready`.
+See [Native SDK mode](../apps/editor/NEW_SDK.md) for the editor's entry and
+connection lifecycle.
 
 ## Direct local transport
 
