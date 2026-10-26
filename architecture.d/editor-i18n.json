@@ -1,9 +1,0 @@
-{
-  "reason": "Editor localization adds exactly four production modules: Lingui configuration, browser/runtime adapter, language preference row, and active-locale display formatting. Shared catalogue composition uses the kit and shared library exports, not an editor-owned compiler. The runtime replaces implicit browser-locale formatting and English literals without adding a collection owner or remote service. Eight exports expose those boundaries and two type-presentation helpers relocated out of TypeBrowser to stay below its existing line ceiling. Ten relative imports cover seven display-format call sites, runtime initialization in main/test-setup, and the new language setting row. Settings moves without a compatibility wrapper; production catalogue JSON/PO is data, not extra implementation modules.",
-  "growth": {
-    "productionFiles": 4,
-    "relativeImports": 10,
-    "typeScriptExportDeclarations": 8,
-    "apps/editor": 4
-  }
-}

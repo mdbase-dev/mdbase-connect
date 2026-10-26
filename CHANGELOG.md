@@ -4,6 +4,55 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.147
+
+### Added
+
+- Prepare nine-language interface catalogues and language controls for mdbase Connect portal, desktop and the shared UI libraries. English starts synchronously; other catalogues load from the application's deployment, and the selected language is saved on the browser or computer.
+
+- Add a browser-local interface language preference, generated-ID interface catalogues and strict translation validation to the Editor. Use 笔记 consistently for Markdown notes in Simplified Chinese. Notes, collection paths, and protocol identifiers are unchanged.
+- Validate both shared UI catalogues alongside the editor before builds, rejecting conflicting translations instead of silently overriding them. Use consistent named arguments across plural branches so Japanese/Korean other-only and Russian few/many forms retain the same interpolation contract.
+
+- Add Italian locale negotiation, language selection and deployment-local catalogue loaders across the i18n kit and Connect apps, with complete portal, desktop, editor, shared UI and CodeMirror translations. Validate all ten locales with strict catalogue, composition and plural checks, and cover Italian lazy loading, language persistence and singular/plural rendering in browser tests.
+
+- Translate the Connect portal, desktop menus/dialogs and shared interface controls into nine languages, with persisted language selection and deployment-local lazy catalogues.
+- Validate every app/library catalogue composition without hiding conflicting shared translations; distinguish browser-session status and local-connection removal by semantic context.
+- Exclude obsolete PO entries before catalogue compilation and rebuild checked shared UI catalogues before packing, preventing retired English messages from conflicting with application translations.
+- Support localized command palette group headings through a presentation-only `groupLabel` callback, preserving stable group and `showAll` identifiers.
+
+### Changed
+
+- The hosted Worker refuses to supersede a rolled-back migration run (`migration_run_exists`, no change) when the target can no longer import generation 0 because the earlier run's base reached the log. Before, the fresh run fenced legacy, drained and then stopped at the generation-0 import.
+
+- The hosted Worker accepts a migration `run` with a new backup hold over a stored run that is stopped, fully rolled back and unfenced with nothing outstanding, when the control-plane start is strictly newer for the same collection, owner and target. The old native run and its actions are kept for audit. Any other run with a different hold still answers `migration_run_exists`.
+
+### Fixed
+
+- Keep editor fallback note titles, default filenames, generated type descriptions and Connect's default collection name stable across interface languages while preserving user-authored text.
+- Keep the mobile editor's rename-path action independent of translated menu labels.
+- Show app, collection, type, field and schema names literally in the editor, Connect and the desktop app when they contain markup-like text such as `<0/>` or `<b>`, and translate the editor's "Exit focus mode" menu label.
+- Show names containing backslashes, such as `C:\x41dir`, literally in every language instead of decoding them as escape sequences; the fix is in `@mdbase-dev/i18n`'s shared runtime.
+
+- Compile reviewed PO catalogues before direct UI, portal and desktop development, tests and typechecks; bootstrap the complete desktop workspace dependency graph for standalone packaging.
+- Prune the bundled kit workspace link before Electron ASAR packaging, like the existing UI workspace inputs. Verify the native locale bundle runs independently of workspace packages and catalogue files.
+- Run the i18n CLI without prebuilt kit output, preserve composition checks on Windows shells, and keep PO checkout line endings deterministic.
+- Use the same Babel macro compiler for Vite and extraction so nested rich-text warnings render translated copy instead of raw message IDs in production.
+- Include the language picker in the portal loading accessibility layout audit and wrap header controls at compact widths instead of overflowing.
+
+- Generate Editor catalogues from reviewed PO sources for dev, tests, e2e, typechecks and builds instead of committing stale JSON.
+- Pass shared catalogue composition paths correctly on Windows.
+- Test historical authenticated native-release packets in isolated original-byte fixtures; continue rejecting the current workspace UI for native publication until trusted release pins are prepared.
+
+- Require translated ICU plurals/ordinals to cover categories reachable at integer counts 0–999, allowing exact arms that cover an entire category. Report unreachable optional categories informationally, reject unknown categories, and warn on English-identical plural/select branches while respecting reviewed identical-term IDs.
+
+- Removing an app's collection access, removing an installation, or signing an installation out now delivers the device revocation to the collection log immediately instead of waiting for the next background policy poll. Previously a revoked installation could keep writing until that poll reached the collection.
+
+- Stop probing unused SQLite async OPFS VFS workers when starting the SDK's SAH-pool storage, avoiding misleading startup errors in native and web clients.
+
+- Call the SDK timer transport's fetch function without an object receiver, so browser reminder registration does not fail with an illegal invocation.
+
+- Keep due timers firing when earlier timers are waiting for collection migration to complete.
+
 ## 0.1.0-beta.146
 
 ### Added
