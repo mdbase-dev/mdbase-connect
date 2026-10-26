@@ -56,7 +56,7 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
         selection_sha256: createHash("sha256").update("mdbase-scoped-archive-selection/v1\n").update(JSON.stringify(inventory.selected.map(v => [v.account_id, v.collection_id]))).digest("hex"),
         source_rows_sha256: "e".repeat(64), recovered_inventory_sha256: "f".repeat(64), original_h6_journal_sha256: "1".repeat(64),
         source_fences: collections.map(collection_id => ({ account_id: account, collection_id, migration_id: sources.get(collection_id)!.migration_id,
-          started_at: sources.get(collection_id)!.started_at, head: 42, in_flight: 0, unresolved: 0, applied_unreceipted: 0,
+          started_at: sources.get(collection_id)!.started_at, head: sources.get(collection_id)!.head, in_flight: 0, unresolved: 0, applied_unreceipted: 0,
           notification_watermark: watermark, fence_reply_sha256: "2".repeat(64), drain_reply_sha256: "3".repeat(64) })) } };
   }
 
@@ -122,6 +122,8 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
     registerMigrationReplicaRoutes(app, { db, token, provider });
     const cp = (kind: string, id: string, payload?: Record<string, unknown>) => app.inject({ method: "POST",
       url: `/internal/v1/next/migration/collections/${id}/${kind}`, headers: { authorization: `Bearer ${token}` }, ...(payload ? { payload } : {}) });
+    const source = (id: string) => app.inject({ method: "GET", url: `/internal/v1/next/migration/collections/${id}/source`,
+      headers: { authorization: `Bearer ${token}` } });
     // No source DB/timer importer or target creator is exercised in this lane.
     // source=db is an unused required composition slot, not legacy source data.
     const connect = postgresLabConnect({ db, source: db, actor, timers: false, environment, provider, importTimers: unexpected, prepareTarget: unexpected });
@@ -167,7 +169,7 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
     };
     const deps = { connect, worker, sleep: async () => undefined, now: () => 0 };
     const rearmer = postgresRearm({ db, actor, environment, provider });
-    return { account, storage, missing, cohort, collections, first, second, sources, originalSources, archive, provider, unexpected, connect, worker, states, nativeRollbackSources, dispatch, deps, cp, rearmer };
+    return { account, storage, missing, cohort, collections, first, second, sources, originalSources, archive, provider, unexpected, connect, worker, states, nativeRollbackSources, dispatch, deps, cp, source, rearmer };
   }
   type Fixture = Awaited<ReturnType<typeof fixture>>;
   const events = async (f: Fixture, type: string) => (await db.query("SELECT subject_id,metadata FROM audit_events WHERE user_id=$1 AND event_type=$2 ORDER BY subject_id", [f.account, type])).rows;
@@ -453,6 +455,41 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
       expect(await claim(db, f.first)).toMatchObject({ account: f.account });
       expect(await revision(f.cohort)).toBe(oldRevision);
       expect(await cohortArchiveBinding(db, f.cohort)).toEqual(f.archive.migration_batch);
+    });
+
+    it("feeds the fresh attempt's fence and drain from legacy as written after the route-back", async () => {
+      const f = await routedBack(); await rearm(f.account, f.deps, f.rearmer);
+      const stale = new Map(f.originalSources.map(s => [s.collection_id, s]));
+      // Legacy is active again: users write, and each source's head moves on.
+      for (const s of f.sources.values()) { expect(s.state).toBe("active"); s.head += 15; }
+      const next = `rearmed-${randomUUID()}`;
+      await createCohort(db, next, actor); await addToCohort(db, next, [f.account], actor);
+      await releaseCohort(db, next, actor); await setCohortFrozen(db, next, true, "synthetic fresh attempt", actor);
+      // The fresh prearchive fences come after those writes.
+      const clock = (await db.query<{ now: Date }>("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0]!.now;
+      for (const id of f.collections) Object.assign(f.sources.get(id)!, { state: "migrating", migration_id: randomUUID(),
+        started_at: new Date(clock.getTime() - 1000).toISOString() });
+      const capture = await inTransaction(db, client => readCohortCaptureSnapshot(client, next));
+      await acceptCohortArchive(db, next, scopedArchive(next, f.account, f.collections, f.sources, capture, clock), environment);
+      await startAccountMigration(db, f.account, environment);
+      await f.connect.bindRun!(f.account, f.collections, "60000000-0000-4000-8000-000000000006", false);
+      for (const id of f.collections) {
+        expect(await f.connect.claimWorkerRun!(f.account, id)).toBe(true);
+        const live = f.sources.get(id)!, old = stale.get(id)!;
+        expect(live.head).toBe(old.head + 15);
+        // Fence: the fresh archive's run, never the routed-back attempt's.
+        const fence = await f.cp("fence", id); expect(fence.statusCode, fence.body).toBe(200);
+        expect(fence.json()).toMatchObject({ migration_id: live.migration_id, started_at: live.started_at, state: "migrating" });
+        expect(fence.json().migration_id).not.toBe(old.migration_id);
+        // Drain input: the source read at the post-route-back head.
+        const read = await f.source(id); expect(read.statusCode, read.body).toBe(200);
+        expect(read.json()).toMatchObject({ migration_id: live.migration_id, head: old.head + 15, state: "migrating" });
+        // A source that moved past the accepted fence is refused, never adopted.
+        live.head += 1;
+        expect((await f.source(id)).json()).toHaveProperty("error.code", "migration_archive_source_changed");
+        live.head -= 1;
+      }
+      expect(f.provider.legacyMigrationFence).not.toHaveBeenCalled();
     });
 
     it.each(["none", "cutover", "sources", "intent", "held", "flip"] as const)("refuses %s before any change", async refusal => {

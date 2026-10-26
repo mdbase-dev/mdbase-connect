@@ -142,7 +142,9 @@ impl<I: IndexStorage> JournalDriver<I> {
 
     /// A re-armed account's fresh attempt: replace the rolled-back run with one
     /// for a strictly newer CP start of the same collection, owner and target,
-    /// under every precondition of [`Self::restart_on_target`].
+    /// under every precondition of [`Self::restart_on_target`]. Refused once the
+    /// target can no longer import generation 0 (an earlier run's base reached
+    /// it): the fresh run could only fence legacy and then stop.
     pub(crate) fn supersede_on_target<S: mdbn_replica::Store>(
         &mut self,
         expected: u64,
@@ -152,6 +154,12 @@ impl<I: IndexStorage> JournalDriver<I> {
         target: &crate::runtime::ObservedNativeTarget,
     ) -> Result<()> {
         self.pre_cutover_target(engine, target)?;
+        let replica = engine
+            .migration_gen0_replica(target)
+            .map_err(|_| LedgerError::Refused)?;
+        if !replica.hosted_gen0_open(target.admission()) {
+            return Err(LedgerError::Refused);
+        }
         self.supersede(expected, binding, entropy)
     }
 

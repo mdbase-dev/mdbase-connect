@@ -211,7 +211,12 @@ The Worker DOs keep the old rolled-back runs. For a re-armed account the
 driver treats a run under an earlier hold that is stopped/done at RolledBack,
 unfenced and with nothing outstanding as not dispatched. The Worker's `run`
 with the new hold supersedes such a run and natively starts a new run for the
-strictly newer start; anything else is still `migration_run_exists`.
+strictly newer start; anything else is still `migration_run_exists`. The
+supersede is also refused when the target can no longer import generation 0:
+a run rolled back after its `base` reached the log (step 4 `BaseAppended` or
+later) leaves that base there, and hosted migration is fence-first with no
+replay of a later legacy difference, so a fresh run could only fence legacy and
+then stop.
 
 ## Known gaps
 
@@ -222,6 +227,11 @@ strictly newer start; anything else is still `migration_run_exists`.
   Re-arm needs the hosted Worker that supersedes a rolled-back run; with an
   older Worker the fresh attempt stops at `worker_run` with
   `migration_run_exists` for every member that was dispatched before.
+- An account with a member whose earlier run appended its `base` cannot
+  migrate again through re-arm: that member's fresh run answers
+  `migration_run_exists` before any change. Before planning a fresh attempt,
+  check the earlier attempt's evidence for a member whose last native
+  `checkpoint_step` was 4 or more; such an account stays legacy.
 - A phase 2 Worker stop with an unsettled forward action (an outstanding
   non-rollback action, or a Route whose ticket was already released) has no
   driver operation to settle it; the account stays stopped forward-only, as a
