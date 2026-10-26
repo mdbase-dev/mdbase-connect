@@ -50,6 +50,7 @@ export interface DevicePairing {
   attested?: boolean;
   fingerprint?: string | null;
   app_origin?: string;
+  app_platform?: "native";
   return_url?: string | null;
   timer_declaration?: {digest:string};
   timer_consent?: boolean | null;
@@ -129,6 +130,7 @@ export interface PendingAuthorization {
   application_id: string;
   application_name: string;
   distribution: "web" | "portable";
+  platform?: "native";
   homepage: string;
   project_url: string | null;
   icon: string | null;

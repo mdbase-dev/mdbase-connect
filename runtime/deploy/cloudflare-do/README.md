@@ -113,6 +113,13 @@ deployment artifacts; real environment configs enable neither test flag.
 
 ## Browser CORS
 
+`LOGSVC_CORS_ORIGINS` additionally accepts the single pattern
+`http://127.0.0.1:*` for native application loopback servers on any valid port.
+It reflects only a canonical literal IPv4 loopback origin, never localhost names,
+other addresses, URL paths or `app://obsidian.md`. This opt-in does not grant
+authentication or possession authority; existing exact origins remain exact.
+
+
 `LOGSVC_CORS_ORIGINS` is a comma-separated list of exact canonical HTTP(S)
 origins, Capacitor iOS app origins (`capacitor://<lowercase host>`) or Chrome
 extension origins (`chrome-extension://<32-letter id>`), with no ports, paths,

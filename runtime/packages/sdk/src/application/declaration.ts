@@ -75,9 +75,9 @@ export function applicationDeclaration(input:MdbaseApplicationDeclaration):Reado
     ||typeof name!=="string"||!name.trim()||new TextEncoder().encode(name).length>100||/[\u0000-\u001f\u007f]/.test(name)
     ||typeof origin!=="string"||typeof environment!=="string"||!applicationEnvironmentAllowed(environment)||!manifest||Array.isArray(manifest)||typeof manifest!=="object")fail();
   if(localApplicationEnvironment(environment)&&!localApplicationOrigin(origin))fail();
-  const platform=appOriginPlatform(origin,applicationLoopbackAllowed(environment));
+  const platform=appOriginPlatform(origin,applicationLoopbackAllowed(environment),(manifest as Record<string,ApplicationJson>).platform === "native" ? "native" : undefined);
   const kind=data.installationKind??(platform==="mobile"?"mobile":"app-runtime");
-  if(platform===null||(kind!=="app-runtime"&&kind!=="mobile")||(platform==="mobile"&&kind!=="mobile")||(platform==="extension"&&kind!=="app-runtime"))fail();
+  if(platform===null||(kind!=="app-runtime"&&kind!=="mobile")||(platform==="mobile"&&kind!=="mobile")||((platform==="extension"||platform==="native")&&kind!=="app-runtime"))fail();
   const override=data.storage;if(override!==undefined&&(!override||Array.isArray(override)||typeof override!=="object"||Object.keys(override).some(key=>!["joinDatabaseName","setupDatabaseName","applicationNamespace"].includes(key))))fail();
   const fields=override as Record<string,ApplicationJson>|undefined;
   const storage={joinDatabaseName:fields?.joinDatabaseName??`mdbase.${id}.native-collection-join.v1`,setupDatabaseName:fields?.setupDatabaseName??`mdbase.${id}.native-model-setup.v1`,applicationNamespace:fields?.applicationNamespace??id};

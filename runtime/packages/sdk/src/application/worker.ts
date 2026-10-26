@@ -24,7 +24,7 @@ async function initialize(event:MessageEvent<unknown>):Promise<void> {
     binding=value[1];
     const declaration=applicationDeclaration(value[2]);
     if(declaration.origin!==currentAppOrigin())throw new ApplicationWorkerError("application_worker_binding");
-    const packaged=packagedApplicationAssets(declaration.environment,declaration.origin);
+    const packaged=packagedApplicationAssets(declaration.environment,declaration.origin,declaration.manifest.platform === "native" ? "native" : undefined);
     // All startup requests remain queued on the SAME unstarted MessagePort.
     // No profile, journal, key or native actor exists until this original
     // bootstrap has validated its immutable declaration and asset selection.

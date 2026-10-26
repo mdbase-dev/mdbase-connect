@@ -29,8 +29,9 @@ export function applicationNativeAssets(
     assetSha256:released.assetSha256,source:Object.freeze({...released.source}),
     trustedRoots:Object.freeze(released.trustedRoots.map(root=>new Uint8Array(root))),policyPins:new Uint8Array(released.policyPins),
   });
-  const environment=selectAppEnvironment({environment:declaration.environment,appOrigin:declaration.origin,release});
-  const host={origin:declaration.origin,environment:declaration.environment,...(fetcher?{fetch:fetcher}:{})};
+  const platform=declaration.manifest.platform === "native" ? "native" as const : undefined;
+  const environment=selectAppEnvironment({environment:declaration.environment,appOrigin:declaration.origin,platform,release});
+  const host={origin:declaration.origin,platform,environment:declaration.environment,...(fetcher?{fetch:fetcher}:{})};
   const loadRuntime=applicationAssetLoader(packaged.runtime,host),loadSqlite=applicationAssetLoader(packaged.sqlite,host);
   const initialize=packaged.initializeSqlite;
   if(typeof initialize!=="function"||typeof handoff!=="function")throw new Error("SDK packaged native application assets unavailable");

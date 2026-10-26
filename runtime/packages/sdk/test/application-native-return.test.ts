@@ -34,9 +34,10 @@ describe("sign-in opener return URL (RFC 8252 native redirect)",()=>{
   });
   it("never honours a wildcard listed in a legacy declaration, literal or expanded",()=>{
     const app=(returnUrl:string)=>new MdbaseConnect(declaration(undefined,["dev.tasknotes.entry://auth/*"]),opener(returnUrl));
-    expect(()=>app(native)).not.toThrow();
-    for(const returnUrl of ["dev.tasknotes.entry://auth/*","dev.tasknotes.entry://auth/anything"])
-      expect(()=>app(returnUrl)).toThrow(expect.objectContaining({reason:"application_sign_in_opener"}));
+    // The current canonical parser rejects the entire corrupt declaration,
+    // even when the selected return URL itself is an exact safe entry.
+    for(const returnUrl of [native,"dev.tasknotes.entry://auth/*","dev.tasknotes.entry://auth/anything"])
+      expect(()=>app(returnUrl)).toThrow();
   });
   it("refuses a native return URL the app did not declare",()=>{
     expect(()=>new MdbaseConnect(declaration([`${origin}/callback`]),opener(native))).toThrow(expect.objectContaining({reason:"application_sign_in_opener"}));

@@ -320,18 +320,20 @@ export function RequestOutcome({ status, applicationName, portable = false, retu
 
 export function RequestIdentity({ request, showClientKey = true }: { request: PendingAuthorization; showClientKey?: boolean }) {
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
-  const portable = request.distribution === "portable";
+  const portable = request.distribution === "portable", native = request.platform === "native";
   return (
     <header className="request-identity">
-      <span className="request-identity-mark" aria-hidden="true">{request.icon && request.icon !== failedIcon
+      <span className="request-identity-mark" aria-hidden="true">{!native && request.icon && request.icon !== failedIcon
         ? <img src={request.icon} alt="" referrerPolicy="no-referrer" onError={() => setFailedIcon(request.icon)} />
-        : initials(request.application_name)}</span>
+        : native ? null : initials(request.application_name)}</span>
       <div>
-        <h1>{request.application_name}</h1>
-        <p className="request-origin">{portable
+        <h1>{native ? "Connect an app" : request.application_name}</h1>
+        <p className="request-origin">{native ? "an app running on this computer" : portable
           ? <>Application using a device code{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
           : <code>{host(request.homepage)}</code>}</p>
-        {portable
+        {native
+          ? <p className="request-guidance" role="note">Application identity unverified. This app calls itself {request.application_name}. Continue only if you started this connection intentionally.</p>
+          : portable
           ? <p className="request-guidance portable-authorization-warning" role="note"><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <> and it shows <code>{request.user_code}</code></> : null}.{request.project_url ? <> {host(request.project_url)} does not verify its origin.</> : null}</p>
           : <p className="request-guidance">Only continue if you recognize this exact site.</p>}
         {showClientKey && request.client_fingerprint

@@ -657,6 +657,7 @@ export function registerAuthorizationRoutes(
               ar.collection_id, ar.expires_at, consenting.account_backend,
               a.id AS application_id, a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon,
+              a.application_declaration->>'platform' AS platform,
               a.requirements, a.provisions, a.notifications,
               ${options.nextClientKeys ? "ck.client_pk" : "NULL::bytea"} AS client_pk
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id
