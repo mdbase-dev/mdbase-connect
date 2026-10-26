@@ -710,7 +710,7 @@ msgctxt "Application access approval"
 msgid "Application connection"
 msgstr "Application connection"
 
-#. placeholder {0}: request.application_name
+#. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
 msgstr "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
