@@ -193,6 +193,7 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     const original = (await stored()).rows;
     const previous = await readFile(new URL("../../../migrations/0082_next_migration_scoped_archive.sql", import.meta.url), "utf8");
     const upgrade = await readFile(new URL("../../../migrations/0085_managed_migration_archive_profiles.sql", import.meta.url), "utf8");
+    const current = await readFile(new URL("../../../migrations/0086_scoped_archive_fence_counters.sql", import.meta.url), "utf8");
     const zero = { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA,
       prefix: `legacy-archive/production/2026/10/08/${name}`, retention: { ...base.retention, count: "2" } };
     const elapsed = async () => (await db.query("SELECT next_migration_archive_elapsed_valid($1::jsonb,$2::timestamptz,$2::timestamptz) AS valid",
@@ -203,7 +204,7 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
       await db.query(upgrade);
       expect(await elapsed()).toBe(true);
       expect((await stored()).rows).toEqual(original);
-    } finally { await db.query(upgrade); }
+    } finally { await db.query(upgrade); await db.query(current); }
   });
 
   it.each(["lab", "staging", "production"])("returns a complete frozen zero-only capture, refuses unauthenticated/unfrozen/mixed views: %s", async environment => {

@@ -38,7 +38,8 @@ suite("hosted timer source real PostgreSQL (synthetic schema2 rows, not native m
       CREATE TABLE hosted_provider_runtime_outbox(collection_id uuid NOT NULL,processed_at timestamptz,
         lease_token text,leased_until timestamptz);
       CREATE TABLE hosted_provider_replicas(id uuid PRIMARY KEY,collection_id uuid NOT NULL REFERENCES hosted_provider_collections(id));
-      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid NOT NULL REFERENCES hosted_provider_replicas(id),state text NOT NULL);
+      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid NOT NULL REFERENCES hosted_provider_replicas(id),state text NOT NULL,
+        lease_expires_at timestamptz);
     `);
     url.searchParams.set("options", `-csearch_path=${schema} -cdefault_transaction_read_only=on`);
     reader = new pg.Pool({ connectionString: url.toString(), max: 2 });
@@ -166,18 +167,24 @@ suite("hosted timer source real PostgreSQL (synthetic schema2 rows, not native m
       await expect(readHostedLegacyTimers(source(), f.collection)).rejects.toThrow("source fence/schema/drain unavailable");
     }
   });
-  it("refuses pending/expired outbox and unfinished mutation work", async () => {
+  it("refuses pending/expired outbox and live in-flight mutation work", async () => {
     const f = await fixture();
     await writer.query("INSERT INTO hosted_provider_runtime_outbox VALUES($1,NULL,NULL,NULL)", [f.collection]);
     await expect(readHostedLegacyTimers(source(), f.collection)).rejects.toThrow("source fence/schema/drain unavailable");
     await writer.query("UPDATE hosted_provider_runtime_outbox SET processed_at=now(),leased_until='2000-01-01T00:00:00Z' WHERE collection_id=$1", [f.collection]);
     await expect(readHostedLegacyTimers(source(), f.collection)).rejects.toThrow("source fence/schema/drain unavailable");
     await writer.query("DELETE FROM hosted_provider_runtime_outbox WHERE collection_id=$1", [f.collection]);
-    for (const state of ["claimed", "prepared", "applied"]) {
-      await writer.query("INSERT INTO hosted_provider_mutation_journal VALUES($1,$2)", [f.replica, state]);
+    for (const state of ["claimed", "prepared"]) {
+      await writer.query("INSERT INTO hosted_provider_mutation_journal VALUES($1,$2,now()+interval '1 minute')", [f.replica, state]);
       await expect(readHostedLegacyTimers(source(), f.collection)).rejects.toThrow("source fence/schema/drain unavailable");
       await writer.query("DELETE FROM hosted_provider_mutation_journal WHERE replica_id=$1", [f.replica]);
     }
+    // Provider H6 settlement: expired claimed/prepared rows cannot apply while
+    // fenced and applied rows are already in head; both are retained evidence.
+    await writer.query(`INSERT INTO hosted_provider_mutation_journal VALUES($1,'claimed',now()-interval '1 minute'),
+      ($1,'prepared',now()-interval '1 minute'),($1,'applied',now()+interval '1 minute'),($1,'applied',NULL)`, [f.replica]);
+    expect((await readHostedLegacyTimers(source(), f.collection)).fence.collection_id).toBe(f.collection);
+    await writer.query("DELETE FROM hosted_provider_mutation_journal WHERE replica_id=$1", [f.replica]);
   });
   it("checks physical SQL generation/schedule against raw record, and never transports oversized records", async () => {
     const f = await fixture();

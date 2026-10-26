@@ -63,20 +63,26 @@ suite("CLI timer source against actual legacy ce339 provider/runtime migrations"
     // The old CLI's fabricated column is absent in the actual migration schema.
     await expect(reader.query("SELECT collection_id FROM hosted_provider_mutation_journal")).rejects.toMatchObject({ code: "42703" });
     expect((await readHostedLegacyTimers(reader, target)).timers).toEqual([]);
-    const insertJournal = (replica: string, state: string) => writer.query(`INSERT INTO hosted_provider_mutation_journal
+    const insertJournal = (replica: string, state: string, lease = "1 minute") => writer.query(`INSERT INTO hosted_provider_mutation_journal
       (replica_id,request_id,operation_kind,input_schema_version,input_digest,state,process_epoch,
        lease_owner,lease_expires_at,fencing_generation,evidence_ciphertext,evidence_kind)
-      VALUES($1,$2,'synthetic',1,$3,$4,$2,$2,now()+interval '1 minute',1,$3,'sync_effect')`,
-    [replica, randomUUID(), Buffer.alloc(32, 2), state]);
+      VALUES($1,$2,'synthetic',1,$3,$4,$2,$2,now()+$5::interval,1,$3,'sync_effect')`,
+    [replica, randomUUID(), Buffer.alloc(32, 2), state, lease]);
     await insertJournal(foreignReplica, "claimed");
     expect((await readHostedLegacyTimers(reader, target)).timers).toEqual([]);
-    for (const state of ["claimed", "prepared", "applied"]) {
+    for (const state of ["claimed", "prepared"]) {
       await insertJournal(ownReplica, state);
       await expect(readHostedLegacyTimers(reader, target)).rejects.toThrow("source fence/schema/drain unavailable");
       // A read must neither settle nor mutate the original journal.
       expect((await writer.query("SELECT state FROM hosted_provider_mutation_journal WHERE replica_id=$1", [ownReplica])).rows).toEqual([{ state }]);
       await writer.query("DELETE FROM hosted_provider_mutation_journal WHERE replica_id=$1", [ownReplica]);
     }
+    // Provider in_flight rule: expired claimed/prepared and applied rows are retained evidence.
+    for (const [state, lease] of [["claimed", "-1 minute"], ["prepared", "-1 minute"], ["applied", "1 minute"]] as const) {
+      await insertJournal(ownReplica, state, lease);
+    }
+    expect((await readHostedLegacyTimers(reader, target)).timers).toEqual([]);
+    await writer.query("DELETE FROM hosted_provider_mutation_journal WHERE replica_id=$1", [ownReplica]);
     expect((await readHostedLegacyTimers(reader, target)).timers).toEqual([]);
   });
 });

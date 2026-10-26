@@ -425,7 +425,9 @@ async function abortBarrier(collection: string, body: AbortBarrierBody,
   ]))).toString("hex");
   const drained = async () => {
     const source = await onRun(options.provider, collection, body, deadline);
-    if (source.in_flight !== 0 || source.unresolved !== 0 || source.applied_unreceipted !== 0) {
+    // Only live in_flight work could still apply; unresolved/applied receipts
+    // are retained journal evidence (docs/hosted-migration-provider.md).
+    if (source.in_flight !== 0) {
       throw new RolloutRefused("migration_source_not_drained", "The fenced source is not drained.");
     }
   };
