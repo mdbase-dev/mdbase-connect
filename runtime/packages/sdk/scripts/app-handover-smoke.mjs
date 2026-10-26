@@ -8,7 +8,9 @@ import { build } from "../node_modules/esbuild/lib/main.js";
 const [artifact, fixtureFile, policyPinsFile] = process.argv.slice(2); if (!artifact || !fixtureFile || !policyPinsFile) throw Error("explicit actual app artifact, native-generated signed fixture and matching public PolicyPins CBOR required");
 const policyPins = new Uint8Array(readFileSync(policyPinsFile));
 const out = new URL("../../../target/app-handover-smoke/", import.meta.url); mkdirSync(out, { recursive: true });
-await build({ stdin: { contents: 'export * from "./src/app-host/index.ts"; export * from "./src/cbor.ts"; export { uuid, hash } from "./src/codec.ts"; export { MdbaseClient } from "./src/client.ts"; export * from "./src/app-storage/app-binary-index.ts";', resolveDir: new URL("../", import.meta.url).pathname }, bundle: true, platform: "node", format: "esm", outfile: new URL("helpers.mjs", out).pathname });
+await build({ stdin: { contents: 'export * from "./src/app-host/index.ts"; export * from "./src/cbor.ts"; export { uuid, hash } from "./src/codec.ts"; export { MdbaseClient } from "./src/client.ts"; export * from "./src/app-storage/app-binary-index.ts";', resolveDir: new URL("../", import.meta.url).pathname }, bundle: true, platform: "node", format: "esm", outfile: new URL("helpers.mjs", out).pathname,
+  // Node resolves yaml (via the protocol manifest parser) to CommonJS, which needs `require`.
+  banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' } });
 const { AppWasmRuntime, AppBinaryIndexHost, appSqlHost, MdbaseClient, verifyAppHandover, encode, decode, uuid, hash } = await import(new URL("helpers.mjs", out));
 const bytesToUuid = b => uuid.dec(b), bytesToHash = b => hash.dec(b);
 const fixture = decode(readFileSync(fixtureFile)), db = new DatabaseSync(":memory:"), wasm = readFileSync(artifact);
