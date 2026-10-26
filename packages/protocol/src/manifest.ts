@@ -309,6 +309,9 @@ function validateManifestOrigins(
       for (const [index, origin] of (origins as string[]).entries()) {
         const path = `/installation_origins/${environment}/${kind}/${index}`;
         try {
+          if (native && (kind !== "app-runtime" || !isNativeLoopbackOrigin(origin))) {
+            return [issue(path, "origin", "native applications require canonical IPv4 loopback HTTP app-runtime origins")];
+          }
           const url = new URL(origin);
           const web = (secureOrAllowedLocal(url, environment === "lab")
             || (native && isNativeLoopbackOrigin(origin))) && url.origin === origin;
@@ -351,11 +354,11 @@ function validateManifestOrigins(
 
   try {
     const homepage = new URL(String(manifest.homepage));
-    if (!secureOrAllowedLocal(homepage, allowLocal) && !(native && isNativeLoopbackUrl(String(manifest.homepage)))) {
+    if (native ? !isNativeLoopbackUrl(String(manifest.homepage)) : !secureOrAllowedLocal(homepage, allowLocal)) {
       return [issue(
         "/homepage",
         "protocol",
-        "must use HTTPS (or loopback HTTP in local mode)"
+        native ? "native applications require canonical IPv4 loopback HTTP" : "must use HTTPS (or loopback HTTP in local mode)"
       )];
     }
     for (const [index, redirect] of (manifest.redirect_uris as unknown[]).entries()) {
@@ -364,6 +367,9 @@ function validateManifestOrigins(
         return [issue(`/redirect_uris/${index}`, "url", "must be an exact URI without wildcards")];
       }
       const url = new URL(String(redirect));
+      if (native && ["http:", "https:"].includes(url.protocol) && !isNativeLoopbackUrl(String(redirect))) {
+        return [issue(`/redirect_uris/${index}`, "origin", "native HTTP(S) redirects require canonical IPv4 loopback HTTP")];
+      }
       if (url.origin === homepage.origin && !secureOrAllowedLocal(url, allowLocal)
         && !(native && isNativeLoopbackUrl(String(redirect)))) {
         return [issue(

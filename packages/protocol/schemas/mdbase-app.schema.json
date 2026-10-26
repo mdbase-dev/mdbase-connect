@@ -325,7 +325,6 @@
         "id": { "$ref": "#/$defs/identifier" },
         "version": { "$ref": "#/$defs/contract/properties/version" },
         "name": { "type": "string", "minLength": 1, "maxLength": 100 },
-    "platform": { "const": "native", "description": "Unverified native app; permits literal IPv4 loopback HTTP on any port." },
         "description": { "type": "string", "maxLength": 500 },
         "resources": {
           "type": "array",

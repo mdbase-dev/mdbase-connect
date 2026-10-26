@@ -17,15 +17,30 @@ test("native never admits localhost, other addresses, aliases, opaque origins or
   }
 });
 test("native installation origins require the declaration; callbacks remain exact same-origin", () => {
-  for (const platform of [undefined, "native"]) {
-    const base=manifest("https://app.example.test",platform ?? null);
-    const optional={...base,installation_origins:{production:{"app-runtime":["http://127.0.0.1:49152"]}}};
-    assert.equal(validateVersionedAppManifest(optional).valid,platform === "native");
-    for(const origin of ["http://localhost:49152", "app://obsidian.md", "http://127.0.0.2:49152"])
-      assert.equal(validateVersionedAppManifest({...optional,installation_origins:{production:{"app-runtime":[origin]}}}).valid,false);
-  }
+  const base=manifest("http://127.0.0.1:49152");
+  assert.equal(validateVersionedAppManifest({...base,installation_origins:{production:{"app-runtime":["http://127.0.0.1:49153"]}}}).valid,true);
+  const web=manifest("https://app.example.test",null);
+  assert.equal(validateVersionedAppManifest({...web,installation_origins:{production:{"app-runtime":["http://127.0.0.1:49152"]}}}).valid,false);
   for(const callback of ["http://127.0.0.1:49153/callback", "app://obsidian.md/callback", "http://localhost:49152/callback"])
-    assert.equal(validateVersionedAppManifest({...manifest("http://127.0.0.1:49152"),redirect_uris:[callback]}).valid,false);
-  assert.equal(validateVersionedAppManifest({...manifest("http://127.0.0.1:49152"),platform:"other"}).valid,false);
-  assert.equal(validateVersionedAppManifest({...manifest("http://127.0.0.1:49152"),distribution:"portable"}).valid,false);
+    assert.equal(validateVersionedAppManifest({...base,redirect_uris:[callback]}).valid,false);
+  assert.equal(validateVersionedAppManifest({...base,platform:"other"}).valid,false);
+  assert.equal(validateVersionedAppManifest({...base,distribution:"portable"}).valid,false);
+  assert.equal(validateVersionedAppManifest({...base,redirect_uris:["dev.example.native://auth/callback"]}).valid,true);
+});
+for (const origin of ["https://remote.example.test", "https://127.0.0.1:49152", "http://remote.example.test", "http://localhost:49152", "http://[::1]:49152", "http://127.1:49152", "http://127.0.0.1:0", "app://obsidian.md"]) {
+  test(`native rejects ${origin} in every origin-bearing field, even with allowLocal`, () => {
+    for (const version of [1,2]) for (const allowLocal of [false,true]) {
+      const base=manifest("http://127.0.0.1:49152","native",version);
+      for (const candidate of [{...base,homepage:origin}, {...base,redirect_uris:[`${origin}/callback`]},
+        ...["lab","staging","production"].map(environment=>({...base,installation_origins:{[environment]:{"app-runtime":[origin]}}}))]) {
+        assert.equal(validateVersionedAppManifest(candidate,{allowLocal}).valid,false,JSON.stringify(candidate));
+      }
+    }
+  });
+}
+test("native installation origins are app-runtime only, even in LAB", () => {
+  for (const version of [1,2]) for (const environment of ["lab","staging","production"]) for (const allowLocal of [false,true]) {
+    const base=manifest("http://127.0.0.1:49152","native",version);
+    assert.equal(validateVersionedAppManifest({...base,installation_origins:{[environment]:{mobile:["http://127.0.0.1:49153"]}}},{allowLocal}).valid,false);
+  }
 });
