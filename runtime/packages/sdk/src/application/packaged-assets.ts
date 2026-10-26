@@ -41,6 +41,11 @@ export function packagedApplicationAssets(environment:"lab"|"production"|"local"
     // unused promiser default Worker script is not shipped.
     const initializer=new URL("../native/sqlite3.js",import.meta.url);
     const {default:initialize}=await import(/* @vite-ignore */ /* webpackIgnore: true */ initializer.href) as typeof import("../native/sqlite3.js");
+    // Collection SQL explicitly uses SAH-pool. Skip the two unused VFSes
+    // which otherwise probe an async proxy Worker that this SDK does not ship.
+    // The pinned initializer consumes/deletes this bootstrap configuration;
+    // leave opfs-sahpool enabled and keep the official asset bytes unchanged.
+    (globalThis as typeof globalThis & {sqlite3ApiConfig?:unknown}).sqlite3ApiConfig={disable:{vfs:{opfs:true,"opfs-wl":true}}};
     return initialize(options);
   };
   return Object.freeze({release:()=>appReleaseTrust(),runtime:descriptor(runtimeUrl,runtime),sqlite:descriptor(sqliteUrl,sqlite),initializeSqlite});

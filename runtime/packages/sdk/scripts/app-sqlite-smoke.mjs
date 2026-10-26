@@ -3,17 +3,35 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import assert from "node:assert/strict";
+import { build } from "esbuild";
+import { readPackagedSqlite } from "./build-application-assets.mjs";
 
 const playwright = await import(process.env.PLAYWRIGHT_MODULE ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : "@playwright/test");
 const assets = new Map();
 for (const name of ["index.js", "app-sqlite-index.js", "app-binary-index.js", "sqlite-index.js", "collection-sql.js"]) {
   assets.set(`/storage/${name}`, { type: "text/javascript", bytes: await readFile(new URL(`../dist/app-storage/${name}`, import.meta.url)) });
 }
-for (const name of ["index.mjs", "sqlite3.wasm", "sqlite3-opfs-async-proxy.js"]) {
-  assets.set(`/${name}`, { type: name.endsWith(".wasm") ? "application/wasm" : "text/javascript", bytes: await readFile(new URL(`../node_modules/@sqlite.org/sqlite-wasm/dist/${name}`, import.meta.url)) });
-}
+const sqliteAssets = readPackagedSqlite();
+assets.set("/native/sqlite3.js", { type: "text/javascript", bytes: sqliteAssets.initializer });
+assets.set("/native/sqlite3.wasm", { type: "application/wasm", bytes: sqliteAssets.wasm });
+// Exercise the real packaged selector with synthetic public trust, without
+// managed release inputs, accounts or services. The vendor bytes stay exact.
+const selector = await build({
+  entryPoints: [new URL("../src/application/packaged-assets.ts", import.meta.url).pathname],
+  bundle: true, platform: "browser", format: "esm", write: false,
+  plugins: [{ name: "sqlite-smoke-trust", setup(builder) {
+    builder.onResolve({ filter: /^\.\/packaged-trust\.js$/ }, () => ({ path: "trust", namespace: "fixture" }));
+    builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: `
+      export function appReleaseTrust(){return {schema:'mdbn-app-trust/release/1',environment:'lab',
+        cpOrigin:'https://cp.test',logOrigin:'https://log.test',assetSha256:'11'.repeat(32),
+        source:{repository:'mdbase-dev/mdbase-connect',commit:'22'.repeat(20),version:'test'},
+        trustedRoots:[new Uint8Array(32).fill(3)],policyPins:new Uint8Array([4])};}` }));
+  } }],
+});
+assets.set("/application/packaged-assets.js", { type: "text/javascript", bytes: selector.outputFiles[0].contents });
 const worker = `
-import init from '/index.mjs';
+import { packagedApplicationAssets } from '/application/packaged-assets.js';
 import { AppBinaryIndexHost, openAppSahpoolIndex } from '/storage/index.js';
 const scope={account:'00000000-0000-4000-8000-000000000001',installation:'00000000-0000-4000-8000-000000000002',collection:'00000000-0000-4000-8000-000000000003'};
 let sqlite, state, host;
@@ -45,8 +63,10 @@ onmessage=async ({data:m})=>{
   let value;
   if(m.op==='open') {
    const start=performance.now();
-   sqlite ??= await init({print:()=>{},printErr:()=>{}});
-   state=await openAppSahpoolIndex(sqlite,scope);
+   sqlite ??= await packagedApplicationAssets('lab',location.origin,m.platform).initializeSqlite({
+    wasmBinary:new Uint8Array(await (await fetch('/native/sqlite3.wasm')).arrayBuffer()),print:()=>{},printErr:()=>{}
+   });
+   state=await openAppSahpoolIndex(sqlite,{...scope,collection:m.platform==='native'?'00000000-0000-4000-8000-000000000004':scope.collection});
    host=new AppBinaryIndexHost(state.index);
    value={opened:state.index.info.opened,durability:state.index.info.durability,openMs:performance.now()-start,synchronous:Number(query('PRAGMA synchronous')),journal:query('PRAGMA journal_mode'),locking:query('PRAGMA locking_mode')};
   } else if(m.op==='fill') {
@@ -66,8 +86,14 @@ onmessage=async ({data:m})=>{
 };
 `;
 assets.set("/worker.js", { type: "text/javascript", bytes: worker });
+const proxyRequests = [];
 const server = createServer((req, res) => {
+  if (req.url.includes("sqlite3-opfs-async-proxy")) proxyRequests.push(req.url);
   const asset = assets.get(req.url);
+  // Enable the optional VFS feature checks so this catches unwanted probes.
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  res.statusCode = asset || req.url === "/" ? 200 : 404;
   res.setHeader("Content-Type", asset?.type ?? "text/html");
   res.end(asset?.bytes ?? "<!doctype html><title>isolated app SQLite smoke</title>");
 });
@@ -77,10 +103,15 @@ try {
   browser = await playwright.chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
+  const diagnostics = [];
+  page.on("console", message => { if (["warning", "error"].includes(message.type())) diagnostics.push(message.text()); });
+  page.on("pageerror", error => diagnostics.push(error.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   const results = await page.evaluate(async () => {
+    if (!crossOriginIsolated) throw new Error("SQLite smoke requires cross-origin isolation");
     let worker, id = 0;
     const startWorker = () => { worker = new Worker("/worker.js", { type: "module" }); };
+    let platform;
     const call = (op, count) => new Promise((resolve, reject) => {
       const requestId = ++id;
       const timer = setTimeout(() => { worker.terminate(); reject(new Error("SQLite smoke timed out")); }, 15000);
@@ -90,11 +121,11 @@ try {
         data.error ? reject(Object.assign(new Error("SQLite smoke operation failed"), { kind: data.kind })) : resolve(data.value);
       };
       worker.onerror = () => { clearTimeout(timer); reject(new Error("SQLite smoke Worker failed")); };
-      worker.postMessage({ id: requestId, op, count });
+      worker.postMessage({ id: requestId, op, count, platform });
     });
     const results = [];
     try {
-      for (const size of [1000, 5000, 20000]) {
+      for (platform of [undefined, 'native']) for (const size of [1000, 5000, 20000]) {
         startWorker();
         const open = await call("open");
         let secondOpener = null;
@@ -110,17 +141,19 @@ try {
         startWorker();
         const recovered = await call("open");
         const readback = await call("count");
-        if (readback.rows !== size || recovered.opened !== "Unclean" || recovered.durability !== "Disposable") throw new Error("unclean readback mismatch");
+        if (readback.rows !== size || recovered.opened !== "Unclean" || recovered.durability !== "Disposable") throw new Error("unclean readback mismatch: "+JSON.stringify({size,recovered,readback}));
         await call("close"); worker.terminate();
         startWorker();
         const clean = await call("open");
         if (clean.opened !== "Existing") throw new Error("clean reopen mismatch");
         await call("close"); worker.terminate();
-        results.push({ size, open, secondOpener, fill, recovered, readback, clean });
+        results.push({ platform:platform ?? 'web', size, open, secondOpener, fill, recovered, readback, clean });
       }
       return results;
     } finally { worker?.terminate(); }
   });
+  assert.deepEqual(proxyRequests, [], "SAH-pool startup must not request the unused async proxy");
+  assert.deepEqual(diagnostics.filter(text => /opfs|sqlite/i.test(text)), [], "SQLite startup must not warn or fail");
   console.log(JSON.stringify({ browser: browser.version(), sqlite: "3.53.4-build2", sqlBoundary: "MDBIDX-v1", crashDurability: "unqualified", results }));
   await context.close();
 } finally {
