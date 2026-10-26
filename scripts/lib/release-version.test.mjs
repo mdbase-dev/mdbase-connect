@@ -33,16 +33,16 @@ async function fixture(t) {
   return { root, files };
 }
 
-test("dry run plans exactly the 19 version files plus notes and ceilings, without writes", async (t) => {
+test("dry run plans exactly the 20 version files plus notes and ceilings, without writes", async (t) => {
   const { root, files } = await fixture(t);
   const plan = await prepareVersion(root, newVersion, { dryRun: true });
-  assert.equal(plan.updates.size, 21);
-  // Historical beta-prep cohort (d67c854a): do not accidentally start bumping
+  assert.equal(plan.updates.size, 22);
+  // Release cohort including the shared i18n kit: do not accidentally bump
   // independently versioned products or omit a release input.
   assert.deepEqual([...plan.updates.keys()].filter((file) => !["CHANGELOG.md", "config/architecture-budgets.json"].includes(file)).sort(), [
     "Cargo.lock", "Cargo.toml", "apps/desktop/package.json", "apps/portal/package.json",
     "deploy/docker/Cargo.lock.hosted-provider", "package.json", "packages/app-ui/package.json",
-    "packages/client/package.json", "packages/devkit/package.json", "packages/management/package.json",
+    "packages/client/package.json", "packages/devkit/package.json", "packages/i18n/package.json", "packages/management/package.json",
     "packages/pickle/package.json", "packages/protocol/package.json", "packages/sync/package.json",
     "packages/testing/package.json", "packages/ui/package.json", "packages/webhooks/package.json",
     "services/mcp/package.json", "services/mcp/src/mcp.ts", "services/server/package.json"

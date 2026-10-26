@@ -14,7 +14,8 @@ export const publicPackageDirectories = [
   "packages/testing",
   "packages/pickle",
   "packages/webhooks",
-  "packages/app-ui"
+  "packages/app-ui",
+  "packages/i18n"
 ];
 
 export async function publicPackages() {
