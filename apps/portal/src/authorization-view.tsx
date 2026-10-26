@@ -318,7 +318,6 @@ export function RequestOutcome({ status, applicationName, portable = false, retu
     {returnLink}
   </div>;
 }
-
 export function RequestIdentity({ request, showClientKey = true }: { request: PendingAuthorization; showClientKey?: boolean }) {
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
   const portable = request.distribution === "portable", native = request.platform === "native" && isNativeLoopbackOrigin(request.application_origin);
