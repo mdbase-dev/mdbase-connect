@@ -47,3 +47,6 @@ impersonate a local app; native consent must not imply protection from that.
 `app://obsidian.md` is explicitly refused. Every Obsidian plugin and vault shares
 it, so it provides neither plugin identity nor vault isolation. Per-vault storage
 and plugin mirroring are separate backlog work.
+
+Coordinated PRs: https://github.com/mdbase-dev/mdbase-next/pull/970 and
+https://github.com/mdbase-dev/mdbase-connect/pull/992. Land together after Co’s review.
