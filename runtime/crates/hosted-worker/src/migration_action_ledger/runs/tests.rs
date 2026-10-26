@@ -386,3 +386,153 @@ fn unknown_schema_and_sequence_exhaustion_fail_closed() {
     );
     assert_eq!(a.run_sequence(), MAX_SEQ);
 }
+
+fn started(started_us: &str) -> RunBinding {
+    let mut b = binding();
+    b.started_us = started_us.into();
+    b
+}
+
+#[test]
+fn supersede_rebinds_a_rolled_back_run_to_a_strictly_newer_start_once() {
+    let newer = started("104137920000000010");
+    let mut a =
+        JournalDriver::resume_superseded(rolled_back().into_index(), &newer, &mut TestEntropy(70))
+            .unwrap();
+    assert_eq!(a.binding, binding());
+    assert_eq!(a.run_sequence(), 1);
+    a.supersede(1, &newer, &mut TestEntropy(80)).unwrap();
+    assert_eq!(a.run_sequence(), 2);
+    assert_eq!(a.binding, newer);
+    assert_eq!(a.driver.checkpoint().step, Step::Start);
+    assert_eq!(a.read_run(1).unwrap().unwrap().binding, binding());
+    assert_eq!(a.read_run(2).unwrap().unwrap().binding, newer);
+    // A lost acknowledgement: the replay is refused and the new run opens normally.
+    assert_eq!(
+        a.supersede(1, &newer, &mut TestEntropy(90)),
+        Err(LedgerError::Conflict)
+    );
+    let index = a.into_index();
+    assert!(matches!(
+        JournalDriver::resume(index, binding(), &mut TestEntropy(90)),
+        Err(LedgerError::Conflict)
+    ));
+    let index = Sqlite::new();
+    let mut a = JournalDriver::resume_superseded(
+        rolled_back().into_index(),
+        &started("10413792000000002"),
+        &mut TestEntropy(70),
+    )
+    .unwrap();
+    a.supersede(1, &started("10413792000000002"), &mut TestEntropy(80))
+        .unwrap();
+    let b = JournalDriver::resume(
+        a.into_index(),
+        started("10413792000000002"),
+        &mut TestEntropy(90),
+    )
+    .unwrap();
+    assert_eq!(b.run_sequence(), 2);
+    // The fresh run has not rolled back, so nothing supersedes it.
+    let mut c = JournalDriver::resume_superseded(
+        b.into_index(),
+        &started("10413792000000003"),
+        &mut TestEntropy(95),
+    )
+    .unwrap();
+    assert_eq!(
+        c.supersede(2, &started("10413792000000003"), &mut TestEntropy(96)),
+        Err(LedgerError::Refused)
+    );
+    assert!(JournalDriver::resume_superseded(index, &newer, &mut TestEntropy(97)).is_err());
+}
+
+#[test]
+fn supersede_refuses_equal_older_and_foreign_starts_and_every_restart_precondition() {
+    let mut foreign = Vec::new();
+    for field in 0..3 {
+        let mut b = started("10413792000000002");
+        match field {
+            0 => b.collection = B16([9; 16]),
+            1 => b.owner = B16([9; 16]),
+            _ => b.target = B32([9; 32]),
+        }
+        foreign.push(b);
+    }
+    for b in [
+        binding(),
+        started("10413792000000000"),
+        started("9999999999999999"),
+    ]
+    .into_iter()
+    .chain(foreign)
+    {
+        assert!(
+            JournalDriver::resume_superseded(rolled_back().into_index(), &b, &mut TestEntropy(70))
+                .is_err(),
+            "{b:?}"
+        );
+        let mut a = rolled_back();
+        assert_eq!(
+            a.supersede(1, &b, &mut TestEntropy(80)),
+            Err(LedgerError::Conflict),
+            "{b:?}"
+        );
+        assert_eq!(a.run_sequence(), 1);
+    }
+    let newer = started("10413792000000002");
+    // Each restart precondition on its own: a terminal step, unfenced, no
+    // revocation, no cutover (checkpoint or local action), nothing outstanding.
+    for variant in 0..8 {
+        let mut a = rolled_back();
+        let mut cp = a.driver.checkpoint().clone();
+        match variant {
+            0 => cp.step = Step::Start,
+            1 => cp.step = Step::CutoverIntent,
+            2 => cp.step = Step::Routed,
+            3 => cp.fenced = true,
+            4 => cp.revoked.push(B16([9; 16]).to_uuid_string()),
+            5 => cp.cutover_seq = Some(9),
+            6 => cp.intent_mutation = Some(B16([9; 16])),
+            _ => cp.barrier_f = Some(10),
+        }
+        a.spill.save(&cp.to_bytes().unwrap()).unwrap();
+        let mut a =
+            JournalDriver::resume_superseded(a.spill.into_inner(), &newer, &mut TestEntropy(70))
+                .unwrap();
+        assert_eq!(
+            a.supersede(1, &newer, &mut TestEntropy(80)),
+            Err(LedgerError::Refused),
+            "{variant}"
+        );
+        assert_eq!(a.run_sequence(), 1);
+        assert_eq!(a.binding, binding());
+        assert_eq!(a.spill.load().unwrap().unwrap(), cp.to_bytes().unwrap());
+    }
+    for settled in [false, true] {
+        let mut a = rolled_back();
+        let db = &a.spill.index_mut().db;
+        db.execute_batch("DROP TRIGGER mig_native_action_insert")
+            .unwrap();
+        let (id, cp) = (a.id.0.to_vec(), a.driver.checkpoint().to_bytes().unwrap());
+        if settled {
+            // A settled local cutover action (kind 15) is cutover evidence.
+            db.execute("INSERT INTO mig_native_action(seq,driver,action,kind,fingerprint,before_cp,settled,after_cp,result) VALUES(2,?1,?2,15,?3,?4,1,?4,?3)",
+                rusqlite::params![id, vec![9u8; 16], vec![9u8; 32], cp]).unwrap();
+        } else {
+            db.execute("INSERT INTO mig_native_action(seq,driver,action,kind,fingerprint,before_cp) VALUES(2,?1,?2,0,?3,?4)",
+                rusqlite::params![id, vec![9u8; 16], vec![9u8; 32], cp]).unwrap();
+        }
+        let mut a =
+            JournalDriver::resume_superseded(a.spill.into_inner(), &newer, &mut TestEntropy(70))
+                .unwrap();
+        let expected = if settled {
+            LedgerError::Refused
+        } else {
+            LedgerError::OutstandingUnknown
+        };
+        assert_eq!(a.supersede(1, &newer, &mut TestEntropy(80)), Err(expected));
+        assert_eq!(a.run_sequence(), 1);
+        assert_eq!(a.binding, binding());
+    }
+}
