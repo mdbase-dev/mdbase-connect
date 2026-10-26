@@ -1,3 +1,4 @@
+import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { randomUUID } from "node:crypto";
 import { previewCollectionGrant } from "../../grant-planner.js";
 import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
@@ -67,6 +68,7 @@ import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
 import {
   applicationOriginForDeviceRequest,
+  applicationOriginForRedirect,
   createAuthorizationRedirect,
   deniedAuthorizationRedirect
 } from "./redirects.js";
@@ -653,7 +655,7 @@ export function registerAuthorizationRoutes(
     if (!user) return;
     const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
     const authorization = await options.db.query(
-      `SELECT ar.id, ar.flow, ar.user_code, ar.requested_operations,
+      `SELECT ar.id, ar.flow, ar.user_code, ar.requested_operations, ar.redirect_uri, ar.device_origin,
               ar.collection_id, ar.expires_at, consenting.account_backend,
               a.id AS application_id, a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon,
@@ -668,6 +670,8 @@ export function registerAuthorizationRoutes(
       [requestId, user.id]
     );
     if (!authorization.rows[0]) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
+    const {redirect_uri, device_origin, ...pending} = authorization.rows[0];
+    const applicationOrigin = pending.flow === "device_code" ? device_origin ?? "null" : applicationOriginForRedirect(redirect_uri, pending.homepage);
     const activeGrants = await options.db.query<{
       collection_id: string;
       operations: string[];
@@ -771,7 +775,9 @@ export function registerAuthorizationRoutes(
     ];
     return {
       authorization: {
-        ...withClientFingerprint(authorization.rows[0]),
+        ...withClientFingerprint(pending),
+        application_origin: applicationOrigin,
+        platform: pending.platform === "native" && isNativeLoopbackOrigin(applicationOrigin) ? "native" : undefined,
         existing_access: existingAccess
       },
       hosted_collections_available: options.hostedCollections === true,

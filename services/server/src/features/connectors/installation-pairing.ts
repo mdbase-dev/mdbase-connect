@@ -371,7 +371,7 @@ export async function inspectInstallationPairing(
     fail("installation_account_changed", 403);
   const accountUpgrade = await active(db, user, false, true);
   const declaration = (await findInstallationApplication(db, r.app_id))?.application_declaration;
-  const native = declaration && "platform" in declaration && declaration.platform === "native";
+  const native = declaration && "platform" in declaration && declaration.platform === "native" && isNativeLoopbackOrigin(r.app_origin);
   // First-party portal preview only; no account selection or SDK disclosure.
   const eligible = await tx(db, async c => {
     const hosted=await installationCollections(c,user,undefined,r.device_id);

@@ -1,3 +1,4 @@
+import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { provisionedContract, type SetupType } from "@mdbase/connect-ui/contract-setup";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { APPLICATION_SETUP_OPERATIONS } from "@mdbase-dev/connect-protocol";
@@ -320,7 +321,7 @@ export function RequestOutcome({ status, applicationName, portable = false, retu
 
 export function RequestIdentity({ request, showClientKey = true }: { request: PendingAuthorization; showClientKey?: boolean }) {
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
-  const portable = request.distribution === "portable", native = request.platform === "native";
+  const portable = request.distribution === "portable", native = request.platform === "native" && isNativeLoopbackOrigin(request.application_origin);
   return (
     <header className="request-identity">
       <span className="request-identity-mark" aria-hidden="true">{!native && request.icon && request.icon !== failedIcon
@@ -330,7 +331,7 @@ export function RequestIdentity({ request, showClientKey = true }: { request: Pe
         <h1>{native ? "Connect an app" : request.application_name}</h1>
         <p className="request-origin">{native ? "an app running on this computer" : portable
           ? <>Application using a device code{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
-          : <code>{host(request.homepage)}</code>}</p>
+          : <code>{host(request.application_origin ?? request.homepage)}</code>}</p>
         {native
           ? <p className="request-guidance" role="note">Application identity unverified. This app calls itself {request.application_name}. Continue only if you started this connection intentionally.</p>
           : portable

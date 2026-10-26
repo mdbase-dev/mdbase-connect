@@ -131,6 +131,7 @@ export interface PendingAuthorization {
   application_name: string;
   distribution: "web" | "portable";
   platform?: "native";
+  application_origin?: string;
   homepage: string;
   project_url: string | null;
   icon: string | null;

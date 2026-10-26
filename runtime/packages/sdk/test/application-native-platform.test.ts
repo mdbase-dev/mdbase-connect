@@ -31,6 +31,14 @@ describe("declared native production loopback",()=>{
     expect(()=>declaration(origin)).toThrow();
     expect(()=>selectAppEnvironment({environment:"production",appOrigin:origin,platform:"native",release:release()})).toThrow();
   });
+  it.each(["https://remote.example.test","https://127.0.0.1:49152","http://localhost:49152","http://[::1]:49152"])("rejects a native manifest with %s in any origin-bearing field",other=>{
+    const origin="http://127.0.0.1:49152",base=manifest(origin);
+    for (const invalid of [{...base,homepage:other},{...base,redirect_uris:[`${other}/callback`]},
+      { ...base,installation_origins:{production:{"app-runtime":[other]}} }]) {
+      const input=applicationDeclaration({id,name:"Example",origin,environment:"production",manifest:invalid});
+      expect(()=>compileApplicationManifest(input)).toThrow();
+    }
+  });
   it("keeps CP/log HTTPS and exact return-URL ports despite native claim",()=>{
     const origin="http://127.0.0.1:49152";
     for(const field of ["cpOrigin","logOrigin"])

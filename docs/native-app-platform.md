@@ -5,7 +5,9 @@ The manifest adds optional `platform: "native"` to the existing browser-paired
 declaration (`distribution: "web"`, including its omitted default). Omission
 preserves web behavior. Portable device-code declarations remain separate. The
 field is included in the existing canonical declaration digest; it is a claim
-about runtime, never verified publisher identity.
+about runtime, never verified publisher identity. Native homepages, HTTP(S)
+redirects and installation origins must all use canonical IPv4 loopback HTTP;
+installation origins must be app-runtime origins.
 
 For a declared native application, production accepts canonical origins
 `http://127.0.0.1:<port>` on any valid port, following RFC 8252 §7.3. This narrow
@@ -31,10 +33,12 @@ glob is accepted. Without this explicit entry, exact-origin behavior is preserve
 Allowed methods/headers, bearer authentication, nonce signatures and replay
 checks continue to apply. No deployment/configuration change is part of this work.
 
-Native consent says **"an app running on this computer"** and explicitly says
-its identity is unverified. Do not display a manifest-supplied icon or present
-the application name/homepage as verified branding. The user must have started
-the connection and approve the existing pairing flow and collection permissions.
+Native consent is shown only when the recorded request origin is loopback;
+otherwise web consent shows the requesting origin. Native consent says **"an
+app running on this computer"** and explicitly says its identity is unverified.
+Do not display a manifest-supplied icon or present the application
+name/homepage as verified branding. The user must have started the connection
+and approve the existing pairing flow and collection permissions.
 
 A remote web page cannot assign itself a loopback origin: requesting or framing
 a loopback URL does not give the remote page that origin or its storage. A local
@@ -49,4 +53,4 @@ it, so it provides neither plugin identity nor vault isolation. Per-vault storag
 and plugin mirroring are separate backlog work.
 
 Coordinated PRs: https://github.com/mdbase-dev/mdbase-next/pull/970 and
-https://github.com/mdbase-dev/mdbase-connect/pull/992. Land together after Co’s review.
+https://github.com/mdbase-dev/mdbase-connect/pull/992. Land together.
