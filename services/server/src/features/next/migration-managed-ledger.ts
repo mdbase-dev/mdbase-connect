@@ -4,6 +4,8 @@
 // - `worker_run_intent` reserves ONE original Worker dispatch per collection;
 // - `managed_cutover` / `managed_route_back` are the account's one-way phase latch.
 // Writers hold the account lock (lockManagedAccount) for the whole transaction.
+// Every read sees the current attempt only: a re-arm retires its predecessor's
+// events (migration-rearm.ts).
 // Each latch refuses the other under that lock, so the driver sends no resume
 // after a route-back began, and route-back rolls nothing back once a resume
 // could have been sent (whatever its reply), however members interleave.
@@ -13,6 +15,9 @@ import { audit } from "../../platform/audit-events.js";
 import { RolloutRefused } from "./migration-archive-profile.js";
 
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/u;
+/** SQL predicate: the `audit_events` row (alias `e`) belongs to the account's current attempt. */
+export const CURRENT_ATTEMPT = (e = "audit_events") =>
+  `NOT EXISTS (SELECT 1 FROM next_migration_rearms r WHERE r.account_id=${e}.user_id AND ${e}.id=ANY(r.retired_events))`;
 export const BINDING = "two-phase-v1";
 export const MANAGED_RUN = "next_migration.managed_run", WORKER_INTENT = "next_migration.worker_run_intent";
 /** Every Worker run of the binding is in pause mode; `operator_stop_before_flip`
@@ -26,7 +31,7 @@ const unversionedRunSchema = z.object({ collections: z.array(z.string()), backup
 
 export async function readManagedRun(db: DatabaseQueryable, account: string): Promise<ManagedRun | null> {
   const rows = (await db.query<{ metadata: unknown }>(
-    "SELECT metadata FROM audit_events WHERE user_id=$1 AND event_type=$2 AND subject_id=$1::text", [account, MANAGED_RUN])).rows;
+    "SELECT metadata FROM audit_events WHERE user_id=$1 AND event_type=$2 AND subject_id=$1::text AND " + CURRENT_ATTEMPT(), [account, MANAGED_RUN])).rows;
   if (!rows.length) return null;
   const parsed = managedRunSchema.safeParse(rows[0]!.metadata);
   if (rows.length === 1 && parsed.success) return parsed.data;
@@ -60,8 +65,8 @@ async function startedUs(client: DatabaseQueryable, account: string): Promise<st
 
 /** Members with a durable dispatch intent (a read; claimWorkerRun stays authoritative). */
 export async function readIntents(db: DatabaseQueryable, account: string): Promise<string[]> {
-  return (await db.query<{ id: string }>("SELECT DISTINCT subject_id AS id FROM audit_events WHERE user_id=$1 AND event_type=$2 ORDER BY subject_id",
-    [account, WORKER_INTENT])).rows.map(r => r.id);
+  return (await db.query<{ id: string }>(`SELECT DISTINCT subject_id AS id FROM audit_events WHERE user_id=$1 AND event_type=$2 AND ${CURRENT_ATTEMPT()}
+    ORDER BY subject_id`, [account, WORKER_INTENT])).rows.map(r => r.id);
 }
 
 /** An intent with no visible run stays UNKNOWN for longer than the Worker's held-ticket
@@ -70,7 +75,7 @@ const UNKNOWN_QUIET_SECONDS = 420;
 /** Intents older than UNKNOWN_QUIET_SECONDS on the database clock. */
 export async function readQuietIntents(db: DatabaseQueryable, account: string): Promise<string[]> {
   return (await db.query<{ id: string }>(
-    `SELECT subject_id AS id FROM audit_events WHERE user_id=$1 AND event_type=$2 GROUP BY subject_id
+    `SELECT subject_id AS id FROM audit_events WHERE user_id=$1 AND event_type=$2 AND ${CURRENT_ATTEMPT()} GROUP BY subject_id
      HAVING max(created_at) < now() - make_interval(secs => $3) ORDER BY subject_id`, [account, WORKER_INTENT, UNKNOWN_QUIET_SECONDS])).rows.map(r => r.id);
 }
 
@@ -80,7 +85,7 @@ export async function readQuietIntents(db: DatabaseQueryable, account: string): 
 export async function recordedStartContract(db: DatabaseQueryable, account: string, deployment: string): Promise<"lab" | "managed"> {
   const starts = (await db.query<{ metadata: unknown }>(
     `SELECT metadata FROM audit_events WHERE user_id=$1 AND event_type='next_migration.start'
-       AND subject_id=$1::text LIMIT 2`, [account])).rows;
+       AND subject_id=$1::text AND ${CURRENT_ATTEMPT()} LIMIT 2`, [account])).rows;
   const metadata = starts[0]?.metadata;
   const refuse = () => new RolloutRefused("start_profile_invalid", "Exactly one recognized recorded migration start is required.");
   if (starts.length !== 1 || !metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw refuse();
@@ -102,6 +107,8 @@ export async function lockManagedAccount(client: DatabaseQueryable, account: str
 
 export type PhaseLatch = "cutover" | "route_back";
 const LATCH = { cutover: "next_migration.managed_cutover", route_back: "next_migration.managed_route_back" } as const;
+/** Every ledger event of one attempt; a re-arm retires them together. */
+export const ATTEMPT_EVENTS = ["next_migration.start", MANAGED_RUN, WORKER_INTENT, ...Object.values(LATCH)] as const;
 export const latchRefused = (latch: PhaseLatch) => latch === "cutover"
   ? new RolloutRefused("managed_cutover_started", "Phase 2 began; the account only moves forward.")
   : new RolloutRefused("managed_route_back_started", "Route-back began; only route-back continues.");
@@ -109,7 +116,7 @@ export const latchRefused = (latch: PhaseLatch) => latch === "cutover"
 /** The account's one-way phase: null until phase 2's first resume or route-back's first rollback. */
 export async function readPhaseLatch(db: DatabaseQueryable, account: string): Promise<PhaseLatch | null> {
   const rows = (await db.query<{ event_type: string }>(
-    "SELECT DISTINCT event_type FROM audit_events WHERE user_id=$1 AND subject_id=$1::text AND event_type=ANY($2::text[])",
+    `SELECT DISTINCT event_type FROM audit_events WHERE user_id=$1 AND subject_id=$1::text AND event_type=ANY($2::text[]) AND ${CURRENT_ATTEMPT()}`,
     [account, Object.values(LATCH)])).rows;
   if (rows.length > 1) throw new RolloutRefused("managed_phase_inconsistent", "Both phase latches are recorded.");
   return !rows.length ? null : rows[0]!.event_type === LATCH.cutover ? "cutover" : "route_back";

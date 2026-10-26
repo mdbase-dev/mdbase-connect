@@ -5,6 +5,7 @@
 //   next-migration-lab lab-run <account id> <backup hold id> [--stop-before-flip]
 //   next-migration-lab resume <account id>
 //   next-migration-lab route-back <account id>
+//   next-migration-lab re-arm <account id>
 //   next-migration-lab status <account id>
 //
 // DATABASE_URL: control database. MDBASE_LEGACY_PROVIDER_DATABASE_URL: the legacy
@@ -23,8 +24,9 @@ import { labLegacySourceConnection } from "./migration-lab-source-tls.js";
 import { labTargetBootstrap, migrationJobEnvironment, requireMigrationTargetOrigin } from "./migration-lab-target.js";
 import { hostedProviderConfigFromEnv } from "../../runtime-config.js";
 import { labRun, resumeLab, labStatus, labWorkerClient, postgresLabConnect, routeBack, type LabOutcome } from "./migration-lab.js";
+import { postgresRearm, rearm } from "./migration-rearm.js";
 
-const USAGE = "usage: next-migration-lab lab-run <account id> <backup hold id> [--stop-before-flip] | resume <account id> | route-back <account id> | status <account id>";
+const USAGE = "usage: next-migration-lab lab-run <account id> <backup hold id> [--stop-before-flip] | resume <account id> | route-back <account id> | re-arm <account id> | status <account id>";
 
 async function main(argv: string[]): Promise<void> {
   // The environment is checked before anything else is read or opened.
@@ -34,7 +36,7 @@ async function main(argv: string[]): Promise<void> {
   const [command, account, hold, flag] = argv;
   const stopBeforeFlip = flag === "--stop-before-flip";
   if (!account || (command === "lab-run" ? !hold || !(argv.length === 3 || argv.length === 4 && stopBeforeFlip)
-    : argv.length !== 2 || !["route-back", "resume", "status"].includes(command!))) {
+    : argv.length !== 2 || !["route-back", "re-arm", "resume", "status"].includes(command!))) {
     throw new Error(USAGE);
   }
   const sourceUrl = process.env.MDBASE_LEGACY_PROVIDER_DATABASE_URL?.trim();
@@ -57,7 +59,8 @@ async function main(argv: string[]): Promise<void> {
   const db = await createDatabase(process.env.DATABASE_URL);
   const source = await openDatabase(sourceConnection.url, sourceConnection.ssl);
   try {
-    const connect = postgresLabConnect({ db, source, actor, timers: true, environment: process.env.MDBASE_CONNECT_ENVIRONMENT, provider: new HostedProviderClient(providerConfig),
+    const provider = new HostedProviderClient(providerConfig);
+    const connect = postgresLabConnect({ db, source, actor, timers: true, environment: process.env.MDBASE_CONNECT_ENVIRONMENT, provider,
       ...(prepareTarget ? { prepareTarget } : {}) });
     if (command === "status") { console.log(JSON.stringify(await labStatus(account.toLowerCase(), { worker, connect }))); return; }
     const deps = { worker, connect, environment: process.env.MDBASE_CONNECT_ENVIRONMENT, log: (event: Record<string, unknown>) => console.log(JSON.stringify(captureLabWorkerError(event,
@@ -65,6 +68,7 @@ async function main(argv: string[]): Promise<void> {
     const outcome: LabOutcome = command === "lab-run"
       ? await labRun(account.toLowerCase(), hold!.toLowerCase(), deps, stopBeforeFlip)
       : command === "resume" ? await resumeLab(account.toLowerCase(), deps)
+      : command === "re-arm" ? await rearm(account.toLowerCase(), deps, postgresRearm({ db, actor, environment: process.env.MDBASE_CONNECT_ENVIRONMENT, provider }))
       : await routeBack(account.toLowerCase(), deps);
     console.log(JSON.stringify(sanitizedLabOutcome(outcome)));
     if ("stopped" in outcome) {

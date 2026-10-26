@@ -1,0 +1,9 @@
+{
+  "reason": "Operator re-arm of a routed-back managed account adds services/server/src/features/next/migration-rearm.ts (the re-arm transaction, its fresh legacy source check and the operator command). It also adds migration-lab-status.ts, which moves the Worker status schema and idle predicates out of migration-lab.ts so the driver stays within its line budget and the re-arm can share them without an import cycle. The new exports are the re-arm entry points, the attempt-scoped ledger helpers, the shared status predicates, and the lab helpers (deployment admission, command lines, refusal codes) the re-arm reuses. No new runtime mechanism or workspace package is introduced.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 11,
+    "typeScriptExportDeclarations": 17,
+    "services/server": 2
+  }
+}

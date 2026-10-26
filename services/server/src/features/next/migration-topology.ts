@@ -61,7 +61,8 @@ export async function completeMigrationBatch(client: DatabaseQueryable, name: st
       `SELECT 1 FROM next_migration_cohort_members m JOIN users u ON u.id=m.account_id
        LEFT JOIN next_migration_account_flips f ON f.account_id=m.account_id
        WHERE m.cohort=$1 AND m.terminal_excluded_at IS NULL
-         AND (u.account_backend<>'next' OR f.account_id IS NULL) LIMIT 1`, [name]
+         AND (u.account_backend<>'next' OR f.account_id IS NULL)
+       UNION ALL SELECT 1 FROM next_migration_rearms r WHERE r.cohort=$1 LIMIT 1`, [name]
     )).rows.length;
     if (unfinished) return;
     const lab = accepted ? null : await labCohortCompletionEvidence(client, name, revision);

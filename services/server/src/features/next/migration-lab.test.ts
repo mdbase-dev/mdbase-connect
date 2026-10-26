@@ -3,6 +3,7 @@ import {
   decidePoll, decideRouteBack, labRun, labStatus, resumeLab, labWorkerClient, routeBack, PAUSE_REASON, STEP,
   type LabConnect, type LabWorker, type RouteBackPhase, type WorkerReply, type WorkerStatus
 } from "./migration-lab.js";
+import { rearm, type Rearmed } from "./migration-rearm.js";
 
 const account = "10000000-0000-4000-8000-000000000001", collection = "20000000-0000-4000-8000-000000000002";
 const hold = "30000000-0000-4000-8000-000000000003", run1 = "40000000-0000-4000-8000-000000000004";
@@ -836,5 +837,89 @@ describe("managed two-phase orchestration", () => {
     });
     expect(await routeBack(account, d)).toMatchObject({ done: { not_dispatched: [], collections: [
       expect.objectContaining({ collection_id: collection, rolled_back: true }), expect.objectContaining({ collection_id: second, rolled_back: true })] } });
+  });
+
+  describe("re-armed account", () => {
+    const oldHold = "50000000-0000-4000-8000-000000000005";
+    /** An earlier attempt's run: another hold, fully rolled back and unfenced. */
+    const stale = (o: { step?: number; fenced?: boolean; state?: string } = {}): WorkerStatus => {
+      const s = st(o.state ?? "stopped", o.step ?? STEP.rolledBack, { reason: `terminal:${o.step ?? STEP.rolledBack}`, fenced: o.fenced ?? false });
+      s.run!.backup_hold = oldHold; s.run!.stop_before_flip = true; return s;
+    };
+    function rearmed(o: { rearmed?: boolean; status?: WorkerStatus } = {}) {
+      const d = managed(), original = vi.mocked(d.worker.status).getMockImplementation()!;
+      Object.assign(d.pre, { rearmed: o.rearmed ?? true });
+      d.worker.status = vi.fn(async (id: string) => d.members.has(id) ? original(id) : ok(structuredClone(o.status ?? stale())));
+      return d;
+    }
+    it("dispatches over an earlier attempt's rolled-back run with this attempt's hold", async () => {
+      const d = rearmed();
+      expect(await labRun(account, hold, d)).toHaveProperty("done.migration_complete", true);
+      expect(d.worker.run).toHaveBeenCalledWith(collection, hold, true);
+      expect(d.order).toEqual([`run:${collection}`, `run:${second}`, "latch:cutover", `resume:${collection}`, `cutover:${collection}`, `resume:${second}`, `cutover:${second}`, "flip"]);
+    });
+    it.each([
+      ["an account never re-armed", { rearmed: false }],
+      ["a fenced earlier run", { status: stale({ fenced: true }) }],
+      ["an earlier run short of rolled back", { status: stale({ step: STEP.rollingBack }) }],
+      ["a running earlier run", { status: stale({ state: "running" }) }],
+    ] as const)("%s still stops as migration_run_exists without dispatch", async (_name, o) => {
+      const d = rearmed(o);
+      expect(await labRun(account, hold, d)).toMatchObject({ stopped: { reason: "migration_run_exists", collection_id: collection } });
+      expect(d.worker.run).not.toHaveBeenCalled(); expect(d.connect.claimWorkerRun).not.toHaveBeenCalled();
+    });
+    it("a stale run with this attempt's intent is still an UNKNOWN dispatch", async () => {
+      const d = rearmed(); d.pre.intents.push(collection);
+      expect(await labRun(account, hold, d)).toMatchObject({ stopped: { reason: "worker_run_outcome_unknown", collection_id: collection } });
+      expect(d.worker.run).not.toHaveBeenCalled();
+    });
+    it("route-back of the new attempt treats stale members as never dispatched", async () => {
+      const d = rearmed();
+      expect(await routeBack(account, d)).toMatchObject({ done: { not_dispatched: [collection, second] } });
+      expect(d.order).toEqual(["latch:route_back", `unfence:${collection}`, `unfence:${second}`]);
+      expect(d.worker.rollback).not.toHaveBeenCalled();
+      const plain = rearmed({ rearmed: false });
+      expect(await routeBack(account, plain)).toMatchObject({ stopped: { reason: "managed_run_conflict" } });
+    });
+  });
+
+  describe("re-arm", () => {
+    const recorded = { account_id: account, previous_cohort: "old", collection_ids: [collection, second], previous_started_at: "2026-10-26T00:00:00.000Z" };
+    const cp = { rearmed: vi.fn(async (): Promise<Rearmed | null> => null), rearm: vi.fn(async (): Promise<Rearmed> => recorded) };
+    function armable() {
+      cp.rearmed.mockReset().mockResolvedValue(null); cp.rearm.mockReset().mockResolvedValue(recorded);
+      return managed(undefined, { operatorStop: true });
+    }
+    it("re-runs the route-back, requires idle Workers, then re-arms the routed-back set", async () => {
+      const d = armable();
+      await labRun(account, hold, d, true);
+      expect(await rearm(account, d, cp)).toEqual({ done: { ...recorded, rearmed: true } });
+      expect(cp.rearm).toHaveBeenCalledExactlyOnceWith(account, [collection, second], [collection, second]);
+      expect(d.order).toEqual([`run:${collection}`, `run:${second}`, "latch:route_back", `rollback:${collection}`, `rollback:${second}`]);
+    });
+    it("a replay reports the recorded re-arm without touching the Worker", async () => {
+      const d = armable(); vi.mocked(cp.rearmed).mockResolvedValue(recorded);
+      expect(await rearm(account, d, cp)).toEqual({ done: { ...recorded, rearmed: true, already_rearmed: true } });
+      expect(d.worker.status).not.toHaveBeenCalled(); expect(cp.rearm).not.toHaveBeenCalled();
+    });
+    it("a route-back stop stops the re-arm and resumes with re-arm", async () => {
+      const d = armable(); d.pre.phase_latch = "cutover";
+      expect(await rearm(account, d, cp)).toMatchObject({ stopped: { reason: "managed_cutover_started", resume: `${CLI} re-arm ${account}` } });
+      expect(cp.rearm).not.toHaveBeenCalled();
+    });
+    it("a Worker that is not idle after the route-back refuses", async () => {
+      const d = armable();
+      await labRun(account, hold, d, true);
+      const original = vi.mocked(d.worker.status).getMockImplementation()!; let reads = 0;
+      d.worker.status = vi.fn(async (id: string) => id === second && ++reads > 2 ? ok(st("stopped", STEP.rolledBack, { fenced: true })) : original(id));
+      expect(await rearm(account, d, cp)).toMatchObject({ stopped: { step: "worker_status", reason: "rearm_worker_not_idle", collection_id: second } });
+      expect(cp.rearm).not.toHaveBeenCalled();
+    });
+    it("a CP refusal is a stop with its code", async () => {
+      const d = armable(); vi.mocked(cp.rearm).mockRejectedValue(refusal("rearm_source_not_active"));
+      await labRun(account, hold, d, true);
+      expect(await rearm(account, d, cp)).toMatchObject({ stopped: { step: "rearm", reason: "rearm_source_not_active" } });
+      expect(await rearm("not-an-account", d, cp)).toMatchObject({ stopped: { reason: "invalid_request" } });
+    });
   });
 });

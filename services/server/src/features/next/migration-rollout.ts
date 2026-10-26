@@ -37,6 +37,7 @@ import { requireScopedArchiveCoverage } from "./migration-scoped-archive.js";
 import { archiveBindingSchema, ARCHIVE_PREFIX, COHORT_NAME, decimal, HEX64, isCompleteZeroHostedInventory,
   millisecondTime, migrationMembershipDigest, RolloutRefused, SCOPED_HOSTED_ARCHIVE_SCHEMA, verifiedArchiveSchema, ZERO_HOSTED_ARCHIVE_SCHEMA, type VerifiedBatchArchive } from "./migration-archive-profile.js";
 import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-topology.js";
+import { CURRENT_ATTEMPT } from "./migration-managed-ledger.js";
 import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient,
   type LegacyMigrationDrain } from "../../hosted-provider.js";
@@ -116,11 +117,16 @@ async function readCohortBinding(client: DatabaseQueryable, name: string, requir
   )).rows[0];
   if (!batch) throw new RolloutRefused("cohort_not_found", "Migration cohort not found.", 404);
   if (requireFrozen && batch.frozen_at === null) throw new RolloutRefused("backup_missing", "Migration topology must be frozen before archive capture.");
+  // An account re-armed out of this cohort still counts, with the held set recorded at re-arm.
   const members = (await client.query<{ account: string; collection: string | null }>(
-    `SELECT m.account_id::text AS account, h.id::text AS collection
-     FROM next_migration_cohort_members m
-     LEFT JOIN hosted_collections h ON h.user_id = m.account_id AND h.authority_state <> 'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing')
-     WHERE m.cohort = $1 ORDER BY m.account_id, h.id`, [name]
+    `SELECT account::text, collection::text FROM (
+       SELECT m.account_id AS account, h.id AS collection
+       FROM next_migration_cohort_members m
+       LEFT JOIN hosted_collections h ON h.user_id = m.account_id AND h.authority_state <> 'transferred' AND (h.quarantined_at IS NULL OR h.quarantine_reason IS DISTINCT FROM 'provider_collection_missing')
+       WHERE m.cohort = $1
+       UNION ALL
+       SELECT r.account_id, c.id FROM next_migration_rearms r LEFT JOIN LATERAL unnest(r.collections) AS c(id) ON true WHERE r.cohort = $1
+     ) x ORDER BY x.account, x.collection`, [name]
   )).rows;
   const inventory = new Map<string, string[]>();
   for (const row of members) {
@@ -468,7 +474,8 @@ async function starterReservation(client: DatabaseQueryable, account: string): P
 async function requireStarterReservationUnchanged(client: DatabaseQueryable, account: string): Promise<void> {
   const recorded = (await client.query<{ value: string | null }>(
     `SELECT metadata->>'starter_reservation' AS value FROM audit_events
-     WHERE user_id = $1 AND event_type = 'next_migration.start' AND subject_id = $1::text AND metadata ? 'starter_reservation'`, [account]
+     WHERE user_id = $1 AND event_type = 'next_migration.start' AND subject_id = $1::text AND metadata ? 'starter_reservation'
+       AND ${CURRENT_ATTEMPT()}`, [account]
   )).rows;
   const current = await starterReservation(client, account);
   if (recorded.length !== 1 || recorded[0]!.value !== current.digest) {
@@ -787,7 +794,7 @@ export async function releaseCohort(db: DatabaseQueryable, name: string, actor: 
   if (released) await audit(db, null, "next_migration.cohort_release", null, { cohort: name, actor: by });
   return released;
 }
-/** Add legacy accounts to a cohort; one already in a cohort, or already next, is skipped. Returns those added. */
+/** Add legacy accounts to a cohort; one already in a cohort, already next, or re-armed out of this cohort is skipped. Returns those added. */
 export async function addToCohort(db: DatabasePool, name: string, accounts: readonly string[], actor: string): Promise<string[]> {
   const by = actorOf(actor);
   return inTransaction(db, async (client) => {
@@ -802,6 +809,7 @@ export async function addToCohort(db: DatabasePool, name: string, accounts: read
     const r = await client.query<{ account_id: string }>(
       `INSERT INTO next_migration_cohort_members (account_id, cohort)
        SELECT u.id, $1 FROM users u WHERE u.id = ANY($2::uuid[]) AND u.account_backend = 'legacy'
+         AND NOT EXISTS (SELECT 1 FROM next_migration_rearms r WHERE r.account_id = u.id AND r.cohort = $1)
        ON CONFLICT (account_id) DO NOTHING RETURNING account_id::text`, [name, accounts]
     );
     const added = r.rows.map((row) => row.account_id);
