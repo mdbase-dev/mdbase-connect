@@ -43,7 +43,10 @@ export async function buildApp(options: BuildOptions) {
         contract_version: 2,
         required: ["collection.read"],
         optional: ["records.create", "records.edit", "records.delete", "definitions.manage"]
-      }
+      },
+      // Next consent pairs record capabilities with file actions; without them
+      // the approval screen refuses the request.
+      files: { required: ["list", "read"], optional: ["add", "replace", "move", "delete"], scope: { kind: "collection" } }
     },
     provisions: { type_packs: [] }
   };

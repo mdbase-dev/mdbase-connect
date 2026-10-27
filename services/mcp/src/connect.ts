@@ -10,8 +10,12 @@ import {
 } from "@mdbase-dev/connect/crypto";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  APPLICATION_CAPABILITY_DEFINITIONS,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   applicationFileRequest,
+  type ApplicationCapabilityId,
+  type ApplicationFileRequest,
+  type ApplicationFileRequirement,
   authorizationContractRequirements,
   type CollectionOperation,
   type EncryptedRelayOperationResponse,
@@ -21,6 +25,7 @@ import {
   type MdbaseAppManifest,
   type LegacyMdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
+import { NEXT_CAPABILITY_FILE_ACTIONS } from "@mdbase-dev/connect-protocol/next-authorization";
 import { z } from "zod";
 import type { DatabasePool } from "./db.js";
 import { SecretBox } from "./security.js";
@@ -152,7 +157,7 @@ export class ConnectGateway {
     const installation = await this.applicationIdentity(application.id);
     const files = this.manifest.requirements?.files;
     const requestedFiles = files
-      ? ("actions" in files ? files : applicationFileRequest(files))
+      ? ("actions" in files ? files : scopedFileRequest(files, input.operations))
       : undefined;
     const issuedAt = new Date();
     const authorizationId = randomUUID();
@@ -285,6 +290,9 @@ export class ConnectGateway {
         return await this.operationResult<Result>(connection, attempt, requestId);
       } catch (error) {
         if (!force && error instanceof GatewayOperationError && error.code === "authority_authentication_expired") continue;
+        // The legacy authority retired this collection for mdbase-next; this
+        // connection's grant predates the move and must be approved again.
+        if (error instanceof GatewayOperationError && error.details?.reason === "moved_to_next_runtime") throw GatewayOperationError.reconnectRequired(connection);
         throw error;
       }
     }
@@ -693,4 +701,14 @@ function capabilityFlags(value: unknown): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.some(flag => typeof flag !== "string")) throw new GatewayOperationError("invalid_operation_response", "Invalid authority capabilities.");
   return value;
+}
+
+/** Request only the file actions paired with capabilities whose operations are all requested. */
+function scopedFileRequest(files: ApplicationFileRequirement, operations: readonly CollectionOperation[]): ApplicationFileRequest {
+  const requested = new Set<string>(operations);
+  const paired = new Set((Object.keys(NEXT_CAPABILITY_FILE_ACTIONS) as ApplicationCapabilityId[])
+    .filter(id => APPLICATION_CAPABILITY_DEFINITIONS[id].every(operation => requested.has(operation)))
+    .flatMap(id => NEXT_CAPABILITY_FILE_ACTIONS[id] ?? []));
+  const request = applicationFileRequest(files);
+  return { ...request, actions: request.actions.filter(action => paired.has(action)) };
 }

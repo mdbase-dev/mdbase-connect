@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { applicationOperationSelectionIsAtomic } from "@mdbase-dev/connect-protocol";
 import { parseVersionedAppManifest } from "@mdbase-dev/connect-protocol/manifest";
+import { projectNextAuthorizationGroups } from "@mdbase-dev/connect-protocol/next-authorization";
 import { READ_OPERATIONS, WRITE_OPERATIONS } from "./oauth.js";
 import { ConnectGateway } from "./connect.js";
 import { PostgresGrantKeyStore } from "./key-store.js";
@@ -42,7 +43,8 @@ describe("mdbase MCP gateway", () => {
     expect(manifest.json().requirements).toEqual({
       access: "full_collection",
       contracts: [],
-      capabilities: MCP_CAPABILITIES
+      capabilities: MCP_CAPABILITIES,
+      files: { required: ["list", "read"], optional: ["add", "replace", "move", "delete"], scope: { kind: "collection" } }
     });
     const denied = await app.inject({
       method: "POST",
@@ -56,9 +58,9 @@ describe("mdbase MCP gateway", () => {
   });
 
   it.each([
-    ["read-only", READ_OPERATIONS],
-    ["writing", [...READ_OPERATIONS, ...WRITE_OPERATIONS]]
-  ] as const)("signs explicit v2 requests for new %s connections", async (_profile, operations) => {
+    ["read-only", READ_OPERATIONS, ["list", "read"]],
+    ["writing", [...READ_OPERATIONS, ...WRITE_OPERATIONS], ["list", "read", "add", "replace", "move", "delete"]]
+  ] as const)("signs explicit v2 requests for new %s connections", async (_profile, operations, files) => {
     const upstream = await fakeUpstream(globalThis.fetch);
     vi.stubGlobal("fetch", upstream.fetch);
     const db = await createDatabase("memory");
@@ -77,6 +79,9 @@ describe("mdbase MCP gateway", () => {
     )![1]!.body));
     expect(registered.manifest.requirements.capabilities).toEqual(MCP_CAPABILITIES);
     expect(applicationOperationSelectionIsAtomic(MCP_CAPABILITIES, operations)).toBe(true);
+    // Next consent pairs record and file access; a request without the pair is refused.
+    expect(upstream.authorizationProofs[0]!.binding.requested_files).toEqual({ actions: files, scope: { kind: "collection" } });
+    expect(projectNextAuthorizationGroups(registered.manifest.requirements, operations).error).toBeUndefined();
     await app.close();
     await db.end();
   });
@@ -326,7 +331,6 @@ describe("mdbase MCP gateway", () => {
     expect(readRecord.inputSchema.required).toContain("path");
     expect(readRecord.inputSchema.properties).not.toHaveProperty("output");
     expect(readRecord.inputSchema.properties).not.toHaveProperty("file_id");
-    expect(upstream.authorizationProofs.every(proof => proof.binding.requested_files === undefined)).toBe(true);
     const createRecord = tools.tools.find((tool) => tool.name === "create_record")!;
     expect((createRecord.inputSchema.required as string[])).not.toContain("frontmatter");
     const listed = await client.callTool({ name: "list_connections", arguments: {} });
