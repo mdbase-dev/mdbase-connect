@@ -65,4 +65,10 @@ describe("MCP authority gates", () => {
     await expect(gateway.operation("tenant", "connection", "query", {})).rejects.toMatchObject({ code: "insufficient_collection_access" });
     expect(send).toHaveBeenCalledOnce();
   });
+
+  it("asks for re-approval when the legacy authority reports the collection moved to next", async () => {
+    const { gateway, row } = fixture(); Object.assign(row, { id: "connection", display_name: "Notes" }); row.operations = ["query"];
+    vi.spyOn(gateway as any, "sendOperation").mockResolvedValue({ ok: false, status: 409, body: { error: { code: "collection_unavailable", message: "mdbase has been updated.", details: { reason: "moved_to_next_runtime" } } } });
+    await expect(gateway.operation("tenant", "connection", "query", {})).rejects.toMatchObject({ code: "reconnect_required", details: { connection_id: "connection" } });
+  });
 });

@@ -85,7 +85,7 @@ export class NextGateway {
     const token = { value: accessToken };
     const opening = (async () => {
       const key = await this.options.noise.get(connection.key_handle!);
-      if (!key) throw reconnectRequired(connection);
+      if (!key) throw GatewayOperationError.reconnectRequired(connection);
       const client = await (this.options.open ?? openClient(this.fetch, this.options.version))({ connection, grant: route.grant, key, token });
       return { client, token, idle: null, keyHandle: connection.key_handle } satisfies Session;
     })();
@@ -107,17 +107,21 @@ export class NextGateway {
     } catch {
       throw new GatewayOperationError("control_unreachable", "Connect could not be reached. Try again shortly.");
     }
-    const body = await response.json().catch(() => null) as { grant?: unknown; targets?: unknown[]; error?: { code?: string; details?: Record<string, unknown> } } | null;
+    const body = await response.json().catch(() => null) as { grant?: unknown; targets?: unknown[]; availability?: { state?: string; reason?: string }; error?: { code?: string; details?: Record<string, unknown> } } | null;
     if (response.status === 404 || response.status === 405) return LEGACY; // no next control plane
     if (response.status === 401) throw new GatewayOperationError("authority_authentication_expired", "Connect access expired.");
     if (response.status === 409 && body?.error?.code === "client_key_required" && attach) {
       if (await this.attach(connection, accessToken, body.error.details, signal)) return this.route(connection, accessToken, false, signal);
-      throw reconnectRequired(connection);
+      throw GatewayOperationError.reconnectRequired(connection);
     }
-    if (response.status === 409) throw reconnectRequired(connection);
+    if (response.status === 409) throw GatewayOperationError.reconnectRequired(connection);
     if (!response.ok || typeof body?.grant !== "string" || !Array.isArray(body.targets)) {
       throw new GatewayOperationError(body?.error?.code ?? "control_error", `Connect could not route ${connection.display_name}.`);
     }
+    // A grant superseded by, or removed from, a next collection: the legacy path
+    // would only answer that the collection moved. A new approval is the remedy.
+    const reason = body.availability?.state === "unavailable" ? body.availability.reason : undefined;
+    if (reason === "sync_required" || reason === "access_removed") throw GatewayOperationError.reconnectRequired(connection);
     // No target: not served by mdbase-next (yet). The legacy path answers.
     if (body.targets.length === 0) return LEGACY;
     return { grant: body.grant };
@@ -289,10 +293,6 @@ async function settle(pending: Promise<Write>, record = true): Promise<RecordVie
   const view = receipt.records?.[0] ?? write.records[0];
   if (!view) throw new GatewayOperationError("invalid_operation_response", "The replica confirmed the write without the resulting record.");
   return view;
-}
-
-function reconnectRequired(connection: NextConnection): GatewayOperationError {
-  return new GatewayOperationError("reconnect_required", `${connection.display_name} needs to be approved again for the updated mdbase.`, { connection_id: connection.id });
 }
 
 function gatewayError(error: unknown): unknown {

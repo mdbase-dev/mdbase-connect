@@ -71,6 +71,12 @@ describe("NextGateway", () => {
     }
   });
 
+  it.each(["sync_required", "access_removed"])("asks for re-approval instead of the legacy path when the route reports %s", async (reason) => {
+    const f = await fixture([{ status: 200, body: { collection: "col-1", grant: "g", targets: [], availability: { state: "unavailable", reason } } }]);
+    await expect(f.gateway.run(connection, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "reconnect_required", details: { connection_id: "conn-1" } });
+    expect(f.open).not.toHaveBeenCalled();
+  });
+
   it("maps an expired access token to the refresh path", async () => {
     const f = await fixture([{ status: 401, body: {} }]);
     await expect(f.gateway.run(connection, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "authority_authentication_expired" });
