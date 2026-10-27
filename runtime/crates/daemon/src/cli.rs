@@ -151,6 +151,9 @@ enum Command {
     /// Start at login through the OS service manager (systemd, launchd, Task Scheduler).
     #[command(subcommand)]
     Service(crate::service::ServiceCmd),
+    /// Records: `read`, `query`, `validate`, `types`.
+    #[command(flatten)]
+    Data(crate::data::DataCmd),
 }
 
 #[derive(Debug, Subcommand)]
@@ -424,6 +427,15 @@ pub fn main() -> ExitCode {
     if let Command::Companion = cli.command {
         return run_companion(profile, cli.json);
     }
+    // Data commands open the folder in process; they need no async runtime.
+    if let Command::Data(cmd) = cli.command {
+        let out = Output {
+            json: cli.json,
+            yes: cli.yes,
+        };
+        return crate::data::run(cmd, &profile, cli.json)
+            .unwrap_or_else(|e| out.error(&ClientError::Remote(e)));
+    }
     let rt = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -658,7 +670,7 @@ async fn run_command(
     out: &Output,
 ) -> Result<ExitCode, ClientError> {
     match cmd {
-        Command::Daemon(DaemonCmd::Run) | Command::Companion => {
+        Command::Daemon(DaemonCmd::Run) | Command::Companion | Command::Data(_) => {
             unreachable!("handled before the runtime starts")
         }
         Command::Daemon(DaemonCmd::Start) => daemon_start(profile, out).await,
