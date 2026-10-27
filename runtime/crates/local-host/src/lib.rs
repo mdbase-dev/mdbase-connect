@@ -4,8 +4,9 @@
 //! replica: the file store over the native platform and SQLite index
 //! ([`open_store`]), the folder host lock ([`host_lock`]), a persisted replica
 //! identity ([`identity`]), the host services a replica needs natively
-//! ([`host`]: wall clock, OS entropy, IANA zones), and the local-only drive loop
-//! ([`LocalReplica`]). The `mdbase` crate (and through it the Node package) and
+//! ([`host`]: wall clock, OS entropy, IANA zones), the local-only drive loop
+//! ([`LocalReplica`]), and the sequence that opens a plain folder as a library
+//! host ([`open_folder`]). The `mdbase` crate (and through it the Node package) and
 //! the daemon's collection runtime both build on it, so the local stack is
 //! composed once rather than independently by each consumer.
 //!
@@ -20,12 +21,14 @@
 //! `mdbn-replica`, `mdbn-store-file`, `mdbn-platform-native`.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
+pub mod folder;
 pub mod host;
 pub mod host_lock;
 pub mod identity;
 pub mod replica;
 pub mod store;
 
+pub use folder::{CONFIG_FILE, FolderError, FolderOptions, OpenFolder, open_folder};
 pub use host::{OsEntropy, SystemClock, SystemZones};
 pub use host_lock::{Descriptor, DescriptorState, HostKind, HostLock, LockError};
 pub use identity::Identity;
