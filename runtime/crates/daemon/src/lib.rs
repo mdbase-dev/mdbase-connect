@@ -49,6 +49,7 @@ pub mod cloud;
 pub mod collections;
 pub mod confirm;
 pub mod control;
+mod data;
 pub mod declared_setup;
 pub mod desktop;
 pub mod direct;
