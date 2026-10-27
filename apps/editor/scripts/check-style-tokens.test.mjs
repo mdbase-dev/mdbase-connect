@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { checkStyleTokens } from "./check-style-tokens.mjs";
 
 const check = (css) => checkStyleTokens(css, "fixture.css");
+
+test("the Editor entry imports the shared feedback stylesheet", async () => {
+  const entry = await readFile(new URL("../src/main.tsx", import.meta.url), "utf8");
+  assert.match(entry, /import "@mdbase-dev\/ui\/feedback\.css";/);
+});
 
 test("checks the installed UI CSS, not a different workspace copy", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "editor-style-package-"));
