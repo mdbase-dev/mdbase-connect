@@ -66,7 +66,7 @@ fn collection(root: &Path) {
         std::fs::write(root.join("tasks").join(name), text).unwrap();
     };
     record("a.md", "Write docs", "open", "Body A.\n");
-    record("b.md", "Ship", "done", "");
+    record("b.md", "Ship", "done", "See [[a]].\n");
     record("bad.md", "", "maybe", "");
 }
 
@@ -219,6 +219,141 @@ fn types_list_and_show() {
 }
 
 #[test]
+fn writes_apply_and_report() {
+    let f = fixture("wr");
+    let read = |path: &str| std::fs::read_to_string(f.root.join(path)).unwrap();
+
+    let out = f.run(&[
+        "create",
+        "--path",
+        "tasks/c.md",
+        "--type",
+        "task",
+        "--fields",
+        r#"{"title":"C","status":"open","tags":["x"]}"#,
+        "--body",
+        "C body.\n",
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(stdout(&out), "created tasks/c.md\n");
+    assert!(read("tasks/c.md").contains("title: C"));
+    assert!(read("tasks/c.md").ends_with("C body.\n"));
+
+    // A null field is removed.
+    let (code, v) = f.json(&[
+        "update",
+        "tasks/c.md",
+        "--fields",
+        r#"{"status":"done","tags":null}"#,
+    ]);
+    assert_eq!(code, 0, "{v}");
+    assert_eq!(v["published"], "published");
+    let (_, rec) = f.json(&["read", "tasks/c.md"]);
+    assert_eq!(rec["frontmatter"]["status"], "done");
+    assert!(rec["frontmatter"].get("tags").is_none(), "{rec}");
+
+    // A dry run changes nothing.
+    let before = read("tasks/c.md");
+    let (code, v) = f.json(&[
+        "update",
+        "tasks/c.md",
+        "--fields",
+        r#"{"status":"open"}"#,
+        "--dry-run",
+    ]);
+    assert_eq!(code, 0);
+    assert_eq!(v["dry_run"], true);
+    assert_eq!(v["records"][0]["frontmatter"]["status"], "open");
+    assert_eq!(read("tasks/c.md"), before);
+
+    // --if-revision.
+    let zero = "0".repeat(64);
+    let (code, v) = f.json(&[
+        "update",
+        "tasks/c.md",
+        "--fields",
+        "{}",
+        "--if-revision",
+        &zero,
+    ]);
+    assert_eq!(code, 1);
+    assert_eq!(v["error"]["code"], "conflict", "{v}");
+    let revision = rec["revision"].as_str().unwrap();
+    let out = f.run(&[
+        "update",
+        "tasks/c.md",
+        "--body",
+        "New.\n",
+        "--if-revision",
+        revision,
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(read("tasks/c.md").ends_with("New.\n"));
+
+    // A write that would make a record invalid is refused.
+    let (code, _) = f.json(&[
+        "create",
+        "--path",
+        "tasks/d.md",
+        "--type",
+        "task",
+        "--fields",
+        r#"{"title":""}"#,
+    ]);
+    assert_eq!(code, 1);
+    assert!(!f.root.join("tasks/d.md").exists());
+
+    // Rename updates links unless told not to.
+    let out = f.run(&["rename", "tasks/a.md", "tasks/a2.md"]);
+    assert_eq!(stdout(&out), "renamed tasks/a.md -> tasks/a2.md\n");
+    assert!(
+        read("tasks/b.md").contains("[[a2]]"),
+        "{}",
+        read("tasks/b.md")
+    );
+    f.run(&["rename", "tasks/a2.md", "tasks/a3.md", "--no-update-refs"]);
+    assert!(read("tasks/b.md").contains("[[a2]]"));
+
+    let out = f.run(&["delete", "tasks/c.md"]);
+    assert_eq!(stdout(&out), "deleted tasks/c.md\n");
+    assert!(!f.root.join("tasks/c.md").exists());
+
+    // A batch is all or nothing.
+    let out = f.run_with_stdin(
+        &["batch", "--request", "-"],
+        r#"{"ops": [
+            {"op": "create", "path": "tasks/e.md", "type": "task", "fields": {"title": "E", "status": "open"}},
+            {"op": "delete", "path": "tasks/missing.md"}
+        ]}"#,
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(!f.root.join("tasks/e.md").exists());
+    let out = f.run_with_stdin(
+        &["batch", "--request", "-"],
+        r#"{"ops": [
+            {"op": "create", "path": "tasks/e.md", "type": "task", "fields": {"title": "E", "status": "open"}},
+            {"op": "update", "path": "tasks/b.md", "fields": {"status": "open"}}
+        ]}"#,
+    );
+    assert_eq!(stdout(&out), "created tasks/e.md\nupdated tasks/b.md\n");
+    let out = f.run_with_stdin(
+        &["--json", "batch", "--request", "-"],
+        r#"{"ops": [{"op": "move"}]}"#,
+    );
+    assert_eq!(out.status.code(), Some(1));
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error"]["reason"], "invalid_request");
+}
+
+#[test]
 fn refuses_folders_it_must_not_open() {
     let f = fixture("rf");
 
@@ -345,45 +480,80 @@ async fn daemon_route_matches_in_process() {
         &["types", "list"],
         &["types", "show", "task"],
     ];
+    let routes = Routes {
+        state: state.clone(),
+        unregistered: unregistered.clone(),
+        served: served.clone(),
+        local: local.clone(),
+    };
     for args in commands {
         for json_flag in [false, true] {
-            let (daemon_out, local_out) = tokio::task::spawn_blocking({
-                let (state, unregistered) = (state.clone(), unregistered.clone());
-                let (served, local) = (served.clone(), local.clone());
-                let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-                move || {
-                    let args: Vec<&str> = args.iter().map(String::as_str).collect();
-                    (
-                        mdbase(&state, json_flag, &args, &["-C", served.to_str().unwrap()]),
-                        mdbase(
-                            &unregistered,
-                            json_flag,
-                            &args,
-                            &["-C", local.to_str().unwrap()],
-                        ),
-                    )
-                }
-            })
-            .await
-            .unwrap();
-            assert_eq!(
-                daemon_out.status.code(),
-                local_out.status.code(),
-                "{args:?}: {}",
-                String::from_utf8_lossy(&daemon_out.stderr)
-            );
-            if json_flag {
-                let parse = |o: &Output| {
-                    let mut v: Value = serde_json::from_slice(&o.stdout).unwrap();
-                    strip_ids(&mut v);
-                    v
-                };
-                assert_eq!(parse(&daemon_out), parse(&local_out), "{args:?}");
-            } else {
-                assert_eq!(stdout(&daemon_out), stdout(&local_out), "{args:?}");
-            }
+            routes.same(args, json_flag).await;
         }
     }
+
+    // Writes, once each, then the folders must match.
+    let zero = "0".repeat(64);
+    let writes: &[(&[&str], bool)] = &[
+        (
+            &[
+                "create",
+                "--path",
+                "tasks/c.md",
+                "--type",
+                "task",
+                "--fields",
+                r#"{"title":"C","status":"open"}"#,
+                "--body",
+                "C.\n",
+            ],
+            false,
+        ),
+        (
+            &["update", "tasks/c.md", "--fields", r#"{"status":"done"}"#],
+            true,
+        ),
+        (
+            &[
+                "update",
+                "tasks/c.md",
+                "--fields",
+                r#"{"status":"open"}"#,
+                "--dry-run",
+            ],
+            true,
+        ),
+        (
+            &[
+                "update",
+                "tasks/c.md",
+                "--fields",
+                "{}",
+                "--if-revision",
+                &zero,
+            ],
+            true,
+        ),
+        (
+            &[
+                "create",
+                "--path",
+                "tasks/d.md",
+                "--type",
+                "task",
+                "--fields",
+                r#"{"title":""}"#,
+            ],
+            true,
+        ),
+        (&["rename", "tasks/a.md", "tasks/a2.md"], false),
+        (&["delete", "tasks/c.md"], true),
+    ];
+    for (args, json_flag) in writes {
+        routes.same(args, *json_flag).await;
+    }
+    assert_eq!(files(&served.join("tasks")), files(&local.join("tasks")));
+    assert!(files(&served.join("tasks"))[1].1.contains("[[a2]]"));
 
     // By name, from anywhere.
     let out = tokio::task::spawn_blocking(move || {
@@ -401,7 +571,7 @@ async fn daemon_route_matches_in_process() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(stdout(&out), "tasks/bad.md\ntasks/b.md\ntasks/a.md\n");
+    assert_eq!(stdout(&out), "tasks/bad.md\ntasks/b.md\ntasks/a2.md\n");
 
     c.call(Method::SHUTDOWN, json!({})).await.unwrap();
     tokio::time::timeout(Duration::from_secs(15), daemon)
@@ -424,10 +594,72 @@ fn mdbase(state: &Path, json_flag: bool, args: &[&str], target: &[&str]) -> Outp
     c.args(args).args(target).output().unwrap()
 }
 
+struct Routes {
+    state: PathBuf,
+    unregistered: PathBuf,
+    served: PathBuf,
+    local: PathBuf,
+}
+
+impl Routes {
+    /// Run `args` through the daemon and in process; both must answer alike.
+    async fn same(&self, args: &[&str], json_flag: bool) {
+        let (state, unregistered) = (self.state.clone(), self.unregistered.clone());
+        let (served, local) = (self.served.clone(), self.local.clone());
+        let owned: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        let (daemon_out, local_out) = tokio::task::spawn_blocking(move || {
+            let args: Vec<&str> = owned.iter().map(String::as_str).collect();
+            (
+                mdbase(&state, json_flag, &args, &["-C", served.to_str().unwrap()]),
+                mdbase(
+                    &unregistered,
+                    json_flag,
+                    &args,
+                    &["-C", local.to_str().unwrap()],
+                ),
+            )
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            daemon_out.status.code(),
+            local_out.status.code(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&daemon_out.stderr)
+        );
+        if json_flag {
+            let parse = |o: &Output| {
+                let mut v: Value = serde_json::from_slice(&o.stdout).unwrap();
+                strip_ids(&mut v);
+                v
+            };
+            assert_eq!(parse(&daemon_out), parse(&local_out), "{args:?}");
+        } else {
+            assert_eq!(stdout(&daemon_out), stdout(&local_out), "{args:?}");
+        }
+    }
+}
+
+/// A folder's files and their text, by name.
+fn files(dir: &Path) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .map(|p| {
+            let text = std::fs::read_to_string(&p).unwrap();
+            (p.file_name().unwrap().to_string_lossy().into_owned(), text)
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// Remove what each route assigns itself: record and mutation IDs.
 fn strip_ids(v: &mut Value) {
     match v {
         Value::Object(m) => {
             m.remove("id");
+            m.remove("mutation");
             m.values_mut().for_each(strip_ids);
         }
         Value::Array(a) => a.iter_mut().for_each(strip_ids),

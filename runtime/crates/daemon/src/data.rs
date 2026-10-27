@@ -15,16 +15,18 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Args, Subcommand};
-use mdbn_local_host::{FolderError, FolderOptions, HostKind, OpenFolder};
+use mdbn_local_host::{FolderError, FolderOptions, HostKind, OpenFolder, OsEntropy};
 use mdbn_replica::api::{SessionAuth, SessionId};
 use mdbn_replica::frames::Frames;
 use mdbn_wire::Wire;
 use mdbn_wire::cbor::{self, Cbor};
 use mdbn_wire::client::{
-    ClientFrame, ClientRequest, ClientResponse, HelloParams, Include, Issue, Problem, QueryResult,
-    RecordView, Severity,
+    ClientFrame, ClientRequest, ClientResponse, HelloParams, Include, Issue, Problem, PublishState,
+    QueryResult, Receipt, ReceiptState, RecordView, Severity, SubmitParams, WaitFor,
 };
-use mdbn_wire::common::{DataMap, Value as WireValue, Version};
+use mdbn_wire::common::{B16, B32, DataMap, Text, Value as WireValue, Version};
+use mdbn_wire::intent::{self, ConflictMode};
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::client::ClientError;
@@ -106,6 +108,98 @@ pub(crate) enum DataCmd {
     /// The collection's types.
     #[command(subcommand)]
     Types(TypesCmd),
+    /// Create a record. Prints its path (`--json`: the write).
+    Create {
+        #[command(flatten)]
+        target: Target,
+        /// Record path (default: the type's path template).
+        #[arg(long)]
+        path: Option<String>,
+        /// The record's type.
+        #[arg(long = "type", value_name = "TYPE")]
+        type_name: Option<String>,
+        /// Frontmatter fields as a JSON object.
+        #[arg(long, value_name = "JSON")]
+        fields: Option<String>,
+        #[command(flatten)]
+        body: BodyArgs,
+        #[command(flatten)]
+        write: WriteArgs,
+    },
+    /// Change a record's fields or body. A field set to `null` is removed.
+    Update {
+        #[command(flatten)]
+        target: Target,
+        /// Record path.
+        path: String,
+        /// Fields to set, as a JSON object.
+        #[arg(long, value_name = "JSON")]
+        fields: Option<String>,
+        #[command(flatten)]
+        body: BodyArgs,
+        #[command(flatten)]
+        write: WriteArgs,
+    },
+    /// Delete a record.
+    Delete {
+        #[command(flatten)]
+        target: Target,
+        /// Record path.
+        path: String,
+        #[command(flatten)]
+        write: WriteArgs,
+    },
+    /// Rename or move a record, updating links to it unless told not to.
+    Rename {
+        #[command(flatten)]
+        target: Target,
+        /// Current path.
+        from: String,
+        /// New path.
+        to: String,
+        /// Update links in other records (the default).
+        #[arg(long, conflicts_with = "no_update_refs")]
+        update_refs: bool,
+        /// Leave links in other records as they are.
+        #[arg(long)]
+        no_update_refs: bool,
+        #[command(flatten)]
+        write: WriteArgs,
+    },
+    /// Apply several writes as one: all or nothing. The request is JSON,
+    /// `{"ops": [{"op": "create" | "update" | "delete" | "rename", ...}]}`.
+    Batch {
+        #[command(flatten)]
+        target: Target,
+        /// The request, from a file or `-` for stdin.
+        #[arg(long, value_name = "FILE")]
+        request: PathBuf,
+        /// Report what would change without writing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+/// A new body for `create` and `update`.
+#[derive(Debug, Args)]
+pub(crate) struct BodyArgs {
+    /// The body text.
+    #[arg(long, conflicts_with = "body_file")]
+    body: Option<String>,
+    /// Read the body from a file, or `-` for stdin.
+    #[arg(long, value_name = "FILE")]
+    body_file: Option<PathBuf>,
+}
+
+/// Options every single write takes.
+#[derive(Debug, Args)]
+pub(crate) struct WriteArgs {
+    /// Write only if the record is still at this revision (from `read --json`).
+    #[arg(long, value_name = "REVISION")]
+    if_revision: Option<String>,
+    /// Report what would change without writing.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 /// `types` subcommands.
@@ -212,6 +306,92 @@ pub(crate) async fn run(
                 ExitCode::SUCCESS
             })
         }
+        DataCmd::Create {
+            target,
+            path,
+            type_name,
+            fields,
+            body,
+            write,
+        } => {
+            if write.if_revision.is_some() {
+                return Err(ControlError::invalid(
+                    "invalid_argument",
+                    "--if-revision applies to existing records; create has none",
+                )
+                .into());
+            }
+            let op = WriteOp::Create {
+                path,
+                type_name,
+                fields: fields_arg(fields.as_deref())?,
+                body: body.read()?,
+            };
+            submit(&target, profile, json, vec![op], write.dry_run).await
+        }
+        DataCmd::Update {
+            target,
+            path,
+            fields,
+            body,
+            write,
+        } => {
+            let op = WriteOp::Update {
+                path,
+                fields: fields_arg(fields.as_deref())?,
+                body: body.read()?,
+                if_revision: write.if_revision,
+            };
+            submit(&target, profile, json, vec![op], write.dry_run).await
+        }
+        DataCmd::Delete {
+            target,
+            path,
+            write,
+        } => {
+            let op = WriteOp::Delete {
+                path,
+                if_revision: write.if_revision,
+            };
+            submit(&target, profile, json, vec![op], write.dry_run).await
+        }
+        DataCmd::Rename {
+            target,
+            from,
+            to,
+            update_refs: _,
+            no_update_refs,
+            write,
+        } => {
+            let op = WriteOp::Rename {
+                from,
+                to,
+                update_refs: !no_update_refs,
+                if_revision: write.if_revision,
+            };
+            submit(&target, profile, json, vec![op], write.dry_run).await
+        }
+        DataCmd::Batch {
+            target,
+            request,
+            dry_run,
+        } => {
+            let request: BatchRequest = serde_json::from_value(read_json(&request)?)
+                .map_err(|e| ControlError::invalid("invalid_request", format!("request: {e}")))?;
+            if request.ops.is_empty() {
+                return Err(
+                    ControlError::invalid("invalid_request", "the request has no ops").into(),
+                );
+            }
+            submit(
+                &target,
+                profile,
+                json,
+                request.ops,
+                dry_run || request.dry_run,
+            )
+            .await
+        }
         DataCmd::Types(TypesCmd::List { target }) => {
             let mut t = open(&target, profile).await?;
             let result = t
@@ -255,6 +435,7 @@ enum Method {
     Query,
     Validate,
     Describe,
+    Submit,
 }
 
 impl Method {
@@ -264,6 +445,7 @@ impl Method {
             Method::Query => "query",
             Method::Validate => "validate",
             Method::Describe => "describe",
+            Method::Submit => "submit",
         }
     }
 }
@@ -323,20 +505,27 @@ impl Transport {
                 *next_id += 1;
                 let id = *next_id;
                 let bytes = encode(ClientFrame::Request(ClientRequest { id, ..request }))?;
-                let api = folder.replica.replica();
-                frames.on_frame(api, *session, &bytes);
-                frames.pump(api);
-                frames
-                    .take_outgoing()
-                    .into_iter()
-                    .find_map(|(_, out)| match decode_frame(&out) {
-                        Ok(ClientFrame::Response(r)) if r.id == id => Some(Ok(r)),
-                        Ok(_) => None,
-                        Err(e) => Some(Err(e)),
-                    })
-                    .ok_or_else(|| {
-                        ControlError::internal(format!("{} was not answered", method.name()))
-                    })??
+                frames.on_frame(folder.replica.replica(), *session, &bytes);
+                let deadline = std::time::Instant::now() + REQUEST_TIMEOUT;
+                loop {
+                    frames.pump(folder.replica.replica());
+                    if let Some(r) = answer(frames.take_outgoing(), id)? {
+                        break r;
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        return Err(ClientError::Timeout);
+                    }
+                    // A held `submit` answers once the write is published: the
+                    // store observes its own file writes, then the replica's
+                    // timers settle the wait.
+                    std::thread::sleep(Duration::from_millis(2));
+                    folder
+                        .replica
+                        .observe()
+                        .map_err(|e| ControlError::internal(e.to_string()))?;
+                    let now = mdbn_local_host::host::now_ms() as i64;
+                    frames.tick(folder.replica.replica(), now);
+                }
             }
         };
         match response {
@@ -346,6 +535,21 @@ impl Transport {
             ClientResponse { result, .. } => Ok(result.unwrap_or(Cbor::Null)),
         }
     }
+}
+
+/// The response to request `id` among the frames the replica sent, if there.
+fn answer(
+    outgoing: Vec<(SessionId, Vec<u8>)>,
+    id: u64,
+) -> Result<Option<ClientResponse>, ControlError> {
+    for (_, out) in outgoing {
+        if let ClientFrame::Response(r) = decode_frame(&out)?
+            && r.id == id
+        {
+            return Ok(Some(r));
+        }
+    }
+    Ok(None)
 }
 
 fn hello() -> ClientRequest {
@@ -624,6 +828,315 @@ fn text(c: &Cbor, key: u64) -> Option<String> {
     }
 }
 
+// ---- writes --------------------------------------------------------------------
+
+/// One write, as the commands and `batch` requests give it. Records are named by
+/// path; the transport resolves each to its ID on the same route.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+enum WriteOp {
+    Create {
+        path: Option<String>,
+        #[serde(rename = "type")]
+        type_name: Option<String>,
+        #[serde(default)]
+        fields: Map<String, Value>,
+        body: Option<String>,
+    },
+    Update {
+        path: String,
+        #[serde(default)]
+        fields: Map<String, Value>,
+        body: Option<String>,
+        if_revision: Option<String>,
+    },
+    Delete {
+        path: String,
+        if_revision: Option<String>,
+    },
+    Rename {
+        from: String,
+        to: String,
+        #[serde(default = "yes")]
+        update_refs: bool,
+        if_revision: Option<String>,
+    },
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// A `batch` request.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BatchRequest {
+    ops: Vec<WriteOp>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+impl BodyArgs {
+    fn read(&self) -> Result<Option<String>, ControlError> {
+        match (&self.body, &self.body_file) {
+            (Some(b), _) => Ok(Some(b.clone())),
+            (None, Some(file)) => read_text(file).map(Some),
+            (None, None) => Ok(None),
+        }
+    }
+}
+
+fn fields_arg(fields: Option<&str>) -> Result<Map<String, Value>, ControlError> {
+    match fields.map(serde_json::from_str::<Value>) {
+        None => Ok(Map::new()),
+        Some(Ok(Value::Object(m))) => Ok(m),
+        Some(Ok(_)) => Err(ControlError::invalid(
+            "invalid_fields",
+            "--fields must be a JSON object",
+        )),
+        Some(Err(e)) => Err(ControlError::invalid(
+            "invalid_fields",
+            format!("--fields: {e}"),
+        )),
+    }
+}
+
+/// A revision as `read --json` prints it (hex, optionally `sha256:`-prefixed).
+fn revision(r: Option<String>) -> Result<Option<B32>, ControlError> {
+    let Some(r) = r else { return Ok(None) };
+    let bytes = secrets::hex_decode(r.strip_prefix("sha256:").unwrap_or(&r))
+        .ok()
+        .and_then(|b| <[u8; 32]>::try_from(b).ok())
+        .ok_or_else(|| {
+            ControlError::invalid("invalid_revision", format!("{r:?} is not a revision"))
+        })?;
+    Ok(Some(B32(bytes)))
+}
+
+fn wire_map(fields: &Map<String, Value>) -> DataMap<WireValue> {
+    DataMap(
+        fields
+            .iter()
+            .map(|(k, v)| (k.clone(), to_wire(v)))
+            .collect(),
+    )
+}
+
+/// The ID this route gives the record at `path`.
+async fn record_id(t: &mut Transport, path: &str) -> Result<B16, ClientError> {
+    let view: RecordView = decode(
+        &t.call(
+            Method::Get,
+            params(vec![
+                Cbor::Text(path.into()),
+                include(false, false, false).to_cbor(),
+            ]),
+        )
+        .await?,
+    )?;
+    Ok(view.id)
+}
+
+/// What one op did, for the report.
+struct Planned {
+    verb: (&'static str, &'static str),
+    id: B16,
+    path: Option<String>,
+    to: Option<String>,
+}
+
+/// Apply `ops` as one mutation, waiting until it is in the files.
+async fn submit(
+    target: &Target,
+    profile: &Profile,
+    json: bool,
+    ops: Vec<WriteOp>,
+    dry_run: bool,
+) -> Result<ExitCode, ClientError> {
+    let mut t = open(target, profile).await?;
+    let now = mdbn_local_host::host::now_ms();
+    let mut wire_ops = Vec::with_capacity(ops.len());
+    let mut planned = Vec::with_capacity(ops.len());
+    for op in ops {
+        match op {
+            WriteOp::Create {
+                path,
+                type_name,
+                fields,
+                body,
+            } => {
+                let id = B16(mdbn_local_host::host::uuid_v7(now, &mut OsEntropy));
+                planned.push(Planned {
+                    verb: ("created", "create"),
+                    id,
+                    path: path.clone(),
+                    to: None,
+                });
+                wire_ops.push(intent::Op::Create(intent::Create {
+                    id,
+                    path,
+                    type_name,
+                    frontmatter: Some(wire_map(&fields)),
+                    body: body.map(Text::Inline),
+                    document: None,
+                }));
+            }
+            WriteOp::Update {
+                path,
+                fields,
+                body,
+                if_revision,
+            } => {
+                let id = record_id(&mut t, &path).await?;
+                let (unset, set): (Map<String, Value>, Map<String, Value>) =
+                    fields.into_iter().partition(|(_, v)| v.is_null());
+                planned.push(Planned {
+                    verb: ("updated", "update"),
+                    id,
+                    path: Some(path),
+                    to: None,
+                });
+                wire_ops.push(intent::Op::Update(intent::Update {
+                    id,
+                    patch: (!set.is_empty()).then(|| wire_map(&set)),
+                    unset: (!unset.is_empty()).then(|| unset.into_iter().map(|(k, _)| k).collect()),
+                    add: None,
+                    remove: None,
+                    body: body.map(Text::Inline),
+                    body_edits: None,
+                    body_base: None,
+                    body_base_text: None,
+                    base: None,
+                    if_revision: revision(if_revision)?,
+                }));
+            }
+            WriteOp::Delete { path, if_revision } => {
+                let id = record_id(&mut t, &path).await?;
+                planned.push(Planned {
+                    verb: ("deleted", "delete"),
+                    id,
+                    path: Some(path),
+                    to: None,
+                });
+                wire_ops.push(intent::Op::Delete(intent::Delete {
+                    id,
+                    base_revision: None,
+                    if_revision: revision(if_revision)?,
+                }));
+            }
+            WriteOp::Rename {
+                from,
+                to,
+                update_refs,
+                if_revision,
+            } => {
+                let id = record_id(&mut t, &from).await?;
+                planned.push(Planned {
+                    verb: ("renamed", "rename"),
+                    id,
+                    path: Some(from.clone()),
+                    to: Some(to.clone()),
+                });
+                wire_ops.push(intent::Op::Rename(intent::Rename {
+                    id,
+                    from,
+                    to,
+                    update_refs,
+                    if_revision: revision(if_revision)?,
+                }));
+            }
+        }
+    }
+    let params = SubmitParams {
+        ops: wire_ops,
+        // A fresh mutation per call: a rerun is a new write, never a replay.
+        mutation_id: Some(B16(mdbn_local_host::host::uuid_v7(now, &mut OsEntropy))),
+        conflict_mode: Some(ConflictMode::Reject),
+        timezone: None,
+        allow_partial: None,
+        mutation_ids: None,
+        dry_run: dry_run.then_some(true),
+        include: Some(include(false, false, true)),
+        wait: Some(if dry_run {
+            WaitFor::Pending
+        } else {
+            WaitFor::Published
+        }),
+    };
+    let receipts: Vec<Receipt> = decode(&t.call(Method::Submit, params.to_cbor()).await?)?;
+    let receipt = receipts
+        .into_iter()
+        .next()
+        .ok_or_else(|| ControlError::internal("submit returned no receipt"))?;
+    match (receipt.state, &receipt.problem) {
+        (ReceiptState::Rejected, Some(p)) => return Err(problem(p).into()),
+        (ReceiptState::Rejected, None) => {
+            return Err(ControlError::internal("the write was rejected without a reason").into());
+        }
+        (ReceiptState::Unknown, _) => {
+            return Err(ControlError::unavailable(
+                "outcome_unknown",
+                "the write's outcome cannot be determined; check the record before retrying",
+            )
+            .into());
+        }
+        // Pending or confirmed: the change is recorded. It is done for the CLI
+        // once its file is written (or known not to be); a local-only write is
+        // confirmed on the replica's next tick, a synced one when the log appends.
+        _ if !dry_run && receipt.published == Some(PublishState::Publishing) => {
+            return Err(ClientError::Timeout);
+        }
+        _ => {}
+    }
+    let records = receipt.records.unwrap_or_default();
+    if json {
+        print_json(&json!({
+            "mutation": uuid_string(&receipt.mutation.0),
+            "dry_run": dry_run,
+            "published": receipt.published.map(|p| match p {
+                PublishState::Publishing => "publishing",
+                PublishState::Published => "published",
+                PublishState::NotPublished => "not_published",
+            }),
+            "records": records.iter().map(record_json).collect::<Vec<_>>(),
+        }));
+    } else {
+        for p in &planned {
+            let path = records
+                .iter()
+                .find(|r| r.id == p.id)
+                .map(|r| r.path.clone())
+                .or_else(|| p.path.clone())
+                .unwrap_or_default();
+            let verb = if dry_run {
+                format!("would {}", p.verb.1)
+            } else {
+                p.verb.0.to_string()
+            };
+            match &p.to {
+                Some(to) => println!("{verb} {} -> {to}", p.path.as_deref().unwrap_or_default()),
+                None => println!("{verb} {path}"),
+            }
+        }
+        for r in &records {
+            for i in r.diagnostics.iter().flatten() {
+                let label = match i.severity {
+                    Severity::Error => "error",
+                    Severity::Warning => "warning",
+                };
+                eprintln!("{}: {label} {}: {}", r.path, i.code, i.message);
+            }
+        }
+    }
+    if receipt.published == Some(PublishState::NotPublished) {
+        eprintln!(
+            "the change is recorded but its file was not written: the file changed or is held; \
+             see `mdbase holds`"
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 // ---- queries -------------------------------------------------------------------
 
 fn query_json(
@@ -660,19 +1173,23 @@ fn query_json(
 }
 
 fn read_json(file: &Path) -> Result<Value, ControlError> {
-    let text = if file == Path::new("-") {
+    serde_json::from_str(&read_text(file)?)
+        .map_err(|e| ControlError::invalid("invalid_json", format!("request: {e}")))
+}
+
+/// A file's text, or stdin's for `-`.
+fn read_text(file: &Path) -> Result<String, ControlError> {
+    if file == Path::new("-") {
         let mut s = String::new();
         std::io::stdin()
             .read_to_string(&mut s)
-            .map_err(|e| ControlError::invalid("unreadable_request", format!("stdin: {e}")))?;
-        s
+            .map_err(|e| ControlError::invalid("unreadable_input", format!("stdin: {e}")))?;
+        Ok(s)
     } else {
         std::fs::read_to_string(file).map_err(|e| {
-            ControlError::invalid("unreadable_request", format!("{}: {e}", file.display()))
-        })?
-    };
-    serde_json::from_str(&text)
-        .map_err(|e| ControlError::invalid("invalid_json", format!("request: {e}")))
+            ControlError::invalid("unreadable_input", format!("{}: {e}", file.display()))
+        })
+    }
 }
 
 // ---- validation ----------------------------------------------------------------

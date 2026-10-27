@@ -1,6 +1,6 @@
 # Data commands in the `mdbase` CLI
 
-Status: accepted plan. Phases 1 and 2 are implemented (`crates/daemon/src/data.rs`).
+Status: accepted plan. Phases 1 to 3 are implemented (`crates/daemon/src/data.rs`).
 
 The `mdbase` binary (`crates/daemon`, `src/cli.rs`) administers the daemon,
 collections, sync, devices and app access. It cannot read or write records. The
@@ -19,7 +19,7 @@ collide.
 | `query` (`--types`, `--where`, `--order-by`, `--limit`, `--offset`, `--include-body`, or `--request FILE\|-`) | `query` | 1 |
 | `validate [PATH]` | `validate` | 1 |
 | `types list`, `types show NAME` | `describe` | 1 |
-| `create`, `update`, `delete`, `rename` (`--if-revision`, `--dry-run`) | `submit` | 3 |
+| `create --path --type --fields JSON`, `update PATH --fields JSON`, `delete PATH`, `rename FROM TO` (`--body`/`--body-file`, `--if-revision`, `--dry-run`) | `submit` | 3 |
 | `batch --request FILE\|-` | `submit` | 3 |
 | `views`, `changes`/`watch`, type writes, packs | various | later, on request |
 
@@ -75,6 +75,26 @@ use, and the facade calls it. That is a move, not a copy.
   approval and the other host-only methods cannot be sent from a data command. A
   daemon-side list keyed on the client name would not help, because any holder of
   the host key can claim any name. `hello` carries the client name `mdbase-cli`.
+
+## Writes
+
+- The flags follow the retired connector CLI's, so its scripts keep working:
+  `create --path P --type T --fields JSON`, `update PATH --fields JSON`,
+  `delete PATH`, `rename FROM TO` (links are updated unless `--no-update-refs`).
+  `--body TEXT` and `--body-file FILE|-` set the body. In `update`, a field set to
+  `null` is removed.
+- `batch --request FILE|-` takes `{"ops": [...], "dry_run"?}`, each op shaped like
+  the commands (`{"op": "create", "path", "type", "fields", "body"}`, `update`
+  with `path`, `fields`, `body`, `if_revision`, `delete`, `rename` with `from`,
+  `to`, `update_refs`), and applies them as one mutation: all or nothing.
+- Records are named by path. Each is resolved to its ID with `get` on the same
+  session, because IDs are route-scoped.
+- Every call submits a fresh mutation ID with `conflict_mode: reject` and
+  `wait: published`. A command returns once the file is written, or is known not
+  to be (then it says so and points to `mdbase holds`). A local-only write is
+  confirmed on the replica's next tick; a synced one when the log appends, which
+  the command does not wait for.
+- `--dry-run` previews the records without writing.
 
 ## Phases
 
