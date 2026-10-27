@@ -54,6 +54,45 @@ Do not expose the local control socket or named pipe over a network. Back up the
 state directory and OS credential store according to the recovery guidance for
 your platform.
 
+## Read and write records
+
+The data commands work on the collection folder you are in, another folder with
+`-C PATH`, or a registered collection with `-c` and its ID, ID prefix or name:
+
+```bash
+mdbase query --types task --where 'status == "open"' --order-by -due
+mdbase read tasks/review.md --json
+mdbase validate
+mdbase types list
+mdbase create --type task --fields '{"title": "Review"}' --body-file notes.txt
+mdbase update tasks/review.md --fields '{"status": "done", "due": null}'
+mdbase rename tasks/review.md done/review.md
+mdbase delete done/review.md --if-revision <revision>
+mdbase batch --request ops.json
+```
+
+When the daemon serves the folder, a command goes through it. Otherwise the CLI opens
+the folder itself for the one command. It refuses a folder that another process
+holds open, a folder inside a registered collection while the daemon is stopped
+(exit `3`), and a folder that contains a registered collection. Registered
+collections open only once the computer is signed in.
+
+`validate` with no paths checks the whole collection within the replica's
+validation budget, which a collection of more than a few hundred records
+exceeds (`too_large`); name paths to check some records of a larger one.
+
+`read --json` prints the record with its revision. Pass it back with
+`--if-revision` so a write fails rather than overwrite a change made in
+between. Every write takes `--dry-run`. `batch` applies all its operations or
+none; `mdbase batch --help` shows the request shape. A write returns once its
+file is written. If the file changed on disk or is held, the change is recorded
+without writing it; the command says so, and `mdbase holds` lists held files.
+
+With `--json`, each command prints its result, and a failure prints
+`{"error": {"code", "message", "reason"}}`. Exit codes are `0` for success, `1`
+for an error (including `validate` finding an error), `2` for invalid usage
+and `3` when the daemon is not running.
+
 ## Hosted read canary
 
 The canary drives the previous connector CLI's `connect login` and
