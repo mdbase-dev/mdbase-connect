@@ -166,8 +166,13 @@ pub(crate) enum DataCmd {
         #[command(flatten)]
         write: WriteArgs,
     },
-    /// Apply several writes as one: all or nothing. The request is JSON,
-    /// `{"ops": [{"op": "create" | "update" | "delete" | "rename", ...}]}`.
+    /// Apply several writes as one: all or nothing.
+    ///
+    /// The request is JSON: `{"ops": [{"op": "create", "path": ..., "type": ...,
+    /// "fields": {...}, "body": ...}, {"op": "update", "path": ..., "fields":
+    /// {...}}, {"op": "delete", "path": ...}, {"op": "rename", "from": ..., "to":
+    /// ...}], "dry_run": false}`. `update`, `delete` and `rename` take
+    /// `if_revision`; `rename` takes `update_refs` (default true).
     Batch {
         #[command(flatten)]
         target: Target,

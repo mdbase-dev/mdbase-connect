@@ -1,6 +1,6 @@
 # Data commands in the `mdbase` CLI
 
-Status: accepted plan. Phases 1 to 3 are implemented (`crates/daemon/src/data.rs`).
+Status: implemented in `crates/daemon/src/data.rs` (phases 1 to 4).
 
 The `mdbase` binary (`crates/daemon`, `src/cli.rs`) administers the daemon,
 collections, sync, devices and app access. It cannot read or write records. The
@@ -121,6 +121,14 @@ Each phase is one PR.
   (`collections.rs`). There is nothing to exempt. The daemon route reports the
   collection's state before opening a session and, for this reason, says to run
   `mdbase account sign-in`.
-- **Open cost.** The library writes state under `<root>/.mdbase/library/` and
-  rescans on every open. Phase 1 measures this on a large folder, since scripts
-  run commands in loops.
+- **Open cost (measured).** The in-process route rescans the folder and keeps
+  library state under `<root>/.mdbase/library/`. On a release build with
+  half-kilobyte records, the first open takes 0.14 s for 1,000 records and 1.5 s
+  for 10,000 (23 MB of state); later opens take 0.02 s and 0.17 s. That is cheap
+  enough for scripts that loop, so the CLI keeps no cache of its own.
+- **Whole-collection `validate`.** The replica's validation budget
+  (`docs/contracts/replica-client-api.md`, 4096 work units per request) refuses
+  `validate` with no paths past roughly 600 linked records, on both routes, with
+  `too_large`/`validation_budget`. Single paths still validate in a 10,000-record
+  collection. Validating large collections needs the contract changed, or the CLI
+  to validate in pages of paths if per-target cross-record checks allow it.

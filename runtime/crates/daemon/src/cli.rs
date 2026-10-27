@@ -33,11 +33,25 @@ mod collection_delete_tests;
 /// How long `daemon start` waits for readiness.
 pub const START_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// The data commands' examples, after the command list.
+const DATA_HELP: &str = "\
+Records: `read`, `query`, `validate`, `types` and the writes work on the folder
+you are in, another with `-C PATH`, or a registered collection with `-c NAME`.
+When the daemon serves the folder they go through it; otherwise mdbase opens
+the folder itself.
+
+  mdbase query --types task --where 'status == \"open\"' --order-by -due
+  mdbase read tasks/review.md --json
+  mdbase update tasks/review.md --fields '{\"status\": \"done\"}'
+  mdbase rename tasks/review.md done/review.md
+  mdbase validate -c notes";
+
 #[derive(Debug, Parser)]
 #[command(
     name = "mdbase",
     version = crate::BINARY_VERSION,
-    about = "mdbase: your Markdown collections, synced."
+    about = "mdbase: your Markdown collections, synced.",
+    after_help = DATA_HELP
 )]
 struct Cli {
     /// Use an isolated profile in this directory instead of the installed service
@@ -151,7 +165,7 @@ enum Command {
     /// Start at login through the OS service manager (systemd, launchd, Task Scheduler).
     #[command(subcommand)]
     Service(crate::service::ServiceCmd),
-    /// Records: `read`, `query`, `validate`, `types`.
+    /// Records: reads, queries, validation, types and writes.
     #[command(flatten)]
     Data(crate::data::DataCmd),
 }

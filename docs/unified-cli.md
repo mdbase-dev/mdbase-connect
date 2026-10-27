@@ -1,5 +1,11 @@
 # Unified mdbase CLI
 
+> **Superseded.** This describes the connector CLI (`crates/connect-cli`), which
+> no longer ships. The `mdbase` binary is built from `runtime/crates/daemon`; its
+> record commands are described in
+> [`runtime/docs/cli-data-commands.md`](../runtime/docs/cli-data-commands.md)
+> and the [headless guide](headless.md).
+
 ## Decision
 
 The ecosystem ships one native command named `mdbase`.
