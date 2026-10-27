@@ -1,15 +1,18 @@
 //! Record data commands: `read`, `query`, `validate`, `types`.
 //!
 //! Each command is built once, as replica client requests
-//! (`replica-client-api.md`), and sent over a [`Transport`]. A folder no daemon
-//! serves is opened in process as a library host ([`mdbn_local_host::open_folder`])
-//! and driven through the same frame layer the daemon serves. A folder registered
-//! with this profile's daemon is never opened in process: the library would mint
-//! record IDs that differ from the daemon's. See `docs/cli-data-commands.md`.
+//! (`replica-client-api.md`), and sent over a [`Transport`]. A folder registered
+//! with this profile's daemon goes through a host session on the daemon's replica
+//! endpoint. Any other folder is opened in process as a library host
+//! ([`mdbn_local_host::open_folder`]) and driven through the same frame layer the
+//! daemon serves. A registered folder is never opened in process, even when the
+//! daemon is stopped: the library would mint record IDs that differ from the
+//! daemon's. See `docs/cli-data-commands.md`.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 use clap::{Args, Subcommand};
 use mdbn_local_host::{FolderError, FolderOptions, HostKind, OpenFolder};
@@ -24,13 +27,23 @@ use mdbn_wire::client::{
 use mdbn_wire::common::{DataMap, Value as WireValue, Version};
 use serde_json::{Map, Value, json};
 
-use crate::control::ControlError;
+use crate::client::ClientError;
+use crate::control::{CollectionState, CollectionStatus, ControlError};
+use crate::ipc::BoxStream;
 use crate::paths::Profile;
 use crate::registry::Registry;
-use crate::secrets::{hex, uuid_string};
+use crate::secrets::{self, hex, uuid_string};
+use crate::session::{ClientSession, Prologue};
 
 /// The client name this CLI reports in `hello`.
 const CLIENT_NAME: &str = "mdbase-cli";
+
+/// How long one request may take on the daemon route (a full `validate` of a
+/// large collection is the slowest).
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// How long to wait for a collection the daemon is still opening.
+const OPENING_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Which collection a data command works on.
 #[derive(Debug, Args)]
@@ -38,6 +51,9 @@ pub(crate) struct Target {
     /// The collection folder (default: the current directory).
     #[arg(short = 'C', long, value_name = "PATH")]
     root: Option<PathBuf>,
+    /// A collection registered with the daemon: ID, ID prefix or name.
+    #[arg(short = 'c', long, value_name = "COLLECTION", conflicts_with = "root")]
+    collection: Option<String>,
 }
 
 /// The data commands.
@@ -110,14 +126,21 @@ pub(crate) enum TypesCmd {
 }
 
 /// Run a data command. Errors are rendered by the caller.
-pub(crate) fn run(cmd: DataCmd, profile: &Profile, json: bool) -> Result<ExitCode, ControlError> {
+pub(crate) async fn run(
+    cmd: DataCmd,
+    profile: &Profile,
+    json: bool,
+) -> Result<ExitCode, ClientError> {
     match cmd {
         DataCmd::Read { target, path } => {
-            let mut t = open(&target, profile)?;
-            let view: RecordView = decode(&t.call(
-                "get",
-                params(vec![Cbor::Text(path), include(true, true, true).to_cbor()]),
-            )?)?;
+            let mut t = open(&target, profile).await?;
+            let view: RecordView = decode(
+                &t.call(
+                    Method::Get,
+                    params(vec![Cbor::Text(path), include(true, true, true).to_cbor()]),
+                )
+                .await?,
+            )?;
             if json {
                 print_json(&record_json(&view));
             } else {
@@ -139,14 +162,17 @@ pub(crate) fn run(cmd: DataCmd, profile: &Profile, json: bool) -> Result<ExitCod
                 Some(file) => read_json(&file)?,
                 None => query_json(types, filter, &order_by, limit, offset),
             };
-            let mut t = open(&target, profile)?;
-            let result: QueryResult = decode(&t.call(
-                "query",
-                params(vec![
-                    to_wire(&query).to_cbor(),
-                    include(include_body, false, false).to_cbor(),
-                ]),
-            )?)?;
+            let mut t = open(&target, profile).await?;
+            let result: QueryResult = decode(
+                &t.call(
+                    Method::Query,
+                    params(vec![
+                        to_wire(&query).to_cbor(),
+                        include(include_body, false, false).to_cbor(),
+                    ]),
+                )
+                .await?,
+            )?;
             if json {
                 print_json(&query_result_json(&result));
             } else {
@@ -161,13 +187,13 @@ pub(crate) fn run(cmd: DataCmd, profile: &Profile, json: bool) -> Result<ExitCod
             Ok(ExitCode::SUCCESS)
         }
         DataCmd::Validate { target, paths } => {
-            let mut t = open(&target, profile)?;
+            let mut t = open(&target, profile).await?;
             let targets = if paths.is_empty() {
                 Cbor::Null
             } else {
                 Cbor::Array(paths.into_iter().map(Cbor::Text).collect())
             };
-            let result = t.call("validate", params(vec![targets]))?;
+            let result = t.call(Method::Validate, params(vec![targets])).await?;
             let records = validation(&result)?;
             let errors = records
                 .iter()
@@ -187,8 +213,11 @@ pub(crate) fn run(cmd: DataCmd, profile: &Profile, json: bool) -> Result<ExitCod
             })
         }
         DataCmd::Types(TypesCmd::List { target }) => {
-            let mut t = open(&target, profile)?;
-            let types = describe(&mut t, false)?;
+            let mut t = open(&target, profile).await?;
+            let result = t
+                .call(Method::Describe, params(vec![Cbor::Bool(false)]))
+                .await?;
+            let types = types(&result)?;
             if json {
                 print_json(&Value::Array(
                     types.iter().map(TypeSummary::to_json).collect(),
@@ -201,8 +230,11 @@ pub(crate) fn run(cmd: DataCmd, profile: &Profile, json: bool) -> Result<ExitCod
             Ok(ExitCode::SUCCESS)
         }
         DataCmd::Types(TypesCmd::Show { target, name }) => {
-            let mut t = open(&target, profile)?;
-            let ty = describe(&mut t, true)?
+            let mut t = open(&target, profile).await?;
+            let result = t
+                .call(Method::Describe, params(vec![Cbor::Bool(true)]))
+                .await?;
+            let ty = types(&result)?
                 .into_iter()
                 .find(|ty| ty.name == name)
                 .ok_or_else(|| ControlError::not_found(format!("no type named {name}")))?;
@@ -214,79 +246,130 @@ pub(crate) fn run(cmd: DataCmd, profile: &Profile, json: bool) -> Result<ExitCod
 
 // ---- transport ---------------------------------------------------------------
 
-/// Where requests go. Only the in-process route exists so far; the daemon route
-/// is phase 2 of `docs/cli-data-commands.md`.
-pub(crate) struct Transport {
-    folder: OpenFolder,
-    frames: Frames,
-    session: SessionId,
-    next_id: u64,
+/// The replica methods data commands send. A host session has owner power, so the
+/// transport takes only these: device approval and the other host-only methods
+/// cannot be reached from a data command.
+#[derive(Debug, Clone, Copy)]
+enum Method {
+    Get,
+    Query,
+    Validate,
+    Describe,
+}
+
+impl Method {
+    fn name(self) -> &'static str {
+        match self {
+            Method::Get => "get",
+            Method::Query => "query",
+            Method::Validate => "validate",
+            Method::Describe => "describe",
+        }
+    }
+}
+
+/// Where requests go.
+enum Transport {
+    /// A host session on the daemon's replica endpoint.
+    Daemon {
+        session: ClientSession<BoxStream>,
+        next_id: u64,
+    },
+    /// The folder, opened by this process.
+    InProcess {
+        folder: Box<OpenFolder>,
+        frames: Frames,
+        session: SessionId,
+        next_id: u64,
+    },
 }
 
 impl Transport {
-    /// Open `root` in process and start a host session on it.
-    fn in_process(root: &Path) -> Result<Transport, ControlError> {
-        let mut folder = mdbn_local_host::open_folder(
-            root,
-            &FolderOptions {
-                state_dir: None,
-                desktop: true,
-                timezone: None,
-                take_over: false,
-                client: (CLIENT_NAME.into(), crate::BINARY_VERSION.into()),
-            },
-        )
-        .map_err(folder_error)?;
-        let mut frames = Frames::new();
-        let hello = frame(
-            0,
-            "hello",
-            HelloParams {
-                versions: vec![Version { major: 1, minor: 0 }],
-                client_name: CLIENT_NAME.into(),
-                client_version: crate::BINARY_VERSION.into(),
-                features: None,
-                timezone: None,
-            }
-            .to_cbor(),
-        )?;
-        let outcome = frames.hello(folder.replica.replica(), SessionAuth::Host, &hello);
-        let Some(session) = outcome.session else {
-            return Err(hello_refused(&outcome.response));
-        };
-        Ok(Transport {
-            folder,
-            frames,
-            session,
-            next_id: 1,
-        })
-    }
-
     /// One request, answered.
-    fn call(&mut self, method: &str, params: Cbor) -> Result<Cbor, ControlError> {
-        let id = self.next_id;
-        self.next_id += 1;
-        let bytes = frame(id, method, params)?;
-        let api = self.folder.replica.replica();
-        self.frames.on_frame(api, self.session, &bytes);
-        self.frames.pump(api);
-        for (_, out) in self.frames.take_outgoing() {
-            if let ClientFrame::Response(r) = decode_frame(&out)?
-                && r.id == id
-            {
-                return match (r.result, r.problem) {
-                    (_, Some(p)) => Err(problem(&p)),
-                    (Some(result), None) => Ok(result),
-                    (None, None) => Ok(Cbor::Null),
-                };
+    async fn call(&mut self, method: Method, params: Cbor) -> Result<Cbor, ClientError> {
+        let request = ClientRequest {
+            id: 0,
+            method: method.name().into(),
+            params,
+        };
+        let response = match self {
+            Transport::Daemon { session, next_id } => {
+                *next_id += 1;
+                let id = *next_id;
+                let request = ClientFrame::Request(ClientRequest { id, ..request });
+                session.send(&request).await.map_err(session_error)?;
+                tokio::time::timeout(REQUEST_TIMEOUT, async {
+                    loop {
+                        match session.recv().await.map_err(session_error)? {
+                            Some(ClientFrame::Response(r)) if r.id == id => return Ok(r),
+                            Some(_) => continue,
+                            None => {
+                                return Err(ClientError::Protocol(
+                                    "the daemon closed the session".into(),
+                                ));
+                            }
+                        }
+                    }
+                })
+                .await
+                .map_err(|_| ClientError::Timeout)??
             }
+            Transport::InProcess {
+                folder,
+                frames,
+                session,
+                next_id,
+            } => {
+                *next_id += 1;
+                let id = *next_id;
+                let bytes = encode(ClientFrame::Request(ClientRequest { id, ..request }))?;
+                let api = folder.replica.replica();
+                frames.on_frame(api, *session, &bytes);
+                frames.pump(api);
+                frames
+                    .take_outgoing()
+                    .into_iter()
+                    .find_map(|(_, out)| match decode_frame(&out) {
+                        Ok(ClientFrame::Response(r)) if r.id == id => Some(Ok(r)),
+                        Ok(_) => None,
+                        Err(e) => Some(Err(e)),
+                    })
+                    .ok_or_else(|| {
+                        ControlError::internal(format!("{} was not answered", method.name()))
+                    })??
+            }
+        };
+        match response {
+            ClientResponse {
+                problem: Some(p), ..
+            } => Err(problem(&p).into()),
+            ClientResponse { result, .. } => Ok(result.unwrap_or(Cbor::Null)),
         }
-        Err(ControlError::internal(format!("{method} was not answered")))
     }
 }
 
-/// Resolve the target and open it.
-fn open(target: &Target, profile: &Profile) -> Result<Transport, ControlError> {
+fn hello() -> ClientRequest {
+    ClientRequest {
+        id: 0,
+        method: "hello".into(),
+        params: HelloParams {
+            versions: vec![Version { major: 1, minor: 0 }],
+            client_name: CLIENT_NAME.into(),
+            client_version: crate::BINARY_VERSION.into(),
+            features: None,
+            timezone: None,
+        }
+        .to_cbor(),
+    }
+}
+
+/// Resolve the target and open a session on it.
+async fn open(target: &Target, profile: &Profile) -> Result<Transport, ClientError> {
+    if let Some(arg) = &target.collection {
+        let list = crate::cli::collections(profile).await?;
+        let status = crate::cli::pick(&list, arg)?.clone();
+        return daemon(profile, status).await;
+    }
     let root = match &target.root {
         Some(r) => r.clone(),
         None => std::env::current_dir()
@@ -299,19 +382,140 @@ fn open(target: &Target, profile: &Profile) -> Result<Transport, ControlError> {
     if let Some(entry) = registry
         .collections
         .iter()
-        .find(|e| crate::registry::overlaps(&e.root, &root))
+        .find(|e| root.starts_with(&e.root))
     {
-        return Err(ControlError::unavailable(
-            "served_by_daemon",
-            format!(
-                "{} is registered with the mdbase daemon as \"{}\"; data commands \
-                 through the daemon are not available yet",
-                root.display(),
-                entry.name
-            ),
-        ));
+        let list = crate::cli::collections(profile).await?;
+        let status = list
+            .into_iter()
+            .find(|c| c.id == entry.id)
+            .ok_or_else(|| ControlError::not_found("the daemon does not list this collection"))?;
+        return daemon(profile, status).await;
     }
-    Transport::in_process(&root)
+    if let Some(entry) = registry
+        .collections
+        .iter()
+        .find(|e| e.root.starts_with(&root))
+    {
+        return Err(ControlError::invalid(
+            "contains_collection",
+            format!(
+                "{} contains the registered collection \"{}\"; use -C {}",
+                root.display(),
+                entry.name,
+                entry.root.display()
+            ),
+        )
+        .into());
+    }
+    in_process(&root)
+}
+
+/// A host session on the daemon's replica endpoint, once the collection is ready.
+async fn daemon(profile: &Profile, mut status: CollectionStatus) -> Result<Transport, ClientError> {
+    let deadline = tokio::time::Instant::now() + OPENING_TIMEOUT;
+    while status.state == CollectionState::Opening && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let list = crate::cli::collections(profile).await?;
+        status = crate::cli::pick(&list, &status.id)?.clone();
+    }
+    if status.state != CollectionState::Ready {
+        return Err(not_ready(&status).into());
+    }
+    let collection = crate::attest::uuid_bytes(&status.id)
+        .ok_or_else(|| ControlError::internal("the daemon listed an invalid collection ID"))?;
+    let store = secrets::store_for(&profile.secret_namespace(), &profile.state_dir);
+    let control_key = secrets::read_control_key(store.as_ref())
+        .map_err(|e| ControlError::internal(format!("keychain: {e}")))?
+        .ok_or_else(|| ControlError::internal("no host key in the keychain"))?;
+    let identity = secrets::read_daemon_identity(&profile.state_dir, &profile.identity_file())
+        .map_err(|e| ControlError::internal(e.to_string()))?;
+    let daemon_pk: [u8; 32] = secrets::hex_decode(&identity.noise_pk)
+        .ok()
+        .and_then(|k| k.try_into().ok())
+        .ok_or_else(|| ControlError::internal("the daemon identity has an invalid key"))?;
+    let device = crate::attest::uuid_bytes(&identity.device)
+        .ok_or_else(|| ControlError::internal("the daemon identity has an invalid device ID"))?;
+    let stream = crate::ipc::connect(&profile.replica)
+        .await
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
+                ClientError::NotRunning
+            }
+            _ => ClientError::Io(e),
+        })?;
+    let (session, response) = ClientSession::connect(
+        stream,
+        &secrets::host_noise_secret(&control_key),
+        &daemon_pk,
+        Prologue {
+            collection,
+            grant: [0; 16],
+            target: device,
+        },
+        hello(),
+    )
+    .await
+    .map_err(session_error)?;
+    if let Some(p) = response.problem {
+        return Err(problem(&p).into());
+    }
+    Ok(Transport::Daemon {
+        session,
+        next_id: 0,
+    })
+}
+
+/// Why the daemon is not serving a collection, with what to do about it.
+fn not_ready(status: &CollectionStatus) -> ControlError {
+    let name = &status.name;
+    let message = match (status.state, status.reason.as_deref()) {
+        (_, Some("account_identity_missing")) => format!(
+            "\"{name}\" is not available until this computer is signed in to the account \
+             that registered it; sign in with `mdbase account sign-in`"
+        ),
+        (CollectionState::Paused, _) => {
+            format!("\"{name}\" is paused; resume it with `mdbase collection resume {name}`")
+        }
+        (CollectionState::Opening, _) => format!("\"{name}\" is still opening; try again shortly"),
+        (state, reason) => format!(
+            "the daemon is not serving \"{name}\" ({})",
+            reason.map_or_else(|| format!("{state:?}").to_lowercase(), str::to_string)
+        ),
+    };
+    ControlError::unavailable(
+        status.reason.as_deref().unwrap_or("collection_unavailable"),
+        message,
+    )
+}
+
+/// Open `root` in process and start a host session on it.
+fn in_process(root: &Path) -> Result<Transport, ClientError> {
+    let mut folder = mdbn_local_host::open_folder(
+        root,
+        &FolderOptions {
+            state_dir: None,
+            desktop: true,
+            timezone: None,
+            take_over: false,
+            client: (CLIENT_NAME.into(), crate::BINARY_VERSION.into()),
+        },
+    )
+    .map_err(folder_error)?;
+    let mut frames = Frames::new();
+    let outcome = frames.hello(
+        folder.replica.replica(),
+        SessionAuth::Host,
+        &encode(ClientFrame::Request(hello()))?,
+    );
+    let Some(session) = outcome.session else {
+        return Err(hello_refused(&outcome.response).into());
+    };
+    Ok(Transport::InProcess {
+        folder: Box::new(folder),
+        frames,
+        session,
+        next_id: 0,
+    })
 }
 
 fn folder_error(e: FolderError) -> ControlError {
@@ -342,14 +546,14 @@ fn folder_error(e: FolderError) -> ControlError {
     }
 }
 
-fn frame(id: u64, method: &str, params: Cbor) -> Result<Vec<u8>, ControlError> {
-    ClientFrame::Request(ClientRequest {
-        id,
-        method: method.into(),
-        params,
-    })
-    .to_bytes()
-    .map_err(|e| ControlError::internal(format!("encode {method}: {e:?}")))
+fn session_error(e: crate::session::SessionError) -> ClientError {
+    ClientError::Protocol(e.to_string())
+}
+
+fn encode(frame: ClientFrame) -> Result<Vec<u8>, ControlError> {
+    frame
+        .to_bytes()
+        .map_err(|e| ControlError::internal(format!("encode a request: {e:?}")))
 }
 
 fn decode_frame(bytes: &[u8]) -> Result<ClientFrame, ControlError> {
@@ -592,9 +796,8 @@ impl TypeSummary {
 }
 
 /// `describe`'s types (`replica/src/frames.rs`, `describe_cbor`).
-fn describe(t: &mut Transport, definitions: bool) -> Result<Vec<TypeSummary>, ControlError> {
-    let result = t.call("describe", params(vec![Cbor::Bool(definitions)]))?;
-    let Some(Cbor::Array(types)) = field(&result, 1) else {
+fn types(result: &Cbor) -> Result<Vec<TypeSummary>, ControlError> {
+    let Some(Cbor::Array(types)) = field(result, 1) else {
         return Err(ControlError::internal("unreadable describe result"));
     };
     types

@@ -1,6 +1,6 @@
 # Data commands in the `mdbase` CLI
 
-Status: accepted plan, not yet implemented. Phase 1 is in progress.
+Status: accepted plan. Phases 1 and 2 are implemented (`crates/daemon/src/data.rs`).
 
 The `mdbase` binary (`crates/daemon`, `src/cli.rs`) administers the daemon,
 collections, sync, devices and app access. It cannot read or write records. The
@@ -62,7 +62,7 @@ use, and the facade calls it. That is a move, not a copy.
 - **Paths first.** The library and the daemon each assign their own record IDs,
   so an ID is meaningful only on the route that produced it. Commands accept
   paths and print them first.
-- **Output.** `read` prints the Markdown document and `query` a compact table.
+- **Output.** `read` prints the Markdown document and `query` one path per line.
   `--json` prints the replica result, or `{"error": {code, message, reason}}` with
   the 15 shared error codes.
 - **Exit codes are unchanged** (0 success, 1 error, 2 usage, 3 daemon not
@@ -71,9 +71,10 @@ use, and the facade calls it. That is a move, not a copy.
   severity. The connector CLI's codes for validation, configuration and not-found
   are not carried over.
 - **The daemon route admits only data methods.** A host session has owner power,
-  so the CLI's sessions use an allowlist, like the localhost link's
-  `LINK_ALLOWED`, that excludes device approval and the other host-only methods.
-  `hello` carries the client name `mdbase-cli`.
+  so the transport takes a closed `Method` enum rather than a method name: device
+  approval and the other host-only methods cannot be sent from a data command. A
+  daemon-side list keyed on the client name would not help, because any holder of
+  the host key can claim any name. `hello` carries the client name `mdbase-cli`.
 
 ## Phases
 
@@ -93,11 +94,13 @@ Each phase is one PR.
 
 ## Open questions
 
-- **Sign-in.** Host sessions on the replica endpoint fail with `AccountMissing`
-  when the computer is not signed in (`server.rs`, the session's
-  `authority.source`). Before phase 2, find out whether this is deliberate. If not,
-  exempt local-only collections. If so, the daemon route requires sign-in and says
-  so.
+- **Sign-in (resolved).** Deliberate. Every registered collection, local-only
+  included, is bound to the account and device that registered it
+  (`owner_account`, `device`), and the daemon does not open one until that account
+  is signed in: its state is `unavailable` with reason `account_identity_missing`
+  (`collections.rs`). There is nothing to exempt. The daemon route reports the
+  collection's state before opening a session and, for this reason, says to run
+  `mdbase account sign-in`.
 - **Open cost.** The library writes state under `<root>/.mdbase/library/` and
   rescans on every open. Phase 1 measures this on a large folder, since scripts
   run commands in loops.
