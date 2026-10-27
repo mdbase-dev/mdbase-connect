@@ -125,6 +125,9 @@ it('runs main pushes as checks only and isolates build from protected upload dep
  const workflow=parse(await readFile(join(repoRoot,'.github/workflows/editor-pages.yml'),'utf8'));
  assert.ok(workflow.on.push.branches.includes('main'));assert.ok(workflow.on.workflow_dispatch.inputs.source_sha);
  assert.equal(workflow.jobs['native-build'].environment,undefined);
+ // Native builds have no protected environment: feedback must be explicit public inputs.
+ assert.equal(workflow.jobs['native-build'].env.VITE_MDBASE_FEEDBACK_URL,"${{ inputs.target == 'production' && 'https://feedback-api.mdbase.dev/v1/feedback' || 'https://feedback-api-staging.mdbase.dev/v1/feedback' }}");
+ assert.equal(workflow.jobs['native-build'].env.VITE_MDBASE_TURNSTILE_SITE_KEY,"${{ inputs.target == 'production' && '0x4AAAAAAEboz_mLT-taI3H-' || '0x4AAAAAAEbkvA4d9vQJq2D1' }}");
  const protectedJob=workflow.jobs['native-deploy'];assert.ok(protectedJob.environment);
  const commands=protectedJob.steps.map(s=>s.run??'').join('\n');
  assert.doesNotMatch(commands,/pnpm (install|build|rebuild)|npm run|npx/);
