@@ -102,6 +102,15 @@ import "@mdbase-dev/ui/collections.css";
   switcher: a popover, and a bottom sheet below 640px. `icon` puts the app's
   icon before the name, or `icon="mark"` the open collection's initials. In
   the `icon` variant it replaces the folder glyph.
+- Pass `open` and `onOpenChange` to control the switcher; `onOpenChange` is
+  called for every open and close it makes itself, controlled or not.
+  `variant="none"` renders no trigger, for an app that opens the switcher from
+  its own control, such as an item in an overflow menu. It requires
+  `anchorRef`, an element that stays mounted while the switcher is open (the
+  menu's button, say): the popover is placed against it, and focus returns to
+  it when the switcher or a row dialog opened from it closes. Close your menu
+  without moving focus back to that button; the switcher takes focus as it
+  opens.
 - `rowDetail(row)` adds a second line to each collection row, such as where it
   lives or which account it belongs to. `row.entry` is the SDK's entry.
 - `sections` lists collections the app knows about and the SDK doesn't (local
