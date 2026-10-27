@@ -34,7 +34,7 @@ function whenVisible(signal:AbortSignal):Promise<void>{
     doc.addEventListener("visibilitychange",done);signal.addEventListener("abort",stop,{once:true});
   });
 }
-import type {MdbaseApplicationSetup,MdbaseSetupPlan,MdbaseSetupPlanOptions} from "./setup.js";
+import {unresolvedSetup,type MdbaseApplicationSetup,type MdbaseSetupPlan,type MdbaseSetupPlanOptions} from "./setup.js";
 import {applicationPhase,SLOW_OPENING_MS,type MdbasePhase} from "./phase.js";
 import {summarizeStatus,type StatusSummary,type TransportHealth} from "../status.js";
 import type {WriteLedgerSnapshot} from "../write-ledger.js";
@@ -372,7 +372,8 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       assess:(options?:MdbaseApplicationRequestOptions)=>this.privates?.isOpen()?this.privates.assess():this.call(runtime=>runtime.queue(()=>runtime.assess(options))),
       configure:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.privates?.isOpen()?this.privates.configure(options):this.call(runtime=>runtime.queue(()=>runtime.configure(options)))),
       setup:Object.freeze({
-        plan:(options?:MdbaseSetupPlanOptions)=>this.privates?.isOpen()?this.privates.plan(options):this.call(runtime=>runtime.queue(()=>runtime.planSetup(options))),
+        plan:(options?:MdbaseSetupPlanOptions)=>(this.privates?.isOpen()?this.privates.plan(options):this.call(runtime=>runtime.queue(()=>runtime.planSetup(options))))
+          .then(plan=>unresolvedSetup(plan,this.getSnapshot().readiness)),
         apply:(plan:MdbaseSetupPlan,options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.privates?.isOpen()?this.privates.apply(plan,options):this.call(runtime=>runtime.queue(()=>runtime.applySetup(plan,options)))),
       }),
       setForeground:(active:boolean)=>this.setForeground(active),close:()=>this.close(),
