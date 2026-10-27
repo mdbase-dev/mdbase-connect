@@ -1,0 +1,103 @@
+# Data commands in the `mdbase` CLI
+
+Status: accepted plan, not yet implemented. Phase 1 is in progress.
+
+The `mdbase` binary (`crates/daemon`, `src/cli.rs`) administers the daemon,
+collections, sync, devices and app access. It cannot read or write records. The
+retired connector CLI could (`mdbase --root PATH query …`, `mdbase --collection ID
+read …`), and scripts and agents relied on that. This plan restores record access
+for local collections. Thin-client access to hosted collections is out of scope.
+
+## Commands
+
+Data commands sit at the top level, beside the administrative ones. No names
+collide.
+
+| Command | Replica method | Phase |
+|---|---|---|
+| `read PATH` | `get` (with the document) | 1 |
+| `query` (`--types`, `--where`, `--order-by`, `--limit`, `--offset`, `--include-body`, or `--request FILE\|-`) | `query` | 1 |
+| `validate [PATH]` | `validate` | 1 |
+| `types list`, `types show NAME` | `describe` | 1 |
+| `create`, `update`, `delete`, `rename` (`--if-revision`, `--dry-run`) | `submit` | 3 |
+| `batch --request FILE\|-` | `submit` | 3 |
+| `views`, `changes`/`watch`, type writes, packs | various | later, on request |
+
+The connector CLI's `backfill`, `migrate`, `migrate-v02` and `cache` commands are
+not carried over.
+
+## One command layer, two transports
+
+The daemon and the library host the same `Replica`, which implements `ClientApi`
+(`crates/replica/src/api.rs`) and serves it as the replica client API
+(`docs/contracts/replica-client-api.md`). Each data command is therefore built
+once, as replica client requests, and sent over one of two transports:
+
+- **Daemon.** When the daemon serves the folder, the CLI opens a host session on
+  the profile's replica endpoint, authenticated with the keychain's host Noise key
+  (`secrets::host_noise_secret`). `examples/lab_smoke.rs` already does this.
+- **In process.** When no daemon serves the folder, the CLI opens it itself as a
+  library host (folder host lock, `HostKind::Library`) and calls the same API in
+  process.
+
+Building on the client API rather than the `mdbase` facade's typed methods keeps
+one implementation and exposes what the facade does not (`dry_run`, views, type
+writes). It also respects the crate rules: `mdbn-daemon` may not depend on
+`mdbase`. The facade's open sequence (descriptor check, folder lock, identity,
+store, `LocalReplica`) moves into `mdbn-local-host`, which both crates already
+use, and the facade calls it. That is a move, not a copy.
+
+## Choosing the target and route
+
+- The target is `-C/--root PATH`, defaulting to the current directory, or
+  `-c/--collection ID|prefix|name`, resolved like the administrative commands.
+- A folder registered with a running daemon goes through the daemon. Any other
+  folder is opened in process.
+- A folder registered with a daemon that is not running fails with
+  `daemon_not_running`. It is not opened in process instead, because record IDs
+  would then differ from the daemon's (below).
+
+## Contracts
+
+- **Paths first.** The library and the daemon each assign their own record IDs,
+  so an ID is meaningful only on the route that produced it. Commands accept
+  paths and print them first.
+- **Output.** `read` prints the Markdown document and `query` a compact table.
+  `--json` prints the replica result, or `{"error": {code, message, reason}}` with
+  the 15 shared error codes.
+- **Exit codes are unchanged** (0 success, 1 error, 2 usage, 3 daemon not
+  running, 4 already running), because the desktop parses them. Data errors exit
+  1 with the code in the output. `validate` exits 1 when any issue has error
+  severity. The connector CLI's codes for validation, configuration and not-found
+  are not carried over.
+- **The daemon route admits only data methods.** A host session has owner power,
+  so the CLI's sessions use an allowlist, like the localhost link's
+  `LINK_ALLOWED`, that excludes device approval and the other host-only methods.
+  `hello` carries the client name `mdbase-cli`.
+
+## Phases
+
+Each phase is one PR.
+
+1. **Reads, in process.** Move the open sequence into `mdbn-local-host`. Add the
+   command layer, the in-process transport, `read`, `query`, `validate` and
+   `types`, with tests on a temporary folder.
+2. **Daemon transport.** Host session client, routing, the method allowlist, and
+   the sign-in question below. A parity test runs each command over both
+   transports and compares the output, ignoring IDs. A test checks that the
+   folder lock forces the daemon route.
+3. **Writes.** `create`, `update`, `delete`, `rename` and `batch`, with
+   `--if-revision`, `--dry-run` and a fresh mutation ID per call.
+4. **Docs.** `docs/headless.md`, the README and the CLI help. The repository
+   root's `docs/unified-cli.md` is marked as describing the connector CLI.
+
+## Open questions
+
+- **Sign-in.** Host sessions on the replica endpoint fail with `AccountMissing`
+  when the computer is not signed in (`server.rs`, the session's
+  `authority.source`). Before phase 2, find out whether this is deliberate. If not,
+  exempt local-only collections. If so, the daemon route requires sign-in and says
+  so.
+- **Open cost.** The library writes state under `<root>/.mdbase/library/` and
+  rescans on every open. Phase 1 measures this on a large folder, since scripts
+  run commands in loops.
