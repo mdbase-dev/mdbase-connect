@@ -141,6 +141,9 @@ pub const OLD_CONNECTOR_RUNNING: &str = "old_connector_running";
 
 /// A failed background open that never touched user files: Connect refused.
 const INELIGIBLE: &str = "ineligible: ";
+/// How long status waits for a collection's live counters before reporting
+/// it without them, so one busy collection cannot stall status for all.
+const TELEMETRY_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 /// A failed background open of a never-opened collection while Connect was unreachable.
 const UNREACHABLE: &str = "unreachable: ";
 
@@ -756,7 +759,10 @@ async fn current_telemetry(
     if !current() {
         return None;
     }
-    let observed = observation.await;
+    let observed = tokio::time::timeout(TELEMETRY_WAIT, observation)
+        .await
+        .ok()
+        .flatten();
     if !current() {
         return None;
     }

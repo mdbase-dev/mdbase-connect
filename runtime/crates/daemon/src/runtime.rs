@@ -1434,6 +1434,8 @@ fn run(
             Ok(Cmd::Digest(reply)) => {
                 let _ = reply.send(confirmed_digest(&rep));
             }
+            // The caller stopped waiting (status timed out): skip the record scan.
+            Ok(Cmd::Telemetry(reply)) if reply.is_closed() => {}
             Ok(Cmd::Telemetry(reply)) => {
                 use mdbn_replica::store::Store as _;
                 let status = rep.sync_status();
