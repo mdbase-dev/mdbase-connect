@@ -3,6 +3,7 @@ import "@mdbase-dev/ui/tokens.css";
 import "@mdbase-dev/ui/brand.css";
 import "@mdbase-dev/ui/controls.css";
 import "@mdbase-dev/ui/screens.css";
+import "@mdbase-dev/ui/feedback.css";
 import { lazy, StrictMode, Suspense, useCallback, useState } from "react";
 import { FeedbackProvider, feedbackApplication } from "@mdbase-dev/ui/feedback";
 import { feedbackEndpoint, turnstileSiteKey } from "./feedback";
