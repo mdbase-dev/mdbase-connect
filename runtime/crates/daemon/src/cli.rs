@@ -427,15 +427,6 @@ pub fn main() -> ExitCode {
     if let Command::Companion = cli.command {
         return run_companion(profile, cli.json);
     }
-    // Data commands open the folder in process; they need no async runtime.
-    if let Command::Data(cmd) = cli.command {
-        let out = Output {
-            json: cli.json,
-            yes: cli.yes,
-        };
-        return crate::data::run(cmd, &profile, cli.json)
-            .unwrap_or_else(|e| out.error(&ClientError::Remote(e)));
-    }
     let rt = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -632,27 +623,38 @@ async fn call(profile: &Profile, method: &str, params: Value) -> Result<Value, C
 const MIGRATE_START_TIMEOUT: Duration = Duration::from_secs(600);
 const _: () = assert!(MIGRATE_START_TIMEOUT.as_secs() > crate::takeover::DRAIN.as_secs() * 2);
 
+/// The registered collections and their state.
+pub(crate) async fn collections(profile: &Profile) -> Result<Vec<CollectionStatus>, ClientError> {
+    let list = call(profile, Method::COLLECTION_LIST, json!({})).await?;
+    serde_json::from_value(list).map_err(|e| ClientError::Protocol(e.to_string()))
+}
+
 /// Resolve a collection argument: exact ID, unique ID prefix, or exact name.
 async fn resolve(profile: &Profile, arg: &str) -> Result<String, ClientError> {
-    let list = call(profile, Method::COLLECTION_LIST, json!({})).await?;
-    let list: Vec<CollectionStatus> =
-        serde_json::from_value(list).map_err(|e| ClientError::Protocol(e.to_string()))?;
-    if list.iter().any(|c| c.id == arg) {
-        return Ok(arg.to_string());
+    Ok(pick(&collections(profile).await?, arg)?.id.clone())
+}
+
+/// The collection `arg` names: exact ID, unique ID prefix, or exact name.
+pub(crate) fn pick<'a>(
+    list: &'a [CollectionStatus],
+    arg: &str,
+) -> Result<&'a CollectionStatus, ControlError> {
+    if let Some(exact) = list.iter().find(|c| c.id == arg) {
+        return Ok(exact);
     }
     let matches: Vec<&CollectionStatus> = list
         .iter()
         .filter(|c| c.name == arg || (arg.len() >= 4 && c.id.starts_with(arg)))
         .collect();
     match matches.as_slice() {
-        [one] => Ok(one.id.clone()),
-        [] => Err(ClientError::Remote(ControlError::not_found(format!(
+        [one] => Ok(one),
+        [] => Err(ControlError::not_found(format!(
             "no registered collection matches {arg:?}"
-        )))),
-        _ => Err(ClientError::Remote(ControlError::invalid(
+        ))),
+        _ => Err(ControlError::invalid(
             "ambiguous_collection",
             format!("{arg:?} matches several collections; use the ID"),
-        ))),
+        )),
     }
 }
 
@@ -670,9 +672,10 @@ async fn run_command(
     out: &Output,
 ) -> Result<ExitCode, ClientError> {
     match cmd {
-        Command::Daemon(DaemonCmd::Run) | Command::Companion | Command::Data(_) => {
+        Command::Daemon(DaemonCmd::Run) | Command::Companion => {
             unreachable!("handled before the runtime starts")
         }
+        Command::Data(cmd) => crate::data::run(cmd, profile, out.json).await,
         Command::Daemon(DaemonCmd::Start) => daemon_start(profile, out).await,
         Command::Daemon(DaemonCmd::Stop) => daemon_stop(profile, out).await,
         Command::Daemon(DaemonCmd::Status) => {
