@@ -1,0 +1,34 @@
+{
+  "schema": "mdbase-provider-wrapping-kat-provenance/1",
+  "originalProviderCryptoSourceCommit": "8a014fe2abd2d9c6a8b1ed3e77c35cfda3392d3e",
+  "actualRustTestProducerCommit": "9d72e25ad817ee8fe3e71160d3bb271ba19851e9",
+  "siblingMdbaseRsSourceCommit": "056db7334a0f49f10373225ae54c1abaedc14e37",
+  "productionCryptoSymmetricAndEncoderDiffFromOriginal": "empty",
+  "keyWrappingModuleDiffFromOriginal": "only cfg(test) worker_vectors child-module declaration",
+  "generator": {
+    "file": "provider-wrapping-vectors.rs",
+    "sha256": "ace0824bf05e83074a901e1a2de9ed55121e77892327d26861b0297c6fb3484e",
+    "copiedByteExactlyIntoProducerUnitModule": true
+  },
+  "capture": {
+    "file": "provider-wrapping-vectors.json",
+    "sha256IncludingFinalNewline": "fc2358976be374e51d64feb9e0d65fb0f9c99f50d03d3cd9007070999c882e0e",
+    "transformation": "remove exact MDBASE_PROVIDER_WRAPPING_VECTOR_JSON= prefix from the single successful emitted line; retain JSON bytes and final newline",
+    "caseCount": 9,
+    "originalLogSha256": "d7f074cd631360a578cd8ae7038524705cdc1ee02ea9c02257b64c7338b21f12"
+  },
+  "qualification": {
+    "command": "rcargo test --locked -p mdbase-connect-hosted-provider --lib key_wrapping::worker_vectors::emit_worker_wrapping_known_answers -- --exact --nocapture",
+    "cargoExit": 0,
+    "executedTestsPassed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "filteredOut": 154,
+    "separateExecutedTestCountValidationExit": 0,
+    "frozenWorkerSourceHashChecksPassed": 4
+  },
+  "publicFixedTestValuesOnly": true,
+  "realAws": false,
+  "randomness": "Real provider OsRng local-wrap and payload nonces captured once, not byte-deterministic regeneration; managed opaque ciphertext is a deterministic test service stub.",
+  "limits": "Cross-language wrapping/unwrap and payload compatibility only; not live AWS/IAM/TLS, provider-created database records, operational authorization, native migration, memory or full tier acceptance. Local wrapping authenticates no environment. Normal LAB provider runtime writer authority is separate from migration Worker Decrypt-only authority; no fixture Encrypt principal is required or created."
+}

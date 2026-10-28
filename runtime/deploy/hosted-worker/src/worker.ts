@@ -662,16 +662,19 @@ export class HostedCollection extends DurableObject<Env> {
     };
   }
 
+  /** The real source boundary; constructing bindings does not query or unwrap. */
+  protected async legacyMigrationSource(collection: string) {
+    const connect = HostedCollection.legacyConnect;
+    if (!connect) throw new LegacyBindingError("legacy_source_unconfigured", "no legacy database client in this deployment");
+    return openLegacySource(this.env as Env & LegacySourceEnv, collection, { connect });
+  }
+
   private migrationExecutor(collection: string): MigrationExecutor {
     const e = this.env as unknown as { CP_URL?: string; CP_MIGRATION_TOKEN?: string } & LegacySourceEnv;
     return this.#executorInstance ??= new MigrationExecutor({
       collection, host: this.migrationHost(), store: storageRunStore(this.ctx.storage),
       connect: () => connectClient({ url: e.CP_URL ?? "", token: e.CP_MIGRATION_TOKEN ?? "", environment: deploymentRelease(this.env as unknown as FactoryEnv)?.environment }),
-      source: async () => {
-        const connect = HostedCollection.legacyConnect;
-        if (!connect) throw new LegacyBindingError("legacy_source_unconfigured", "no legacy database client in this deployment");
-        return openLegacySource(e, collection, { connect });
-      },
+      source: () => this.legacyMigrationSource(collection),
     });
   }
 
