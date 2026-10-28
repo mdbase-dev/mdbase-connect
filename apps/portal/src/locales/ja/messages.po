@@ -1055,7 +1055,7 @@ msgstr "コレクションの権限"
 
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
-msgstr ""
+msgstr "コレクションのレプリカ"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2661,7 +2661,7 @@ msgstr "パスワードを変更すると、このアカウントのほかのブ
 
 #: src/ConnectApp.tsx
 msgid "Replicas sync between your devices. Application access is managed separately."
-msgstr ""
+msgstr "レプリカはデバイス間で同期されます。アプリケーションのアクセス権は個別に管理されます。"
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx

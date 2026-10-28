@@ -183,7 +183,7 @@ impl Daemon {
         };
         let answer = ctx
             .cloud
-            .collection_mode_post(&ctx.connector_id, &col, &proof, identity, &current)
+            .collection_mode_post(&ctx.connector_id, &col, &proof, &identity, &current)
             .await
             .map_err(cloud_refusal)?;
         if private {

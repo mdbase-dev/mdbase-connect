@@ -209,7 +209,7 @@ msgstr "피드백 닫기"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Cloud copy"
-msgstr ""
+msgstr "클라우드 사본"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -219,7 +219,7 @@ msgstr "컬렉션"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Collection storage mode"
-msgstr ""
+msgstr "컬렉션 저장 모드"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -254,7 +254,7 @@ msgstr "계속"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Continue after {0}."
-msgstr ""
+msgstr "{0} 이후에 계속하세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -264,7 +264,7 @@ msgstr "mdbase 창에서 계속"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Continue on this device"
-msgstr ""
+msgstr "이 기기에서 계속"
 
 #: src/AppSwitcher.tsx
 msgid "Current"
@@ -337,7 +337,7 @@ msgstr "컬렉션 찾기"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Finishing the switch. Keep the owner device connected."
-msgstr ""
+msgstr "전환을 마무리하고 있습니다. 소유자의 기기 연결을 유지하세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -401,7 +401,7 @@ msgstr "컬렉션 스냅샷 불러오는 중…"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Make private"
-msgstr ""
+msgstr "비공개로 전환"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -428,7 +428,7 @@ msgstr "mdbase 앱"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr ""
+msgstr "mdbase가 기존 기록을 포함한 컬렉션을 읽고, 기기가 꺼져 있을 때도 접근을 제공할 수 있게 됩니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -470,7 +470,7 @@ msgstr "일치하는 항목 없음"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr ""
+msgstr "전환이 완료되면 사용자의 기기만 새 콘텐츠를 읽을 수 있습니다. 이전 콘텐츠는 mdbase가 여전히 읽을 수 있습니다."
 
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
@@ -479,7 +479,7 @@ msgstr "다른 mdbase 앱에서 열기"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Open mdbase connect on one of the owner's devices to finish the switch."
-msgstr ""
+msgstr "전환을 완료하려면 소유자의 기기 중 하나에서 mdbase connect를 여세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -546,7 +546,7 @@ msgstr "비공개"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Private"
-msgstr ""
+msgstr "비공개"
 
 #: src/Feedback.tsx
 msgid "Private feedback to the mdbase team."
@@ -559,7 +559,7 @@ msgstr "자료를 읽고 주석 달기"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Refresh status"
-msgstr ""
+msgstr "상태 새로고침"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -752,7 +752,7 @@ msgstr "{app} 시작 중…"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Storage mode"
-msgstr ""
+msgstr "저장 모드"
 
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
@@ -868,7 +868,7 @@ msgstr "다시 시도"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Turn on Cloud copy"
-msgstr ""
+msgstr "클라우드 사본 켜기"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -894,7 +894,7 @@ msgstr "표시는 최대 100개까지 적용할 수 있습니다. 실행 취소�
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Update or revoke these devices before continuing:"
-msgstr ""
+msgstr "계속하기 전에 다음 기기를 업데이트하거나 접근 권한을 취소하세요:"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -912,12 +912,12 @@ msgstr "인증을 불러오지 못했습니다. 연결을 확인하고 다시 �
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Waiting for devices to update."
-msgstr ""
+msgstr "기기 업데이트를 기다리고 있습니다."
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
-msgstr ""
+msgstr "이전 기기 연결의 만료를 기다리고 있습니다. 전환이 완료될 때까지 클라우드 사본은 켜진 상태로 유지됩니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -927,7 +927,7 @@ msgstr "컬렉션 키를 기다리는 중…"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "We couldn’t confirm progress. Refresh, then retry. An interrupted switch may already have started."
-msgstr ""
+msgstr "진행 상황을 확인하지 못했습니다. 상태를 새로고침한 다음 다시 시도하세요. 중단된 전환이 이미 시작되었을 수 있습니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -961,7 +961,7 @@ msgstr "어떤 점이 잘 작동하나요?"
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Working…"
-msgstr ""
+msgstr "처리 중…"
 
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"

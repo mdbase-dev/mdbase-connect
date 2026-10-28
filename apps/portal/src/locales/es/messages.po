@@ -1055,7 +1055,7 @@ msgstr "Permisos de la colección"
 
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
-msgstr ""
+msgstr "Réplicas de la colección"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2661,7 +2661,7 @@ msgstr "Al sustituir tu contraseña, se cierran todas las demás sesiones del na
 
 #: src/ConnectApp.tsx
 msgid "Replicas sync between your devices. Application access is managed separately."
-msgstr ""
+msgstr "Las réplicas se sincronizan entre tus dispositivos. El acceso de las aplicaciones se gestiona por separado."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx

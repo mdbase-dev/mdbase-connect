@@ -1055,7 +1055,7 @@ msgstr "Разрешения для коллекции"
 
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
-msgstr ""
+msgstr "Реплики коллекции"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2661,7 +2661,7 @@ msgstr "При смене пароля завершатся все осталь�
 
 #: src/ConnectApp.tsx
 msgid "Replicas sync between your devices. Application access is managed separately."
-msgstr ""
+msgstr "Реплики синхронизируются между вашими устройствами. Доступ приложений настраивается отдельно."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx

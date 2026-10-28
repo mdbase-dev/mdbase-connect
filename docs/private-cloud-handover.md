@@ -31,5 +31,5 @@ passive notice identifies the owner device. Ordinary Private delivery/introducti
 trust must authorize that signer; its own self-delivery is not another device's
 anchor. The selection commits with the exact applied prefix, not read-ahead.
 
-The eventual controller must separately verify admission/readiness before recording success, and must persist the local
-choice from explicit user intent rather than infer it from remote metadata.
+The eventual controller must separately verify admission/readiness before recording success, and must persist local
+source consent from explicit user intent rather than infer it from remote metadata.

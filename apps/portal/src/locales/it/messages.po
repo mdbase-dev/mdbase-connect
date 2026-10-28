@@ -1055,7 +1055,7 @@ msgstr "Autorizzazioni della raccolta"
 
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
-msgstr ""
+msgstr "Repliche della raccolta"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2661,7 +2661,7 @@ msgstr "La sostituzione della password disconnette tutte le altre sessioni del b
 
 #: src/ConnectApp.tsx
 msgid "Replicas sync between your devices. Application access is managed separately."
-msgstr ""
+msgstr "Le repliche si sincronizzano tra i tuoi dispositivi. L’accesso delle applicazioni si gestisce separatamente."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx

@@ -1055,7 +1055,7 @@ msgstr "Sammlungsberechtigungen"
 
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
-msgstr ""
+msgstr "Sammlungsreplikate"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2661,7 +2661,7 @@ msgstr "Wenn Sie Ihr Passwort ersetzen, werden alle anderen mit dem Konto verbun
 
 #: src/ConnectApp.tsx
 msgid "Replicas sync between your devices. Application access is managed separately."
-msgstr ""
+msgstr "Replikate werden zwischen Ihren Geräten synchronisiert. Der Zugriff von Anwendungen wird separat verwaltet."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx

@@ -1055,7 +1055,7 @@ msgstr "컬렉션 권한"
 
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
-msgstr ""
+msgstr "컬렉션 복제본"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2661,7 +2661,7 @@ msgstr "비밀번호를 바꾸면 계정에 연결된 다른 모든 브라우저
 
 #: src/ConnectApp.tsx
 msgid "Replicas sync between your devices. Application access is managed separately."
-msgstr ""
+msgstr "복제본은 기기 간에 동기화됩니다. 앱 접근 권한은 별도로 관리됩니다."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx

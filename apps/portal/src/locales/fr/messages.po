@@ -1055,7 +1055,7 @@ msgstr "Autorisations de la collection"
 
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
-msgstr ""
+msgstr "Répliques de la collection"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2661,7 +2661,7 @@ msgstr "Le remplacement de votre mot de passe déconnecte toutes les autres sess
 
 #: src/ConnectApp.tsx
 msgid "Replicas sync between your devices. Application access is managed separately."
-msgstr ""
+msgstr "Les répliques se synchronisent entre vos appareils. L’accès des applications est géré séparément."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
