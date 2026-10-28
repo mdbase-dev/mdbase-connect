@@ -351,6 +351,16 @@ impl<S: Store> Replica<S> {
         }
     }
 
+    /// Historical introduction anchors are not current signing authority.
+    /// Revoked devices cannot author valid control, but their already approved
+    /// descendants and already delivered keys do not lose trust retroactively.
+    pub(super) fn private_switch_introducers(&self) -> Option<&BTreeSet<Uuid>> {
+        match &self.private_switch.state {
+            State::Accepted { at, members, .. } if at.seq <= self.head.seq => Some(members),
+            _ => None,
+        }
+    }
+
     pub(super) fn restore_private_choice(&mut self) {
         if let State::Accepted {
             at, ref members, ..

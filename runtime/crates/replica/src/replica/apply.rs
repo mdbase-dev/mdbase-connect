@@ -796,6 +796,9 @@ impl<S: Store> Replica<S> {
             self.cfg.trusted_signers.iter().copied().collect();
         // Account-key devices this device's user unlocked (AK1).
         trusted.extend(self.account_key.trusted().iter().copied());
+        if let Some(anchors) = self.private_switch_introducers() {
+            trusted.extend(anchors.iter().copied());
+        }
         let t = self.policy.key_trust(
             &self.cfg.device_id,
             &trusted,

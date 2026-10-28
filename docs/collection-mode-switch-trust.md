@@ -67,7 +67,9 @@ Co clarified on 2026-10-28 that the entire switch set becomes locally trusted fo
 future ordinary key delivery. Each accepting device retains its own frozen set in
 local META, restores active members as trusted signers, and persists them to the
 native link on projection. Revoked members cannot author valid control items and
-are removed from the effective local set. Devices added later need normal Private
+are removed from the effective local set. Historical introductions and already
+accepted keys are not retroactively invalidated: ordinary replay still rejects
+any new control item from a revoked signer. Devices added later need normal Private
 trust; services cannot bridge a Private introduction chain, even if an existing
 trusted user later introduces another service under their own Cloud copy choice.
 

@@ -384,3 +384,70 @@ fn a_post_switch_hosted_introduction_is_not_added_by_a_later_server_mode_cycle()
     );
     assert!(!a.r.key_untrusted && !newcomer.r.key_untrusted);
 }
+
+#[test]
+fn revoking_a_later_private_rekey_author_does_not_strand_the_surviving_switch_member() {
+    let (svc, mut cp, mut a, mut b) = real_world();
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    let recipients =
+        b.r.policy
+            .rekey_recipients()
+            .into_iter()
+            .map(|device| crate::crypto::keys::Recipient {
+                device,
+                kem_pk: b.r.policy.devices[&device].kem_pk.0,
+            })
+            .collect::<Vec<_>>();
+    let later =
+        b.r.sealer
+            .build_rekey(
+                2,
+                &recipients,
+                RekeyReason::Scheduled,
+                &mut crate::crypto::TestEntropy::new(67),
+            )
+            .unwrap();
+    assert!(b.r.append_control(ItemKind::Rekey, later.to_bytes().unwrap()));
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(a.r.policy.epoch, 3);
+    assert!(!a.r.key_untrusted);
+    cp.append(
+        &svc,
+        vec![PolicyOp::DeviceRevoke(DeviceRevoke {
+            device: B16([104; 16]),
+        })],
+    );
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(
+        a.r.policy.epoch, 4,
+        "survivor can author the excluding rekey under the already trusted epoch"
+    );
+    assert!(!a.r.key_untrusted);
+    assert!(!a.r.cfg.trusted_signers.contains(&B16([104; 16])));
+    let recipients =
+        a.r.policy
+            .rekey_recipients()
+            .into_iter()
+            .map(|device| crate::crypto::keys::Recipient {
+                device,
+                kem_pk: a.r.policy.devices[&device].kem_pk.0,
+            })
+            .collect::<Vec<_>>();
+    let forged =
+        a.r.sealer
+            .build_rekey(
+                4,
+                &recipients,
+                RekeyReason::Scheduled,
+                &mut crate::crypto::TestEntropy::new(68),
+            )
+            .unwrap();
+    assert!(b.r.append_control(ItemKind::Rekey, forged.to_bytes().unwrap()));
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(
+        a.r.policy.epoch, 4,
+        "a real signature from the revoked member is refused"
+    );
+}
