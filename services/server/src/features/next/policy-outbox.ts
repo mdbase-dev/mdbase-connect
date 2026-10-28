@@ -265,7 +265,12 @@ export class PolicyEmitter {
     const started = performance.now(), failed = new Set<string>();
     let recovered = false;
     for (let probes = 0; probes < MAX_VERIFICATION_PROBES && performance.now() - started < VERIFICATION_BUDGET_MS; probes++) {
-      const next = this.verificationQueue.entries().next().value;
+      let next = this.verificationQueue.entries().next().value;
+      // Known loss blocks this collection's fresh delivery. Recover it before
+      // spending the shared budget on healthy history, regardless of hint age.
+      for (const entry of this.verificationQueue) {
+        if (entry[1] === undefined && !failed.has(entry[0])) { next = entry; break; }
+      }
       if (!next) break;
       const [collectionId, cursor] = next;
       this.verificationQueue.delete(collectionId);

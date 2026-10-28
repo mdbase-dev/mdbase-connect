@@ -157,8 +157,8 @@ describePostgres("mdbase-next policy outbox", () => {
       expect(errors.mock.calls.some(([, id]) => id === collectionId)).toBe(true);
       expect((await client.head(collectionId)).seq).toBe(1);
     } finally { finish.release(); await work; spy.mockRestore(); }
-    const checks = (await database.db.query("SELECT DISTINCT collection_id FROM next_policy_batches")).rows.length;
-    for (let i = 0; i <= checks; i++) await emitter.drain();
+    // Failed probes request full recovery and must take priority next poll too.
+    await emitter.drain();
     expect((await client.head(collectionId)).seq).toBe(2);
     await emitter.close();
   });
@@ -704,6 +704,39 @@ describePostgres("mdbase-next policy outbox", () => {
       expect(head).toHaveBeenCalledTimes(totals.batches + totals.collections);
     } finally { read.mockRestore(); head.mockRestore(); clock.mockRestore(); await emitter.close(); await isolated.close(); }
   }, 120_000);
+
+  it("recovers a late hint and delivers its pending revocation on the next poll ahead of healthy history", async () => {
+    const isolated = await withDatabase("priority_recovery");
+    const owner = await newUser(isolated.db), collectionId = randomUUID();
+    const healthy = Array.from({ length: 1056 }, () => randomUUID()), item = Buffer.from("a0", "hex");
+    await isolated.db.query(`INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id)
+      SELECT id, $2, 'next', 'cloud_copy', $3 FROM unnest($1::uuid[]) id`, [healthy, owner, signer.cert.root]);
+    await isolated.db.query(`INSERT INTO next_policy_batches(collection_id, seq, prev, item, issued_at, state)
+      SELECT id, 1, $2, $3, 1, 'appended' FROM unnest($1::uuid[]) id`, [healthy, Buffer.alloc(32), item]);
+    await registerNextCollection(isolated.db, { collectionId, ownerUserId: owner, runtime: "next", sync: "cloud_copy", rootKeyId: signer.cert.root, ops: genesisOps(owner, signer.cert.root) });
+    const emitter = new PolicyEmitter(isolated.db, client, signer, undefined, 2_000, () => now);
+    await emitter.drainCollection(collectionId);
+    await queueNextPolicy(isolated.db, collectionId, [{ op: "member-remove", account: randomUUID() }]);
+    await emitter.drainCollection(collectionId);
+    const originalHead = client.head.bind(client), originalRead = client.controlItemAt.bind(client);
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    const head = vi.spyOn(client, "head").mockImplementation(async id =>
+      id === collectionId ? originalHead(id) : { seq: 1, chain: Buffer.alloc(32) });
+    const read = vi.spyOn(client, "controlItemAt").mockImplementation(async (id, seq) =>
+      id === collectionId ? originalRead(id, seq) : item);
+    try {
+      await emitter.drain(); // Fill the rotation; only 32 of 1,056 healthy collections can be probed.
+      expect(head.mock.calls.filter(([id]) => id !== collectionId).length).toBeLessThanOrEqual(32);
+      service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
+      await queueNextPolicy(isolated.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
+      emitter.hintLostPolicy(collectionId); // Arrives behind the existing healthy cursors.
+      head.mockClear();
+      expect(await emitter.drain()).toBe(2); // Reissue first, then the fresh revoke, in this poll.
+      expect(head.mock.calls[0]).toEqual([collectionId]);
+      expect(service.policyOps(collectionId, signer.cert.policyPublicKey)).toEqual([["1", "4", "2", "2"], ["5"], ["7"]]);
+      expect((await isolated.db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND batch_id IS NULL", [collectionId])).rows).toEqual([]);
+    } finally { read.mockRestore(); head.mockRestore(); clock.mockRestore(); await emitter.close(); await isolated.close(); }
+  });
 
   it("advances bounded verification and rebuilds the complete ordered loss plan on a later page", async () => {
     const collectionId = await register(await newUser(database.db));
