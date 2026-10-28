@@ -35,6 +35,7 @@ import { MAX_GEN0_RECORD_BYTES, MAX_GEN0_FILE_CHUNK_BYTES, MAX_GEN0_FILE_TOTAL_B
 import type { LogAppendSent } from "./migration-log-output.js";
 import { LegacySourceError, type CheckpointRequest, type FileRow, type Page, type PageLimits, type RecordRow, type ResourceRow } from "./legacy-source/source.ts";
 import { LegacyBindingError } from "./legacy-source/bindings.ts";
+import { LegacyCryptoError, LegacyKmsUnconfiguredError } from "./legacy-source/crypto.ts";
 import type { ClaimBinding, ConnectReply, MigrationConnect } from "./migration-connect.ts";
 import { PAUSE_REASON, atPreCutoverPause, STEP, type NativeState, type RunRecord, type RunStore } from "./migration-run.ts";
 
@@ -539,7 +540,9 @@ export class MigrationExecutor {
   #sourceError(error: unknown): Step {
     // A source refusal (state, head, hold, bindings) needs an operator; a
     // transport failure is retried on the held ticket (reads have no effect).
-    if (error instanceof LegacySourceError || error instanceof LegacyBindingError) return stop(`source_refused:${error.code}`);
+    if (error instanceof LegacyKmsUnconfiguredError) return stop("source_refused:legacy_source_unconfigured");
+    if (error instanceof LegacyCryptoError && error.code === "kms" && ["kms_unavailable", "kms_aborted"].includes(error.message)) return wait(`source_unavailable:${error.message}`);
+    if (error instanceof LegacySourceError || error instanceof LegacyBindingError || error instanceof LegacyCryptoError) return stop(`source_refused:${error.code}`);
     return wait(`source_unavailable:${code(error)}`);
   }
 

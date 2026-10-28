@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { MigrationExecutor, IDLE, PAGE_LIMITS, MAX_REFUSALS, BASE_WAIT_MS, WAIT_MS, RETRY_MS, RETRY_DEADLINE_MS, MAX_TRIES } from "../src/migration-executor.ts";
 import { PAUSE_REASON, STEP, newRun } from "../src/migration-run.ts";
 import { LegacySourceError } from "../src/legacy-source/source.ts";
+import { LegacyAwsKms } from "../src/legacy-source/aws-kms.ts";
+import { kmsContext, LegacyCryptoError, LegacyKmsUnconfiguredError } from "../src/legacy-source/crypto.ts";
 import { SettlementRefused } from "../src/migration-executor.ts";
 import { FakeNative, mapStore, providerPlan, HOLD } from "./fixtures/migration-fake-native.ts";
 import { LARGE_RECORD_TEXT, fakeSource, placement, gen0Source, gen0Plan, fileRow as file, recordRow as record } from "./fixtures/migration-fake-source.mjs";
@@ -246,6 +248,38 @@ test("unfenced reads and source refusals stop with typed codes", async () => {
   refused.openCheckpoint = async () => { throw new LegacySourceError("head_moved", "moved"); };
   const r = setup({ plan: [{ kind: 2, fields: [0, 40], step: STEP.created, settle: "source" }], source: refused });
   assert.equal((await drive(r.executor)).reason, "source_refused:head_moved");
+});
+
+test("legacy KMS throttling and transport loss retry the held source ticket; custody refusals stop", async () => {
+  const cid = "11111111-1111-4111-8111-111111111111";
+  const config = { region: "us-east-1", environment: "lab", collections: [cid],
+    keyArns: ["arn:aws:kms:us-east-1:000000000000:key/33333333-3333-4333-8333-333333333333"] };
+  const credentials = () => ({ accessKeyId: "AKIDEXAMPLE", secretAccessKey: "synthetic-unit-test-secret-not-a-credential" });
+  const cases = [
+    [503, "x", null], [429, "x", null], [400, JSON.stringify({ __type: "ThrottlingException" }), null],
+    [400, JSON.stringify({ __type: "InvalidCiphertextException" }), "source_refused:kms"],
+    [null, new LegacyCryptoError("kms", "kms_unavailable"), null],
+    [null, new LegacyKmsUnconfiguredError(), "source_refused:legacy_source_unconfigured"],
+  ];
+  for (const [status, body, refusal] of cases) {
+    const source = fakeSource({}), open = source.openCheckpoint.bind(source);
+    let opens = 0;
+    const kms = new LegacyAwsKms(config, credentials, async () => new Response(body, { status }), () => Date.UTC(2026, 9, 20));
+    source.openCheckpoint = async (...args) => {
+      if (++opens === 1) {
+        if (status === null) throw body;
+        await kms.decrypt(Uint8Array.of(1, 2, 3), kmsContext("lab", cid), new AbortController().signal);
+      }
+      return open(...args);
+    };
+    const s = setup({ plan: [{ kind: 2, fields: [0, 40], step: STEP.routed, settle: "source" }], source, clock: fakeClock() });
+    const result = await drive(s.executor);
+    assert.equal(result.state, refusal ? "stopped" : "done");
+    assert.equal(result.reason, refusal);
+    assert.equal(opens, refusal ? 1 : 2);
+    assert.equal(s.native.calls.filter(c => c === "prepare:2").length, 1, "retry retains the original ticket");
+    assert.equal(s.native.results.length, refusal ? 0 : 1);
+  }
 });
 
 test("resource/bucket continuations use only native-selected keys; >8 MiB file chunks upload in order", async () => {

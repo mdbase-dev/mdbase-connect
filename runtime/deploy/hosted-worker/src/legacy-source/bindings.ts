@@ -1,28 +1,30 @@
 /**
- * The Worker's **legacy source bindings**: how a LAB or staging hosted Worker reaches the
+ * The Worker's **legacy source bindings**: how a LAB or managed hosted Worker reaches the
  * data it migrates from, read-only, for exactly the collections it is configured
  * for. Builds the `LegacySourceConfig` that `source.ts` reads through.
  *
  * - **Postgres:** a Hyperdrive binding (`LEGACY_DB`) whose origin user is the
  *   SELECT-only `mdbn_hosted_legacy_reader` role (`sql/legacy-reader-role.sql`:
- *   column-level SELECT on the reader's columns only). Every connection opens one
- *   `REPEATABLE READ READ ONLY` transaction, and this adapter passes only single
- *   `SELECT`/`SHOW` statements to it. `source.ts` then refuses any role that could
+ *   column-level SELECT on the reader's columns only). Each checkpoint opens one
+ *   `REPEATABLE READ READ ONLY` transaction; live hold checks use a fixed SELECT
+ *   in a separate read-only transaction. The adapter passes only single `SELECT`/`SHOW`
+ *   statements. `source.ts` then refuses any role that could
  *   write. Three independent refusals: the adapter, the transaction, the role.
  * - **Storage:** the legacy R2 bucket over the S3 API with object-read-only
  *   credentials (an R2 binding cannot be read-only, and the bucket may live in
  *   another account). Only `GET` is ever sent, and only for this collection's
  *   committed blob keys (`v1/blobs/<collection>/<transfer>[.<attempt>]`).
- * - **Unwrap:** the provider's legacy master key (`LEGACY_MASTER_KEY`, base64 of 32
- *   bytes), imported non-extractable for `decrypt` and wiped. This is the only
- *   supported wrapping: the LAB provider wraps with its legacy key (environment
- *   `local`); a staging collection key in that form unwraps the same way. A KMS
- *   (`MDBK`) wrapped key is refused (`kms`, "KMS-wrapped collection keys are not
- *   supported by this legacy source"): no KMS unwrap path is configured here.
- * - **Admission:** LAB (`LAB` = "1", `LEGACY_SOURCE_ENVIRONMENT` = "lab",
- *   `KMS_ENVIRONMENT` unset or "lab") or staging (`KMS_ENVIRONMENT` = "staging",
- *   `LEGACY_SOURCE_ENVIRONMENT` = "staging", `LAB` not "1"). Production
- *   (`KMS_ENVIRONMENT` = "production") and every other combination are refused.
+ * - **Unwrap:** per-envelope legacy AES-GCM or MDBK v1/AWS-KMS scheme1. Both
+ *   capabilities are required in staging/production. LAB may omit the entire
+ *   distinct legacy KMS set; partial custody is misconfigured, and MDBK without
+ *   custody refuses at unwrap. Configured KMS retains its fixed region/approved
+ *   historical key ARNs and exact provider context. No native device-key
+ *   credential fallback or request-selected URL.
+ *   Raw legacy master/collection keys are wiped after nonextractable decrypt-only
+ *   import. Unknown/malformed envelopes fail closed; never retry as another mode.
+ * - **Admission:** explicit LAB or matching staging/production source and KMS
+ *   environments. Production is an enumerated tier, never a staging fallback.
+ *   Deployment target/custody authentication remains the shared profile's job.
  * - **Scope:** `LEGACY_SOURCE_COLLECTIONS` is an explicit allowlist, never inferred
  *   from a request; the source is bound to one of its collections and refuses to
  *   open any other.
@@ -34,10 +36,18 @@
  * `LEGACY_SOURCE_COLLECTIONS`, `LEGACY_DB` (Hyperdrive), `LEGACY_R2_ENDPOINT`
  * (`https://<account>.r2.cloudflarestorage.com`), `LEGACY_R2_BUCKET`, and secrets
  * `LEGACY_R2_ACCESS_KEY_ID`, `LEGACY_R2_SECRET_ACCESS_KEY`, `LEGACY_R2_SESSION_TOKEN`
- * (temporary credentials only), `LEGACY_MASTER_KEY`.
+ * (temporary credentials only), `LEGACY_MASTER_KEY`. The distinct provider KMS
+ * bindings are listed in `LegacySourceEnv` and validated by `./aws-kms.ts`.
  */
 import { AwsClient } from "aws4fetch";
+import type { AwsCredentials } from "../custody/aws-kms.ts";
+import { LegacyAwsKms, validateLegacyKmsConfig, type LegacyAwsKmsConfig } from "./aws-kms.ts";
 import type { LegacyUnwrapper } from "./crypto.ts";
+
+/** Exhaustive persisted DEK writer formats in provider P8a014fe's reachable history. */
+export const SUPPORTED_LEGACY_ENVELOPE_MODES = Object.freeze([
+  "local-aes-gcm-v1", "mdbk-v1-aws-kms-scheme-1",
+] as const);
 import {
   LegacySource, LegacySourceError,
   type Checkpoint, type CheckpointRequest, type LegacyObjects, type LegacySourceConfig, type ReadOnlyTx, type Row,
@@ -68,6 +78,13 @@ export interface LegacySourceEnv {
   LEGACY_R2_SECRET_ACCESS_KEY?: string;
   LEGACY_R2_SESSION_TOKEN?: string;
   LEGACY_MASTER_KEY?: string;
+  LEGACY_KMS_REGION?: string;
+  LEGACY_KMS_KEY_ARNS?: string;
+  LEGACY_KMS_ACCESS_KEY_ID?: string;
+  LEGACY_KMS_SECRET_ACCESS_KEY?: string;
+  LEGACY_KMS_SESSION_TOKEN?: string;
+  /** Trusted credential issuer expiry, epoch milliseconds (required for STS). */
+  LEGACY_KMS_CREDENTIALS_EXPIRES_AT?: string;
 }
 
 /** The host's Postgres client (in the Worker, `pg.Client` over the Hyperdrive string). */
@@ -86,8 +103,8 @@ export interface LegacyR2Settings {
   sessionToken?: string;
 }
 
-/** Where the legacy source is admitted (production never is). */
-export type LegacySourceTier = "lab" | "staging";
+/** Closed shared environment selection; LAB remains isolated fixture machinery. */
+export type LegacySourceTier = "lab" | "staging" | "production";
 
 export interface LegacyBindingSettings {
   tier: LegacySourceTier;
@@ -96,6 +113,10 @@ export interface LegacyBindingSettings {
   r2: LegacyR2Settings;
   /** Raw legacy master key; the caller imports it and wipes this copy. */
   masterKey: Uint8Array;
+  /** Absent only for LAB with the entire dedicated KMS set absent. */
+  kms?: LegacyAwsKmsConfig;
+  /** Separate legacy unwrap authority; absent with kms, never native AWS_* fallback. */
+  kmsCredentials?: AwsCredentials;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -127,25 +148,37 @@ function decodeKey(value: string): Uint8Array {
 
 /**
  * The admission tier from the deployment's own environment, before any other
- * setting is read. Production is refused outright; staging needs the staging KMS
- * environment and no LAB flag; LAB needs `LAB=1` and no other KMS environment.
+ * setting is read. Staging/production must be selected explicitly, with no LAB
+ * flag. LAB needs `LAB=1` and no foreign KMS environment. No production default.
  */
 function admissionTier(env: LegacySourceEnv): LegacySourceTier {
   const kms = env.KMS_ENVIRONMENT;
-  if (kms === "production") {
-    throw new LegacyBindingError("legacy_source_unconfigured", "legacy source bindings are refused in production (KMS_ENVIRONMENT)");
-  }
   if (env.LAB === "1") {
     if (kms !== undefined && kms !== "" && kms !== "lab") throw misconfigured("KMS_ENVIRONMENT");
     return "lab";
   }
-  if (kms === "staging") return "staging";
-  throw new LegacyBindingError("legacy_source_unconfigured", "legacy source bindings are LAB- or staging-only (LAB, KMS_ENVIRONMENT)");
+  if (env.LAB !== undefined && env.LAB !== "" && env.LAB !== "0") throw misconfigured("LAB");
+  if (kms === "staging" || kms === "production") return kms;
+  throw new LegacyBindingError("legacy_source_unconfigured", "legacy source requires an explicit LAB or managed KMS_ENVIRONMENT");
 }
 
 /** Parse and check every setting; refuse (typed) on anything missing or malformed. */
 export function legacyBindingSettings(env: LegacySourceEnv): LegacyBindingSettings {
   const tier = admissionTier(env);
+  if (!env.LEGACY_SOURCE_ENVIRONMENT) {
+    throw new LegacyBindingError("legacy_source_unconfigured", "legacy source bindings missing: LEGACY_SOURCE_ENVIRONMENT");
+  }
+  if (env.LEGACY_SOURCE_ENVIRONMENT !== tier) throw misconfigured("LEGACY_SOURCE_ENVIRONMENT");
+  const kmsRequired = {
+    LEGACY_KMS_REGION: env.LEGACY_KMS_REGION,
+    LEGACY_KMS_KEY_ARNS: env.LEGACY_KMS_KEY_ARNS,
+    LEGACY_KMS_ACCESS_KEY_ID: env.LEGACY_KMS_ACCESS_KEY_ID,
+    LEGACY_KMS_SECRET_ACCESS_KEY: env.LEGACY_KMS_SECRET_ACCESS_KEY,
+  };
+  // Only complete absence opts LAB out. Empty/null/malformed values and orphan
+  // optional metadata are configuration, not an absent capability or mode hint.
+  const hasKms = Object.values({ ...kmsRequired, sessionToken: env.LEGACY_KMS_SESSION_TOKEN,
+    expiresAt: env.LEGACY_KMS_CREDENTIALS_EXPIRES_AT }).some(value => value !== undefined);
   const required = {
     LEGACY_SOURCE_ENVIRONMENT: env.LEGACY_SOURCE_ENVIRONMENT,
     LEGACY_SOURCE_COLLECTIONS: env.LEGACY_SOURCE_COLLECTIONS,
@@ -155,12 +188,17 @@ export function legacyBindingSettings(env: LegacySourceEnv): LegacyBindingSettin
     LEGACY_R2_ACCESS_KEY_ID: env.LEGACY_R2_ACCESS_KEY_ID,
     LEGACY_R2_SECRET_ACCESS_KEY: env.LEGACY_R2_SECRET_ACCESS_KEY,
     LEGACY_MASTER_KEY: env.LEGACY_MASTER_KEY,
+    ...(tier !== "lab" || hasKms ? kmsRequired : {}),
   };
   const missing = Object.entries(required).filter(([, v]) => v === undefined || v === null || v === "").map(([k]) => k);
   if (missing.length) {
-    throw new LegacyBindingError("legacy_source_unconfigured", `legacy source bindings missing: ${missing.join(", ")}`);
+    const code = tier === "lab" && hasKms && missing.some(name => name.startsWith("LEGACY_KMS_"))
+      ? "legacy_source_misconfigured" : "legacy_source_unconfigured";
+    throw new LegacyBindingError(code, `legacy source bindings missing: ${missing.join(", ")}`);
   }
-  if (env.LEGACY_SOURCE_ENVIRONMENT !== tier) throw misconfigured("LEGACY_SOURCE_ENVIRONMENT");
+  for (const [name, value] of Object.entries(required)) {
+    if (name !== "LEGACY_DB" && typeof value !== "string") throw misconfigured(name);
+  }
   const collections = env.LEGACY_SOURCE_COLLECTIONS!.split(",").map((c) => c.trim());
   if (!collections.length || collections.length > MAX_COLLECTIONS || collections.some((c) => !UUID.test(c))
       || new Set(collections).size !== collections.length || collections.includes("00000000-0000-0000-0000-000000000000")) {
@@ -177,9 +215,35 @@ export function legacyBindingSettings(env: LegacySourceEnv): LegacyBindingSettin
       && !CREDENTIAL.test(env.LEGACY_R2_SESSION_TOKEN)) {
     throw misconfigured("LEGACY_R2_SESSION_TOKEN");
   }
+  let kms: LegacyAwsKmsConfig | undefined, kmsCredentials: AwsCredentials | undefined;
+  if (tier !== "lab" || hasKms) {
+    kms = {
+      region: env.LEGACY_KMS_REGION!, environment: tier, collections,
+      keyArns: env.LEGACY_KMS_KEY_ARNS!.split(","),
+    };
+    try { validateLegacyKmsConfig(kms); }
+    catch { throw misconfigured("LEGACY_KMS_REGION/LEGACY_KMS_KEY_ARNS"); }
+    if (!/^[A-Z0-9]{10,128}$/.test(env.LEGACY_KMS_ACCESS_KEY_ID!)) throw misconfigured("LEGACY_KMS_ACCESS_KEY_ID");
+    const secret = env.LEGACY_KMS_SECRET_ACCESS_KEY!;
+    if (typeof secret !== "string" || secret.length < 16 || secret.length > 256) throw misconfigured("LEGACY_KMS_SECRET_ACCESS_KEY");
+    const sessionToken = env.LEGACY_KMS_SESSION_TOKEN;
+    const expiry = env.LEGACY_KMS_CREDENTIALS_EXPIRES_AT;
+    if (sessionToken !== undefined && (typeof sessionToken !== "string" || sessionToken.length === 0 || sessionToken.length > 8192 || /[\r\n]/.test(sessionToken))) throw misconfigured("LEGACY_KMS_SESSION_TOKEN");
+    if (expiry !== undefined && (typeof expiry !== "string" || !/^\d{1,16}$/.test(expiry) || !Number.isSafeInteger(Number(expiry)) || Number(expiry) <= Date.now() + 30_000)) {
+      throw misconfigured("LEGACY_KMS_CREDENTIALS_EXPIRES_AT");
+    }
+    if (sessionToken !== undefined && expiry === undefined) throw misconfigured("LEGACY_KMS_CREDENTIALS_EXPIRES_AT");
+    kmsCredentials = {
+      accessKeyId: env.LEGACY_KMS_ACCESS_KEY_ID!, secretAccessKey: secret,
+      ...(sessionToken !== undefined ? { sessionToken } : {}),
+      ...(expiry !== undefined ? { expiresAt: Number(expiry) } : {}),
+    };
+  }
   return {
     tier,
     collections,
+    kms,
+    kmsCredentials,
     connectionString: cs,
     r2: {
       endpoint: env.LEGACY_R2_ENDPOINT!, bucket: env.LEGACY_R2_BUCKET!,
@@ -391,18 +455,19 @@ export interface LegacySourceDeps {
  */
 export async function openLegacySource(env: LegacySourceEnv, collection: string, deps: LegacySourceDeps): Promise<BoundLegacySource> {
   const settings = legacyBindingSettings(env);
-  let legacyMasterKey: CryptoKey;
+  let unwrapper: LegacyUnwrapper;
   try {
     if (!settings.collections.includes(collection)) {
       throw new LegacyBindingError("legacy_source_foreign_collection", "the collection is not configured for this Worker");
     }
-    legacyMasterKey = await crypto.subtle.importKey("raw", settings.masterKey, "AES-GCM", false, ["decrypt"]);
+    const { kms: config, kmsCredentials } = settings;
+    const kms = config && kmsCredentials ? new LegacyAwsKms(config, () => kmsCredentials, deps.fetch) : undefined;
+    const legacyMasterKey = await crypto.subtle.importKey("raw", settings.masterKey, "AES-GCM", false, ["decrypt"]);
+    unwrapper = { environment: settings.tier, legacyMasterKey, kms };
   } finally {
     settings.masterKey.fill(0);
   }
   const { connect } = deps;
-  // Legacy-key wrapping only; no `kms` here, so an MDBK row refuses (crypto.ts).
-  const unwrapper: LegacyUnwrapper = { environment: settings.tier === "lab" ? "local" : "staging", legacyMasterKey };
   const hold = holdReader(connect, settings.connectionString);
   return new BoundLegacySource(collection, {
     openTx: (signal) => openReadOnlyTx(connect, settings.connectionString, signal),
