@@ -599,6 +599,11 @@ impl<S: Store> Replica<S> {
         let Some(d) = pol.devices.get(&me).filter(|d| d.active) else {
             return false;
         };
+        let switching_private = self.private_switch_waiting();
+        let switch_author = self.can_author_private_switch();
+        if switching_private && !switch_author {
+            return false;
+        }
         let (reason, recipients): (RekeyReason, Vec<mdbn_wire::common::Uuid>) = if pol.epoch == 0 {
             // Initial (sealed-envelope.md §5.2, §7.1). An editor
             // device keys itself and, in cloud copy, the escrow and hosted; an Owner's
@@ -641,9 +646,13 @@ impl<S: Store> Replica<S> {
                 );
             }
             (RekeyReason::Initial, r)
-        } else if pol.rekey_required && d.keyed && !self.key_untrusted {
+        } else if pol.rekey_required && d.keyed && (!self.key_untrusted || switch_author) {
             (
-                RekeyReason::DeviceRevoked,
+                if switch_author {
+                    RekeyReason::CloudCopyOff
+                } else {
+                    RekeyReason::DeviceRevoked
+                },
                 pol.rekey_recipients().into_iter().collect(),
             )
         } else {

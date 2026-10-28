@@ -26,6 +26,8 @@ impl<S: Store> Replica<S> {
                 "retained bytes differ from applied head".into(),
             ));
         }
+        self.expire_private_switch(head);
+        tx.meta.push(self.private_switch_meta());
         let revoked = self
             .policy
             .devices
@@ -42,7 +44,12 @@ impl<S: Store> Replica<S> {
             self.prune_retained(&row, &mut tx)?;
             tx.tail_put.push(row);
         }
-        self.commit_with_read_health(Some(head), tx)
+        self.commit_with_read_health(Some(head), tx)?;
+        if !self.apply_fault && !self.is_apply_recovering() {
+            self.restore_private_choice();
+            self.check_key_trust();
+        }
+        Ok(())
     }
 
     /// Same settled commit/read-health boundary, also for DATA-only warm replay

@@ -129,14 +129,15 @@ mod tests {
     #[tokio::test]
     async fn shuts_down_only_the_identified_legacy_profile_without_a_runtime_binary() {
         let dir = crate::testutil::TestDir::new("ls");
-        crate::fsutil::ensure_private_dir(dir.path()).unwrap();
-        let listener = tokio::net::UnixListener::bind(dir.path().join("agent.sock")).unwrap();
+        let state = std::fs::canonicalize(dir.path()).unwrap();
+        crate::fsutil::ensure_private_dir(state.as_path()).unwrap();
+        let listener = tokio::net::UnixListener::bind(state.as_path().join("agent.sock")).unwrap();
         std::fs::set_permissions(
-            dir.path().join("agent.sock"),
+            state.as_path().join("agent.sock"),
             std::fs::Permissions::from_mode(0o600),
         )
         .unwrap();
-        let other = tokio::net::UnixListener::bind(dir.path().join("other.sock")).unwrap();
+        let other = tokio::net::UnixListener::bind(state.as_path().join("other.sock")).unwrap();
         let server = tokio::spawn(async move {
             for method in ["status", "daemon.shutdown"] {
                 let (mut stream, _) = listener.accept().await.unwrap();
@@ -161,7 +162,7 @@ mod tests {
                     .unwrap();
             }
         });
-        let state = dir.path().to_path_buf();
+        let state = state.as_path().to_path_buf();
         tokio::task::spawn_blocking(move || {
             use mdbn_legacy::OldService;
             ForegroundOldService(state).stop_and_disable().unwrap();
@@ -180,14 +181,16 @@ mod tests {
     async fn rejects_nonlegacy_or_mismatched_responses_without_sending_shutdown() {
         for wrong in ["protocol", "id", "identity"] {
             let dir = crate::testutil::TestDir::new("lw");
-            crate::fsutil::ensure_private_dir(dir.path()).unwrap();
-            let listener = tokio::net::UnixListener::bind(dir.path().join("agent.sock")).unwrap();
+            let state = std::fs::canonicalize(dir.path()).unwrap();
+            crate::fsutil::ensure_private_dir(state.as_path()).unwrap();
+            let listener =
+                tokio::net::UnixListener::bind(state.as_path().join("agent.sock")).unwrap();
             std::fs::set_permissions(
-                dir.path().join("agent.sock"),
+                state.as_path().join("agent.sock"),
                 std::fs::Permissions::from_mode(0o600),
             )
             .unwrap();
-            let path = dir.path().to_path_buf();
+            let path = state.as_path().to_path_buf();
             let client = tokio::spawn(async move { stop_async(&path).await });
             let (mut stream, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
                 .await
@@ -221,15 +224,16 @@ mod tests {
     #[tokio::test]
     async fn absent_profile_is_a_noop_and_untrusted_socket_is_refused() {
         let dir = crate::testutil::TestDir::new("la");
-        crate::fsutil::ensure_private_dir(dir.path()).unwrap();
-        assert!(!stop_async(dir.path()).await.unwrap());
-        let listener = tokio::net::UnixListener::bind(dir.path().join("agent.sock")).unwrap();
+        let state = std::fs::canonicalize(dir.path()).unwrap();
+        crate::fsutil::ensure_private_dir(state.as_path()).unwrap();
+        assert!(!stop_async(state.as_path()).await.unwrap());
+        let listener = tokio::net::UnixListener::bind(state.as_path().join("agent.sock")).unwrap();
         std::fs::set_permissions(
-            dir.path().join("agent.sock"),
+            state.as_path().join("agent.sock"),
             std::fs::Permissions::from_mode(0o666),
         )
         .unwrap();
-        assert!(stop_async(dir.path()).await.is_err());
+        assert!(stop_async(state.as_path()).await.is_err());
         assert!(
             tokio::time::timeout(Duration::from_millis(20), listener.accept())
                 .await

@@ -506,7 +506,7 @@ impl<S: Store> Replica<S> {
         item: &Item,
     ) -> Result<Outcome, StoreError> {
         self.discard_staged_key_grants();
-        let outcome = match self.evaluate_control(p, &head.chain, item, &[]) {
+        let outcome = match self.evaluate_control(p, &head.chain, item, &[], true) {
             Err(stall) => {
                 self.discard_staged_key_grants();
                 return Ok(Outcome::Stall(IncidentKind::UpgradeRequired, stall));
@@ -568,6 +568,7 @@ impl<S: Store> Replica<S> {
         chain: &mdbn_wire::common::Hash,
         item: &Item,
         raw: &[u8],
+        settled: bool,
     ) -> Result<Option<&'static str>, String> {
         if item.kind == ItemKind::GrantApproval {
             let plain = match self.sealer.open(item, raw) {
@@ -598,13 +599,31 @@ impl<S: Store> Replica<S> {
             trusted_roots: &self.cfg.trusted_roots,
             policy_pins: self.cfg.policy_pins.as_ref(),
         };
+        let switch_eligible = settled
+            && self.head.seq.checked_add(1) == Some(p)
+            && self.policy.cstate == Some(mdbn_wire::policy::CState::CloudCopy)
+            && self.cfg.user_enabled_cloud_copy
+            && self.cfg.chosen_state == Some(mdbn_wire::policy::CState::CloudCopy)
+            && !self.key_untrusted
+            && self.sealer.current_epoch() == Some(self.policy.epoch);
         let verdict = self.policy.apply_control(p, chain, item, &env);
         let r = match verdict {
             Err(crate::policy::Rejected::Stall(s)) => return Err(format!("item {p}: {s}")),
             Err(crate::policy::Rejected::Void(v)) => Some(v.rule),
             Ok(events) => {
                 for e in events {
-                    self.on_policy_event(e);
+                    if matches!(
+                        e,
+                        crate::policy::PolicyEvent::CollectionStateChanged {
+                            from: Some(mdbn_wire::policy::CState::CloudCopy),
+                            to: mdbn_wire::policy::CState::E2e
+                        }
+                    ) {
+                        self.capture_private_switch(p, *chain, switch_eligible);
+                    }
+                    if settled || !self.private_switch_covers(p) {
+                        self.on_policy_event(e);
+                    }
                 }
                 self.note_account_key_item(item);
                 match item.kind {
@@ -612,6 +631,9 @@ impl<S: Store> Replica<S> {
                         if let Ok(rk) = mdbn_wire::envelope::RekeyPayload::from_bytes(&item.body.0)
                         {
                             let ev = self.sealer.accept_rekey(&rk);
+                            if settled {
+                                self.accept_private_switch(p, *chain, item, &rk, ev);
+                            }
                             self.note_hosted_key_delivery(p, item, ev);
                             self.on_key_event(ev);
                         }
@@ -657,7 +679,7 @@ impl<S: Store> Replica<S> {
         let chain = mdbn_wire::hash::chain_hash(raw);
         let checkpoint = super::apply_checkpoint::Checkpoint::capture(self);
         self.discard_staged_key_grants();
-        if let Err(e) = self.evaluate_control(p, &chain, &item, raw) {
+        if let Err(e) = self.evaluate_control(p, &chain, &item, raw, false) {
             self.discard_staged_key_grants();
             return Err(e);
         }
@@ -696,7 +718,7 @@ impl<S: Store> Replica<S> {
         item: &Item,
         raw: &[u8],
     ) -> Result<Outcome, StoreError> {
-        let outcome = match self.evaluate_control(p, &head.chain, item, raw) {
+        let outcome = match self.evaluate_control(p, &head.chain, item, raw, true) {
             Err(stall) => {
                 let kind = if stall.contains("no key") {
                     IncidentKind::WaitingForKey
@@ -753,7 +775,7 @@ impl<S: Store> Replica<S> {
             }
             crate::policy::PolicyEvent::CollectionStateChanged { to, .. } => {
                 // Every device alerts unless its own user requested the change.
-                if self.cfg.chosen_state != Some(to) {
+                if self.cfg.chosen_state != Some(to) && !self.private_switch_waiting() {
                     self.incident(
                         IncidentKind::Integrity,
                         Some(Value::Text(format!("collection_state_changed: {to:?}"))),
@@ -766,6 +788,10 @@ impl<S: Store> Replica<S> {
     /// Device-local key trust: a key that reached this device only through
     /// devices its user never approved is not used for sealing.
     pub(crate) fn check_key_trust(&mut self) {
+        if self.private_switch_blocks() {
+            self.key_untrusted = true;
+            return;
+        }
         let mut trusted: std::collections::BTreeSet<mdbn_wire::common::Uuid> =
             self.cfg.trusted_signers.iter().copied().collect();
         // Account-key devices this device's user unlocked (AK1).
