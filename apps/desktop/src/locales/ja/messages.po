@@ -925,6 +925,10 @@ msgstr "mdbase はこのコンピューターの画面で、アプリのキー�
 msgid "mdbase cannot reach the sync service. It opens the collection when you are back online."
 msgstr "mdbase は同期サービスに接続できません。オンラインに戻るとコレクションを開きます。"
 
+#: src/renderer/daemon-view.mts
+msgid "mdbase cannot reach this computer's secure storage. Unlock your keychain or restart mdbase."
+msgstr "このコンピューターの安全なストレージにアクセスできません。キーチェーンのロックを解除するか、mdbase を再起動してください。"
+
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not initialize"
@@ -952,6 +956,10 @@ msgstr "mdbase connect のナビゲーション"
 msgid "mdbase connect will start at login."
 msgstr "mdbase connect はログイン時に起動します。"
 
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not connect this computer to your account. It keeps trying while mdbase is running."
+msgstr "このコンピューターをアカウントに接続できませんでした。mdbase の実行中は再試行を続けます。"
+
 #: src/renderer/access-view.tsx
 msgid "mdbase could not fetch what this app is asking for, or which folders. Approval is possible once it can."
 msgstr "mdbase は、このアプリの要求内容や対象フォルダーを取得できませんでした。取得できるようになると承認できます。"
@@ -963,6 +971,14 @@ msgstr "mdbase は同期サービスに接続できませんでした。接続�
 #: src/renderer/activity-view.tsx
 msgid "mdbase could not read this computer's activity. It is retried automatically."
 msgstr "mdbase はこのコンピューターのアクティビティを読み取れませんでした。自動的に再試行します。"
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not register this computer yet. It keeps trying while mdbase is running."
+msgstr "このコンピューターをまだ登録できませんでした。mdbase の実行中は再試行を続けます。"
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
+msgstr "このコンピューターのアカウント設定を保存できませんでした。ディスクの空き容量を確認してから、mdbase を再起動してください。"
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
@@ -1007,6 +1023,10 @@ msgstr "mdbase に対応が必要です"
 msgctxt "Desktop application"
 msgid "mdbase needs attention"
 msgstr "mdbase に対応が必要です"
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase no longer accepts this computer's sign-in. Sign out and sign in again."
+msgstr "このコンピューターのサインインは mdbase に受け付けられなくなりました。サインアウトして、もう一度サインインしてください。"
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
@@ -1421,6 +1441,10 @@ msgstr "コレクションの移行を完了するにはログインしてくだ
 msgid "Sign in to mdbase on this computer"
 msgstr "このコンピューターで mdbase にログイン"
 
+#: src/renderer/daemon-view.mts
+msgid "Sign in to mdbase on this computer again."
+msgstr "このコンピューターで mdbase にもう一度サインインしてください。"
+
 #: src/renderer/view-model.ts
 msgid "Sign in to mdbase on this computer before adding a collection."
 msgstr "コレクションを追加する前に、このコンピューターで mdbase にログインしてください。"
@@ -1458,6 +1482,14 @@ msgstr "このコンピューターでログアウトしますか？ アプリ�
 msgid "Sign out on this computer…"
 msgstr "このコンピューターでログアウト…"
 
+#: src/renderer/daemon-view.mts
+msgid "Sign-in did not finish. Try again."
+msgstr "サインインが完了しませんでした。もう一度お試しください。"
+
+#: src/renderer/daemon-view.mts
+msgid "Sign-in was cancelled. Start again."
+msgstr "サインインがキャンセルされました。最初からやり直してください。"
+
 #: src/renderer/main.tsx
 msgid "Signed in"
 msgstr "ログイン済み"
@@ -1466,6 +1498,10 @@ msgstr "ログイン済み"
 msgctxt "Local connection status"
 msgid "Signing in"
 msgstr "ログイン中"
+
+#: src/renderer/daemon-view.mts
+msgid "Signing out did not finish. Try signing out again."
+msgstr "サインアウトが完了しませんでした。もう一度サインアウトしてください。"
 
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
@@ -1653,6 +1689,10 @@ msgstr "移動後に旧 mdbase Connect が再び起動しました。終了し�
 msgid "The server hasn't confirmed that the old mdbase Connect on this computer is retired. Keep using mdbase as normal. If this message stays, email support@mdbase.dev."
 msgstr "このコンピューターの旧 mdbase Connect が終了したことをサーバーが確認できていません。通常どおり mdbase を使用してください。この表示が続く場合は support@mdbase.dev にメールしてください。"
 
+#: src/renderer/daemon-view.mts
+msgid "The sign-in request expired. Start again."
+msgstr "サインインのリクエストが期限切れになりました。最初からやり直してください。"
+
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The update has not finished downloading."
@@ -1770,6 +1810,10 @@ msgstr "このバージョンの mdbase はサポート対象外です。バー�
 #: src/main/update-coordinator.ts
 msgid "This version of mdbase is no longer supported. Version {0} is verified; install it now."
 msgstr "このバージョンの mdbase はサポート対象外です。バージョン {0} は検証済みです。今すぐインストールしてください。"
+
+#: src/renderer/daemon-view.mts
+msgid "This version of mdbase is too old for the service. Update mdbase."
+msgstr "このバージョンの mdbase は古すぎるためサービスを利用できません。mdbase を更新してください。"
 
 #: src/renderer/collections-view.tsx
 msgid "Turn off sync"

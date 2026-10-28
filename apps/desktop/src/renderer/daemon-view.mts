@@ -19,22 +19,21 @@ export interface ConnectionPresentation {
 }
 
 // The daemon reports account problems as reason codes.
-const ACCOUNT_PROBLEMS: Record<string, string> = {
-  sign_in_failed: "Sign-in did not finish. Try again.",
-  sign_in_expired: "The sign-in request expired. Start again.",
-  sign_in_cancelled: "Sign-in was cancelled. Start again.",
-  sign_in_required: "Sign in to mdbase on this computer again.",
-  authentication_required: "mdbase no longer accepts this computer's sign-in. Sign out and sign in again.",
-  device_registration_failed: "mdbase could not register this computer yet. It keeps trying while mdbase is running.",
-  incompatible_version: "This version of mdbase is too old for the service. Update mdbase.",
-  credential_store_unavailable: "mdbase cannot reach this computer's secure storage. Unlock your keychain or restart mdbase.",
-  account_state: "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase.",
-  account_cleanup_failed: "Signing out did not finish. Try signing out again."
-};
-
 export function accountProblemText(reason: string | null | undefined): string | undefined {
   if (!reason) return undefined;
-  return ACCOUNT_PROBLEMS[reason] ?? "mdbase could not connect this computer to your account. It keeps trying while mdbase is running.";
+  switch (reason) {
+    case "sign_in_failed": return t(i18n)({ message: "Sign-in did not finish. Try again." });
+    case "sign_in_expired": return t(i18n)({ message: "The sign-in request expired. Start again." });
+    case "sign_in_cancelled": return t(i18n)({ message: "Sign-in was cancelled. Start again." });
+    case "sign_in_required": return t(i18n)({ message: "Sign in to mdbase on this computer again." });
+    case "authentication_required": return t(i18n)({ message: "mdbase no longer accepts this computer's sign-in. Sign out and sign in again." });
+    case "device_registration_failed": return t(i18n)({ message: "mdbase could not register this computer yet. It keeps trying while mdbase is running." });
+    case "incompatible_version": return t(i18n)({ message: "This version of mdbase is too old for the service. Update mdbase." });
+    case "credential_store_unavailable": return t(i18n)({ message: "mdbase cannot reach this computer's secure storage. Unlock your keychain or restart mdbase." });
+    case "account_state": return t(i18n)({ message: "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase." });
+    case "account_cleanup_failed": return t(i18n)({ message: "Signing out did not finish. Try signing out again." });
+    default: return t(i18n)({ message: "mdbase could not connect this computer to your account. It keeps trying while mdbase is running." });
+  }
 }
 
 export function presentConnection(status: StatusLike | null, checked: boolean): ConnectionPresentation {

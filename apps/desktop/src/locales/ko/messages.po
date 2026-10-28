@@ -925,6 +925,10 @@ msgstr "mdbase가 이 컴퓨터 화면에 앱 키와 함께 확인 요청을 표
 msgid "mdbase cannot reach the sync service. It opens the collection when you are back online."
 msgstr "mdbase가 동기화 서비스에 연결할 수 없습니다. 다시 온라인이 되면 컬렉션을 엽니다."
 
+#: src/renderer/daemon-view.mts
+msgid "mdbase cannot reach this computer's secure storage. Unlock your keychain or restart mdbase."
+msgstr "이 컴퓨터의 보안 저장소에 접근할 수 없습니다. 키체인의 잠금을 해제하거나 mdbase를 다시 시작하세요."
+
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not initialize"
@@ -952,6 +956,10 @@ msgstr "mdbase connect 탐색"
 msgid "mdbase connect will start at login."
 msgstr "로그인할 때 mdbase connect가 시작됩니다."
 
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not connect this computer to your account. It keeps trying while mdbase is running."
+msgstr "이 컴퓨터를 계정에 연결하지 못했습니다. mdbase가 실행 중인 동안 계속 재시도합니다."
+
 #: src/renderer/access-view.tsx
 msgid "mdbase could not fetch what this app is asking for, or which folders. Approval is possible once it can."
 msgstr "mdbase가 이 앱의 요청 내용이나 대상 폴더를 가져오지 못했습니다. 가져올 수 있게 되면 승인할 수 있습니다."
@@ -963,6 +971,14 @@ msgstr "mdbase가 동기화 서비스에 연결할 수 없습니다. 연결 상�
 #: src/renderer/activity-view.tsx
 msgid "mdbase could not read this computer's activity. It is retried automatically."
 msgstr "mdbase가 이 컴퓨터의 활동을 읽지 못했습니다. 자동으로 다시 시도합니다."
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not register this computer yet. It keeps trying while mdbase is running."
+msgstr "아직 이 컴퓨터를 등록하지 못했습니다. mdbase가 실행 중인 동안 계속 재시도합니다."
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
+msgstr "이 컴퓨터의 계정 설정을 저장하지 못했습니다. 디스크 여유 공간을 확인한 후 mdbase를 다시 시작하세요."
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
@@ -1007,6 +1023,10 @@ msgstr "mdbase 확인 필요"
 msgctxt "Desktop application"
 msgid "mdbase needs attention"
 msgstr "mdbase 확인 필요"
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase no longer accepts this computer's sign-in. Sign out and sign in again."
+msgstr "mdbase가 더 이상 이 컴퓨터의 로그인을 허용하지 않습니다. 로그아웃한 후 다시 로그인하세요."
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
@@ -1421,6 +1441,10 @@ msgstr "컬렉션 이동을 완료하려면 로그인하세요"
 msgid "Sign in to mdbase on this computer"
 msgstr "이 컴퓨터에서 mdbase에 로그인"
 
+#: src/renderer/daemon-view.mts
+msgid "Sign in to mdbase on this computer again."
+msgstr "이 컴퓨터에서 mdbase에 다시 로그인하세요."
+
 #: src/renderer/view-model.ts
 msgid "Sign in to mdbase on this computer before adding a collection."
 msgstr "컬렉션을 추가하기 전에 이 컴퓨터에서 mdbase에 로그인하세요."
@@ -1458,6 +1482,14 @@ msgstr "이 컴퓨터에서 로그아웃할까요? 앱은 이 컴퓨터를 통�
 msgid "Sign out on this computer…"
 msgstr "이 컴퓨터에서 로그아웃…"
 
+#: src/renderer/daemon-view.mts
+msgid "Sign-in did not finish. Try again."
+msgstr "로그인이 완료되지 않았습니다. 다시 시도하세요."
+
+#: src/renderer/daemon-view.mts
+msgid "Sign-in was cancelled. Start again."
+msgstr "로그인이 취소되었습니다. 처음부터 다시 시작하세요."
+
 #: src/renderer/main.tsx
 msgid "Signed in"
 msgstr "로그인됨"
@@ -1466,6 +1498,10 @@ msgstr "로그인됨"
 msgctxt "Local connection status"
 msgid "Signing in"
 msgstr "로그인하는 중"
+
+#: src/renderer/daemon-view.mts
+msgid "Signing out did not finish. Try signing out again."
+msgstr "로그아웃이 완료되지 않았습니다. 다시 로그아웃해 보세요."
 
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
@@ -1653,6 +1689,10 @@ msgstr "이동 후 이전 mdbase Connect가 다시 시작되었습니다. 종료
 msgid "The server hasn't confirmed that the old mdbase Connect on this computer is retired. Keep using mdbase as normal. If this message stays, email support@mdbase.dev."
 msgstr "서버에서 이 컴퓨터의 이전 mdbase Connect 사용 종료를 아직 확인하지 못했습니다. 평소처럼 mdbase를 계속 사용하세요. 이 메시지가 계속 표시되면 support@mdbase.dev로 이메일을 보내세요."
 
+#: src/renderer/daemon-view.mts
+msgid "The sign-in request expired. Start again."
+msgstr "로그인 요청이 만료되었습니다. 처음부터 다시 시작하세요."
+
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The update has not finished downloading."
@@ -1770,6 +1810,10 @@ msgstr "이 버전의 mdbase는 더 이상 지원되지 않습니다. 서명된 
 #: src/main/update-coordinator.ts
 msgid "This version of mdbase is no longer supported. Version {0} is verified; install it now."
 msgstr "이 버전의 mdbase는 더 이상 지원되지 않습니다. 검증된 버전 {0}을(를) 지금 설치하세요."
+
+#: src/renderer/daemon-view.mts
+msgid "This version of mdbase is too old for the service. Update mdbase."
+msgstr "이 mdbase 버전은 서비스에 사용하기에 너무 오래되었습니다. mdbase를 업데이트하세요."
 
 #: src/renderer/collections-view.tsx
 msgid "Turn off sync"
