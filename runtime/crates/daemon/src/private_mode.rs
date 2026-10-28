@@ -19,6 +19,7 @@ struct Choice {
     device: String,
     genesis: String,
     signer: String,
+    trusted_signers: Vec<String>,
 }
 fn load(path: &Path) -> Result<Option<Choice>, String> {
     let Some(bytes) = crate::fsutil::read_optional(path).map_err(|e| e.to_string())? else {
@@ -62,8 +63,13 @@ pub(super) fn replay(
         }
         cfg.chosen_state = "private".into();
         cfg.user_enabled_cloud_copy = false;
-        if !cfg.trusted_signers.contains(&choice.signer) {
-            cfg.trusted_signers.push(choice.signer);
+        for signer in choice.trusted_signers {
+            if crate::attest::uuid_bytes(&signer).is_none_or(|id| id == [0; 16]) {
+                return Err("invalid private signer".into());
+            }
+            if !cfg.trusted_signers.contains(&signer) {
+                cfg.trusted_signers.push(signer);
+            }
         }
         cfg.save(&path, &collection, trust).map_err(|e| e.0)?;
         let mut next = registry.clone();
@@ -109,6 +115,13 @@ impl Daemon {
             else {
                 continue;
             };
+            let Some(signers) = runtime.private_switch_signers(guard.clone()).await else {
+                continue;
+            };
+            let trusted_signers = signers
+                .iter()
+                .map(|id| id.to_uuid_string())
+                .collect::<Vec<_>>();
             let signer = signer.to_uuid_string();
             let result = {
                 let mut inner = self.inner.lock().await;
@@ -131,6 +144,7 @@ impl Daemon {
                         device: entry.device.clone().ok_or("registration device missing")?,
                         genesis: cfg.genesis_hash,
                         signer,
+                        trusted_signers,
                     };
                     let path = dir.join(FILE);
                     if let Some(existing) = load(&path)? {

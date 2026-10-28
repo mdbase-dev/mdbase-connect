@@ -327,3 +327,73 @@ fn completed_private_choice_survives_later_cloud_flags_and_old_epoch_selection()
     a.r.check_key_trust();
     assert!(a.r.key_untrusted);
 }
+
+#[test]
+fn revoked_switch_set_member_is_removed_and_cannot_rekey() {
+    let (svc, mut cp) = world();
+    let mut a = device(&svc, 1, MemStore::new());
+    let mut b = device(&svc, 4, MemStore::new());
+    settle(&mut [&mut a, &mut b]);
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    assert!(b.r.cfg.trusted_signers.contains(&B16([101; 16])));
+    cp.revoke(&svc, B16([101; 16]));
+    settle(&mut [&mut a, &mut b]);
+    assert!(!b.r.cfg.trusted_signers.contains(&B16([101; 16])));
+    let epoch = b.r.policy.epoch;
+    direct_rekey(&mut a, RekeyReason::Scheduled);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(
+        b.r.policy.epoch, epoch,
+        "revocation is still enforced by ordinary policy validity"
+    );
+    assert!(!b.r.key_untrusted);
+}
+
+#[test]
+fn post_switch_hosted_introduction_and_its_rekey_are_refused() {
+    let (svc, mut cp) = world();
+    let mut a = device(&svc, 1, MemStore::new());
+    let mut b = device(&svc, 4, MemStore::new());
+    settle(&mut [&mut a, &mut b]);
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    cp.enrol(
+        &svc,
+        crate::testkit::TestDevice {
+            device: B16([107; 16]),
+            account: TEST_OWNER,
+            kind: DeviceKind::Desktop,
+        },
+    );
+    settle(&mut [&mut a, &mut b]);
+    let payload =
+        a.r.sealer
+            .build_key_grant(
+                2,
+                &crate::crypto::keys::Recipient {
+                    device: B16([107; 16]),
+                    kem_pk: [107; 32],
+                },
+                &mut crate::crypto::TestEntropy::new(49),
+            )
+            .unwrap();
+    // Even a well-shaped grant from the old service is not private approval.
+    cp.append_item(
+        &svc,
+        ItemKind::KeyGrant,
+        B16([102; 16]),
+        payload.to_bytes().unwrap(),
+    );
+    settle(&mut [&mut a, &mut b]);
+    assert!(!a.r.policy.devices[&B16([107; 16])].keyed);
+    assert!(!a.r.cfg.trusted_signers.contains(&B16([107; 16])));
+    let mut outsider = node(&svc, 7, MemStore::new());
+    settle(&mut [&mut outsider]);
+    direct_rekey(&mut outsider, RekeyReason::Scheduled);
+    settle(&mut [&mut a, &mut b, &mut outsider]);
+    assert_eq!(a.r.policy.epoch, 2);
+    assert!(!a.r.key_untrusted && !b.r.key_untrusted);
+}

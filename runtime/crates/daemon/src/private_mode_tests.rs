@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT: AtomicU64 = AtomicU64::new(0);
 const ID: &str = "33333333-3333-3333-3333-333333333333";
 const SIGNER: &str = "44444444-4444-4444-8444-444444444444";
+const MEMBER: &str = "77777777-7777-4777-8777-777777777777";
 struct Fixture {
     profile: Profile,
     registry: Registry,
@@ -68,6 +69,7 @@ impl Fixture {
             device: registry.collections[0].device.clone().unwrap(),
             genesis: cfg.genesis_hash,
             signer: SIGNER.into(),
+            trusted_signers: vec![SIGNER.into(), MEMBER.into()],
         };
         Self {
             profile,
@@ -121,25 +123,33 @@ fn private_choice_projection_restarts_before_and_between_each_host_write() {
         assert!(reopened.collections[0].ever_e2e);
         assert_eq!(f.cfg().chosen_state, "private");
         assert!(!f.cfg().user_enabled_cloud_copy);
-        assert_eq!(f.cfg().trusted_signers, vec![SIGNER]);
+        assert_eq!(f.cfg().trusted_signers, vec![SIGNER, MEMBER]);
         assert!(!f.dir.join(FILE).exists());
         replay(&f.profile, &mut reopened, &f.trust).unwrap();
         assert_eq!(
             f.cfg().trusted_signers,
-            vec![SIGNER],
+            vec![SIGNER, MEMBER],
             "retry never adds another trust anchor"
         );
     }
 }
 #[test]
 fn projection_is_bound_to_registration_and_original_genesis() {
-    for field in ["account", "device", "collection", "genesis", "signer"] {
+    for field in [
+        "account",
+        "device",
+        "collection",
+        "genesis",
+        "signer",
+        "trusted_signers",
+    ] {
         let mut f = Fixture::new();
         match field {
             "account" => f.choice.account = ID.into(),
             "device" => f.choice.device = ID.into(),
             "collection" => f.choice.collection = SIGNER.into(),
             "genesis" => f.choice.genesis = "ff".repeat(32),
+            "trusted_signers" => f.choice.trusted_signers.push("not-a-device".into()),
             _ => f.choice.signer = "not-a-device".into(),
         }
         f.journal();

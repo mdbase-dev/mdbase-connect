@@ -14,6 +14,7 @@ pub(super) const META: &str = "replica.private-switch.v1";
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct PrivateSwitch {
     requested: bool,
+    cloud_choice: bool,
     state: State,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -29,6 +30,7 @@ enum State {
     Accepted {
         at: Head,
         signer: Uuid,
+        members: BTreeSet<Uuid>,
         epoch: u64,
         acknowledged: bool,
     },
@@ -42,6 +44,7 @@ impl PrivateSwitch {
             State::Accepted {
                 at,
                 signer,
+                members,
                 epoch,
                 acknowledged,
             } => Cbor::Array(vec![
@@ -49,6 +52,12 @@ impl PrivateSwitch {
                 Cbor::Uint(at.seq),
                 Cbor::Bytes(at.chain.0.to_vec()),
                 Cbor::Bytes(signer.0.to_vec()),
+                Cbor::Array(
+                    members
+                        .iter()
+                        .map(|id| Cbor::Bytes(id.0.to_vec()))
+                        .collect(),
+                ),
                 Cbor::Uint(*epoch),
                 Cbor::Bool(*acknowledged),
             ]),
@@ -71,14 +80,18 @@ impl PrivateSwitch {
                 Cbor::Array(owners.iter().map(|id| Cbor::Bytes(id.0.to_vec())).collect()),
             ]),
         };
-        cbor::encode(&Cbor::Array(vec![Cbor::Bool(self.requested), state]))
-            .expect("private switch encodes")
+        cbor::encode(&Cbor::Array(vec![
+            Cbor::Bool(self.requested),
+            Cbor::Bool(self.cloud_choice),
+            state,
+        ]))
+        .expect("private switch encodes")
     }
     pub(super) fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let Cbor::Array(values) = cbor::decode(bytes).ok()? else {
             return None;
         };
-        let [Cbor::Bool(requested), state] = values.as_slice() else {
+        let [Cbor::Bool(requested), Cbor::Bool(cloud_choice), state] = values.as_slice() else {
             return None;
         };
         let hash = |v: &Cbor| {
@@ -111,6 +124,7 @@ impl PrivateSwitch {
                     Cbor::Uint(seq),
                     chain,
                     signer,
+                    members,
                     Cbor::Uint(epoch),
                     Cbor::Bool(acknowledged),
                 ] if *seq > 0 && *epoch > 0 => State::Accepted {
@@ -119,6 +133,7 @@ impl PrivateSwitch {
                         chain: hash(chain)?,
                     },
                     signer: id(signer)?,
+                    members: ids(members)?,
                     epoch: *epoch,
                     acknowledged: *acknowledged,
                 },
@@ -152,6 +167,7 @@ impl PrivateSwitch {
         };
         Some(Self {
             requested: *requested,
+            cloud_choice: *cloud_choice,
             state,
         })
     }
@@ -196,6 +212,57 @@ impl<S: Store> Replica<S> {
         let mut next = self.private_switch.clone();
         next.requested = true;
         self.save_private_switch(next)
+    }
+
+    /// Explicit native user consent for Private -> Cloud copy. Persisted before
+    /// any server request; neither policy nor stale host configuration sets this.
+    pub fn choose_cloud_copy(&mut self, session: SessionId) -> crate::api::ApiResult<()> {
+        self.host_only(session)?;
+        self.check_apply_store_health()
+            .map_err(|_| ErrorCode::Unavailable.err("reopen required"))?;
+        let me = self
+            .policy
+            .devices
+            .get(&self.cfg.device_id)
+            .ok_or_else(|| ErrorCode::Forbidden.err("not enrolled"))?;
+        if self.private_switch.blocked()
+            || !me.active
+            || !me.keyed
+            || !matches!(
+                me.kind,
+                DeviceKind::Desktop | DeviceKind::Mobile | DeviceKind::AppRuntime | DeviceKind::Cli
+            )
+            || self.policy.members.get(&me.account) != Some(&Role::Owner)
+            || self.policy.epoch == 0
+            || self.sealer.current_epoch() != Some(self.policy.epoch)
+            || (self.key_untrusted && !self.accepted_private_key())
+        {
+            return Err(ErrorCode::Forbidden.err("a keyed owner device is required"));
+        }
+        let mut next = self.private_switch.clone();
+        next.cloud_choice = true;
+        next.requested = false;
+        self.save_private_switch(next)?;
+        self.restore_private_choice();
+        self.check_key_trust();
+        Ok(())
+    }
+
+    /// Current actual epoch held by an explicitly consenting owner source.
+    pub fn cloud_copy_source_epoch(&self) -> Option<u64> {
+        if !self.private_switch.cloud_choice
+            || self.key_untrusted
+            || self.check_apply_store_health().is_err()
+        {
+            return None;
+        }
+        let me = self.policy.devices.get(&self.cfg.device_id)?;
+        (me.active
+            && me.keyed
+            && self.policy.members.get(&me.account) == Some(&Role::Owner)
+            && self.policy.epoch > 0
+            && self.sealer.current_epoch() == Some(self.policy.epoch))
+        .then_some(self.policy.epoch)
     }
 
     /// Clear an intent only before the switch policy has applied. A committed
@@ -268,16 +335,46 @@ impl<S: Store> Replica<S> {
             _ => None,
         }
     }
+    /// Active members of the accepted local switch set, for native persistence.
+    /// This is local metadata, never a rekey payload or wire assertion.
+    pub fn private_switch_trusted_signers(&self) -> Vec<Uuid> {
+        if self.check_apply_store_health().is_err() {
+            return Vec::new();
+        }
+        match &self.private_switch.state {
+            State::Accepted { at, members, .. } if at.seq <= self.head.seq => members
+                .iter()
+                .filter(|id| self.policy.devices.get(id).is_some_and(|d| d.active))
+                .copied()
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
     pub(super) fn restore_private_choice(&mut self) {
-        if let State::Accepted { at, signer, .. } = self.private_switch.state
+        if let State::Accepted {
+            at, ref members, ..
+        } = self.private_switch.state
             && at.seq <= self.head.seq
         {
             self.cfg.chosen_state = Some(CState::E2e);
             self.cfg.e2e = true;
             self.cfg.user_enabled_cloud_copy = false;
-            if !self.cfg.trusted_signers.contains(&signer) {
-                self.cfg.trusted_signers.push(signer);
+            self.cfg.trusted_signers.retain(|id| {
+                !members.contains(id) || self.policy.devices.get(id).is_some_and(|d| d.active)
+            });
+            for id in members {
+                if self.policy.devices.get(id).is_some_and(|d| d.active)
+                    && !self.cfg.trusted_signers.contains(id)
+                {
+                    self.cfg.trusted_signers.push(*id);
+                }
             }
+        }
+        if self.private_switch.cloud_choice {
+            self.cfg.chosen_state = Some(CState::CloudCopy);
+            self.cfg.e2e = false;
+            self.cfg.user_enabled_cloud_copy = true;
         }
     }
     pub(super) fn private_switch_meta(&self) -> (String, Option<Vec<u8>>) {
@@ -319,6 +416,7 @@ impl<S: Store> Replica<S> {
             })
             .copied()
             .collect();
+        self.private_switch.cloud_choice = false;
         self.private_switch.state = State::Pending {
             at: Head { seq: p, chain },
             epoch: self.policy.epoch,
@@ -372,10 +470,12 @@ impl<S: Store> Replica<S> {
             self.private_switch.state = State::Accepted {
                 at: Head { seq: p, chain },
                 signer: item.signer.expect("checked signer"),
+                members: members.clone(),
                 epoch: rekey.epoch,
                 acknowledged: false,
             };
             self.private_switch.requested = false;
+            self.private_switch.cloud_choice = false;
             self.restore_private_choice();
         } else {
             self.private_switch.state = State::Refused;
@@ -402,13 +502,21 @@ impl<S: Store> Replica<S> {
     pub(crate) fn private_switch_waiting(&self) -> bool {
         self.private_switch.waiting()
     }
+    pub(super) fn accepted_private_key(&self) -> bool {
+        matches!(&self.private_switch.state, State::Accepted { at, epoch, members, .. }
+            if at.seq <= self.head.seq && self.policy.epoch == *epoch && self.sealer.current_epoch() == Some(*epoch)
+                && members.contains(&self.cfg.device_id)
+                && self.policy.devices.get(&self.cfg.device_id).is_some_and(|d| d.active))
+    }
+
     pub(super) fn private_switch_covers(&self, position: u64) -> bool {
         matches!(self.private_switch.state, State::Accepted { at, .. } if position <= at.seq && at.seq <= self.head.seq)
     }
 
     pub(super) fn private_switch_blocks(&self) -> bool {
         self.private_switch.blocked()
-            || matches!(self.private_switch.state, State::Accepted { epoch, .. }
-                if self.policy.epoch < epoch || self.policy.cstate != Some(CState::E2e))
+            || (!self.private_switch.cloud_choice
+                && matches!(self.private_switch.state, State::Accepted { epoch, .. }
+                if self.policy.epoch < epoch || self.policy.cstate != Some(CState::E2e)))
     }
 }

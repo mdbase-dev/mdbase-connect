@@ -172,6 +172,7 @@ enum Cmd {
         AccountKeyGuard,
         oneshot::Sender<Result<Option<B16>, String>>,
     ),
+    PrivateSigners(AccountKeyGuard, oneshot::Sender<Vec<B16>>),
     Readiness(oneshot::Sender<ReadinessView>),
     /// Rescan, then list the confirmed records and resources.
     Inventory(oneshot::Sender<Option<Inventory>>),
@@ -265,6 +266,8 @@ pub enum PrivateSwitchOp {
     Request,
     /// Cancel only before the switch policy has committed.
     Cancel,
+    /// Persist the user's explicit Cloud copy choice before the server request.
+    ChooseCloud,
     /// Read a verified, durably applied private-mode choice.
     Accepted,
     /// Host link and registration durably contain the verified choice.
@@ -595,6 +598,16 @@ impl Runtime {
     ) -> Option<Result<Option<B16>, String>> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::PrivateSwitch(op, current, tx)).ok()?;
+        rx.await.ok()
+    }
+
+    /// Locally accepted, still-active switch-set signers under current authority.
+    pub(crate) async fn private_switch_signers(
+        &self,
+        current: AccountKeyGuard,
+    ) -> Option<Vec<B16>> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Cmd::PrivateSigners(current, tx)).ok()?;
         rx.await.ok()
     }
 
@@ -1423,6 +1436,13 @@ fn run(
             Ok(Cmd::Status(reply)) => {
                 let _ = reply.send(rep.sync_status());
             }
+            Ok(Cmd::PrivateSigners(current, reply)) => {
+                let _ = reply.send(if current() {
+                    rep.private_switch_trusted_signers()
+                } else {
+                    Vec::new()
+                });
+            }
             Ok(Cmd::PrivateSwitch(op, current, reply)) => {
                 use mdbn_replica::api::ClientApi;
                 let result = if !current() {
@@ -1445,6 +1465,7 @@ fn run(
                         let result = match op {
                             PrivateSwitchOp::Request => rep.request_private_switch(session),
                             PrivateSwitchOp::Cancel => rep.cancel_private_switch(session),
+                            PrivateSwitchOp::ChooseCloud => rep.choose_cloud_copy(session),
                             PrivateSwitchOp::Acknowledge => rep.acknowledge_private_switch(session),
                             PrivateSwitchOp::Accepted => unreachable!(),
                         };

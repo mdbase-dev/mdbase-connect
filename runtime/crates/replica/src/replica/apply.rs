@@ -801,7 +801,10 @@ impl<S: Store> Replica<S> {
             &trusted,
             self.cfg.user_enabled_cloud_copy,
         );
-        let untrusted = matches!(t, crate::policy::KeyTrust::Untrusted { .. });
+        // The qualifying private epoch was already authenticated locally.
+        // Revoking its author cannot untrust that same held key on its recipients.
+        let untrusted =
+            !self.accepted_private_key() && matches!(t, crate::policy::KeyTrust::Untrusted { .. });
         if untrusted && !self.key_untrusted {
             self.incident(
                 IncidentKind::KeyInconsistent,

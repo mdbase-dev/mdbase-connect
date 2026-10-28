@@ -20,7 +20,10 @@ non-qualifying rekey consumes the exception and reports an untrusted state chang
 No later policy can widen the set or restore the consumed exception.
 
 A successful prefix commit records Private, removes Cloud copy consent, and adds
-the signer to the local trust anchors. Aborted commits restore the old state;
+every still-active member of the frozen set to the local trust anchors. Later
+revocations remove those members; no later enrolment enlarges the set. The already
+accepted epoch remains trusted on its active recipients when its author is revoked,
+so they can author the ordinary excluding rekey. Aborted commits restore the old state;
 unknown outcomes fence the replica until reopen. Snapshot/control read-ahead is
 not an applied prefix and cannot mint a new switch-set acceptance. Historical
 control replay covered by an already committed acceptance does not generate a
@@ -32,6 +35,8 @@ new unrequested-mode alert.
 collection/account guard:
 
 - `Request`: persist intent **before** the control-plane request.
+- `ChooseCloud`: persist a new explicit Cloud copy choice before its server request,
+  retaining the previous accepted Private witness. Remote flags do not set this.
 - `Cancel`: only after a known failure before policy commit; never guess from a
   timeout or silently undo a committed switch.
 - `Accepted`: read a durably applied, healthy acceptance, not policy metadata.
@@ -56,19 +61,18 @@ applied prefix; that acceptance path needs separate qualification before a
 snapshot-only conversion path can be offered. Existing Private keying remains
 the only path for devices outside the switch set.
 
-## Contract clarification required before release
+## Ongoing local trust after acceptance
 
-The literal signer-only rule has a follow-on boundary: after a successful switch,
-another set member still has its immutable `introduced_by` pointing to hosted.
-That member can unwrap and author an ordinary Private rekey, but a peer then
-follows its introduction chain back to the revoked service and refuses the new
-key. Real-key test
-`later_private_rekey_from_another_switch_set_device_still_has_a_service_introduction`
-records this behavior, including successful unwrap on both devices.
+Co clarified on 2026-10-28 that the entire switch set becomes locally trusted for
+future ordinary key delivery. Each accepting device retains its own frozen set in
+local META, restores active members as trusted signers, and persists them to the
+native link on projection. Revoked members cannot author valid control items and
+are removed from the effective local set. Devices added later need normal Private
+trust; services cannot bridge a Private introduction chain, even if an existing
+trusted user later introduces another service under their own Cloud copy choice.
 
-No whole-set trust promotion or policy-history rewrite is implemented. Before
-release, clarify whether the qualified owner rekey locally vouches for its set
-recipients for future ordinary key delivery (without changing replay history),
-or whether only the one signer becomes a Private trust anchor. This draft must
-not be treated as a complete seamless mode-switch implementation while that
-question is open.
+Real-key regressions exercise a later Private rekey from another set member and
+an untrusted post-switch hosted introduction through a later server mode cycle.
+The latter unwraps successfully but remains untrusted on the device that never
+opted back into Cloud copy. Ordinary policy validity and introduction history are
+unchanged; no rekey vouching payload, wire field or additional ceremony exists.

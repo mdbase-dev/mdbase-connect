@@ -187,11 +187,10 @@ fn another_owner_from_the_switch_set_can_finish_when_the_original_device_is_gone
     assert!(!reopened.r.key_untrusted);
 }
 
-/// Documents the signer-only rule's remaining contract boundary. The switch
-/// accepts the new epoch, but it does not rewrite another recipient's original
-/// service introduction. Do not silently promote the whole set to trust roots.
+/// The accepted switch set is local Private trust. Replay history remains
+/// untouched, but a set member can author later ordinary Private key delivery.
 #[test]
-fn later_private_rekey_from_another_switch_set_device_still_has_a_service_introduction() {
+fn later_private_rekey_from_another_switch_set_device_is_trusted_locally() {
     let (svc, mut cp, mut a, mut b) = real_world();
     a.r.request_private_switch(a.s).unwrap();
     switch(&mut cp, &svc);
@@ -229,7 +228,159 @@ fn later_private_rekey_from_another_switch_set_device_still_has_a_service_introd
     );
     assert!(!b.r.key_untrusted, "the author trusts its own key");
     assert!(
-        a.r.key_untrusted,
-        "literal signer-only acceptance does not privately vouch for the other set members"
+        !a.r.key_untrusted,
+        "the accepted switch set is trusted for future key delivery"
     );
+}
+
+#[test]
+fn a_post_switch_hosted_introduction_is_not_added_by_a_later_server_mode_cycle() {
+    let (svc, mut cp, mut a, mut b) = real_world();
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    a.r.choose_cloud_copy(a.s).unwrap();
+    assert_eq!(a.r.cloud_copy_source_epoch(), Some(2));
+    let mut ops = Vec::new();
+    for (id, kind) in [
+        (105, DeviceKind::Hosted),
+        (106, DeviceKind::Escrow),
+        (107, DeviceKind::Mobile),
+    ] {
+        ops.push(PolicyOp::DeviceEnrol(DeviceEnrol {
+            device: B16([id; 16]),
+            account: if id == 107 {
+                TEST_OWNER
+            } else {
+                crate::policy::SERVICE_ACCOUNT
+            },
+            kind,
+            sign_pk: B32(DeviceSigner::from_seed(&[id; 32]).public()),
+            kem_pk: B32(KemKeyPair::from_secret(&[id; 32]).pk),
+            noise_pk: B32([id; 32]),
+            sas_commit: None,
+            local_root: None,
+        }));
+    }
+    ops.push(PolicyOp::CollectionState(CollectionState {
+        state: CState::CloudCopy,
+        compress: None,
+        min_sem_major: None,
+    }));
+    cp.append(&svc, ops);
+    settle(&mut [&mut a, &mut b]);
+    assert!(b.r.key_untrusted, "B did not opt back into Cloud copy");
+    for id in [105, 106] {
+        let payload =
+            a.r.sealer
+                .build_key_grant(
+                    2,
+                    &crate::crypto::keys::Recipient {
+                        device: B16([id; 16]),
+                        kem_pk: KemKeyPair::from_secret(&[id; 32]).pk,
+                    },
+                    &mut crate::crypto::TestEntropy::new(id),
+                )
+                .unwrap();
+        assert!(a.r.append_control(ItemKind::KeyGrant, payload.to_bytes().unwrap()));
+        settle(&mut [&mut a, &mut b]);
+    }
+    let mut hosted = node_with(
+        &svc,
+        5,
+        MemStore::new(),
+        vec![],
+        Some(Box::new(KeyringSealer::new(
+            COL,
+            B16([105; 16]),
+            &[105; 32],
+            &[105; 32],
+        ))),
+    );
+    hosted.r.cfg.chosen_state = Some(CState::CloudCopy);
+    hosted.r.cfg.user_enabled_cloud_copy = true;
+    let mut newcomer = node_with(
+        &svc,
+        7,
+        MemStore::new(),
+        vec![],
+        Some(Box::new(KeyringSealer::new(
+            COL,
+            B16([107; 16]),
+            &[107; 32],
+            &[107; 32],
+        ))),
+    );
+    newcomer.r.cfg.chosen_state = Some(CState::CloudCopy);
+    newcomer.r.cfg.user_enabled_cloud_copy = true;
+    settle(&mut [&mut a, &mut b, &mut hosted, &mut newcomer]);
+    assert_eq!(
+        newcomer.r.policy.devices[&B16([107; 16])].introduced_by,
+        Some(B16([105; 16]))
+    );
+    assert_eq!(
+        newcomer.r.testing_epoch_keys().last(),
+        a.r.testing_epoch_keys().last()
+    );
+    a.r.request_private_switch(a.s).unwrap();
+    cp.append(
+        &svc,
+        vec![
+            PolicyOp::DeviceRevoke(DeviceRevoke {
+                device: B16([105; 16]),
+            }),
+            PolicyOp::DeviceRevoke(DeviceRevoke {
+                device: B16([106; 16]),
+            }),
+            PolicyOp::CollectionState(CollectionState {
+                state: CState::E2e,
+                compress: None,
+                min_sem_major: None,
+            }),
+        ],
+    );
+    settle(&mut [&mut a, &mut b, &mut newcomer]);
+    assert_eq!(b.r.policy.epoch, 3);
+    assert!(!b.r.key_untrusted);
+    assert!(
+        !b.r.cfg.trusted_signers.contains(&B16([107; 16])),
+        "B's original S was not widened"
+    );
+    let recipients = newcomer
+        .r
+        .policy
+        .rekey_recipients()
+        .into_iter()
+        .map(|device| crate::crypto::keys::Recipient {
+            device,
+            kem_pk: newcomer.r.policy.devices[&device].kem_pk.0,
+        })
+        .collect::<Vec<_>>();
+    let payload = newcomer
+        .r
+        .sealer
+        .build_rekey(
+            3,
+            &recipients,
+            RekeyReason::Scheduled,
+            &mut crate::crypto::TestEntropy::new(53),
+        )
+        .unwrap();
+    assert!(
+        newcomer
+            .r
+            .append_control(ItemKind::Rekey, payload.to_bytes().unwrap())
+    );
+    settle(&mut [&mut a, &mut b, &mut newcomer]);
+    assert_eq!(b.r.policy.epoch, 4);
+    assert_eq!(
+        b.r.testing_epoch_keys().last(),
+        newcomer.r.testing_epoch_keys().last(),
+        "unwrap succeeds; local trust is the refusal"
+    );
+    assert!(
+        b.r.key_untrusted,
+        "a post-switch hosted introduction needs normal Private trust on B"
+    );
+    assert!(!a.r.key_untrusted && !newcomer.r.key_untrusted);
 }
