@@ -1388,7 +1388,7 @@ describePg("installation device sign-in on daemon pairing", () => {
       CREATE TABLE mdbase_runtime_timers(namespace text,id text,generation bigint,status text,fire_at timestamptz,record_json jsonb,lease_token text,lease_worker text,lease_expires_at timestamptz);
       CREATE TABLE mdbase_runtime_runs(namespace text,status text,lease_token text,lease_worker text,lease_expires_at timestamptz,record_json jsonb);
       CREATE TABLE hosted_provider_runtime_outbox(collection_id uuid,processed_at timestamptz,lease_token text,leased_until timestamptz);
-      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid,state text);
+      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid,state text,lease_expires_at timestamptz);
       CREATE TABLE hosted_provider_replicas(id uuid,collection_id uuid)`);
     const provider=fakeLegacyProvider(f.collection,{state:"migrated",retain_until:"2027-01-12T00:00:00.000Z"});
     await db.query("INSERT INTO hosted_provider_collections VALUES($1,'migrated',$2,$3,$4)",[f.collection,provider.source.migration_id,provider.source.started_at,provider.source.head]);
@@ -1428,6 +1428,22 @@ describePg("installation device sign-in on daemon pairing", () => {
     try {await connection.query("BEGIN");const result=await body(connection);await connection.query("COMMIT");return result;}
     catch(error){await connection.query("ROLLBACK");throw error;}finally{connection.release();}
   }
+  it("does not retire reminders for an account still on legacy, even with a retained native installation",async()=>{
+    const f=await tasknotesRetirementFixture();
+    await f.add(f.first,"legacy-original",f.future);
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1",[f.p.owner.user]);
+    const response=await f.reconcile();
+    expect(response.statusCode).toBeGreaterThanOrEqual(400);
+    expect(response.statusCode).toBeLessThan(500);
+    expect((await db.query("SELECT 1 FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1",[f.p.owner.user])).rows).toHaveLength(0);
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[f.first])).rows).toEqual([{status:"scheduled"}]);
+    const old=(await f.resolver.resolve(db,f.first))!;
+    const result=await timerTransaction(async connection=>{
+      await lockNamespace(connection,f.first,"task-reminders");
+      return reconcileTimers(connection,old,"task-reminders","task.reminder",[desiredTimer({id:"legacy-original",fire_at:f.future})]);
+    });
+    expect(result.timers[0]).toMatchObject({id:"legacy-original",status:"scheduled"});
+  });
   it("rolls back retirement and transfer when native reconcile fails after retirement",async()=>{
     const f=await tasknotesRetirementFixture();await f.add(f.first,"original",f.future);
     await db.query(`CREATE FUNCTION fail_tasknotes_reconcile() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
