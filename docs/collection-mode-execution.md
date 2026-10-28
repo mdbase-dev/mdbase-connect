@@ -17,14 +17,21 @@ accepts its rekey but the approved local switch rule correctly refuses it.
 The real-key regression
 `an_older_keyed_writer_can_consume_the_adjacent_slot_unless_publication_is_fenced`
 records that behavior. Pausing CP outbox publication alone cannot fence this
-user-device write. Execution needs a qualified mixed-client capability floor or
-an existing device-writer fence before the switch can be published. Do not bypass
-adjacency, accept the old reason, or extend trust again to work around it.
+user-device write. Co selected a per-collection capability floor: arming/publication must require
+all active keyed user devices to have durably advertised switch awareness,
+including offline devices. Below-floor devices must be refused on subsequent
+collection operations. The floor must never decrease. Do not bypass adjacency,
+accept the old reason, or extend trust again to work around it.
 
-Older clients may also have already applied a conversion before they upgrade.
-Their stored prefix lacks the new local switch-set receipt; arbitrary read-ahead
-must not manufacture one. Qualify an upgrade/replay path together with the client
-compatibility plan before exposing the control.
+No collection switch has shipped: phase 1 records intent only. An upgrade path
+for older clients that already applied a switch is not required.
+
+The implementation must account for cached credentials and existing epoch keys:
+refusing future CP requests does not itself invalidate either. Device key grants
+and rekeys are sent directly to the log. The log's existing device authorization
+checks active enrollment and the token-bound signing key, not CP capability
+metadata. Do not claim the raw older-writer regression is prevented by CP-only
+checks until this authoring boundary is qualified.
 
 ## Scope and unfinished qualification
 
@@ -46,7 +53,7 @@ compatibility plan before exposing the control.
   claim. It reuses the existing retirement path and preserves a public device
   marker to reject stale cleanup of a later service identity.
 
-Still required: mixed-version gate/fence, source/receiver upgrade qualification,
+Still required: capability gate and monotonic floor qualification,
 Cloud choice projection into both native host files, known-before-publication
 failure/cancel reconciliation, authenticated Cloud-choice acceptance on other
 devices, SDK and CLI bindings, desktop/portal controls, PostgreSQL controller/race
