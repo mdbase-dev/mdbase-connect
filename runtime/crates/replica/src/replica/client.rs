@@ -757,6 +757,7 @@ const GRANTABLE_FEATURES: &[&str] = &[
     "presence",
     super::attachment_runtime::ATTACHMENT_V1_FEATURE,
     super::client_files::FILE_STREAM_FAILURE_FEATURE,
+    "validate-page-v1",
 ];
 
 impl<S: Store> Replica<S> {
@@ -1043,9 +1044,9 @@ impl<S: Store> ClientApi for Replica<S> {
     fn validate(
         &mut self,
         session: SessionId,
-        targets: Option<Vec<Target>>,
+        scope: crate::api::Validate,
     ) -> ApiResult<Vec<crate::api::RecordValidation>> {
-        self.validate_current(session, targets)
+        self.validate_current(session, scope)
     }
 
     fn submit(&mut self, session: SessionId, params: SubmitParams) -> ApiResult<Vec<Receipt>> {

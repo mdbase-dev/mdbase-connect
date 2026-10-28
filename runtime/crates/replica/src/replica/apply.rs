@@ -2113,7 +2113,8 @@ impl<S: Store> Replica<S> {
         Ok(Outcome::Applied)
     }
 
-    /// Recompute every record's index entries after a catalog or derived-version change.
+    /// Recompute every record's index entries under the current catalog, then
+    /// stamp which catalog they were derived under.
     pub(super) fn reindex(&mut self) -> Result<(), StoreError> {
         let mut after = None;
         loop {
@@ -2147,6 +2148,11 @@ impl<S: Store> Replica<S> {
                 self.query_context = context;
             }
         }
+        let stamp = crate::plan::record_meta_stamp(&self.store.resources()?);
+        self.store.commit(Tx {
+            meta: vec![(crate::store::meta_keys::RECORD_META.into(), Some(stamp))],
+            ..Tx::default()
+        })?;
         Ok(())
     }
 

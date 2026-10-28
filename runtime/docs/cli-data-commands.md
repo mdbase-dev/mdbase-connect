@@ -126,9 +126,11 @@ Each phase is one PR.
   half-kilobyte records, the first open takes 0.14 s for 1,000 records and 1.5 s
   for 10,000 (23 MB of state); later opens take 0.02 s and 0.17 s. That is cheap
   enough for scripts that loop, so the CLI keeps no cache of its own.
-- **Whole-collection `validate`.** The replica's validation budget
-  (`docs/contracts/replica-client-api.md`, 4096 work units per request) refuses
-  `validate` with no paths past roughly 600 linked records, on both routes, with
-  `too_large`/`validation_budget`. Single paths still validate in a 10,000-record
-  collection. Validating large collections needs the contract changed, or the CLI
-  to validate in pages of paths if per-target cross-record checks allow it.
+- **Whole-collection `validate` (resolved).** The replica's validation budget
+  (4096 work units per request) refused `validate` with no paths past roughly
+  600 linked records, and a `unique` rule made every record scan the whole
+  collection. Uniqueness checks now use the store's unique index, which covers
+  every record for every field a rule names, and `validate` takes a page
+  (`validate-page-v1`, `docs/contracts/replica-client-api.md` §4). The CLI and the
+  SDK page through every record: 10,000 records with a collection-scoped
+  `unique` rule validate in 0.35 s on a release build.

@@ -387,10 +387,7 @@ impl StateView for LayerView<'_> {
     fn with_value(&self, field: &str, value: &Value) -> Vec<RecordId> {
         self.layer
             .merge_ids(self.base.with_value(field, value), |r| {
-                mdbn_core::doc::Document::parse_at(&r.path, &*r.source)
-                    .frontmatter()
-                    .get(field)
-                    .is_some_and(|v| v == value)
+                mdbn_core::state::holds_value(r, field, value)
             })
     }
     fn record_ids(&self) -> Vec<RecordId> {
