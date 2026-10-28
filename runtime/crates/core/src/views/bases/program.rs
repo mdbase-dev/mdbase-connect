@@ -351,7 +351,8 @@ fn admit<'a>(
                         && matches!(name.as_str(), "hasTag" | "hasProperty" | "inFolder") =>
                 {
                     calendar.requires_file = true;
-                    calendar.requires_tags |= name == "hasTag" && !arguments.is_empty();
+                    // hasTag can be decided by a positive frontmatter match;
+                    // resolve incomplete captures per row, not at admission.
                 }
                 Expr::Member(operand, Member::Named(name))
                     if matches!(

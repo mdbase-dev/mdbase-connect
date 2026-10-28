@@ -15,7 +15,18 @@ fn decode(
     zone: Option<&str>,
     budget: &mut WorkBudget,
 ) -> Result<RuntimeValue, EvaluationFailure> {
+    decode_at(value, zone, 1, budget)
+}
+fn decode_at(
+    value: &Value,
+    zone: Option<&str>,
+    depth: usize,
+    budget: &mut WorkBudget,
+) -> Result<RuntimeValue, EvaluationFailure> {
     work(budget, 1, 128)?;
+    if depth > MAX_VALUE_DEPTH {
+        return fail(budget, EvaluationFailure::BudgetExceeded("value_depth"));
+    }
     match value {
         Value::Null => Ok(RuntimeValue::Null),
         Value::Bool(b) => Ok(RuntimeValue::Bool(*b)),
@@ -51,7 +62,18 @@ fn decode(
             Ok(RuntimeValue::Error("synthetic_error".into()))
         }
         Value::Map(_) => Ok(RuntimeValue::Object(BTreeMap::new())),
-        Value::List(_) => Ok(RuntimeValue::List(Vec::new())),
+        Value::List(values) => {
+            work(
+                budget,
+                values.len() as u64,
+                (values.len() * std::mem::size_of::<RuntimeValue>()) as u64,
+            )?;
+            values
+                .iter()
+                .map(|value| decode_at(value, zone, depth + 1, budget))
+                .collect::<Result<Vec<_>, _>>()
+                .map(RuntimeValue::List)
+        }
     }
 }
 pub(crate) fn run(args: &Map) -> Option<Value> {

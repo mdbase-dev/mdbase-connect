@@ -1,4 +1,4 @@
-{"entries":369,"rejected":0,"digest":"5eeb56818e85a5c4","results":[
+{"entries":377,"rejected":0,"digest":"74f3d5e9c04b02e9","results":[
 {"value":"equal"},
 {"value":"greater"},
 {"value":"greater"},
@@ -361,11 +361,19 @@
 {"value":[[0,2],[1],[3]]},
 {"refusal":"view_metadata_unavailable","detail":"date_group_mode_not_captured"},
 {"value":[[0,1],[2]]},
+{"value":"less"},
+{"value":[[0]]},
 {"refusal":"view_unsupported_construct","detail":"typed_ordering_value"},
 {"refusal":"view_unsupported_construct","detail":"typed_ordering_value"},
 {"refusal":"view_unsupported_construct","detail":"typed_ordering_value"},
 {"refusal":"view_unsupported_construct","detail":"typed_ordering_value"},
+{"refusal":"view_metadata_unavailable","detail":"date_zone_not_captured"},
+{"value":"less"},
+{"value":"greater"},
+{"value":[[0,3],[1],[2],[4],[5],[6]]},
+{"value":[3,2,1,0]},
+{"value":[0,1,2,3]},
 {"refusal":"view_unsupported_construct","detail":"typed_ordering_value"},
 {"refusal":"view_unsupported_construct","detail":"typed_ordering_value"},
-{"refusal":"view_metadata_unavailable","detail":"date_zone_not_captured"}
+{"value":[[0,1],[2],[3]]}
 ]}

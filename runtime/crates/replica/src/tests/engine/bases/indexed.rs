@@ -174,6 +174,133 @@ fn actual_signed_actor_streams_all_five_unchanged_views_with_exact_residual_cell
     }
 }
 #[test]
+fn frontmatter_task_membership_survives_code_and_unknown_body_in_both_executors() {
+    for body in [
+        "Private `#cppLive` and PR #123\n```js\n#hidden\n```",
+        "[link](target) #unknown",
+    ] {
+        let (svc, mut a, _) = configured();
+        let source = "filters: file.hasTag('task')\nviews: [{type: table, order: [file.name, formula.member]}]\nformulas: {member: \"file.hasTag('task')\"}\n";
+        a.create(11, "View.base", source);
+        a.create(1, "Task.md", &format!("---\ntags: [task]\n---\n{body}"));
+        a.create(
+            2,
+            "Other.md",
+            "---\ntags: [other]\n---\nPrivate `#cppLive` PR #123",
+        );
+        settle(&mut [&mut a]);
+        let selected = selection(source, 0);
+        let hints = BTreeMap::new();
+        let input =
+            a.r.capture_bases_execution_inputs(selected, Some(&hints), Some("UTC"))
+                .unwrap();
+        let baseline =
+            a.r.execute_captured_bases_view(input, policies(), &|| false)
+                .unwrap();
+        assert_eq!(
+            baseline
+                .rows
+                .iter()
+                .map(|r| r.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Task.md"]
+        );
+        let mut r = projected(&svc, a);
+        let result = r
+            .execute_indexed_bases_view(selected, Some(&hints), Some("UTC"), policies(), &|| false)
+            .unwrap();
+        assert_eq!(output(&result), output(&baseline));
+        assert!(
+            result.unavailable_columns.is_empty(),
+            "frontmatter also decides display hasTag"
+        );
+    }
+}
+#[test]
+fn undecidable_body_tag_membership_still_refuses_both_executors() {
+    let (svc, mut a, _) = configured();
+    let source = "filters: file.hasTag('task')\nviews: [{type: table, order: [file.name]}]\n";
+    a.create(11, "View.base", source);
+    a.create(
+        1,
+        "Task.md",
+        "---\ntags: [other]\n---\n[link](target) #task",
+    );
+    settle(&mut [&mut a]);
+    let selected = selection(source, 0);
+    let hints = BTreeMap::new();
+    let input =
+        a.r.capture_bases_execution_inputs(selected, Some(&hints), Some("UTC"))
+            .unwrap();
+    let error =
+        a.r.execute_captured_bases_view(input, policies(), &|| false)
+            .err()
+            .unwrap();
+    assert!(error.to_string().contains("file_tags_not_captured"));
+    let mut r = projected(&svc, a);
+    let error = r
+        .execute_indexed_bases_view(selected, Some(&hints), Some("UTC"), policies(), &|| false)
+        .err()
+        .unwrap();
+    assert!(error.to_string().contains("file_tags_not_captured"));
+}
+#[test]
+fn stock_projects_groups_whole_lists_in_both_executors_with_deterministic_order() {
+    let (svc, mut a, _) = configured();
+    let source = include_str!("../../../../../../conformance/views/tasknotes-projects.base");
+    a.create(11, "TaskNotes/Views/projects.base", source);
+    for (id, name, projects, status, tags) in [
+        (1, "single", "[Alpha]", "open", "[task]"),
+        (2, "pairA", "[Alpha, Beta]", "open", "[task]"),
+        (3, "reverse", "[Beta, Alpha]", "open", "[task]"),
+        (4, "pairB", "[Alpha, Beta]", "open", "[task]"),
+        (5, "comma", "['Alpha, Beta']", "open", "[task]"),
+        (6, "empty", "[]", "open", "[task]"),
+        (7, "done", "[Alpha]", "done", "[task]"),
+        (8, "archived", "[Alpha]", "open", "[task, archived]"),
+    ] {
+        a.create(id, &format!("{name}.md"), &format!("---\ntitle: {name}\nstatus: {status}\ntags: {tags}\nprojects: {projects}\n---\nPrivate `#cppLive` PR #123"));
+    }
+    settle(&mut [&mut a]);
+    let selected = selection(source, 0);
+    let hints = BTreeMap::new();
+    let input =
+        a.r.capture_bases_execution_inputs(selected, Some(&hints), Some("UTC"))
+            .unwrap();
+    let baseline =
+        a.r.execute_captured_bases_view(input, policies(), &|| false)
+            .unwrap();
+    assert_eq!(baseline.rows.len(), 5);
+    assert_eq!(
+        baseline
+            .groups
+            .iter()
+            .map(
+                |g| serde_json::from_str::<serde_json::Value>(&g.key.to_plain().to_json()).unwrap()
+            )
+            .collect::<Vec<_>>(),
+        vec![
+            serde_json::json!(["Alpha"]),
+            serde_json::json!(["Alpha", "Beta"]),
+            serde_json::json!(["Alpha, Beta"]),
+            serde_json::json!(["Beta", "Alpha"])
+        ]
+    );
+    assert_eq!(
+        baseline.groups[1]
+            .rows
+            .iter()
+            .map(|i| baseline.rows[*i].path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["pairA.md", "pairB.md"]
+    );
+    let mut r = projected(&svc, a);
+    let result = r
+        .execute_indexed_bases_view(selected, Some(&hints), Some("UTC"), policies(), &|| false)
+        .unwrap();
+    assert_eq!(output(&result), output(&baseline));
+}
+#[test]
 fn unsupported_backend_or_dynamic_requirements_refuse_without_source_inventory() {
     let (_, mut a, source) = configured();
     a.create(11, "Views/task.base", &source);

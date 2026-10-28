@@ -79,7 +79,23 @@ fn unavailable_and_known_empty_are_distinct() {
         tags(&capture(&record("plain body\n")).unwrap()),
         Some(vec![])
     );
-    assert_eq!(tags(&capture(&record("```\n#task\n```\n")).unwrap()), None);
+    assert_eq!(
+        tags(&capture(&record("```\n#task\n```\n")).unwrap()),
+        Some(vec![])
+    );
+    assert_eq!(
+        tags(
+            &capture(&record(
+                "---\ntags: [task]\n---\nPrivate `#cppLive` PR #123\n```js\n#hidden\n```"
+            ))
+            .unwrap()
+        ),
+        Some(vec!["#task".into()])
+    );
+    assert_eq!(
+        tags(&capture(&record("[link](target) #task")).unwrap()),
+        None
+    );
     assert!(capture(&record("---\na: [\n---\n")).is_none());
     let mut bad = record("plain body");
     bad.revision = B32([0; 32]);

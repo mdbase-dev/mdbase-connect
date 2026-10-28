@@ -1,0 +1,27 @@
+properties:
+  note.tasknotes_manual_order:
+    displayName: Manual order
+    hidden: true
+views:
+  - type: tasknotesTaskList
+    name: Projects
+    filters:
+      and:
+        - note["status"].isEmpty() == false
+        - note["status"] != "done"
+        - file.hasTag("archived") != true
+        - note["projects"].isEmpty() == false
+    order:
+      - note["title"]
+      - note["scheduled"]
+      - note["due"]
+    sort:
+      - property: note.tasknotes_manual_order
+        direction: DESC
+      - property: note["title"]
+        direction: ASC
+    groupBy:
+      property: note["projects"]
+      direction: ASC
+    options:
+      create: false

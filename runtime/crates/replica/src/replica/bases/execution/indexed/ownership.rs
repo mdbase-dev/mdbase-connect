@@ -95,8 +95,21 @@ pub(super) fn fields(
     }
     Ok(map)
 }
-pub(super) fn scalar_bytes(value: &RuntimeValue) -> Result<u64, EvaluationFailure> {
+fn key_bytes(value: &RuntimeValue, depth: usize) -> Result<u64, EvaluationFailure> {
+    if depth > 32 {
+        return Err(EvaluationFailure::BudgetExceeded("value_depth"));
+    }
     match value {
+        RuntimeValue::List(values) => {
+            let mut bytes = 128u64;
+            for value in values {
+                bytes += key_bytes(value, depth + 1)?;
+                if bytes > MAX_FRAME_BYTES {
+                    return Err(EvaluationFailure::BudgetExceeded("ordering_key_bytes"));
+                }
+            }
+            Ok(bytes)
+        }
         RuntimeValue::String(text) if text.len() <= 4096 => Ok(128 + text.len() as u64),
         RuntimeValue::Number(value) if value.is_finite() => Ok(128),
         RuntimeValue::String(_) => Err(EvaluationFailure::BudgetExceeded("ordering_key_bytes")),
@@ -106,11 +119,11 @@ pub(super) fn scalar_bytes(value: &RuntimeValue) -> Result<u64, EvaluationFailur
         )),
     }
 }
-pub(super) fn scalar_copy(
+pub(super) fn key_copy(
     value: &RuntimeValue,
     ledger: &mut IncrementalBasesBudget,
 ) -> ApiResult<RuntimeValue> {
-    let bytes = scalar_bytes(value).map_err(failure)?;
+    let bytes = key_bytes(value, 1).map_err(failure)?;
     ledger.retain(bytes).map_err(failure)?;
     ledger
         .admit(|budget| {

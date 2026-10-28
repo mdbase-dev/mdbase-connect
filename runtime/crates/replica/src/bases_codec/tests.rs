@@ -223,6 +223,46 @@ fn result() -> BasesExecutionResult {
     }
 }
 #[test]
+fn list_group_keys_use_shared_cell_grammar_and_reject_opaque_members() {
+    let data = mdbn_core::yaml::parse_value(include_str!(
+        "../../../../conformance/views/bases-list-group-codec.json"
+    ))
+    .unwrap()
+    .unwrap();
+    let mut output = result();
+    output.groups[0].key = RuntimeValue::List(vec![
+        RuntimeValue::String("alpha".into()),
+        RuntimeValue::String("beta".into()),
+    ]);
+    let Cbor::Map(fields) = cbor::decode(&encode(&output).unwrap()).unwrap() else {
+        panic!("map")
+    };
+    let Cbor::Array(groups) = &fields
+        .iter()
+        .find(|(key, _)| *key == Cbor::Uint(4))
+        .unwrap()
+        .1
+    else {
+        panic!("groups")
+    };
+    let Cbor::Array(group) = &groups[0] else {
+        panic!("group")
+    };
+    assert_eq!(
+        cbor::encode(&group[0]).unwrap(),
+        hex(data.get("group_key_hex").unwrap().as_str().unwrap())
+    );
+    for name in ["map", "error", "duration"] {
+        let BasesDisplayCell::Value(value) = cell(name) else {
+            panic!("value")
+        };
+        for key in [value.clone(), RuntimeValue::List(vec![value])] {
+            output.groups[0].key = key;
+            assert!(encode(&output).is_err(), "{name}");
+        }
+    }
+}
+#[test]
 fn optional_summary_field_uses_shared_tagged_value_bytes_and_legacy_results_stay_exact() {
     let addon = mdbn_core::yaml::parse_value(include_str!(
         "../../../../conformance/views/bases-summary-codec.json"

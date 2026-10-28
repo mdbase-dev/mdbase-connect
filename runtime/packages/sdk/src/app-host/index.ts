@@ -3,7 +3,7 @@
 export { attachAppLocalFacade, appLocalConnector } from "./local-facade.js";
 export type { AppLocalScope, AppLocalConnector } from "./local-facade.js";
 export { APP_BASES_PROFILE, encodeAppBasesRequest, decodeAppBasesCell, decodeAppBasesResult, encodeAppBasesDiscoveryRequest, encodeAppBasesSourceRequest, decodeAppBasesDiscoveryResult, decodeAppBasesSourceResult } from "./bases-wire.js";
-export type { AppBasesRequest, AppBasesCell, AppBasesScalar, AppBasesDescriptor, AppBasesRow, AppBasesResult, AppBasesWindow, AppBasesWindowInfo, AppBasesGroupPlacement, AppBasesDiscoveryRequest, AppBasesDiscoveryResult, AppBasesSourceRequest, AppBasesSourceResult } from "./bases-wire.js";
+export type { AppBasesRequest, AppBasesCell, AppBasesScalar, AppBasesGroupKey, AppBasesDescriptor, AppBasesRow, AppBasesResult, AppBasesWindow, AppBasesWindowInfo, AppBasesGroupPlacement, AppBasesDiscoveryRequest, AppBasesDiscoveryResult, AppBasesSourceRequest, AppBasesSourceResult } from "./bases-wire.js";
 export type { AppBasesPage, AppBasesPagesOptions } from "./bases-pages.js";
 export { verifyAppHandover } from "./handover.js";
 export type { AppHandoverOptions, AppVerifiedHandover } from "./handover.js";

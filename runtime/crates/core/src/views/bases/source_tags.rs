@@ -4,11 +4,12 @@
 use super::{EvaluationFailure, MAX_CAPTURE_ITEMS, WorkBudget};
 use crate::{doc::Document, value::Value};
 /// Version to bind into derived raw-projection generations.
-pub const BASES_TAG_CAPTURE_VERSION: u8 = 3;
+pub const BASES_TAG_CAPTURE_VERSION: u8 = 4;
 /// Extract a qualified complete tag observation or explicit unavailable(None).
 /// Supports simple ASCII inline/nested tags and well-formed single-line wiki
-/// links (including heading fragments/aliases), plus native-qualified literal
-/// `[ ] `, `[x] ` and `[X] ` markers. Other tag-bearing Markdown and
+/// links (including heading fragments/aliases), single-line code spans, fenced
+/// code and literal `[ ] `, `[x] ` and `[X] ` markers. Numeric-only body references
+/// are not tags. Other tag-bearing Markdown and
 /// Unicode-tag spellings remain unavailable pending native qualification.
 pub fn capture_source_tags(
     document: &Document,
@@ -55,7 +56,14 @@ pub fn capture_source_tags(
     while cursor < body.len() {
         let tail = &body[cursor..];
         if (cursor == 0 || body.as_bytes()[cursor - 1] == b'\n')
-            && let Some(end) = plain_fence_end(tail)
+            && let Some(end) = fence_end(tail, budget)?
+        {
+            cursor += end;
+            continue;
+        }
+        if tail.starts_with('`')
+            && !escaped(body, cursor)
+            && let Some(end) = inline_code_end(tail, budget)?
         {
             cursor += end;
             continue;
@@ -76,12 +84,12 @@ pub fn capture_source_tags(
         }
         let c = tail.chars().next().expect("nonempty tail");
         complex |= matches!(c, '`' | '\\' | '<' | '[' | ']' | '*' | '~' | '>' | '$');
-        possible |= c == '#'
-            && tail[1..]
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '/'));
-        cursor += c.len_utf8();
+        possible |= c == '#' && possible_tag(&tail[1..]);
+        cursor += if c == '`' {
+            tail.bytes().take_while(|c| *c == b'`').count()
+        } else {
+            c.len_utf8()
+        };
     }
     if complex && possible {
         return Ok(None);
@@ -93,7 +101,14 @@ pub fn capture_source_tags(
     while cursor < body.len() {
         let tail = &body[cursor..];
         if (cursor == 0 || body.as_bytes()[cursor - 1] == b'\n')
-            && let Some(end) = plain_fence_end(tail)
+            && let Some(end) = fence_end(tail, budget)?
+        {
+            cursor += end;
+            continue;
+        }
+        if tail.starts_with('`')
+            && !escaped(body, cursor)
+            && let Some(end) = inline_code_end(tail, budget)?
         {
             cursor += end;
             continue;
@@ -104,7 +119,11 @@ pub fn capture_source_tags(
         }
         let c = tail.chars().next().expect("nonempty tail");
         if c != '#' {
-            cursor += c.len_utf8();
+            cursor += if c == '`' {
+                tail.bytes().take_while(|c| *c == b'`').count()
+            } else {
+                c.len_utf8()
+            };
             continue;
         }
         let start = cursor + 1;
@@ -150,19 +169,90 @@ pub fn capture_source_tags(
 fn tag_byte(c: u8) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'/')
 }
-// Only standalone exact triple-backtick LF fences with NO hash anywhere
-// inside. Hashtag-bearing/inline/unterminated/richer fences remain unqualified.
-fn plain_fence_end(tail: &str) -> Option<usize> {
-    let inner = tail.strip_prefix("```\n")?;
-    let closing = inner.find("\n```")?;
-    if inner[..closing].contains('#') {
-        return None;
+// Numeric references cannot be tags, even beside otherwise rich Markdown.
+fn possible_tag(tail: &str) -> bool {
+    let length = tail.bytes().take_while(|c| tag_byte(*c)).count();
+    tail[..length].bytes().any(|c| !c.is_ascii_digit())
+        || tail[length..]
+            .chars()
+            .next()
+            .is_some_and(|c| !c.is_ascii() && c.is_alphanumeric())
+}
+fn scan_work(length: usize, budget: &mut WorkBudget) -> Result<(), EvaluationFailure> {
+    if !budget.charge(length as u64, 0) {
+        return Err(budget.failure().expect("code scan"));
     }
-    let end = closing + 4;
-    if !inner[end..].is_empty() && !inner[end..].starts_with('\n') {
-        return None;
+    Ok(())
+}
+// CommonMark fences: up to three leading spaces, backticks or tildes,
+// optional info string, closing run at least as long. An unclosed fence
+// consumes the remainder; its contents are still code, not unknown tags.
+fn fence_end(tail: &str, budget: &mut WorkBudget) -> Result<Option<usize>, EvaluationFailure> {
+    let opening = tail
+        .split('\n')
+        .next()
+        .expect("line")
+        .trim_end_matches('\r');
+    let marker = opening.trim_start_matches(' ');
+    if opening.len() - marker.len() > 3 {
+        return Ok(None);
     }
-    Some(4 + end)
+    let Some(first @ (b'`' | b'~')) = marker.bytes().next() else {
+        return Ok(None);
+    };
+    let count = marker.bytes().take_while(|c| *c == first).count();
+    if count < 3 || (first == b'`' && marker[count..].contains('`')) {
+        return Ok(None);
+    }
+    let mut end = tail.find('\n').map_or(tail.len(), |n| n + 1);
+    for line in tail[end..].split_inclusive('\n') {
+        scan_work(line.len(), budget)?;
+        end += line.len();
+        let text = line.trim_end_matches(['\r', '\n']);
+        let trimmed = text.trim_start_matches(' ');
+        if text.len() - trimmed.len() <= 3 {
+            let run = trimmed.bytes().take_while(|c| *c == first).count();
+            if run >= count && trimmed[run..].bytes().all(|c| matches!(c, b' ' | b'\t')) {
+                return Ok(Some(end));
+            }
+        }
+    }
+    Ok(Some(tail.len()))
+}
+fn escaped(body: &str, cursor: usize) -> bool {
+    body.as_bytes()[..cursor]
+        .iter()
+        .rev()
+        .take_while(|c| **c == b'\\')
+        .count()
+        % 2
+        == 1
+}
+// Inline code closes only on an equally long backtick run. Longer/shorter
+// runs are content. Multiline/unmatched delimiters stay conservative: do not
+// accidentally span a Markdown block boundary and hide a real tag.
+fn inline_code_end(
+    tail: &str,
+    budget: &mut WorkBudget,
+) -> Result<Option<usize>, EvaluationFailure> {
+    let tail = tail.split('\n').next().expect("line");
+    let count = tail.bytes().take_while(|c| *c == b'`').count();
+    if count == 0 {
+        return Ok(None);
+    }
+    let mut cursor = count;
+    while cursor < tail.len() {
+        let gap = tail[cursor..].find('`').unwrap_or(tail.len() - cursor);
+        scan_work(gap + 1, budget)?;
+        cursor += gap;
+        let run = tail[cursor..].bytes().take_while(|c| *c == b'`').count();
+        scan_work(run, budget)?;
+        cursor += run;
+        if run == count {
+            return Ok(Some(cursor));
+        }
+    }
+    Ok(None)
 }
 fn wiki_end(tail: &str) -> Option<usize> {
     let end = tail[2..].find("]]")? + 2;

@@ -217,7 +217,7 @@ fn all_five_unchanged_sources_accept_inline_tags_and_heading_links() {
         a.create(11, "Views/actual.base", source);
         for (index, record) in expected["records"].as_array().unwrap().iter().enumerate() {
             let raw = format!(
-                "{}\nBody #other [[note#heading]]",
+                "{}\nBody #other [[note#heading]] Private `#cppLive` PR #123\n```js\n#hidden\n```",
                 record["source"].as_str().unwrap()
             );
             a.create((index + 1) as u8, record["path"].as_str().unwrap(), &raw);
@@ -252,7 +252,7 @@ fn simple(source: &str) -> Node {
     a.create(
         1,
         "Task.md",
-        "---\nstatus: open\n---\n```\n#still-unqualified-rich-markdown\n```",
+        "---\nstatus: open\n---\n[link](target) #still-unqualified-rich-markdown",
     );
     settle(&mut [&mut a]);
     a

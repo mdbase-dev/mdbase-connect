@@ -78,8 +78,21 @@ describe("ONE native Bases codec grammar (not execution/paging/authority proof)"
     refusalAfter(m => {const columns = m.get(2) as Map<number, CborValue>; columns.set(1, [new Map<number, CborValue>([[0, 15], [1, "bad"], [2, "bad"]])]);});
     refusalAfter(m => m.set(4, [[[3, "x"], [1]]]));
     refusalAfter(m => m.set(4, [[[3, "x"], [-1]]]));
-    for (const key of [[6, []], [7, new Map()], [8, "error"], [9, "code", "detail"]] as CborValue[]) refusalAfter(m => m.set(4, [[key, [0]]]));
+    for (const key of [[7, new Map()], [8, "error"], [9, "code", "detail"], [5, Array(8).fill(new Float64(0)), "duration"]] as CborValue[]) {
+      refusalAfter(m => m.set(4, [[key, [0]]]));
+      refusalAfter(m => m.set(4, [[[6, [key]], [0]]]));
+    }
     refusalAfter(m => m.set(3, Array(65537).fill(row(m))));
+  });
+  it("accepts whole-list group keys using the exact native key fixture", () => {
+    const fixture = JSON.parse(readFileSync(new URL("./fixtures/native-bases-list-group-codec.json", import.meta.url), "utf8")) as {group_key_hex: string};
+    const key = decode(fromHex(fixture.group_key_hex)), value = success();
+    value.set(4, [[key, [0]]]);
+    const result = decodeAppBasesResult(encode(value));
+    if (result.kind !== "success") throw Error("success");
+    expect(result.groups).toEqual([{key: {kind: "list", values: [{kind: "text", value: "alpha"}, {kind: "text", value: "beta"}]}, rowIndices: [0]}]);
+    value.set(4, [[[6, []], [0]]]);
+    expect(() => decodeAppBasesResult(encode(value))).not.toThrow();
   });
   it("bounds cell value depth/list/map/text before typed copies", () => {
     let nested: CborValue = [0]; for (let i = 0; i < 31; i++) nested = [6, [nested]];

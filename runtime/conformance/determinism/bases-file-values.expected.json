@@ -1,4 +1,4 @@
-{"entries":120,"rejected":0,"digest":"2305780861e3e292","results":[
+{"entries":126,"rejected":0,"digest":"d70a2498a1b8e381","results":[
 {"value":"Tasks/My task.md"},
 {"value":"My task"},
 {"value":"My task"},
@@ -118,5 +118,11 @@
 {"refusal":"view_unsupported_construct","detail":"method"},
 {"refusal":"view_unsupported_construct","detail":"file_or_invocation_context"},
 {"refusal":"view_unsupported_construct","detail":"file_or_invocation_context"},
-{"refusal":"view_unsupported_construct","detail":"global_function"}
+{"refusal":"view_unsupported_construct","detail":"global_function"},
+{"value":true},
+{"value":true},
+{"refusal":"view_metadata_unavailable","detail":"file_tags_not_captured"},
+{"refusal":"view_metadata_unavailable","detail":"file_tags_not_captured"},
+{"refusal":"view_metadata_unavailable","detail":"file_tags_not_captured"},
+{"refusal":"view_unsupported_construct","detail":"file_tag_argument"}
 ]}
