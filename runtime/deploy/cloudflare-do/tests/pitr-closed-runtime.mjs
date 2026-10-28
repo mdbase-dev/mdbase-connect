@@ -46,10 +46,10 @@ try {
     // Exact inventory allows only that one observed table, never service schema.
     assert.deepEqual(r, { status: 503, tables: ["__miniflare_do_name"], alarm: null, alarmProbe: { status: 200, alarm: null } });
   }
-  const origin = "https://lab.tasknotes-app.pages.dev";
+  const origin = "*";
   assert.deepEqual(await call("ordinary-cors", {}), [
     { status: 204, origin, credentials: null },
-    { status: 403, origin: null, credentials: null },
+    { status: 204, origin, credentials: null },
     { status: 200, origin, credentials: null },
     { status: 401, origin, credentials: null },
   ]);

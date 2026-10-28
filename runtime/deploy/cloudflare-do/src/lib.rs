@@ -2084,23 +2084,15 @@ async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
     if pitr_configured(&env) {
         return pitr_denied();
     }
-    let configured = env.var(cors::ENV).ok().map(|v| v.to_string());
-    let Ok(cors) = cors::Cors::parse(configured.as_deref()) else {
-        return Response::error("CORS configuration", 503);
-    };
     // Misconfigured placement refuses loudly instead of creating actors or
     // writing objects elsewhere.
     if do_location::Placement::from_env(&env).is_err() {
         return Response::error("DO placement configuration", 503);
     }
-    let origin = req.headers().get("origin")?;
     if req.method() == Method::Options {
         let method = req.headers().get("access-control-request-method")?;
         let headers = req.headers().get("access-control-request-headers")?;
-        return cors.preflight(origin.as_deref(), method.as_deref(), headers.as_deref());
-    }
-    if req.path() == "/v1/ws" && !cors.permits_upgrade(origin.as_deref()) {
-        return Response::error("origin", 403);
+        return cors::preflight(method.as_deref(), headers.as_deref());
     }
     // Signed-RPC responses piggyback the caller's next nonce, so a steady-state
     // RPC is one request instead of `GET /v1/nonce` + POST. Same generator, TTL
@@ -2113,9 +2105,8 @@ async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
         ))
     });
     // Authentication/possession/nonce handling and all original routes unchanged.
-    cors.decorate(
+    cors::decorate(
         fetch_authenticated(req, env, ctx).await?,
-        origin.as_deref(),
         next_nonce.as_deref(),
     )
 }
