@@ -3268,6 +3268,7 @@ impl Daemon {
             .map_err(|e| match e {
                 crate::cloud::CloudError::Server(_, code) => code,
                 crate::cloud::CloudError::Network(_) => "sync_unreachable".into(),
+                crate::cloud::CloudError::RateLimited(_) => "rate_limited".into(),
                 crate::cloud::CloudError::Unauthenticated => "not_signed_in".into(),
                 crate::cloud::CloudError::Local(m) => m,
             })
@@ -4420,6 +4421,9 @@ async fn host_call(
 /// A Connect refusal as a control error (no secrets in messages).
 fn cloud_refusal(e: crate::cloud::CloudError) -> ControlError {
     match e {
+        rate_limit @ crate::cloud::CloudError::RateLimited(_) => {
+            ControlError::new("rate_limited", "rate_limited", rate_limit.to_string())
+        }
         crate::cloud::CloudError::Unauthenticated => ControlError::new(
             "unauthenticated",
             "not_signed_in",

@@ -292,6 +292,28 @@ describe("mdbase connect server", () => {
     expect(ready.json()).toEqual({ ok: true, service: "mdbase-connect" });
   });
 
+  it("reports plugin rate limits as retryable problems with the existing Retry-After", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({ db, devAuth: true, publicUrl: "http://connect.test" });
+    resources.push(() => app.close());
+    app.get("/test-rate-limit", { config: { rateLimit: { max: 1, timeWindow: "1 minute" } } }, async () => ({ ok: true }));
+
+    expect((await app.inject("/test-rate-limit")).statusCode).toBe(200);
+    const limited = await app.inject("/test-rate-limit");
+    const retryAfterSeconds = Number(limited.headers["retry-after"]);
+    expect(limited.statusCode).toBe(429);
+    expect(retryAfterSeconds).toBeGreaterThan(0);
+    expect(retryAfterSeconds).toBeLessThanOrEqual(60);
+    expect(limited.json()).toEqual({
+      error: {
+        code: "rate_limited",
+        message: "Too many requests. Please try again later.",
+        details: { retry_after_ms: retryAfterSeconds * 1000 }
+      }
+    });
+  });
+
   it("keeps malformed and oversized request bodies out of the server-error path", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
