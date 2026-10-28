@@ -10,6 +10,9 @@
 //! the catalog ([`validate_record`]). Cross-record checks also read other records
 //! ([`cross_record_issues`]); the planner never rejects for them.
 
+use std::collections::BTreeSet;
+
+use crate::ids::RecordId;
 use crate::state::StateView;
 use crate::types::Catalog;
 use crate::value::Value;
@@ -251,8 +254,14 @@ pub fn duplicate_values(
             if mine.is_empty() {
                 continue;
             }
+            // The index answers which records hold one of these values; the
+            // scope and the exact comparison are checked on each candidate.
+            let candidates: BTreeSet<RecordId> = mine
+                .iter()
+                .flat_map(|v| state.with_value(&rule.field, v))
+                .collect();
             let mut paths: Vec<String> = Vec::new();
-            for other_id in state.record_ids() {
+            for other_id in candidates {
                 if other_id == rec.id {
                     continue;
                 }

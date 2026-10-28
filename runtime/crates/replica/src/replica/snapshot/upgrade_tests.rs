@@ -165,7 +165,10 @@ pub(super) fn assert_prior(r: &Replica<MemStore>, kind: IncidentKind, cleaned: b
         }
     );
     assert_eq!(r.store.head().unwrap(), r.head);
-    assert_eq!(r.store.record(&OLD).unwrap(), Some(row(OLD, "prior.md")));
+    // Opening derived the prior row's index entries; nothing else changed.
+    let mut prior = row(OLD, "prior.md");
+    prior.meta = crate::plan::record_meta(&r.catalog, &prior.path, &prior.doc);
+    assert_eq!(r.store.record(&OLD).unwrap(), Some(prior));
     assert!(r.store.record(&STAGED).unwrap().is_none());
     assert_eq!(r.incidents.len(), 1);
     assert_eq!(r.incidents.values().next().unwrap().kind, kind);
@@ -308,7 +311,10 @@ fn continuation_guard_cannot_apply_a_legacy_prefix() {
     ));
     assert_eq!(r.head, before);
     assert_eq!(r.store.head().unwrap(), before);
-    assert_eq!(r.store.record(&OLD).unwrap(), Some(row(OLD, "prior.md")));
+    // Opening derived the prior row's index entries; nothing else changed.
+    let mut prior = row(OLD, "prior.md");
+    prior.meta = crate::plan::record_meta(&r.catalog, &prior.path, &prior.doc);
+    assert_eq!(r.store.record(&OLD).unwrap(), Some(prior));
     assert_eq!(r.store.staged_rows(), 1);
 }
 

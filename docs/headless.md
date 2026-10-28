@@ -77,9 +77,8 @@ holds open, a folder inside a registered collection while the daemon is stopped
 (exit `3`), and a folder that contains a registered collection. Registered
 collections open only once the computer is signed in.
 
-`validate` with no paths checks the whole collection within the replica's
-validation budget, which a collection of more than a few hundred records
-exceeds (`too_large`); name paths to check some records of a larger one.
+`validate` with no paths checks every record, a page at a time; 10,000
+records take about a third of a second.
 
 `read --json` prints the record with its revision. Pass it back with
 `--if-revision` so a write fails rather than overwrite a change made in

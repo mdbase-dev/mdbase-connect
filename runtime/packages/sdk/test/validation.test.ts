@@ -18,11 +18,12 @@ afterEach(() => {
     for (const c of clients.splice(0)) c.close();
     vi.restoreAllMocks();
 });
-async function fixture() {
-    const replica = new MemoryReplica(),
+async function fixture(features?: string[]) {
+    const replica = new MemoryReplica(features ? { features } : {}),
         a = replica.seed({ path: "tasks/a.md", body: "A\n" }),
         b = replica.seed({ path: "tasks/b.md", body: "B\n" });
     let reply: CborValue | undefined, problem: wire.Problem | undefined;
+    const replies: CborValue[] = [];
     let deliver: (() => void) | undefined;
     let hold = false,
         afterDelivery: (() => void) | undefined;
@@ -51,7 +52,7 @@ async function fixture() {
                                 id: f.id,
                                 ...(problem
                                     ? { problem }
-                                    : { result: reply ?? null }),
+                                    : { result: replies.shift() ?? reply ?? null }),
                             }),
                         );
                         afterDelivery?.();
@@ -85,6 +86,9 @@ async function fixture() {
         row,
         setReply: (v: CborValue) => {
             reply = v;
+        },
+        queueReplies: (...v: CborValue[]) => {
+            replies.push(...v);
         },
         setProblem: (p: wire.Problem) => {
             problem = p;
@@ -203,6 +207,29 @@ describe("public current-record validation", () => {
         await expect(f.client.validate()).rejects.toMatchObject({
             code: "internal",
         });
+    });
+    it("pages every record after the last one when the replica grants validate-page-v1", async () => {
+        const f = await fixture(["validate-page-v1"]);
+        expect(f.client.hello.features).toContain("validate-page-v1");
+        f.queueReplies(
+            recordValidations.enc([f.row(), f.row(f.other)]),
+            recordValidations.enc([f.row(f.other, [diagnostic])]),
+            [],
+        );
+        expect(await f.client.validate()).toEqual([
+            f.row(),
+            f.row(f.other),
+            f.row(f.other, [diagnostic]),
+        ]);
+        expect(f.calls).toEqual([
+            new Map([[1, new Map()]]),
+            new Map([[1, new Map([[0, uuid.enc(f.other.id)]])]]),
+            new Map([[1, new Map([[0, uuid.enc(f.other.id)]])]]),
+        ]);
+        // Selections stay one request.
+        f.setReply(recordValidations.enc([f.row()]));
+        expect(await f.client.validate([f.seen.id])).toEqual([f.row()]);
+        expect(f.calls[3]).toEqual(new Map([[0, [uuid.enc(f.seen.id)]]]));
     });
     it("pre-abort and final delivery abort preserve original cancellation, including empty replies", async () => {
         const f = await fixture();

@@ -287,13 +287,36 @@ pub(crate) async fn run(
         }
         DataCmd::Validate { target, paths } => {
             let mut t = open(&target, profile).await?;
-            let targets = if paths.is_empty() {
-                Cbor::Null
+            let mut rows = Vec::new();
+            if paths.is_empty() && !t.paged_validate() {
+                rows = rows_of(t.call(Method::Validate, params(vec![])).await?)?;
+            } else if paths.is_empty() {
+                // Every record, a budgeted page at a time, each page after the
+                // last record of the one before; an empty page ends it.
+                let mut after = Vec::new();
+                loop {
+                    let page = Cbor::Map(after);
+                    let batch = rows_of(
+                        t.call(Method::Validate, params(vec![Cbor::Null, page]))
+                            .await?,
+                    )?;
+                    let Some(last) = batch.last() else { break };
+                    let id = field(last, 0)
+                        .cloned()
+                        .ok_or_else(|| ControlError::internal("unreadable validate result"))?;
+                    after = vec![(Cbor::Uint(0), id)];
+                    rows.extend(batch);
+                }
             } else {
-                Cbor::Array(paths.into_iter().map(Cbor::Text).collect())
-            };
-            let result = t.call(Method::Validate, params(vec![targets])).await?;
-            let records = validation(&result)?;
+                for chunk in paths.chunks(VALIDATE_TARGETS) {
+                    let targets = Cbor::Array(chunk.iter().cloned().map(Cbor::Text).collect());
+                    rows.extend(rows_of(
+                        t.call(Method::Validate, params(vec![targets])).await?,
+                    )?);
+                }
+            }
+            let checked = rows.len();
+            let records = validation(&rows)?;
             let errors = records
                 .iter()
                 .flat_map(|r| &r.issues)
@@ -303,7 +326,7 @@ pub(crate) async fn run(
                     records.iter().map(ValidatedRecord::to_json).collect(),
                 ));
             } else {
-                print_validation(&records);
+                print_validation(&records, checked);
             }
             Ok(if errors {
                 ExitCode::from(1)
@@ -461,6 +484,7 @@ enum Transport {
     Daemon {
         session: ClientSession<BoxStream>,
         next_id: u64,
+        paged_validate: bool,
     },
     /// The folder, opened by this process.
     InProcess {
@@ -471,7 +495,19 @@ enum Transport {
     },
 }
 
+/// The `hello` feature that lets `validate` page through every record.
+const VALIDATE_PAGE: &str = "validate-page-v1";
+
 impl Transport {
+    /// Whether `validate` pages. A daemon started from an older build (until it
+    /// restarts) does not, and validates every record in one bounded request.
+    fn paged_validate(&self) -> bool {
+        match self {
+            Transport::Daemon { paged_validate, .. } => *paged_validate,
+            Transport::InProcess { .. } => true,
+        }
+    }
+
     /// One request, answered.
     async fn call(&mut self, method: Method, params: Cbor) -> Result<Cbor, ClientError> {
         let request = ClientRequest {
@@ -480,7 +516,9 @@ impl Transport {
             params,
         };
         let response = match self {
-            Transport::Daemon { session, next_id } => {
+            Transport::Daemon {
+                session, next_id, ..
+            } => {
                 *next_id += 1;
                 let id = *next_id;
                 let request = ClientFrame::Request(ClientRequest { id, ..request });
@@ -565,7 +603,7 @@ fn hello() -> ClientRequest {
             versions: vec![Version { major: 1, minor: 0 }],
             client_name: CLIENT_NAME.into(),
             client_version: crate::BINARY_VERSION.into(),
-            features: None,
+            features: Some(vec![VALIDATE_PAGE.into()]),
             timezone: None,
         }
         .to_cbor(),
@@ -668,9 +706,14 @@ async fn daemon(profile: &Profile, mut status: CollectionStatus) -> Result<Trans
     if let Some(p) = response.problem {
         return Err(problem(&p).into());
     }
+    let paged_validate = matches!(
+        response.result.as_ref().and_then(|r| field(r, 6)),
+        Some(Cbor::Array(features)) if features.contains(&Cbor::Text(VALIDATE_PAGE.into()))
+    );
     Ok(Transport::Daemon {
         session,
         next_id: 0,
+        paged_validate,
     })
 }
 
@@ -1225,11 +1268,19 @@ impl ValidatedRecord {
     }
 }
 
-/// The `validate` result: records with at least one issue, by path.
-fn validation(result: &Cbor) -> Result<Vec<ValidatedRecord>, ControlError> {
-    let Cbor::Array(entries) = result else {
-        return Err(ControlError::internal("unreadable validate result"));
-    };
+/// The most targets one `validate` request takes.
+const VALIDATE_TARGETS: usize = 1000;
+
+/// The rows of one `validate` result.
+fn rows_of(result: Cbor) -> Result<Vec<Cbor>, ControlError> {
+    match result {
+        Cbor::Array(rows) => Ok(rows),
+        _ => Err(ControlError::internal("unreadable validate result")),
+    }
+}
+
+/// The records with at least one issue, by path.
+fn validation(entries: &[Cbor]) -> Result<Vec<ValidatedRecord>, ControlError> {
     let mut out = Vec::new();
     for entry in entries {
         let path = text(entry, 2).unwrap_or_default();
@@ -1255,9 +1306,9 @@ fn validation(result: &Cbor) -> Result<Vec<ValidatedRecord>, ControlError> {
     Ok(out)
 }
 
-fn print_validation(records: &[ValidatedRecord]) {
+fn print_validation(records: &[ValidatedRecord], checked: usize) {
     if records.is_empty() {
-        println!("no issues");
+        println!("no issues in {}", count(checked, "record"));
         return;
     }
     let mut errors = 0;
@@ -1286,9 +1337,21 @@ fn print_validation(records: &[ValidatedRecord]) {
         }
     }
     println!(
-        "{errors} error(s), {warnings} warning(s) in {} record(s)",
-        records.len()
+        "{}, {} in {} of {}",
+        count(errors, "error"),
+        count(warnings, "warning"),
+        records.len(),
+        count(checked, "record"),
     );
+}
+
+/// `1 record`, `3 records`.
+fn count(n: usize, noun: &str) -> String {
+    if n == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{n} {noun}s")
+    }
 }
 
 // ---- types -----------------------------------------------------------------------

@@ -115,11 +115,22 @@ pub trait StateView {
     /// extensions, declared link fields): a store re-derives them when a
     /// resource write changes the catalog.
     fn link_targets(&self, keys: &[LinkKey]) -> Vec<RecordId>;
-    /// Records whose persisted top-level `field` equals `value` (spec 12A
-    /// equality). Sorted by ID. Used for `unique` rules.
+    /// Records where the `unique` field reference `field` selects (through
+    /// [`crate::types::select`]) a value equal to `value` (spec 12A equality),
+    /// whatever their types. Sorted by ID. Over-approximation is allowed.
+    /// Duplicate checks ask only for fields the catalog's `unique` rules name.
     fn with_value(&self, field: &str, value: &Value) -> Vec<RecordId>;
     /// Every live record ID, sorted.
     fn record_ids(&self) -> Vec<RecordId>;
+}
+
+/// Whether `field` selects a value equal to `value` in the record's
+/// frontmatter: the exact test behind [`StateView::with_value`].
+pub fn holds_value(record: &StoredRecord, field: &str, value: &Value) -> bool {
+    let doc = crate::doc::Document::parse_at(&record.path, &*record.source);
+    crate::types::select(doc.frontmatter(), field)
+        .into_iter()
+        .any(|v| v == value)
 }
 
 /// A complete in-memory state.
@@ -372,12 +383,7 @@ impl StateView for MemState {
     fn with_value(&self, field: &str, value: &Value) -> Vec<RecordId> {
         self.records
             .values()
-            .filter(|r| {
-                crate::doc::Document::parse_at(&r.path, &*r.source)
-                    .frontmatter()
-                    .get(field)
-                    .is_some_and(|v| v == value)
-            })
+            .filter(|r| holds_value(r, field, value))
             .map(|r| r.id)
             .collect()
     }
@@ -683,10 +689,7 @@ impl StateView for Overlay<'_> {
     }
     fn with_value(&self, field: &str, value: &Value) -> Vec<RecordId> {
         self.merge_ids(self.base.with_value(field, value), |r| {
-            crate::doc::Document::parse_at(&r.path, &*r.source)
-                .frontmatter()
-                .get(field)
-                .is_some_and(|v| v == value)
+            holds_value(r, field, value)
         })
     }
     fn record_ids(&self) -> Vec<RecordId> {

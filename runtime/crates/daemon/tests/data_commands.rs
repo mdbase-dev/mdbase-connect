@@ -110,6 +110,10 @@ fn stdout(out: &Output) -> String {
     String::from_utf8(out.stdout.clone()).unwrap()
 }
 
+fn stderr(out: &Output) -> String {
+    String::from_utf8(out.stderr.clone()).unwrap()
+}
+
 fn paths(v: &Value) -> Vec<&str> {
     v["records"]
         .as_array()
@@ -187,7 +191,7 @@ fn validate_reports_issues_and_exits_1_on_errors() {
         "{text}"
     );
     assert!(
-        text.contains("2 error(s), 0 warning(s) in 1 record(s)"),
+        text.contains("2 errors, 0 warnings in 1 of 3 records"),
         "{text}"
     );
 
@@ -199,7 +203,26 @@ fn validate_reports_issues_and_exits_1_on_errors() {
 
     let out = f.run(&["validate", "tasks/a.md"]);
     assert!(out.status.success());
-    assert_eq!(stdout(&out), "no issues\n");
+    assert_eq!(stdout(&out), "no issues in 1 record\n");
+}
+
+#[test]
+fn validate_checks_a_large_collection_in_pages() {
+    let f = fixture("vb");
+    for n in 0..1500 {
+        let text = format!(
+            "---\ntype: task\ntitle: \"Task {n}\"\nstatus: open\n---\nSee [[t{}]] and [[a]].\n",
+            (n + 1) % 1500
+        );
+        std::fs::write(f.root.join(format!("tasks/t{n}.md")), text).unwrap();
+    }
+    let out = f.run(&["validate"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.ends_with("2 errors, 0 warnings in 1 of 1503 records\n"),
+        "{text}"
+    );
 }
 
 #[test]

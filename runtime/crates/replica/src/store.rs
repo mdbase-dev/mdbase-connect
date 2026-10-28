@@ -1457,4 +1457,7 @@ pub mod meta_keys {
     /// The installed generation-0 `base`: what its payload names and where it
     /// sits, committed with the install. Log-derived; a rebuild re-creates it.
     pub const BASE: &str = "replica.base";
+    /// What the records' index entries were derived from
+    /// (`plan::record_meta_stamp`). Device-local; a mismatch reindexes on open.
+    pub const RECORD_META: &str = "replica.record_meta";
 }
