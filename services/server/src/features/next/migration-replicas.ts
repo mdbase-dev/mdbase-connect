@@ -25,7 +25,7 @@ import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { CreateError, inTransaction } from "./bootstrap-common.js";
-import type { LogServiceClient } from "./log-service-client.js";
+import { LogServiceError, type LogServiceClient } from "./log-service-client.js";
 import { migrationMemberPlan, queueMigrationMembers } from "./migration-members.js";
 import { claim, originalArchiveFence } from "./migration-provider.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
@@ -383,7 +383,6 @@ async function cutoverPolicy(collection: string, body: Binding & { revoked: stri
       { migration_id: body.migration_id, revoked: body.revoked, base_seq: body.base_seq });
     return true;
   });
-  if (created) await options.emitter?.drainCollection(collection).catch(() => undefined);
   return reply(created);
 }
 
@@ -494,10 +493,18 @@ export function registerMigrationReplicaRoutes(app: FastifyInstance, options: Op
       }
       try {
         if (!options.provider) throw new RolloutRefused("migration_source_unavailable", "The legacy provider is unavailable.", 503);
-        return await step(kind, p.data.id, body.data, { ...options, provider: options.provider });
+        const result = await step(kind, p.data.id, body.data, { ...options, provider: options.provider });
+        // A replay must wake the retained cutover too, without waiting for the
+        // global outbox sweep's verification of unrelated collections.
+        if (kind === "cutover-policy") {
+          try { await options.emitter?.drainCollection(p.data.id); }
+          catch (error) { request.log.warn({ err: error, collection_id: p.data.id }, "Migration cutover policy drain failed; retry will wake the retained policy."); }
+        }
+        return result;
       } catch (error) {
         if (error instanceof RolloutRefused) return reply.code(error.status).send(apiError(error.code, error.message));
         if (error instanceof CreateError) return reply.code(error.status).send(apiError(error.code, "No current migration target."));
+        if (error instanceof LogServiceError) return reply.code(503).send(apiError("migration_log_unavailable", "No verified log head; retry the same collection."));
         if (error instanceof HostedProviderResponseError || error instanceof HostedProviderUnavailableError || error instanceof z.ZodError) {
           return reply.code(503).send(apiError("migration_source_unavailable", "No verified provider outcome; retry the same collection."));
         }
