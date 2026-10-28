@@ -10,6 +10,7 @@ import { tokenHash } from "../../security.js";
 import { CreateError, currentIdentity, currentMember, exactEnrolment, inTransaction, lock, refuse, refuseRevoked, type Device } from "./bootstrap-common.js";
 import { recordCollectionDeletionIntent, requireCollectionNotDeleted, type CollectionDeletionFact } from "./collection-deletion.js";
 import { collectionDisplayName } from "./collection-display-name.js";
+import { registerCollectionModeRoutes } from "./collection-mode-routes.js";
 import { requireInstallationScope } from "./installation-scope.js";
 import { LogServiceError } from "./log-service-client.js";
 import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
@@ -94,6 +95,7 @@ const deleteRefusal = (reply: FastifyReply, status: number, code: string) =>
   reply.code(status).send(apiError(code, DELETE_REFUSALS[code] ?? "The collection could not be deleted."));
 
 export function registerCollectionNameRoutes(app: FastifyInstance, db: DatabasePool, deletionFloor?: DeletionFloorRecorder): void {
+  registerCollectionModeRoutes(app, db);
   app.patch<{ Body: { display_name: string } }>("/v1/next/collections/:id/name", {
     bodyLimit: 4096,
     config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
