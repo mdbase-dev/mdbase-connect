@@ -78,8 +78,13 @@ async function withPolicySession<T>(db: DatabasePool, collectionId: string, run:
   }
 }
 
-export function recoverLostPolicy(db: DatabasePool, log: LogServiceClient, collectionId: string): Promise<number> {
-  return withPolicyLock(db, collectionId, lock => recover(lock, log, collectionId));
+/** Polls check one acknowledged batch at a time. A healthy prefix needs no
+ * durable state; restart it after process exit. Zero means the scan completed.
+ * Actual loss still uses the complete, atomic recovery plan below. */
+interface PolicyVerificationCursor { after: string; through?: string }
+
+export function recoverLostPolicy(db: DatabasePool, log: LogServiceClient, collectionId: string, cursor?: PolicyVerificationCursor): Promise<number> {
+  return withPolicyLock(db, collectionId, lock => recover(lock, log, collectionId, cursor));
 }
 
 interface LostBatch { id: string; park?: "lost_genesis" | "invalid_retained_ops" }
@@ -93,29 +98,49 @@ async function retainedOps(client: DatabaseQueryable, batchId: string): Promise<
   return { version: 1, ops: rows.rows.flatMap(row => row.ops.ops) };
 }
 
-async function recover(lock: PolicyLock, log: LogServiceClient, collectionId: string): Promise<number> {
+async function recover(lock: PolicyLock, log: LogServiceClient, collectionId: string, cursor?: PolicyVerificationCursor): Promise<number> {
   const collection = await lock.query("SELECT collection_id FROM next_collections WHERE collection_id = $1", [collectionId]);
-  if (!collection.rows.length) return 0;
+  if (!collection.rows.length) { if (cursor) cursor.after = "0"; return 0; }
   await lock.assertOwned();
   const head = await log.head(collectionId);
   // Retain decisions only for lost/sending batches, not the healthy history.
   // All remote verification completes BEFORE any scheduling transaction starts:
   // a failed read must not commit even a prefix of the reissue plan.
   const lost: LostBatch[] = [];
-  let after = "0", parked = false;
+  let after = cursor?.after ?? "0", parked = false;
+  let probing = cursor !== undefined;
+  if (cursor && cursor.after === "0") {
+    // A finite sweep: newly appended batches must not keep old history from
+    // being revisited forever on a busy collection.
+    cursor.through = (await lock.query<{ id: string }>(
+      "SELECT COALESCE(MAX(id), 0)::text AS id FROM next_policy_batches WHERE collection_id = $1 AND state = 'appended' AND lost_at IS NULL", [collectionId]
+    )).rows[0]!.id;
+  }
   while (!parked) {
     const batches = await lock.query<{ id: string; seq: string; item: Buffer }>(
       `SELECT id, seq, item FROM next_policy_batches WHERE collection_id = $1
-       AND state = 'appended' AND lost_at IS NULL AND id > $2 ORDER BY id LIMIT 64`, [collectionId, after]
+       AND state = 'appended' AND lost_at IS NULL AND id > $2
+       AND ($4::bigint IS NULL OR id <= $4) ORDER BY id LIMIT $3`, [collectionId, after, probing ? 1 : 64, probing ? cursor!.through : null]
     );
-    if (!batches.rows.length) break;
+    if (!batches.rows.length) { if (cursor) cursor.after = "0"; break; }
     for (const batch of batches.rows) {
       after = batch.id;
       const seq = Number(batch.seq);
       // Stop a dead owner before its next remote read, not only at page end.
       await lock.assertOwned();
       const stored = seq > head.seq ? null : await log.controlItemAt(collectionId, seq);
-      if (stored && batch.item.equals(Buffer.from(stored))) continue;
+      if (stored && batch.item.equals(Buffer.from(stored))) {
+        if (probing) { cursor!.after = after; return 0; }
+        continue;
+      }
+      if (probing) {
+        // Recheck from the beginning under this same lock before scheduling any
+        // reissues. Never apply a partial loss plan or reorder retained ops.
+        probing = false;
+        cursor!.after = "0";
+        after = "0";
+        break;
+      }
       const park = seq === 1 ? "lost_genesis" : !await retainedOps(lock, batch.id) ? "invalid_retained_ops" : undefined;
       lost.push({ id: batch.id, ...(park ? { park } : {}) });
       if (park) { parked = true; break; }

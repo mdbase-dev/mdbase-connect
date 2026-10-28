@@ -445,8 +445,9 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
       return refuse(reply, error, "Strict mode was not set; fetch the current version and retry with a fresh proof.");
     }
     request.log.info({ event: "next_account_key_strict", account, device: body.device_id, revoked: result.revocations.length }, "account key strict mode");
-    // Best effort: the outbox is durable and the emitter drains it regardless.
-    for (const collection of new Set(result.revocations.map((r) => r.collection))) await options.emitter.drainCollection(collection).catch(() => undefined);
+    // Direct postcommit publication, independent of global historical verification.
+    // Admission/transport failure leaves the durable revocations for the poller.
+    for (const collection of new Set(result.revocations.map((r) => r.collection))) await options.emitter.publishCommitted(collection).catch(() => undefined);
     try {
       return await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);

@@ -149,19 +149,23 @@ const MAX_REBUILDS = 8;
 /** Foreground wake hints are optional; overflow remains in the durable ledger
  * for the existing poller. Never create an unbounded background request queue. */
 const MAX_BACKGROUND_WAKES = 4;
+const VERIFICATION_BUDGET_MS = 500;
+const MAX_VERIFICATION_PROBES = 32;
 
 export class PolicyEmitter {
   private timer: NodeJS.Timeout | undefined;
   private inFlight: Promise<number> | undefined;
   private lastVerificationAt = -Infinity;
-  private readonly verificationHints = new Set<string>();
+  private readonly verificationQueue = new Map<string, { after: string; through?: string } | undefined>();
   private readonly wakeWork = new Map<string, Promise<void>>();
   private readonly committedWork = new Map<string, Promise<void>>();
   private closed = false;
 
   /** Hints only select a collection for verification, never its ops or positions. */
   hintLostPolicy(collectionId: string): void {
-    this.verificationHints.add(collectionId);
+    // An explicit loss hint needs the full fenced recovery, not a healthy scan.
+    this.verificationQueue.delete(collectionId);
+    this.verificationQueue.set(collectionId, undefined);
   }
 
   constructor(
@@ -245,39 +249,63 @@ export class PolicyEmitter {
   }
 
   private async drainAll(): Promise<number> {
+    // New deliveries never sit behind routine historical verification.
+    let appended = await this.drainPending();
     const due = this.now() - this.lastVerificationAt >= 60_000;
     const checks = due ? await this.db.query<{ collection_id: string }>(
       "SELECT DISTINCT collection_id FROM next_policy_batches WHERE state = 'appended' AND lost_at IS NULL"
     ) : { rows: [] };
     if (due) this.lastVerificationAt = this.now();
-    const collectionIds = new Set([...checks.rows.map((row) => row.collection_id), ...this.verificationHints]);
-    this.verificationHints.clear();
-    const failedVerification = new Set<string>();
-    for (const collectionId of collectionIds) {
+    for (const { collection_id: id } of checks.rows) {
+      if (!this.verificationQueue.has(id)) this.verificationQueue.set(id, { after: "0" });
+    }
+    // Rotate collection probes within a time/item budget, rather than stretching
+    // a sweep across one poll per batch. An in-progress RPC/full loss recovery
+    // retains its existing deadline and atomicity; do not cancel it mid-flight.
+    const started = performance.now(), failed = new Set<string>();
+    let recovered = false;
+    for (let probes = 0; probes < MAX_VERIFICATION_PROBES && performance.now() - started < VERIFICATION_BUDGET_MS; probes++) {
+      let next = this.verificationQueue.entries().next().value;
+      // Known loss blocks this collection's fresh delivery. Recover it before
+      // spending the shared budget on healthy history, regardless of hint age.
+      for (const entry of this.verificationQueue) {
+        if (entry[1] === undefined && !failed.has(entry[0])) { next = entry; break; }
+      }
+      if (!next) break;
+      const [collectionId, cursor] = next;
+      this.verificationQueue.delete(collectionId);
+      if (failed.has(collectionId)) { this.verificationQueue.set(collectionId, cursor); continue; }
       try {
-        await recoverLostPolicy(this.db, this.log, collectionId);
+        const reissues = await recoverLostPolicy(this.db, this.log, collectionId, cursor);
+        recovered ||= reissues > 0 || cursor === undefined;
+        if (cursor && cursor.after !== "0" && !this.verificationQueue.has(collectionId)) this.verificationQueue.set(collectionId, cursor);
       } catch (error) {
-        failedVerification.add(collectionId);
-        this.verificationHints.add(collectionId);
+        failed.add(collectionId);
+        if (!this.verificationQueue.has(collectionId)) this.verificationQueue.set(collectionId, undefined);
         this.reportFailure(error, collectionId, "recover");
       }
     }
+    if (recovered) appended += await this.drainPending();
+    // Durable service-device rows select only verified appended genesis batches.
+    // Retry activation even when there was no new policy work this poll.
+    await this.activateServices();
+    return appended;
+  }
+
+  private async drainPending(): Promise<number> {
     const collections = await this.db.query<{ collection_id: string }>(
       `SELECT collection_id FROM next_policy_outbox WHERE batch_id IS NULL
        UNION SELECT collection_id FROM next_policy_batches WHERE state = 'sending'`
     );
     let appended = 0;
     for (const { collection_id: collectionId } of collections.rows) {
-      if (failedVerification.has(collectionId)) continue;
+      if (this.verificationQueue.has(collectionId) && this.verificationQueue.get(collectionId) === undefined) continue;
       try {
         appended += await this.drainCollection(collectionId);
       } catch (error) {
         this.reportFailure(error, collectionId);
       }
     }
-    // Durable service-device rows select only verified appended genesis batches.
-    // Retry activation even when there was no new policy work this poll.
-    await this.activateServices();
     return appended;
   }
 
