@@ -633,7 +633,7 @@ describePostgres("mdbase-next policy outbox", () => {
     expect(await emitter.drainCollection(collectionId)).toBe(3);
   });
 
-  it.each([1, 80])("bounds healthy verification to one historical read with %i acknowledged items", async (count) => {
+  it.each([1, 80])("delivers fresh revocations before the verification time budget with %i acknowledged items", async (count) => {
     const isolated = await withDatabase("bounded_verification");
     const collectionId = randomUUID(), owner = await newUser(isolated.db);
     await registerNextCollection(isolated.db, { collectionId, ownerUserId: owner, runtime: "next", sync: "cloud_copy", rootKeyId: signer.cert.root, ops: genesisOps(owner, signer.cert.root) });
@@ -645,15 +645,65 @@ describePostgres("mdbase-next policy outbox", () => {
     }
     const grant = randomUUID();
     await queueNextPolicy(isolated.db, collectionId, [{ op: "grant-revoke", grant }]);
-    const read = vi.spyOn(client, "controlItemAt");
+    let elapsed = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const originalRead = client.controlItemAt.bind(client);
+    const read = vi.spyOn(client, "controlItemAt").mockImplementation(async (id, seq) => {
+      // Even the first probe must see the fresh revoke already delivered.
+      expect(service.policyOps(collectionId, signer.cert.policyPublicKey).at(-1)).toEqual(["7"]);
+      elapsed += 501;
+      return originalRead(id, seq);
+    });
     try {
       expect(await emitter.drain()).toBe(1);
-      // Exactly one historical read, independent of the backlog size.
+      // Do not start another probe after the 500 ms budget is exhausted.
       expect(read).toHaveBeenCalledTimes(1);
       expect(service.policyOps(collectionId, signer.cert.policyPublicKey).at(-1)).toEqual(["7"]);
       expect((await isolated.db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND batch_id IS NULL", [collectionId])).rows).toEqual([]);
-    } finally { read.mockRestore(); await emitter.close(); await isolated.close(); }
+    } finally { read.mockRestore(); clock.mockRestore(); await emitter.close(); await isolated.close(); }
   });
+
+  it.each([10, 25])("finishes a production-scale fixture sweep within the poll budget at %i ms per probe", async (probeMs) => {
+    const isolated = await withDatabase("verification_sweep");
+    const owner = await newUser(isolated.db), ids = Array.from({ length: 1056 }, () => randomUUID());
+    // Use the unmodified main schema and count real appended rows. The healthy
+    // byte fixtures isolate scheduling, not signing or log transport validation.
+    const item = Buffer.from("a0", "hex");
+    await isolated.db.query(`INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id)
+      SELECT id, $2, 'next', 'cloud_copy', $3 FROM unnest($1::uuid[]) id`, [ids, owner, signer.cert.root]);
+    await isolated.db.query(`INSERT INTO next_policy_batches(collection_id, seq, prev, item, issued_at, state, appended_at)
+      SELECT id, seq, $2, $3, 1, 'appended', now() FROM unnest($1::uuid[]) id CROSS JOIN generate_series(1,4) seq`,
+    [ids, Buffer.alloc(32), item]);
+    const totals = (await isolated.db.query<{ batches: number; collections: number }>(
+      "SELECT count(*)::int AS batches, count(DISTINCT collection_id)::int AS collections FROM next_policy_batches WHERE state='appended'"
+    )).rows[0]!;
+    expect(totals).toEqual({ batches: 4224, collections: 1056 });
+    let elapsed = 0, checked = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const head = vi.spyOn(client, "head").mockImplementation(async () => {
+      elapsed += probeMs;
+      return { seq: 4, chain: Buffer.alloc(32) };
+    });
+    const read = vi.spyOn(client, "controlItemAt").mockImplementation(async () => { checked++; return item; });
+    const errors = vi.fn(), emitter = new PolicyEmitter(isolated.db, client, signer, errors, 2_000, () => 0);
+    // Each collection also needs one empty probe to finish its finite sweep.
+    const probesPerPoll = Math.min(32, Math.ceil(500 / probeMs));
+    const polls = Math.ceil((totals.batches + totals.collections) / probesPerPoll);
+    try {
+      for (let i = 0; i < polls; i++) {
+        const before = head.mock.calls.length;
+        await emitter.drain();
+        expect(head.mock.calls.length - before).toBeLessThanOrEqual(probesPerPoll);
+      }
+      expect(errors).not.toHaveBeenCalled();
+      expect(checked).toBe(totals.batches);
+      expect(head).toHaveBeenCalledTimes(totals.batches + totals.collections);
+      expect(polls).toBe(probeMs === 10 ? 165 : 264);
+      // No more probes until the next scheduled sweep; all cursors completed.
+      await emitter.drain();
+      expect(head).toHaveBeenCalledTimes(totals.batches + totals.collections);
+    } finally { read.mockRestore(); head.mockRestore(); clock.mockRestore(); await emitter.close(); await isolated.close(); }
+  }, 120_000);
 
   it("advances bounded verification and rebuilds the complete ordered loss plan on a later page", async () => {
     const collectionId = await register(await newUser(database.db));
