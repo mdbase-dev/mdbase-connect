@@ -1,13 +1,13 @@
 import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { HostedProviderResponseError, type HostedProviderClient, type LegacyMigrationRollbackReceipt,
   type LegacyMigrationRollbackRequest } from "../../hosted-provider.js";
 import { registerMigrationReplicaRoutes } from "./migration-replicas.js";
 import { PolicyEmitter, registerNextCollection } from "./policy-outbox.js";
-import { LogServiceClient } from "./log-service-client.js";
+import { LogServiceClient, LogServiceError } from "./log-service-client.js";
 import { decodeCbor, type PolicySigner } from "./policy-wire.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
 import { FakeLogService, certify, field, bytes } from "../../../test/policy-log.js";
@@ -136,10 +136,12 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       return found;
     }
     const real = signed ? await signedEmitter(a, owner) : null;
-    const app = Fastify();
+    const warnings: Array<Record<string, unknown>> = [];
+    const app = Fastify({ logger: { level: "warn", stream: { write(line: string) { warnings.push(JSON.parse(line)); } } } });
     if (real) app.addHook("onClose", async () => real.emitter.close());
-    registerMigrationReplicaRoutes(app, { db, token, provider, log: real?.log ?? { head: async () => ({ seq: head, chain: new Uint8Array(32) }) },
-      emitter: real?.emitter ?? { drainCollection: async () => 0 } });
+    const log = real?.log ?? { head: async () => ({ seq: head, chain: new Uint8Array(32) }) };
+    const emitter = real?.emitter ?? { drainCollection: async () => 0 };
+    registerMigrationReplicaRoutes(app, { db, token, provider, log, emitter });
     const claim = (await db.query<{ started_us: string }>(
       "SELECT (extract(epoch FROM started_at)*1000000)::bigint::text AS started_us FROM next_migration_cohort_members WHERE account_id=$1", [owner])).rows[0]!;
     const binding = (id = a) => ({ owner_account: owner, started_us: claim.started_us, migration_id: src(id).run });
@@ -153,7 +155,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       driver_id: driver, action_id: action, replica_ids: replicas(id), ...extra });
     const events = async (type: string, id = a) => (await db.query<{ metadata: Record<string, unknown> }>(
       "SELECT metadata FROM audit_events WHERE event_type=$1 AND subject_id=$2 ORDER BY id", [type, id])).rows.map(r => r.metadata);
-    return { owner, a, b, src, app, call, binding, replicas, cutovers, effects, rollbackBody, events, real,
+    return { owner, a, b, src, app, call, binding, replicas, cutovers, effects, rollbackBody, events, real, log, emitter, warnings,
       abortBody: () => ({ ...binding(), driver_id: driver, action_id: action, run_sequence: 1, action_sequence: 186,
         fingerprint: "37".repeat(32), checkpoint_digest: "48".repeat(32) }),
       set head(v: number) { head = v; }, set providerEpoch(v: number) { providerEpoch = v; }, set tamper(v: typeof tamper) { tamper = v; } };
@@ -336,6 +338,52 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       // A different set after queueing is a conflict, never a second item.
       expect((await cutover(f, f.replicas().slice(1))).json().error.code).toBe("migration_cutover_conflict");
       expect(await f.cutovers()).toHaveLength(1);
+    } finally { await f.app.close(); }
+  });
+
+  it.each(["unavailable", "not_found", "invalid"])("returns a retryable, specific refusal for a log head error: %s", async code => {
+    const f = await fixture(); try {
+      await revokeAll(f);
+      vi.spyOn(f.log, "head").mockRejectedValueOnce(new LogServiceError(code, "synthetic_head_failure"));
+      const drain = vi.spyOn(f.emitter, "drainCollection");
+      const refused = await cutover(f, f.replicas());
+      expect(refused.statusCode, refused.body).toBe(503);
+      expect(refused.json().error.code).toBe("migration_log_unavailable");
+      expect(await f.cutovers()).toHaveLength(0);
+      expect(await f.events("next_migration.cutover_policy")).toHaveLength(0);
+      expect(drain).not.toHaveBeenCalled();
+      const retry = await cutover(f, f.replicas());
+      expect(retry.statusCode, retry.body).toBe(200);
+      expect(retry.json().created).toBe(true);
+    } finally { await f.app.close(); }
+  });
+
+  it("logs a failed cutover wake and delivers the same queued policy on re-post without a global sweep", async () => {
+    const f = await fixture(true); try {
+      await revokeAll(f);
+      const drain = vi.spyOn(f.emitter, "drainCollection").mockRejectedValueOnce(new Error("synthetic drain failure"));
+      const post = () => f.call("cutover-policy", { ...f.binding(), revoked: f.replicas(), base_seq: 1 });
+      const first = await post();
+      expect(first.statusCode, first.body).toBe(200);
+      expect(first.json().created).toBe(true);
+      expect(f.warnings).toContainEqual(expect.objectContaining({ level: 40, collection_id: f.a,
+        err: expect.objectContaining({ message: "synthetic drain failure" }) }));
+      const retained = f.real!.service.logs.get(f.a.replaceAll("-", ""))!;
+      expect(retained).toHaveLength(1);
+      // Replay the retained outbox row, rather than queueing another policy.
+      const retry = await post();
+      expect(retry.statusCode, retry.body).toBe(200);
+      expect(retry.json().created).toBe(false);
+      expect(drain.mock.calls).toEqual([[f.a], [f.a]]);
+      expect(retained).toHaveLength(2);
+      expect(await f.cutovers()).toHaveLength(1);
+      expect(await f.events("next_migration.cutover_policy")).toHaveLength(1);
+      expect((await db.query("SELECT state FROM next_policy_batches WHERE collection_id=$1 AND seq=2", [f.a])).rows)
+        .toEqual([{ state: "appended" }]);
+      const again = await post();
+      expect(again.json().created).toBe(false);
+      expect(drain).toHaveBeenCalledTimes(3);
+      expect(retained).toHaveLength(2);
     } finally { await f.app.close(); }
   });
 
