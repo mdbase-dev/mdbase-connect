@@ -12,6 +12,10 @@ const appOrigins = [
   "https://journal.mdbase.dev", "https://staging.mdbase-journal.pages.dev", "https://lab.mdbase-journal-lab.pages.dev",
   "https://reader.mdbase.dev", "https://staging.mdbase-reader.pages.dev", "https://lab.mdbase-reader.pages.dev",
   "https://editor-lab.mdbase.dev", "https://mdbase-editor-lab.pages.dev", "http://127.0.0.1:48218",
+  // Current canonical and preview app hosts; all use bearer auth.
+  "https://editor.mdbase.dev", "https://editor-staging.mdbase.dev",
+  "https://planner.mdbase.dev", "https://staging.mdbase-planner.pages.dev", "https://lab.mdbase-planner.pages.dev",
+  "https://mdbase.dev", "https://staging.mdbase.dev",
   // Native, desktop, extension and plugin shells.
   "capacitor://app.tasknotes.dev", "https://localhost", "capacitor://localhost", "http://localhost",
   "tauri://localhost", "http://tauri.localhost", "app://obsidian.md",
@@ -21,22 +25,27 @@ const appOrigins = [
   "https://connect.example.evil", "http://connect.example", "https://connect.example:444",
   "https://preview.mdbase-reader.pages.dev", "null"
 ];
+const deployments = [
+  ["production", "https://connect.mdbase.dev", "https://editor.mdbase.dev"],
+  ["staging", "https://connect-staging.mdbase.dev", "https://editor-staging.mdbase.dev"],
+  ["lab", "https://connect-lab.mdbase.dev", "https://editor-lab.mdbase.dev"],
+  ["local", "http://127.0.0.1:8787", "http://127.0.0.1:5173"]
+];
 const resources: Array<() => Promise<void>> = [];
 afterAll(async () => { while (resources.length) await resources.pop()!(); });
 
-for (const environment of ["production", "staging", "lab", "local"]) {
+for (const [environment, publicUrl, editorOrigin] of deployments) {
   describe(`${environment} CORS`, () => {
     let app: Awaited<ReturnType<typeof buildApp>>["app"];
     beforeAll(async () => {
       const db = await createDatabase("memory"); resources.push(() => db.end());
-      ({ app } = await buildApp({ db, environment, publicUrl: "https://connect.example",
-        managementOrigins: ["https://management.example", "https://editor.mdbase.dev"],
-        editorOrigin: "https://editor.mdbase.dev" }));
+      ({ app } = await buildApp({ db, environment, publicUrl,
+        managementOrigins: ["https://management.example", editorOrigin], editorOrigin }));
       resources.push(() => app.close());
     });
 
     it("allows credentials only for the account and management origins", async () => {
-      for (const origin of ["https://connect.example", "https://management.example", "https://editor.mdbase.dev"]) {
+      for (const origin of [publicUrl, "https://management.example", editorOrigin]) {
         const response = await app.inject({ url: "/v1/auth/config", headers: { origin } });
         expect(response.statusCode).toBe(200);
         expect(response.headers["access-control-allow-origin"]).toBe(origin);
@@ -53,7 +62,7 @@ for (const environment of ["production", "staging", "lab", "local"]) {
     });
 
     it("reflects app, native, extension, plugin, third-party and null origins without credentials", async () => {
-      for (const origin of appOrigins) {
+      for (const origin of appOrigins.filter(origin => origin !== editorOrigin)) {
         const preflight = await app.inject({ method: "OPTIONS", url: "/v1/me", headers: {
           origin, "access-control-request-method": "POST", "access-control-request-headers": "authorization,content-type"
         } });
