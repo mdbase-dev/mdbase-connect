@@ -240,6 +240,10 @@ fn a_post_switch_hosted_introduction_is_not_added_by_a_later_server_mode_cycle()
     switch(&mut cp, &svc);
     settle(&mut [&mut a, &mut b]);
     a.r.choose_cloud_copy(a.s).unwrap();
+    assert!(
+        a.r.accepted_private_switch().is_none(),
+        "superseded private acceptance cannot re-project the old choice"
+    );
     assert_eq!(a.r.cloud_copy_source_epoch(), Some(2));
     let mut ops = Vec::new();
     for (id, kind) in [

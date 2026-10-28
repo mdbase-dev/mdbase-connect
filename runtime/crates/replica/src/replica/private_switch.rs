@@ -322,7 +322,7 @@ impl<S: Store> Replica<S> {
     /// into its link/registration. The replica META remains authoritative across
     /// a crash between those host writes. No remote flag can manufacture this.
     pub fn accepted_private_switch(&self) -> Option<Uuid> {
-        if self.check_apply_store_health().is_err() {
+        if self.check_apply_store_health().is_err() || self.private_switch.cloud_choice {
             return None;
         }
         match self.private_switch.state {
