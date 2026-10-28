@@ -206,10 +206,20 @@ msgstr "关闭 {label}"
 msgid "Close feedback"
 msgstr "关闭反馈"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Cloud copy"
+msgstr ""
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Collection"
 msgstr "集合"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Collection storage mode"
+msgstr ""
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -240,10 +250,21 @@ msgctxt "Collection access interface"
 msgid "Continue"
 msgstr "继续"
 
+#. placeholder {0}: new Date(retryAt).toLocaleString()
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Continue after {0}."
+msgstr ""
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Continue in the mdbase window"
 msgstr "在 mdbase 窗口中继续"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Continue on this device"
+msgstr ""
 
 #: src/AppSwitcher.tsx
 msgid "Current"
@@ -313,6 +334,11 @@ msgctxt "Collection access interface"
 msgid "Find a collection"
 msgstr "查找集合"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Finishing the switch. Keep the owner device connected."
+msgstr ""
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Give {app} a collection"
@@ -372,6 +398,11 @@ msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
 msgstr "正在加载集合快照…"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Make private"
+msgstr ""
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Manage access"
@@ -393,6 +424,11 @@ msgstr "mdbase {current}：在其他应用中打开此集合"
 #: src/AppSwitcher.tsx
 msgid "mdbase apps"
 msgstr "mdbase 应用"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
+msgstr ""
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -431,9 +467,19 @@ msgstr "集合中的内容不会发生变化。"
 msgid "Nothing matches"
 msgstr "没有匹配项"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
+msgstr ""
+
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
 msgstr "在其他 mdbase 应用中打开"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Open mdbase connect on one of the owner's devices to finish the switch."
+msgstr ""
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -497,6 +543,11 @@ msgctxt "Collection access interface"
 msgid "Private"
 msgstr "私有"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Private"
+msgstr ""
+
 #: src/Feedback.tsx
 msgid "Private feedback to the mdbase team."
 msgstr "发送给 mdbase 团队的私密反馈。"
@@ -504,6 +555,11 @@ msgstr "发送给 mdbase 团队的私密反馈。"
 #: src/apps.ts
 msgid "Read and annotate sources"
 msgstr "阅读和注释来源"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Refresh status"
+msgstr ""
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -693,6 +749,11 @@ msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "正在启动 {app}…"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Storage mode"
+msgstr ""
+
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
 msgstr "提出改进建议"
@@ -804,6 +865,11 @@ msgctxt "Collection access interface"
 msgid "Try again"
 msgstr "重试"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Turn on Cloud copy"
+msgstr ""
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Type {collection} to confirm"
@@ -825,6 +891,11 @@ msgstr "未保存"
 msgid "Up to 100 marks can be applied. Undo or reset to make another mark."
 msgstr "最多可以添加 100 处标记。撤销或重置后可继续添加。"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Update or revoke these devices before continuing:"
+msgstr ""
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Use {app}'s version"
@@ -838,10 +909,25 @@ msgstr "无法完成验证。请重试。"
 msgid "Verification could not be loaded. Check your connection and try again."
 msgstr "无法加载验证。请检查网络连接后重试。"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Waiting for devices to update."
+msgstr ""
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
+msgstr ""
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Waiting for the collection key…"
 msgstr "正在等待集合密钥…"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "We couldn’t confirm progress. Refresh, then retry. An interrupted switch may already have started."
+msgstr ""
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -871,6 +957,11 @@ msgstr "你希望改进什么？"
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "哪些方面对你很有帮助？"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Working…"
+msgstr ""
 
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"

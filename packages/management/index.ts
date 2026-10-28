@@ -169,6 +169,8 @@ export interface CollectionModeChange {
   retry_at?: string;
 }
 export interface CollectionModeStatus {
+  /** Absent/false on intent-only or older servers; controls must stay hidden. */
+  execution_available?: boolean;
   collection_id: string;
   current_mode: "private" | "cloud_copy";
   change: CollectionModeChange | null;

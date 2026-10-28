@@ -2,6 +2,7 @@
 **/node_modules/
 **/dist/
 **/.vite/
+/packages/app-ui/test-results/
 # Lingui JSON is compiled from reviewed PO sources before builds.
 /apps/editor/src/i18n/locales/*/*.json
 /apps/portal/src/locales/*/*.json

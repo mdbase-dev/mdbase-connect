@@ -45,7 +45,10 @@ prefix and preflight membership. Native mode mutation requires the existing
 privileged owner control connection. The CLI exposes `sync mode` (including
 `--resume`) and `sync mode-status`; management SDK methods submit owner intent or
 read status only, never produce native proofs. Desktop IPC/preload bindings are
-present but no controls are rendered. Only fresh durable native Cloud consent enables
+present. Desktop Details and portal Storage & sync share an inline mode control,
+including pending/retry state and missing-device diagnostics. It stays hidden
+unless the owner status reports an actually registered executor route; older
+servers and non-owner responses expose no control. There is no new rollout flag. Only fresh durable native Cloud consent enables
 owner handover. Existing-epoch grants recover authenticated history; bounded
 existing keyring replay repairs partial history without changing policy/trust.
 Service readiness is not app admission, especially for escrow. Cache retirement
@@ -59,9 +62,16 @@ repeated recovery preserves the Private history witness. A read-only owner
 preflight does not itself create consent. Existing account serialization prevents
 an old status replay from replacing a later foreground choice.
 
-Still required before enabling: non-source-device Cloud reconciliation (a server
-flag cannot set local service trust or owner source consent), known-before-publication failure/cancel
-reconciliation, desktop/portal controls, complete PG execution
+Other devices now select Cloud reading automatically from an ordinarily valid
+current-epoch service grant signed by a currently trusted, active Private owner.
+This local, applied-prefix-bound receiver selection never sets source consent,
+even if a viewer becomes an owner. Native projection uses its own receiver
+journal disposition, never `ChooseCloud`; the UI shows only a passive owner-device
+notice. A remote mode flag, untrusted/self-rooted stranger, revoked signer, or an
+editor grant cannot select reading. No new wire statement or trust exception.
+
+Still required before enabling: known-before-publication failure/cancel
+reconciliation, original-genesis/current-mode join coverage, complete PG execution
 races and real Worker/SDK/daemon conversion E2E. Passing unit/transport tests are
 not completed conversions.
 

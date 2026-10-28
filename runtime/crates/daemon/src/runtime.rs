@@ -276,6 +276,8 @@ pub enum PrivateSwitchOp {
     CloudCandidate,
     /// Persist the user's explicit Cloud copy choice before the server request.
     ChooseCloud,
+    /// Read a committed receiver-only Cloud selection; never source consent.
+    CloudRead,
     /// Read a verified, durably applied private-mode choice.
     Accepted,
     /// Host link and registration durably contain the verified choice.
@@ -1504,6 +1506,8 @@ fn run(
                     Err("account_changed".into())
                 } else if matches!(op, PrivateSwitchOp::CloudCandidate) {
                     Ok(rep.cloud_copy_candidate())
+                } else if matches!(op, PrivateSwitchOp::CloudRead) {
+                    Ok(rep.cloud_read_owner())
                 } else if matches!(op, PrivateSwitchOp::Accepted) {
                     Ok(rep.accepted_private_switch())
                 } else {
@@ -1524,7 +1528,9 @@ fn run(
                             PrivateSwitchOp::Cancel => rep.cancel_private_switch(session),
                             PrivateSwitchOp::ChooseCloud => rep.choose_cloud_copy(session),
                             PrivateSwitchOp::Acknowledge => rep.acknowledge_private_switch(session),
-                            PrivateSwitchOp::Accepted | PrivateSwitchOp::CloudCandidate => {
+                            PrivateSwitchOp::Accepted
+                            | PrivateSwitchOp::CloudCandidate
+                            | PrivateSwitchOp::CloudRead => {
                                 unreachable!()
                             }
                         };

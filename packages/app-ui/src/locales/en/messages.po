@@ -206,10 +206,20 @@ msgstr "Close {label}"
 msgid "Close feedback"
 msgstr "Close feedback"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Cloud copy"
+msgstr "Cloud copy"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Collection"
 msgstr "Collection"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Collection storage mode"
+msgstr "Collection storage mode"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -240,10 +250,21 @@ msgctxt "Collection access interface"
 msgid "Continue"
 msgstr "Continue"
 
+#. placeholder {0}: new Date(retryAt).toLocaleString()
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Continue after {0}."
+msgstr "Continue after {0}."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Continue in the mdbase window"
 msgstr "Continue in the mdbase window"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Continue on this device"
+msgstr "Continue on this device"
 
 #: src/AppSwitcher.tsx
 msgid "Current"
@@ -313,6 +334,11 @@ msgctxt "Collection access interface"
 msgid "Find a collection"
 msgstr "Find a collection"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Finishing the switch. Keep the owner device connected."
+msgstr "Finishing the switch. Keep the owner device connected."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Give {app} a collection"
@@ -372,6 +398,11 @@ msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
 msgstr "Loading the collection snapshot…"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Make private"
+msgstr "Make private"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Manage access"
@@ -393,6 +424,11 @@ msgstr "mdbase {current}: open this collection in another app"
 #: src/AppSwitcher.tsx
 msgid "mdbase apps"
 msgstr "mdbase apps"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
+msgstr "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -431,9 +467,19 @@ msgstr "Nothing in your collection will change."
 msgid "Nothing matches"
 msgstr "Nothing matches"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
+msgstr "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
+
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
 msgstr "Open in another mdbase app"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Open mdbase connect on one of the owner's devices to finish the switch."
+msgstr "Open mdbase connect on one of the owner's devices to finish the switch."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -497,6 +543,11 @@ msgctxt "Collection access interface"
 msgid "Private"
 msgstr "Private"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Private"
+msgstr "Private"
+
 #: src/Feedback.tsx
 msgid "Private feedback to the mdbase team."
 msgstr "Private feedback to the mdbase team."
@@ -504,6 +555,11 @@ msgstr "Private feedback to the mdbase team."
 #: src/apps.ts
 msgid "Read and annotate sources"
 msgstr "Read and annotate sources"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Refresh status"
+msgstr "Refresh status"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -693,6 +749,11 @@ msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "Starting {app}…"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Storage mode"
+msgstr "Storage mode"
+
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
 msgstr "Suggest an improvement"
@@ -804,6 +865,11 @@ msgctxt "Collection access interface"
 msgid "Try again"
 msgstr "Try again"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Turn on Cloud copy"
+msgstr "Turn on Cloud copy"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Type {collection} to confirm"
@@ -825,6 +891,11 @@ msgstr "Unsaved"
 msgid "Up to 100 marks can be applied. Undo or reset to make another mark."
 msgstr "Up to 100 marks can be applied. Undo or reset to make another mark."
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Update or revoke these devices before continuing:"
+msgstr "Update or revoke these devices before continuing:"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Use {app}'s version"
@@ -838,10 +909,25 @@ msgstr "Verification could not be completed. Try again."
 msgid "Verification could not be loaded. Check your connection and try again."
 msgstr "Verification could not be loaded. Check your connection and try again."
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Waiting for devices to update."
+msgstr "Waiting for devices to update."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
+msgstr "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Waiting for the collection key…"
 msgstr "Waiting for the collection key…"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "We couldn’t confirm progress. Refresh, then retry. An interrupted switch may already have started."
+msgstr "We couldn’t confirm progress. Refresh, then retry. An interrupted switch may already have started."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -871,6 +957,11 @@ msgstr "What would you like to improve?"
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "What’s working well for you?"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Working…"
+msgstr "Working…"
 
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"

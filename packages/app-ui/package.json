@@ -55,6 +55,10 @@
       "types": "./dist/Feedback.d.ts",
       "import": "./dist/Feedback.js"
     },
+    "./collection-mode": {
+      "types": "./dist/CollectionModeControl.d.ts",
+      "import": "./dist/CollectionModeControl.js"
+    },
     "./dialog": {
       "types": "./dist/Dialog.d.ts",
       "import": "./dist/Dialog.js"

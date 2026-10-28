@@ -71,6 +71,7 @@ impl Fixture {
             signer: SIGNER.into(),
             trusted_signers: vec![SIGNER.into(), MEMBER.into()],
             cloud_copy: false,
+            receiver_read: false,
         };
         Self {
             profile,
@@ -171,7 +172,10 @@ fn no_verified_replica_projection_means_no_local_mode_change() {
 
 #[test]
 fn cloud_choice_projection_replays_each_host_boundary_but_keeps_pending_consent() {
-    for boundary in 0..4 {
+    for (receiver_read, boundary) in [false, true]
+        .into_iter()
+        .flat_map(|read| (0..4).map(move |boundary| (read, boundary)))
+    {
         let mut f = Fixture::new();
         let mut cfg = f.cfg();
         cfg.chosen_state = "private".into();
@@ -182,6 +186,7 @@ fn cloud_choice_projection_replays_each_host_boundary_but_keeps_pending_consent(
         f.registry.collections[0].ever_e2e = true;
         f.registry.save(&f.profile.registry_file()).unwrap();
         f.choice.cloud_copy = true;
+        f.choice.receiver_read = receiver_read;
         f.journal();
         if boundary == 1 || boundary == 3 {
             let mut cfg = f.cfg();
@@ -202,8 +207,8 @@ fn cloud_choice_projection_replays_each_host_boundary_but_keeps_pending_consent(
         assert!(f.cfg().user_enabled_cloud_copy);
         assert_eq!(f.cfg().trusted_signers, vec![SIGNER, MEMBER]);
         assert!(
-            f.dir.join(FILE).exists(),
-            "the actor still needs the durable user intent"
+            f.dir.join(FILE).exists() != receiver_read,
+            "only an explicit source journal waits for actor consent; a receiver never calls ChooseCloud"
         );
         replay(&f.profile, &mut reopened, &f.trust).unwrap();
         assert_eq!(f.cfg().trusted_signers, vec![SIGNER, MEMBER]);

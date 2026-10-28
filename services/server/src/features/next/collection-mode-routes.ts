@@ -137,6 +137,7 @@ export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabaseP
         const current = await ownedMode(client, owner, params.data.id);
         const change = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL", [params.data.id])).rows[0];
         return { collection_id: params.data.id, current_mode: current,
+          execution_available: app.hasRoute({method:"POST",url:"/v1/next/collections/:id/mode/:requestId/prepare"}),
           change: change ? await status(client, params.data.id, current, change) : null };
       });
     } catch (error) { return refuse(reply, error, "The switch status is unavailable. Try again."); }

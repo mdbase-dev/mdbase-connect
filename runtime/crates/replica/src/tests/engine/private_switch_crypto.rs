@@ -2,6 +2,7 @@
 use super::*;
 use crate::crypto::{hpke::KemKeyPair, sign::DeviceSigner};
 use crate::seal::KeyringSealer;
+use crate::store::Store;
 use crate::testkit::{TEST_OWNER, TestControlPlane};
 use mdbn_wire::envelope::{ItemKind, RekeyReason};
 use mdbn_wire::policy::{CState, CollectionState, DeviceEnrol, DeviceKind, DeviceRevoke, PolicyOp};
@@ -9,9 +10,21 @@ use mdbn_wire::schema::Wire;
 const SIGN: [u8; 32] = [0x31; 32];
 const KEM: [u8; 32] = [0x32; 32];
 fn real_world() -> (FakeLogService, TestControlPlane, Node, Node) {
+    real_world_member(false)
+}
+fn real_world_member(viewer: bool) -> (FakeLogService, TestControlPlane, Node, Node) {
     let svc = FakeLogService::new();
     let mut cp = TestControlPlane::signed(COL);
     cp.genesis_with_keys(&svc, CState::CloudCopy, B16([101; 16]), &SIGN, &KEM);
+    if viewer {
+        cp.append(
+            &svc,
+            vec![PolicyOp::MemberSet(mdbn_wire::policy::MemberSet {
+                account: OTHER,
+                role: mdbn_wire::policy::Role::Viewer,
+            })],
+        );
+    }
     cp.append(
         &svc,
         [
@@ -24,7 +37,7 @@ fn real_world() -> (FakeLogService, TestControlPlane, Node, Node) {
             PolicyOp::DeviceEnrol(DeviceEnrol {
                 device: B16([id; 16]),
                 account: if id == 104 {
-                    TEST_OWNER
+                    if viewer { OTHER } else { TEST_OWNER }
                 } else {
                     crate::policy::SERVICE_ACCOUNT
                 },
@@ -250,7 +263,18 @@ fn a_post_switch_hosted_introduction_is_not_added_by_a_later_server_mode_cycle()
         "superseded private acceptance cannot re-project the old choice"
     );
     assert_eq!(a.r.cloud_copy_source_epoch(), Some(2));
-    let mut ops = Vec::new();
+    // An editor grant is ordinary validity, not owner authorization to select
+    // reading on B. A later promotion must not retroactively authorize it.
+    let mut ops = vec![
+        PolicyOp::MemberSet(mdbn_wire::policy::MemberSet {
+            account: OTHER,
+            role: mdbn_wire::policy::Role::Owner,
+        }),
+        PolicyOp::MemberSet(mdbn_wire::policy::MemberSet {
+            account: TEST_OWNER,
+            role: mdbn_wire::policy::Role::Editor,
+        }),
+    ];
     for (id, kind) in [
         (105, DeviceKind::Hosted),
         (106, DeviceKind::Escrow),
@@ -331,6 +355,14 @@ fn a_post_switch_hosted_introduction_is_not_added_by_a_later_server_mode_cycle()
         newcomer.r.testing_epoch_keys().last(),
         a.r.testing_epoch_keys().last()
     );
+    cp.append(
+        &svc,
+        vec![PolicyOp::MemberSet(mdbn_wire::policy::MemberSet {
+            account: TEST_OWNER,
+            role: mdbn_wire::policy::Role::Owner,
+        })],
+    );
+    settle(&mut [&mut a, &mut b, &mut newcomer]);
     a.r.request_private_switch(a.s).unwrap();
     cp.append(
         &svc,
@@ -459,6 +491,211 @@ fn revoking_a_later_private_rekey_author_does_not_strand_the_surviving_switch_me
         a.r.policy.epoch, 4,
         "a real signature from the revoked member is refused"
     );
+}
+
+#[test]
+fn receiver_cloud_read_is_automatic_but_never_owner_source_consent() {
+    let (svc, mut cp, mut a, mut b) = real_world_member(true);
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    let data = b.r.store().data();
+    a.r.choose_cloud_copy(a.s).unwrap();
+    receiver_cloud_policy(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.r.cloud_read_owner(), Some(B16([101; 16])));
+    assert_eq!(b.r.cfg.chosen_state, Some(CState::CloudCopy));
+    assert!(!b.r.key_untrusted);
+    assert!(b.r.cloud_copy_source_epoch().is_none());
+    cp.append(
+        &svc,
+        vec![PolicyOp::MemberSet(mdbn_wire::policy::MemberSet {
+            account: OTHER,
+            role: mdbn_wire::policy::Role::Owner,
+        })],
+    );
+    settle(&mut [&mut a, &mut b]);
+    assert!(
+        b.r.cloud_copy_source_epoch().is_none(),
+        "promotion never manufactures source consent"
+    );
+    drop(b);
+    let mut b = node_with(
+        &svc,
+        4,
+        MemStore::shared(data),
+        vec![],
+        Some(Box::new(KeyringSealer::new(
+            COL,
+            B16([104; 16]),
+            &[104; 32],
+            &[104; 32],
+        ))),
+    );
+    settle(&mut [&mut b]);
+    assert_eq!(b.r.cloud_read_owner(), Some(B16([101; 16])));
+    assert_eq!(b.r.cfg.chosen_state, Some(CState::CloudCopy));
+    assert!(b.r.cloud_copy_source_epoch().is_none());
+    let mut hosted = node_with(
+        &svc,
+        5,
+        MemStore::new(),
+        vec![],
+        Some(Box::new(KeyringSealer::new(
+            COL,
+            B16([105; 16]),
+            &[105; 32],
+            &[105; 32],
+        ))),
+    );
+    hosted.r.cfg.chosen_state = Some(CState::CloudCopy);
+    hosted.r.cfg.user_enabled_cloud_copy = true;
+    settle(&mut [&mut a, &mut b, &mut hosted]);
+    let recipients = hosted
+        .r
+        .policy
+        .rekey_recipients()
+        .into_iter()
+        .map(|device| crate::crypto::keys::Recipient {
+            device,
+            kem_pk: hosted.r.policy.devices[&device].kem_pk.0,
+        })
+        .collect::<Vec<_>>();
+    let next = hosted
+        .r
+        .sealer
+        .build_rekey(
+            2,
+            &recipients,
+            RekeyReason::Scheduled,
+            &mut crate::crypto::TestEntropy::new(105),
+        )
+        .unwrap();
+    assert!(
+        hosted
+            .r
+            .append_control(ItemKind::Rekey, next.to_bytes().unwrap())
+    );
+    settle(&mut [&mut a, &mut b, &mut hosted]);
+    assert_eq!(b.r.policy.epoch, 3);
+    assert!(
+        !b.r.key_untrusted,
+        "receiver uses ordinary Cloud service trust after selection"
+    );
+    assert!(
+        b.r.cloud_copy_source_epoch().is_none(),
+        "a service rekey cannot create source consent"
+    );
+    assert!(
+        b.r.cloud_copy_candidate().is_some(),
+        "read-only eligibility is not consent"
+    );
+    b.r.choose_cloud_copy(b.s).unwrap();
+    assert_eq!(
+        b.r.cloud_copy_source_epoch(),
+        Some(3),
+        "this owner's own explicit choice is required"
+    );
+}
+
+fn receiver_cloud_policy(cp: &mut TestControlPlane, svc: &FakeLogService) {
+    let mut ops = Vec::new();
+    for (id, kind) in [(105, DeviceKind::Hosted), (106, DeviceKind::Escrow)] {
+        ops.push(PolicyOp::DeviceEnrol(DeviceEnrol {
+            device: B16([id; 16]),
+            account: crate::policy::SERVICE_ACCOUNT,
+            kind,
+            sign_pk: B32(DeviceSigner::from_seed(&[id; 32]).public()),
+            kem_pk: B32(KemKeyPair::from_secret(&[id; 32]).pk),
+            noise_pk: B32([id; 32]),
+            sas_commit: None,
+            local_root: None,
+        }));
+    }
+    ops.push(PolicyOp::CollectionState(CollectionState {
+        state: CState::CloudCopy,
+        compress: None,
+        min_sem_major: None,
+    }));
+    cp.append(svc, ops);
+}
+
+#[test]
+fn receiver_refuses_revoked_or_locally_untrusted_owner_grants() {
+    for revoked in [false, true] {
+        let (svc, mut cp, mut a, mut b) = real_world_member(true);
+        a.r.request_private_switch(a.s).unwrap();
+        switch(&mut cp, &svc);
+        settle(&mut [&mut a, &mut b]);
+        receiver_cloud_policy(&mut cp, &svc);
+        settle(&mut [&mut a, &mut b]);
+        assert!(
+            b.r.cloud_read_owner().is_none(),
+            "flags alone are not selection"
+        );
+        let payload =
+            a.r.sealer
+                .build_key_grant(
+                    2,
+                    &crate::crypto::keys::Recipient {
+                        device: B16([105; 16]),
+                        kem_pk: KemKeyPair::from_secret(&[105; 32]).pk,
+                    },
+                    &mut crate::crypto::TestEntropy::new(105),
+                )
+                .unwrap();
+        if revoked {
+            cp.append(
+                &svc,
+                vec![PolicyOp::DeviceRevoke(DeviceRevoke {
+                    device: B16([101; 16]),
+                })],
+            );
+            settle(&mut [&mut b]);
+        } else {
+            // A receiver with a self-trusted key but no local anchor for the
+            // other owner must not trust that owner merely for self-delivery.
+            let data = b.r.store().data();
+            drop(b);
+            let mut store = MemStore::shared(data);
+            store
+                .commit(crate::store::Tx {
+                    meta: vec![("replica.private-switch.v1".into(), None)],
+                    ..Default::default()
+                })
+                .unwrap();
+            b = node_with(
+                &svc,
+                4,
+                store,
+                vec![],
+                Some(Box::new(KeyringSealer::new(
+                    COL,
+                    B16([104; 16]),
+                    &[104; 32],
+                    &[104; 32],
+                ))),
+            );
+            b.r.cfg.chosen_state = Some(CState::E2e);
+            b.r.cfg.e2e = true;
+            b.r.cfg.trusted_signers.clear();
+            b.r.policy
+                .devices
+                .get_mut(&B16([104; 16]))
+                .unwrap()
+                .delivered_by = Some(B16([104; 16]));
+            b.r.policy
+                .devices
+                .get_mut(&B16([101; 16]))
+                .unwrap()
+                .delivered_by = Some(B16([101; 16]));
+        }
+        assert!(a.r.append_control(ItemKind::KeyGrant, payload.to_bytes().unwrap()));
+        settle(&mut [&mut a, &mut b]);
+        assert!(b.r.cloud_read_owner().is_none());
+        assert_eq!(b.r.cfg.chosen_state, Some(CState::E2e));
+        assert!(b.r.cloud_copy_source_epoch().is_none());
+    }
 }
 
 #[test]

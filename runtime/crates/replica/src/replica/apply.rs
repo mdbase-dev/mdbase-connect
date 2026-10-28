@@ -642,6 +642,16 @@ impl<S: Store> Replica<S> {
                         if let Ok(kg) =
                             mdbn_wire::envelope::KeyGrantPayload::from_bytes(&item.body.0)
                         {
+                            if settled {
+                                self.observe_cloud_read_grant(
+                                    Head {
+                                        seq: p,
+                                        chain: *chain,
+                                    },
+                                    item,
+                                    &kg,
+                                );
+                            }
                             let ev = self.sealer.accept_key_grant(&kg);
                             self.note_hosted_key_delivery(p, item, ev);
                             self.on_key_event(ev);

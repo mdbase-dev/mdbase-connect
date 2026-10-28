@@ -23,5 +23,13 @@ subsequent cloud-copy writes. They are not yet SDK/daemon conversion E2E or
 hosted app-serving admission tests. A collection with an already accepted Private switch also needs a new durable
 local Cloud copy intent that supersedes that local choice without discarding its
 accepted-prefix witness; this draft does not connect that native transition yet.
+Receiver devices select Cloud reading automatically after a valid current-epoch
+grant to an active hosted/escrow device by a currently trusted, non-revoked Private
+owner. This selection is local and separate from source consent: no prompt, no
+new wire payload, and no handover permission on later promotion to owner. The
+passive notice identifies the owner device. Ordinary Private delivery/introduction
+trust must authorize that signer; its own self-delivery is not another device's
+anchor. The selection commits with the exact applied prefix, not read-ahead.
+
 The eventual controller must separately verify admission/readiness before recording success, and must persist the local
 choice from explicit user intent rather than infer it from remote metadata.

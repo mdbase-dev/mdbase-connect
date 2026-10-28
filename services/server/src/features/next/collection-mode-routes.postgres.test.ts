@@ -18,9 +18,11 @@ const describePg = testUrl && approved ? describe : describe.skip;
 describePg("durable owner mode intent", () => {
   let db: DatabasePool, admin: pg.Pool, schema: string;
   const keys = { sign_pk: Buffer.alloc(32, 1), kem_pk: Buffer.alloc(32, 2), noise_pk: Buffer.alloc(32, 3) };
-  const server = async (pool = db) => {
+  const server = async (pool = db, execution = false) => {
     const app = Fastify(); await app.register(cookie); registerErrorHandler(app);
-    registerCollectionNameRoutes(app, pool); return app;
+    registerCollectionNameRoutes(app, pool);
+    if (execution) app.post("/v1/next/collections/:id/mode/:requestId/prepare", async () => ({phase:"waiting_for_device"}));
+    return app;
   };
   let app: Awaited<ReturnType<typeof server>>;
   beforeAll(async () => {
@@ -57,6 +59,18 @@ describePg("durable owner mode intent", () => {
     instance.inject({ method: "POST", url: `/v1/next/collections/${f.collection}/mode`, headers: f.headers, payload: { request_id: requestId, target_mode: target } });
   const get = (f: Fixture, request: string, instance = app) => instance.inject({ method: "GET", url: `/v1/next/collections/${f.collection}/mode/${request}`, headers: f.headers });
   const changes = async (f: Fixture) => (await db.query("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1", [f.collection])).rows;
+
+  it("exposes controls only when the execution route is actually registered", async () => {
+    const f = await fixture();
+    for (const registered of [false,true]) {
+      const instance=await server(db,registered);
+      try {
+        const response=await instance.inject({method:"GET",url:`/v1/next/collections/${f.collection}/mode`,headers:f.headers});
+        expect(response.statusCode).toBe(200);
+        expect(response.json().execution_available).toBe(registered);
+      } finally { await instance.close(); }
+    }
+  });
 
   it.each(["private", "cloud_copy"] as const)("accepts %s owner intent without prematurely changing policy, keys or catalog", async sync => {
     const f = await fixture(sync), request = randomUUID();
@@ -196,7 +210,7 @@ describePg("durable owner mode intent", () => {
   it("recovers active status without retaining the request identifier on this client", async () => {
     const f = await fixture();
     const read = () => app.inject({ method: "GET", url: `/v1/next/collections/${f.collection}/mode`, headers: f.browserHeaders });
-    expect((await read()).json()).toEqual({ collection_id: f.collection, current_mode: "cloud_copy", change: null });
+    expect((await read()).json()).toEqual({ collection_id: f.collection, current_mode: "cloud_copy", execution_available: false, change: null });
     const request = randomUUID(); await start(f, request);
     expect((await read()).json().change).toMatchObject({ request_id: request, phase: "waiting_for_device" });
   });

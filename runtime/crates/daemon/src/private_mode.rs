@@ -1,6 +1,7 @@
 //! Native projection of a replica-verified private choice. The private sidecar
 //! closes the crash gap between sync.json and the registration; it is not remote
-//! policy authority. Only an actor's committed acceptance creates it.
+//! policy authority. Private/receiver projections require committed acceptance;
+//! explicit owner Cloud intent commits both host files before core source consent.
 use super::*;
 use crate::runtime::{AccountKeyGuard, PrivateSwitchOp};
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,8 @@ struct Choice {
     trusted_signers: Vec<String>,
     #[serde(default)]
     cloud_copy: bool,
+    #[serde(default)]
+    receiver_read: bool,
 }
 fn load(path: &Path) -> Result<Option<Choice>, String> {
     let Some(bytes) = crate::fsutil::read_optional(path).map_err(|e| e.to_string())? else {
@@ -92,7 +95,7 @@ pub(super) fn replay(
         *registry = next;
         // Cloud consent is enabled in the actor only AFTER both files commit.
         // Keep its explicit user intent until that actor operation succeeds.
-        if !choice.cloud_copy {
+        if !choice.cloud_copy || choice.receiver_read {
             std::fs::remove_file(&journal).map_err(|e| e.to_string())?;
             crate::fsutil::sync_dir(&dir).map_err(|e| e.to_string())?;
         }
@@ -116,7 +119,7 @@ fn persist(
         {
             return Err("mode choice differs from local identity".into());
         }
-        if old != *choice && (!choice.cloud_copy || old.cloud_copy) {
+        if old != *choice && !old.receiver_read && (!choice.cloud_copy || old.cloud_copy) {
             return Err("different mode choice is already pending".into());
         }
     }
@@ -201,6 +204,7 @@ impl Daemon {
                     signer: device.to_uuid_string(),
                     trusted_signers: signers.iter().map(|id| id.to_uuid_string()).collect(),
                     cloud_copy: true,
+                    receiver_read: false,
                 };
                 let choice = match load(&dir.join(FILE))? {
                     Some(pending)
@@ -313,7 +317,7 @@ impl Daemon {
                     tracing::warn!(collection = %entry.id, "verified mode choice journal is unreadable; retained for recovery");
                     continue;
                 }
-                Ok(Some(choice)) if choice.cloud_copy => {
+                Ok(Some(choice)) if choice.cloud_copy && !choice.receiver_read => {
                     let _ = self
                         .choose_cloud_copy_locally(&entry.id, &runtime, guard)
                         .await;
@@ -321,11 +325,22 @@ impl Daemon {
                 }
                 _ => {}
             }
-            let Some(Ok(Some(signer))) = runtime
-                .private_switch(PrivateSwitchOp::Accepted, guard.clone())
+            let read_owner = runtime
+                .private_switch(PrivateSwitchOp::CloudRead, guard.clone())
                 .await
-            else {
-                continue;
+                .and_then(Result::ok)
+                .flatten();
+            let receiver_read = read_owner.is_some();
+            let signer = if let Some(signer) = read_owner {
+                signer
+            } else {
+                let Some(Ok(Some(signer))) = runtime
+                    .private_switch(PrivateSwitchOp::Accepted, guard.clone())
+                    .await
+                else {
+                    continue;
+                };
+                signer
             };
             let Some(signers) = runtime.private_switch_signers(guard.clone()).await else {
                 continue;
@@ -357,9 +372,16 @@ impl Daemon {
                         genesis: cfg.genesis_hash,
                         signer,
                         trusted_signers,
-                        cloud_copy: false,
+                        cloud_copy: receiver_read,
+                        receiver_read,
                     };
-                    persist(&self.profile, &mut inner.registry, trust, &dir, &choice)?;
+                    if !(receiver_read
+                        && entry.mode == SyncMode::Synced
+                        && cfg.chosen_state == "cloud_copy"
+                        && cfg.user_enabled_cloud_copy)
+                    {
+                        persist(&self.profile, &mut inner.registry, trust, &dir, &choice)?;
+                    }
                     self.authority.publish_registry(&inner.registry);
                     if let Some(updated) = inner.registry.get(&entry.id).cloned()
                         && updated != entry
@@ -372,9 +394,11 @@ impl Daemon {
                 })()
             };
             if result.is_ok() {
-                let _ = runtime
-                    .private_switch(PrivateSwitchOp::Acknowledge, guard)
-                    .await;
+                if !receiver_read {
+                    let _ = runtime
+                        .private_switch(PrivateSwitchOp::Acknowledge, guard)
+                        .await;
+                }
             } else {
                 tracing::warn!(collection = %entry.id, "verified private choice projection pending; retained for restart");
             }

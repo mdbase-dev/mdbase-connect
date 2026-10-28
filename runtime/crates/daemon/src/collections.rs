@@ -668,6 +668,18 @@ impl CollectionHost {
             return status;
         };
         let telemetry = current_telemetry(source, &self.cancel, runtime.telemetry()).await;
+        let bound = source.clone();
+        let cancel = self.cancel.clone();
+        let read_owner = runtime
+            .private_switch(
+                crate::runtime::PrivateSwitchOp::CloudRead,
+                Arc::new(move || {
+                    !cancel.load(Ordering::SeqCst) && bound.authority_epoch().is_some()
+                }),
+            )
+            .await
+            .and_then(Result::ok)
+            .flatten();
         if current()
             && self
                 .runtime()
@@ -694,6 +706,12 @@ impl CollectionHost {
                         "{n} item(s) in this folder are not synced: symbolic links are never \
                          followed, and other special files are skipped."
                     ),
+                });
+            }
+            if let Some(owner) = read_owner {
+                status.notices.push(Notice {
+                    code: "cloud_copy_turned_on".into(),
+                    message: format!("Cloud copy turned on by {}", owner.to_uuid_string()),
                 });
             }
             status.sync = telemetry;
