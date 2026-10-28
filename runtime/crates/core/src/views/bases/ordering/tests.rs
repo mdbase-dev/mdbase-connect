@@ -167,7 +167,6 @@ fn date_grouping_requires_capture_and_does_not_use_display_strings_as_keys() {
 #[test]
 fn structured_errors_nonfinite_and_mixed_types_never_get_json_fallback_order() {
     for value in [
-        RuntimeValue::List(vec![]),
         RuntimeValue::Object(BTreeMap::new()),
         RuntimeValue::Error("synthetic".into()),
         RuntimeValue::Number(f64::NAN),
@@ -190,6 +189,103 @@ fn structured_errors_nonfinite_and_mixed_types_never_get_json_fallback_order() {
         )
         .unwrap_err(),
         EvaluationFailure::UnsupportedConstruct("mixed_ordering_types")
+    );
+}
+#[test]
+fn whole_list_groups_preserve_sequence_types_and_signed_zero() {
+    let list = |values: &[&str]| {
+        RuntimeValue::List(
+            values
+                .iter()
+                .map(|s| RuntimeValue::String((*s).into()))
+                .collect(),
+        )
+    };
+    let values = vec![
+        list(&["a", "b"]),
+        list(&["a"]),
+        list(&["b", "a"]),
+        list(&["a", "b"]),
+        list(&["a, b"]),
+        list(&[]),
+        RuntimeValue::Null,
+        RuntimeValue::List(vec![RuntimeValue::Number(-0.0)]),
+        RuntimeValue::List(vec![RuntimeValue::Number(0.0)]),
+    ];
+    let mut work = WorkBudget::new();
+    let groups = partition_typed(&values, DateGroupMode::Unavailable, &mut work).unwrap();
+    assert_eq!(
+        groups.iter().map(|g| g.rows.clone()).collect::<Vec<_>>(),
+        vec![
+            vec![0, 3],
+            vec![1],
+            vec![2],
+            vec![4],
+            vec![5],
+            vec![6],
+            vec![7, 8]
+        ]
+    );
+    assert_eq!(groups[0].key, &values[0]);
+    let refs = values.iter().collect::<Vec<_>>();
+    let groups = partition_incremental_typed_refs(
+        &refs,
+        DateGroupMode::Unavailable,
+        &mut super::super::IncrementalBasesBudget::new(),
+    )
+    .unwrap();
+    assert_eq!(groups[0].rows, vec![0, 3]);
+    assert_eq!(
+        compare_typed(&list(&["a"]), &list(&["a", "b"]), capture(), &mut work).unwrap(),
+        Ordering::Less
+    );
+    assert_eq!(
+        compare_typed(&list(&["b", "a"]), &list(&["a", "b"]), capture(), &mut work).unwrap(),
+        Ordering::Greater
+    );
+}
+#[test]
+fn list_keys_keep_refusals_depth_and_sticky_work_bounds() {
+    let mut work = WorkBudget::new();
+    let duration = super::super::EvaluatedDuration::new(
+        super::super::DurationValue::parse("1h", &mut work).unwrap(),
+        &mut work,
+    )
+    .unwrap();
+    for invalid in [
+        RuntimeValue::Object(BTreeMap::new()),
+        RuntimeValue::Duration(duration),
+        RuntimeValue::Error("bad".into()),
+    ] {
+        for value in [invalid.clone(), RuntimeValue::List(vec![invalid])] {
+            let mut work = WorkBudget::new();
+            assert_eq!(
+                partition_typed(&[value], DateGroupMode::Unavailable, &mut work)
+                    .err()
+                    .unwrap(),
+                EvaluationFailure::UnsupportedConstruct("typed_ordering_value")
+            );
+        }
+    }
+    let mut deep = RuntimeValue::Null;
+    for _ in 0..MAX_VALUE_DEPTH {
+        deep = RuntimeValue::List(vec![deep]);
+    }
+    assert_eq!(
+        partition_typed(&[deep], DateGroupMode::Unavailable, &mut WorkBudget::new())
+            .err()
+            .unwrap(),
+        EvaluationFailure::BudgetExceeded("value_depth")
+    );
+    let values = [RuntimeValue::List(vec![RuntimeValue::Null; 256])];
+    let mut work = WorkBudget::constrained(10, 1 << 20);
+    let failure = partition_typed(&values, DateGroupMode::Unavailable, &mut work)
+        .err()
+        .unwrap();
+    assert_eq!(work.failure(), Some(failure));
+    assert_eq!(
+        partition_typed(&[], DateGroupMode::Unavailable, &mut work).err(),
+        Some(failure)
     );
 }
 #[test]

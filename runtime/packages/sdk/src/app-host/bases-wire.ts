@@ -48,6 +48,11 @@ export type AppBasesCell =
   | {kind: "error"; message: string}
   | {kind: "unavailable"; code: string; detail: string};
 export type AppBasesScalar = Exclude<AppBasesCell, {kind: "list" | "map" | "error" | "unavailable"}>;
+export type AppBasesGroupKey = Exclude<AppBasesScalar, {kind: "duration"}> | {kind: "list"; values: readonly AppBasesGroupKey[]};
+function isGroupKey(key: AppBasesCell): key is AppBasesGroupKey {
+  return key.kind === "list" ? key.values.every(isGroupKey)
+    : key.kind !== "map" && key.kind !== "duration" && key.kind !== "error" && key.kind !== "unavailable";
+}
 /** Same tagged grammar for row cells and group keys. Value depth counts the
  * actual native value tree, not incidental CBOR tuple/map nesting. */
 export function decodeAppBasesCell(c: CborValue, depth = 1): AppBasesCell {
@@ -170,7 +175,7 @@ export type AppBasesResult =
   | {kind: "refusal"; problem: Problem}
   | {kind: "success"; view: AppBasesDescriptor;
       columns: readonly string[]; unavailableColumns: readonly {index: number; code: string; detail: string}[];
-      rows: readonly AppBasesRow[]; groups: readonly {key: AppBasesScalar; rowIndices: readonly number[]}[];
+      rows: readonly AppBasesRow[]; groups: readonly {key: AppBasesGroupKey; rowIndices: readonly number[]}[];
       clock: OpClock; collectionRevision: Hash; window?: AppBasesWindowInfo;
       summaries?: ReadonlyMap<string, AppBasesCell>};
 /** ONE complete success OR shared native Problem. Byte/frame admission precedes
@@ -201,7 +206,7 @@ export function decodeAppBasesResult(bytes: Uint8Array, expectedWindow?: AppBase
   });
   const groups = list(m.get(4), ROWS_MAX).map(v => {
     const group = tuple(v, 2), key = decodeAppBasesCell(group[0]!);
-    if (key.kind === "list" || key.kind === "map" || key.kind === "error" || key.kind === "unavailable") throw bad("group key must be scalar");
+    if (!isGroupKey(key)) throw bad("group key must be a qualified scalar or list");
     const rowIndices = list(group[1], ROWS_MAX).map(v => {
       const index = unsigned(v, ROWS_MAX - 1); if (index >= rows.length) throw bad("group row index out of bounds"); return index;
     });

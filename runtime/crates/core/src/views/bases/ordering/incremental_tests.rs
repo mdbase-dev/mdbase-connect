@@ -256,7 +256,7 @@ fn grouping_limits_and_structured_keys_suppress_all_buckets() {
             .unwrap(),
         EvaluationFailure::BudgetExceeded("typed_groups")
     );
-    let values = vec![RuntimeValue::Null, RuntimeValue::List(vec![])];
+    let values = vec![RuntimeValue::Null, RuntimeValue::Object(BTreeMap::new())];
     let mut budget = IncrementalBasesBudget::new();
     assert_eq!(
         partition_incremental_typed(&values, DateGroupMode::Unavailable, &mut budget)

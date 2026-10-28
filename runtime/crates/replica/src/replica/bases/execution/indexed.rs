@@ -533,7 +533,7 @@ impl<S: Store> Replica<S> {
             drop(keys);
             for index in group_order {
                 groups.push(BasesExecutionGroup {
-                    key: ownership::scalar_copy(partitions[index].key, &mut ledger)?,
+                    key: ownership::key_copy(partitions[index].key, &mut ledger)?,
                     rows: std::mem::take(&mut partitions[index].rows),
                 });
             }

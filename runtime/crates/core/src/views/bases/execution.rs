@@ -43,7 +43,7 @@ pub enum BasesDisplayCell {
 pub struct BasesProjectedRow {
     /// Exact sort keys in source declaration order.
     pub sort: Vec<RuntimeValue>,
-    /// Exact optional grouping scalar.
+    /// Exact optional scalar or whole-list grouping key.
     pub group: Option<RuntimeValue>,
     /// Typed semantic summary inputs in declaration order, never display gaps.
     pub summary_inputs: Vec<RuntimeValue>,

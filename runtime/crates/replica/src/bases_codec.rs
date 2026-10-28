@@ -38,6 +38,20 @@ fn too_large() -> crate::api::ApiError {
         "Bases output exceeds its bounded codec profile",
     )
 }
+// Group keys use the same tagged value grammar, but never accept opaque or
+// error values (including nested ones). value() enforces the wire bounds.
+fn group_key(value: &RuntimeValue, depth: usize) -> bool {
+    if depth > 32 {
+        return false;
+    }
+    match value {
+        RuntimeValue::List(values) => {
+            values.len() <= MAX_ITEMS && values.iter().all(|value| group_key(value, depth + 1))
+        }
+        RuntimeValue::Object(_) | RuntimeValue::Duration(_) | RuntimeValue::Error(_) => false,
+        _ => true,
+    }
+}
 struct Request {
     selection: BasesViewSelection,
     hints: BTreeMap<String, String>,
@@ -344,10 +358,7 @@ impl Writer {
         self.uint(4)?;
         self.array(result.groups.len())?;
         for group in &result.groups {
-            if matches!(
-                group.key,
-                RuntimeValue::List(_) | RuntimeValue::Object(_) | RuntimeValue::Error(_)
-            ) {
+            if !group_key(&group.key, 1) {
                 return Err(too_large());
             }
             self.array(2)?;

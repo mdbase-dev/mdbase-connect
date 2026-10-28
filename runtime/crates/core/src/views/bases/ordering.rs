@@ -1,8 +1,8 @@
-//! Typed, fallible multi-key ordering and exact scalar partitioning.
+//! Typed, fallible multi-key ordering and exact scalar/list partitioning.
 //! No serde/JSON fallback, ambient collation, guessed null order or cell defaults.
 use super::{
-    EvaluationFailure, MAX_CAPTURE_TEXT_BYTES, MAX_SORT_TERMS, RuntimeValue, SortDirection,
-    WorkBudget,
+    EvaluationFailure, MAX_CAPTURE_TEXT_BYTES, MAX_SORT_TERMS, MAX_VALUE_DEPTH, RuntimeValue,
+    SortDirection, WorkBudget,
 };
 use std::{cmp::Ordering, collections::BTreeMap};
 /// Maximum rows in this component profile, before allocating index buffers.
@@ -54,11 +54,27 @@ fn work(budget: &mut WorkBudget, steps: u64, bytes: u64) -> Result<(), Evaluatio
     }
 }
 fn cell(value: &RuntimeValue, budget: &mut WorkBudget) -> Result<(), EvaluationFailure> {
+    cell_at(value, 1, budget)
+}
+fn cell_at(
+    value: &RuntimeValue,
+    depth: usize,
+    budget: &mut WorkBudget,
+) -> Result<(), EvaluationFailure> {
     work(budget, 1, 0)?;
+    if depth > MAX_VALUE_DEPTH {
+        return fail(budget, EvaluationFailure::BudgetExceeded("value_depth"));
+    }
     match value {
         RuntimeValue::Null | RuntimeValue::Bool(_) | RuntimeValue::Date(_) => Ok(()),
         RuntimeValue::Number(n) if n.is_finite() => Ok(()),
         RuntimeValue::String(s) if s.len() <= MAX_CAPTURE_TEXT_BYTES => Ok(()),
+        RuntimeValue::List(values) => {
+            for value in values {
+                cell_at(value, depth + 1, budget)?;
+            }
+            Ok(())
+        }
         RuntimeValue::String(_) => fail(
             budget,
             EvaluationFailure::BudgetExceeded("ordering_key_bytes"),
@@ -69,8 +85,8 @@ fn cell(value: &RuntimeValue, budget: &mut WorkBudget) -> Result<(), EvaluationF
         ),
     }
 }
-/// Compare qualified same-type scalar values. Unsupported mixed/structured/error
-/// values cannot turn into serialized JSON, a falsey cell or an arbitrary rank.
+/// Compare qualified same-type scalars and whole lists (lexicographic, prefix
+/// first). Objects/durations/errors and mixed types never get JSON fallback ranks.
 pub fn compare_typed(
     left: &RuntimeValue,
     right: &RuntimeValue,
@@ -97,6 +113,15 @@ pub fn compare_typed(
             } else {
                 ascending.reverse()
             })
+        }
+        (RuntimeValue::List(a), RuntimeValue::List(b)) => {
+            for (left, right) in a.iter().zip(b) {
+                let ordering = compare_typed(left, right, capture, budget)?;
+                if ordering != Ordering::Equal {
+                    return Ok(ordering);
+                }
+            }
+            Ok(a.len().cmp(&b.len()))
         }
         (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => Ok(a.cmp(b)),
         (RuntimeValue::Number(a), RuntimeValue::Number(b)) => {
@@ -284,10 +309,12 @@ enum GroupKey<'a> {
     Number(u64),
     String(&'a str),
     Date(i64),
+    List(Vec<GroupKey<'a>>),
 }
-/// Exact scalar partitioning with type tags: number1 != string"1", Null !="".
-/// Signed zeros share a number bucket; Date instant grouping must be captured.
-/// Lists/objects/durations/errors visibly refuse instead of guessed grouping.
+/// Exact partitioning with type tags: number1 != string"1", Null !="".
+/// Lists group by the complete ordered value, never by individual elements.
+/// Signed zeros share a bucket; Date instant grouping must be captured.
+/// Objects/durations/errors visibly refuse, including inside a list.
 pub fn partition_typed<'a>(
     values: &'a [RuntimeValue],
     dates: DateGroupMode,
@@ -303,7 +330,7 @@ pub fn partition_typed<'a>(
         PartitionBudget::Legacy(budget),
     )
 }
-/// Same exact scalar grouping under the separate incremental inventory/work/
+/// Same exact scalar/list grouping under the separate incremental inventory/work/
 /// ownership ledger. The qualified 4,096-group limit is unchanged.
 pub fn partition_incremental_typed<'a>(
     values: &'a [RuntimeValue],
@@ -322,7 +349,7 @@ pub fn partition_incremental_typed<'a>(
     )
 }
 /// Group borrowed staged keys without cloning one RuntimeValue per result row.
-/// Same inventory, scalar qualification, ownership/work ledger and semantics.
+/// Same inventory, scalar/list qualification, ownership/work ledger and semantics.
 pub fn partition_incremental_typed_refs<'a>(
     values: &[&'a RuntimeValue],
     dates: DateGroupMode,
@@ -366,6 +393,42 @@ impl PartitionBudget<'_> {
         }
     }
 }
+fn group_key<'a>(
+    value: &'a RuntimeValue,
+    dates: DateGroupMode,
+    budget: &mut PartitionBudget<'_>,
+) -> Result<GroupKey<'a>, EvaluationFailure> {
+    budget.work(1, 0)?;
+    Ok(match value {
+        RuntimeValue::Null => GroupKey::Null,
+        RuntimeValue::Bool(n) => GroupKey::Bool(*n),
+        RuntimeValue::Number(n) => GroupKey::Number(if *n == 0.0 { 0 } else { n.to_bits() }),
+        RuntimeValue::String(s) => {
+            budget.work((s.len() as u64) * 14, 0)?;
+            GroupKey::String(s)
+        }
+        RuntimeValue::Date(d) => {
+            if dates == DateGroupMode::Unavailable {
+                return budget.fail(EvaluationFailure::MetadataUnavailable(
+                    "date_group_mode_not_captured",
+                ));
+            }
+            GroupKey::Date(d.value().millis())
+        }
+        RuntimeValue::List(values) => {
+            budget.work(
+                (values.len() as u64).saturating_mul(14),
+                (values.len() * std::mem::size_of::<GroupKey<'_>>()) as u64,
+            )?;
+            let mut keys = Vec::with_capacity(values.len());
+            for value in values {
+                keys.push(group_key(value, dates, budget)?);
+            }
+            GroupKey::List(keys)
+        }
+        _ => unreachable!("validated group key"),
+    })
+}
 fn partition_inner<'a>(
     values: impl Iterator<Item = (usize, &'a RuntimeValue)>,
     dates: DateGroupMode,
@@ -375,24 +438,7 @@ fn partition_inner<'a>(
     let mut groups: Vec<TypedGroup<'a>> = Vec::new();
     for (index, value) in values {
         budget.cell(value)?;
-        let key = match value {
-            RuntimeValue::Null => GroupKey::Null,
-            RuntimeValue::Bool(n) => GroupKey::Bool(*n),
-            RuntimeValue::Number(n) => GroupKey::Number(if *n == 0.0 { 0 } else { n.to_bits() }),
-            RuntimeValue::String(s) => {
-                budget.work((s.len() as u64) * 14, 0)?;
-                GroupKey::String(s)
-            }
-            RuntimeValue::Date(d) => {
-                if dates == DateGroupMode::Unavailable {
-                    return budget.fail(EvaluationFailure::MetadataUnavailable(
-                        "date_group_mode_not_captured",
-                    ));
-                }
-                GroupKey::Date(d.value().millis())
-            }
-            _ => unreachable!("validated scalar key"),
-        };
+        let key = group_key(value, dates, &mut budget)?;
         let slot = match lookup.get(&key) {
             Some(slot) => *slot,
             None => {

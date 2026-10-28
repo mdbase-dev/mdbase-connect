@@ -368,3 +368,11 @@
 {"op":"bases_ordering","action":"compare","left":{"error":"synthetic"},"right":null,"nulls":"last","strings":"utf16","timezone":"UTC"}
 {"op":"bases_ordering","action":"groups","values":[{"error":"synthetic"}]}
 {"op":"bases_ordering","action":"compare","left":{"date":"2026-06-10"},"right":{"date":"2026-06-11"}}
+{"op":"bases_ordering","nulls":"last","strings":"utf16","timezone":"UTC","action":"compare","left":["Alpha"],"right":["Alpha","Beta"]}
+{"op":"bases_ordering","nulls":"last","strings":"utf16","timezone":"UTC","action":"compare","left":["Beta","Alpha"],"right":["Alpha","Beta"]}
+{"op":"bases_ordering","nulls":"last","strings":"utf16","timezone":"UTC","action":"groups","values":[["Alpha","Beta"],["Alpha"],["Beta","Alpha"],["Alpha","Beta"],["Alpha, Beta"],[],null]}
+{"op":"bases_ordering","nulls":"last","strings":"utf16","timezone":"UTC","action":"order","keys":[[["Beta","Alpha"]],[["Alpha","Beta"]],[["Alpha"]],[[]]],"directions":["ASC"]}
+{"op":"bases_ordering","nulls":"last","strings":"utf16","timezone":"UTC","action":"order","keys":[[["Beta","Alpha"]],[["Alpha","Beta"]],[["Alpha"]],[[]]],"directions":["DESC"]}
+{"op":"bases_ordering","nulls":"last","strings":"utf16","timezone":"UTC","action":"groups","values":[[{"bad":1}]]}
+{"op":"bases_ordering","nulls":"last","strings":"utf16","timezone":"UTC","action":"groups","values":[[{"error":"synthetic"}]]}
+{"op":"bases_ordering","nulls":"last","strings":"utf16","timezone":"UTC","action":"groups","values":[[0],[-0.0],[1],["1"]]}

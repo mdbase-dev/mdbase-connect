@@ -1004,6 +1004,7 @@ AppBasesCell -> AppBasesCell@app-host/bases-wire.ts
 AppBasesDescriptor -> AppBasesDescriptor@app-host/bases-wire.ts
 AppBasesDiscoveryRequest -> AppBasesDiscoveryRequest@app-host/bases-wire.ts
 AppBasesDiscoveryResult -> AppBasesDiscoveryResult@app-host/bases-wire.ts
+AppBasesGroupKey -> AppBasesGroupKey@app-host/bases-wire.ts
 AppBasesGroupPlacement -> AppBasesGroupPlacement@app-host/bases-wire.ts
 AppBasesPage -> AppBasesPage@app-host/bases-pages.ts
 AppBasesPagesOptions -> AppBasesPagesOptions@app-host/bases-pages.ts
@@ -1376,6 +1377,7 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export AppBasesRequest
   export AppBasesCell
   export AppBasesScalar
+  export AppBasesGroupKey
   export AppBasesDescriptor
   export AppBasesRow
   export AppBasesResult
@@ -1866,13 +1868,16 @@ AppBasesDiscoveryRequest@app-host/bases-wire.ts
 AppBasesDiscoveryResult@app-host/bases-wire.ts
   = { kind: 'refusal'; problem: Problem; } | { kind: 'success'; views: readonly AppBasesDescriptor[]; clock: OpClock; collectionRevision: Hash; continuation: Uint8Array | null; }
 
+AppBasesGroupKey@app-host/bases-wire.ts
+  = { kind: 'null'; } | { kind: 'boolean'; value: boolean; } | { kind: 'number'; value: number; } | { kind: 'text'; value: string; } | { kind: 'date'; millis: number; display: string; authoritativeZone: string; dateOnly: boolean; } | { kind: 'list'; values: readonly AppBasesGroupKey[]; }
+
 AppBasesGroupPlacement@app-host/bases-wire.ts
   globalGroupOrdinal: number
   rowOrdinals: readonly number[]
   totalGroupRows: number
 
 AppBasesPage@app-host/bases-pages.ts
-  = { kind: 'success'; view: import("src/app-host/bases-wire").AppBasesDescriptor; columns: readonly string[]; unavailableColumns: readonly { index: number; code: string; detail: string; }[]; rows: readonly import("src/app-host/bases-wire").AppBasesRow[]; groups: readonly { key: import("src/app-host/bases-wire").AppBasesScalar; rowIndices: readonly number[]; }[]; clock: import("src/wire").OpClock; collectionRevision: import("src/wire").Hash; window?: import("src/app-host/bases-wire").AppBasesWindowInfo; summaries?: ReadonlyMap<string, import("src/app-host/bases-wire").AppBasesCell>; } & { page: number; offset: number; loaded: number; complete: boolean; changedSinceFirst: boolean; }
+  = { kind: 'success'; view: import("src/app-host/bases-wire").AppBasesDescriptor; columns: readonly string[]; unavailableColumns: readonly { index: number; code: string; detail: string; }[]; rows: readonly import("src/app-host/bases-wire").AppBasesRow[]; groups: readonly { key: import("src/app-host/bases-wire").AppBasesGroupKey; rowIndices: readonly number[]; }[]; clock: import("src/wire").OpClock; collectionRevision: import("src/wire").Hash; window?: import("src/app-host/bases-wire").AppBasesWindowInfo; summaries?: ReadonlyMap<string, import("src/app-host/bases-wire").AppBasesCell>; } & { page: number; offset: number; loaded: number; complete: boolean; changedSinceFirst: boolean; }
 
 AppBasesPagesOptions@app-host/bases-pages.ts
   firstPageSize?: number | undefined
@@ -1888,7 +1893,7 @@ AppBasesRequest@app-host/bases-wire.ts
   window?: AppBasesWindow | undefined
 
 AppBasesResult@app-host/bases-wire.ts
-  = { kind: 'refusal'; problem: Problem; } | { kind: 'success'; view: AppBasesDescriptor; columns: readonly string[]; unavailableColumns: readonly { index: number; code: string; detail: string; }[]; rows: readonly AppBasesRow[]; groups: readonly { key: AppBasesScalar; rowIndices: readonly number[]; }[]; clock: OpClock; collectionRevision: Hash; window?: AppBasesWindowInfo; summaries?: ReadonlyMap<string, AppBasesCell>; }
+  = { kind: 'refusal'; problem: Problem; } | { kind: 'success'; view: AppBasesDescriptor; columns: readonly string[]; unavailableColumns: readonly { index: number; code: string; detail: string; }[]; rows: readonly AppBasesRow[]; groups: readonly { key: AppBasesGroupKey; rowIndices: readonly number[]; }[]; clock: OpClock; collectionRevision: Hash; window?: AppBasesWindowInfo; summaries?: ReadonlyMap<string, AppBasesCell>; }
 
 AppBasesRow@app-host/bases-wire.ts
   cells: readonly AppBasesCell[]
