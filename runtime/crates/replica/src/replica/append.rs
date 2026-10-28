@@ -737,6 +737,7 @@ impl<S: Store> Replica<S> {
         use mdbn_wire::policy::{CState, DeviceKind, Role};
         self.cfg.chosen_state == Some(CState::CloudCopy)
             && self.cfg.user_enabled_cloud_copy
+            && self.cloud_copy_source_epoch().is_some()
             && self
                 .policy
                 .devices

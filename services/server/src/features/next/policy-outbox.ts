@@ -23,7 +23,7 @@ const ZERO_CHAIN = new Uint8Array(32);
 // may also carry an optional `placement` (`create_log` key 2) and, once the log
 // exists, the `region` the log service recorded (`create_log` reply key 2). Readers
 // of `ops` ignore both.
-function serializeOps(ops: PolicyOp[], placement?: LogPlacement): string {
+export function serializeOps(ops: PolicyOp[], placement?: LogPlacement): string {
   // The holder's raw value, because Buffer.toJSON runs before a replacer sees it.
   return JSON.stringify({ version: OUTBOX_FORMAT, ops, ...(placement ? { placement } : {}) }, function (this: Record<string, unknown>, key, value: unknown) {
     const raw = this[key];
@@ -125,6 +125,9 @@ function assertPrivateOps(ops: PolicyOp[]): void {
 export async function queueNextPolicy(client: DatabaseQueryable, collectionId: string, ops: PolicyOp[]): Promise<boolean> {
   if (ops.length === 0) return false;
   if (ops.some((op) => op.op === "genesis")) throw new Error("genesis is only valid when registering a collection");
+  if ((await client.query(`SELECT 1 FROM next_collection_mode_changes WHERE collection_id=$1
+    AND target_mode='private' AND policy_outbox_id IS NOT NULL AND rekey_verified_at IS NULL AND completed_at IS NULL`, [collectionId])).rows.length)
+    throw new Error("collection_mode_change_in_progress");
   const collection = await client.query<{ sync: HostedSync }>(
     "SELECT sync FROM next_collections WHERE collection_id = $1 FOR KEY SHARE",
     [collectionId]
@@ -332,6 +335,13 @@ export class PolicyEmitter {
   }
 
   private async sendStep(lock: PolicyLock, collectionId: string): Promise<DrainOutcome> {
+    // Keep the owner's excluding rekey immediately adjacent to its policy item.
+    // An appended switch is not a release: only native verified rekey evidence is.
+    const waiting = await lock.query(`SELECT 1 FROM next_collection_mode_changes m
+      JOIN next_policy_outbox o ON o.id=m.policy_outbox_id JOIN next_policy_batches b ON b.id=o.batch_id
+      WHERE m.collection_id=$1 AND m.target_mode='private' AND m.rekey_verified_at IS NULL AND m.completed_at IS NULL
+      AND b.state='appended' AND b.lost_at IS NULL`, [collectionId]);
+    if (waiting.rows.length) return "idle";
     const batch = await this.claim(lock, collectionId);
     if (batch === "idle" || batch === "blocked") return batch;
     const seq = Number(batch.seq);

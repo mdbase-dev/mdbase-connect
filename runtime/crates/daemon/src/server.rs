@@ -1337,6 +1337,11 @@ impl Daemon {
                 let p: CollectionRef = params(req)?;
                 self.remove(&p.collection).await
             }
+            Method::COLLECTION_MODE => self.change_collection_mode(params(req)?).await,
+            Method::COLLECTION_MODE_STATUS => {
+                let p: CollectionRef = params(req)?;
+                self.collection_mode_status(&p.collection).await
+            }
             Method::COLLECTION_UPDATE => {
                 let p: UpdateCollection = params(req)?;
                 self.update_collection(p).await
@@ -6442,6 +6447,8 @@ impl Daemon {
     }
 }
 
+#[path = "collection_mode.rs"]
+mod collection_mode;
 #[path = "private_key.rs"]
 mod private_key;
 #[path = "private_mode.rs"]

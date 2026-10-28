@@ -173,6 +173,12 @@ enum Cmd {
         oneshot::Sender<Result<Option<B16>, String>>,
     ),
     PrivateSigners(AccountKeyGuard, oneshot::Sender<Vec<B16>>),
+    ModeSource {
+        private: bool,
+        receipt: bool,
+        current: AccountKeyGuard,
+        reply: oneshot::Sender<Option<(u64, mdbn_replica::store::Head)>>,
+    },
     Readiness(oneshot::Sender<ReadinessView>),
     /// Rescan, then list the confirmed records and resources.
     Inventory(oneshot::Sender<Option<Inventory>>),
@@ -599,6 +605,24 @@ impl Runtime {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::PrivateSwitch(op, current, tx)).ok()?;
         rx.await.ok()
+    }
+
+    pub(crate) async fn mode_source(
+        &self,
+        private: bool,
+        receipt: bool,
+        current: AccountKeyGuard,
+    ) -> Option<(u64, mdbn_replica::store::Head)> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::ModeSource {
+                private,
+                receipt,
+                current,
+                reply,
+            })
+            .ok()?;
+        rx.await.ok().flatten()
     }
 
     /// Locally accepted, still-active switch-set signers under current authority.
@@ -1435,6 +1459,31 @@ fn run(
             Ok(Cmd::Log(e)) => on_log_event(&mut rep, collection, &mut active_log, e),
             Ok(Cmd::Status(reply)) => {
                 let _ = reply.send(rep.sync_status());
+            }
+            Ok(Cmd::ModeSource {
+                private,
+                receipt,
+                current,
+                reply,
+            }) => {
+                if current() {
+                    rep.refresh_mode_history();
+                }
+                let _ = reply.send(if !current() {
+                    None
+                } else if receipt {
+                    rep.mode_switch_receipt(private)
+                } else {
+                    rep.mode_switch_source(private).map(|e| {
+                        (
+                            e,
+                            mdbn_replica::store::Head {
+                                seq: 0,
+                                chain: mdbn_wire::common::B32([0; 32]),
+                            },
+                        )
+                    })
+                });
             }
             Ok(Cmd::PrivateSigners(current, reply)) => {
                 let _ = reply.send(if current() {

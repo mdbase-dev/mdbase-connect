@@ -109,6 +109,14 @@ pub trait Sealer {
     fn set_epoch(&mut self, epoch: u64);
     /// The epoch the writer seals under, if this device holds its key.
     fn current_epoch(&self) -> Option<u64>;
+    /// Actual held historical keys, not public policy keyed bits.
+    fn has_epoch_history(&self, _through: u64) -> bool {
+        false
+    }
+    /// Count of actual held epoch keys; used to bound legacy history repair.
+    fn epoch_history_len(&self) -> usize {
+        0
+    }
     /// The idempotency token for a mutation ID (`log-entry.md` §7).
     fn idem_token(&self, mutation: &Uuid) -> Option<B16>;
     /// Seal `plain` into `item` under the current epoch: sets `epoch`, `salt` and
@@ -386,6 +394,7 @@ pub struct KeyringSealer {
     kem: KemKeyPair,
     keys: Keyring,
     commits: BTreeMap<u64, B32>,
+    history: Option<(u64, mdbn_wire::envelope::SealedBox)>,
     epoch: u64,
     verifier: Ed25519Verifier,
 }
@@ -415,6 +424,7 @@ impl KeyringSealer {
             kem: KemKeyPair::from_secret(kem_sk),
             keys: Keyring::new(),
             commits: BTreeMap::new(),
+            history: None,
             epoch: 0,
             verifier: Ed25519Verifier,
         }
@@ -467,6 +477,19 @@ impl Sealer for KeyringSealer {
 
     fn current_epoch(&self) -> Option<u64> {
         (self.epoch > 0 && self.key(self.epoch).is_some()).then_some(self.epoch)
+    }
+
+    fn epoch_history_len(&self) -> usize {
+        self.keys.iter().count()
+    }
+    fn has_epoch_history(&self, through: u64) -> bool {
+        through > 0
+            && self
+                .keys
+                .iter()
+                .map(|(e, _)| e)
+                .filter(|e| *e <= through)
+                .eq(1..=through)
     }
 
     fn idem_token(&self, mutation: &Uuid) -> Option<B16> {
@@ -803,6 +826,7 @@ impl Sealer for KeyringSealer {
 
     fn accept_rekey(&mut self, p: &RekeyPayload) -> KeyEvent {
         self.commits.insert(p.epoch, p.commit);
+        self.history = Some((p.epoch, p.history.clone()));
         match keys::open_rekey(p, &self.collection, &self.device, &self.kem) {
             Ok(RekeyOpened::Keys { key, history }) => {
                 for h in history {
@@ -819,7 +843,22 @@ impl Sealer for KeyringSealer {
                 KeyEvent::Keyed { epoch: p.epoch }
             }
             Ok(RekeyOpened::Inconsistent) => KeyEvent::Inconsistent,
-            Ok(RekeyOpened::NotARecipient) => KeyEvent::None,
+            Ok(RekeyOpened::NotARecipient) => {
+                // A later grant may already have supplied this epoch. Opening
+                // its original history does not require an original own wrap.
+                if let Some(key) = self.keys.get(p.epoch)
+                    && let Ok(old) = keys::open_history(key, &self.collection, p.epoch, &p.history)
+                {
+                    for h in old {
+                        if let Some(commit) = self.commits.get(&h.epoch())
+                            && let Ok((e, k)) = h.verify(&self.collection, commit)
+                        {
+                            self.keys.insert(e, k);
+                        }
+                    }
+                }
+                KeyEvent::None
+            }
             Err(_) => KeyEvent::Inconsistent,
         }
     }
@@ -833,6 +872,21 @@ impl Sealer for KeyringSealer {
         };
         match keys::open_key_grant(p, &self.collection, &self.kem, &commit) {
             Ok(k) => {
+                // A later recipient gets the current key through a grant, not
+                // the original rekey wraps. Recover the same authenticated
+                // history box once that key is held; never invent another epoch.
+                if let Some((epoch, history)) = &self.history
+                    && *epoch == p.epoch
+                    && let Ok(old) = keys::open_history(&k, &self.collection, *epoch, history)
+                {
+                    for h in old {
+                        if let Some(commit) = self.commits.get(&h.epoch())
+                            && let Ok((e, k)) = h.verify(&self.collection, commit)
+                        {
+                            self.keys.insert(e, k);
+                        }
+                    }
+                }
                 self.keys.insert(p.epoch, k);
                 KeyEvent::Keyed { epoch: p.epoch }
             }
@@ -993,6 +1047,7 @@ impl Sealer for KeyringSealer {
         .map_err(|_| bad())?;
         let k = b.get(8..8 + n).ok_or_else(bad)?;
         self.keys = Keyring::from_bytes(k)?;
+        self.history = None;
         let rest = &b[8 + n..];
         if !rest.len().is_multiple_of(40) {
             return Err(bad());
@@ -1064,6 +1119,20 @@ mod plain {
         }
         fn current_epoch(&self) -> Option<u64> {
             (self.epoch > 0 && self.keyed.contains(&self.epoch)).then_some(self.epoch)
+        }
+        fn epoch_history_len(&self) -> usize {
+            self.keyed.len()
+        }
+        fn has_epoch_history(&self, through: u64) -> bool {
+            through > 0
+                && self
+                    .keyed
+                    .iter()
+                    .copied()
+                    .filter(|e| *e <= through)
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .eq(1..=through)
         }
         fn idem_token(&self, mutation: &Uuid) -> Option<B16> {
             let h: Hash = mdbn_wire::hash::h("mdbase/v1/idem", &mutation.0);

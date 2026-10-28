@@ -12,14 +12,14 @@ import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 
 const uuid = z.uuid().transform(value => value.toLowerCase()).refine(value => value !== "00000000-0000-0000-0000-000000000000");
 const mode = z.enum(["private", "cloud_copy"]);
-type Mode = z.infer<typeof mode>;
-type Owner = { account: string } & ({ session: string } | { connector: Connector; hash: string });
+export type Mode = z.infer<typeof mode>;
+export type Owner = { account: string } & ({ session: string } | { connector: Connector; hash: string });
 type Change = {
   request_id: string; source_mode: Mode; target_mode: Mode;
   policy_outbox_id: string | null; completed_at: Date | null;
 };
 
-async function authenticateOwner(request: FastifyRequest, reply: FastifyReply, db: DatabasePool): Promise<Owner | null> {
+export async function authenticateOwner(request: FastifyRequest, reply: FastifyReply, db: DatabasePool): Promise<Owner | null> {
   // A supplied bearer never falls back to a browser cookie. Installation/app
   // credentials have no collection-mode authority, even if they can create data.
   const token = bearerToken(request);
@@ -33,7 +33,7 @@ async function authenticateOwner(request: FastifyRequest, reply: FastifyReply, d
 
 /** Account/credential locks precede the shared collection lock, as for bootstrap
  * and owner deletion. Every POST/retry/GET reauthorizes; old intent is not access. */
-async function ownedMode(client: DatabaseConnection, owner: Owner, collection: string): Promise<Mode> {
+export async function ownedMode(client: DatabaseConnection, owner: Owner, collection: string): Promise<Mode> {
   await requireNextAccountNotMigrationFrozen(client, owner.account);
   if (!(await client.query("SELECT 1 FROM users WHERE id=$1 AND account_backend='next' AND suspended_at IS NULL FOR SHARE", [owner.account])).rows.length)
     throw new CreateError(404, "not_found");

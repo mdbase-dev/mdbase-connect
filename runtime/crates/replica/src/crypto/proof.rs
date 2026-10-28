@@ -164,6 +164,46 @@ pub fn collection_proof_digest(
     Some(cbor_digest(kind.domain(), fields))
 }
 
+/// An authenticated HTTP mode operation, not a collection-log trust statement.
+pub struct ModeProof {
+    /// Durable request identity.
+    pub request: Uuid,
+    /// Private rather than Cloud copy.
+    pub private: bool,
+    /// Completion rather than preparation.
+    pub finish: bool,
+    /// Actual held epoch, or the verified private cutover epoch.
+    pub epoch: u64,
+    /// Verified native receipt position (zero for preparation).
+    pub seq: u64,
+    /// Receipt chain hash (zero for preparation).
+    pub chain: B32,
+}
+/// Collection/request/direction/phase and actual native epoch/prefix bound proof.
+pub fn collection_mode_digest(
+    challenge: &[u8; 32],
+    connector: &Uuid,
+    device: &Uuid,
+    collection: &Uuid,
+    mode: &ModeProof,
+) -> B32 {
+    cbor_digest(
+        "mdbase/v1/collection-mode",
+        vec![
+            bytes(challenge),
+            bytes(&connector.0),
+            bytes(&device.0),
+            bytes(&collection.0),
+            bytes(&mode.request.0),
+            Cbor::Uint(if mode.private { 0 } else { 1 }),
+            Cbor::Bool(mode.finish),
+            Cbor::Uint(mode.epoch),
+            Cbor::Uint(mode.seq),
+            bytes(&mode.chain.0),
+        ],
+    )
+}
+
 /// The account-key (AK1) request proofs (Connect #635 `accountKey*Digest`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountProof {

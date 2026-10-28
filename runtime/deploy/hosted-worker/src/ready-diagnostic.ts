@@ -3,7 +3,7 @@ import { labCustodySubCause, type LabCustodySubCause } from "./custody/hosted-cu
 /** Finite ready-stage diagnostic DATA; separate raw diagnostics are explicitly LAB-only. */
 export const READY_STAGES = [
   "background_guard", "physical_collection_guard", "collection_guard", "service_collection_persist", "alarm_guard",
-  "open_retry_read", "open_retry_schedule", "custody_open_sealer", "engine_construct", "engine_config",
+  "open_retry_read", "open_retry_schedule", "custody_open_sealer", "mode_device_persist", "engine_construct", "engine_config",
   "engine_cpp_open", "engine_open", "engine_noise_key", "custody_zeroize", "pin_digest", "pin_marker_read",
   "pin_mismatch", "live_admission", "sync", "pin_parked_guard", "timing_snapshot", "engine_reset",
   "open_failure_clear", "unknown",

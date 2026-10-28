@@ -208,6 +208,10 @@ impl Method {
     /// Files and other devices are untouched; a local collection's new name reaches
     /// the account with the next inventory.
     pub const COLLECTION_UPDATE: &'static str = "collection.update";
+    /// `{collection,target_mode}`: one resumable native mode-switch step.
+    pub const COLLECTION_MODE: &'static str = "collection.mode";
+    /// `{collection}`: authoritative server progress, never conversion authority.
+    pub const COLLECTION_MODE_STATUS: &'static str = "collection.mode_status";
     /// `{collection}` → [`CollectionStatus`].
     pub const COLLECTION_PAUSE: &'static str = "collection.pause";
     /// `{collection}` → [`CollectionStatus`].

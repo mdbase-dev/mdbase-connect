@@ -1945,7 +1945,7 @@ impl PolicyState {
         while let Some(x) = cur {
             // Services are trusted only by the local Cloud copy choice above.
             // Introducing a service does not let it mint Private trust outside S.
-            if self.cstate == Some(CState::E2e)
+            if !matches!(d.kind, DeviceKind::Hosted | DeviceKind::Escrow)
                 && self
                     .devices
                     .get(&x)

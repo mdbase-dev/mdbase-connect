@@ -455,3 +455,65 @@ fn revoking_a_later_private_rekey_author_does_not_strand_the_surviving_switch_me
         "a real signature from the revoked member is refused"
     );
 }
+
+#[test]
+fn an_older_keyed_writer_can_consume_the_adjacent_slot_unless_publication_is_fenced() {
+    let (svc, mut cp, mut a, mut b) = real_world();
+    let recipients =
+        b.r.policy
+            .rekey_recipients()
+            .into_iter()
+            .map(|device| crate::crypto::keys::Recipient {
+                device,
+                kem_pk: b.r.policy.devices[&device].kem_pk.0,
+            })
+            .collect::<Vec<_>>();
+    let current =
+        b.r.sealer
+            .build_rekey(
+                1,
+                &recipients,
+                RekeyReason::Scheduled,
+                &mut crate::crypto::TestEntropy::new(71),
+            )
+            .unwrap();
+    assert!(b.r.append_control(ItemKind::Rekey, current.to_bytes().unwrap()));
+    settle(&mut [&mut a, &mut b]);
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut b]); // The older peer observes the policy before A.
+    // The old writer guard had no local switch-set intent rule. A current
+    // self-delivered key remained trusted even after services were revoked.
+    assert_eq!(
+        b.r.policy
+            .key_trust(&B16([104; 16]), &std::collections::BTreeSet::new(), true),
+        crate::policy::KeyTrust::Trusted
+    );
+    let recipients =
+        b.r.policy
+            .rekey_recipients()
+            .into_iter()
+            .map(|device| crate::crypto::keys::Recipient {
+                device,
+                kem_pk: b.r.policy.devices[&device].kem_pk.0,
+            })
+            .collect::<Vec<_>>();
+    let legacy =
+        b.r.sealer
+            .build_rekey(
+                2,
+                &recipients,
+                RekeyReason::DeviceRevoked,
+                &mut crate::crypto::TestEntropy::new(72),
+            )
+            .unwrap();
+    assert!(b.r.append_control(ItemKind::Rekey, legacy.to_bytes().unwrap()));
+    settle(&mut [&mut b]);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(a.r.policy.epoch, 3);
+    assert!(
+        a.r.key_untrusted,
+        "the approved rule must not accept the older writer's wrong-reason rekey"
+    );
+    assert!(a.r.accepted_private_switch().is_none());
+}

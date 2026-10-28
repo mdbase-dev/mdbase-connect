@@ -15,6 +15,8 @@ pub(super) const META: &str = "replica.private-switch.v1";
 pub(super) struct PrivateSwitch {
     requested: bool,
     cloud_choice: bool,
+    // RAM-only: do not repeat a no-progress legacy history scan at the same head.
+    history_attempt: Option<(Head, usize)>,
     state: State,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -168,6 +170,7 @@ impl PrivateSwitch {
         Some(Self {
             requested: *requested,
             cloud_choice: *cloud_choice,
+            history_attempt: None,
             state,
         })
     }
@@ -235,7 +238,7 @@ impl<S: Store> Replica<S> {
             || self.policy.members.get(&me.account) != Some(&Role::Owner)
             || self.policy.epoch == 0
             || self.sealer.current_epoch() != Some(self.policy.epoch)
-            || (self.key_untrusted && !self.accepted_private_key())
+            || !self.mode_source_key_trusted()
         {
             return Err(ErrorCode::Forbidden.err("a keyed owner device is required"));
         }
@@ -248,9 +251,108 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
+    fn mode_source_key_trusted(&self) -> bool {
+        if matches!(self.private_switch.state, State::Accepted { epoch, .. } if self.policy.epoch < epoch)
+        {
+            return false;
+        }
+        let mut trusted = self
+            .cfg
+            .trusted_signers
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        trusted.extend(self.account_key.trusted().iter().copied());
+        if let Some(anchors) = self.private_switch_introducers() {
+            trusted.extend(anchors.iter().copied());
+        }
+        self.accepted_private_key()
+            || matches!(
+                self.policy.key_trust(&self.cfg.device_id, &trusted, false),
+                crate::policy::KeyTrust::Trusted
+            )
+    }
+
+    /// Reuse the authenticated control replay to repair older partial keyrings.
+    /// Every repeat must have made progress (or reached a new applied head).
+    pub fn refresh_mode_history(&mut self) {
+        if self.check_apply_store_health().is_err()
+            || self.device_keys_blocked()
+            || self.install.is_some()
+            || self.sealer.current_epoch() != Some(self.policy.epoch)
+            || self.sealer.has_epoch_history(self.policy.epoch)
+        {
+            return;
+        }
+        let attempt = (self.head, self.sealer.epoch_history_len());
+        if self.private_switch.history_attempt == Some(attempt) {
+            return;
+        }
+        self.private_switch.history_attempt = Some(attempt);
+        self.start_mode_history_rebuild();
+    }
+
+    /// Owner/native proof material; never accepts a caller-supplied receipt.
+    pub fn mode_switch_receipt(&self, private: bool) -> Option<(u64, Head)> {
+        if self.check_apply_store_health().is_err()
+            || self.device_keys_blocked()
+            || self.install.is_some()
+            || self.stalled.is_some()
+            || !self.sealer.has_epoch_history(self.policy.epoch)
+            || self.sealer.current_epoch() != Some(self.policy.epoch)
+        {
+            return None;
+        }
+        let me = self.policy.devices.get(&self.cfg.device_id)?;
+        if !me.active || !me.keyed || self.policy.members.get(&me.account) != Some(&Role::Owner) {
+            return None;
+        }
+        if private {
+            if self.private_switch.cloud_choice
+                || self.key_untrusted
+                || self.policy.cstate != Some(CState::E2e)
+            {
+                return None;
+            }
+            if let State::Accepted { at, epoch, .. } = self.private_switch.state {
+                return (at.seq <= self.head.seq).then_some((epoch, at));
+            }
+            None
+        } else {
+            self.cloud_copy_source_epoch()
+                .filter(|_| self.policy.cstate == Some(CState::CloudCopy))
+                .map(|epoch| (epoch, self.head))
+        }
+    }
+
+    /// Actual old epoch for native preparation, including a pending owner switch.
+    pub fn mode_switch_source(&self, private: bool) -> Option<u64> {
+        if !private {
+            return self.cloud_copy_source_epoch();
+        }
+        if self.check_apply_store_health().is_err()
+            || self.device_keys_blocked()
+            || self.install.is_some()
+            || self.stalled.is_some()
+            || !self.sealer.has_epoch_history(self.policy.epoch)
+            || !self.private_switch.requested
+            || self.sealer.current_epoch() != Some(self.policy.epoch)
+            || self.policy.epoch == 0
+        {
+            return None;
+        }
+        let me = self.policy.devices.get(&self.cfg.device_id)?;
+        (me.active && me.keyed && self.policy.members.get(&me.account) == Some(&Role::Owner))
+            .then_some(self.policy.epoch)
+    }
+
     /// Current actual epoch held by an explicitly consenting owner source.
     pub fn cloud_copy_source_epoch(&self) -> Option<u64> {
         if !self.private_switch.cloud_choice
+            || self.device_keys_blocked()
+            || self.install.is_some()
+            || self.stalled.is_some()
+            || !self.sealer.has_epoch_history(self.policy.epoch)
             || self.key_untrusted
             || self.check_apply_store_health().is_err()
         {
@@ -450,6 +552,7 @@ impl<S: Store> Replica<S> {
             && self.check_apply_store_health().is_ok()
             && self.policy.epoch == *epoch
             && self.sealer.current_epoch() == Some(*epoch)
+            && self.sealer.has_epoch_history(*epoch)
     }
     pub(super) fn accept_private_switch(
         &mut self,
@@ -525,8 +628,7 @@ impl<S: Store> Replica<S> {
 
     pub(super) fn private_switch_blocks(&self) -> bool {
         self.private_switch.blocked()
-            || (!self.private_switch.cloud_choice
-                && matches!(self.private_switch.state, State::Accepted { epoch, .. }
-                if self.policy.epoch < epoch || self.policy.cstate != Some(CState::E2e)))
+            || matches!(self.private_switch.state, State::Accepted { epoch, .. }
+                if self.policy.epoch < epoch || (!self.private_switch.cloud_choice && self.policy.cstate != Some(CState::E2e)))
     }
 }

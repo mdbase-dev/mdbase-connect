@@ -50,9 +50,17 @@ impl<S: Store> Replica<S> {
     /// Returns true when a rebuild was started (it queues its own reads and the
     /// head fetch once done).
     pub(crate) fn start_device_key_rebuild(&mut self) -> bool {
+        self.start_device_key_rebuild_inner(false)
+    }
+
+    pub(super) fn start_mode_history_rebuild(&mut self) -> bool {
+        self.start_device_key_rebuild_inner(true)
+    }
+
+    fn start_device_key_rebuild_inner(&mut self, force: bool) -> bool {
         if self.hosted.is_some()
             || self.local_only()
-            || self.store.keyring_persistence() != KeyringPersistence::RebuildOnOpen
+            || (!force && self.store.keyring_persistence() != KeyringPersistence::RebuildOnOpen)
             || self.head.seq == 0
         {
             return false;

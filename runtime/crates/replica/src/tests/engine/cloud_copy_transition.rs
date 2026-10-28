@@ -96,6 +96,12 @@ fn private_history_handover_survives_lost_reply_and_both_device_restarts() {
     drop(a);
     // Host choice is durable, not inferred from the newly applied remote policy.
     let mut a = owner(&svc, MemStore::shared(data.clone()), true);
+    settle(&mut [&mut a]);
+    assert!(
+        !a.r.policy.devices[&B16([102; 16])].keyed,
+        "stale host flags are not a new durable conversion intent"
+    );
+    a.r.choose_cloud_copy(a.s).unwrap();
     a.log.faults.lose_replies = 1;
     settle(&mut [&mut a]);
     a.clock.set(a.clock.get() + 5_000);
@@ -204,6 +210,7 @@ fn mode_policy_and_a_consenting_editor_cannot_substitute_for_the_keyed_owner() {
         a.r.policy.epoch, 1,
         "consent without persisted chosen mode is insufficient"
     );
+    a.r.choose_cloud_copy(a.s).unwrap();
     cp.append(
         &svc,
         vec![

@@ -102,6 +102,7 @@ interface Exports extends WebAssembly.Exports {
   hd_noise_open(h: number, p: number, n: number): bigint;
   hd_noise_drop(h: number): void;
   hd_admission(): bigint;
+  hd_mode_service_ready(): bigint;
   hd_wake_instance(): bigint;
   hd_grant_ok(p: number, n: number): number;
   hd_log_http_sign(
@@ -875,6 +876,7 @@ export class Engine {
   }
 
   /** The live verified hosted admission, encoded (`admission_wire.rs`). */
+  modeServiceReady(): CborValue { return this.takeDecoded(this.ex.hd_mode_service_ready()); }
   admission(): CborValue {
     return this.takeDecoded(this.ex.hd_admission());
   }

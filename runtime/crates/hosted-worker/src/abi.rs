@@ -2091,6 +2091,21 @@ pub extern "C" fn hd_admission() -> u64 {
     give(with(|s| crate::admission_wire::encode(&s.engine.admission())).unwrap_or_default())
 }
 
+/// Service-key/history readiness only; escrow does not gain app admission.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_mode_service_ready() -> u64 {
+    let value = with(|s| {
+        s.engine
+            .mode_service_ready()
+            .map(|(device, epoch)| {
+                Cbor::Array(vec![Cbor::Bytes(device.0.to_vec()), Cbor::Uint(epoch)])
+            })
+            .unwrap_or(Cbor::Null)
+    })
+    .unwrap_or(Cbor::Null);
+    give(cbor::encode(&value).unwrap_or_default())
+}
+
 /// This engine's wake instance (8 bytes, big-endian).
 #[unsafe(no_mangle)]
 pub extern "C" fn hd_wake_instance() -> u64 {

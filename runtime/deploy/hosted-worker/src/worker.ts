@@ -37,6 +37,7 @@ import { distinctServiceTokens, generateServiceDevice, serviceActivation, servic
 import { PitrCut, PitrWork } from "./pitr-cut.ts";
 import { PitrActorRestriction } from "./pitr-actor.ts";
 import { pitrFactory, type PitrFactorySettings } from "./pitr-factory.ts";
+import { modeServiceRequest, modeReady, modeAck, modeUnavailable } from "./collection-mode.js";
 import { migrationAdmissionRequest, migrationAdmissionObservation, migrationAdmissionUnavailable } from "./migration-admission.ts";
 import { generateDeviceKeys } from "./keygen.js";
 import engineModule from "../hosted.wasm";
@@ -744,6 +745,11 @@ export class HostedCollection extends DurableObject<Env> {
         await this.requireBackground();
         openingTrace.stage = "physical_collection_guard";
         this.requirePhysicalCollection(collection);
+        // Public tuple marker, inside key zeroization's finally boundary.
+        openingTrace.stage = "mode_device_persist";
+        await this.ctx.storage.put("collection-mode-device", keys.deviceId);
+        await this.requireBackground();
+        this.requirePhysicalCollection(collection);
         openingTrace.stage = "engine_construct";
         pinBytes = new Uint8Array(keys.policyPins); // public; outlives the zeroize
         engine = new Engine(this.ctx.storage);
@@ -1206,6 +1212,31 @@ export class HostedCollection extends DurableObject<Env> {
     const url = new URL(request.url);
     const collection = url.searchParams.get("collection") ?? "";
     if (!UUID.test(collection)) return new Response("bad collection", { status: 400 });
+    if (url.pathname === "/v1/hosted/collection-mode/ready" || url.pathname === "/v1/hosted/collection-mode/retire") {
+      const input = await modeServiceRequest(request, (this.env as Env & { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN);
+      if (input instanceof Response) return input;
+      if (input.collection !== collection) return modeUnavailable();
+      if (url.pathname.endsWith("/retire")) {
+        // Join any existing open OUTSIDE the short storage-only critical section.
+        try { if (this.opening) await this.opening; } catch { /* Refusal may already retire it. */ }
+        return this.ctx.blockConcurrencyWhile(async () => {
+          try {
+            if (this.opening) return modeUnavailable();
+            this.requirePhysicalCollection(collection);
+            const device = await this.ctx.storage.get<string>("collection-mode-device");
+            if (device && device !== input.device || this.live && this.live.device !== input.device) return modeUnavailable();
+            await this.retireForVerdict();
+            return modeAck(input); // Rebuildable cache retirement, not physical erasure.
+          } catch { return modeUnavailable(); }
+        });
+      }
+      try {
+        await this.ready(collection);
+        const engine = this.engine;
+        if (!engine || this.opening || this.collection !== collection || !modeReady(engine.modeServiceReady(),input)) return modeUnavailable();
+        return modeAck(input);
+      } catch { return modeUnavailable(); }
+    }
     if (url.pathname === "/v1/hosted/migration-admission") {
       if (this.escrow) return new Response("not found", { status: 404 });
       const input = await migrationAdmissionRequest(request, (this.env as Env & { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN);
@@ -1610,6 +1641,15 @@ export default {
     if (isolated && (!pitr || !distinctServiceTokens(e.HOSTED_SERVICE_TOKEN, p.PITR_ESCROW_SERVICE_TOKEN) || !factoryRequest)) {
       // Keep every actor entry CLOSED until the all-path fence is installed.
       return new Response("unavailable", { status: 503 });
+    }
+    if (url.pathname === "/internal/v1/collection-mode/ready" || url.pathname === "/internal/v1/collection-mode/retire") {
+      const input = await modeServiceRequest(request,e.HOSTED_SERVICE_TOKEN);
+      if (input instanceof Response) return input;
+      const operation = url.pathname.endsWith("/ready") ? "ready" : "retire";
+      const stub = namedStub(env.COLLECTIONS,input.collection,hint);
+      const headers = new Headers(request.headers); headers.delete("content-length");
+      return stub.fetch(new Request(`${url.origin}/v1/hosted/collection-mode/${operation}?collection=${input.collection}`,
+        {method:"POST",headers,body:JSON.stringify(input)}));
     }
     if (url.pathname === "/internal/v1/migration-admission") {
       if (kind !== "hosted") return new Response("not found", { status: 404 });

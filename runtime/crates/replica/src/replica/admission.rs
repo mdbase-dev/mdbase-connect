@@ -319,7 +319,7 @@ impl<S: Store> Replica<S> {
                 .get(&self.cfg.device_id)
                 .is_some_and(|device| {
                     device.active
-                        && device.kind == DeviceKind::Hosted
+                        && matches!(device.kind, DeviceKind::Hosted | DeviceKind::Escrow)
                         && device.account == SERVICE_ACCOUNT
                         && device.keyed
                         && device.delivered_by == Some(signer)
@@ -338,7 +338,10 @@ impl<S: Store> Replica<S> {
 
     /// Common pre-key proof. Does not treat a missing first epoch as a fault, and
     /// never treats an actual fault/unknown outcome as healthy bootstrap state.
-    fn verified_hosted_context(&self) -> Result<VerifiedHostedBootstrap, HostedAdmissionDenial> {
+    fn verified_hosted_context(
+        &self,
+        kind: DeviceKind,
+    ) -> Result<VerifiedHostedBootstrap, HostedAdmissionDenial> {
         use HostedAdmissionDenial as D;
         if !self.is_hosted() || self.cfg.mode != SyncMode::Synced {
             return Err(D::NotHosted);
@@ -385,7 +388,7 @@ impl<S: Store> Replica<S> {
             .ok_or(D::MembershipInvalid)?;
         if self.policy.cstate != Some(CState::CloudCopy)
             || !device.active
-            || device.kind != DeviceKind::Hosted
+            || device.kind != kind
             || device.account != SERVICE_ACCOUNT
         {
             return Err(D::MembershipInvalid);
@@ -424,7 +427,7 @@ impl<S: Store> Replica<S> {
     /// operation; only subsequent actual unwrap/committed-prefix proof can serve.
     pub fn verified_hosted_bootstrap(&self) -> HostedBootstrapAdmission {
         use HostedBootstrapAdmission as B;
-        let context = match self.verified_hosted_context() {
+        let context = match self.verified_hosted_context(DeviceKind::Hosted) {
             Ok(context) => context,
             Err(denial) => return B::Deny(denial),
         };
@@ -466,8 +469,27 @@ impl<S: Store> Replica<S> {
     /// Unknown/Io/quarantine/Closed/wake invalidate currentness. A genuine known
     /// outer abort retains only the prior proof, never an attempted successor.
     pub fn verified_hosted_admission(&self) -> HostedAdmission {
+        self.verified_service_admission(DeviceKind::Hosted)
+    }
+
+    /// Mode-completion observation for either service. Does not authorize app
+    /// traffic or initial-epoch creation; those remain hosted-only operations.
+    pub fn mode_service_ready(&self) -> Option<(Uuid, u64)> {
+        let kind = self.policy.devices.get(&self.cfg.device_id)?.kind;
+        if !matches!(kind, DeviceKind::Hosted | DeviceKind::Escrow) {
+            return None;
+        }
+        match self.verified_service_admission(kind) {
+            HostedAdmission::Verified(proof) if self.sealer.has_epoch_history(proof.epoch()) => {
+                Some((proof.device(), proof.epoch()))
+            }
+            _ => None,
+        }
+    }
+
+    fn verified_service_admission(&self, kind: DeviceKind) -> HostedAdmission {
         use HostedAdmissionDenial as D;
-        let context = match self.verified_hosted_context() {
+        let context = match self.verified_hosted_context(kind) {
             Ok(context) => context,
             Err(denial) => return HostedAdmission::Deny(denial),
         };

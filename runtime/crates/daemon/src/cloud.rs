@@ -696,6 +696,77 @@ impl Cloud {
         answer
     }
 
+    pub(crate) async fn collection_mode_status(
+        &self,
+        collection: &str,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<Value, CloudError> {
+        self.send_current(
+            self.http
+                .get(format!(
+                    "{}/v1/next/collections/{collection}/mode",
+                    self.server
+                ))
+                .bearer_auth(self.token.as_str()),
+            current,
+        )
+        .await
+    }
+    pub(crate) async fn collection_mode_intent(
+        &self,
+        collection: &str,
+        request: &str,
+        private: bool,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<Value, CloudError> {
+        self.post_current(
+            &format!("/v1/next/collections/{collection}/mode"),
+            &json!({"request_id":request,"target_mode":if private {"private"} else {"cloud_copy"}}),
+            current,
+        )
+        .await
+    }
+
+    /// Native mode prepare/finish. Fields are derived from the live replica, not
+    /// forwarded from a web caller. This proof is independent of create/join.
+    pub(crate) async fn collection_mode_post(
+        &self,
+        connector_id: &str,
+        collection: &[u8; 16],
+        mode: &proof::ModeProof,
+        identity: &DeviceIdentity,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<Value, CloudError> {
+        current().map_err(CloudError::Local)?;
+        let challenge = self.challenge(current).await?;
+        current().map_err(CloudError::Local)?;
+        let connector = crate::attest::uuid_bytes(connector_id)
+            .ok_or_else(|| CloudError::Local("connector UUID".into()))?;
+        let digest = proof::collection_mode_digest(
+            &challenge,
+            &B16(connector),
+            &B16(identity.device_id),
+            &B16(*collection),
+            mode,
+        );
+        let mut body = json!({ "device_id": identity.public().device, "challenge": secrets::hex(&challenge),
+            "sig": secrets::hex(&identity.sign_digest(&digest.0)), "epoch": mode.epoch.to_string() });
+        if mode.finish {
+            body["seq"] = json!(mode.seq.to_string());
+            body["chain"] = json!(secrets::hex(&mode.chain.0));
+        }
+        let path = format!(
+            "/v1/next/collections/{}/mode/{}/{}",
+            B16(*collection).to_uuid_string(),
+            mode.request.to_uuid_string(),
+            if mode.finish { "finish" } else { "prepare" }
+        );
+        current().map_err(CloudError::Local)?;
+        let result = self.post_current(&path, &body, current).await;
+        current().map_err(CloudError::Local)?;
+        result
+    }
+
     /// Create a **cloud copy** owned by this account, from this registered device
     /// (Connect #616, `POST /v1/next/collections/cloud-copy`).
     pub async fn create_cloud_copy(
