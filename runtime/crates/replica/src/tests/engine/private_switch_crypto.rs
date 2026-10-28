@@ -186,3 +186,50 @@ fn another_owner_from_the_switch_set_can_finish_when_the_original_device_is_gone
     assert_eq!(reopened.r.cfg.chosen_state, Some(CState::E2e));
     assert!(!reopened.r.key_untrusted);
 }
+
+/// Documents the signer-only rule's remaining contract boundary. The switch
+/// accepts the new epoch, but it does not rewrite another recipient's original
+/// service introduction. Do not silently promote the whole set to trust roots.
+#[test]
+fn later_private_rekey_from_another_switch_set_device_still_has_a_service_introduction() {
+    let (svc, mut cp, mut a, mut b) = real_world();
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    assert!(!a.r.key_untrusted && !b.r.key_untrusted);
+    assert_eq!(
+        b.r.policy.devices[&B16([104; 16])].introduced_by,
+        Some(B16([102; 16]))
+    );
+    let recipients =
+        b.r.policy
+            .rekey_recipients()
+            .into_iter()
+            .map(|device| crate::crypto::keys::Recipient {
+                device,
+                kem_pk: b.r.policy.devices[&device].kem_pk.0,
+            })
+            .collect::<Vec<_>>();
+    let rekey =
+        b.r.sealer
+            .build_rekey(
+                2,
+                &recipients,
+                RekeyReason::Scheduled,
+                &mut crate::crypto::TestEntropy::new(47),
+            )
+            .unwrap();
+    assert!(b.r.append_control(ItemKind::Rekey, rekey.to_bytes().unwrap()));
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(a.r.policy.epoch, 3);
+    assert_eq!(
+        a.r.testing_epoch_keys(),
+        b.r.testing_epoch_keys(),
+        "unwrap succeeded; this is a trust-chain issue, not missing keys"
+    );
+    assert!(!b.r.key_untrusted, "the author trusts its own key");
+    assert!(
+        a.r.key_untrusted,
+        "literal signer-only acceptance does not privately vouch for the other set members"
+    );
+}

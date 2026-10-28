@@ -29,6 +29,7 @@ enum State {
     Accepted {
         at: Head,
         signer: Uuid,
+        epoch: u64,
         acknowledged: bool,
     },
     Refused,
@@ -41,12 +42,14 @@ impl PrivateSwitch {
             State::Accepted {
                 at,
                 signer,
+                epoch,
                 acknowledged,
             } => Cbor::Array(vec![
                 Cbor::Uint(1),
                 Cbor::Uint(at.seq),
                 Cbor::Bytes(at.chain.0.to_vec()),
                 Cbor::Bytes(signer.0.to_vec()),
+                Cbor::Uint(*epoch),
                 Cbor::Bool(*acknowledged),
             ]),
             State::Pending {
@@ -108,13 +111,15 @@ impl PrivateSwitch {
                     Cbor::Uint(seq),
                     chain,
                     signer,
+                    Cbor::Uint(epoch),
                     Cbor::Bool(acknowledged),
-                ] if *seq > 0 => State::Accepted {
+                ] if *seq > 0 && *epoch > 0 => State::Accepted {
                     at: Head {
                         seq: *seq,
                         chain: hash(chain)?,
                     },
                     signer: id(signer)?,
+                    epoch: *epoch,
                     acknowledged: *acknowledged,
                 },
                 [
@@ -258,6 +263,7 @@ impl<S: Store> Replica<S> {
                 at,
                 signer,
                 acknowledged: false,
+                ..
             } if self.head.seq >= at.seq => Some(signer),
             _ => None,
         }
@@ -265,7 +271,6 @@ impl<S: Store> Replica<S> {
     pub(super) fn restore_private_choice(&mut self) {
         if let State::Accepted { at, signer, .. } = self.private_switch.state
             && at.seq <= self.head.seq
-            && self.policy.cstate == Some(CState::E2e)
         {
             self.cfg.chosen_state = Some(CState::E2e);
             self.cfg.e2e = true;
@@ -367,6 +372,7 @@ impl<S: Store> Replica<S> {
             self.private_switch.state = State::Accepted {
                 at: Head { seq: p, chain },
                 signer: item.signer.expect("checked signer"),
+                epoch: rekey.epoch,
                 acknowledged: false,
             };
             self.private_switch.requested = false;
@@ -402,5 +408,7 @@ impl<S: Store> Replica<S> {
 
     pub(super) fn private_switch_blocks(&self) -> bool {
         self.private_switch.blocked()
+            || matches!(self.private_switch.state, State::Accepted { epoch, .. }
+                if self.policy.epoch < epoch || self.policy.cstate != Some(CState::E2e))
     }
 }

@@ -280,3 +280,50 @@ fn failed_or_unknown_prefix_commits_never_publish_tentative_private_trust() {
         }
     }
 }
+
+#[test]
+fn completed_private_choice_survives_later_cloud_flags_and_old_epoch_selection() {
+    let (svc, mut cp) = world();
+    let mut a = device(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut a]);
+    a.r.acknowledge_private_switch(a.s).unwrap();
+    // A stale host configuration is not a new explicit local Cloud-copy intent.
+    a.r.cfg.chosen_state = Some(CState::CloudCopy);
+    a.r.cfg.user_enabled_cloud_copy = true;
+    let mut ops = [(105, DeviceKind::Hosted), (106, DeviceKind::Escrow)]
+        .into_iter()
+        .map(|(id, kind)| {
+            PolicyOp::DeviceEnrol(mdbn_wire::policy::DeviceEnrol {
+                device: B16([id; 16]),
+                account: crate::policy::SERVICE_ACCOUNT,
+                kind,
+                sign_pk: B32([id; 32]),
+                kem_pk: B32([id; 32]),
+                noise_pk: B32([id; 32]),
+                sas_commit: None,
+                local_root: None,
+            })
+        })
+        .collect::<Vec<_>>();
+    ops.push(PolicyOp::CollectionState(CollectionState {
+        state: CState::CloudCopy,
+        compress: None,
+        min_sem_major: None,
+    }));
+    cp.append(&svc, ops);
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.policy.cstate, Some(CState::CloudCopy));
+    assert_eq!(a.r.cfg.chosen_state, Some(CState::E2e));
+    assert!(a.r.key_untrusted);
+    assert!(!a.r.policy.devices[&B16([105; 16])].keyed);
+    // Even a replayed older Private policy must not make a service-held epoch
+    // usable for new Private writes. This is a local acceptance-floor unit check.
+    a.r.policy.cstate = Some(CState::E2e);
+    a.r.policy.epoch = 1;
+    a.r.sealer.set_epoch(1);
+    a.r.check_key_trust();
+    assert!(a.r.key_untrusted);
+}
