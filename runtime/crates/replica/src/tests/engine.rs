@@ -101,6 +101,8 @@ impl Clock for TestClock {
 mod bases;
 mod client_versions;
 mod collection_setup;
+mod private_switch;
+mod private_switch_crypto;
 mod receipt_fanout;
 
 pub(super) const COL: B16 = B16([7; 16]);

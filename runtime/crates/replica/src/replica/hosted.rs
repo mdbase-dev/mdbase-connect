@@ -1170,7 +1170,7 @@ impl<S: Store> Replica<S> {
                 return self.hosted_reset_required("not a control item of this collection");
             }
             let chain = mdbn_wire::hash::chain_hash(&it.item.0);
-            match self.evaluate_control(it.seq, &chain, &item, &it.item.0) {
+            match self.evaluate_control(it.seq, &chain, &item, &it.item.0, false) {
                 Ok(None) => {
                     let (grants, devices) = super::original_history::control_subjects(&item);
                     let delivered = self.hosted_key_delivery.is_some_and(|d| d.is_at(it.seq));

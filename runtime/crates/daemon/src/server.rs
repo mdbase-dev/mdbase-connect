@@ -315,7 +315,7 @@ async fn initialize(d: Arc<Daemon>) {
             return;
         }
     }
-    let registry = match Registry::load(&d.profile.registry_file()) {
+    let mut registry = match Registry::load(&d.profile.registry_file()) {
         Ok(r) => r,
         Err(e) => {
             tracing::error!(error = %e, "registry unavailable");
@@ -329,6 +329,16 @@ async fn initialize(d: Arc<Daemon>) {
             return;
         }
     };
+    if let Some(trust) = &d.trust
+        && private_mode::replay(&d.profile, &mut registry, trust).is_err()
+    {
+        d.inner.lock().await.init_error =
+            Some("verified private choice projection unavailable".into());
+        d.readiness
+            .send_replace(readiness(false, Some(NotReady::InitializationFailed)));
+        d.bump();
+        return;
+    }
     let access = match AccessList::load(&d.profile.access_file()) {
         Ok(a) => a,
         Err(e) => {
@@ -531,6 +541,7 @@ impl Daemon {
     }
 
     async fn status(&self) -> DaemonStatus {
+        self.reconcile_private_choices().await;
         let inner = self.inner.lock().await;
         let taken = self.takeover_record();
         let mut collections = Vec::with_capacity(inner.hosts.len());
@@ -5997,6 +6008,8 @@ impl Daemon {
 
 #[path = "private_key.rs"]
 mod private_key;
+#[path = "private_mode.rs"]
+mod private_mode;
 
 #[cfg(test)]
 #[path = "server_tests.rs"]

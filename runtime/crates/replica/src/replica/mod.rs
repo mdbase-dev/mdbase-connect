@@ -25,6 +25,7 @@
 
 mod account_key;
 pub mod adopt;
+mod private_switch;
 pub use account_key::{AccountKeyRefusal, StrictWitness};
 mod admission;
 pub(crate) mod append;
@@ -472,6 +473,7 @@ pub struct Replica<S: Store> {
     pub(crate) key_untrusted: bool,
     /// AK1: recovery-device wraps, epoch commitment, unlocked account-key devices.
     pub(crate) account_key: account_key::AccountKeyState,
+    private_switch: private_switch::PrivateSwitch,
     /// RAM-only actual authenticated cloud key delivery; never loaded from Store.
     pub(crate) hosted_key_delivery: Option<admission::HostedKeyDelivery>,
     pub(crate) apply_blocked: Option<u64>,
@@ -708,6 +710,11 @@ impl<S: Store> Replica<S> {
                 .ok_or_else(|| OpenError::Corrupt("account key state".into()))?,
             None => account_key::AccountKeyState::default(),
         };
+        let private_switch = match store.meta(private_switch::META)? {
+            Some(bytes) => private_switch::PrivateSwitch::from_bytes(&bytes)
+                .ok_or_else(|| OpenError::Corrupt("private switch state".into()))?,
+            None => private_switch::PrivateSwitch::default(),
+        };
         let genesis = match store.meta(meta_keys::GENESIS)? {
             Some(b) => {
                 Some(mdbn_wire::common::B32(b.as_slice().try_into().map_err(
@@ -807,6 +814,7 @@ impl<S: Store> Replica<S> {
             policy,
             key_untrusted: false,
             account_key,
+            private_switch,
             hosted_key_delivery: None,
             apply_blocked: None,
             apply_fault: false,
@@ -884,6 +892,7 @@ impl<S: Store> Replica<S> {
             snapshot_blocked: None,
             stats: Stats::default(),
         };
+        r.restore_private_choice();
         r.check_key_trust();
         let mut inst = [0u8; 8];
         r.host.entropy.fill(&mut inst);

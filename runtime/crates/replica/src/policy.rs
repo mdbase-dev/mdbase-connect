@@ -1943,6 +1943,16 @@ impl PolicyState {
         let mut seen = BTreeSet::new();
         let mut cur = d.delivered_by;
         while let Some(x) = cur {
+            // Services are trusted only by the local Cloud copy choice above.
+            // Introducing a service does not let it mint Private trust outside S.
+            if self.cstate == Some(CState::E2e)
+                && self
+                    .devices
+                    .get(&x)
+                    .is_some_and(|d| matches!(d.kind, DeviceKind::Hosted | DeviceKind::Escrow))
+            {
+                break;
+            }
             if x == *me || trusted_signers.contains(&x) {
                 return KeyTrust::Trusted;
             }

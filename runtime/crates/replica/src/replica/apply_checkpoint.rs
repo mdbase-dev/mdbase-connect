@@ -18,6 +18,13 @@ pub(crate) struct Checkpoint {
     /// AK1 device-local wraps/commit/trusted (public data; the pending self-grant
     /// is RAM-only and kept).
     account_key: Vec<u8>,
+    private_switch: super::private_switch::PrivateSwitch,
+    mode_choice: (
+        Option<mdbn_wire::policy::CState>,
+        bool,
+        bool,
+        Vec<mdbn_wire::common::Uuid>,
+    ),
     genesis: Option<mdbn_wire::common::Hash>,
     key_untrusted: bool,
     hosted_key_delivery: Option<super::admission::HostedKeyDelivery>,
@@ -36,6 +43,13 @@ impl Checkpoint {
             policy: r.policy.clone(),
             keyring: r.sealer.export(),
             account_key: r.account_key.to_bytes(),
+            private_switch: r.private_switch.clone(),
+            mode_choice: (
+                r.cfg.chosen_state,
+                r.cfg.e2e,
+                r.cfg.user_enabled_cloud_copy,
+                r.cfg.trusted_signers.clone(),
+            ),
             genesis: r.genesis,
             key_untrusted: r.key_untrusted,
             hosted_key_delivery: r.hosted_key_delivery,
@@ -69,6 +83,13 @@ impl Checkpoint {
                 .is_ok_and(|bytes| bytes.as_deref() == self.genesis.as_ref().map(|g| &g.0[..]));
         r.policy = self.policy;
         let account_key_restored = r.account_key.restore_persisted(&self.account_key);
+        r.private_switch = self.private_switch;
+        (
+            r.cfg.chosen_state,
+            r.cfg.e2e,
+            r.cfg.user_enabled_cloud_copy,
+            r.cfg.trusted_signers,
+        ) = self.mode_choice;
         r.genesis = self.genesis;
         r.key_untrusted = self.key_untrusted;
         r.hosted_key_delivery = self.hosted_key_delivery;

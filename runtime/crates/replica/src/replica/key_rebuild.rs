@@ -162,7 +162,7 @@ impl<S: Store> Replica<S> {
                 None => return,
             };
             let live = std::mem::replace(&mut self.policy, shadow);
-            let verdict = self.evaluate_control(it.seq, &chain, &item, &it.item.0);
+            let verdict = self.evaluate_control(it.seq, &chain, &item, &it.item.0, false);
             let shadow = std::mem::replace(&mut self.policy, live);
             self.sealer.set_epoch(self.policy.epoch);
             if let Some(k) = self.device_keys.as_mut() {
