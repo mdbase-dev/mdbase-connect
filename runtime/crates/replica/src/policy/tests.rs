@@ -2611,6 +2611,57 @@ fn hosted_is_a_service_created_cloud_copys_first_member() {
     assert!(!s.grant_approval_required());
 }
 
+/// A hosted-keyed device is usable in cloud copy, but that alone is not a
+/// private-mode trust anchor. Conversion must not silently bypass this boundary.
+#[test]
+fn hosted_keyed_device_loses_local_key_trust_when_cloud_copy_is_revoked() {
+    let e = env();
+    let mut s = service_created();
+    s.apply_control(
+        2,
+        &CH,
+        &rekey(2, 21, 0, RekeyReason::Initial, &[21, 20]),
+        &e,
+    )
+    .unwrap();
+    s.apply_control(
+        3,
+        &CH,
+        &policy(3, vec![enrol(30, OWNER, DeviceKind::Desktop)]),
+        &e,
+    )
+    .unwrap();
+    s.apply_control(4, &CH, &hosted_key_grant(4, 30, 30, 1), &e)
+        .unwrap();
+    let trusted = BTreeSet::new();
+    assert_eq!(s.key_trust(&dev(30), &trusted, true), KeyTrust::Trusted);
+    s.apply_control(
+        5,
+        &CH,
+        &policy(
+            5,
+            vec![
+                PolicyOp::DeviceRevoke(DeviceRevoke { device: dev(21) }),
+                PolicyOp::DeviceRevoke(DeviceRevoke { device: dev(20) }),
+                PolicyOp::CollectionState(CollectionState {
+                    state: CState::E2e,
+                    compress: None,
+                    min_sem_major: None,
+                }),
+            ],
+        ),
+        &e,
+    )
+    .unwrap();
+    assert!(s.rekey_required && s.devices[&dev(30)].keyed);
+    for old_consent in [false, true] {
+        assert!(matches!(
+            s.key_trust(&dev(30), &trusted, old_consent),
+            KeyTrust::Untrusted { .. }
+        ));
+    }
+}
+
 #[test]
 fn hosted_keys_control_approved_account_devices_in_cloud_copy() {
     let e = env();
