@@ -20,6 +20,8 @@ fallback scheduling are unchanged.
 Real-signature/HPKE tests cover two existing Private epochs, unrequested mode
 changes, owner-role loss, lost replies, both source and recipient restarts, and
 subsequent cloud-copy writes. They are not yet SDK/daemon conversion E2E or
-hosted app-serving admission tests. The eventual controller must separately
-verify admission/readiness before recording success, and must persist the local
+hosted app-serving admission tests. A collection with an already accepted Private switch also needs a new durable
+local Cloud copy intent that supersedes that local choice without discarding its
+accepted-prefix witness; this draft does not connect that native transition yet.
+The eventual controller must separately verify admission/readiness before recording success, and must persist the local
 choice from explicit user intent rather than infer it from remote metadata.
