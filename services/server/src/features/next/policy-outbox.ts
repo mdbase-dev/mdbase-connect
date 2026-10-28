@@ -154,14 +154,16 @@ export class PolicyEmitter {
   private timer: NodeJS.Timeout | undefined;
   private inFlight: Promise<number> | undefined;
   private lastVerificationAt = -Infinity;
-  private readonly verificationHints = new Set<string>();
+  private readonly verificationQueue = new Map<string, { after: string; through?: string } | undefined>();
   private readonly wakeWork = new Map<string, Promise<void>>();
   private readonly committedWork = new Map<string, Promise<void>>();
   private closed = false;
 
   /** Hints only select a collection for verification, never its ops or positions. */
   hintLostPolicy(collectionId: string): void {
-    this.verificationHints.add(collectionId);
+    // An explicit loss hint needs the full fenced recovery, not a healthy scan.
+    this.verificationQueue.delete(collectionId);
+    this.verificationQueue.set(collectionId, undefined);
   }
 
   constructor(
@@ -250,15 +252,23 @@ export class PolicyEmitter {
       "SELECT DISTINCT collection_id FROM next_policy_batches WHERE state = 'appended' AND lost_at IS NULL"
     ) : { rows: [] };
     if (due) this.lastVerificationAt = this.now();
-    const collectionIds = new Set([...checks.rows.map((row) => row.collection_id), ...this.verificationHints]);
-    this.verificationHints.clear();
-    const failedVerification = new Set<string>();
-    for (const collectionId of collectionIds) {
+    for (const { collection_id: id } of checks.rows) {
+      if (!this.verificationQueue.has(id)) this.verificationQueue.set(id, { after: "0" });
+    }
+    // One healthy historical batch per poll, not a serial read of the entire
+    // ledger. Rotate unfinished scans so neither a large collection nor a retry
+    // starves the rest. Actual detected loss/hints retain full atomic recovery.
+    const next = this.verificationQueue.entries().next().value;
+    let failedVerification: string | undefined;
+    if (next) {
+      const [collectionId, cursor] = next;
+      this.verificationQueue.delete(collectionId);
       try {
-        await recoverLostPolicy(this.db, this.log, collectionId);
+        await recoverLostPolicy(this.db, this.log, collectionId, cursor);
+        if (cursor && cursor.after !== "0" && !this.verificationQueue.has(collectionId)) this.verificationQueue.set(collectionId, cursor);
       } catch (error) {
-        failedVerification.add(collectionId);
-        this.verificationHints.add(collectionId);
+        failedVerification = collectionId;
+        if (!this.verificationQueue.has(collectionId)) this.verificationQueue.set(collectionId, undefined);
         this.reportFailure(error, collectionId, "recover");
       }
     }
@@ -268,7 +278,7 @@ export class PolicyEmitter {
     );
     let appended = 0;
     for (const { collection_id: collectionId } of collections.rows) {
-      if (failedVerification.has(collectionId)) continue;
+      if (failedVerification === collectionId || (this.verificationQueue.has(collectionId) && this.verificationQueue.get(collectionId) === undefined)) continue;
       try {
         appended += await this.drainCollection(collectionId);
       } catch (error) {

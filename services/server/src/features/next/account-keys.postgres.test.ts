@@ -2,7 +2,7 @@ import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
 import {
@@ -124,6 +124,7 @@ describePg("account keys", () => {
   let db: DatabasePool;
   let admin: pg.Pool;
   let schema: string;
+  let emitter: PolicyEmitter;
   const config = configuration();
   const log = new Log();
   const client = new LogServiceClient(config.logService, log.fetch);
@@ -137,13 +138,13 @@ describePg("account keys", () => {
     await admin.query(`CREATE SCHEMA "${schema}"`);
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
-    const emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
+    emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
     await app.register(cookie);
     registerPrivateCollectionRoutes(app, { db, next: config, emitter, log: client });
     registerAccountKeyRoutes(app, { db, next: config, emitter, log: client, rateLimitSecret: "account-key-test-rate-limit-secret-32-bytes" });
   }, 60_000);
   afterAll(async () => {
-    await app.close(); await db?.end();
+    await app.close(); await emitter?.close(); await db?.end();
     if (admin && schema) await admin.query(`DROP SCHEMA "${schema}" CASCADE`);
     await admin?.end();
   });
@@ -406,7 +407,19 @@ describePg("account keys", () => {
     const collection = await createPrivate(who);
     await put(who, 0, randomBytes(32));
     const { recovery } = await enrolRecovery(who, collection);
-    const res = await strict(who, 1);
+    const publish = emitter.publishCommitted.bind(emitter);
+    const wake = vi.spyOn(emitter, "publishCommitted").mockImplementation(async id => {
+      // Publication must see the already committed revoke on another connection.
+      const queued = await db.query(`SELECT 1 FROM next_policy_outbox WHERE collection_id=$1
+        AND ops->'ops' @> $2::jsonb`, [id, JSON.stringify([{ op: "device-revoke", device: recovery }])]);
+      expect(queued.rows).toHaveLength(1);
+      return publish(id);
+    });
+    let res: Awaited<ReturnType<typeof strict>>;
+    try {
+      res = await strict(who, 1);
+      expect(wake).toHaveBeenCalledExactlyOnceWith(collection);
+    } finally { wake.mockRestore(); }
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toEqual({
       mode: "strict", version: 2, revocations: [{ collection_id: collection, device_id: recovery }],
