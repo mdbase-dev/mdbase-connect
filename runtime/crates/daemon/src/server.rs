@@ -81,8 +81,8 @@ pub struct Daemon {
     access_events: tokio::sync::broadcast::Sender<AccessEvent>,
     activity: crate::activity::ActivityLog,
     /// The device identity, once loaded (Noise responder key for the replica
-    /// endpoint).
-    identity: std::sync::OnceLock<Arc<DeviceIdentity>>,
+    /// endpoint). Each account has its own; see [`ActiveIdentity`].
+    identity: ActiveIdentity,
     /// Bumped on every status change; subscribers re-read status.
     changes: watch::Sender<u64>,
     shutdown: watch::Sender<bool>,
@@ -125,7 +125,31 @@ struct Account {
     signed_in: bool,
     relay: Option<tokio::task::JoinHandle<()>>,
     pairing: Option<String>,
+    /// Reason code of the last account-link problem; cleared when the relay connects.
     last_error: Option<String>,
+    /// Background device registration retries, while registration keeps failing.
+    registration: Option<tokio::task::JoinHandle<()>>,
+    /// Reason code while this device is not registered with the account; shown as
+    /// `last_error` and cleared only by a registration.
+    registration_error: Option<String>,
+    /// This sign-in already replaced a refused device identity (at most once).
+    identity_replaced: bool,
+}
+
+/// The active device identity. It changes only under `account_gate`: when another
+/// account signs in (before that account is published), and when the account says
+/// this computer's device was removed (under a new account epoch).
+#[derive(Default)]
+struct ActiveIdentity(std::sync::RwLock<Option<Arc<DeviceIdentity>>>);
+
+impl ActiveIdentity {
+    fn get(&self) -> Option<Arc<DeviceIdentity>> {
+        self.0.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    fn set(&self, identity: Arc<DeviceIdentity>) {
+        *self.0.write().unwrap_or_else(|p| p.into_inner()) = Some(identity);
+    }
 }
 
 fn readiness(ready: bool, reason: Option<NotReady>) -> Readiness {
@@ -185,7 +209,7 @@ pub async fn run_with(
         link: std::sync::Mutex::new(None),
         trust: crate::trust::authenticated().ok().map(Arc::new),
         shutdown: watch::channel(false).0,
-        identity: std::sync::OnceLock::new(),
+        identity: Default::default(),
         account_keys: Default::default(),
         takeover: Default::default(),
         auto_private: Default::default(),
@@ -233,7 +257,7 @@ pub async fn run_with(
                 Ok(stream) => {
                     let d = daemon.clone();
                     tokio::spawn(async move {
-                        let Some(id) = d.identity.get().cloned() else {
+                        let Some(id) = d.identity.get() else {
                             return; // not initialised: close without a handshake
                         };
                         let device = id.device_id;
@@ -290,7 +314,7 @@ async fn initialize(d: Arc<Daemon>) {
     let device = match device {
         Ok(id) => {
             let public = id.public();
-            let _ = d.identity.set(Arc::new(id));
+            d.identity.set(Arc::new(id));
             public
         }
         Err(e) => {
@@ -401,7 +425,7 @@ async fn initialize(d: Arc<Daemon>) {
     d.readiness.send_replace(readiness(true, None));
     d.bump();
     tracing::info!("daemon ready");
-    if let Some(identity) = d.identity.get().cloned() {
+    if let Some(identity) = d.identity.get() {
         match crate::link::Link::start(d.profile.local_link_file(), identity, d.clone()).await {
             Ok(l) => {
                 tracing::info!(port = l.port, "localhost link listening");
@@ -420,7 +444,8 @@ async fn resume_relay(d: &Arc<Daemon>) {
     let record = match crate::cloud::AccountRecord::load(&d.profile.account_file()) {
         Ok(record) => record,
         Err(e) => {
-            d.set_account_error(&e.to_string());
+            tracing::warn!(error = %e, "account state unreadable");
+            d.set_account_error("account_state");
             return;
         }
     };
@@ -430,6 +455,19 @@ async fn resume_relay(d: &Arc<Daemon>) {
             return;
         }
         a.epoch = record.epoch;
+    }
+    if let Some(account) = record.account_id.as_deref().filter(|_| record.signed_in)
+        && let Err(e) = d.use_identity_of(account).await
+    {
+        tracing::warn!(error = %e.message, "device identity unavailable for the account");
+        d.set_account_error(e.reason.as_deref().unwrap_or("device_identity_missing"));
+        return;
+    }
+    if let Ok(Some(cfg)) = crate::cloud::CloudConfig::load(&d.profile.cloud_file())
+        && record.permits(&cfg)
+    {
+        d.drop_foreign_policy_cursor(cfg.connector_id.as_deref())
+            .await;
     }
     start_relay_locked(d, &record);
 }
@@ -445,7 +483,7 @@ fn start_relay_locked(d: &Arc<Daemon>, record: &crate::cloud::AccountRecord) {
         return;
     }
     let epoch = record.epoch;
-    let Some(identity) = d.identity.get().cloned() else {
+    let Some(identity) = d.identity.get() else {
         return;
     };
     let tls = match crate::cloud::tls_config() {
@@ -473,30 +511,19 @@ fn start_relay_locked(d: &Arc<Daemon>, record: &crate::cloud::AccountRecord) {
     let task = tokio::spawn(async move {
         let mut cfg = cfg;
         if !cfg.device_registered {
-            let Some(cid) = cfg.connector_id.clone() else {
-                d2.set_epoch_error(epoch, "connector id unknown; sign in again");
-                return;
-            };
-            match cloud.register_device(&cid, &identity).await {
-                Ok(()) => {
-                    cfg.device_registered = true;
-                    if let Err(e) = d2.save_registered(epoch, &cfg).await {
-                        d2.set_epoch_error(epoch, &e.message);
-                        return;
-                    }
-                    tracing::info!("device registered with the account");
+            match d2.register_device(epoch, &cloud, &mut cfg, &identity).await {
+                Registered::Yes => {}
+                // Not fatal: the relay still serves grants; pipes wait for it.
+                Registered::No => {
+                    d2.retry_registration(epoch, cloud.clone(), cfg.clone(), identity.clone())
                 }
-                Err(e) => {
-                    // Not fatal: the legacy channel still works; pipes need it.
-                    tracing::warn!(error = %e, "device registration failed");
-                    d2.set_epoch_error(epoch, &e.to_string());
-                }
+                Registered::Stop => return,
             }
         }
         if let crate::relay::Ended::Terminal(why) =
             crate::relay::run(d2.clone(), cloud, cfg, identity, stop).await
         {
-            d2.set_epoch_error(epoch, &why);
+            d2.set_epoch_error(epoch, relay_stop_reason(&why));
         }
     });
     let mut a = d.account.lock().unwrap_or_else(|p| p.into_inner());
@@ -504,6 +531,37 @@ fn start_relay_locked(d: &Arc<Daemon>, record: &crate::cloud::AccountRecord) {
         old.abort();
     }
     a.signed_in = true;
+}
+
+/// The outcome of a device registration attempt.
+enum Registered {
+    Yes,
+    /// Failed for now; retried in the background.
+    No,
+    /// Stale, signed out, or a new identity is being registered instead.
+    Stop,
+}
+
+/// Device registration retries: 5 s doubling to a 5 minute cap, equal jitter.
+fn registration_backoff(attempt: u32) -> Duration {
+    let cap = (5_000u64 << attempt.saturating_sub(1).min(6)).min(300_000);
+    let mut r = [0u8; 8];
+    let _ = getrandom::fill(&mut r);
+    Duration::from_millis(cap / 2 + u64::from_le_bytes(r) % (cap / 2 + 1))
+}
+
+/// A plain reason code for why the relay stopped for good.
+fn relay_stop_reason(why: &str) -> &'static str {
+    for reason in [
+        "authentication_required",
+        "incompatible_version",
+        "policy_authority_mismatch",
+    ] {
+        if why.starts_with(reason) {
+            return reason;
+        }
+    }
+    "relay_stopped"
 }
 
 async fn wait_for_signal(d: Arc<Daemon>) {
@@ -577,7 +635,10 @@ impl Daemon {
                     signed_in: a.signed_in,
                     online: self.online.load(std::sync::atomic::Ordering::Relaxed),
                     pairing: a.pairing.clone(),
-                    last_error: a.last_error.clone(),
+                    last_error: a
+                        .last_error
+                        .clone()
+                        .or_else(|| a.registration_error.clone()),
                     account_id: self
                         .authority
                         .active_account()
@@ -5553,7 +5614,10 @@ impl Daemon {
             if let Some(t) = a.pairing_task.take() {
                 t.abort();
             }
-            if let Some(t) = a.relay.take() {
+            for t in [a.relay.take(), a.registration.take()]
+                .into_iter()
+                .flatten()
+            {
                 t.abort();
             }
             let high = a.epoch.max(previous.as_ref().map(|r| r.epoch).unwrap_or(0));
@@ -5612,10 +5676,34 @@ impl Daemon {
                     .map(|e| e.to_string())
             });
         if let Some(error) = error {
-            self.set_epoch_error(epoch, &error);
+            self.set_epoch_error(epoch, "account_cleanup_failed");
             return Err(ControlError::unavailable("account_cleanup_failed", error));
         }
         Ok(epoch)
+    }
+
+    /// Sign-out and sign-in clear the saved policy cursor. One naming another
+    /// connector (left by an interrupted cleanup) would stop the relay for good,
+    /// so it is dropped with its leases, as sign-out does: nothing is served
+    /// until this connector's first policy snapshot. Caller holds account_gate.
+    async fn drop_foreign_policy_cursor(&self, connector: Option<&str>) {
+        let mut inner = self.inner.lock().await;
+        if inner
+            .access
+            .feed_cursor
+            .as_ref()
+            .is_none_or(|c| Some(c.connector.as_str()) == connector)
+        {
+            return;
+        }
+        inner.access.leases.clear();
+        inner.access.monotonic_leases.clear();
+        inner.access.feed_cursor = None;
+        self.authority.publish_access(&inner.access);
+        if let Err(e) = inner.access.save(&self.profile.access_file()) {
+            tracing::warn!(error = %e, "access list not saved after dropping an old policy cursor");
+        }
+        tracing::info!("dropped a policy cursor from a previous sign-in");
     }
 
     async fn begin_pairing(&self) -> Result<u64, ControlError> {
@@ -5661,6 +5749,8 @@ impl Daemon {
                 "pairing did not provide a canonical account UUID",
             )
         })?;
+        // This account's own device identity, before anything is published for it.
+        self.use_identity_of(account_id).await?;
         // The durable fence is still signed out throughout partial publication.
         self.secrets
             .set(crate::cloud::CONNECTOR_TOKEN, token)
@@ -5679,7 +5769,7 @@ impl Daemon {
             .map_err(|e| ControlError::unavailable("account_state", e.to_string()))?;
         if let Some(identity) = self.identity.get() {
             self.authority
-                .publish_account_identity(&active, &cfg, identity)
+                .publish_account_identity(&active, &cfg, &identity)
                 .map_err(|reason| {
                     ControlError::unavailable(
                         reason.reason(),
@@ -5700,6 +5790,345 @@ impl Daemon {
         self.bump();
         tracing::info!("signed in");
         Ok(())
+    }
+
+    /// Use `account`'s own device identity from now on. Caller holds account_gate,
+    /// with no account published (sign-in) or the same account (reopen). An identity
+    /// nothing has claimed yet is claimed for this account, unless collections here
+    /// show it is another account's; another account's identity is set aside for
+    /// it, never used for this one.
+    async fn use_identity_of(&self, account: &str) -> Result<(), ControlError> {
+        let store_error = |e: secrets::SecretError| {
+            ControlError::unavailable("credential_store_unavailable", e.to_string())
+        };
+        let file = self.profile.identity_file();
+        let current = self.identity.get().ok_or_else(|| {
+            ControlError::unavailable("device_identity_missing", "keychain device unavailable")
+        })?;
+        let owner = match secrets::identity_account(&file).map_err(store_error)? {
+            Some(owner) => owner,
+            None => match self.unclaimed_owner(current.device_id, account).await {
+                Some(other) => other,
+                None => {
+                    return secrets::bind_identity(self.secrets.as_ref(), &file, &current, account)
+                        .map_err(store_error);
+                }
+            },
+        };
+        if owner == account {
+            return Ok(());
+        }
+        let next = secrets::switch_identity(
+            self.secrets.as_ref(),
+            &file,
+            &current,
+            Some(&owner),
+            account,
+            false,
+        )
+        .map_err(store_error)?;
+        tracing::info!("using this account's own device identity");
+        self.activate_identity(next).await;
+        Ok(())
+    }
+
+    /// The account an identity from before identities were per account belongs to,
+    /// when collections registered here with it say it is not `account`'s.
+    async fn unclaimed_owner(&self, device: [u8; 16], account: &str) -> Option<String> {
+        let device = secrets::uuid_string(&device);
+        let inner = self.inner.lock().await;
+        let owners: Vec<&str> = inner
+            .registry
+            .collections
+            .iter()
+            .filter(|e| e.device.as_deref() == Some(device.as_str()))
+            .filter_map(|e| e.owner_account.as_deref())
+            .collect();
+        if owners.contains(&account) {
+            return None;
+        }
+        owners.first().map(|o| o.to_string())
+    }
+
+    /// Another account that registered collections here with `device`.
+    async fn other_owner(&self, device: [u8; 16], account: &str) -> Option<String> {
+        let device = secrets::uuid_string(&device);
+        self.inner
+            .lock()
+            .await
+            .registry
+            .collections
+            .iter()
+            .filter(|e| e.device.as_deref() == Some(device.as_str()))
+            .filter_map(|e| e.owner_account.clone())
+            .find(|o| o != account)
+    }
+
+    /// Serve with `identity`: status, hosts opened from now on, the relay started
+    /// next, and the localhost link (restarted, as its Noise key changed).
+    async fn activate_identity(&self, identity: DeviceIdentity) {
+        let public = identity.public();
+        let identity = Arc::new(identity);
+        self.identity.set(identity.clone());
+        self.inner.lock().await.device = Some(public);
+        let old = self.link.lock().unwrap_or_else(|p| p.into_inner()).take();
+        let Some(old) = old else {
+            return;
+        };
+        old.stop();
+        let Some(d) = self.self_weak.get().and_then(std::sync::Weak::upgrade) else {
+            return;
+        };
+        match crate::link::Link::start(self.profile.local_link_file(), identity, d).await {
+            Ok(l) => *self.link.lock().unwrap_or_else(|p| p.into_inner()) = Some(l),
+            Err(e) => tracing::warn!(error = %e, "localhost link unavailable"),
+        }
+    }
+
+    /// One device registration attempt for this sign-in.
+    async fn register_device(
+        self: &Arc<Self>,
+        epoch: u64,
+        cloud: &crate::cloud::Cloud,
+        cfg: &mut crate::cloud::CloudConfig,
+        identity: &Arc<DeviceIdentity>,
+    ) -> Registered {
+        let Some(cid) = cfg.connector_id.clone() else {
+            self.set_registration_error(epoch, Some("sign_in_required"));
+            return Registered::Stop;
+        };
+        match cloud.register_device(&cid, identity).await {
+            Ok(()) => {
+                cfg.device_registered = true;
+                if let Err(e) = self.save_registered(epoch, cfg).await {
+                    self.set_epoch_error(epoch, e.reason.as_deref().unwrap_or("account_state"));
+                    return Registered::Stop;
+                }
+                self.set_registration_error(epoch, None);
+                tracing::info!("device registered with the account");
+                Registered::Yes
+            }
+            // This identity can never be this account's device here: the account
+            // removed this computer, or the device is another account's. Register a
+            // new device instead (once per sign-in); Private collections approve it
+            // as they approve any new device.
+            Err(crate::cloud::CloudError::Server(409, code))
+                if code == "device_removed" || code == "device_already_bound" =>
+            {
+                tracing::warn!(reason = %code, "device registration refused; registering a new device");
+                if self.begin_identity_replacement(epoch) {
+                    let other = code == "device_already_bound";
+                    tokio::spawn(
+                        self.clone()
+                            .replace_identity(epoch, identity.device_id, other),
+                    );
+                    return Registered::Stop;
+                }
+                self.set_registration_error(epoch, Some("device_registration_failed"));
+                Registered::No
+            }
+            Err(crate::cloud::CloudError::Unauthenticated) => {
+                self.set_registration_error(epoch, Some("authentication_required"));
+                Registered::Stop
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "device registration failed");
+                self.set_registration_error(epoch, Some("device_registration_failed"));
+                Registered::No
+            }
+        }
+    }
+
+    /// Keep registering in the background with capped, jittered backoff, then
+    /// restart the relay so it binds the device.
+    fn retry_registration(
+        self: &Arc<Self>,
+        epoch: u64,
+        cloud: Arc<crate::cloud::Cloud>,
+        mut cfg: crate::cloud::CloudConfig,
+        identity: Arc<DeviceIdentity>,
+    ) {
+        let d = self.clone();
+        let mut stop = self.shutdown.subscribe();
+        let task = tokio::spawn(async move {
+            let mut attempt = 0u32;
+            loop {
+                attempt = attempt.saturating_add(1);
+                tokio::select! {
+                    _ = tokio::time::sleep(registration_backoff(attempt)) => {}
+                    _ = stop.wait_for(|s| *s) => return,
+                }
+                if d.account.lock().unwrap_or_else(|p| p.into_inner()).epoch != epoch {
+                    return;
+                }
+                match d.register_device(epoch, &cloud, &mut cfg, &identity).await {
+                    Registered::No => continue,
+                    Registered::Stop => return,
+                    Registered::Yes => {
+                        let _gate = d.account_gate.lock().await;
+                        if let Ok(record) =
+                            crate::cloud::AccountRecord::load(&d.profile.account_file())
+                            && record.epoch == epoch
+                            && d.account.lock().unwrap_or_else(|p| p.into_inner()).epoch == epoch
+                        {
+                            start_relay_locked(&d, &record);
+                        }
+                        return;
+                    }
+                }
+            }
+        });
+        let mut a = self.account.lock().unwrap_or_else(|p| p.into_inner());
+        if a.epoch != epoch {
+            task.abort();
+        } else if let Some(old) = a.registration.replace(task) {
+            old.abort();
+        }
+    }
+
+    fn set_registration_error(&self, epoch: u64, reason: Option<&str>) {
+        let mut a = self.account.lock().unwrap_or_else(|p| p.into_inner());
+        if a.epoch == epoch && a.registration_error.as_deref() != reason {
+            a.registration_error = reason.map(str::to_string);
+            drop(a);
+            self.bump();
+        }
+    }
+
+    fn begin_identity_replacement(&self, epoch: u64) -> bool {
+        let mut a = self.account.lock().unwrap_or_else(|p| p.into_inner());
+        if a.epoch != epoch || a.identity_replaced {
+            return false;
+        }
+        a.identity_replaced = true;
+        true
+    }
+
+    /// The account refused this computer's device (`refused`). Mint a new identity
+    /// for the account, move the account's local-only collections here to it, and
+    /// sign in again with it under a new account epoch, so nothing that used the old
+    /// identity carries on. Collections synced with the old device are not reused:
+    /// this computer joins them again as a new device. When the refused device is
+    /// another account's (`other`), it is kept for that account.
+    async fn replace_identity(self: Arc<Self>, epoch: u64, refused: [u8; 16], other: bool) {
+        let _gate = self.account_gate.lock().await;
+        let (Ok(record), Ok(Some(mut cfg))) = (
+            crate::cloud::AccountRecord::load(&self.profile.account_file()),
+            crate::cloud::CloudConfig::load(&self.profile.cloud_file()),
+        ) else {
+            return;
+        };
+        let Some(current) = self.identity.get().filter(|i| i.device_id == refused) else {
+            return;
+        };
+        let (Some(account), Some(next)) = (record.account_id.clone(), epoch.checked_add(1)) else {
+            return;
+        };
+        if record.epoch != epoch
+            || !record.permits(&cfg)
+            || self.account.lock().unwrap_or_else(|p| p.into_inner()).epoch != epoch
+        {
+            return;
+        }
+        let keep = if other {
+            self.other_owner(refused, &account).await
+        } else {
+            None
+        };
+        let fresh = match secrets::switch_identity(
+            self.secrets.as_ref(),
+            &self.profile.identity_file(),
+            &current,
+            keep.as_deref(),
+            &account,
+            true,
+        ) {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::warn!(error = %e, "could not store a new device identity");
+                self.set_registration_error(epoch, Some("credential_store_unavailable"));
+                return;
+            }
+        };
+        let device = secrets::uuid_string(&fresh.device_id);
+        // Fence everything that captured this epoch or the old identity.
+        {
+            let mut a = self.account.lock().unwrap_or_else(|p| p.into_inner());
+            for t in [a.relay.take(), a.registration.take()]
+                .into_iter()
+                .flatten()
+            {
+                t.abort();
+            }
+            a.epoch = next;
+            a.registration_error = None;
+        }
+        self.authority.invalidate(next);
+        self.online
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        {
+            let mut inner = self.inner.lock().await;
+            for h in inner.hosts.iter_mut() {
+                h.close().await;
+                h.refresh();
+            }
+            let old = secrets::uuid_string(&refused);
+            let mut registry = inner.registry.clone();
+            for e in registry.collections.iter_mut().filter(|e| {
+                e.mode == SyncMode::Local
+                    && e.owner_account.as_deref() == Some(account.as_str())
+                    && e.device.as_deref() == Some(old.as_str())
+            }) {
+                e.device = Some(device.clone());
+            }
+            if registry != inner.registry {
+                match self.save_registry(&registry) {
+                    Ok(()) => {
+                        inner.registry = registry;
+                        self.authority.publish_registry(&inner.registry);
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e.message, "local collections not moved to the new device")
+                    }
+                }
+            }
+        }
+        self.activate_identity(fresh).await;
+        cfg.account_epoch = next;
+        cfg.device_registered = false;
+        let active = crate::cloud::AccountRecord {
+            epoch: next,
+            ..record
+        };
+        if let Err(e) = cfg
+            .save(&self.profile.cloud_file())
+            .map_err(|e| e.to_string())
+            .and_then(|()| {
+                active
+                    .save(&self.profile.account_file())
+                    .map_err(|e| e.to_string())
+            })
+        {
+            tracing::warn!(error = %e, "account state not saved after a new device identity");
+            self.set_epoch_error(next, "account_state");
+            return;
+        }
+        let Some(identity) = self.identity.get() else {
+            return;
+        };
+        if let Err(reason) = self
+            .authority
+            .publish_account_identity(&active, &cfg, &identity)
+        {
+            self.set_epoch_error(next, reason.reason());
+            return;
+        }
+        self.authority
+            .publish_access(&self.inner.lock().await.access);
+        start_relay_locked(&self, &active);
+        self.reopen_hosts().await;
+        self.bump();
+        tracing::info!("registering this computer again as a new device");
     }
 
     async fn save_registered(
@@ -5741,7 +6170,7 @@ impl Daemon {
         let pairing = match crate::cloud::pairing_start(&tls, &server, &name).await {
             Ok(p) => p,
             Err(e) => {
-                self.set_epoch_error(epoch, &e.to_string());
+                self.set_epoch_error(epoch, "sign_in_failed");
                 return Err(ControlError::unavailable("sign_in_failed", e.to_string()));
             }
         };
@@ -5768,16 +6197,19 @@ impl Daemon {
                 tokio::time::Instant::now() + Duration::from_secs(p2.expires_in.min(3600));
             let result = loop {
                 if tokio::time::Instant::now() > deadline {
-                    break Err("sign-in expired".to_string());
+                    break Err("sign_in_expired");
                 }
                 match crate::cloud::pairing_exchange(&tls, &server, &p2).await {
                     Ok(Some(done)) => break Ok(done),
                     Ok(None) => tokio::time::sleep(Duration::from_millis(1500)).await,
-                    Err(e) => break Err(e.to_string()),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "sign-in failed");
+                        break Err("sign_in_failed");
+                    }
                 }
             };
             match result {
-                Err(e) => d.set_epoch_error(epoch, &e),
+                Err(reason) => d.set_epoch_error(epoch, reason),
                 Ok(paired) => {
                     let cfg = crate::cloud::CloudConfig {
                         schema_version: 1,
@@ -5791,7 +6223,8 @@ impl Daemon {
                         .publish_pairing(epoch, cfg, &paired.account_id, paired.token.as_bytes())
                         .await
                     {
-                        d.set_epoch_error(epoch, &e.message);
+                        tracing::warn!(error = %e.message, "sign-in not published");
+                        d.set_epoch_error(epoch, e.reason.as_deref().unwrap_or("sign_in_failed"));
                     } else {
                         d.activity
                             .record(crate::activity::ActivityEntry::now("signed_in"));
@@ -5912,9 +6345,12 @@ impl Daemon {
 impl Daemon {
     /// Open runtimes that can now open (account published), or report why not.
     async fn reopen_hosts(&self) {
+        let ctx = self.host_ctx();
         let mut inner = self.inner.lock().await;
         let inner = &mut *inner;
         for h in inner.hosts.iter_mut() {
+            // Closed hosts reopen with this sign-in's connector and device identity.
+            h.set_ctx(ctx.clone());
             h.refresh();
             h.publish_grants(&inner.access);
         }

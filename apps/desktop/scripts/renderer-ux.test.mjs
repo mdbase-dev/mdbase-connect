@@ -164,10 +164,11 @@ test("a failed sign-in shows the daemon's reason and offers a fresh one", async 
   try {
     await page.getByRole("button", { name: "Sign in with your browser" }).click();
     await page.getByText("Waiting for browser approval", { exact: true }).waitFor();
-    await page.evaluate(() => { window.fixture.account = { ...window.fixture.account, pairing: null, lastError: "sign-in expired" }; });
+    await page.evaluate(() => { window.fixture.account = { ...window.fixture.account, pairing: null, lastError: "sign_in_expired" }; });
     await page.clock.runFor(2_000);
-    await page.getByText("sign-in expired", { exact: true }).waitFor();
-    await page.getByRole("button", { name: "Sign in with your browser" }).waitFor();
+    await page.getByText("The sign-in request expired. Start again.", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Sign in with your browser" }).click();
+    await page.getByText("Waiting for browser approval", { exact: true }).waitFor();
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

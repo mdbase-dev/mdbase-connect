@@ -2,6 +2,7 @@ import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useState } from "react";
+import { accountProblemText } from "./daemon-view.mjs";
 import { markPairingCompleted } from "./onboarding-state.mjs";
 import { StatusDot } from "./ui-components";
 import { message } from "./view-model";
@@ -38,7 +39,7 @@ export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSign
           markPairingCompleted(localStorage);
           onSignedIn();
         } else if (!next.pairing && next.lastError) {
-          setFailure(next.lastError);
+          setFailure(accountProblemText(next.lastError) ?? "");
         }
       }).catch(() => undefined);
     }, POLL_MS);
@@ -58,7 +59,7 @@ export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSign
     }
   }
 
-  const problem = failure || (!waiting && account.lastError) || "";
+  const problem = failure || (!waiting && accountProblemText(account.lastError)) || "";
   return (
     <section className="pairing-panel" aria-label={t(i18n)({ message: "Sign in", context: "Connect interface" })}>
       <div className="pairing-intro">

@@ -47,7 +47,7 @@ async fn capture_fixture(tag: &str) -> CaptureFixture {
         owned.trust = Some(Arc::new(trust));
         // The generic helper generates an unrelated identity. Start this fixture
         // through normal durable identity initialization BEFORE pairing/adding.
-        owned.identity = std::sync::OnceLock::new();
+        owned.identity = Default::default();
     }
     initialize(daemon.clone()).await;
     assert!(daemon.is_ready());

@@ -925,6 +925,10 @@ msgstr "mdbase просит подтвердить запрос на экран�
 msgid "mdbase cannot reach the sync service. It opens the collection when you are back online."
 msgstr "mdbase не может связаться с сервисом синхронизации. Коллекция откроется, когда вы снова будете в сети."
 
+#: src/renderer/daemon-view.mts
+msgid "mdbase cannot reach this computer's secure storage. Unlock your keychain or restart mdbase."
+msgstr "mdbase не может получить доступ к защищённому хранилищу этого компьютера. Разблокируйте связку ключей или перезапустите mdbase."
+
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not initialize"
@@ -952,6 +956,10 @@ msgstr "Навигация mdbase connect"
 msgid "mdbase connect will start at login."
 msgstr "mdbase connect будет запускаться при входе."
 
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not connect this computer to your account. It keeps trying while mdbase is running."
+msgstr "mdbase не удалось подключить этот компьютер к вашему аккаунту. Попытки продолжатся, пока mdbase работает."
+
 #: src/renderer/access-view.tsx
 msgid "mdbase could not fetch what this app is asking for, or which folders. Approval is possible once it can."
 msgstr "mdbase не удалось получить сведения о запросе приложения и папках. Одобрение станет возможным после их получения."
@@ -963,6 +971,14 @@ msgstr "mdbase не удалось связаться с сервисом син
 #: src/renderer/activity-view.tsx
 msgid "mdbase could not read this computer's activity. It is retried automatically."
 msgstr "mdbase не удалось прочитать историю активности этого компьютера. Повторная попытка произойдёт автоматически."
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not register this computer yet. It keeps trying while mdbase is running."
+msgstr "mdbase пока не удалось зарегистрировать этот компьютер. Попытки продолжатся, пока mdbase работает."
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
+msgstr "mdbase не удалось сохранить настройки аккаунта на этом компьютере. Проверьте свободное место на диске и перезапустите mdbase."
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
@@ -1007,6 +1023,10 @@ msgstr "mdbase требует внимания"
 msgctxt "Desktop application"
 msgid "mdbase needs attention"
 msgstr "mdbase требует внимания"
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase no longer accepts this computer's sign-in. Sign out and sign in again."
+msgstr "mdbase больше не принимает вход с этого компьютера. Выйдите из аккаунта и войдите снова."
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
@@ -1421,6 +1441,10 @@ msgstr "Войдите, чтобы завершить перенос колле�
 msgid "Sign in to mdbase on this computer"
 msgstr "Войти в mdbase на этом компьютере"
 
+#: src/renderer/daemon-view.mts
+msgid "Sign in to mdbase on this computer again."
+msgstr "Снова войдите в mdbase на этом компьютере."
+
 #: src/renderer/view-model.ts
 msgid "Sign in to mdbase on this computer before adding a collection."
 msgstr "Войдите в mdbase на этом компьютере перед добавлением коллекции."
@@ -1458,6 +1482,14 @@ msgstr "Выйти из учётной записи на этом компьют
 msgid "Sign out on this computer…"
 msgstr "Выйти из учётной записи на этом компьютере…"
 
+#: src/renderer/daemon-view.mts
+msgid "Sign-in did not finish. Try again."
+msgstr "Вход не завершён. Повторите попытку."
+
+#: src/renderer/daemon-view.mts
+msgid "Sign-in was cancelled. Start again."
+msgstr "Вход отменён. Начните заново."
+
 #: src/renderer/main.tsx
 msgid "Signed in"
 msgstr "Вход выполнен"
@@ -1466,6 +1498,10 @@ msgstr "Вход выполнен"
 msgctxt "Local connection status"
 msgid "Signing in"
 msgstr "Вход"
+
+#: src/renderer/daemon-view.mts
+msgid "Signing out did not finish. Try signing out again."
+msgstr "Выход не завершён. Попробуйте выйти из аккаунта снова."
 
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
@@ -1653,6 +1689,10 @@ msgstr "После переноса старый mdbase connect снова за�
 msgid "The server hasn't confirmed that the old mdbase Connect on this computer is retired. Keep using mdbase as normal. If this message stays, email support@mdbase.dev."
 msgstr "Сервер ещё не подтвердил, что старый mdbase connect на этом компьютере выведен из эксплуатации. Продолжайте использовать mdbase как обычно. Если сообщение не исчезнет, напишите на support@mdbase.dev."
 
+#: src/renderer/daemon-view.mts
+msgid "The sign-in request expired. Start again."
+msgstr "Срок действия запроса на вход истёк. Начните заново."
+
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The update has not finished downloading."
@@ -1770,6 +1810,10 @@ msgstr "Эта версия mdbase больше не поддерживаетс�
 #: src/main/update-coordinator.ts
 msgid "This version of mdbase is no longer supported. Version {0} is verified; install it now."
 msgstr "Эта версия mdbase больше не поддерживается. Версия {0} проверена; установите её сейчас."
+
+#: src/renderer/daemon-view.mts
+msgid "This version of mdbase is too old for the service. Update mdbase."
+msgstr "Эта версия mdbase слишком старая для сервиса. Обновите mdbase."
 
 #: src/renderer/collections-view.tsx
 msgid "Turn off sync"

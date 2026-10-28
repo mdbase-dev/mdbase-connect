@@ -258,7 +258,8 @@ describePostgres("mdbase-next registered devices", () => {
     }
     const before = await connectorState(db, s.old);
     const body = await registration(db, connector.id, s.deviceId, keys, kind);
-    await expect(registerDeviceProduct(db, connector, body, hash)).rejects.toMatchObject({ code: "device_already_bound" });
+    // Only the holder of this account's device keys learns that the computer was removed.
+    await expect(registerDeviceProduct(db, connector, body, hash)).rejects.toMatchObject({ code: change === "removed computer" ? "device_removed" : "device_already_bound" });
     expect(await deviceConnector(db, s.deviceId)).toBe(s.old);
     expect(await collectionConnector(db, s.user)).toBe(s.old);
     expect(await connectorState(db, s.old)).toEqual(before);
@@ -340,6 +341,24 @@ describePostgres("mdbase-next registered devices", () => {
       .toEqual([{ metadata: expect.objectContaining({ reason: "unregistered_sign_in_replaced", device_id: s.deviceId, replaced_by: s.next }) }]);
     for (const [key, id] of Object.entries(kept)) expect([key, await connectorState(db, id)]).toEqual([key, before[key]]);
     expect((await connectorState(db, s.next)).revoked_at).toBeNull();
+  });
+
+  it("tells a removed computer through the route that it needs a new device", async () => {
+    const s = await signedInAgain(db);
+    await db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [s.old]);
+    const app = Fastify(), fresh = deviceKeys(), freshId = randomUUID();
+    registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null }, relay: { fenceConnector: async () => "closed" } });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/next/devices", headers: { authorization: `Bearer ${s.token}` }, payload: await registration(db, s.next, s.deviceId, s.keys) });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ error: { code: "device_removed" } });
+      // A new device for the same computer registers on the new connector.
+      const again = await app.inject({ method: "POST", url: "/v1/next/devices", headers: { authorization: `Bearer ${s.token}` }, payload: await registration(db, s.next, freshId, fresh) });
+      expect(again.statusCode).toBe(200);
+      expect(again.json()).toEqual({ device_id: freshId });
+    } finally { await app.close(); }
+    expect(await deviceConnector(db, s.deviceId)).toBe(s.old);
+    expect(await deviceConnector(db, freshId)).toBe(s.next);
   });
 
   it.each(["mobile", "app-runtime"])("never moves a per-installation %s device to another connector", async kind => {

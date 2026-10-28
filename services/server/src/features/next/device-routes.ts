@@ -33,7 +33,7 @@ export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: Da
     } catch (error) {
       if (isLockTimeout(error)) return reply.code(503).send(apiError("busy", "Device registration was not confirmed."));
       if (!(error instanceof DeviceRegistrationError)) throw error;
-      const status = error.code === "identity_not_current" ? 403 : error.code === "device_keys_changed" || error.code === "device_already_bound" ? 409 : 400;
+      const status = error.code === "identity_not_current" ? 403 : error.code === "device_keys_changed" || error.code === "device_already_bound" || error.code === "device_removed" ? 409 : 400;
       return reply.code(status).send(apiError(error.code, error.message));
     }
   });

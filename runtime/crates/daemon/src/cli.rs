@@ -1023,7 +1023,7 @@ async fn run_command(
                 if let Some(e) = s.account.last_error.filter(|_| s.account.pairing.is_none()) {
                     return Err(ClientError::Remote(ControlError::unavailable(
                         "sign_in_failed",
-                        e,
+                        account_problem(&e),
                     )));
                 }
                 if tokio::time::Instant::now() > deadline {
@@ -1394,7 +1394,7 @@ fn print_status(s: &DaemonStatus) {
         println!("Sign-in waiting for approval: {u}");
     }
     if let Some(e) = &s.account.last_error {
-        println!("Account problem: {e}");
+        println!("Account problem: {}", account_problem(e));
     }
     println!(
         "Account: {}",
@@ -1749,6 +1749,29 @@ fn print_private_collections(v: &Value) {
         .flatten()
     {
         println!("  {}", c);
+    }
+}
+
+/// The daemon reports account problems as reason codes; say them in plain words.
+fn account_problem(reason: &str) -> &'static str {
+    match reason {
+        "sign_in_failed" => "sign-in did not finish; try again",
+        "sign_in_expired" => "the sign-in request expired; start again",
+        "sign_in_cancelled" => "sign-in was cancelled; start again",
+        "sign_in_required" => "sign in to mdbase on this computer again",
+        "authentication_required" => {
+            "mdbase no longer accepts this computer's sign-in; sign out and sign in again"
+        }
+        "device_registration_failed" => {
+            "mdbase could not register this computer yet; it keeps trying while running"
+        }
+        "incompatible_version" => "this version of mdbase is too old for the service; update it",
+        "credential_store_unavailable" => {
+            "this computer's secure storage is unavailable; unlock the keychain or restart mdbase"
+        }
+        "account_state" => "the account settings could not be saved; check free disk space",
+        "account_cleanup_failed" => "signing out did not finish; sign out again",
+        _ => "this computer could not connect to the account; mdbase keeps trying while running",
     }
 }
 

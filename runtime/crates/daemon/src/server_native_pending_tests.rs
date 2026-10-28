@@ -204,7 +204,7 @@ async fn in_process_restart(
     let mut restarted = daemon(&f._profile);
     {
         let d = Arc::get_mut(&mut restarted).unwrap();
-        d.identity = std::sync::OnceLock::new();
+        d.identity = Default::default();
         // Reuse the ORIGINAL credential backend. A fresh MemoryStore would be a
         // new owner, not a restart of this source. Do NOT pair/publish again.
         d.secrets = f.daemon.secrets.clone();

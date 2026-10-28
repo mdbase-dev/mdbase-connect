@@ -374,7 +374,10 @@ pub struct AccountInfo {
     /// A sign-in waiting for approval: the page to open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pairing: Option<String>,
-    /// The last account-link problem, if any.
+    /// The last account-link problem, if any: a plain reason code, such as
+    /// `device_registration_failed` while this computer is not registered with
+    /// the account yet (retried in the background), `sign_in_expired` or
+    /// `authentication_required`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
     /// The paired account's ID (a UUID; not a secret), once signed in.

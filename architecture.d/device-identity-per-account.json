@@ -1,0 +1,7 @@
+{
+  "reason": "The desktop sign-in panel shows account problems in plain words using one exported helper (accountProblemText) next to the existing connection presentation in daemon-view, rather than a second copy of the wording.",
+  "growth": {
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 1
+  }
+}

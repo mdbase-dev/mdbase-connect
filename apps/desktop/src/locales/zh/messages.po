@@ -925,6 +925,10 @@ msgstr "mdbase 会要求你在此电脑的屏幕上核对应用密钥并确认�
 msgid "mdbase cannot reach the sync service. It opens the collection when you are back online."
 msgstr "mdbase 无法连接同步服务。恢复在线后，它会打开集合。"
 
+#: src/renderer/daemon-view.mts
+msgid "mdbase cannot reach this computer's secure storage. Unlock your keychain or restart mdbase."
+msgstr "mdbase 无法访问此电脑的安全存储。请解锁钥匙串或重启 mdbase。"
+
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not initialize"
@@ -952,6 +956,10 @@ msgstr "mdbase connect 导航"
 msgid "mdbase connect will start at login."
 msgstr "mdbase connect 将在登录时启动。"
 
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not connect this computer to your account. It keeps trying while mdbase is running."
+msgstr "mdbase 无法将此电脑连接到你的账号。运行期间将持续重试。"
+
 #: src/renderer/access-view.tsx
 msgid "mdbase could not fetch what this app is asking for, or which folders. Approval is possible once it can."
 msgstr "mdbase 无法获取此应用请求的操作或文件夹。恢复获取后即可批准。"
@@ -963,6 +971,14 @@ msgstr "mdbase 无法连接同步服务。请检查网络连接后重试。{unch
 #: src/renderer/activity-view.tsx
 msgid "mdbase could not read this computer's activity. It is retried automatically."
 msgstr "mdbase 无法读取此电脑的活动信息。系统会自动重试。"
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not register this computer yet. It keeps trying while mdbase is running."
+msgstr "mdbase 暂时无法注册此电脑。运行期间将持续重试。"
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
+msgstr "mdbase 无法保存此电脑的账号设置。请检查磁盘可用空间，然后重启 mdbase。"
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
@@ -1007,6 +1023,10 @@ msgstr "mdbase 需要你处理"
 msgctxt "Desktop application"
 msgid "mdbase needs attention"
 msgstr "mdbase 需要你处理"
+
+#: src/renderer/daemon-view.mts
+msgid "mdbase no longer accepts this computer's sign-in. Sign out and sign in again."
+msgstr "mdbase 不再接受此电脑的登录。请退出登录后重新登录。"
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
@@ -1421,6 +1441,10 @@ msgstr "登录以完成集合迁移"
 msgid "Sign in to mdbase on this computer"
 msgstr "在此电脑上登录 mdbase"
 
+#: src/renderer/daemon-view.mts
+msgid "Sign in to mdbase on this computer again."
+msgstr "请在此电脑上重新登录 mdbase。"
+
 #: src/renderer/view-model.ts
 msgid "Sign in to mdbase on this computer before adding a collection."
 msgstr "添加集合前，请在此电脑上登录 mdbase。"
@@ -1458,6 +1482,14 @@ msgstr "在此电脑上退出登录？应用将无法再通过此电脑访问你
 msgid "Sign out on this computer…"
 msgstr "在此电脑上退出登录…"
 
+#: src/renderer/daemon-view.mts
+msgid "Sign-in did not finish. Try again."
+msgstr "登录未完成。请重试。"
+
+#: src/renderer/daemon-view.mts
+msgid "Sign-in was cancelled. Start again."
+msgstr "登录已取消。请重新开始。"
+
 #: src/renderer/main.tsx
 msgid "Signed in"
 msgstr "已登录"
@@ -1466,6 +1498,10 @@ msgstr "已登录"
 msgctxt "Local connection status"
 msgid "Signing in"
 msgstr "正在登录"
+
+#: src/renderer/daemon-view.mts
+msgid "Signing out did not finish. Try signing out again."
+msgstr "退出登录未完成。请再次尝试退出登录。"
 
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
@@ -1653,6 +1689,10 @@ msgstr "迁移后，旧版 mdbase Connect 又启动了。请退出并将其从�
 msgid "The server hasn't confirmed that the old mdbase Connect on this computer is retired. Keep using mdbase as normal. If this message stays, email support@mdbase.dev."
 msgstr "服务器尚未确认此电脑上的旧版 mdbase Connect 已停用。请照常使用 mdbase。如果此消息持续显示，请发送邮件至 support@mdbase.dev。"
 
+#: src/renderer/daemon-view.mts
+msgid "The sign-in request expired. Start again."
+msgstr "登录请求已过期。请重新开始。"
+
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The update has not finished downloading."
@@ -1770,6 +1810,10 @@ msgstr "此版本的 mdbase 已不受支持。可通过签名软件包渠道获�
 #: src/main/update-coordinator.ts
 msgid "This version of mdbase is no longer supported. Version {0} is verified; install it now."
 msgstr "此版本的 mdbase 已不受支持。版本 {0} 已通过验证；请立即安装。"
+
+#: src/renderer/daemon-view.mts
+msgid "This version of mdbase is too old for the service. Update mdbase."
+msgstr "此版本的 mdbase 太旧，无法使用该服务。请更新 mdbase。"
 
 #: src/renderer/collections-view.tsx
 msgid "Turn off sync"

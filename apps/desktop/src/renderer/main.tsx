@@ -233,6 +233,7 @@ function App() {
             <Settings
               cloud={cloud}
               connectionLabel={connection.settingsLabel}
+              connectionDetail={connection.detail}
               requireApproval={requireApproval}
               startup={startup}
               updateStatus={updateStatus}
@@ -325,9 +326,10 @@ function CreateCollectionDialog({ busy, onClose, onCreate }: {
   );
 }
 
-function Settings({ cloud, connectionLabel, requireApproval, startup, updateStatus, busy, onAct, onNotice }: {
+function Settings({ cloud, connectionLabel, connectionDetail, requireApproval, startup, updateStatus, busy, onAct, onNotice }: {
   cloud: CloudSetting | null;
   connectionLabel: string;
+  connectionDetail?: string;
   requireApproval: boolean | null;
   startup: StartupSetting;
   updateStatus: DesktopUpdateStatus | null;
@@ -343,7 +345,7 @@ function Settings({ cloud, connectionLabel, requireApproval, startup, updateStat
           <SectionHeading title={t(i18n)({ message: "Account", context: "Connect interface" })} note={t(i18n)({ message: "The mdbase account this computer is signed in to." })} />
           <div className="settings-rows">
             <SettingRow label={t(i18n)({ message: "mdbase service", context: "Connect interface" })} value={cloud.serverUrl ?? t(i18n)`Signed in`} detail={cloud.online ? t(i18n)`Connected` : t(i18n)`Saved app access still works on this computer`} mono />
-            <SettingRow label={t(i18n)({ message: "Connection", context: "Connect interface" })} value={connectionLabel} detail={t(i18n)`Keeps apps on your other devices connected to this computer`} />
+            <SettingRow label={t(i18n)({ message: "Connection", context: "Connect interface" })} value={connectionLabel} detail={connectionDetail ?? t(i18n)`Keeps apps on your other devices connected to this computer`} />
             <ComputerNameRow name={cloud.computerName ?? null} busy={busy} onAct={onAct} onNotice={onNotice} />
           </div>
           <div className="portal-connection-actions">

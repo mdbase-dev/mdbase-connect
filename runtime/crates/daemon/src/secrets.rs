@@ -22,6 +22,15 @@
 //! show it without touching the keychain. On startup the two must agree. A
 //! `daemon.json` with no matching keychain entry fails closed: minting a new
 //! identity would silently orphan this device's enrolments and key grants.
+//!
+//! **One identity per account.** A device belongs to the account it was registered
+//! to, so each account that signs in on this computer gets its own identity, kept
+//! as `device-identity:<account>`. `daemon.json` also names the account the active
+//! identity belongs to and is the commit point of a switch: per-account entries are
+//! written first, then `daemon.json`, then the active `device-identity` entry, and a
+//! startup that finds the active entry behind `daemon.json` restores it from the
+//! named account's entry. An identity from before this (no account named) belongs
+//! to the first account that signs in with it.
 
 use std::path::Path;
 #[cfg(any(test, debug_assertions))]
@@ -366,11 +375,12 @@ impl std::fmt::Debug for DeviceIdentity {
 ///
 /// ```json
 /// {"schema_version": 1, "device": "<uuid>", "noise_pk": "<64 hex>",
-///  "sign_pk": "<64 hex>", "kem_pk": "<64 hex>"}
+///  "sign_pk": "<64 hex>", "kem_pk": "<64 hex>", "account": "<uuid>"}
 /// ```
 ///
 /// Local clients read `device` and `noise_pk` to build the Noise prologue and pin
-/// the responder key. Readers ignore unknown fields.
+/// the responder key. Readers ignore unknown fields. `account` (the account the
+/// identity belongs to) is read by the daemon only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevicePublic {
     /// Schema version.
@@ -479,55 +489,180 @@ impl DeviceIdentity {
     /// Load this profile's identity, or mint and store one on first start.
     ///
     /// Fails closed when `daemon.json` exists but the keychain has no identity, or
-    /// when the two disagree.
+    /// when the two disagree (after restoring an interrupted account switch).
     pub fn load_or_create(
         store: &dyn SecretStore,
         device_file: &Path,
     ) -> Result<DeviceIdentity, SecretError> {
-        let mirror: Option<DevicePublic> = match fsutil::read_optional(device_file)? {
-            None => None,
-            Some(b) => Some(
-                serde_json::from_slice(&b)
-                    .map_err(|_| SecretError::Invalid("daemon.json does not parse".into()))?,
-            ),
-        };
-        match (store.get(DEVICE_IDENTITY)?, mirror) {
-            (Some(raw), Some(public)) => {
+        match (
+            store.get(DEVICE_IDENTITY)?,
+            read_identity_file(device_file)?,
+        ) {
+            (Some(raw), Some(file)) => {
                 let id = DeviceIdentity::decode(&raw)?;
-                if id.public() != public {
-                    return Err(SecretError::Invalid(
-                        "the keychain identity does not match daemon.json".into(),
-                    ));
+                if id.public() == file.public {
+                    return Ok(id);
                 }
-                Ok(id)
+                restore_active(store, &file)?.ok_or_else(|| {
+                    SecretError::Invalid("the keychain identity does not match daemon.json".into())
+                })
             }
             (Some(raw), None) => {
                 let id = DeviceIdentity::decode(&raw)?;
-                write_public(device_file, &id.public())?;
+                write_identity_file(device_file, &id.public(), None)?;
                 Ok(id)
             }
-            (None, Some(_)) => Err(SecretError::Invalid(
-                "daemon.json exists but the keychain has no device identity; \
-                 refusing to mint a new one (it would orphan this device's enrolments)"
-                    .into(),
-            )),
+            (None, Some(file)) => restore_active(store, &file)?.ok_or_else(|| {
+                SecretError::Invalid(
+                    "daemon.json exists but the keychain has no device identity; \
+                     refusing to mint a new one (it would orphan this device's enrolments)"
+                        .into(),
+                )
+            }),
             (None, None) => {
                 let id = DeviceIdentity::generate()?;
-                store.set(DEVICE_IDENTITY, &id.encode())?;
-                let back = store.get(DEVICE_IDENTITY)?.ok_or_else(|| {
-                    SecretError::Unavailable("identity did not read back after storing".into())
-                })?;
-                let back = DeviceIdentity::decode(&back)?;
-                if back.public() != id.public() {
-                    return Err(SecretError::Unavailable(
-                        "identity changed while it was being stored".into(),
-                    ));
-                }
-                write_public(device_file, &id.public())?;
+                store_identity(store, DEVICE_IDENTITY, &id)?;
+                write_identity_file(device_file, &id.public(), None)?;
                 Ok(id)
             }
         }
     }
+}
+
+/// `daemon.json`: the active identity's public half, and the account it belongs to
+/// (absent until an account signs in with it).
+#[derive(Serialize, Deserialize)]
+struct IdentityFile {
+    #[serde(flatten)]
+    public: DevicePublic,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    account: Option<String>,
+}
+
+fn read_identity_file(path: &Path) -> Result<Option<IdentityFile>, SecretError> {
+    fsutil::read_optional(path)?
+        .map(|b| {
+            serde_json::from_slice(&b)
+                .map_err(|_| SecretError::Invalid("daemon.json does not parse".into()))
+        })
+        .transpose()
+}
+
+fn write_identity_file(
+    path: &Path,
+    public: &DevicePublic,
+    account: Option<&str>,
+) -> Result<(), SecretError> {
+    let file = IdentityFile {
+        public: public.clone(),
+        account: account.map(str::to_string),
+    };
+    let mut b =
+        serde_json::to_vec_pretty(&file).map_err(|_| SecretError::Invalid("encode".into()))?;
+    b.push(b'\n');
+    fsutil::write_atomic(path, &b)?;
+    Ok(())
+}
+
+/// Keychain entry name of an account's device identity.
+fn account_entry(account: &str) -> String {
+    format!("{DEVICE_IDENTITY}:{account}")
+}
+
+fn load_entry(store: &dyn SecretStore, name: &str) -> Result<Option<DeviceIdentity>, SecretError> {
+    store
+        .get(name)?
+        .map(|raw| DeviceIdentity::decode(&raw))
+        .transpose()
+}
+
+/// Store `id` under `name` and read it back.
+fn store_identity(
+    store: &dyn SecretStore,
+    name: &str,
+    id: &DeviceIdentity,
+) -> Result<(), SecretError> {
+    store.set(name, &id.encode())?;
+    let back = load_entry(store, name)?.ok_or_else(|| {
+        SecretError::Unavailable("identity did not read back after storing".into())
+    })?;
+    if back.public() != id.public() {
+        return Err(SecretError::Unavailable(
+            "identity changed while it was being stored".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Finish a switch interrupted after `daemon.json` was written: the named account's
+/// entry holds the identity `daemon.json` describes.
+fn restore_active(
+    store: &dyn SecretStore,
+    file: &IdentityFile,
+) -> Result<Option<DeviceIdentity>, SecretError> {
+    let Some(account) = file.account.as_deref() else {
+        return Ok(None);
+    };
+    match load_entry(store, &account_entry(account))? {
+        Some(id) if id.public() == file.public => {
+            store_identity(store, DEVICE_IDENTITY, &id)?;
+            Ok(Some(id))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// The account the active identity belongs to (`None`: no account has signed in
+/// with it yet).
+pub fn identity_account(device_file: &Path) -> Result<Option<String>, SecretError> {
+    Ok(read_identity_file(device_file)?.and_then(|f| f.account))
+}
+
+/// Record that the active identity `id` belongs to `account`.
+pub fn bind_identity(
+    store: &dyn SecretStore,
+    device_file: &Path,
+    id: &DeviceIdentity,
+    account: &str,
+) -> Result<(), SecretError> {
+    store_identity(store, &account_entry(account), id)?;
+    write_identity_file(device_file, &id.public(), Some(account))
+}
+
+/// Make `account`'s identity the active one and return it: the one it already has
+/// here, or a newly minted one when it has none or `fresh` is set (its old device
+/// was removed or refused). The current identity is kept for `keep` (the account
+/// it belongs to) if that account has no identity stored here yet; otherwise it
+/// is no longer used.
+pub fn switch_identity(
+    store: &dyn SecretStore,
+    device_file: &Path,
+    current: &DeviceIdentity,
+    keep: Option<&str>,
+    account: &str,
+    fresh: bool,
+) -> Result<DeviceIdentity, SecretError> {
+    if let Some(owner) = keep.filter(|owner| *owner != account)
+        && load_entry(store, &account_entry(owner))?.is_none()
+    {
+        store_identity(store, &account_entry(owner), current)?;
+    }
+    let stored = if fresh {
+        None
+    } else {
+        load_entry(store, &account_entry(account))?
+    };
+    let next = match stored {
+        Some(id) => id,
+        None => {
+            let id = DeviceIdentity::generate()?;
+            store_identity(store, &account_entry(account), &id)?;
+            id
+        }
+    };
+    write_identity_file(device_file, &next.public(), Some(account))?;
+    store_identity(store, DEVICE_IDENTITY, &next)?;
+    Ok(next)
 }
 
 /// Read and verify the daemon's identity for a local client.
@@ -548,13 +683,6 @@ pub fn read_daemon_identity(state_dir: &Path, file: &Path) -> Result<DevicePubli
         return Err(SecretError::Invalid("daemon.json is incomplete".into()));
     }
     Ok(p)
-}
-
-fn write_public(path: &Path, p: &DevicePublic) -> Result<(), SecretError> {
-    let mut b = serde_json::to_vec_pretty(p).map_err(|_| SecretError::Invalid("encode".into()))?;
-    b.push(b'\n');
-    fsutil::write_atomic(path, &b)?;
-    Ok(())
 }
 
 /// The control plane's domain-separated hash:
@@ -667,6 +795,97 @@ mod tests {
         let link = dir.path().join("link.json");
         std::os::unix::fs::symlink(&file, &link).unwrap();
         assert!(read_daemon_identity(&state, &link).is_err());
+    }
+
+    #[test]
+    fn each_account_keeps_its_own_identity() {
+        let dir = crate::testutil::TestDir::new("per-account");
+        let file = dir.path().join("daemon.json");
+        let store = MemoryStore::default();
+        let (alice, bob) = ("alice-account", "bob-account");
+        let first = DeviceIdentity::load_or_create(&store, &file).unwrap();
+        assert_eq!(
+            identity_account(&file).unwrap(),
+            None,
+            "no account has used it yet"
+        );
+        bind_identity(&store, &file, &first, alice).unwrap();
+        assert_eq!(identity_account(&file).unwrap().as_deref(), Some(alice));
+
+        let b = switch_identity(&store, &file, &first, Some(alice), bob, false).unwrap();
+        assert_ne!(
+            b.public(),
+            first.public(),
+            "another account gets a new device"
+        );
+        assert_eq!(identity_account(&file).unwrap().as_deref(), Some(bob));
+        assert_eq!(
+            DeviceIdentity::load_or_create(&store, &file)
+                .unwrap()
+                .public(),
+            b.public()
+        );
+        assert_eq!(read_daemon_identity_unchecked(&file), b.public());
+
+        let a = switch_identity(&store, &file, &b, Some(bob), alice, false).unwrap();
+        assert_eq!(
+            a.public(),
+            first.public(),
+            "the first account's device comes back"
+        );
+        let b2 = switch_identity(&store, &file, &a, Some(alice), bob, false).unwrap();
+        assert_eq!(b2.public(), b.public());
+
+        // A refused device is replaced, and the replacement is the account's from then on.
+        let fresh = switch_identity(&store, &file, &b2, None, bob, true).unwrap();
+        assert_ne!(fresh.public(), b.public());
+        let a = switch_identity(&store, &file, &fresh, Some(bob), alice, false).unwrap();
+        let back = switch_identity(&store, &file, &a, Some(alice), bob, false).unwrap();
+        assert_eq!(back.public(), fresh.public());
+    }
+
+    #[test]
+    fn an_interrupted_account_switch_finishes_on_startup() {
+        let dir = crate::testutil::TestDir::new("switch-crash");
+        let file = dir.path().join("daemon.json");
+        let store = MemoryStore::default();
+        let first = DeviceIdentity::load_or_create(&store, &file).unwrap();
+        bind_identity(&store, &file, &first, "alice-account").unwrap();
+        let b = switch_identity(
+            &store,
+            &file,
+            &first,
+            Some("alice-account"),
+            "bob-account",
+            false,
+        )
+        .unwrap();
+        // Stopped after daemon.json named the new identity, before the active entry.
+        store.set(DEVICE_IDENTITY, &first.encode()).unwrap();
+        assert_eq!(
+            DeviceIdentity::load_or_create(&store, &file)
+                .unwrap()
+                .public(),
+            b.public()
+        );
+        assert_eq!(
+            load_entry(&store, DEVICE_IDENTITY)
+                .unwrap()
+                .unwrap()
+                .public(),
+            b.public()
+        );
+        // Nothing to restore from still fails closed.
+        store.delete(&account_entry("bob-account")).unwrap();
+        store.set(DEVICE_IDENTITY, &first.encode()).unwrap();
+        assert!(matches!(
+            DeviceIdentity::load_or_create(&store, &file),
+            Err(SecretError::Invalid(_))
+        ));
+    }
+
+    fn read_daemon_identity_unchecked(file: &Path) -> DevicePublic {
+        serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap()
     }
 
     #[test]
