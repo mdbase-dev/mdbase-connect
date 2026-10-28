@@ -8,6 +8,7 @@
 //   new head;
 // - any other refusal parks the collection's queue (order matters) until an operator
 //   looks at it. Nothing is dropped silently.
+import { CreateError } from "./bootstrap-common.js";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
@@ -391,10 +392,14 @@ export class PolicyEmitter {
        AND reissue_of IS NOT NULL ORDER BY reissue_of LIMIT 1`, [collectionId]
     );
     if (recovery.rows.length) return recovery.rows;
-    return (await lock.query<{ id: string; ops: unknown; reissue_of: null }>(
+    const rows = (await lock.query<{ id: string; ops: unknown; reissue_of: null }>(
       `SELECT id, ops, reissue_of FROM next_policy_outbox WHERE collection_id = $1 AND batch_id IS NULL
        AND reissue_of IS NULL ORDER BY id LIMIT $2`, [collectionId, MAX_ROWS_PER_ITEM]
     )).rows;
+    // A native-prefix-bound mode item must occupy its own policy batch. Publish
+    // preceding rows first; they require a fresh native capability preflight.
+    const cut = rows.findIndex(row => row.ops !== null && typeof row.ops === "object" && Object.hasOwn(row.ops, "mode_source_head"));
+    return cut === 0 ? rows.slice(0, 1) : cut > 0 ? rows.slice(0, cut) : rows;
   }
 
   /** Return the immutable open batch, or persist a new one before sending. */
@@ -420,6 +425,9 @@ export class PolicyEmitter {
       // stored ops under the row lock, without keeping a transaction over I/O.
       const pending = await this.pending(lock, collectionId);
       if (!pending.length) { await lock.commit(); return "idle"; }
+      const expected = (pending[0]!.ops as { mode_source_head?: { seq: string; chain: string } }).mode_source_head;
+      if (expected && (BigInt(expected.seq) !== BigInt(head.seq) || expected.chain !== Buffer.from(head.chain).toString("hex")))
+        throw new CreateError(409, "mode_source_changed");
       const ops = pending.flatMap(entry => deserializeOps(entry.ops));
       if ((ops[0]?.op === "genesis") !== genesis) throw new Error("policy claim changed during head read");
       const previousIssuedAt = Number(row.last_issued_at);

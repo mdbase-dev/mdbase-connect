@@ -492,17 +492,9 @@ impl<S: Store> Replica<S> {
     pub(super) fn private_switch_meta(&self) -> (String, Option<Vec<u8>>) {
         (META.into(), Some(self.private_switch.to_bytes()))
     }
-    pub(super) fn capture_private_switch(&mut self, p: u64, chain: B32, eligible: bool) {
-        if !eligible
-            || matches!(
-                self.private_switch.state,
-                State::Pending { .. } | State::Refused
-            )
-        {
-            return;
-        }
-        let members = self
-            .policy
+    /// Active keyed user-device set for capability preflight. No trust changes.
+    pub fn mode_switch_members(&self) -> Vec<Uuid> {
+        self.policy
             .devices
             .iter()
             .filter(|(_, d)| {
@@ -517,6 +509,21 @@ impl<S: Store> Replica<S> {
                     )
             })
             .map(|(id, _)| *id)
+            .collect()
+    }
+
+    pub(super) fn capture_private_switch(&mut self, p: u64, chain: B32, eligible: bool) {
+        if !eligible
+            || matches!(
+                self.private_switch.state,
+                State::Pending { .. } | State::Refused
+            )
+        {
+            return;
+        }
+        let members = self
+            .mode_switch_members()
+            .into_iter()
             .collect::<BTreeSet<_>>();
         if !members.contains(&self.cfg.device_id) {
             return;

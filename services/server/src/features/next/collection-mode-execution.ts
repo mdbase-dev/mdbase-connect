@@ -15,12 +15,13 @@ import { serializeOps } from "./policy-outbox.js";
 import { migrationDeployments } from "./migration-routing.js";
 import { pitrDeployments } from "./lab-pitr-config.js";
 import { chainHash, type PolicyOp } from "./policy-wire.js";
+import { armModeFloor, ModeDevicesNeedUpdate } from "./collection-mode-capability.js";
 
 const uuid = z.uuid().transform(s => s.toLowerCase()).refine(s => s !== SERVICE_ACCOUNT);
 const uint = z.string().regex(/^[1-9][0-9]{0,19}$/u).refine(s => BigInt(s) < 1n << 64n);
 const hex32 = z.string().regex(/^[0-9a-f]{64}$/u);
 const bodySchema = z.object({ device_id: uuid, challenge: hex32, sig: z.string().regex(/^[0-9a-f]{128}$/u), epoch: uint,
-  seq: uint.optional(), chain: hex32.optional() }).strict();
+  seq: uint, chain: hex32, members: z.array(uuid).max(1024) }).strict();
 type Body = z.infer<typeof bodySchema>;
 type Change = { target_mode: Mode; source_mode: Mode; source_epoch: string | null; policy_outbox_id: string | null;
   completed_at: Date | null; rekey_verified_at: Date | null; rekey_seq: string | null; rekey_chain: Buffer | null };
@@ -75,14 +76,14 @@ async function services(options: CloudCopyBootstrapOptions, collection: string, 
   }
 }
 
-export function registerCollectionModeExecution(app: FastifyInstance, options: CloudCopyBootstrapOptions): void {
+export function registerCollectionModeExecution(app: FastifyInstance, options: CloudCopyBootstrapOptions & { now?: () => number }): void {
   for (const finish of [false, true]) app.post(`/v1/next/collections/:id/mode/:requestId/${finish ? "finish" : "prepare"}`, {
-    bodyLimit: 2048, config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
+    bodyLimit: 64 * 1024, config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     reply.header("cache-control", "no-store");
     const params = z.object({ id: uuid, requestId: uuid }).safeParse(request.params);
     const parsed = bodySchema.safeParse(request.body);
-    if (!params.success || !parsed.success || (finish && (!parsed.data.seq || !parsed.data.chain)) || (!finish && (parsed.data.seq || parsed.data.chain)))
+    if (!params.success || !parsed.success || new Set(parsed.data.members).size !== parsed.data.members.length || (finish && parsed.data.members.length !== 0))
       return reply.code(400).send(apiError("invalid_request", "A native device proof is required."));
     const owner = await authenticateOwner(request, reply, options.db);
     if (!owner) return reply;
@@ -94,7 +95,7 @@ export function registerCollectionModeExecution(app: FastifyInstance, options: C
         const row = await change(client, collection, requestId);
         const device = await authenticate(client, body, native.connector, challenge => collectionModeDigest({ challenge,
           connector: native.connector.id, device: body.device_id, collection, request: requestId, target: row.target_mode,
-          finish, epoch: BigInt(body.epoch), seq: BigInt(body.seq ?? "0"), chain: Buffer.from(body.chain ?? "00".repeat(32), "hex") }));
+          finish, epoch: BigInt(body.epoch), seq: BigInt(body.seq), chain: Buffer.from(body.chain, "hex"), members: body.members }));
         await currentDevice(client, native, collection, body, device);
         return { row, device };
       });
@@ -106,10 +107,21 @@ export function registerCollectionModeExecution(app: FastifyInstance, options: C
       if (!finish) {
         const generated = initial.row.target_mode === "cloud_copy" && initial.row.policy_outbox_id === null
           ? await generateCloudCopyServices(options, collection) : null;
-        await inTransaction(options.db, async client => {
+        const waitUntil = await inTransaction(options.db, async client => {
           const row = await current(client);
-          if (row.policy_outbox_id !== null || row.completed_at) return;
-          if (row.source_epoch !== null && row.source_epoch !== body.epoch) throw new CreateError(409, "source_epoch_changed");
+          if (row.completed_at) return null;
+          if (row.policy_outbox_id !== null) {
+            if (row.target_mode === "cloud_copy") return null;
+            const queued = (await client.query<{ batch_id: string | null }>("SELECT batch_id FROM next_policy_outbox WHERE id=$1 FOR UPDATE", [row.policy_outbox_id])).rows[0];
+            // Never replace a sent/uncertain batch. A head-moved batch is released
+            // by the existing emitter before native preparation can refresh it.
+            if (!queued || queued.batch_id !== null) return null;
+          }
+          if (row.target_mode === "private") {
+            if (!body.members.includes(body.device_id)) throw new CreateError(409, "keyed_owner_required");
+            const readyAt = await armModeFloor(client, collection, body.members, (options.now ?? Date.now)());
+            if ((options.now ?? Date.now)() < readyAt) return readyAt;
+          }
           const mode = await ownedMode(client, native, collection);
           if (mode !== row.source_mode) throw new CreateError(409, "mode_changed");
           let ops: PolicyOp[];
@@ -124,9 +136,18 @@ export function registerCollectionModeExecution(app: FastifyInstance, options: C
             // Escrow must be enrolled before collection-state becomes cloud-copy.
             ops = [...generated.map(record => enrolOp(record.device_id, SERVICE_ACCOUNT, record)), { op: "collection-state", state: "cloud-copy" }];
           }
-          const outbox = (await client.query<{ id: string }>("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2) RETURNING id", [collection, serializeOps(ops)])).rows[0]!;
-          await client.query("UPDATE next_collection_mode_changes SET source_epoch=$3,policy_outbox_id=$4 WHERE collection_id=$1 AND request_id=$2", [collection, requestId, body.epoch, outbox.id]);
+          const stored = JSON.parse(serializeOps(ops)) as Record<string, unknown>;
+          // Bind the native membership view to the SAME prefix. If anything moves
+          // before append, reuse existing head-moved retry with a fresh preflight.
+          if (row.target_mode === "private") stored.mode_source_head = { seq: body.seq, chain: body.chain };
+          const outbox = row.policy_outbox_id === null
+            ? (await client.query<{ id: string }>("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2) RETURNING id", [collection, JSON.stringify(stored)])).rows[0]!.id
+            : row.policy_outbox_id;
+          if (row.policy_outbox_id !== null) await client.query("UPDATE next_policy_outbox SET ops=$2 WHERE id=$1", [outbox, JSON.stringify(stored)]);
+          await client.query("UPDATE next_collection_mode_changes SET source_epoch=$3,policy_outbox_id=$4 WHERE collection_id=$1 AND request_id=$2", [collection, requestId, body.epoch, outbox]);
+          return null;
         });
+        if (waitUntil !== null) return reply.code(202).send({ request_id: requestId, phase: "waiting_for_token_expiry", retry_at: new Date(waitUntil).toISOString() });
         await options.emitter.publishCommitted(collection);
         return reply.code(202).send({ request_id: requestId, phase: "finishing" });
       }
@@ -160,6 +181,9 @@ export function registerCollectionModeExecution(app: FastifyInstance, options: C
         await client.query("UPDATE next_collection_mode_changes SET completed_at=now() WHERE collection_id=$1 AND request_id=$2", [collection, requestId]);
       });
       return { request_id: requestId, phase: "complete" };
-    } catch (error) { return refuse(reply, error, "The switch is not finished. Retry from an owner device."); }
+    } catch (error) {
+      if (error instanceof ModeDevicesNeedUpdate) return reply.code(error.status).send({ ...apiError(error.code, "Update or revoke these devices before switching."), devices: error.devices });
+      return refuse(reply, error, "The switch is not finished. Retry from an owner device.");
+    }
   });
 }

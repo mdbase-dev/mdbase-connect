@@ -174,10 +174,12 @@ pub struct ModeProof {
     pub finish: bool,
     /// Actual held epoch, or the verified private cutover epoch.
     pub epoch: u64,
-    /// Verified native receipt position (zero for preparation).
+    /// Applied prefix for preparation; accepted receipt for completion.
     pub seq: u64,
-    /// Receipt chain hash (zero for preparation).
+    /// Applied prefix chain hash.
     pub chain: B32,
+    /// Active keyed user devices at that prefix (preparation only).
+    pub members: Vec<Uuid>,
 }
 /// Collection/request/direction/phase and actual native epoch/prefix bound proof.
 pub fn collection_mode_digest(
@@ -200,6 +202,7 @@ pub fn collection_mode_digest(
             Cbor::Uint(mode.epoch),
             Cbor::Uint(mode.seq),
             bytes(&mode.chain.0),
+            Cbor::Array(mode.members.iter().map(|id| bytes(&id.0)).collect()),
         ],
     )
 }
@@ -358,6 +361,32 @@ mod tests {
             out[i] = u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap();
         }
         B16(out)
+    }
+
+    #[test]
+    fn mode_preflight_matches_cp_and_binds_members_to_the_prefix() {
+        let mut mode = ModeProof {
+            request: B16([4; 16]),
+            private: true,
+            finish: false,
+            epoch: 5,
+            seq: 6,
+            chain: B32([9; 32]),
+            members: vec![B16([5; 16]), B16([6; 16])],
+        };
+        let digest = |mode: &ModeProof| {
+            collection_mode_digest(&[7; 32], &B16([1; 16]), &B16([2; 16]), &B16([3; 16]), mode)
+        };
+        assert_eq!(
+            hex(digest(&mode)),
+            "1a43921d3da15d48921e70194727a6153d3f4b9d9195c9a8feeb5a092beeb45b"
+        );
+        let original = digest(&mode);
+        mode.members.pop();
+        assert_ne!(digest(&mode), original);
+        mode.members.push(B16([6; 16]));
+        mode.seq += 1;
+        assert_ne!(digest(&mode), original);
     }
 
     fn ids() -> (Uuid, Uuid, Uuid) {

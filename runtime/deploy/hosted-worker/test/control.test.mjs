@@ -98,7 +98,7 @@ test("caches the log token and refreshes it a minute before expiry", async () =>
   let now = 1_000_000;
   let n = 0;
   const { calls, fetchImpl } = fake((_url, init) => {
-    assert.deepEqual(JSON.parse(init.body), { collection });
+    assert.deepEqual(JSON.parse(init.body), { collection, capabilities: ["collection_mode_switch_v1"] });
     n += 1;
     return new Response(JSON.stringify({ token: `${"ab".repeat(n)}.${"cd".repeat(64)}`, expires_at: now + 15 * 60_000 }));
   });

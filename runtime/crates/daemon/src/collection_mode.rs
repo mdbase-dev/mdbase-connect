@@ -4,7 +4,7 @@ use super::{Daemon, cloud_refusal};
 use crate::control::ControlError;
 use crate::runtime::{AccountKeyGuard, PrivateSwitchOp};
 use mdbn_replica::crypto::proof::ModeProof;
-use mdbn_wire::common::{B16, B32};
+use mdbn_wire::common::B16;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -158,14 +158,15 @@ impl Daemon {
                 ControlError::unavailable("mode_status_invalid", "switch status unavailable")
             })?;
         let receipt = runtime.mode_source(private, true, guard.clone()).await;
-        let (finish, epoch, head) = if let Some((epoch, head)) = receipt {
-            (true, epoch, head)
+        let (finish, epoch, head, members) = if let Some((epoch, head, members)) = receipt {
+            (true, epoch, head, members)
         } else {
-            let Some((epoch, head)) = runtime.mode_source(private, false, guard.clone()).await
+            let Some((epoch, head, members)) =
+                runtime.mode_source(private, false, guard.clone()).await
             else {
                 return Ok(json!({"phase":"waiting_for_device", "target_mode":p.target_mode}));
             };
-            (false, epoch, head)
+            (false, epoch, head, members)
         };
         let identity = self.identity.get().ok_or_else(|| {
             ControlError::unavailable("device_identity_missing", "device key unavailable")
@@ -176,7 +177,8 @@ impl Daemon {
             finish,
             epoch,
             seq: head.seq,
-            chain: if finish { head.chain } else { B32([0; 32]) },
+            chain: head.chain,
+            members,
         };
         let answer = ctx
             .cloud

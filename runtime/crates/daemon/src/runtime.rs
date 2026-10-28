@@ -177,7 +177,7 @@ enum Cmd {
         private: bool,
         receipt: bool,
         current: AccountKeyGuard,
-        reply: oneshot::Sender<Option<(u64, mdbn_replica::store::Head)>>,
+        reply: oneshot::Sender<Option<(u64, mdbn_replica::store::Head, Vec<B16>)>>,
     },
     Readiness(oneshot::Sender<ReadinessView>),
     /// Rescan, then list the confirmed records and resources.
@@ -612,7 +612,7 @@ impl Runtime {
         private: bool,
         receipt: bool,
         current: AccountKeyGuard,
-    ) -> Option<(u64, mdbn_replica::store::Head)> {
+    ) -> Option<(u64, mdbn_replica::store::Head, Vec<B16>)> {
         let (reply, rx) = oneshot::channel();
         self.tx
             .send(Cmd::ModeSource {
@@ -1469,21 +1469,25 @@ fn run(
                 if current() {
                     rep.refresh_mode_history();
                 }
-                let _ = reply.send(if !current() {
+                let material = if !current() {
                     None
                 } else if receipt {
                     rep.mode_switch_receipt(private)
+                        .map(|(epoch, head)| (epoch, head, Vec::new()))
                 } else {
-                    rep.mode_switch_source(private).map(|e| {
+                    rep.mode_switch_source(private).map(|epoch| {
                         (
-                            e,
-                            mdbn_replica::store::Head {
-                                seq: 0,
-                                chain: mdbn_wire::common::B32([0; 32]),
+                            epoch,
+                            rep.head(),
+                            if private {
+                                rep.mode_switch_members()
+                            } else {
+                                Vec::new()
                             },
                         )
                     })
-                });
+                };
+                let _ = reply.send(material);
             }
             Ok(Cmd::PrivateSigners(current, reply)) => {
                 let _ = reply.send(if current() {

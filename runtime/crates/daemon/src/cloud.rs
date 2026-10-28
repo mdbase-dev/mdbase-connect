@@ -489,6 +489,7 @@ impl Cloud {
             &json!({
                 "device_id": p.device,
                 "kind": "desktop",
+                "capabilities": crate::relay::CAPABILITIES,
                 "sign_pk": p.sign_pk,
                 "kem_pk": p.kem_pk,
                 "noise_pk": p.noise_pk,
@@ -528,6 +529,7 @@ impl Cloud {
                 &format!("/v1/next/collections/{collection_id}/log-token"),
                 &json!({
                     "device_id": identity.public().device,
+                    "capabilities": crate::relay::CAPABILITIES,
                     "challenge": secrets::hex(&challenge),
                     "sig": secrets::hex(&sig),
                 }),
@@ -683,6 +685,7 @@ impl Cloud {
         .ok_or_else(|| CloudError::Local("proof shape".into()))?;
         let sig = identity.sign_digest(&digest.0);
         body.insert("device_id".into(), json!(identity.public().device));
+        body.insert("capabilities".into(), json!(crate::relay::CAPABILITIES));
         body.insert("challenge".into(), json!(secrets::hex(&challenge)));
         body.insert("sig".into(), json!(secrets::hex(&sig)));
         if let Some(c) = sas_commit {
@@ -751,10 +754,14 @@ impl Cloud {
         );
         let mut body = json!({ "device_id": identity.public().device, "challenge": secrets::hex(&challenge),
             "sig": secrets::hex(&identity.sign_digest(&digest.0)), "epoch": mode.epoch.to_string() });
-        if mode.finish {
-            body["seq"] = json!(mode.seq.to_string());
-            body["chain"] = json!(secrets::hex(&mode.chain.0));
-        }
+        body["seq"] = json!(mode.seq.to_string());
+        body["chain"] = json!(secrets::hex(&mode.chain.0));
+        body["members"] = json!(
+            mode.members
+                .iter()
+                .map(|id| id.to_uuid_string())
+                .collect::<Vec<_>>()
+        );
         let path = format!(
             "/v1/next/collections/{}/mode/{}/{}",
             B16(*collection).to_uuid_string(),

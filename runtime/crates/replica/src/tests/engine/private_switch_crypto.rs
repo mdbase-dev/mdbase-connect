@@ -457,7 +457,10 @@ fn revoking_a_later_private_rekey_author_does_not_strand_the_surviving_switch_me
 }
 
 #[test]
-fn an_older_keyed_writer_can_consume_the_adjacent_slot_unless_publication_is_fenced() {
+fn raw_legacy_rekey_is_not_a_qualifying_private_cutover() {
+    // This raw fixture bypasses token admission. The CP regression now refuses
+    // unadvertised B and drains pre-floor tokens BEFORE publishing the switch.
+    // Keep the local trust rule strict even for an injected legacy item.
     let (svc, mut cp, mut a, mut b) = real_world();
     let recipients =
         b.r.policy

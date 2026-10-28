@@ -77,7 +77,7 @@ export class AppCpDeviceRegistration {
       const issued=await this.json("/v1/next/devices/challenge",bearer,undefined,options.signal);this.check(options.signal);
       if (typeof issued.challenge!=="string" || !/^[0-9a-f]{64}$/.test(issued.challenge) || typeof issued.expires_at!=="number" || !Number.isSafeInteger(issued.expires_at) || issued.expires_at-this.now()<=5000 || issued.expires_at-this.now()>16*60_000) throw fail("response");
       challenge=Uint8Array.from(issued.challenge.match(/../g)!.map(v=>parseInt(v,16)));const proof=this.runtime.signCpEnrol(challenge);this.check(options.signal);signature=proof.signature;
-      const result=await this.json("/v1/next/devices",bearer,JSON.stringify({device_id:this.scope.deviceId,kind:this.scope.kind,challenge:issued.challenge,sign_pk:hex(proof.signPublicKey),kem_pk:hex(proof.kemPublicKey),noise_pk:hex(proof.noisePublicKey),sig:hex(signature)}),options.signal);this.check(options.signal);
+      const result=await this.json("/v1/next/devices",bearer,JSON.stringify({device_id:this.scope.deviceId,kind:this.scope.kind,capabilities:["collection_mode_switch_v1"],challenge:issued.challenge,sign_pk:hex(proof.signPublicKey),kem_pk:hex(proof.kemPublicKey),noise_pk:hex(proof.noisePublicKey),sig:hex(signature)}),options.signal);this.check(options.signal);
       if (result.device_id!==this.scope.deviceId) throw fail("response");
       const receipt=Object.freeze({connectorId:this.scope.connectorId,deviceId:this.scope.deviceId,installationId:this.scope.installationId,signPublicKey:new Uint8Array(proof.signPublicKey),kemPublicKey:new Uint8Array(proof.kemPublicKey),noisePublicKey:new Uint8Array(proof.noisePublicKey)});
       await this.persistence.registered(receipt,options);this.check(options.signal);

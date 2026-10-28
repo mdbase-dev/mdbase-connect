@@ -16,6 +16,7 @@
 //
 // The control plane never approves, never grants and never holds a collection key. It
 // enrols with its policy key and mints log credentials, nothing more.
+import { advertiseModeCapability, modeCapabilitySchema, requireModeMintCapability } from "./collection-mode-capability.js";
 import type { FastifyInstance } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
@@ -111,7 +112,7 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
   if (!options.next.cloudCopyBootstrap) registerCollectionNameRoutes(app, options.db, options.deletionFloor);
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
-  const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" } };
+  const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" }, capabilities: modeCapabilitySchema };
   const limited = { bodyLimit: 4096, config: { rateLimit: { max: 6, timeWindow: "1 minute" } } };
 
   /** The exact bytes of a policy batch, as the log returns them at its position. */
@@ -122,7 +123,9 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
     return { seq, item: batch.item };
   }
 
-  const mint = (device: string, signPk: Buffer, collection: string) => {
+  const mint = async (client: DatabaseConnection, device: string, signPk: Buffer, collection: string, capabilities?: string[]) => {
+    await requireModeMintCapability(client, collection, capabilities);
+    await advertiseModeCapability(client, device, capabilities);
     const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
     return { device_id: device, token: options.log.mintToken({ device, signPublicKey: signPk, collection, expiresAt }), expires_at: expiresAt };
   };
@@ -202,7 +205,7 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
           // initial-rekey signer in e2e (never hosted or escrow); at genesis it is
           // the only active device, so it wraps the first epoch key to itself.
           rekey_recipients: [body.device_id],
-          device: mint(body.device_id, device.sign_pk, collection)
+          device: await mint(client, body.device_id, device.sign_pk, collection, body.capabilities)
         };
       });
       // 4. A desktop collection taken over from mdbase Connect keeps its apps:
@@ -283,7 +286,7 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
         return {
           collection_id: collection, enrolled_at: batch.seq, approval: "pending", log_url: options.next.logService.url,
           genesis: { seq: 1, item: genesis.item.toString("hex") },
-          device: mint(body.device_id, device.sign_pk, collection)
+          device: await mint(client, body.device_id, device.sign_pk, collection, body.capabilities)
         };
       });
     } catch (error) {

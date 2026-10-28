@@ -539,8 +539,8 @@ describe("first-party cloud-copy CP bootstrap (protocol/native/persistence stand
             );
             expect(Object.keys(body).sort()).toEqual(
                 purpose === "create"
-                    ? ["challenge", "collection_id", "device_id", "sig"]
-                    : ["challenge", "device_id", "sig"],
+                    ? ["capabilities", "challenge", "collection_id", "device_id", "sig"]
+                    : ["capabilities", "challenge", "device_id", "sig"],
             );
             expect(
                 purpose === "create"

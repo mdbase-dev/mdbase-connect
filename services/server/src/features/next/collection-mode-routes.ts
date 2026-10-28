@@ -8,6 +8,7 @@ import { bearerToken, requireConnector, requireSessionContext } from "../../plat
 import { tokenHash } from "../../security.js";
 import { CreateError, currentIdentity, currentMember, currentSession, exactEnrolment, inTransaction, lock, refuse, refuseRevoked, type Connector, type Device } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
+import { LOG_TOKEN_LIFETIME_MS } from "./log-service-client.js";
 import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 
 const uuid = z.uuid().transform(value => value.toLowerCase()).refine(value => value !== "00000000-0000-0000-0000-000000000000");
@@ -73,6 +74,13 @@ async function status(client: DatabaseConnection, collection: string, current: M
   // No HTTP reply, outbox insertion, or batch's sending state is a success receipt.
   // Later direction-specific phases record completion only after key/cleanup evidence.
   let phase = "waiting_for_device";
+  let retryAt: string | undefined;
+  if (change.target_mode === "private" && change.policy_outbox_id === null) {
+    const floor = (await client.query<{ mode_floor_raised_at: Date | null }>("SELECT mode_floor_raised_at FROM next_collections WHERE collection_id=$1", [collection])).rows[0]?.mode_floor_raised_at;
+    if (floor && Date.now() < floor.getTime() + LOG_TOKEN_LIFETIME_MS) {
+      phase = "waiting_for_token_expiry"; retryAt = new Date(floor.getTime() + LOG_TOKEN_LIFETIME_MS).toISOString();
+    }
+  }
   if (change.policy_outbox_id !== null) {
     const batch = (await client.query<{ state: string; lost: boolean }>(
       `SELECT b.state,b.lost_at IS NOT NULL AS lost FROM next_policy_outbox o
@@ -83,7 +91,7 @@ async function status(client: DatabaseConnection, collection: string, current: M
     if (phase === "finishing" && change.completed_at !== null) phase = "complete";
   }
   return { collection_id: collection, request_id: change.request_id, current_mode: current,
-    source_mode: change.source_mode, target_mode: change.target_mode, phase };
+    source_mode: change.source_mode, target_mode: change.target_mode, phase, ...(retryAt ? { retry_at: retryAt } : {}) };
 }
 
 export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabasePool): void {

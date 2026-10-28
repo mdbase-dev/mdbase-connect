@@ -88,6 +88,15 @@ describePostgres("service devices", () => {
     await admin?.end();
   }, 60_000);
 
+  it("requires the current service session capability when refreshing above the collection floor", async () => {
+    const {collection, device, mint} = await freshCurrent();
+    await db.query("UPDATE next_collections SET mode_floor_raised_at=$2 WHERE collection_id=$1", [collection, new Date(NOW)]);
+    expect((await mint()).statusCode).toBe(409);
+    const supported = await app.inject({method:"POST",url:`/internal/v1/next/service-devices/${device.device_id}/log-token`,headers:{authorization:`Bearer ${hosted}`},payload:{collection,capabilities:["collection_mode_switch_v1"]}});
+    expect(supported.statusCode, supported.body).toBe(200);
+    expect((await mint()).statusCode).toBe(409);
+  });
+
   it.each(["cp-intent", "native-registry"])("denies directory, wrapped records and token mint on a permanent %s fact without rewriting retained rows", async authority => {
     const {collection, get, mint} = await freshCurrent();
     expect((await get()).statusCode).toBe(200);

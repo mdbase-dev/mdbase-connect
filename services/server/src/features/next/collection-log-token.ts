@@ -32,9 +32,11 @@ import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-clie
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, encodeCbor, uuidBytes, type RegisteredDeviceKind } from "./policy-wire.js";
 
+import { advertiseModeCapability, modeCapabilitySchema, requireModeMintCapability } from "./collection-mode-capability.js";
+
 const NIL = "00000000-0000-0000-0000-000000000000";
 
-interface Body { device_id: string; challenge: string; sig: string }
+interface Body { device_id: string; challenge: string; sig: string; capabilities?: string[] }
 interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: RegisteredDeviceKind }
 
 class Refused extends Error {
@@ -60,7 +62,7 @@ export function registerCollectionLogTokenRoute(app: FastifyInstance, options: {
       params: { type: "object", required: ["id"], properties: { id: uuid } },
       body: {
         type: "object", additionalProperties: false, required: ["device_id", "challenge", "sig"],
-        properties: { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" } }
+        properties: { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" }, capabilities: modeCapabilitySchema }
       }
     }
   }, async (request, reply) => {
@@ -175,6 +177,8 @@ async function refresh(
     if (error instanceof Error && error.message === "collection_deleted") throw new Refused(409,"collection_deleted");
     throw error;
   }
+  await requireModeMintCapability(client, collection, body.capabilities);
+  await advertiseModeCapability(client, deviceId, body.capabilities);
   const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
   return {
     token: options.log.mintToken({ device: deviceId, signPublicKey: device.sign_pk, collection, expiresAt }),

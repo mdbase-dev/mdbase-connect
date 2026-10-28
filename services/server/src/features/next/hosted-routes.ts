@@ -12,6 +12,7 @@ import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
+import { requireModeMintCapability } from "./collection-mode-capability.js";
 import { loadServiceDevice, serviceDeviceWire, type ServiceDeviceRecord, type ServiceKind } from "./service-devices.js";
 import { CreateError, inTransaction, lock, NIL, refuseRevoked } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
@@ -234,17 +235,20 @@ export function registerNextHostedRoutes(
     const caller = callerKind(request);
     if (!caller) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const params = z.object({ device: z.uuid() }).safeParse(request.params);
-    const body = z.object({ collection: z.uuid() }).strict().safeParse(request.body);
+    const body = z.object({ collection: z.uuid(), capabilities: z.array(z.string().max(80)).max(64).optional() }).strict().safeParse(request.body);
     if (!params.success || !body.success) return reply.code(400).send(apiError("invalid_request", "A device and collection are required."));
     const { device } = params.data;
     const { collection } = body.data;
     if (!await scoped(request, [collection])) return reply.code(403).send(apiError("wrong_service_scope", "This deployment does not own this account route."));
-    const minted = await withCurrentRecord(options.db, collection, { device: device.toLowerCase() }, (record) => {
+    const minted = await withCurrentRecord(options.db, collection, { device: device.toLowerCase() }, async (record, client) => {
       if (record.kind !== caller) return "wrong_kind" as const;
+      try { await requireModeMintCapability(client, collection, body.data.capabilities); }
+      catch (error) { if (error instanceof CreateError && error.code === "mode_update_required") return "mode_update_required" as const; throw error; }
       const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
       return { token: log.mintToken({ device: record.device_id, signPublicKey: record.sign_pk, collection, expiresAt }), expires_at: expiresAt };
     });
     if (!minted) return notCurrent(reply, collection, "No such service device in this collection.");
+    if (minted === "mode_update_required") return reply.code(409).send(apiError("mode_update_required", "Update this service before refreshing its log token."));
     if (minted === "wrong_kind") return reply.code(403).send(apiError("wrong_service_kind", "This token mints only for its own kind of service device."));
     return minted;
   });
