@@ -726,8 +726,30 @@ impl<S: Store> Replica<S> {
                         .saturating_add(ESCROW_GRANT_AFTER_MS),
                 )
             }
+            _ if self.owner_cloud_handover() => Some(i64::MIN),
             _ => None,
         }
+    }
+
+    /// A persisted user choice, not remote policy, authorizes handing Private
+    /// epoch history to newly enrolled services. Replay validity is unchanged.
+    fn owner_cloud_handover(&self) -> bool {
+        use mdbn_wire::policy::{CState, DeviceKind, Role};
+        self.cfg.chosen_state == Some(CState::CloudCopy)
+            && self.cfg.user_enabled_cloud_copy
+            && self
+                .policy
+                .devices
+                .get(&self.cfg.device_id)
+                .is_some_and(|d| {
+                    matches!(
+                        d.kind,
+                        DeviceKind::Desktop
+                            | DeviceKind::Mobile
+                            | DeviceKind::AppRuntime
+                            | DeviceKind::Cli
+                    ) && self.policy.members.get(&d.account) == Some(&Role::Owner)
+                })
     }
 
     /// One active, unkeyed user device of a member account (enrolled by the control
@@ -735,19 +757,23 @@ impl<S: Store> Replica<S> {
     fn grant_candidate(&self) -> Option<(mdbn_wire::common::Uuid, [u8; 32])> {
         use mdbn_wire::policy::DeviceKind;
         let pol = &self.policy;
+        let handover = self.owner_cloud_handover();
         pol.devices
             .iter()
             .find(|(_, x)| {
                 x.active
                     && !x.keyed
-                    && matches!(
-                        x.kind,
-                        DeviceKind::Desktop
-                            | DeviceKind::Mobile
-                            | DeviceKind::AppRuntime
-                            | DeviceKind::Cli
-                    )
-                    && pol.members.contains_key(&x.account)
+                    && if handover {
+                        matches!(x.kind, DeviceKind::Hosted | DeviceKind::Escrow)
+                    } else {
+                        matches!(
+                            x.kind,
+                            DeviceKind::Desktop
+                                | DeviceKind::Mobile
+                                | DeviceKind::AppRuntime
+                                | DeviceKind::Cli
+                        ) && pol.members.contains_key(&x.account)
+                    }
             })
             .map(|(id, x)| (*id, x.kem_pk.0))
     }
