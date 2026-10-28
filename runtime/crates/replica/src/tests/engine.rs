@@ -100,6 +100,7 @@ impl Clock for TestClock {
 
 mod bases;
 mod client_versions;
+mod cloud_copy_transition;
 mod collection_setup;
 mod receipt_fanout;
 
