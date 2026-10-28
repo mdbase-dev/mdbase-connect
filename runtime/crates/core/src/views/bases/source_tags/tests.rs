@@ -19,7 +19,7 @@ fn repeated_native_plain_fences_and_real_corpus_tags_are_exact() {
     ));
 }
 #[test]
-fn code_skip_is_complete_and_richer_or_tag_bearing_code_stays_unavailable() {
+fn code_skip_is_complete_including_info_strings_and_tag_bearing_code() {
     let d = Document::parse("#alpha\n```\n[[bad\n```\n#after", RecordFormat::Markdown);
     assert_eq!(
         capture_source_tags(&d, &mut WorkBudget::new()).unwrap(),
@@ -33,7 +33,7 @@ fn code_skip_is_complete_and_richer_or_tag_bearing_code_stays_unavailable() {
         let d = Document::parse(body, RecordFormat::Markdown);
         assert_eq!(
             capture_source_tags(&d, &mut WorkBudget::new()).unwrap(),
-            None
+            Some(vec!["#alpha".into()])
         );
     }
 }
@@ -48,7 +48,18 @@ fn check_native_matrix(source: &str) {
         let document = Document::parse(&source, RecordFormat::Markdown);
         let got = capture_source_tags(&document, &mut WorkBudget::new()).unwrap();
         let id = case.get("id").unwrap().as_str().unwrap();
-        if case.get("qualified").unwrap().as_bool().unwrap() {
+        // These captured native cases are deliberately promoted by v4; keep
+        // the historical oracle (including its original qualification) intact.
+        let code_qualified = matches!(
+            id,
+            "inline-code"
+                | "fenced-code"
+                | "tilde-code"
+                | "unterminated"
+                | "hashtag-inside"
+                | "inline-fence"
+        );
+        if case.get("qualified").unwrap().as_bool().unwrap() || code_qualified {
             let want: Vec<String> = case
                 .get("tags")
                 .unwrap()
@@ -71,7 +82,6 @@ fn marker_extension_does_not_qualify_links_references_or_arbitrary_brackets() {
         "[x][ref] #task",
         "[ x ] #task",
         "[[bad #task",
-        "- [ ] `#fake` #task",
     ] {
         let document = Document::parse(body, RecordFormat::Markdown);
         assert_eq!(
@@ -80,7 +90,7 @@ fn marker_extension_does_not_qualify_links_references_or_arbitrary_brackets() {
             "{body}"
         );
     }
-    assert_eq!(BASES_TAG_CAPTURE_VERSION, 3);
+    assert_eq!(BASES_TAG_CAPTURE_VERSION, 4);
 }
 #[test]
 fn body_tags_precede_raw_tags_without_rewriting_note_values() {
@@ -101,7 +111,7 @@ fn heading_links_no_tags_known_empty_and_unknown_are_distinct() {
         ("[[note#heading]]", Some(vec![])),
         ("# Heading\nPlain body", Some(vec![])),
         ("Body #other", Some(vec!["#other".into()])),
-        ("```\n#other\n```", None),
+        ("```\n#other\n```", Some(vec![])),
         ("[[bad #task", None),
         ("Body #café", None),
     ] {
@@ -112,6 +122,51 @@ fn heading_links_no_tags_known_empty_and_unknown_are_distinct() {
             )
             .unwrap(),
             want
+        );
+    }
+}
+#[test]
+fn code_and_numeric_references_do_not_hide_real_tags() {
+    for body in [
+        "Private `#cppLive` PR #123 #task",
+        "Private ``a ` #cppLive`` PR #123 #task",
+        "- [ ] `#fake` #task",
+        "#task\n  ~~~~rust\n#hidden\n  ~~~~~\n",
+        "#task\n```rust\n#hidden\n```\n",
+        "#task\n```\n#hidden",
+    ] {
+        let doc = Document::parse(body, RecordFormat::Markdown);
+        assert_eq!(
+            capture_source_tags(&doc, &mut WorkBudget::new()).unwrap(),
+            Some(vec!["#task".into()]),
+            "{body}"
+        );
+    }
+    for body in [
+        "PR #123 *reference*",
+        "`#cppLive` #123",
+        "```rust\n#task\n```",
+    ] {
+        let doc = Document::parse(body, RecordFormat::Markdown);
+        assert_eq!(
+            capture_source_tags(&doc, &mut WorkBudget::new()).unwrap(),
+            Some(vec![]),
+            "{body}"
+        );
+    }
+    for body in [
+        "[link](target) #task",
+        "\\`#task`",
+        "``#task`",
+        "`\n\n#task\n`",
+        "`#123é` #café",
+        "*#123abc*",
+    ] {
+        let doc = Document::parse(body, RecordFormat::Markdown);
+        assert_eq!(
+            capture_source_tags(&doc, &mut WorkBudget::new()).unwrap(),
+            None,
+            "{body}"
         );
     }
 }

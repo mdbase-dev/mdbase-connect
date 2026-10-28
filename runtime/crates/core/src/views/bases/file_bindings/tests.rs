@@ -79,6 +79,35 @@ fn tags_are_explicit_known_empty_or_unavailable_and_do_not_come_from_defaults() 
     );
 }
 #[test]
+fn frontmatter_proves_presence_but_not_absence_with_unknown_body_tags() {
+    let note = Map::from_iter([("tags".into(), Value::List(vec![Value::string("#task/sub")]))]);
+    for expression in [
+        "file.hasTag('task')",
+        "file.hasTag('#task/sub')",
+        "file.hasTag('missing', 'task')",
+    ] {
+        assert_eq!(
+            eval(expression, &note, None, None, None)
+                .unwrap()
+                .to_plain(),
+            Value::Bool(true)
+        );
+    }
+    for expression in ["file.hasTag('Task')", "file.hasTag('missing')", "file.tags"] {
+        assert_eq!(
+            eval(expression, &note, None, None, None).unwrap_err(),
+            EvaluationFailure::MetadataUnavailable("file_tags_not_captured")
+        );
+    }
+    assert_eq!(
+        eval("false && file.hasTag('missing')", &note, None, None, None)
+            .unwrap()
+            .to_plain(),
+        Value::Bool(false)
+    );
+    assert!(eval("file.hasTag('task', 3)", &note, None, None, None).is_err());
+}
+#[test]
 fn property_predicate_uses_actual_raw_presence_and_folder_boundaries() {
     let note = Map::from_iter([
         ("false".into(), Value::Bool(false)),

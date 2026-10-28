@@ -77,9 +77,6 @@ impl Evaluator<'_, '_> {
                 if values.is_empty() {
                     return RuntimeValue::Bool(false);
                 }
-                let Some(tags) = binding.tags else {
-                    return self.missing_file("file_tags_not_captured");
-                };
                 if !self.budget.vector(values.len()) {
                     return RuntimeValue::Null;
                 }
@@ -96,6 +93,53 @@ impl Evaluator<'_, '_> {
                     }
                     needles.push(value.clone());
                 }
+                // A positive raw-frontmatter observation is decisive even when
+                // the complete body tag set is unavailable. Never infer absence.
+                let raw = self.bindings.note.get("tags");
+                let raw = match raw {
+                    Some(Value::Text(_)) => std::slice::from_ref(raw.expect("tags")),
+                    Some(Value::List(values)) => values.as_slice(),
+                    _ => &[],
+                };
+                if raw.len() > super::super::MAX_CAPTURE_ITEMS {
+                    self.budget
+                        .fail(EvaluationFailure::BudgetExceeded("file_tag_count"));
+                    return RuntimeValue::Null;
+                }
+                for value in raw {
+                    if let Value::Text(tag) = value {
+                        if !self
+                            .budget
+                            .charge(1 + (tag.len() as u64).saturating_mul(2), 0)
+                        {
+                            return RuntimeValue::Null;
+                        }
+                        let plain = tag.strip_prefix('#').unwrap_or(tag);
+                        if plain.is_empty()
+                            || !plain.bytes().all(|c| {
+                                c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'/')
+                            })
+                            || !plain.bytes().any(|c| c.is_ascii_alphabetic())
+                        {
+                            continue;
+                        }
+                        match super::super::CapturedFile::has_tag(
+                            std::slice::from_ref(tag),
+                            &needles,
+                            self.budget,
+                        ) {
+                            Ok(true) => return RuntimeValue::Bool(true),
+                            Ok(false) => {}
+                            Err(e) => {
+                                self.budget.fail(e);
+                                return RuntimeValue::Null;
+                            }
+                        }
+                    }
+                }
+                let Some(tags) = binding.tags else {
+                    return self.missing_file("file_tags_not_captured");
+                };
                 match super::super::CapturedFile::has_tag(tags, &needles, self.budget) {
                     Ok(value) => RuntimeValue::Bool(value),
                     Err(e) => {

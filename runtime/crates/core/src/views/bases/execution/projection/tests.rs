@@ -76,7 +76,7 @@ fn literal_names_nested_maps_presence_and_file_tags_are_complete() {
     assert_eq!(
         requirements(&p),
         BasesProjectionRequirements {
-            fields: vec!["folder".into(), "tag".into()],
+            fields: vec!["folder".into(), "tag".into(), "tags".into()],
             tags: true
         }
     );

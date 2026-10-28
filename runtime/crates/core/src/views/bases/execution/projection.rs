@@ -138,7 +138,10 @@ impl Capture<'_> {
                     Expr::Identifier(_) => {}
                     Expr::Member(operand, Member::Named(method)) if matches!(operand.as_ref(),Expr::Identifier(name) if name=="file") =>
                     {
-                        self.tags |= method == "hasTag" && !args.is_empty();
+                        if method == "hasTag" && !args.is_empty() {
+                            self.tags = true;
+                            self.field("tags")?;
+                        }
                         if method == "hasProperty" && args.len() == 1 {
                             let Expr::Literal(Value::Text(name)) = &args[0] else {
                                 return self.fail(EvaluationFailure::MetadataUnavailable(

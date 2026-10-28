@@ -32,7 +32,11 @@ mod tests {
             ),
             ("---\ntags: [task, 5]\n---\n", None),
             ("---\ntags: 'task work'\n---\n", None),
-            ("---\ntags: [task]\n---\n```\n#tag\n```", None),
+            (
+                "---\ntags: [task]\n---\n```\n#tag\n```",
+                Some(vec!["#task".into()]),
+            ),
+            ("---\ntags: [task]\n---\n[link](target) #tag", None),
         ] {
             let document = Document::parse(source, RecordFormat::Markdown);
             assert_eq!(capture(&document, &mut WorkBudget::new()).unwrap(), want);
