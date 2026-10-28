@@ -147,7 +147,7 @@ describePg("native starter onboarding", () => {
     await expect(inTransaction(db, client => registerNextCollection(client, {
       collectionId: randomUUID(), ownerUserId: who.id, runtime: "next", sync: "cloud_copy", rootKeyId: root,
       ops: [{ op: "genesis", owner: who.id, root, state: "cloud-copy" }]
-    }))).rejects.toMatchObject({ code: "quota_exceeded" });
+    }))).rejects.toMatchObject({ code: "account_collection_quota_exceeded" });
     expect(await owned(who)).toHaveLength(1);
   });
 
@@ -161,7 +161,7 @@ describePg("native starter onboarding", () => {
     const calls = port.seal.mock.calls.length;
     const response = await onboard(who);
     expect(response.statusCode).toBe(429);
-    expect(response.json().error.code).toBe("quota_exceeded");
+    expect(response.json().error.code).toBe("account_collection_quota_exceeded");
     expect(port.seal.mock.calls).toHaveLength(calls);
     expect((await db.query("SELECT 1 FROM next_collections WHERE collection_id=$1", [who.starter])).rows).toEqual([]);
     expect((await reservation(who)).provisioning_started_at).toBeNull();

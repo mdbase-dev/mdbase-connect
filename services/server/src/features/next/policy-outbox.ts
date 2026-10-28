@@ -106,7 +106,7 @@ export async function registerNextCollection(
          AND NOT EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id = n.collection_id)`,
       [input.ownerUserId]
     );
-    if (Number(usage.rows[0]!.count) >= entitlement.maxHostedCollections) throw new CreateError(429, "quota_exceeded");
+    if (Number(usage.rows[0]!.count) >= entitlement.maxHostedCollections) throw new CreateError(429, "account_collection_quota_exceeded");
   }
   await client.query(
     `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id, display_name)

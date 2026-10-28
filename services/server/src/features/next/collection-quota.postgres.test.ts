@@ -50,7 +50,7 @@ describePg("native synced collection entitlement admission", () => {
     const owner = await account(profile);
     for (let index = 0; index < limit; index++) await register(owner, randomUUID(), index % 2 ? "private" : "cloud_copy");
     const refused = randomUUID();
-    await expect(register(owner, refused)).rejects.toMatchObject({ status: 429, code: "quota_exceeded" });
+    await expect(register(owner, refused)).rejects.toMatchObject({ status: 429, code: "account_collection_quota_exceeded" });
     expect(await count(owner)).toBe(limit);
     expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1", [refused])).rows).toEqual([]);
   });
@@ -62,7 +62,7 @@ describePg("native synced collection entitlement admission", () => {
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
     const failures = results.filter(result => result.status === "rejected");
     expect(failures).toHaveLength(7);
-    for (const result of failures) expect(result.reason).toMatchObject({ status: 429, code: "quota_exceeded" });
+    for (const result of failures) expect(result.reason).toMatchObject({ status: 429, code: "account_collection_quota_exceeded" });
     expect(await count(owner)).toBe(3);
   });
 
@@ -73,7 +73,7 @@ describePg("native synced collection entitlement admission", () => {
     await register(owner, left, "private");
     await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [left]);
     await register(owner);
-    await expect(register(owner)).rejects.toMatchObject({ code: "quota_exceeded" });
+    await expect(register(owner)).rejects.toMatchObject({ code: "account_collection_quota_exceeded" });
     expect(await count(owner)).toBe(3);
   });
 
@@ -86,7 +86,7 @@ describePg("native synced collection entitlement admission", () => {
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Local fixture',$3)", [connector, owner, randomUUID()]);
     await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version) VALUES($1,$2,$3,$4,'Local fixture','0.3.0')", [randomUUID(), owner, connector, randomUUID()]);
     await register(owner);
-    await expect(register(owner)).rejects.toMatchObject({ code: "quota_exceeded" });
+    await expect(register(owner)).rejects.toMatchObject({ code: "account_collection_quota_exceeded" });
     await register(owner, randomUUID(), "cloud_copy", "shadow");
   });
 
@@ -95,7 +95,7 @@ describePg("native synced collection entitlement admission", () => {
     await grant(owner, "open_beta_v1");
     await register(owner); await register(owner); await register(owner);
     await db.query("UPDATE account_entitlement_grants SET revoked_at=now() WHERE user_id=$1 AND profile_code='open_beta_v1'", [owner]);
-    await expect(register(owner)).rejects.toMatchObject({ code: "quota_exceeded" });
+    await expect(register(owner)).rejects.toMatchObject({ code: "account_collection_quota_exceeded" });
     expect(await count(owner)).toBe(3);
   });
 

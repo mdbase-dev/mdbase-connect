@@ -310,7 +310,7 @@ describePg("cloud-copy bootstrap", () => {
     expect((await serviceCreate(pairing.headers, randomUUID())).statusCode).toBe(200);
     const response = await named(pairing, "Over allowance");
     expect(response.statusCode).toBe(429);
-    expect(response.json().error).toMatchObject({ code: "quota_exceeded", message: expect.stringContaining("synced collection limit") });
+    expect(response.json().error).toMatchObject({ code: "account_collection_quota_exceeded", message: expect.stringContaining("synced collection limit") });
     const intent = (await db.query("SELECT collection_id,completed_at FROM installation_pairing_collection_creations WHERE pairing_id=$1", [pairing.original.request_id])).rows[0];
     expect(intent.completed_at).toBeNull();
     expect(await registered(intent.collection_id)).toBe(false);
@@ -585,7 +585,7 @@ describePg("cloud-copy bootstrap", () => {
     expect((await add(firstRequest)).json().collection.id).toBe(collection);
     const rejected = await add(refusedRequest);
     expect(rejected.statusCode).toBe(429);
-    expect(rejected.json().error).toMatchObject({ code: "quota_exceeded", message: expect.stringContaining("synced collection limit") });
+    expect(rejected.json().error).toMatchObject({ code: "account_collection_quota_exceeded", message: expect.stringContaining("synced collection limit") });
     const intent = (await db.query("SELECT collection_id,published_at FROM account_collection_creations WHERE user_id=$1 AND request_id=$2", [owner, refusedRequest])).rows[0];
     expect(intent.published_at).toBeNull();
     expect(await registered(intent.collection_id)).toBe(false);
@@ -610,7 +610,7 @@ describePg("cloud-copy bootstrap", () => {
       const refused = randomUUID();
       const response = mode === "service" ? await serviceCreate(headers, refused) : await create(who, await proof(who, refused));
       expect(response.statusCode).toBe(429);
-      expect(response.json().error.code).toBe("quota_exceeded");
+      expect(response.json().error.code).toBe("account_collection_quota_exceeded");
       expect(await registered(refused)).toBe(false);
     }
   });

@@ -63,8 +63,10 @@ as on legacy; it has no exemption or extra allowance. The separately mounted
 native starter onboarding path therefore inherits the same gate. An existing
 collection's idempotent retry does not register again or require a second slot.
 
-At the limit, creation returns HTTP 429 with the existing `quota_exceeded` code
-and an account collection-limit message. No entitlement fails closed through the
+At the limit, creation returns HTTP 429 with legacy's
+`account_collection_quota_exceeded` code and an account collection-limit
+message. It deliberately does not reuse `quota_exceeded`, which clients read as
+"out of storage". No entitlement fails closed through the
 existing `hosted_entitlement_required` error. Previously over-limit accounts keep
 all existing collections visible and accessible; only new registration is refused.
 The idempotent account-creation intent may remain for a retry after freeing a slot;
