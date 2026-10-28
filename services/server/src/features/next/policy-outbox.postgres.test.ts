@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { createHash, createPrivateKey, generateKeyPairSync, randomUUID, sign, verify, type KeyObject } from "node:crypto";
 import pg from "pg";
 import Fastify from "fastify";
@@ -56,6 +57,7 @@ async function withDatabase(prefix: string) {
 async function newUser(db: DatabasePool): Promise<string> {
   const id = randomUUID();
   await db.query("INSERT INTO users (id, email, name) VALUES ($1, $2, 'Owner')", [id, `${id}@example.com`]);
+    await ensureDevelopmentEntitlement(db, id);
   return id;
 }
 
