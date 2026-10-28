@@ -13,6 +13,7 @@ import {
   type TimerGrantResolver
 } from "./features/next/timers/grants.js";
 
+import { legacyTaskReminderRetired } from "./features/next/timers/tasknotes-retirement.js";
 import { readInstallationTimerDeclaration } from "./features/next/timers/installation-declaration.js";
 
 export interface PushSubscriptionTarget {
@@ -165,9 +166,17 @@ export class NotificationService {
       if (!grant?.usable) { await connection.query("ROLLBACK"); return "grant_not_usable"; }
       if (grant.grantId !== grantId) throw new Error("Invalid notification grant identity.");
       const declaration = await backgroundGrantNotificationDeclaration(connection,grantId,this.serverEnvironment);
+      // Lock the tuple before delivery rows. An already admitted send cannot
+      // be recalled; retirement prevents subsequent transport admission.
+      const retired = await legacyTaskReminderRetired(connection,grant,"task-reminders","task.reminder");
       const row = await load(connection);
       if (!row) { await connection.query("ROLLBACK"); return "delivery_not_current"; }
       if (row.grant_id !== grantId) throw new Error("Invalid notification channel grant identity.");
+      // Original legacy signals and retries can outlive every NEXT event.
+      // Signals carry no namespace: the durable fence applies to this criterion.
+      if (retired && row.criterion_id === "task.reminder") {
+        await connection.query("ROLLBACK"); return "criterion_removed";
+      }
       if (!declaration || !grant.criteria.some(criterion=>criterion.id===row.criterion_id)
         || !declaration.notification_criteria.some(criterion=>criterion.id===row.criterion_id)) {
         await connection.query("ROLLBACK"); return "criterion_removed";
