@@ -10,9 +10,10 @@ import { isLockTimeout } from "./bootstrap-common.js";
 import { DeviceRegistrationError, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { GrantApprovalReportError, grantApprovalTerms, reportGrantApproval } from "./grant-approval.js";
 import type { LogServiceClient } from "./log-service-client.js";
+import type { RelayHub } from "../../relay.js";
 import { registerApprovalPeerRoutes } from "./approval-peer-routes.js";
 
-export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: DatabasePool; log: Pick<LogServiceClient, "controlItemAt"> }): void {
+export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: DatabasePool; log: Pick<LogServiceClient, "controlItemAt">; relay: Pick<RelayHub, "fenceConnector"> }): void {
   registerApprovalPeerRoutes(app, options.db);
   const rateLimit = { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } };
   app.post("/v1/next/devices/challenge", rateLimit, async (request, reply) => {
@@ -24,7 +25,11 @@ export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: Da
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return reply;
     try {
-      return await registerDevice(options.db, connector, (request.body ?? {}) as Record<string, unknown>, tokenHash(bearerToken(request)!));
+      const { device_id, retired } = await registerDevice(options.db, connector, (request.body ?? {}) as Record<string, unknown>, tokenHash(bearerToken(request)!));
+      // The old connector's revocation and generation are committed; closing its
+      // relay socket is best effort and converges with the connector lease.
+      if (retired) await options.relay.fenceConnector(retired.connector_id, retired.fence_generation).catch(() => undefined);
+      return { device_id };
     } catch (error) {
       if (isLockTimeout(error)) return reply.code(503).send(apiError("busy", "Device registration was not confirmed."));
       if (!(error instanceof DeviceRegistrationError)) throw error;

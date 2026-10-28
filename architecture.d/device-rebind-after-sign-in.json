@@ -1,0 +1,6 @@
+{
+  "reason": "Device registration records the retirement of a computer's previous connector in the existing audit log (audit import) and the device route fences that connector on the relay (RelayHub type import), as connector removal and local takeover already do. No new module or abstraction is introduced.",
+  "growth": {
+    "relativeImports": 2
+  }
+}
