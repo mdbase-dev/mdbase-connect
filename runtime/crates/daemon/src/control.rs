@@ -709,6 +709,7 @@ pub const PRIVILEGED: &[&str] = &[
     Method::PRIVATE_PASSWORD,
     Method::PRIVATE_STRICT,
     Method::SYNC_ENABLE,
+    Method::COLLECTION_MODE,
     Method::COLLECTION_JOIN,
     Method::ACCOUNT_SIGN_IN,
     Method::MIGRATE_START,
@@ -764,6 +765,11 @@ mod tests {
 
     #[test]
     fn frames_serialize_compactly() {
+        assert!(
+            PRIVILEGED.contains(&Method::COLLECTION_MODE),
+            "mode changes need owner control authentication"
+        );
+        assert!(!PRIVILEGED.contains(&Method::COLLECTION_MODE_STATUS));
         let ok = serde_json::to_string(&Response::ok(3, serde_json::json!({"a":1}))).unwrap();
         assert_eq!(ok, r#"{"v":1,"id":3,"result":{"a":1}}"#);
         let push = serde_json::to_string(&Response::push("status", Value::Null)).unwrap();

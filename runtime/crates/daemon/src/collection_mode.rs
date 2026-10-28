@@ -56,6 +56,7 @@ impl Daemon {
         };
         let col = crate::attest::uuid_bytes(&p.collection)
             .ok_or_else(|| ControlError::invalid("collection", "collection UUID required"))?;
+        self.reconcile_private_choices().await;
         // Same account/config serialization as enable-sync. Each invocation is a
         // bounded step, not a background task holding an account lock indefinitely.
         let _gate = self.account_gate.lock().await;
@@ -106,21 +107,21 @@ impl Daemon {
             self.confirm(if private {"Make private"} else {"Turn on cloud copy"}, if private {
                 "Only your devices will read new content. mdbase may still read older content. Keep an owner device with its keys."
             } else { "mdbase will be able to read and serve this collection, including its existing history, even when your devices are off." }).await?;
-            let op = if private {
-                PrivateSwitchOp::Request
+            if !private {
+                self.choose_cloud_copy_locally(&p.collection, &runtime, guard.clone())
+                    .await?;
             } else {
-                PrivateSwitchOp::ChooseCloud
-            };
-            runtime
-                .private_switch(op, guard.clone())
-                .await
-                .ok_or_else(|| ControlError::unavailable("not_ready", "collection stopped"))?
-                .map_err(|_| {
-                    ControlError::unavailable(
-                        "keyed_owner_required",
-                        "use an owner device holding this collection's trusted key",
-                    )
-                })?;
+                runtime
+                    .private_switch(PrivateSwitchOp::Request, guard.clone())
+                    .await
+                    .ok_or_else(|| ControlError::unavailable("not_ready", "collection stopped"))?
+                    .map_err(|_| {
+                        ControlError::unavailable(
+                            "keyed_owner_required",
+                            "use an owner device holding this collection's trusted key",
+                        )
+                    })?;
+            }
         }
         let current_mode = status.get("current_mode").and_then(Value::as_str);
         let mut request = active
@@ -136,7 +137,7 @@ impl Daemon {
             {
                 return Ok(json!({"phase":"waiting_for_device", "target_mode":p.target_mode}));
             }
-            self.reconcile_private_choices().await;
+            self.reconcile_private_choices_locked().await;
             return Ok(json!({"phase":"complete", "target_mode":p.target_mode}));
         }
         if request.is_none() {
@@ -186,7 +187,7 @@ impl Daemon {
             .await
             .map_err(cloud_refusal)?;
         if private {
-            self.reconcile_private_choices().await;
+            self.reconcile_private_choices_locked().await;
         }
         // No optimistic local Cloud projection: the committed replica choice is
         // authoritative; host-file projection is reconciled independently.

@@ -329,6 +329,16 @@ function registerIpc(): void {
       ...(value.acceptTakeoverHolds ? ["--accept-takeover-holds"] : [])
     ], 600_000));
   });
+  ipcMain.handle("connect:collections:mode-status", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    return bootGate.request(() => daemonCli().run(["sync", "mode-status", collectionIdOf(collectionId)]));
+  });
+  ipcMain.handle("connect:collections:mode-change", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid mode input.");
+    if ((value.targetMode !== "private" && value.targetMode !== "cloud_copy") || typeof value.resume !== "boolean") throw new Error("Invalid mode input.");
+    return bootGate.request(() => daemonCli().run(["sync", "mode", collectionIdOf(value.collectionId), value.targetMode === "private" ? "private" : "cloud-copy", ...(value.resume ? ["--resume"] : [])], 120_000));
+  });
   ipcMain.handle("connect:collections:sync-disable", async (event, collectionId: unknown) => {
     trustedIpc(event);
     return requestReadyAgent("sync.disable", { collection: collectionIdOf(collectionId) }, 600_000);

@@ -272,6 +272,8 @@ pub enum PrivateSwitchOp {
     Request,
     /// Cancel only before the switch policy has committed.
     Cancel,
+    /// Read owner eligibility before persisting the host's Cloud choice.
+    CloudCandidate,
     /// Persist the user's explicit Cloud copy choice before the server request.
     ChooseCloud,
     /// Read a verified, durably applied private-mode choice.
@@ -1500,6 +1502,8 @@ fn run(
                 use mdbn_replica::api::ClientApi;
                 let result = if !current() {
                     Err("account_changed".into())
+                } else if matches!(op, PrivateSwitchOp::CloudCandidate) {
+                    Ok(rep.cloud_copy_candidate())
                 } else if matches!(op, PrivateSwitchOp::Accepted) {
                     Ok(rep.accepted_private_switch())
                 } else {
@@ -1520,7 +1524,9 @@ fn run(
                             PrivateSwitchOp::Cancel => rep.cancel_private_switch(session),
                             PrivateSwitchOp::ChooseCloud => rep.choose_cloud_copy(session),
                             PrivateSwitchOp::Acknowledge => rep.acknowledge_private_switch(session),
-                            PrivateSwitchOp::Accepted => unreachable!(),
+                            PrivateSwitchOp::Accepted | PrivateSwitchOp::CloudCandidate => {
+                                unreachable!()
+                            }
                         };
                         rep.close(session);
                         result.map(|()| None).map_err(|e| e.to_string())

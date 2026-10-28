@@ -158,6 +158,22 @@ export interface NativeCollection {
   access: Pick<HostedCollectionAccess, "relationship" | "role" | "can_manage_members">;
 }
 
+/** Durable owner intent/progress, never content authority or native key proof. */
+export interface CollectionModeChange {
+  collection_id: string;
+  request_id: string;
+  current_mode: "private" | "cloud_copy";
+  source_mode: "private" | "cloud_copy";
+  target_mode: "private" | "cloud_copy";
+  phase: "waiting_for_device" | "waiting_for_token_expiry" | "publishing_policy" | "finishing" | "complete";
+  retry_at?: string;
+}
+export interface CollectionModeStatus {
+  collection_id: string;
+  current_mode: "private" | "cloud_copy";
+  change: CollectionModeChange | null;
+}
+
 export interface ManagementOverview {
   user: { id: string; name: string; email: string | null; login: string | null };
   subscription: null | {
@@ -312,6 +328,18 @@ export class ConnectManagementClient {
 
   overview(options?: ManagementRequestOptions): Promise<ManagementOverview> {
     return this.request("/v1/me", {}, options);
+  }
+
+  collectionModeStatus(collectionId: string, options?: ManagementRequestOptions): Promise<CollectionModeStatus> {
+    return this.request(`/v1/next/collections/${encodeURIComponent(collectionId)}/mode`, {}, options);
+  }
+
+  requestCollectionMode(collectionId: string, input: {requestId: string; targetMode: "private" | "cloud_copy"}, options?: ManagementRequestOptions): Promise<CollectionModeChange> {
+    return this.request(`/v1/next/collections/${encodeURIComponent(collectionId)}/mode`, {method:"POST",body:JSON.stringify({request_id:input.requestId,target_mode:input.targetMode})}, options);
+  }
+
+  collectionModeRequest(collectionId: string, requestId: string, options?: ManagementRequestOptions): Promise<CollectionModeChange> {
+    return this.request(`/v1/next/collections/${encodeURIComponent(collectionId)}/mode/${encodeURIComponent(requestId)}`, {}, options);
   }
 
   sessions(options?: ManagementRequestOptions): Promise<{ sessions: AccountSession[] }> {

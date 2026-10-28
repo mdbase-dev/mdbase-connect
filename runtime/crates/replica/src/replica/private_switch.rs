@@ -223,23 +223,7 @@ impl<S: Store> Replica<S> {
         self.host_only(session)?;
         self.check_apply_store_health()
             .map_err(|_| ErrorCode::Unavailable.err("reopen required"))?;
-        let me = self
-            .policy
-            .devices
-            .get(&self.cfg.device_id)
-            .ok_or_else(|| ErrorCode::Forbidden.err("not enrolled"))?;
-        if self.private_switch.blocked()
-            || !me.active
-            || !me.keyed
-            || !matches!(
-                me.kind,
-                DeviceKind::Desktop | DeviceKind::Mobile | DeviceKind::AppRuntime | DeviceKind::Cli
-            )
-            || self.policy.members.get(&me.account) != Some(&Role::Owner)
-            || self.policy.epoch == 0
-            || self.sealer.current_epoch() != Some(self.policy.epoch)
-            || !self.mode_source_key_trusted()
-        {
+        if self.cloud_copy_candidate().is_none() {
             return Err(ErrorCode::Forbidden.err("a keyed owner device is required"));
         }
         let mut next = self.private_switch.clone();
@@ -249,6 +233,28 @@ impl<S: Store> Replica<S> {
         self.restore_private_choice();
         self.check_key_trust();
         Ok(())
+    }
+
+    /// Read-only owner preflight. A host can persist its explicit choice before
+    /// enabling source consent, closing its configuration-file crash boundary.
+    pub fn cloud_copy_candidate(&self) -> Option<Uuid> {
+        let me = self.policy.devices.get(&self.cfg.device_id)?;
+        (self.check_apply_store_health().is_ok()
+            && !self.device_keys_blocked()
+            && self.install.is_none()
+            && self.stalled.is_none()
+            && !self.private_switch.blocked()
+            && me.active
+            && me.keyed
+            && matches!(
+                me.kind,
+                DeviceKind::Desktop | DeviceKind::Mobile | DeviceKind::AppRuntime | DeviceKind::Cli
+            )
+            && self.policy.members.get(&me.account) == Some(&Role::Owner)
+            && self.policy.epoch > 0
+            && self.sealer.current_epoch() == Some(self.policy.epoch)
+            && self.mode_source_key_trusted())
+        .then_some(self.cfg.device_id)
     }
 
     fn mode_source_key_trusted(&self) -> bool {

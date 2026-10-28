@@ -1,0 +1,6 @@
+{
+  "reason": "Two management-only status/intent types describe the existing owner API. Management clients cannot publish mode policy or attest key usability. Native CLI/IPC still use the existing owner-control authentication; no producer proof is exposed to browser/app callers.",
+  "growth": {
+    "typeScriptExportDeclarations": 2
+  }
+}

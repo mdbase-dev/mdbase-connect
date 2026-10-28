@@ -41,16 +41,27 @@ policy validity to hide the old producer behavior.
 ## Other boundaries
 
 Native HTTP proofs bind collection, request, direction, stage, actual epoch,
-prefix and preflight membership. Only fresh durable native Cloud consent enables
+prefix and preflight membership. Native mode mutation requires the existing
+privileged owner control connection. The CLI exposes `sync mode` (including
+`--resume`) and `sync mode-status`; management SDK methods submit owner intent or
+read status only, never produce native proofs. Desktop IPC/preload bindings are
+present but no controls are rendered. Only fresh durable native Cloud consent enables
 owner handover. Existing-epoch grants recover authenticated history; bounded
 existing keyring replay repairs partial history without changing policy/trust.
 Service readiness is not app admission, especially for escrow. Cache retirement
 preserves migration ledgers, checks physical identity and public device marker,
 and makes no physical-erasure claim.
 
-Still required before enabling: Cloud choice projection into both host files,
-other-device Cloud reconciliation, known-before-publication failure/cancel
-reconciliation, CLI/SDK bindings, desktop/portal controls, complete PG execution
+The owner's Cloud choice now uses the same identity/genesis-bound journal for
+both host files. Both files commit before core source consent can release keys.
+Startup retains the Cloud journal until the guarded actor accepts that consent;
+repeated recovery preserves the Private history witness. A read-only owner
+preflight does not itself create consent. Existing account serialization prevents
+an old status replay from replacing a later foreground choice.
+
+Still required before enabling: non-source-device Cloud reconciliation (a server
+flag cannot set local service trust or owner source consent), known-before-publication failure/cancel
+reconciliation, desktop/portal controls, complete PG execution
 races and real Worker/SDK/daemon conversion E2E. Passing unit/transport tests are
 not completed conversions.
 

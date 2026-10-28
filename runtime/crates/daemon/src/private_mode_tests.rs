@@ -70,6 +70,7 @@ impl Fixture {
             genesis: cfg.genesis_hash,
             signer: SIGNER.into(),
             trusted_signers: vec![SIGNER.into(), MEMBER.into()],
+            cloud_copy: false,
         };
         Self {
             profile,
@@ -166,4 +167,76 @@ fn no_verified_replica_projection_means_no_local_mode_change() {
     assert_eq!(f.registry.collections[0].mode, SyncMode::Synced);
     assert_eq!(f.cfg().chosen_state, "cloud_copy");
     assert!(f.cfg().trusted_signers.is_empty());
+}
+
+#[test]
+fn cloud_choice_projection_replays_each_host_boundary_but_keeps_pending_consent() {
+    for boundary in 0..4 {
+        let mut f = Fixture::new();
+        let mut cfg = f.cfg();
+        cfg.chosen_state = "private".into();
+        cfg.user_enabled_cloud_copy = false;
+        cfg.save(&f.dir.join(crate::sync::FILE), &[0x33; 16], &f.trust)
+            .unwrap();
+        f.registry.collections[0].mode = SyncMode::SyncedE2e;
+        f.registry.collections[0].ever_e2e = true;
+        f.registry.save(&f.profile.registry_file()).unwrap();
+        f.choice.cloud_copy = true;
+        f.journal();
+        if boundary == 1 || boundary == 3 {
+            let mut cfg = f.cfg();
+            cfg.chosen_state = "cloud_copy".into();
+            cfg.user_enabled_cloud_copy = true;
+            cfg.save(&f.dir.join(crate::sync::FILE), &[0x33; 16], &f.trust)
+                .unwrap();
+        }
+        if boundary == 2 || boundary == 3 {
+            f.registry.collections[0].mode = SyncMode::Synced;
+            f.registry.save(&f.profile.registry_file()).unwrap();
+        }
+        let mut reopened = Registry::load(&f.profile.registry_file()).unwrap();
+        replay(&f.profile, &mut reopened, &f.trust).unwrap();
+        assert_eq!(reopened.collections[0].mode, SyncMode::Synced);
+        assert!(reopened.collections[0].ever_e2e);
+        assert_eq!(f.cfg().chosen_state, "cloud_copy");
+        assert!(f.cfg().user_enabled_cloud_copy);
+        assert_eq!(f.cfg().trusted_signers, vec![SIGNER, MEMBER]);
+        assert!(
+            f.dir.join(FILE).exists(),
+            "the actor still needs the durable user intent"
+        );
+        replay(&f.profile, &mut reopened, &f.trust).unwrap();
+        assert_eq!(f.cfg().trusted_signers, vec![SIGNER, MEMBER]);
+    }
+}
+
+#[test]
+fn explicit_cloud_intent_supersedes_private_projection_but_not_the_reverse() {
+    let mut f = Fixture::new();
+    f.journal();
+    let private = f.choice.clone();
+    let mut cloud = private.clone();
+    cloud.cloud_copy = true;
+    persist(&f.profile, &mut f.registry, &f.trust, &f.dir, &cloud).unwrap();
+    assert_eq!(f.cfg().chosen_state, "cloud_copy");
+    assert!(persist(&f.profile, &mut f.registry, &f.trust, &f.dir, &private).is_err());
+    assert_eq!(load(&f.dir.join(FILE)).unwrap(), Some(cloud));
+}
+
+#[test]
+fn cloud_projection_keeps_identity_and_original_genesis_guards() {
+    for field in ["account", "device", "genesis"] {
+        let mut f = Fixture::new();
+        f.choice.cloud_copy = true;
+        match field {
+            "account" => f.choice.account = ID.into(),
+            "device" => f.choice.device = ID.into(),
+            _ => f.choice.genesis = "ff".repeat(32),
+        }
+        f.journal();
+        let before = f.cfg();
+        assert!(replay(&f.profile, &mut f.registry, &f.trust).is_err());
+        assert_eq!(f.cfg(), before);
+        assert!(f.dir.join(FILE).exists());
+    }
 }

@@ -239,6 +239,11 @@ fn a_post_switch_hosted_introduction_is_not_added_by_a_later_server_mode_cycle()
     a.r.request_private_switch(a.s).unwrap();
     switch(&mut cp, &svc);
     settle(&mut [&mut a, &mut b]);
+    assert!(a.r.cloud_copy_candidate().is_some());
+    assert!(
+        a.r.cloud_copy_source_epoch().is_none(),
+        "read-only preflight is not source consent"
+    );
     a.r.choose_cloud_copy(a.s).unwrap();
     assert!(
         a.r.accepted_private_switch().is_none(),
