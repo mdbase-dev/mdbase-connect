@@ -131,7 +131,7 @@ function fixture(purpose: "create" | "join" = "create") {
 }
 afterEach(() => vi.useRealTimers());
 describe("first-party cloud-copy CP bootstrap (protocol/native/persistence stand-ins)", () => {
-    it.each(["503", "network"])(
+    it.each(["503", "429", "network"])(
         "backs off and recovers a transient challenge %s without repeating enrollment",
         async (failure) => {
             vi.useFakeTimers();
@@ -140,7 +140,7 @@ describe("first-party cloud-copy CP bootstrap (protocol/native/persistence stand
             f.fetch.mockImplementationOnce(async () => {
                 if (failure === "network")
                     throw new TypeError("private network diagnostic");
-                return new Response(null, { status: 503 });
+                return new Response(null, { status: Number(failure) });
             });
             f.fetch.mockImplementation(original);
             const result = f
@@ -200,6 +200,7 @@ describe("first-party cloud-copy CP bootstrap (protocol/native/persistence stand
         expect(vi.getTimerCount()).toBe(0);
     });
     it.each([
+        [429, { code: "account_collection_quota_exceeded", message: "secret" }, "account_collection_quota_exceeded", null],
         [409, { code: "collection_migrating", message: "secret", details: { retry_after_seconds: 45 } }, "collection_migrating", 45_000],
         [403, { code: "account_suspended", message: "secret" }, "account_suspended", null],
         [409, { code: "collection_unavailable", details: { reason: "moved_to_next_runtime", update_url: "https://app.example.test/update" } }, "update_required", null],
@@ -237,6 +238,19 @@ describe("first-party cloud-copy CP bootstrap (protocol/native/persistence stand
             expect(f.native.signCloudCopyCreate).not.toHaveBeenCalled();
         },
     );
+    it("reports the cloud-copy enrollment quota without retrying its POST", async () => {
+        const f = fixture(), original = f.fetch.getMockImplementation()!;
+        f.fetch.mockImplementation(async (url, init) =>
+            new URL(String(url)).pathname === "/v1/next/devices/challenge"
+                ? original(url, init)
+                : Response.json({ error: { code: "account_collection_quota_exceeded" } }, { status: 429 }),
+        );
+        await expect(f.create().bootstrap({ signal: f.signal })).rejects.toMatchObject({
+            reason: "account_collection_quota_exceeded", retryable: false,
+        });
+        expect(f.fetch).toHaveBeenCalledTimes(2);
+        expect(f.persistence.completed).not.toHaveBeenCalled();
+    });
     it.each(["create", "join"] as const)(
         "unknown %s enrollment never automatically retries its POST",
         async (purpose) => {
