@@ -67,8 +67,9 @@ async function services(options: CloudCopyBootstrapOptions, collection: string, 
       method: "POST", redirect: "error", headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
       body: JSON.stringify({ collection, device: record.device_id, epoch, challenge }), signal: AbortSignal.timeout(30_000)
     });
+    if (!response.ok) { await response.body?.cancel(); throw new CreateError(503, "not_ready"); }
     const reader = response.body?.getReader(); let size = 0; const parts: Uint8Array[] = [];
-    if (!response.ok || !reader) { await response.body?.cancel(); throw new CreateError(503, "not_ready"); }
+    if (!reader) throw new CreateError(503, "not_ready");
     for (;;) { const part = await reader.read(); if (part.done) break; size += part.value.length; if (size > 4096) { await reader.cancel(); throw new CreateError(503, "not_ready"); } parts.push(part.value); }
     let answer: unknown; try { answer = JSON.parse(Buffer.concat(parts).toString()); } catch { throw new CreateError(503, "not_ready"); }
     const result = z.object({ collection: uuid, device: uuid, epoch: uint, challenge: hex32, ready: z.literal(true) }).strict().safeParse(answer);

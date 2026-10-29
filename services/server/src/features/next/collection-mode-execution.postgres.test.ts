@@ -130,7 +130,7 @@ describePg("collection mode capability floor and token drain", () => {
     const resumed=await prepare(f); expect(resumed.statusCode,resumed.body).toBe(202); expect((await log.head(f.collection)).seq).toBe(3);
   });
 
-  it.each(["before-effect", "lost-ack", "wrong-device", "wrong-challenge"])("service %s never completes early; both directions resume exact receipts after restart", async failure => {
+  it.each(["before-effect", "lost-ack", "wrong-device", "wrong-challenge", "service-unready"])("service %s never completes early; both directions resume exact receipts after restart", async failure => {
     const f=await fixture();await prepare(f);now+=LOG_TOKEN_LIFETIME_MS;
     expect((await prepare(f)).json().phase).toBe("finishing");
     const policyHead=await log.head(f.collection);
@@ -146,6 +146,7 @@ describePg("collection mode capability floor and token drain", () => {
       const escrow=new URL(String(input)).hostname.startsWith("escrow");
       if(uncertain&&escrow&&failure==="before-effect")throw new TypeError("synthetic pre-effect failure");
       retired.add(body.device);
+      if(uncertain&&escrow&&failure==="service-unready")return Response.json({error:"not_ready"},{status:503});
       if(uncertain&&escrow&&failure==="lost-ack")throw new TypeError("synthetic lost retirement acknowledgement");
       return Response.json({...body,ready:true,...(uncertain&&escrow&&failure==="wrong-device"?{device:randomUUID()}:{}),...(uncertain&&escrow&&failure==="wrong-challenge"?{challenge:"ff".repeat(32)}:{})});
     };
@@ -156,6 +157,7 @@ describePg("collection mode capability floor and token drain", () => {
       return app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode/${request}/finish`,headers:f.headers,payload:{device_id:f.a,challenge:issued.challenge,sig:hex(sign(null,digest,f.key)),epoch:"2",seq:String(proofHead.seq),chain:hex(proofHead.chain),members:[]}});
     };
     const failed=await finish();expect(failed.statusCode,failed.body).toBeGreaterThanOrEqual(500);
+    if(failure==="service-unready")expect(failed.statusCode,failed.body).toBe(503);
     const persisted=(await db.query("SELECT completed_at,rekey_verified_at,rekey_seq,policy_outbox_id FROM next_collection_mode_changes WHERE collection_id=$1",[f.collection])).rows[0];
     expect(persisted.completed_at).toBeNull();expect(persisted.rekey_verified_at).not.toBeNull();expect(String(persisted.rekey_seq)).toBe(String(head.seq));
     expect((await db.query("SELECT sync FROM next_collections WHERE collection_id=$1",[f.collection])).rows[0].sync).toBe("cloud_copy");
@@ -181,6 +183,7 @@ describePg("collection mode capability floor and token drain", () => {
       calls++;expect(url.pathname).toBe("/internal/v1/collection-mode/ready");expect(body.epoch).toBe("2");
       if(uncertain&&kind==="escrow"&&failure==="before-effect")throw new TypeError("synthetic pre-observation failure");
       ready.add(body.device);
+      if(uncertain&&kind==="escrow"&&failure==="service-unready")return Response.json({error:"not_ready"},{status:503});
       if(uncertain&&kind==="escrow"&&failure==="lost-ack")throw new TypeError("synthetic lost readiness acknowledgement");
       return Response.json({...body,ready:true,...(uncertain&&kind==="escrow"&&failure==="wrong-device"?{device:randomUUID()}:{}),...(uncertain&&kind==="escrow"&&failure==="wrong-challenge"?{challenge:"ff".repeat(32)}:{})});
     };
@@ -191,6 +194,7 @@ describePg("collection mode capability floor and token drain", () => {
     expect(published.statusCode,published.body).toBe(202);proofHead=await log.head(f.collection);
     const identities=(await db.query("SELECT device_id FROM next_service_devices WHERE collection_id=$1 ORDER BY device_id",[f.collection])).rows;
     expect(factories).toBe(2);const unready=await finish();expect(unready.statusCode,unready.body).toBeGreaterThanOrEqual(500);
+    if(failure==="service-unready")expect(unready.statusCode,unready.body).toBe(503);
     expect((await db.query("SELECT completed_at FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2",[f.collection,request])).rows[0].completed_at).toBeNull();
     await app.close();app=server();uncertain=false;
     const cloud=await finish();expect(cloud.statusCode,cloud.body).toBe(200);expect(cloud.json().phase).toBe("complete");expect(ready.size).toBe(2);
