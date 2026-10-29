@@ -1057,11 +1057,11 @@ msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "컬렉션 권한"
 
-#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
 msgstr "컬렉션 복제본"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"

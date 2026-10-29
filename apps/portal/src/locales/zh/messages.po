@@ -1057,11 +1057,11 @@ msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "集合权限"
 
-#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
 msgstr "集合副本"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"
