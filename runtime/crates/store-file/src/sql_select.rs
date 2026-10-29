@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use crate::index::{Batch, BatchMode, IndexStorage, SqlValue, Stmt, StmtResult};
+use crate::index_codec::CodecLimits;
 use mdbn_core::query::indexed::SortAtom;
 use mdbn_replica::store::{StoreError, StoreResult};
 use mdbn_replica::store_query::{
@@ -244,7 +245,7 @@ pub(crate) fn projection_ids<I: IndexStorage>(
         ""
     };
     params.push(SqlValue::Integer(i64::from(req.limit) + 1));
-    if params.len() > 100 {
+    if params.len() > CodecLimits::HOSTED.max_parameters {
         return Err(StoreError::Full);
     }
     let results = run(
@@ -458,7 +459,7 @@ pub fn select<I: IndexStorage>(
     // never copied) is `has_more`, so no count over every match is needed.
     let mut lookahead_params = params.clone();
     lookahead_params.extend([SqlValue::Integer(i64::from(req.limit) + 1), offset]);
-    if page_params.len() > 100 {
+    if page_params.len() > CodecLimits::HOSTED.max_parameters {
         return Err(StoreError::Full);
     }
     let mut stmts = vec![Stmt::new(

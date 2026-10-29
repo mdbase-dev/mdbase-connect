@@ -45,6 +45,7 @@ struct Probe {
     transactions: Cell<usize>,
     fail_read: Cell<bool>,
     uncertain_commit: Cell<bool>,
+    enforce_codec: Cell<bool>,
 }
 struct AppSql {
     inner: SqliteIndex,
@@ -58,6 +59,13 @@ impl IndexStorage for AppSql {
         self.inner.reset()
     }
     fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
+        if self.probe.enforce_codec.get() {
+            mdbn_store_file::index_codec::encode_request(
+                &mdbn_store_file::index_codec::IndexRequest::Run(batch.clone()),
+                mdbn_store_file::index_codec::CodecLimits::HOSTED,
+            )
+            .map_err(|error| IndexError::new(IndexErrorKind::Other, error.to_string()))?;
+        }
         self.probe.calls.set(self.probe.calls.get() + 1);
         self.probe.record_blob_reads.set(
             self.probe.record_blob_reads.get()

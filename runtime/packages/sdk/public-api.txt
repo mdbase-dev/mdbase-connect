@@ -4219,6 +4219,7 @@ MdbaseApplicationFacetSnapshot@application/entry.ts
 
 MdbaseApplicationProblem@application/entry.ts
   readonly code: string
+  readonly detail?: 'binding_invalid' | 'binding_aborted' | 'binding_not_current' | 'readiness_closed' | 'read_aborted' | 'session_closed' | 'session_replaced' | 'session_collection_mismatch' | 'read_unauthenticated' | 'read_cancelled' | 'scope_aborted' | 'scope_closed' | 'observer_not_current' | 'connection_not_current' | 'collection_mismatch' | 'currentness_check_failed' | 'native_witness_collection_mismatch' | 'native_witness_generation_mismatch' | 'caller_aborted' | 'capabilities_facet' | 'contracts_facet' | 'configuration_facet' | 'files_facet' | 'people_facet' | 'notifications_facet' | undefined
 
 MdbaseApplicationReadinessSnapshot@application/entry.ts
   readonly assessment: MdbaseApplicationAssessment | null

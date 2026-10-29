@@ -40,6 +40,17 @@ function expectError(bytes: Uint8Array, tag?: number) {
 }
 
 describe("app binary index (file ABI v1)", () => {
+  it.each([98, 99, 100, 101])("enforces the %i parameter boundary before SQL", count => {
+    const { host, inner, index } = memory(), run = vi.spyOn(inner, "run");
+    const params: SqlValue[] = Array.from({length: count}, () => ({kind: "Integer", value: 1n}));
+    const reply = host.run(select(`SELECT 1 WHERE 1 IN (${params.map(() => "?").join(",")})`, params));
+    if (count <= APP_INDEX_LIMITS.maxParameters) {
+      expect(reply[8]).toBe(2);expect(run).toHaveBeenCalledOnce();expect(index.needsRecovery).toBe(false);
+    } else {
+      expectError(reply);expect(run).not.toHaveBeenCalled();expect(index.needsRecovery).toBe(true);
+    }
+    index.close();
+  });
   it("preserves tags, extreme INTEGERs, integral REAL, negative zero, UTF-8/BOM and BLOB", () => {
     const { host, inner, index } = memory();
     const vals: SqlValue[] = [

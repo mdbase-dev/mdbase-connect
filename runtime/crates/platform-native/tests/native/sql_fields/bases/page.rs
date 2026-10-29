@@ -18,6 +18,38 @@ fn request(store: &SqlStore<Trace>) -> QueryProjectionRequest {
 }
 
 #[test]
+fn projection_parameter_boundaries_preserve_every_exact_identity() {
+    let (store, _, _, _, _) = open(
+        "raw_parameter_boundary",
+        (1..=101)
+            .map(|number| row(number, &format!("priority: {number}")))
+            .collect(),
+        &["priority"],
+    );
+    let batch_limit = mdbn_store_file::index_codec::CodecLimits::HOSTED.max_parameters - 2;
+    for parameters in [98, 99, 100, 101] {
+        let records = parameters - 2;
+        let mut req = request(&store);
+        req.bases_records = Some((1..=records as u16).map(id).collect());
+        let first = store.query_projection_page(&req).unwrap();
+        first.check(&req).unwrap();
+        let admitted = records.min(batch_limit);
+        assert_eq!(
+            first.rows.iter().map(|row| row.id).collect::<Vec<_>>(),
+            (1..=admitted as u16).map(id).collect::<Vec<_>>()
+        );
+        assert_eq!(first.has_more, records > admitted);
+        if first.has_more {
+            req.bases_records = Some(((admitted as u16 + 1)..=records as u16).map(id).collect());
+            let last = store.query_projection_page(&req).unwrap();
+            last.check(&req).unwrap();
+            assert_eq!(last.rows.len(), records - admitted);
+            assert!(!last.has_more);
+        }
+    }
+}
+
+#[test]
 fn exact_window_id_hydration_is_sparse_byte_bounded_and_complete() {
     let (store, _, blobs, _, _) = open(
         "window_exact_ids",
@@ -109,7 +141,8 @@ fn raw_uuid_pages_cross_legacy_window_without_source_hydration() {
         }
     }
     assert_eq!(ids, (1..=1100).map(id).collect::<Vec<_>>());
-    assert_eq!(pages, 9);
+    let batch_limit = mdbn_store_file::index_codec::CodecLimits::HOSTED.max_parameters - 2;
+    assert_eq!(pages, 1100usize.div_ceil(batch_limit));
     assert_eq!(blobs.get(), 0);
 }
 
@@ -356,15 +389,16 @@ fn predicate_pages_are_count_free_with_exact_limit_lookahead_and_byte_prefixes()
     // All projection selection/fence/preflight/hydration statements are guarded.
     index.borrow_mut().armed = true;
     let first = store.query_projection_page(&req).unwrap();
-    assert_eq!(first.rows.len(), 128);
+    let batch_limit = mdbn_store_file::index_codec::CodecLimits::HOSTED.max_parameters - 2;
+    assert_eq!(first.rows.len(), batch_limit);
     assert!(first.has_more);
     req.after = Some(first.rows.last().unwrap().id);
     let last = store.query_projection_page(&req).unwrap();
-    assert_eq!(last.rows.len(), 2);
+    assert_eq!(last.rows.len(), 130 - batch_limit);
     assert!(!last.has_more);
     assert_eq!(
         last.rows.iter().map(|r| r.id).collect::<Vec<_>>(),
-        vec![id(129), id(130)]
+        ((batch_limit as u16 + 1)..=130).map(id).collect::<Vec<_>>()
     );
     req.after = None;
     req.limit = 1;
@@ -476,9 +510,11 @@ fn raw_metadata_limit_preserves_rows_without_sqlite_reprepare() {
             let page = store.query_projection_page(&req).unwrap();
             page.check(&req).unwrap();
             let first = if after.is_some() { 21 } else { 1 };
-            let expected: Vec<_> = (first..=130).take(limit as usize).map(id).collect();
+            let limit = (limit as usize)
+                .min(mdbn_store_file::index_codec::CodecLimits::HOSTED.max_parameters - 2);
+            let expected: Vec<_> = (first..=130).take(limit).map(id).collect();
             assert_eq!(page.rows.iter().map(|r| r.id).collect::<Vec<_>>(), expected);
-            assert_eq!(page.has_more, usize::from(131 - first) > limit as usize);
+            assert_eq!(page.has_more, usize::from(131 - first) > limit);
         }
     }
     drop(store);
