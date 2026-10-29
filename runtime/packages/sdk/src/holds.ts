@@ -63,8 +63,8 @@ const CAUSES: Record<HoldReason, { cause: string; detail: string }> = {
     detail: "Your version is kept here; nothing is deleted until you choose.",
   },
   read_only: {
-    cause: "This file was changed while you had view access.",
-    detail: "Your edit stays on this device until you submit or discard it. Gaining edit access will not submit it automatically.",
+    cause: "Changed with view access.",
+    detail: "Edit access will not sync these changes. Submit or discard them.",
   },
   editor_busy: {
     cause: "An editor still has this file open with unsaved changes.",
@@ -128,16 +128,21 @@ export interface DescribeHoldOptions {
 
 /** Present one hold: cause, detail, applicable actions and the compare link. */
 export function describeHold(h: Hold, o: DescribeHoldOptions): HoldPresentation {
+  const readOnly = h.reason === "read_only";
   const hasTheirs = h.theirs !== undefined;
   const canCompare = (o.canCompare ?? true) && hasTheirs;
   const can = (needs?: HoldActionOption["needs"]) => !needs || !o.capabilities || o.capabilities.includes(needs);
   const actions = ACTIONS[h.reason]
-    .filter((a) => h.reason !== "read_only" || a === "compare" || o.host === true)
-    .filter((a) => (a === "compare" ? canCompare : a === "take_theirs" ? hasTheirs || h.reason === "read_only" : true))
-    .map((action) => ({ action, ...OPTIONS[action] }))
-    .map((option): HoldActionOption => h.reason === "read_only" && option.action === "take_theirs"
-      ? { ...option, label: "Discard local changes", description: "Discard the changes kept on this computer.", needs: "collection.read" }
-      : option)
+    .filter((a) => a === "compare" ? canCompare : (!readOnly || o.host === true) && (a !== "take_theirs" || hasTheirs || readOnly))
+    .map((action): HoldActionOption => {
+      const option = { action, ...OPTIONS[action] };
+      if (readOnly && action === "take_theirs") {
+        option.label = "Discard local changes";
+        option.description = "Discard unsynced changes on this device.";
+        option.needs = "collection.read";
+      }
+      return option;
+    })
     .filter((a) => can(a.needs));
   const text = CAUSES[h.reason];
   return {
@@ -151,8 +156,8 @@ export function describeHold(h: Hold, o: DescribeHoldOptions): HoldPresentation 
     saves: h.saves,
     hasTheirs,
     actions,
-    reversible: h.reason !== "read_only",
-    reversibleNote: h.reason === "read_only" ? "These changes have not been synced. Copy the file before discarding it if you want to keep them." : "You can change your mind later: resolving is an ordinary change, and the previous version stays in the collection's history. Keep both if you want your version kept as a file as well.",
+    reversible: !readOnly,
+    reversibleNote: readOnly ? "Copy before discarding." : "You can change your mind later: resolving is an ordinary change, and the previous version stays in the collection's history. Keep both if you want your version kept as a file as well.",
     compareLink: canCompare ? holdCompareLink(o.collectionId, h.id) : null,
   };
 }

@@ -375,6 +375,8 @@ impl Store for DiskStore {
         d.max_pending = d.max_pending.max(self.inner.pending_count()?);
         d.acknowledged += acks.len() as u64;
         d.publish_attempts += publish.len() as u64;
+        // Acknowledged observations must not be reoffered by an earlier deferral.
+        d.queued.retain(|o| !acks.contains(&o.token));
         // Acknowledged observations: their bytes are now known.
         for a in acks {
             d.outstanding.remove(&a);
@@ -916,6 +918,39 @@ fn set_member_role(svc: &FakeLogService, nodes: &mut [&mut Node], role: mdbn_wir
 }
 
 #[test]
+fn viewer_bulk_scan_holds_in_batches_before_an_upgrade_can_release_edits() {
+    use mdbn_wire::policy::Role;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    set_member_role(&svc, &mut [&mut a], Role::Viewer);
+    a.r.subscribe_holds(a.s).unwrap();
+    for i in 0..193 {
+        a.disk
+            .borrow_mut()
+            .user_write(&format!("viewer-{i}.md"), Some("held"));
+    }
+    let commits = a.r.store().inner.data().borrow().commits;
+    let reads = a.disk.borrow().holds_reads;
+    assert!(a.r.observe_changes().unwrap().is_empty());
+    assert_eq!(a.r.store().inner.data().borrow().commits - commits, 4);
+    assert!(
+        a.disk.borrow().holds_reads - reads <= 4,
+        "hold reads and notifications are per scan, never per file"
+    );
+    assert_eq!(
+        a.r.take_pushes()
+            .iter()
+            .filter(|(_, p)| matches!(p, crate::api::Push::Holds(_)))
+            .count(),
+        1
+    );
+    assert_eq!(a.r.list_holds(a.s).unwrap().len(), 193);
+    set_member_role(&svc, &mut [&mut a], Role::Editor);
+    assert_eq!(a.r.sync_status().pending, 0);
+    assert_eq!(a.r.list_holds(a.s).unwrap().len(), 193);
+}
+
+#[test]
 fn viewer_disk_changes_wait_for_explicit_choice_after_upgrade_and_restart() {
     use mdbn_wire::{client::HoldReason, policy::Role};
     let svc = FakeLogService::new();
@@ -943,6 +978,10 @@ fn viewer_disk_changes_wait_for_explicit_choice_after_upgrade_and_restart() {
         observation.moved_from = Some("rename.md".into());
         observation.base = base;
     }
+    assert!(
+        b.r.observe_changes().unwrap().is_empty(),
+        "Viewer refusals are durable before an upgrade can release the daemon queue"
+    );
     settle(&mut [&mut a, &mut b]);
     let holds = b.r.store().holds().unwrap();
     assert_eq!(holds.len(), 6);
@@ -1895,8 +1934,8 @@ fn synced_batched_ingest_reads_only_matching_pending_rows() {
     assert_eq!(a.disk.borrow().acknowledged, RECORDS);
     let holds_reads = a.disk.borrow().holds_reads - holds_before;
     assert!(
-        holds_reads <= RECORDS.div_ceil(32) + 1,
-        "publication reads holds once per batch plus the final status read: {holds_reads}"
+        holds_reads <= 2 * RECORDS.div_ceil(32) + 1,
+        "Viewer partition and publication each read holds once per batch, plus final status: {holds_reads}"
     );
 }
 

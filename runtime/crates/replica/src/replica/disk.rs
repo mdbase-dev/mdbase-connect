@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 
 use mdbn_core::plan::{PlanOptions, Stage};
 use mdbn_core::state::{PathHolder, StateView};
+use mdbn_core::types::Catalog;
 use mdbn_wire::client::{Hold, HoldReason, PublishState, Receipt, ReceiptState};
 use mdbn_wire::common::{B16, B32, Hash, Text};
 use mdbn_wire::intent::{DocVersion, Document, Level, Mutation, Op, OpClock, ResourcePut, Source};
@@ -528,39 +529,6 @@ impl<S: Store> Replica<S> {
             }
             return;
         }
-        // Refused definitions must never enter the candidate catalog. Existing
-        // view-only holds also collect later saves after a role upgrade.
-        let held_paths = match self.store.holds() {
-            Ok(holds) => holds
-                .into_iter()
-                .filter(|h| h.reason == HoldReason::ReadOnly)
-                .map(|h| mdbn_core::paths::path_key(&h.path))
-                .collect::<std::collections::BTreeSet<_>>(),
-            Err(e) => {
-                self.incident(
-                    mdbn_wire::client::IncidentKind::Integrity,
-                    Some(mdbn_wire::common::Value::Text(format!("holds: {e}"))),
-                );
-                return;
-            }
-        };
-        let viewer = self.host_is_viewer();
-        let (protected, observations): (Vec<_>, Vec<_>) = observations.into_iter().partition(|o| {
-            viewer
-                || held_paths.contains(&mdbn_core::paths::path_key(&o.path))
-                || o.moved_from
-                    .as_ref()
-                    .is_some_and(|p| held_paths.contains(&mdbn_core::paths::path_key(p)))
-        });
-        for observation in protected {
-            if let Err(e) = self.ingest_one(observation, None) {
-                self.incident(
-                    mdbn_wire::client::IncidentKind::Integrity,
-                    Some(mdbn_wire::common::Value::Text(format!("ingest: {e}"))),
-                );
-                return;
-            }
-        }
         let Some(observations) = self.prepare_ingest(observations).await else {
             return;
         };
@@ -611,6 +579,35 @@ impl<S: Store> Replica<S> {
         &mut self,
         observations: Vec<Observation>,
     ) -> Option<Vec<Observation>> {
+        // Refused definitions must never enter the candidate catalog. Existing
+        // view-only holds also collect later saves after a role upgrade.
+        let tokens: Vec<_> = observations.iter().map(|o| o.token).collect();
+        let holds = match self.store.holds() {
+            Ok(holds) => holds,
+            Err(e) => {
+                self.defer_ingest(&tokens, e);
+                return None;
+            }
+        };
+        let held_paths: std::collections::BTreeSet<_> = holds
+            .iter()
+            .filter(|h| h.reason == HoldReason::ReadOnly)
+            .map(|h| mdbn_core::paths::path_key(&h.path))
+            .collect();
+        let viewer = self.host_is_viewer();
+        let (protected, observations): (Vec<_>, Vec<_>) = observations.into_iter().partition(|o| {
+            viewer && !matches!(&o.now, Some(Observed::Attachment { .. }))
+                || held_paths.contains(&mdbn_core::paths::path_key(&o.path))
+                || o.moved_from
+                    .as_ref()
+                    .is_some_and(|p| held_paths.contains(&mdbn_core::paths::path_key(p)))
+        });
+        // Persist refusals before returning the ordinary queue: a role upgrade
+        // between scan and drain must never turn these edits into submissions.
+        if let Err(e) = self.ingest_read_only(protected, holds) {
+            self.defer_ingest(&tokens, e);
+            return None;
+        }
         match self.ingest_resource_set(observations).await {
             Ok(Some(ready)) => Some(ready),
             Ok(None) => {
@@ -628,6 +625,19 @@ impl<S: Store> Replica<S> {
                 );
                 None
             }
+        }
+    }
+
+    fn defer_ingest(&mut self, tokens: &[ObservationId], error: StoreError) {
+        self.incident(
+            mdbn_wire::client::IncidentKind::Integrity,
+            Some(mdbn_wire::common::Value::Text(format!("ingest: {error}"))),
+        );
+        if let Err(e) = self.store.defer_disk_observations(tokens) {
+            self.incident(
+                mdbn_wire::client::IncidentKind::Integrity,
+                Some(mdbn_wire::common::Value::Text(format!("store: {e}"))),
+            );
         }
     }
 
@@ -843,24 +853,25 @@ impl<S: Store> Replica<S> {
         Ok((!taken).then_some(id))
     }
 
-    fn read_only_hold_at(&mut self, path: &str) -> Result<Hold, StoreError> {
-        if let Some(hold) = self.store.holds()?.into_iter().find(|h| {
-            mdbn_core::paths::path_key(&h.path) == mdbn_core::paths::path_key(path)
-                && matches!(&h.mine, TextOrBlob::Text(_))
-        }) {
-            return Ok(hold);
+    fn read_only_hold_at(
+        &mut self,
+        path: &str,
+        holds: &std::collections::BTreeMap<String, Hold>,
+        held_ids: &mut std::collections::BTreeSet<B16>,
+        catalog: &Catalog,
+    ) -> Hold {
+        if let Some(hold) = holds.get(&mdbn_core::paths::path_key(path))
+            && matches!(&hold.mine, TextOrBlob::Text(_))
+        {
+            return hold.clone();
         }
-        let resource = self.catalog.is_resource_path(path);
+        let resource = catalog.is_resource_path(path);
         let record = if resource { None } else { self.holder_at(path) };
         // An identity held at a different path must retain its original evidence.
-        let occupied = if let Some(id) = record {
-            self.store.hold(&id)?.is_some()
-        } else {
-            false
-        };
         let id = record
-            .filter(|_| !occupied)
+            .filter(|id| !held_ids.contains(id))
             .unwrap_or_else(|| self.mint_v7());
+        held_ids.insert(id);
         let key = if resource {
             DiskKey::Resource(path.to_string())
         } else {
@@ -869,7 +880,7 @@ impl<S: Store> Replica<S> {
         let base = self
             .local_view_doc(&key)
             .map(|(_, text)| TextOrBlob::Text(text));
-        Ok(Hold {
+        Hold {
             id,
             path: path.to_string(),
             reason: HoldReason::ReadOnly,
@@ -878,7 +889,141 @@ impl<S: Store> Replica<S> {
             mine: TextOrBlob::Text(String::new()),
             theirs: base,
             saves: 0,
-        })
+        }
+    }
+
+    fn ingest_read_only(
+        &mut self,
+        observations: Vec<Observation>,
+        holds: Vec<Hold>,
+    ) -> Result<(), StoreError> {
+        if observations.is_empty() {
+            return Ok(());
+        }
+        self.check_apply_store_health()?;
+        let mut held_ids = holds.iter().map(|h| h.id).collect();
+        let catalog = self.layer.catalog().unwrap_or_else(|| self.catalog.clone());
+        let mut holds: std::collections::BTreeMap<_, _> = holds
+            .into_iter()
+            .map(|h| (mdbn_core::paths::path_key(&h.path), h))
+            .collect();
+        let mut tx = Tx::default();
+        for o in &observations {
+            // Bound each commit just like ordinary disk ingestion. Both halves
+            // of a move stay in the same transaction.
+            let text_bytes: usize = tx
+                .holds_put
+                .iter()
+                .flat_map(|h| [h.base.as_ref(), Some(&h.mine), h.theirs.as_ref()])
+                .flatten()
+                .map(|text| match text {
+                    TextOrBlob::Text(text) => text.len(),
+                    _ => 0,
+                })
+                .sum();
+            if tx.ack_observations.len() >= 64 || text_bytes >= 256 * 1024 {
+                self.store.commit(std::mem::take(&mut tx))?;
+            }
+            let destination_valid = mdbn_core::paths::check_path(&o.path).is_ok();
+            let protected_move = o.moved_from.as_deref().filter(|from| {
+                mdbn_core::paths::path_key(from) != mdbn_core::paths::path_key(&o.path)
+            });
+            // One hold has one path: store both halves of a move atomically so
+            // discard can restore its source and neither half escapes after upgrade.
+            if !matches!(&o.now, Some(Observed::Attachment { .. }))
+                && let Some(from) = protected_move
+            {
+                let mut protected = Vec::new();
+                if mdbn_core::paths::check_path(from).is_ok()
+                    && (catalog.is_resource_path(from) || catalog.is_record_path(from))
+                {
+                    let mut source = self.read_only_hold_at(from, &holds, &mut held_ids, &catalog);
+                    source.mine = TextOrBlob::Text(String::new());
+                    source.saves += 1;
+                    protected.push(source);
+                }
+                if destination_valid
+                    && (catalog.is_resource_path(&o.path) || catalog.is_record_path(&o.path))
+                {
+                    let mut target =
+                        self.read_only_hold_at(&o.path, &holds, &mut held_ids, &catalog);
+                    target.mine = TextOrBlob::Text(match &o.now {
+                        Some(Observed::Text(text)) => text.clone(),
+                        _ => String::new(),
+                    });
+                    target.saves += 1;
+                    protected.push(target);
+                }
+                for hold in protected {
+                    holds.insert(mdbn_core::paths::path_key(&hold.path), hold.clone());
+                    tx.holds_put.push(hold);
+                }
+                tx.ack_observations.push(o.token);
+                continue;
+            }
+            // Namespace safety: such paths are never part of the collection.
+            if mdbn_core::paths::check_path(&o.path).is_err()
+                || o.moved_from
+                    .as_deref()
+                    .is_some_and(|p| mdbn_core::paths::check_path(p).is_err())
+            {
+                tx.ack_observations.push(o.token);
+                continue;
+            }
+            let existing_hold = holds
+                .get(&mdbn_core::paths::path_key(&o.path))
+                .filter(|h| matches!(&h.mine, TextOrBlob::Text(_)))
+                .cloned();
+            if let Some(mut hold) = existing_hold {
+                if let Some(Observed::Text(text)) = &o.now {
+                    hold.mine = TextOrBlob::Text(text.clone());
+                } else if o.now.is_none() {
+                    hold.mine = TextOrBlob::Text(String::new());
+                } else {
+                    // Keep the prior hold and its evidence until attachment holds
+                    // can collect this replacement without inventing a descriptor.
+                    continue;
+                }
+                hold.path = o.path.clone();
+                hold.saves += 1;
+                holds.insert(mdbn_core::paths::path_key(&hold.path), hold.clone());
+                tx.holds_put.push(hold);
+                tx.ack_observations.push(o.token);
+                continue;
+            }
+            if !matches!(&o.now, Some(Observed::Attachment { .. })) {
+                if !catalog.is_resource_path(&o.path) && !catalog.is_record_path(&o.path) {
+                    tx.ack_observations.push(o.token);
+                    continue;
+                }
+                let mut hold = self.read_only_hold_at(&o.path, &holds, &mut held_ids, &catalog);
+                let text = match &o.now {
+                    Some(Observed::Text(text)) => Some(text.as_str()),
+                    _ => None,
+                };
+                if o.moved_from.is_none()
+                    && hold.base.as_ref().and_then(|base| match base {
+                        TextOrBlob::Text(text) => Some(text.as_str()),
+                        _ => None,
+                    }) == text
+                {
+                    tx.ack_observations.push(o.token);
+                    continue;
+                }
+                hold.mine = TextOrBlob::Text(text.unwrap_or_default().to_string());
+                hold.saves += 1;
+                holds.insert(mdbn_core::paths::path_key(&hold.path), hold.clone());
+                tx.holds_put.push(hold);
+                tx.ack_observations.push(o.token);
+                continue;
+            }
+        }
+        if !tx.ack_observations.is_empty() {
+            self.store.commit(tx)?;
+        }
+        self.status_dirty = true;
+        self.push_holds();
+        Ok(())
     }
 
     fn ingest_one(
@@ -900,120 +1045,12 @@ impl<S: Store> Replica<S> {
             self.record_admission_incident(e);
             return Ok(());
         }
-        let viewer = self.host_is_viewer();
-        let holds = self.store.holds()?;
-        let protected_move = o
-            .moved_from
-            .as_deref()
-            .filter(|from| mdbn_core::paths::path_key(from) != mdbn_core::paths::path_key(&o.path))
-            .filter(|from| {
-                viewer
-                    || holds.iter().any(|h| {
-                        h.reason == HoldReason::ReadOnly
-                            && (mdbn_core::paths::path_key(&h.path)
-                                == mdbn_core::paths::path_key(from)
-                                || mdbn_core::paths::path_key(&h.path)
-                                    == mdbn_core::paths::path_key(&o.path))
-                    })
-            });
-        // One hold has one path: store both halves of a move atomically so
-        // discard can restore its source and neither half escapes after upgrade.
-        if !matches!(&o.now, Some(Observed::Attachment { .. }))
-            && let Some(from) = protected_move
-        {
-            let mut protected = Vec::new();
-            if mdbn_core::paths::check_path(from).is_ok()
-                && (catalog.is_resource_path(from) || catalog.is_record_path(from))
-            {
-                let mut source = self.read_only_hold_at(from)?;
-                source.mine = TextOrBlob::Text(String::new());
-                source.saves += 1;
-                protected.push(source);
-            }
-            if destination_valid
-                && (catalog.is_resource_path(&o.path) || catalog.is_record_path(&o.path))
-            {
-                let mut target = self.read_only_hold_at(&o.path)?;
-                target.mine = TextOrBlob::Text(match &o.now {
-                    Some(Observed::Text(text)) => text.clone(),
-                    _ => String::new(),
-                });
-                target.saves += 1;
-                protected.push(target);
-            }
-            self.store.commit(Tx {
-                holds_put: protected,
-                ack_observations: vec![o.token],
-                ..Tx::default()
-            })?;
-            self.status_dirty = true;
-            self.push_holds();
-            return Ok(());
-        }
-        // Namespace safety: such paths are never part of the collection.
-        if mdbn_core::paths::check_path(&o.path).is_err()
+        if !destination_valid
             || o.moved_from
                 .as_deref()
                 .is_some_and(|p| mdbn_core::paths::check_path(p).is_err())
         {
             return self.ack(o.token);
-        }
-        let existing_hold = holds.into_iter().find(|h| {
-            (h.reason == HoldReason::ReadOnly
-                || viewer && !matches!(&o.now, Some(Observed::Attachment { .. })))
-                && matches!(&h.mine, TextOrBlob::Text(_))
-                && (mdbn_core::paths::path_key(&h.path) == mdbn_core::paths::path_key(&o.path)
-                    || o.moved_from.as_ref().is_some_and(|p| {
-                        mdbn_core::paths::path_key(p) == mdbn_core::paths::path_key(&h.path)
-                    }))
-        });
-        if let Some(mut hold) = existing_hold {
-            if let Some(Observed::Text(text)) = &o.now {
-                hold.mine = TextOrBlob::Text(text.clone());
-            } else if o.now.is_none() {
-                hold.mine = TextOrBlob::Text(String::new());
-            } else {
-                // Keep the prior hold and its evidence until attachment holds
-                // can collect this replacement without inventing a descriptor.
-                return Ok(());
-            }
-            hold.path = o.path.clone();
-            hold.saves += 1;
-            self.store.commit(Tx {
-                holds_put: vec![hold],
-                ack_observations: vec![o.token],
-                ..Tx::default()
-            })?;
-            self.push_holds();
-            return Ok(());
-        }
-        if viewer && !matches!(&o.now, Some(Observed::Attachment { .. })) {
-            if !self.catalog.is_resource_path(&o.path) && !self.catalog.is_record_path(&o.path) {
-                return self.ack(o.token);
-            }
-            let mut hold = self.read_only_hold_at(&o.path)?;
-            let text = match &o.now {
-                Some(Observed::Text(text)) => Some(text.as_str()),
-                _ => None,
-            };
-            if o.moved_from.is_none()
-                && hold.base.as_ref().and_then(|base| match base {
-                    TextOrBlob::Text(text) => Some(text.as_str()),
-                    _ => None,
-                }) == text
-            {
-                return self.ack(o.token);
-            }
-            hold.mine = TextOrBlob::Text(text.unwrap_or_default().to_string());
-            hold.saves += 1;
-            self.store.commit(Tx {
-                holds_put: vec![hold],
-                ack_observations: vec![o.token],
-                ..Tx::default()
-            })?;
-            self.status_dirty = true;
-            self.push_holds();
-            return Ok(());
         }
         // Attachment files (and deletes of files) go to attachment ingest (T6).
         if self.ingest_attachment(&o)? {

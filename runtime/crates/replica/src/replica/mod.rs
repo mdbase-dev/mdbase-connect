@@ -1037,8 +1037,8 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
-    /// Capture one scan and ingest its coherent resource set. The native actor
-    /// drains the returned ordinary observations between commands; unacknowledged
+    /// Capture one scan, hold refused edits and ingest its coherent resource set.
+    /// The native actor drains returned ordinary observations between commands; unacknowledged
     /// observations remain owned by the store and are reoffered after a restart.
     pub fn observe_changes(&mut self) -> Result<Vec<crate::store::Observation>, StoreError> {
         disk::finish_native(async {

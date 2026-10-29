@@ -96,7 +96,8 @@ describe("session", () => {
       grant = { ...negotiated.grant, capabilities: [...negotiated.grant.capabilities] };
       await c.getStatus();
       expect(c.hello).toBe(negotiated);
-      grant = { role: "viewer", capabilities: ["collection.read"] };
+      grant = { role: "viewer", capabilities: ["collection.read"],
+        grant: "00000000-0000-4000-8000-000000000001", account: "00000000-0000-4000-8000-000000000002" };
       await c.getStatus();
       const viewer = c.hello;
       expect(viewer).not.toBe(negotiated);
