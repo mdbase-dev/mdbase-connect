@@ -20,7 +20,7 @@ fn void_site_inventory_requires_determinism_review() {
     let apply = include_str!("../replica/apply.rs");
     assert_eq!(policy.matches("void(").count(), 112);
     assert_eq!(apply.matches(".commit_void(").count(), 11);
-    assert_eq!(apply.matches(".commit_payload_void(").count(), 40);
+    assert_eq!(apply.matches(".commit_payload_void(").count(), 39);
 }
 
 /// Fake verifier: a signature is `digest ‖ pk`.

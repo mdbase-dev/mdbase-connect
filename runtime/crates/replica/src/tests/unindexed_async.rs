@@ -19,6 +19,21 @@ use mdbn_wire::{
 use std::collections::BTreeMap;
 use zeroize::Zeroizing;
 type Objects = BTreeMap<Hash, Vec<u8>>;
+struct ErrorPlanner;
+impl crate::plan::Planner for ErrorPlanner {
+    fn plan(
+        &self,
+        _: &mdbn_core::intent::Mutation,
+        _: &dyn mdbn_core::state::StateView,
+        _: &mdbn_core::plan::PlanOptions,
+    ) -> Result<mdbn_core::plan::Planned, mdbn_core::plan::Rejection> {
+        Err(mdbn_core::plan::Rejection::new(
+            mdbn_core::plan::RejectCode::InvalidRequest,
+            None,
+            "planner error",
+        ))
+    }
+}
 pub(super) fn node() -> Node {
     node_store(crate::mem::MemStore::new())
 }
@@ -204,8 +219,18 @@ fn apply_body(
     objects: &Objects,
     writer: B16,
 ) -> crate::replica::apply::Outcome {
-    let mut changed = std::collections::BTreeSet::new();
     let refs = objects.keys().copied().collect::<Vec<_>>();
+    apply_body_with_refs(a, head, p, objects, writer, &refs)
+}
+fn apply_body_with_refs(
+    a: &mut Node,
+    head: Head,
+    p: &rt::EntryPayload,
+    objects: &Objects,
+    writer: B16,
+    refs: &[Hash],
+) -> crate::replica::apply::Outcome {
+    let mut changed = std::collections::BTreeSet::new();
     let first =
         a.r.test_apply_authorized_unindexed_with_refs(
             head.seq,
@@ -213,7 +238,7 @@ fn apply_body(
             p.clone(),
             &mut changed,
             writer,
-            &refs,
+            refs,
         )
         .unwrap();
     if !matches!(first, crate::replica::apply::Outcome::SourcePending) {
@@ -229,7 +254,7 @@ fn apply_body(
                 p.clone(),
                 &mut changed,
                 writer,
-                &refs,
+                refs,
             )
             .unwrap();
         if !matches!(outcome, crate::replica::apply::Outcome::SourcePending) {
@@ -262,42 +287,17 @@ fn native_invalid_effect_path_voids_before_planner_mismatch() {
 
 #[test]
 fn missing_native_refs_void_despite_planner_drift_or_error() {
-    struct ErrorPlanner;
-    impl crate::plan::Planner for ErrorPlanner {
-        fn plan(
-            &self,
-            _: &mdbn_core::intent::Mutation,
-            _: &dyn mdbn_core::state::StateView,
-            _: &mdbn_core::plan::PlanOptions,
-        ) -> Result<mdbn_core::plan::Planned, mdbn_core::plan::Rejection> {
-            Err(mdbn_core::plan::Rejection::new(
-                mdbn_core::plan::RejectCode::InvalidRequest,
-                None,
-                "planner error",
-            ))
-        }
-    }
     let mut outcomes = Vec::new();
     for planner_error in [false, true] {
         let mut node = node();
         let writer = node.r.cfg.device_id;
-        let (content, _) = contents(&mut node, &vec![b'x'; 1048577], true);
+        let (content, objects) = contents(&mut node, &vec![b'x'; 1048577], true);
         let payload = planned(&node, payload(content));
         let head = retain(&mut node);
         if planner_error {
             node.r.planner = Box::new(ErrorPlanner);
         }
-        let outcome = node
-            .r
-            .test_apply_authorized_unindexed_with_refs(
-                head.seq,
-                head,
-                payload,
-                &mut Default::default(),
-                writer,
-                &[],
-            )
-            .unwrap();
+        let outcome = apply_body_with_refs(&mut node, head, &payload, &objects, writer, &[]);
         outcomes.push(format!("{outcome:?}"));
     }
     assert_eq!(outcomes[0], "Void(\"V7: native source refs\")");
@@ -339,11 +339,16 @@ fn native_planner_drift_stalls_before_head_advance() {
         let mut node = node();
         let writer = node.r.cfg.device_id;
         let (content, objects) = contents(&mut node, &vec![b'x'; 1048577], true);
+        let FileContent::AttachmentV1(attachment) = &content else {
+            unreachable!()
+        };
+        let manifest = attachment.reference.manifest_cipher_hash;
         let payload = planned(&node, payload(content));
         assert!(!payload.effects.is_empty());
         let before_head = node.r.head;
         let before_policy = node.r.policy.clone();
         let before_meta = node.r.policy_meta();
+        let before_verified = node.r.stats.verified;
         let head = retain(&mut node);
         node.r.planner = Box::new(DriftPlanner(planner_error));
         assert!(matches!(
@@ -357,6 +362,15 @@ fn native_planner_drift_stalls_before_head_advance() {
         assert_eq!(node.r.store.head().unwrap(), before_head);
         assert_eq!(node.r.policy, before_policy);
         assert_eq!(node.r.store.meta(&before_meta.0).unwrap(), before_meta.1);
+        assert_eq!(node.r.stats.verified, before_verified);
+        assert!(
+            node.r
+                .store
+                .meta("replica.unindexed_byte_proofs")
+                .unwrap()
+                .is_none()
+        );
+        assert!(node.r.attachment_inventory(&manifest).unwrap().is_none());
         assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
         assert!(node.r.before.is_empty());
         assert!(!node.r.unindexed_sources.pending());
@@ -558,6 +572,80 @@ fn complete_invalid_utf8_rejects_with_actual_writer_receipt_and_advances_only_pr
     );
 }
 #[test]
+fn authenticated_invalid_utf8_precedes_planner_stall() {
+    for attachment in [false, true] {
+        for planner_error in [false, true] {
+            let mut node = node();
+            let mut plain = vec![b'x'; 1048577];
+            plain[0] = 255;
+            let (content, objects) = contents(&mut node, &plain, attachment);
+            let payload = planned(&node, payload(content));
+            let head = retain(&mut node);
+            let writer = node.r.cfg.device_id;
+            let before_verified = node.r.stats.verified;
+            if planner_error {
+                node.r.planner = Box::new(ErrorPlanner);
+            }
+            assert!(matches!(
+                apply_body(&mut node, head, &payload, &objects, writer),
+                crate::replica::apply::Outcome::Void("unindexed_markdown_invalid_utf8")
+            ));
+            assert_eq!(node.r.store.head().unwrap(), head);
+            assert_eq!(node.r.stats.verified, before_verified);
+        }
+    }
+}
+#[test]
+fn missing_chunk_refs_precedes_planner_stall_with_cold_or_warm_inventory() {
+    for planner_error in [false, true] {
+        for warm_inventory in [false, true] {
+            let mut node = node();
+            let (content, objects) = contents(&mut node, &vec![b'x'; 1048577], true);
+            let FileContent::AttachmentV1(attachment) = &content else {
+                unreachable!()
+            };
+            let refs = [attachment.reference.manifest_cipher_hash];
+            if warm_inventory {
+                let (descriptor, expected) =
+                    crate::replica::attachment_fetch::descriptor(attachment);
+                let manifest = node
+                    .r
+                    .sealer
+                    .open_attachment_manifest(
+                        &descriptor,
+                        expected,
+                        &objects[&refs[0]],
+                        AttachmentLimits::default(),
+                    )
+                    .unwrap();
+                node.r
+                    .store
+                    .commit(crate::store::Tx {
+                        meta: vec![crate::replica::attachment_inventory::inventory_meta(
+                            refs[0],
+                            &manifest.manifest().chunks,
+                        )],
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            let payload = planned(&node, payload(content));
+            let head = retain(&mut node);
+            let writer = node.r.cfg.device_id;
+            let before_verified = node.r.stats.verified;
+            if planner_error {
+                node.r.planner = Box::new(ErrorPlanner);
+            }
+            assert!(matches!(
+                apply_body_with_refs(&mut node, head, &payload, &objects, writer, &refs),
+                crate::replica::apply::Outcome::Void("V7: native source refs")
+            ));
+            assert_eq!(node.r.store.head().unwrap(), head);
+            assert_eq!(node.r.stats.verified, before_verified);
+        }
+    }
+}
+#[test]
 fn async_production_profiles_never_confirm_before_complete_source() {
     for attachment in [false, true] {
         let mut a = node();
@@ -756,11 +844,10 @@ fn invalid_prefix_only_rejects_after_complete_authentication_and_late_corruption
         let mut plain = vec![b'x'; 8 * 1048576 + 1];
         plain[0] = 255;
         let (content, objects) = contents(&mut a, &plain, true);
-        let p = payload(content);
-        let head = Head {
-            seq: before.seq + 1,
-            chain: B32([4; 32]),
-        };
+        let p = planned(&a, payload(content));
+        let head = retain(&mut a);
+        let writer = a.r.cfg.device_id;
+        a.r.planner = Box::new(ErrorPlanner);
         assert!(matches!(
             a.r.unindexed_source_check(
                 head,
@@ -790,5 +877,28 @@ fn invalid_prefix_only_rejects_after_complete_authentication_and_late_corruption
             _ => panic!("incorrect complete-source classification"),
         }
         assert_eq!(a.r.store.head().unwrap(), before);
+        let outcome =
+            a.r.test_apply_authorized_unindexed_with_refs(
+                head.seq,
+                head,
+                p,
+                &mut Default::default(),
+                writer,
+                &objects.keys().copied().collect::<Vec<_>>(),
+            )
+            .unwrap();
+        if corrupt {
+            assert!(matches!(
+                outcome,
+                crate::replica::apply::Outcome::SourcePending
+            ));
+            assert_eq!(a.r.store.head().unwrap(), before);
+        } else {
+            assert!(matches!(
+                outcome,
+                crate::replica::apply::Outcome::Void("unindexed_markdown_invalid_utf8")
+            ));
+            assert_eq!(a.r.store.head().unwrap(), head);
+        }
     }
 }

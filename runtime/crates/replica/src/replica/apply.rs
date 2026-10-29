@@ -1722,9 +1722,6 @@ impl<S: Store> Replica<S> {
                 return self.commit_payload_void(head, &payload, "V7: path already taken");
             }
         }
-        if native && !self.unindexed_refs_valid(&payload, refs)? {
-            return self.commit_payload_void(head, &payload, "V7: native source refs");
-        }
         let mut stall = None;
         // Verification (log-entry.md §5) against the state at p − 1.
         if native || (self.cfg.verify && payload.mutation.origin != self.cfg.replica_id) {
@@ -1799,17 +1796,11 @@ impl<S: Store> Replica<S> {
                 }
             }
         }
-        if let Some(reason) = stall {
-            return Ok(Outcome::Stall(IncidentKind::UpgradeRequired, reason.into()));
-        }
         let source_meta = if native {
             match self.unindexed_source_check(head, &payload, refs) {
                 super::unindexed_apply::Check::StoreFailed(e) => return Err(e),
                 super::unindexed_apply::Check::Pending => return Ok(Outcome::SourcePending),
-                super::unindexed_apply::Check::Ready(meta) => {
-                    self.stats.verified += 1;
-                    meta
-                }
+                super::unindexed_apply::Check::Ready(meta) => meta,
                 super::unindexed_apply::Check::InvalidUtf8 => {
                     return self.commit_unindexed_invalid_utf8(head, &payload, writer, changed);
                 }
@@ -1834,6 +1825,12 @@ impl<S: Store> Replica<S> {
         } else {
             Vec::new()
         };
+        if let Some(reason) = stall {
+            return Ok(Outcome::Stall(IncidentKind::UpgradeRequired, reason.into()));
+        }
+        if native {
+            self.stats.verified += 1;
+        }
 
         tx.meta.extend(source_meta);
         // Record metadata under the catalog after this entry's resource effects.

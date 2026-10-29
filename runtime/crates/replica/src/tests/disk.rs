@@ -650,21 +650,18 @@ fn node(svc: &FakeLogService, n: u8) -> Node {
 
 #[test]
 fn planner_stalled_promotion_preserves_ordinary_file_on_disk() {
+    use crate::log::{LogPort, LogRequest, LogResponse};
+    use mdbn_wire::attachment_runtime_v1 as rt;
     use mdbn_wire::ordinary_file_promotion::{OrdinaryFileToRecord, ReindexOrdinaryFile};
-    use mdbn_wire::{attachment::FileContent, attachment_runtime_v1 as rt, common::B32};
     let mut node = node(&FakeLogService::new(), 1);
     let id = B16([52; 16]);
     let path = "a.base";
     let document = "views: []\n";
-    let blob = mdbn_wire::intent::BlobRef {
-        plain_hash: h(document),
-        size: document.len() as u64,
-        blob_id: B32([3; 32]),
-        id_epoch: 1,
-        part_size: crate::crypto::blob::MIN_PART_SIZE,
-    };
-    let refs = node.r.sealer.blob_part_addresses(&blob).unwrap();
-    let content = FileContent::Blob(blob);
+    let mut source = super::unindexed_async::node();
+    let (content, objects) =
+        super::unindexed_async::contents(&mut source, document.as_bytes(), false);
+    node.r.sealer = source.r.sealer;
+    let refs = objects.keys().copied().collect::<Vec<_>>();
     node.r
         .store
         .commit(Tx {
@@ -724,6 +721,33 @@ fn planner_stalled_promotion_preserves_ordinary_file_on_disk() {
         applied_at: 0,
     });
     let writer = node.r.cfg.device_id;
+    assert!(matches!(
+        node.r
+            .test_apply_authorized_unindexed_with_refs(
+                head.seq,
+                head,
+                payload.clone(),
+                &mut changed,
+                writer,
+                &refs,
+            )
+            .unwrap(),
+        crate::replica::apply::Outcome::SourcePending
+    ));
+    for call in node.r.take_log_calls() {
+        if let LogRequest::GetObject { address, .. } = call.request {
+            let bytes = objects[&address].clone();
+            node.r.on_unindexed_source_reply(
+                head,
+                call.id,
+                Ok(LogResponse::GetObject {
+                    size: bytes.len() as u64,
+                    checksum: mdbn_wire::hash::sha256(&bytes),
+                    bytes,
+                }),
+            );
+        }
+    }
     let outcome = node
         .r
         .test_apply_authorized_unindexed_with_refs(
