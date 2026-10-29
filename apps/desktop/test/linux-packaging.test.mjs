@@ -46,7 +46,7 @@ for (const makerName of ["deb", "rpm"]) {
   });
 }
 
-test("RPM manifest includes the CLI, while unconfigured consumers remain unchanged", { skip: process.platform !== "linux" }, async () => {
+test("RPM disables global build-ID links and includes only configured CLI links", { skip: process.platform !== "linux" }, async () => {
   const rpmRequire = installerRequire();
   const { template } = rpmRequire("lodash");
   const specPath = rpmRequire.resolve("../resources/spec.ejs");
@@ -57,6 +57,7 @@ test("RPM manifest includes the CLI, while unconfigured consumers remain unchang
     productDescription: "test", icon: "test.png", pre: null, preun: null, post: null, postun: null
   };
   const spec = render({ ...options, additionalBinaries: { mdbase: "resources/mdbase-next/mdbase" } });
+  assert.match(spec, /^%global _build_id_links none$/m);
   assert.match(spec, /%files\n\/usr\/bin\/mdbase-connect\n\/usr\/bin\/mdbase\n/);
   assert.doesNotMatch(render(options), /\/usr\/bin\/mdbase\n/);
 });

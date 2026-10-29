@@ -1,5 +1,5 @@
 // Minimal Electron-shaped bundles exercise the real Forge makers without a GUI build.
-const { mkdir, writeFile } = require("node:fs/promises");
+const { copyFile, mkdir, writeFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const { MakerDeb } = require("@electron-forge/maker-deb");
 const { MakerRpm } = require("@electron-forge/maker-rpm");
@@ -14,6 +14,8 @@ async function main() {
       name: "mdbase-connect", version, description: "Packaging lifecycle fixture",
       author: "mdbase", license: "MIT"
     }));
+    // A real ELF with a build ID catches global RPM link generation that shell scripts cannot.
+    await copyFile("/bin/true", join(dir, "resources/shared-native-binary"));
     await writeFile(join(dir, "LICENSE"), "MIT\n");
     await writeFile(join(dir, "version"), require("electron/package.json").version);
     await writeFile(join(dir, "mdbase-connect"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
