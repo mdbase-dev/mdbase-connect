@@ -141,7 +141,7 @@ impl<S: Store> Replica<S> {
     }
 
     /// Per-path upload refusals for local status; excludes document payloads.
-    pub fn attachment_ingest_failures(&self) -> impl Iterator<Item = (&str, &Problem)> {
+    pub fn attachment_ingest_failures(&self) -> impl ExactSizeIterator<Item = (&str, &Problem)> {
         self.attachment_ingest
             .failed
             .iter()
@@ -496,7 +496,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Conflict.problem_with_reason(
                     "unindexed_capture_changed",
-                    "native reverse holder changed",
+                    "The file changed while mdbase was preparing it for sync.",
                 ),
             );
             return Ok(());
@@ -506,7 +506,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Unavailable.problem_with_reason(
                     "native_record_held",
-                    "resolve the hold before native reverse",
+                    "This file is held. Resolve it in mdbase before syncing.",
                 ),
             );
             return Ok(());
@@ -516,7 +516,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Unavailable.problem_with_reason(
                     "native_source_unavailable",
-                    "reverse source remains held",
+                    "This file is held and cannot be read for sync.",
                 ),
             );
             return Ok(());
@@ -528,7 +528,7 @@ impl<S: Store> Replica<S> {
                     &item.path,
                     ErrorCode::Conflict.problem_with_reason(
                         "source_changed",
-                        "reverse observation source changed",
+                        "The file changed while mdbase was reading it.",
                     ),
                 );
                 return Ok(());
@@ -580,7 +580,7 @@ impl<S: Store> Replica<S> {
                     &item.path,
                     ErrorCode::Unavailable.problem_with_reason(
                         "ordinary_kind_transition_requires_capture",
-                        "ordinary files are never implicitly native",
+                        "This file cannot be converted to a note automatically.",
                     ),
                 );
                 return Ok(());
@@ -594,7 +594,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Unavailable.problem_with_reason(
                     "native_record_held",
-                    "resolve the record hold before native conversion",
+                    "This file is held. Resolve it in mdbase before syncing.",
                 ),
             );
             return Ok(());
@@ -604,7 +604,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Unavailable.problem_with_reason(
                     "native_source_unavailable",
-                    "native observation source remains held",
+                    "This file is held and cannot be read for sync.",
                 ),
             );
             return Ok(());
@@ -621,8 +621,10 @@ impl<S: Store> Replica<S> {
             // the store offer current evidence; no upload/capture/ack occurred.
             self.native_ingest_failed(
                 &item.path,
-                ErrorCode::Conflict
-                    .problem_with_reason("source_changed", "native observed bytes changed"),
+                ErrorCode::Conflict.problem_with_reason(
+                    "source_changed",
+                    "The file changed while mdbase was reading it.",
+                ),
             );
             return Ok(());
         }
@@ -679,7 +681,7 @@ impl<S: Store> Replica<S> {
                     &item.path,
                     ErrorCode::Conflict.problem_with_reason(
                         "native_move_changed",
-                        "native move holder disappeared",
+                        "The file was removed while mdbase was syncing its move.",
                     ),
                 );
                 return Ok(());
@@ -801,7 +803,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Conflict.problem_with_reason(
                     "native_move_changed",
-                    "move continuation lost its authoritative identity",
+                    "The file changed while mdbase was syncing its move.",
                 ),
             );
             return Ok(());

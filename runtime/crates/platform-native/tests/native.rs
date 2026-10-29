@@ -1608,6 +1608,12 @@ fn file_store_never_ingests_or_publishes_through_a_symlink() {
         .map(String::from)
         .to_vec();
     assert!(s.observe(Some(&events)).unwrap().is_empty());
+    assert!(
+        s.stats
+            .unsupported_paths
+            .get("shared/secret.md")
+            .is_some_and(|reason| reason.contains("linked folder"))
+    );
     let r = s
         .commit(Tx {
             ack_observations: obs.iter().map(|o| o.token).collect(),

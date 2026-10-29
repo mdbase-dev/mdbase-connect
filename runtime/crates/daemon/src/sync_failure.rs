@@ -74,10 +74,10 @@ pub struct Failure {
     /// original directory fsync completed. Never a physical/currentness proof.
     pub persisted: Option<bool>,
     /// Local paths awaiting ingestion at a resource refusal; not a claim that each caused it.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip)]
     pub paths: Vec<String>,
     /// Additional paths that did not fit the bounded local diagnostic.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip)]
     pub paths_omitted: Option<u64>,
 }
 
@@ -88,6 +88,10 @@ pub(crate) type Shared = Arc<Mutex<Option<Failure>>>;
 struct Stored {
     schema_version: u32,
     failure: Failure,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    paths_omitted: Option<u64>,
 }
 
 impl Failure {
@@ -162,6 +166,8 @@ impl Failure {
             let size = serde_json::to_vec(&Stored {
                 schema_version: 2,
                 failure: self.clone(),
+                paths: self.paths.clone(),
+                paths_omitted: self.paths_omitted,
             })
             .expect("failure diagnostic is serializable")
             .len() as u64;
@@ -188,6 +194,8 @@ impl Failure {
             } else {
                 2
             },
+            paths: std::mem::take(&mut durable.paths),
+            paths_omitted: durable.paths_omitted.take(),
             failure: durable,
         })
         .map_err(io::Error::other)?;
@@ -225,7 +233,10 @@ impl Failure {
         {
             return Err(io::Error::other("unsupported failure diagnostic"));
         }
-        Ok(Some(stored.failure))
+        let mut failure = stored.failure;
+        failure.paths = stored.paths;
+        failure.paths_omitted = stored.paths_omitted;
+        Ok(Some(failure))
     }
 }
 

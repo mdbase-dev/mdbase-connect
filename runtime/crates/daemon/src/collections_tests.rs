@@ -1067,6 +1067,25 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
     assert!(!messages.contains(".hidden.md"), "{messages}");
     let json = serde_json::to_string(&out).unwrap();
     assert!(json.contains("latin.md") && json.contains("Not valid UTF-8"));
+    let mut many = vec![out.clone(); 100];
+    for collection in &mut many {
+        collection.notices = (0..3)
+            .map(|n| crate::control::Notice {
+                path: Some(format!("media/{n}-{}.png", "x".repeat(4096))),
+                code: "quota_exceeded".into(),
+                message: "Server storage is full; this file has not synced.".into(),
+            })
+            .collect();
+    }
+    crate::server::bound_file_notices(&mut many);
+    assert!(many.iter().any(|collection| {
+        collection
+            .notices
+            .iter()
+            .any(|notice| notice.code == "status_file_notices_omitted")
+    }));
+    assert!(serde_json::to_vec(&many).unwrap().len() < crate::ipc::MAX_CONTROL_FRAME);
+
     std::fs::write(root.join("latin.md"), "café").unwrap();
     let runtime = host.runtime().unwrap();
     let inventory = runtime.inventory().await.unwrap();

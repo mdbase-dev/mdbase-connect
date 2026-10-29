@@ -271,6 +271,8 @@ fn malformed_future_or_content_bearing_persistence_is_refused() {
     let mut value = serde_json::to_value(Stored {
         schema_version: 1,
         failure: f,
+        paths: Vec::new(),
+        paths_omitted: None,
     })
     .unwrap();
     value["failure"]["message"] = serde_json::json!("never accept content");
@@ -324,4 +326,31 @@ fn large_path_lists_preserve_the_failure_with_an_explicit_omitted_count() {
     assert_eq!(recovered.kind, Kind::Integrity);
     assert_eq!(recovered.paths, f.paths);
     assert_eq!(recovered.paths_omitted, f.paths_omitted);
+}
+
+#[test]
+fn saved_path_details_do_not_expand_the_strict_control_failure_shape() {
+    let mut f = Failure::project(
+        &status(
+            IncidentKind::Integrity,
+            Some(Value::Text(RESOURCE_DEFERRED.into())),
+        ),
+        &None,
+    )
+    .unwrap();
+    f.set_paths(vec!["_types/task.md".into()]);
+    let json = serde_json::to_value(&f).unwrap();
+    let keys = json
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        keys,
+        ["kind", "stage", "seq", "generation", "cause", "persisted"]
+            .into_iter()
+            .collect()
+    );
+    assert!(serde_json::from_value::<Failure>(json).is_ok());
 }

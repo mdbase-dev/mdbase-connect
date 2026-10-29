@@ -571,8 +571,8 @@ pub(crate) fn entry_payload(
 fn stream_problem(e: &StreamError) -> Problem {
     match e {
         StreamError::TooLarge => ErrorCode::TooLarge.problem_with_reason(
-            "file_size_requirement",
-            "The file does not meet the size requirements for this operation.",
+            "attachment_too_large",
+            "The file size is outside the supported range for this upload.",
         ),
         StreamError::NoKey => ErrorCode::Unavailable.problem_with_reason(
             "waiting_for_key",
@@ -1130,10 +1130,13 @@ impl<S: Store> Replica<S> {
                     .fail(ErrorCode::TooLarge.problem(
                         "The server refused this file because it exceeds its size limit.",
                     )),
-                other => up.fail(
-                    ErrorCode::Internal
-                        .problem(format!("the log refused the object: {}", other.as_str())),
-                ),
+                other => up.fail(ErrorCode::Internal.problem(match other.as_str() {
+                    "gone" => "The collection no longer exists on the server.",
+                    "upgrade_required" => "Update mdbase connect to sync this file.",
+                    "not_found" => "The server could not find this file's upload.",
+                    "invalid" => "The server rejected this file's upload data.",
+                    _ => "The server refused this file; it has not synced.",
+                })),
             },
         }
     }

@@ -1784,67 +1784,94 @@ fn run(
 fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
     use mdbn_replica::store::Store as _;
     use mdbn_wire::client::HoldReason;
-    let mut notices = rep
-        .store()
-        .inner()
-        .stats
-        .unsupported_paths
+    let unsupported = &rep.store().inner().stats.unsupported_paths;
+    let failures = rep.attachment_ingest_failures();
+    let holds = rep.store().holds().unwrap_or_default();
+    let total = unsupported.len() + failures.len() + holds.len();
+    let skipped = unsupported
         .iter()
         .map(|(path, reason)| crate::control::Notice {
             path: Some(path.clone()),
             code: "unsupported_entry".into(),
             message: reason.clone(),
-        })
-        .collect::<Vec<_>>();
-    for (path, problem) in rep.attachment_ingest_failures() {
-        notices.push(crate::control::Notice {
-            path: Some(path.into()),
-            code: problem
-                .reason
-                .clone()
-                .unwrap_or_else(|| problem.code.clone()),
-            message: problem.message.clone(),
         });
-    }
-    if let Ok(holds) = rep.store().holds() {
-        for hold in holds {
-            let collision = rep
-                .store()
-                .record(&hold.id)
-                .ok()
-                .flatten()
-                .filter(|record| {
-                    hold.reason == HoldReason::UnknownProvenance
-                        && record.path != hold.path
-                        && mdbn_core::paths::path_key(&record.path)
-                            == mdbn_core::paths::path_key(&hold.path)
-                });
-            let reason = if let Some(record) = collision {
-                format!(
-                    "Case or Unicode name collision with {:?}; file held.",
-                    record.path
-                )
-            } else {
-                match hold.reason {
-                    HoldReason::Conflict => "Changed here and elsewhere; file held.",
-                    HoldReason::UnknownProvenance => {
-                        "Changed by a program mdbase does not recognise; file held."
-                    }
-                    HoldReason::DeletedElsewhere => "Deleted on another device; file held.",
-                    HoldReason::ReadOnly => "Changed while read-only; file held.",
-                    HoldReason::EditorBusy => "Open in an editor; file held.",
-                    HoldReason::SuspectWrite => "Looked like an accidental overwrite; file held.",
-                }
-                .into()
-            };
-            notices.push(crate::control::Notice {
-                path: Some(hold.path.clone()),
-                code: "file_held".into(),
-                message: format!("{reason} Resolve it in mdbase."),
+    let refused = failures.map(|(path, problem)| crate::control::Notice {
+        path: Some(path.into()),
+        code: problem
+            .reason
+            .clone()
+            .unwrap_or_else(|| problem.code.clone()),
+        message: problem.message.clone(),
+    });
+    let held = holds.into_iter().map(|hold| {
+        let collision = rep
+            .store()
+            .record(&hold.id)
+            .ok()
+            .flatten()
+            .filter(|record| {
+                hold.reason == HoldReason::UnknownProvenance
+                    && record.path != hold.path
+                    && mdbn_core::paths::path_key(&record.path)
+                        == mdbn_core::paths::path_key(&hold.path)
             });
+        let code = if collision.is_some() {
+            "name_collision"
+        } else {
+            "file_held"
+        };
+        let reason = if let Some(record) = collision {
+            format!(
+                "Case or Unicode name collision with {:?}; file held.",
+                record.path
+            )
+        } else {
+            match hold.reason {
+                HoldReason::Conflict => "Changed here and elsewhere; file held.",
+                HoldReason::UnknownProvenance => {
+                    "Changed by a program mdbase does not recognise; file held."
+                }
+                HoldReason::DeletedElsewhere => "Deleted on another device; file held.",
+                HoldReason::ReadOnly => "Changed while read-only; file held.",
+                HoldReason::EditorBusy => "Open in an editor; file held.",
+                HoldReason::SuspectWrite => "Looked like an accidental overwrite; file held.",
+            }
+            .into()
+        };
+        crate::control::Notice {
+            path: Some(hold.path),
+            code: code.into(),
+            message: format!("{reason} Resolve it in mdbase."),
+        }
+    });
+    limited_file_notices(skipped.chain(refused).chain(held), total)
+}
+
+fn limited_file_notices(
+    notices: impl Iterator<Item = crate::control::Notice>,
+    total: usize,
+) -> Vec<crate::control::Notice> {
+    let mut shown = Vec::new();
+    let mut bytes = 0;
+    // Bound actor work as well as JSON size; long names count against the byte budget.
+    for notice in notices.take(50) {
+        let size = serde_json::to_vec(&notice)
+            .expect("notice is serializable")
+            .len();
+        if bytes + size <= 16 * 1024 {
+            bytes += size;
+            shown.push(notice);
         }
     }
-    notices
+    let omitted = total - shown.len();
+    if omitted > 0 {
+        shown.push(crate::control::Notice {
+            path: None,
+            code: "file_notices_omitted".into(),
+            message: format!("{omitted} additional file notices are not shown. Run mdbase holds to review held files."),
+        });
+    }
+    shown
 }
 
 /// No remote incident details are included in control telemetry.
@@ -1915,6 +1942,31 @@ mod log_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn file_notices_bound_work_and_bytes_without_hiding_the_omitted_count() {
+        let mapped = std::cell::Cell::new(0);
+        let notices = (0..10_000).map(|n| {
+            mapped.set(mapped.get() + 1);
+            crate::control::Notice {
+                path: Some(format!("media/{n}-{}.png", "x".repeat(4096))),
+                code: "quota_exceeded".into(),
+                message: "Storage is full; this file has not synced.".into(),
+            }
+        });
+        let shown = super::limited_file_notices(notices, 10_000);
+        assert_eq!(mapped.get(), 50, "do not read every held record for status");
+        let count = shown.iter().filter(|notice| notice.path.is_some()).count();
+        assert!(count > 0 && count < 50);
+        assert!(
+            shown
+                .last()
+                .unwrap()
+                .message
+                .starts_with(&(10_000 - count).to_string())
+        );
+        assert!(serde_json::to_vec(&shown).unwrap().len() < 17 * 1024);
+    }
+
     #[tokio::test]
     async fn account_key_effect_requires_live_guard_not_a_queued_authorization() {
         use std::sync::{

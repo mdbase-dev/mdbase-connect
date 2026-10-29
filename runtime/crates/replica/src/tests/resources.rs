@@ -223,9 +223,18 @@ fn resource_response_budget_and_apply_fault_refuse_without_partial_text() {
 #[test]
 fn deferred_resource_ingestion_reports_paths_before_source_reads() {
     let (_, mut a) = configured();
+    let mut inventory = (0..40)
+        .map(|n| {
+            (
+                format!("_types/a{n:02}.md"),
+                SOURCE.replace("name: task", &format!("name: a{n:02}")),
+            )
+        })
+        .collect::<Vec<_>>();
+    inventory.push(("_types/zz-oversized.md".into(), "x".repeat(1_048_577)));
     a.r.store_mut()
         .commit(Tx {
-            resources_put: vec![("_types/oversized.md".into(), "x".repeat(1_048_577))],
+            resources_put: inventory,
             ..Tx::default()
         })
         .unwrap();
@@ -237,10 +246,14 @@ fn deferred_resource_ingestion_reports_paths_before_source_reads() {
         moved_from: None,
         provenance: crate::store::Provenance::Normal,
     }]);
+    assert_eq!(
+        a.r.resource_ingest_paths().first().map(String::as_str),
+        Some("_types/zz-oversized.md")
+    );
     assert!(
-        a.r.resource_ingest_paths()
+        !a.r.resource_ingest_paths()
             .iter()
-            .any(|p| p == "_types/oversized.md")
+            .any(|p| p.starts_with("_types/a"))
     );
     assert!(
         a.r.sync_status()

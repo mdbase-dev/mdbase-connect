@@ -622,7 +622,7 @@ impl Daemon {
         let taken = self.takeover_record();
         let observed =
             futures_util::future::join_all(inner.hosts.iter().map(|h| h.observed_status())).await;
-        let collections = observed
+        let mut collections: Vec<_> = observed
             .into_iter()
             .map(|status| {
                 with_private_sync_pending(
@@ -632,6 +632,7 @@ impl Daemon {
                 )
             })
             .collect();
+        bound_file_notices(&mut collections);
         DaemonStatus {
             readiness: self.readiness.borrow().clone(),
             pid: std::process::id(),
@@ -1349,6 +1350,7 @@ impl Daemon {
                         &self.profile.state_dir.join("collections"),
                     ));
                 }
+                bound_file_notices(&mut collections);
                 to_value(&collections)
             }
             Method::COLLECTION_ADD => self.add(params(req)?).await,
@@ -6543,3 +6545,33 @@ mod tests;
 #[cfg(test)]
 #[path = "account_tests.rs"]
 mod account_tests;
+
+/// Keep per-file diagnostics within a shared budget across all collections.
+pub(crate) fn bound_file_notices(collections: &mut [CollectionStatus]) {
+    let mut remaining = 128 * 1024;
+    for collection in collections {
+        let mut omitted = 0;
+        collection.notices.retain(|notice| {
+            if notice.path.is_none() {
+                return true;
+            }
+            let bytes = serde_json::to_vec(notice)
+                .expect("notice is serializable")
+                .len();
+            if bytes > remaining {
+                omitted += 1;
+                false
+            } else {
+                remaining -= bytes;
+                true
+            }
+        });
+        if omitted > 0 {
+            collection.notices.push(Notice {
+                path: None,
+                code: "status_file_notices_omitted".into(),
+                message: format!("{omitted} additional file notices did not fit in status."),
+            });
+        }
+    }
+}

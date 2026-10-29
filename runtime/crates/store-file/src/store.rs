@@ -1576,9 +1576,8 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         match kind {
             FileKind::Symlink => Some("Symlink not followed."),
             FileKind::ReparsePoint => Some("Windows reparse point not followed."),
-            FileKind::Other => Some("Special file is not synced."),
-            FileKind::InvalidName => Some("Filename is not valid UTF-8."),
-            FileKind::File | FileKind::Dir => None,
+            FileKind::Other => Some("Special file or path through a linked folder; not synced."),
+            FileKind::File | FileKind::Dir | FileKind::InvalidName => None,
         }
     }
 
