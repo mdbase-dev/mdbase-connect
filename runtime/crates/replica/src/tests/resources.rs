@@ -219,3 +219,56 @@ fn resource_response_budget_and_apply_fault_refuse_without_partial_text() {
         Some(ErrorCode::Unavailable)
     );
 }
+
+#[test]
+fn deferred_resource_ingestion_reports_paths_before_source_reads() {
+    let (_, mut a) = configured();
+    let mut inventory = (0..40)
+        .map(|n| {
+            (
+                format!("_types/a{n:02}.md"),
+                SOURCE.replace("name: task", &format!("name: a{n:02}")),
+            )
+        })
+        .collect::<Vec<_>>();
+    inventory.push(("_types/zz-oversized.md".into(), "x".repeat(1_048_577)));
+    a.r.store_mut()
+        .commit(Tx {
+            resources_put: inventory,
+            ..Tx::default()
+        })
+        .unwrap();
+    a.r.ingest(vec![crate::store::Observation {
+        token: crate::store::ObservationId(901),
+        path: "_types/task.md".into(),
+        base: None,
+        now: Some(crate::store::Observed::Text(SOURCE.into())),
+        moved_from: None,
+        provenance: crate::store::Provenance::Normal,
+    }]);
+    let failure_paths = a.r.resource_ingest_paths();
+    a.r.ingest(vec![crate::store::Observation {
+        token: crate::store::ObservationId(902),
+        path: "ordinary.md".into(),
+        base: None,
+        now: Some(crate::store::Observed::Text("ordinary note".into())),
+        moved_from: None,
+        provenance: crate::store::Provenance::Normal,
+    }]);
+    assert_eq!(a.r.resource_ingest_paths(), failure_paths);
+    assert_eq!(
+        a.r.resource_ingest_paths().first().map(String::as_str),
+        Some("_types/zz-oversized.md")
+    );
+    assert!(
+        !a.r.resource_ingest_paths()
+            .iter()
+            .any(|p| p.starts_with("_types/a"))
+    );
+    assert!(
+        a.r.sync_status()
+            .incidents
+            .iter()
+            .any(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity)
+    );
+}

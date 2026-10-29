@@ -50,8 +50,6 @@ use crate::store::{
     AttachmentClass, Observation, ObservationId, Observed, Store, StoreError, Tx, meta_keys,
 };
 
-/// Failures remembered per path for [`Replica::attachment_ingest_failure`].
-const MAX_FAILURES: usize = 256;
 /// Pending rows read per page when checking for an unconfirmed write.
 const PAGE: u32 = 256;
 
@@ -96,6 +94,7 @@ struct Current {
     mutation: Uuid,
     path: String,
     token: ObservationId,
+    digest: Hash,
     persisted: Option<usize>,
     kind: CaptureKind,
 }
@@ -106,7 +105,7 @@ pub(crate) struct Ingests {
     queue: VecDeque<Item>,
     current: Option<Current>,
     busy: bool,
-    failed: BTreeMap<String, Problem>,
+    failed: BTreeMap<String, (Option<Hash>, Problem)>,
     /// Oversized Markdown observations held after a source/capture refusal.
     pub(crate) oversized_markdown_held: u64,
     /// Uploads started (fresh or resumed) and moves captured, for tests.
@@ -136,16 +135,53 @@ fn same_path(a: &str, b: &str) -> bool {
 }
 
 impl<S: Store> Replica<S> {
-    /// Why the last ingest upload of `path` failed, if it did (a newer
-    /// observation of the path clears it).
+    /// Why the last ingest upload of `path` failed, if it did. Changed bytes,
+    /// moves and deletion clear it; scans of unchanged refused bytes retain it.
     pub fn attachment_ingest_failure(&self, path: &str) -> Option<Problem> {
-        self.attachment_ingest.failed.get(path).cloned()
+        self.attachment_ingest
+            .failed
+            .get(path)
+            .map(|(_, problem)| problem.clone())
+    }
+
+    /// Per-path upload refusals for local status; excludes document payloads.
+    pub fn attachment_ingest_failures(&self) -> impl ExactSizeIterator<Item = (&str, &Problem)> {
+        self.attachment_ingest
+            .failed
+            .iter()
+            .map(|(path, (_, problem))| (path.as_str(), problem))
     }
 
     /// Ingest an attachment observation, or a delete at a path that holds (or
     /// is about to hold) a file. Returns `false` when the observation is not
     /// this module's (a record or resource path).
     pub(crate) fn ingest_attachment(&mut self, o: &Observation) -> Result<bool, StoreError> {
+        if let Some(Observed::Attachment {
+            digest,
+            class: AttachmentClass::Ordinary,
+            ..
+        }) = &o.now
+            && self
+                .attachment_ingest
+                .failed
+                .get(&o.path)
+                .is_some_and(|(failed, _)| *failed == Some(*digest))
+            && o.moved_from.is_none()
+            && !self.apply_fault
+        {
+            let held = match self.file_id_at(&o.path)? {
+                Some(id) => self.store.hold(&id)?.is_some(),
+                None => false,
+            };
+            if !held {
+                self.store.release_disk_observation(o.token)?;
+                return Ok(true);
+            }
+        }
+        self.attachment_ingest.failed.remove(&o.path);
+        if let Some(from) = &o.moved_from {
+            self.attachment_ingest.failed.remove(from);
+        }
         // Every newer store observation supersedes an uncommitted native job,
         // including shrink-to-record, malformed text, moves and deletion.
         if let Some(c) = self.attachment_ingest.current.take_if(|c| {
@@ -251,7 +287,6 @@ impl<S: Store> Replica<S> {
             // Attachments need a synced device log: left unacknowledged.
             return Ok(true);
         }
-        self.attachment_ingest.failed.remove(&o.path);
         // A newer observation of the path replaces a queued one.
         let mut acks = Vec::new();
         self.attachment_ingest.queue.retain(|i| {
@@ -352,7 +387,7 @@ impl<S: Store> Replica<S> {
         let Some(c) = self.attachment_ingest.current.as_ref() else {
             return Ok(true);
         };
-        let (m, path, token) = (c.mutation, c.path.clone(), c.token);
+        let (m, path, token, digest) = (c.mutation, c.path.clone(), c.token, c.digest);
         match c.kind {
             CaptureKind::Native => return self.finish_native_ingest(m, path, token),
             CaptureKind::Reverse => return self.finish_reverse_ingest(m, path, token),
@@ -379,7 +414,7 @@ impl<S: Store> Replica<S> {
             Some(AttachmentUploadStatus::Failed(p)) => {
                 self.close_attachment_upload(&m);
                 self.attachment_ingest.current = None;
-                self.ingest_failed(token, &path, p)?;
+                self.ingest_failed(&path, token, digest, p)?;
                 Ok(true)
             }
             None => {
@@ -389,38 +424,34 @@ impl<S: Store> Replica<S> {
         }
     }
 
-    /// Stop on a failed item: acknowledge the observation (a later change to
-    /// the file is observed afresh), drop its checkpoint, remember why.
+    /// Refusal is not an acknowledgement. Release the finished token so it
+    /// cannot suppress a later edit back to these bytes; restart rechecks them.
     fn ingest_failed(
         &mut self,
-        token: ObservationId,
         path: &str,
+        token: ObservationId,
+        digest: Hash,
         p: Problem,
     ) -> Result<(), StoreError> {
         self.store.commit(Tx {
-            // A stale generation or certified failed hold commit never
-            // acknowledges a save that has not been durably collected.
-            ack_observations: if matches!(
-                p.reason.as_deref(),
-                Some("attachment_hold_changed" | "attachment_hold_commit_aborted")
-            ) {
-                Vec::new()
-            } else {
-                vec![token]
-            },
             meta: vec![(checkpoint_key(path), None)],
             ..Tx::default()
         })?;
+        // A held save still owns unresolved evidence even after its upload stops.
+        let held = match self.file_id_at(path)? {
+            Some(id) => self.store.hold(&id)?.is_some(),
+            None => false,
+        };
+        if !held && !self.apply_fault {
+            self.store.release_disk_observation(token)?;
+        }
         if p.code == ErrorCode::QuotaExceeded.as_str() {
             self.incident(mdbn_wire::client::IncidentKind::QuotaExceeded, None);
         }
-        let f = &mut self.attachment_ingest.failed;
-        if f.len() >= MAX_FAILURES
-            && let Some(k) = f.keys().next().cloned()
-        {
-            f.remove(&k);
-        }
-        f.insert(path.to_owned(), p);
+        self.attachment_ingest.failed.insert(
+            path.to_owned(),
+            ((!held && !self.apply_fault).then_some(digest), p),
+        );
         Ok(())
     }
 
@@ -428,12 +459,9 @@ impl<S: Store> Replica<S> {
     /// restart. An uploader status is not durable capture/admission authority.
     fn native_ingest_failed(&mut self, path: &str, problem: Problem) {
         self.attachment_ingest.oversized_markdown_held += 1;
-        if self.attachment_ingest.failed.len() >= MAX_FAILURES
-            && let Some(k) = self.attachment_ingest.failed.keys().next().cloned()
-        {
-            self.attachment_ingest.failed.remove(&k);
-        }
-        self.attachment_ingest.failed.insert(path.into(), problem);
+        self.attachment_ingest
+            .failed
+            .insert(path.into(), (None, problem));
     }
 
     fn finish_native_ingest(
@@ -516,7 +544,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Conflict.problem_with_reason(
                     "unindexed_capture_changed",
-                    "native reverse holder changed",
+                    "The file changed while mdbase was preparing it for sync.",
                 ),
             );
             return Ok(());
@@ -526,7 +554,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Unavailable.problem_with_reason(
                     "native_record_held",
-                    "resolve the hold before native reverse",
+                    "This file is held. Resolve it in mdbase before syncing.",
                 ),
             );
             return Ok(());
@@ -536,7 +564,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Unavailable.problem_with_reason(
                     "native_source_unavailable",
-                    "reverse source remains held",
+                    "This file is held and cannot be read for sync.",
                 ),
             );
             return Ok(());
@@ -548,7 +576,7 @@ impl<S: Store> Replica<S> {
                     &item.path,
                     ErrorCode::Conflict.problem_with_reason(
                         "source_changed",
-                        "reverse observation source changed",
+                        "The file changed while mdbase was reading it.",
                     ),
                 );
                 return Ok(());
@@ -564,6 +592,7 @@ impl<S: Store> Replica<S> {
                     mutation,
                     path: item.path,
                     token: item.token,
+                    digest,
                     persisted: None,
                     kind: CaptureKind::Reverse,
                 })
@@ -600,7 +629,7 @@ impl<S: Store> Replica<S> {
                     &item.path,
                     ErrorCode::Unavailable.problem_with_reason(
                         "ordinary_kind_transition_requires_capture",
-                        "ordinary files are never implicitly native",
+                        "This file cannot be converted to a note automatically.",
                     ),
                 );
                 return Ok(());
@@ -614,7 +643,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Unavailable.problem_with_reason(
                     "native_record_held",
-                    "resolve the record hold before native conversion",
+                    "This file is held. Resolve it in mdbase before syncing.",
                 ),
             );
             return Ok(());
@@ -624,7 +653,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Unavailable.problem_with_reason(
                     "native_source_unavailable",
-                    "native observation source remains held",
+                    "This file is held and cannot be read for sync.",
                 ),
             );
             return Ok(());
@@ -641,8 +670,10 @@ impl<S: Store> Replica<S> {
             // the store offer current evidence; no upload/capture/ack occurred.
             self.native_ingest_failed(
                 &item.path,
-                ErrorCode::Conflict
-                    .problem_with_reason("source_changed", "native observed bytes changed"),
+                ErrorCode::Conflict.problem_with_reason(
+                    "source_changed",
+                    "The file changed while mdbase was reading it.",
+                ),
             );
             return Ok(());
         }
@@ -658,6 +689,7 @@ impl<S: Store> Replica<S> {
                     mutation,
                     path: item.path,
                     token: item.token,
+                    digest,
                     persisted: None,
                     kind: CaptureKind::Native,
                 })
@@ -699,7 +731,7 @@ impl<S: Store> Replica<S> {
                     &item.path,
                     ErrorCode::Conflict.problem_with_reason(
                         "native_move_changed",
-                        "native move holder disappeared",
+                        "The file was removed while mdbase was syncing its move.",
                     ),
                 );
                 return Ok(());
@@ -821,7 +853,7 @@ impl<S: Store> Replica<S> {
                 &item.path,
                 ErrorCode::Conflict.problem_with_reason(
                     "native_move_changed",
-                    "move continuation lost its authoritative identity",
+                    "The file changed while mdbase was syncing its move.",
                 ),
             );
             return Ok(());
@@ -946,6 +978,7 @@ impl<S: Store> Replica<S> {
                     mutation,
                     path: item.path,
                     token: item.token,
+                    digest,
                     persisted: None,
                     kind: CaptureKind::Ordinary,
                 });
@@ -964,7 +997,7 @@ impl<S: Store> Replica<S> {
                     });
                     return Ok(());
                 }
-                self.ingest_failed(item.token, &item.path, p)
+                self.ingest_failed(&item.path, item.token, digest, p)
             }
         }
     }

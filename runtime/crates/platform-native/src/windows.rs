@@ -191,14 +191,18 @@ pub(crate) fn open_append(root: &Root, p: &RelPath) -> io::Result<fs::File> {
     open_no_reparse(fs::OpenOptions::new().append(true), &checked(root, p)?)
 }
 
-/// The entries of directory `p`. Links are listed as `Other`.
+/// The entries of directory `p`. Links are listed as `Symlink`.
 pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
     let mut out = Vec::new();
     for e in fs::read_dir(checked_dir(root, p)?)? {
         let e = e?;
         let m = e.metadata()?;
         let kind = if is_link(&m) {
-            mdbn_store_file::platform::FileKind::Other
+            if m.file_type().is_symlink() {
+                mdbn_store_file::platform::FileKind::Symlink
+            } else {
+                mdbn_store_file::platform::FileKind::ReparsePoint
+            }
         } else {
             kind_of(m.file_type())
         };
@@ -206,7 +210,7 @@ pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
             Ok(name) => out.push(DirEntry { name, kind }),
             Err(os) => out.push(DirEntry {
                 name: os.to_string_lossy().into_owned(),
-                kind: mdbn_store_file::platform::FileKind::Other,
+                kind: mdbn_store_file::platform::FileKind::InvalidName,
             }),
         }
     }
@@ -231,7 +235,13 @@ pub(crate) fn lock_path(root: &Root, p: &RelPath) -> io::Result<PathBuf> {
 pub(crate) fn stat(p: &Path) -> io::Result<FileMeta> {
     let m = fs::symlink_metadata(p)?;
     if is_link(&m) {
-        return Ok(other_meta());
+        let mut meta = other_meta();
+        meta.kind = if m.file_type().is_symlink() {
+            mdbn_store_file::platform::FileKind::Symlink
+        } else {
+            mdbn_store_file::platform::FileKind::ReparsePoint
+        };
+        return Ok(meta);
     }
     if !m.is_file() {
         return Ok(meta(&m));

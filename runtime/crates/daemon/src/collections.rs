@@ -367,6 +367,7 @@ impl CollectionHost {
                                 if let Readiness::Failed(_) = now
                                     && let Some(failure) = crate::sync_failure::Failure::project(&s, &adopt)
                                 {
+                                    let resource_failure = failure.cause == Some(crate::sync_failure::Cause::ResourceIngestDeferred);
                                     crate::sync_failure::retain_and_stop(
                                         &last_sync_failure,
                                         &failure_dir,
@@ -374,6 +375,9 @@ impl CollectionHost {
                                         || {
                                             *ready.lock().unwrap_or_else(|e| e.into_inner()) = now;
                                             notify();
+                                        },
+                                        async {
+                                            if resource_failure { rt.pending_ingest_paths().await } else { Vec::new() }
                                         },
                                         rt.stop(),
                                     ).await;
@@ -679,30 +683,10 @@ impl CollectionHost {
                 .runtime()
                 .as_ref()
                 .is_some_and(|r| Arc::ptr_eq(r, &runtime))
+            && let Some((counters, notices)) = telemetry
         {
-            if let Some(held) = telemetry.as_ref().map(|t| t.holds).filter(|h| *h > 0) {
-                status.notices.push(Notice {
-                    code: "holds_pending".into(),
-                    message: format!(
-                        "mdbase protected {held} of your edits instead of overwriting them. \
-                         Resolve them in mdbase."
-                    ),
-                });
-            }
-            if let Some(n) = telemetry
-                .as_ref()
-                .map(|t| t.unsupported_entries)
-                .filter(|n| *n > 0)
-            {
-                status.notices.push(Notice {
-                    code: "unsupported_entries".into(),
-                    message: format!(
-                        "{n} item(s) in this folder are not synced: symbolic links are never \
-                         followed, and other special files are skipped."
-                    ),
-                });
-            }
-            status.sync = telemetry;
+            status.notices.extend(notices);
+            status.sync = Some(counters);
         }
         status
     }
@@ -725,12 +709,14 @@ impl CollectionHost {
             && let Some(diagnostic) = closed.as_ref()
         {
             notices.push(Notice {
+                path: None,
                 code: diagnostic.reason.into(),
                 message: diagnostic.message(),
             });
         }
         if e.mode == SyncMode::SyncedE2e && self.other_devices_online == Some(0) {
             notices.push(Notice {
+                path: None,
                 code: "no_other_device_online".into(),
                 message: "No other device with this collection is online. Web apps can \
                           load it only while one of your devices is online."
@@ -739,6 +725,7 @@ impl CollectionHost {
         }
         if self.reason.as_deref() == Some(OLD_CONNECTOR_RUNNING) {
             notices.push(Notice {
+                path: None,
                 code: OLD_CONNECTOR_RUNNING.into(),
                 message: "The old mdbase Connect is running on this computer and could still \
                           change this folder, so mdbase has stopped using it. Quit mdbase \
@@ -749,12 +736,34 @@ impl CollectionHost {
         }
         if self.reason.as_deref() == Some("folder_missing") {
             notices.push(Notice {
+                path: None,
                 code: "folder_missing".into(),
                 message: format!(
                     "The folder {} is missing. Reconnect the drive or remove the collection.",
                     e.root.display()
                 ),
             });
+        }
+        let last_sync_failure = self
+            .last_sync_failure
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(failure) = &last_sync_failure {
+            if let Some(count) = failure.paths_omitted {
+                notices.push(Notice {
+                    path: None,
+                    code: "resource_ingest_paths_omitted".into(),
+                    message: format!("{count} additional resource paths did not fit the saved failure diagnostic."),
+                });
+            }
+            for path in &failure.paths {
+                notices.push(Notice {
+                    path: Some(path.clone()),
+                    code: "resource_ingest_deferred".into(),
+                    message: "At the last sync failure, this path was awaiting resource ingestion. Check the collection's type and configuration files.".into(),
+                });
+            }
         }
         CollectionStatus {
             id: e.id.clone(),
@@ -767,11 +776,7 @@ impl CollectionHost {
             state: self.current().0,
             reason: self.current().1,
             sync: None,
-            last_sync_failure: self
-                .last_sync_failure
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone(),
+            last_sync_failure,
             other_devices_online: self.other_devices_online,
             notices,
         }
@@ -779,11 +784,11 @@ impl CollectionHost {
 }
 
 /// The actor future is lazy: deny BEFORE polling and again AFTER its await.
-async fn current_telemetry(
+async fn current_telemetry<T>(
     source: &crate::authority::CollectionAuthority,
     cancel: &AtomicBool,
-    observation: impl std::future::Future<Output = Option<crate::control::SyncCounters>>,
-) -> Option<crate::control::SyncCounters> {
+    observation: impl std::future::Future<Output = Option<T>>,
+) -> Option<T> {
     let current = || !cancel.load(Ordering::SeqCst) && source.authority_epoch().is_some();
     if !current() {
         return None;

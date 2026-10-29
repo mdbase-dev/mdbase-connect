@@ -979,6 +979,11 @@ pub trait Store {
     ) -> StoreResult<Option<BoundedResource>> {
         Err(StoreError::Io("bounded resource source unavailable".into()))
     }
+    /// Release a refused ordinary disk observation without recording its bytes
+    /// as known. Retained native evidence must not be released this way.
+    fn release_disk_observation(&mut self, _token: ObservationId) -> StoreResult<()> {
+        Ok(())
+    }
     /// Retain original delivery eligibility while a resource bootstrap defers.
     /// This is not acknowledgement, capture or mutation resubmission.
     fn defer_disk_observations(&mut self, _tokens: &[ObservationId]) -> StoreResult<()> {

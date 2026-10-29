@@ -572,7 +572,7 @@ fn stream_problem(e: &StreamError) -> Problem {
     match e {
         StreamError::TooLarge => ErrorCode::TooLarge.problem_with_reason(
             "attachment_too_large",
-            "the file exceeds the attachment cap",
+            "The file size is outside the supported range for this upload.",
         ),
         StreamError::NoKey => ErrorCode::Unavailable.problem_with_reason(
             "waiting_for_key",
@@ -580,9 +580,11 @@ fn stream_problem(e: &StreamError) -> Problem {
         ),
         StreamError::Protocol("adopted chunk does not match") => ErrorCode::Conflict
             .problem_with_reason("source_changed", "the file changed during the upload"),
-        StreamError::Sink(m) => ErrorCode::Unavailable.problem(format!("read: {m}")),
+        StreamError::Sink(m) => {
+            ErrorCode::Unavailable.problem(format!("Could not read the file: {m}"))
+        }
         StreamError::Corrupt(m) | StreamError::Protocol(m) => {
-            ErrorCode::Internal.problem(format!("attachment writer: {m}"))
+            ErrorCode::Internal.problem(format!("Could not prepare the file for sync: {m}"))
         }
     }
 }
@@ -653,7 +655,13 @@ impl<S: Store> Replica<S> {
         }
         let limits = AttachmentLimits::default();
         if total > limits.max_file_bytes {
-            return Err(stream_problem(&StreamError::TooLarge).into());
+            return Err(ErrorCode::TooLarge.err_with_reason(
+                "attachment_too_large",
+                format!(
+                    "Too large to sync: {total} bytes; attachment limit is {} bytes.",
+                    limits.max_file_bytes
+                ),
+            ));
         }
         let mutation = match params.mutation {
             Some(id) => {
@@ -1110,18 +1118,25 @@ impl<S: Store> Replica<S> {
                     self.attachment_unsure(up, call);
                     up.retry_at = Some(retry(self, retry_after_ms));
                 }
-                LogErrorCode::QuotaExceeded => up
-                    .fail(ErrorCode::QuotaExceeded.problem("the log's storage quota is exhausted")),
-                LogErrorCode::Forbidden => {
-                    up.fail(ErrorCode::Forbidden.problem("the log refused the object"))
-                }
-                LogErrorCode::TooLarge => {
-                    up.fail(ErrorCode::TooLarge.problem("the log refused the object as too large"))
-                }
-                other => up.fail(
-                    ErrorCode::Internal
-                        .problem(format!("the log refused the object: {}", other.as_str())),
+                LogErrorCode::QuotaExceeded => up.fail(
+                    ErrorCode::QuotaExceeded
+                        .problem("Server storage is full; this file has not synced."),
                 ),
+                LogErrorCode::Forbidden => up.fail(
+                    ErrorCode::Forbidden
+                        .problem("The server refused permission to upload this file."),
+                ),
+                LogErrorCode::TooLarge => up
+                    .fail(ErrorCode::TooLarge.problem(
+                        "The server refused this file because it exceeds its size limit.",
+                    )),
+                other => up.fail(ErrorCode::Internal.problem(match other.as_str() {
+                    "gone" => "The collection no longer exists on the server.",
+                    "upgrade_required" => "Update mdbase connect to sync this file.",
+                    "not_found" => "The server could not find this file's upload.",
+                    "invalid" => "The server rejected this file's upload data.",
+                    _ => "The server refused this file; it has not synced.",
+                })),
             },
         }
     }

@@ -130,8 +130,21 @@ impl Watcher {
                         };
                         for p in paths {
                             let Some(rel) = bases.iter().find_map(|b| relative(b, p)) else {
+                                if bases.iter().any(|base| p != base && p.starts_with(base)) {
+                                    q.overflow = true;
+                                }
                                 continue;
                             };
+                            if rel
+                                .split('/')
+                                .any(|part| part.starts_with('.') || part == "Icon\r")
+                            {
+                                continue;
+                            }
+                            if RelPath::new(rel.clone()).is_err() {
+                                q.overflow = true;
+                                continue;
+                            }
                             if q.paths.len() >= MAX_QUEUED {
                                 q.overflow = true;
                                 break;
@@ -300,6 +313,27 @@ mod tests {
         drop(w);
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unsupported_filenames_request_a_scan_on_create_and_remove() {
+        use std::os::unix::ffi::OsStrExt;
+        let root = scratch("invalid-names");
+        let w = Watcher::start(&root, Box::new(|| {})).unwrap();
+        for name in [
+            std::ffi::OsStr::from_bytes(b"bad-\xff.md"),
+            std::ffi::OsStr::new("bad:name.md"),
+        ] {
+            std::fs::write(root.join(name), "x").unwrap();
+            let events = wait_for(&w, "");
+            assert!(events.iter().any(|e| e.kind == FileEventKind::Rescan));
+            std::fs::remove_file(root.join(name)).unwrap();
+            let events = wait_for(&w, "");
+            assert!(events.iter().any(|e| e.kind == FileEventKind::Rescan));
+        }
+        drop(w);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

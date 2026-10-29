@@ -614,7 +614,15 @@ async fn reconstructed_host_reports_last_fatal_incident_after_actor_stop() {
         &[mdbn_wire::client::IncidentKind::VerificationMismatch],
     );
     let failure = crate::sync_failure::Failure::project(&observed, &None).unwrap();
-    crate::sync_failure::retain_and_stop(&shared, &private_dir, failure, || {}, async {}).await;
+    crate::sync_failure::retain_and_stop(
+        &shared,
+        &private_dir,
+        failure,
+        || {},
+        async { Vec::new() },
+        async {},
+    )
+    .await;
     drop(shared); // like the failed actor/process: no in-memory incidents left
     let mut reopened = host(dir.path(), SyncMode::SyncedE2e, context);
     let reported = reopened.status();
@@ -1006,4 +1014,100 @@ fn readiness_follows_every_observation() {
     for (s, caught_up, want) in seq {
         assert_eq!(readiness_of(synced_ready(&s, caught_up, false)), want);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn status_lists_skipped_files_and_clears_repaired_notes() {
+    let dir = scratch("skipped-notices");
+    let root = dir.join("folder");
+    std::fs::write(root.join("latin.md"), b"caf\xe9").unwrap();
+    std::fs::write(root.join(".hidden.md"), "hidden").unwrap();
+    std::fs::write(root.join("with-nul.md"), b"before\0after").unwrap();
+    std::fs::write(root.join("nul.md"), b"before\0after").unwrap();
+    std::fs::write(root.join("Note.md"), "first").unwrap();
+    std::fs::write(root.join("note.md"), "collision").unwrap();
+    for (name, size) in [("under-two.md", 2_097_024), ("over-two.md", 2_097_280)] {
+        std::fs::write(root.join(name), vec![b'a'; size]).unwrap();
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("with-nul.md", root.join("linked.md")).unwrap();
+    let context = ctx(&dir, None, None);
+    let mut e = entry(&dir, SyncMode::Local);
+    e.owner_account = Some(ACCOUNT.into());
+    e.device = Some(crate::secrets::uuid_string(&context.identity.device_id));
+    context.authority.publish_registry(&Registry {
+        collections: vec![e.clone()],
+        ..Default::default()
+    });
+    let mut host = CollectionHost::open(e, Some(context));
+    assert_eq!(settled(&host).await.0, CollectionState::Ready);
+    let out = host.observed_status().await;
+    let messages = out
+        .notices
+        .iter()
+        .map(|n| format!("{:?}: {}", n.path, n.message))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        messages.contains("latin.md") && messages.contains("Not valid UTF-8"),
+        "{messages}"
+    );
+    assert!(
+        messages.contains("under-two.md")
+            && messages.contains("over-two.md")
+            && messages.contains("1048576 bytes"),
+        "{messages}"
+    );
+    assert!(
+        !messages.contains("with-nul.md"),
+        "valid UTF-8 NUL bodies are supported: {messages}"
+    );
+    assert!(
+        messages.contains("\"nul.md\"") && messages.contains("reserved name"),
+        "{messages}"
+    );
+    #[cfg(unix)]
+    assert!(
+        messages.contains("linked.md") && messages.contains("Symlink not followed"),
+        "{messages}"
+    );
+    assert!(
+        messages.contains("note.md") && messages.contains("collision"),
+        "{messages}"
+    );
+    assert!(!messages.contains(".hidden.md"), "{messages}");
+    let json = serde_json::to_string(&out).unwrap();
+    assert!(json.contains("latin.md") && json.contains("Not valid UTF-8"));
+    let mut many = vec![out.clone(); 100];
+    for collection in &mut many {
+        collection.notices = (0..3)
+            .map(|n| crate::control::Notice {
+                path: Some(format!("media/{n}-{}.png", "x".repeat(4096))),
+                code: "quota_exceeded".into(),
+                message: "Server storage is full; this file has not synced.".into(),
+            })
+            .collect();
+    }
+    crate::server::bound_file_notices(&mut many);
+    assert!(many.iter().any(|collection| {
+        collection
+            .notices
+            .iter()
+            .any(|notice| notice.code == "status_file_notices_omitted")
+    }));
+    assert!(serde_json::to_vec(&many).unwrap().len() < crate::ipc::MAX_CONTROL_FRAME);
+
+    std::fs::write(root.join("latin.md"), "café").unwrap();
+    let runtime = host.runtime().unwrap();
+    let inventory = runtime.inventory().await.unwrap();
+    let repaired = host.observed_status().await;
+    assert!(
+        !repaired
+            .notices
+            .iter()
+            .any(|n| n.path.as_deref() == Some("latin.md"))
+    );
+    assert!(inventory.0.iter().any(|(_, path)| path == "with-nul.md"));
+    host.close().await;
+    std::fs::remove_dir_all(dir).unwrap();
 }

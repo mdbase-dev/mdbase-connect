@@ -68,6 +68,112 @@ impl World {
 }
 
 #[test]
+fn watcher_events_refresh_unsupported_name_notices() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open_with(Config {
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    let event = |path: &str, kind| FileEvent {
+        path: RelPath::new(path).unwrap(),
+        kind,
+        id: None,
+        cookie: None,
+    };
+    assert!(s.observe(None).unwrap().is_empty());
+    let scanned = w.p.fs.log().len();
+    w.p.fs.write_replace("nul.md", b"reserved").unwrap();
+    s.on_events(&[event("nul.md", FileEventKind::Created)]);
+    assert!(s.observe(None).unwrap().is_empty());
+    assert!(s.stats.unsupported_paths["nul.md"].contains("reserved name"));
+    w.p.fs.rename_over("nul.md", "null.md");
+    s.on_events(&[
+        event("nul.md", FileEventKind::Removed),
+        event("null.md", FileEventKind::Created),
+    ]);
+    let observations = s.observe(None).unwrap();
+    assert!(!s.stats.unsupported_paths.contains_key("nul.md"));
+    assert!(observations.iter().any(|o| o.path == "null.md"));
+    w.p.fs.write_replace("nul.md", b"reserved again").unwrap();
+    s.on_events(&[event("nul.md", FileEventKind::Created)]);
+    s.observe(None).unwrap();
+    w.p.fs.unlink("nul.md");
+    s.on_events(&[event("nul.md", FileEventKind::Removed)]);
+    s.observe(None).unwrap();
+    assert!(!s.stats.unsupported_paths.contains_key("nul.md"));
+    for _ in 0..3 {
+        w.p.fs
+            .write_in_place("cache?/autosave.bin", b"cache")
+            .unwrap();
+        s.on_events(&[event("cache?/autosave.bin", FileEventKind::Changed)]);
+        assert!(s.observe(None).unwrap().is_empty());
+        assert!(s.stats.unsupported_paths["cache?/autosave.bin"].contains("'?'"));
+    }
+    assert!(
+        w.p.fs.log()[scanned..]
+            .iter()
+            .all(|line| line.split_whitespace().nth(1) != Some("list")),
+        "portable-name notices must not walk the collection on every autosave"
+    );
+}
+
+#[test]
+fn released_refusals_do_not_suppress_reverts_and_report_removal() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open_with(Config {
+        move_window_ms: 0,
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    w.p.fs.write_replace("a.bin", b"v1").unwrap();
+    let first = s.observe(None).unwrap().remove(0);
+    s.release_disk_observation(first.token).unwrap();
+    assert!(
+        !w.db
+            .load()
+            .unwrap()
+            .iter()
+            .any(|(kind, path, _)| *kind == Kind::Disk && path == b"a.bin")
+    );
+    w.p.fs.write_replace("a.bin", b"v2").unwrap();
+    let second = s.observe(Some(&["a.bin".into()])).unwrap();
+    assert_eq!(second.len(), 1);
+    s.commit(Tx {
+        ack_observations: vec![second[0].token],
+        ..Tx::default()
+    })
+    .unwrap();
+    w.p.fs.write_replace("a.bin", b"v1").unwrap();
+    let reverted = s.observe(Some(&["a.bin".into()])).unwrap();
+    assert_eq!(reverted.len(), 1);
+    assert_eq!(attachment(&reverted[0]).map(|a| a.0), Some(revision(b"v1")));
+
+    w.p.fs.write_replace("new.bin", b"refused").unwrap();
+    let refused = s.observe(Some(&["new.bin".into()])).unwrap().remove(0);
+    s.release_disk_observation(refused.token).unwrap();
+    w.p.fs.rename_over("new.bin", "renamed.bin");
+    let moved = s
+        .observe(Some(&["new.bin".into(), "renamed.bin".into()]))
+        .unwrap();
+    assert!(moved.iter().any(|o| o.path == "new.bin" && o.now.is_none()));
+    assert!(
+        moved
+            .iter()
+            .any(|o| o.path == "renamed.bin" && o.now.is_some())
+    );
+    for o in &moved {
+        s.release_disk_observation(o.token).unwrap();
+    }
+    w.p.fs.unlink("renamed.bin");
+    let removed = s.observe(Some(&["renamed.bin".into()])).unwrap();
+    assert!(
+        removed
+            .iter()
+            .any(|o| o.path == "renamed.bin" && o.now.is_none())
+    );
+}
+
+#[test]
 fn ordinary_unacknowledged_text_is_not_reoffered_as_a_resource() {
     let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
     let mut s = w.open_with(Config {
@@ -1405,10 +1511,13 @@ fn private_and_hidden_paths_are_ignored() {
     let mut s = w.open();
     w.p.fs.write_in_place(".obsidian/app.json", b"{}").unwrap();
     w.p.fs.write_in_place(".mdbase/tmp/99", b"x").unwrap();
+    w.p.fs.write_in_place(".hidden:metadata", b"x").unwrap();
+    w.p.fs.write_in_place("Icon\r", b"folder icon").unwrap();
     w.p.fs.write_in_place("n.md", b"note").unwrap();
     let obs = s.observe(None).unwrap();
     assert_eq!(obs.len(), 1);
     assert_eq!(obs[0].path, "n.md");
+    assert!(s.stats.unsupported_paths.is_empty());
 }
 
 #[test]
@@ -2269,4 +2378,33 @@ fn sql_disk_db_follows_only_a_backend_that_defers() {
         s.defer_durability(false).unwrap();
         assert!(!w.data.borrow().deferred);
     }
+}
+
+#[test]
+fn invalid_utf8_notice_survives_rescan_and_clears_on_repair_or_removal() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    w.p.fs.write_replace("bad.md", b"caf\xe9").unwrap();
+    let mut s = w.open_with(Config {
+        quiescence_ms: 0,
+        move_window_ms: 0,
+        ..Config::default()
+    });
+    let observations = s.observe(None).unwrap();
+    s.commit(Tx {
+        ack_observations: observations.iter().map(|o| o.token).collect(),
+        ..Tx::default()
+    })
+    .unwrap();
+    s.request_rescan();
+    s.observe(None).unwrap();
+    assert!(s.stats.unsupported_paths["bad.md"].contains("UTF-8"));
+    w.p.fs.write_replace("bad.md", b"fixed").unwrap();
+    s.observe(Some(&["bad.md".into()])).unwrap();
+    assert!(!s.stats.unsupported_paths.contains_key("bad.md"));
+    w.p.fs.write_replace("bad.md", b"caf\xe9").unwrap();
+    s.observe(Some(&["bad.md".into()])).unwrap();
+    assert!(s.stats.unsupported_paths.contains_key("bad.md"));
+    w.p.fs.unlink("bad.md");
+    s.observe(Some(&["bad.md".into()])).unwrap();
+    assert!(!s.stats.unsupported_paths.contains_key("bad.md"));
 }

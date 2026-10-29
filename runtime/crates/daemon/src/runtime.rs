@@ -188,7 +188,8 @@ enum Cmd {
     /// A content-free digest of the confirmed records.
     Digest(oneshot::Sender<Option<(u64, [u8; 32])>>),
     /// Counters and digests from ONE serialized actor observation.
-    Telemetry(oneshot::Sender<crate::control::SyncCounters>),
+    Telemetry(oneshot::Sender<(crate::control::SyncCounters, Vec<crate::control::Notice>)>),
+    PendingIngestPaths(oneshot::Sender<Vec<String>>),
     /// Produce an applied strict witness on the serialized replica actor.
     StrictWitness {
         account: B16,
@@ -625,10 +626,21 @@ impl Runtime {
 
     /// Read-only counters and digests at one actor observation, or None once stopped.
     /// Diagnostic only: this is not a grant, prefix certificate or key-delivery ACK.
-    pub async fn telemetry(&self) -> Option<crate::control::SyncCounters> {
+    pub async fn telemetry(
+        &self,
+    ) -> Option<(crate::control::SyncCounters, Vec<crate::control::Notice>)> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::Telemetry(tx)).ok()?;
         rx.await.ok()
+    }
+
+    /// Locally observed paths awaiting ingestion, for a terminal diagnostic.
+    pub async fn pending_ingest_paths(&self) -> Vec<String> {
+        let (tx, rx) = oneshot::channel();
+        if self.tx.send(Cmd::PendingIngestPaths(tx)).is_err() {
+            return Vec::new();
+        }
+        rx.await.unwrap_or_default()
     }
 
     /// Run an account-key operation; `None` once stopped. `Ok(true)`: keyed (status),
@@ -1521,6 +1533,9 @@ fn run(
             Ok(Cmd::Digest(reply)) => {
                 let _ = reply.send(confirmed_digest(&rep));
             }
+            Ok(Cmd::PendingIngestPaths(reply)) => {
+                let _ = reply.send(rep.resource_ingest_paths());
+            }
             // The caller stopped waiting (status timed out): skip the record scan.
             Ok(Cmd::Telemetry(reply)) if reply.is_closed() => {}
             Ok(Cmd::Telemetry(reply)) => {
@@ -1535,7 +1550,7 @@ fn run(
                 let records = confirmed_digest(&rep);
                 let mut counters = sync_counters(&status, rep.caught_up(), head_digest, records);
                 counters.unsupported_entries = rep.store().inner().stats.unsupported_entries;
-                let _ = reply.send(counters);
+                let _ = reply.send((counters, file_notices(&rep)));
             }
             Ok(Cmd::StrictWitness {
                 account,
@@ -1770,6 +1785,114 @@ fn run(
     }
 }
 
+/// Local notices reuse the store's scan and the replica's holds/upload failures.
+fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
+    use mdbn_replica::store::Store as _;
+    use mdbn_wire::client::HoldReason;
+    let unsupported = &rep.store().inner().stats.unsupported_paths;
+    let failures = rep.attachment_ingest_failures();
+    let (mut holds, error) = match rep.store().holds() {
+        Ok(holds) => (holds, None),
+        Err(_) => (
+            Vec::new(),
+            Some(crate::control::Notice {
+                path: None,
+                code: "file_status_unavailable".into(),
+                message: "Could not read held files; file notices may be incomplete.".into(),
+            }),
+        ),
+    };
+    holds.sort_by_key(|hold| hold.reason != HoldReason::UnknownProvenance);
+    let total = unsupported.len() + failures.len() + holds.len() + usize::from(error.is_some());
+    let skipped = unsupported
+        .iter()
+        .map(|(path, reason)| crate::control::Notice {
+            path: Some(path.clone()),
+            code: "unsupported_entry".into(),
+            message: reason.clone(),
+        });
+    let refused = failures.map(|(path, problem)| crate::control::Notice {
+        path: Some(path.into()),
+        code: problem
+            .reason
+            .clone()
+            .unwrap_or_else(|| problem.code.clone()),
+        message: problem.message.clone(),
+    });
+    let held = holds.into_iter().map(|hold| {
+        let collision = rep
+            .store()
+            .record(&hold.id)
+            .ok()
+            .flatten()
+            .filter(|record| {
+                hold.reason == HoldReason::UnknownProvenance
+                    && record.path != hold.path
+                    && mdbn_core::paths::path_key(&record.path)
+                        == mdbn_core::paths::path_key(&hold.path)
+            });
+        let code = if collision.is_some() {
+            "name_collision"
+        } else {
+            "file_held"
+        };
+        let reason = if let Some(record) = collision {
+            format!(
+                "Case or Unicode name collision with {:?}; file held.",
+                record.path
+            )
+        } else {
+            match hold.reason {
+                HoldReason::Conflict => "Changed here and elsewhere; file held.",
+                HoldReason::UnknownProvenance => {
+                    "Changed by a program mdbase does not recognise; file held."
+                }
+                HoldReason::DeletedElsewhere => "Deleted on another device; file held.",
+                HoldReason::ReadOnly => "Changed while read-only; file held.",
+                HoldReason::EditorBusy => "Open in an editor; file held.",
+                HoldReason::SuspectWrite => "Looked like an accidental overwrite; file held.",
+            }
+            .into()
+        };
+        crate::control::Notice {
+            path: Some(hold.path),
+            code: code.into(),
+            message: format!("{reason} Resolve it in mdbase."),
+        }
+    });
+    limited_file_notices(
+        error.into_iter().chain(skipped).chain(refused).chain(held),
+        total,
+    )
+}
+
+fn limited_file_notices(
+    notices: impl Iterator<Item = crate::control::Notice>,
+    total: usize,
+) -> Vec<crate::control::Notice> {
+    let mut shown = Vec::new();
+    let mut bytes = 0;
+    // Bound actor work as well as JSON size; long names count against the byte budget.
+    for notice in notices.take(50) {
+        let size = serde_json::to_vec(&notice)
+            .expect("notice is serializable")
+            .len();
+        if bytes + size <= 16 * 1024 {
+            bytes += size;
+            shown.push(notice);
+        }
+    }
+    let omitted = total - shown.len();
+    if omitted > 0 {
+        shown.push(crate::control::Notice {
+            path: None,
+            code: "file_notices_omitted".into(),
+            message: format!("{omitted} additional file notices are not shown."),
+        });
+    }
+    shown
+}
+
 /// No remote incident details are included in control telemetry.
 fn sync_counters(
     status: &mdbn_wire::client::SyncStatus,
@@ -1838,6 +1961,102 @@ mod log_tests;
 
 #[cfg(test)]
 mod tests {
+    struct NoGrants;
+    impl mdbn_replica::policy::GrantSource for NoGrants {
+        fn grant(
+            &self,
+            _: &mdbn_wire::common::Uuid,
+        ) -> Option<mdbn_replica::policy::EffectiveGrant> {
+            None
+        }
+    }
+
+    #[test]
+    fn skipped_file_notices_remain_visible_when_holds_fill_the_budget() {
+        use mdbn_replica::store::{Store as _, Tx};
+        use mdbn_wire::{
+            client::{Hold, HoldReason},
+            common::B16,
+            snapshot::TextOrBlob,
+        };
+        let dir = crate::testutil::TestDir::new("skip-with-holds");
+        let state = crate::testutil::TestDir::new("skip-with-holds-state");
+        std::fs::write(dir.path().join("latin.md"), b"caf\xe9").unwrap();
+        let cfg = super::RuntimeConfig {
+            collection: [1; 16],
+            replica_id: [2; 16],
+            device_id: [3; 16],
+            root: dir.path().to_path_buf(),
+            private_dir: state.path().to_path_buf(),
+            adopt: None,
+            id_hints: vec![],
+            sync: None,
+        };
+        let (mut rep, _lock) = super::open_replica(
+            &cfg,
+            mdbn_replica::DeviceSecrets {
+                sign_sk: [10; 32],
+                kem_sk: [11; 32],
+            },
+            Box::new(NoGrants),
+        )
+        .unwrap();
+        rep.store_mut()
+            .commit(Tx {
+                holds_put: (0..50)
+                    .map(|id| Hold {
+                        id: B16([id; 16]),
+                        path: format!("held/{id}.md"),
+                        reason: HoldReason::ReadOnly,
+                        since: 0,
+                        base: None,
+                        mine: TextOrBlob::Text("held".into()),
+                        theirs: None,
+                        saves: 0,
+                    })
+                    .collect(),
+                ..Tx::default()
+            })
+            .unwrap();
+        let notices = super::file_notices(&rep);
+        assert!(
+            notices
+                .iter()
+                .any(|notice| notice.path.as_deref() == Some("latin.md")
+                    && notice.code == "unsupported_entry")
+        );
+        assert!(
+            notices
+                .iter()
+                .any(|notice| notice.code == "file_notices_omitted")
+        );
+    }
+
+    #[test]
+    fn file_notices_bound_work_and_bytes_without_hiding_the_omitted_count() {
+        let mapped = std::cell::Cell::new(0);
+        let notices = (0..10_000).map(|n| {
+            mapped.set(mapped.get() + 1);
+            crate::control::Notice {
+                path: Some(format!("media/{n}-{}.png", "x".repeat(4096))),
+                code: "quota_exceeded".into(),
+                message: "Storage is full; this file has not synced.".into(),
+            }
+        });
+        let shown = super::limited_file_notices(notices, 10_000);
+        assert_eq!(mapped.get(), 50, "do not read every held record for status");
+        let count = shown.iter().filter(|notice| notice.path.is_some()).count();
+        assert!(count > 0 && count < 50);
+        assert!(
+            shown
+                .last()
+                .unwrap()
+                .message
+                .starts_with(&(10_000 - count).to_string())
+        );
+        assert!(serde_json::to_vec(&shown).unwrap().len() < 17 * 1024);
+    }
+
     #[tokio::test]
     async fn account_key_effect_requires_live_guard_not_a_queued_authorization() {
         use std::sync::{
@@ -1927,15 +2146,6 @@ mod tests {
 
     #[test]
     fn native_open_explicitly_selects_desktop_query_profile() {
-        struct NoGrants;
-        impl mdbn_replica::policy::GrantSource for NoGrants {
-            fn grant(
-                &self,
-                _: &mdbn_wire::common::Uuid,
-            ) -> Option<mdbn_replica::policy::EffectiveGrant> {
-                None
-            }
-        }
         let dir = crate::testutil::TestDir::new("desktop-query-profile");
         let state = crate::testutil::TestDir::new("desktop-query-state");
         let cfg = super::RuntimeConfig {
