@@ -378,6 +378,8 @@ impl CollectionHost {
                                         generation: None,
                                         cause: None,
                                         persisted: Some(false),
+                                        paths: Vec::new(),
+                                        paths_omitted: None,
                                     })
                                 } else {
                                     crate::sync_failure::Failure::project(&s, &adopt)
@@ -746,6 +748,7 @@ impl CollectionHost {
         let mut notices = Vec::new();
         if self.current().1.as_deref() == Some("collection_deleted") {
             notices.push(Notice {
+                path: None,
                 code: "collection_deleted".into(),
                 message: "This collection was deleted by its owner. Sync has stopped. Your local files are untouched. Remove the local registration with mdbase collection remove.".into(),
             });

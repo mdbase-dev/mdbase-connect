@@ -1115,6 +1115,7 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
     host.close().await;
     std::fs::remove_dir_all(dir).unwrap();
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deletion_at_startup_is_explicit_and_preserves_local_files() {
     let dir = scratch("deleted-startup");
