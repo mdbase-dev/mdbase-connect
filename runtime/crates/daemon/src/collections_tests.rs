@@ -1011,6 +1011,7 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
     let root = dir.join("folder");
     std::fs::write(root.join("latin.md"), b"caf\xe9").unwrap();
     std::fs::write(root.join(".hidden.md"), "hidden").unwrap();
+    std::fs::write(root.join("with-nul.md"), b"before\0after").unwrap();
     std::fs::write(root.join("nul.md"), b"before\0after").unwrap();
     std::fs::write(root.join("Note.md"), "first").unwrap();
     std::fs::write(root.join("note.md"), "collision").unwrap();
@@ -1018,7 +1019,7 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
         std::fs::write(root.join(name), vec![b'a'; size]).unwrap();
     }
     #[cfg(unix)]
-    std::os::unix::fs::symlink("nul.md", root.join("linked.md")).unwrap();
+    std::os::unix::fs::symlink("with-nul.md", root.join("linked.md")).unwrap();
     let context = ctx(&dir, None, None);
     let mut e = entry(&dir, SyncMode::Local);
     e.owner_account = Some(ACCOUNT.into());
@@ -1047,8 +1048,12 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
         "{messages}"
     );
     assert!(
-        !messages.contains("nul.md"),
+        !messages.contains("with-nul.md"),
         "valid UTF-8 NUL bodies are supported: {messages}"
+    );
+    assert!(
+        messages.contains("\"nul.md\"") && messages.contains("reserved name"),
+        "{messages}"
     );
     #[cfg(unix)]
     assert!(
@@ -1059,10 +1064,7 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
         messages.contains("note.md") && messages.contains("collision"),
         "{messages}"
     );
-    assert!(
-        messages.contains(".hidden.md") && messages.contains("excluded from sync"),
-        "{messages}"
-    );
+    assert!(!messages.contains(".hidden.md"), "{messages}");
     let json = serde_json::to_string(&out).unwrap();
     assert!(json.contains("latin.md") && json.contains("Not valid UTF-8"));
     std::fs::write(root.join("latin.md"), "café").unwrap();
@@ -1075,7 +1077,7 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
             .iter()
             .any(|n| n.path.as_deref() == Some("latin.md"))
     );
-    assert!(inventory.0.iter().any(|(_, path)| path == "nul.md"));
+    assert!(inventory.0.iter().any(|(_, path)| path == "with-nul.md"));
     host.close().await;
     std::fs::remove_dir_all(dir).unwrap();
 }

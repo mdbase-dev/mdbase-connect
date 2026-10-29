@@ -1529,7 +1529,7 @@ fn run(
                 let _ = reply.send(confirmed_digest(&rep));
             }
             Ok(Cmd::PendingIngestPaths(reply)) => {
-                let _ = reply.send(rep.store().inner().pending_resource_paths());
+                let _ = reply.send(rep.resource_ingest_paths());
             }
             // The caller stopped waiting (status timed out): skip the record scan.
             Ok(Cmd::Telemetry(reply)) if reply.is_closed() => {}
@@ -1840,7 +1840,7 @@ fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
             notices.push(crate::control::Notice {
                 path: Some(hold.path.clone()),
                 code: "file_held".into(),
-                message: reason,
+                message: format!("{reason} Resolve it in mdbase."),
             });
         }
     }

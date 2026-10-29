@@ -127,8 +127,8 @@ pub struct Stats {
     /// Attachment-class files not hashed again: unchanged size, times and
     /// file ID since their last hash.
     pub hashes_reused: u64,
-    /// Entries excluded by the last full walk: links, special files, invalid
-    /// names and excluded files/folders. Private mdbase state is not counted.
+    /// Links, special files and unsupported names in the last full walk.
+    /// Hidden, dependency and explicitly excluded entries are not counted.
     pub unsupported_entries: u64,
     /// Paths that cannot be indexed, from directory scans and file observations.
     pub unsupported_paths: BTreeMap<String, String>,
@@ -186,8 +186,6 @@ struct Outstanding {
     base: Option<Hash>,
     /// Armed only by the replica's declared dependency read, never by file type.
     resource_requested: bool,
-    /// A source read was attempted; diagnostic only, never redelivery authority.
-    resource_attempted: bool,
     deferred: bool,
     attachment: Option<(Hash, u64, AttachmentClass)>,
     /// What to record as known when acknowledged (`None` = path gone).
@@ -469,17 +467,6 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         }
     }
 
-    /// Paths still awaiting ingestion; never reads file content for status.
-    pub fn pending_resource_paths(&self) -> Vec<String> {
-        self.outstanding
-            .values()
-            .filter(|o| o.resource_attempted)
-            .map(|o| o.path.clone())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect()
-    }
-
     /// Start a retained observation scan with captured paths. Pending exclusively
     /// borrows this store; poll the same owner after original host IO completes.
     pub fn start_observe(&mut self, paths: Option<&[String]>) -> crate::observing::Observing<'_> {
@@ -539,6 +526,13 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                         .await?;
                     self.rescan = false;
                     self.stats.unsupported_entries = unsupported.len() as u64;
+                    unsupported.extend(
+                        self.stats
+                            .unsupported_paths
+                            .iter()
+                            .filter(|(path, _)| found.contains(*path))
+                            .map(|(path, reason)| (path.clone(), reason.clone())),
+                    );
                     self.stats.unsupported_paths = unsupported;
                     for p in self.disk.keys().chain(self.seen.keys()) {
                         if !found.contains(p) {
@@ -668,11 +662,6 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         mdbn_replica::mirror_admission::ensure_open(&self.inner)?;
         if limit == 0 || limit > mdbn_replica::store::RESOURCE_SOURCE_BYTES {
             return Err(StoreError::Full);
-        }
-        if let Some(original) = self.outstanding.get_mut(&observation.token.0)
-            && original.path == observation.path
-        {
-            original.resource_attempted = true;
         }
         let Some(original) = self.outstanding.get(&observation.token.0) else {
             return Ok(None);
@@ -1532,69 +1521,65 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 Err(e) => return Err(fs_err(e)),
             };
             for e in entries {
+                let display_path = if dir.is_root() {
+                    e.name.clone()
+                } else {
+                    format!("{dir}/{}", e.name)
+                };
                 if e.kind == FileKind::InvalidName {
                     unsupported.insert(
-                        format!(
-                            "{}{sep}{}",
-                            dir.as_str(),
-                            e.name,
-                            sep = if dir.as_str().is_empty() { "" } else { "/" }
-                        ),
-                        "Filename is not valid UTF-8.".into(),
+                        display_path,
+                        "Filename is not valid UTF-8 (shown with replacement characters).".into(),
                     );
                     continue;
                 }
                 let Ok(p) = dir.join(&e.name) else {
                     unsupported.insert(
-                        format!(
-                            "{}{sep}{}",
-                            dir.as_str(),
-                            e.name,
-                            sep = if dir.is_root() { "" } else { "/" }
-                        ),
+                        display_path,
                         "Filename contains unsupported separators or control characters.".into(),
                     );
                     continue;
                 };
                 if !self.included(&p, settings) {
                     if !self.is_private(&p) {
-                        let reason = match crate::platform::portable_violation(p.as_str()) {
-                            Some("hidden_path") => {
-                                "Hidden files and folders are excluded from sync.".into()
+                        match crate::platform::portable_violation(p.as_str()) {
+                            Some("hidden_path" | "dependency_path") | None => {}
+                            Some("reserved_name") => {
+                                unsupported.insert(p.as_str().into(), "Filename uses a Windows reserved name; rename this file to sync it.".into());
                             }
-                            Some("dependency_path") => {
-                                "Dependency folders are excluded from sync.".into()
+                            Some(reason) => {
+                                unsupported.insert(
+                                    p.as_str().into(),
+                                    format!(
+                                        "Filename is not supported for sync: {}.",
+                                        reason.replace('_', " ")
+                                    ),
+                                );
                             }
-                            Some(reason) => format!(
-                                "Filename is not supported for sync: {}.",
-                                reason.replace('_', " ")
-                            ),
-                            None => "Excluded by collection settings.".into(),
-                        };
-                        unsupported.insert(p.as_str().into(), reason);
+                        }
                     }
                     continue;
                 }
-                match e.kind {
-                    FileKind::Dir => dirs.push(p),
-                    FileKind::File => {
-                        out.insert(p.as_str().to_string());
-                    }
-                    FileKind::Symlink | FileKind::Other | FileKind::InvalidName => {
-                        unsupported.insert(
-                            p.as_str().into(),
-                            if e.kind == FileKind::Symlink {
-                                "Symlink not followed."
-                            } else {
-                                "Special file is not synced."
-                            }
-                            .into(),
-                        );
-                    }
+                if let Some(reason) = Self::unsupported_kind(e.kind) {
+                    unsupported.insert(p.as_str().into(), reason.into());
+                } else if e.kind == FileKind::Dir {
+                    dirs.push(p);
+                } else {
+                    out.insert(p.as_str().to_string());
                 }
             }
         }
         Ok(())
+    }
+
+    fn unsupported_kind(kind: FileKind) -> Option<&'static str> {
+        match kind {
+            FileKind::Symlink => Some("Symlink not followed."),
+            FileKind::ReparsePoint => Some("Windows reparse point not followed."),
+            FileKind::Other => Some("Special file is not synced."),
+            FileKind::InvalidName => Some("Filename is not valid UTF-8."),
+            FileKind::File | FileKind::Dir => None,
+        }
     }
 
     fn has_ext(path: &str, exts: &[String]) -> bool {
@@ -1735,7 +1720,6 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 path: path.to_string(),
                 base,
                 resource_requested,
-                resource_attempted: false,
                 deferred,
                 attachment,
                 known_after,
@@ -1869,25 +1853,22 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         out: &mut Vec<Observation>,
         quiet_recheck: bool,
     ) -> StoreResult<()> {
-        self.stats.unsupported_paths.remove(path);
         let rp = Self::rel(path)?;
         let meta = match self.observe_io(|| self.p.stat(&rp)).await? {
             Ok(m) if m.kind == FileKind::File => Some(m),
             Ok(m) => {
-                if matches!(m.kind, FileKind::Symlink | FileKind::Other) {
-                    self.stats.unsupported_paths.insert(
-                        path.into(),
-                        if m.kind == FileKind::Symlink {
-                            "Symlink not followed."
-                        } else {
-                            "Special file is not synced."
-                        }
-                        .into(),
-                    );
+                self.stats.unsupported_paths.remove(path);
+                if let Some(reason) = Self::unsupported_kind(m.kind) {
+                    self.stats
+                        .unsupported_paths
+                        .insert(path.into(), reason.into());
                 }
                 None
             }
-            Err(e) if e.is_not_found() => None,
+            Err(e) if e.is_not_found() => {
+                self.stats.unsupported_paths.remove(path);
+                None
+            }
             Err(e) => return Err(fs_err(e)),
         };
         // Start the evidence window at original stat completion: suspended
@@ -1913,6 +1894,12 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             }
             return Ok(());
         };
+        if !known
+            .as_ref()
+            .is_some_and(|k| Self::meta_unchanged(k, &meta))
+        {
+            self.stats.unsupported_paths.remove(path);
+        }
         if Self::has_ext(path, &self.cfg.markdown_extensions) && meta.size > RECORD_CAP_BYTES {
             self.stats.unsupported_paths.insert(path.into(), format!(
                 "Too large to index as a note: {} bytes; limit is {RECORD_CAP_BYTES} bytes (1 MiB).", meta.size));
@@ -2038,9 +2025,10 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             return Ok(None);
         }
         if self.is_text(path) && std::str::from_utf8(&read.bytes).is_err() {
-            self.stats
-                .unsupported_paths
-                .insert(path.into(), "Not valid UTF-8; note is not synced.".into());
+            self.stats.unsupported_paths.insert(
+                path.into(),
+                "Not valid UTF-8; cannot be read as text.".into(),
+            );
         }
         let rev = revision(&read.bytes);
         Ok(Some(Seen {
@@ -2228,7 +2216,6 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                     path: e.path.clone(),
                     base: e.base,
                     resource_requested: false,
-                    resource_attempted: false,
                     deferred: false,
                     attachment: None,
                     known_after: None,

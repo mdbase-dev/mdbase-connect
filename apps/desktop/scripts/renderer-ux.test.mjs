@@ -453,7 +453,7 @@ test("collection notices list every skipped file and update when one is fixed", 
       assert.ok((await row.innerText()).includes(notice.message));
     }
     await page.evaluate(() => { window.fixture.collections[0].notices.shift(); });
-    await page.clock.runFor(2_000);
+    await page.clock.runFor(5_000);
     assert.equal(await page.locator(".collection-notice").count(), 2);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }

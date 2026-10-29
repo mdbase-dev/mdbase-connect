@@ -50,8 +50,6 @@ use crate::store::{
     AttachmentClass, Observation, ObservationId, Observed, Store, StoreError, Tx, meta_keys,
 };
 
-/// Failures remembered per path for [`Replica::attachment_ingest_failure`].
-const MAX_FAILURES: usize = 256;
 /// Pending rows read per page when checking for an unconfirmed write.
 const PAGE: u32 = 256;
 
@@ -154,6 +152,7 @@ impl<S: Store> Replica<S> {
     /// is about to hold) a file. Returns `false` when the observation is not
     /// this module's (a record or resource path).
     pub(crate) fn ingest_attachment(&mut self, o: &Observation) -> Result<bool, StoreError> {
+        self.attachment_ingest.failed.remove(&o.path);
         // Every newer store observation supersedes an uncommitted native job,
         // including shrink-to-record, malformed text, moves and deletion.
         if let Some(c) = self.attachment_ingest.current.take_if(|c| {
@@ -259,7 +258,6 @@ impl<S: Store> Replica<S> {
             // Attachments need a synced device log: left unacknowledged.
             return Ok(true);
         }
-        self.attachment_ingest.failed.remove(&o.path);
         // A newer observation of the path replaces a queued one.
         let mut acks = Vec::new();
         self.attachment_ingest.queue.retain(|i| {
@@ -387,7 +385,7 @@ impl<S: Store> Replica<S> {
             Some(AttachmentUploadStatus::Failed(p)) => {
                 self.close_attachment_upload(&m);
                 self.attachment_ingest.current = None;
-                self.ingest_failed(token, &path, p)?;
+                self.ingest_failed(&path, p)?;
                 Ok(true)
             }
             None => {
@@ -397,38 +395,17 @@ impl<S: Store> Replica<S> {
         }
     }
 
-    /// Stop on a failed item: acknowledge the observation (a later change to
-    /// the file is observed afresh), drop its checkpoint, remember why.
-    fn ingest_failed(
-        &mut self,
-        token: ObservationId,
-        path: &str,
-        p: Problem,
-    ) -> Result<(), StoreError> {
+    /// Keep the observation unacknowledged so restart re-checks refused files.
+    /// The store suppresses unchanged observations during this launch.
+    fn ingest_failed(&mut self, path: &str, p: Problem) -> Result<(), StoreError> {
         self.store.commit(Tx {
-            // A stale generation or certified failed hold commit never
-            // acknowledges a save that has not been durably collected.
-            ack_observations: if matches!(
-                p.reason.as_deref(),
-                Some("attachment_hold_changed" | "attachment_hold_commit_aborted")
-            ) {
-                Vec::new()
-            } else {
-                vec![token]
-            },
             meta: vec![(checkpoint_key(path), None)],
             ..Tx::default()
         })?;
         if p.code == ErrorCode::QuotaExceeded.as_str() {
             self.incident(mdbn_wire::client::IncidentKind::QuotaExceeded, None);
         }
-        let f = &mut self.attachment_ingest.failed;
-        if f.len() >= MAX_FAILURES
-            && let Some(k) = f.keys().next().cloned()
-        {
-            f.remove(&k);
-        }
-        f.insert(path.to_owned(), p);
+        self.attachment_ingest.failed.insert(path.to_owned(), p);
         Ok(())
     }
 
@@ -436,11 +413,6 @@ impl<S: Store> Replica<S> {
     /// restart. An uploader status is not durable capture/admission authority.
     fn native_ingest_failed(&mut self, path: &str, problem: Problem) {
         self.attachment_ingest.oversized_markdown_held += 1;
-        if self.attachment_ingest.failed.len() >= MAX_FAILURES
-            && let Some(k) = self.attachment_ingest.failed.keys().next().cloned()
-        {
-            self.attachment_ingest.failed.remove(&k);
-        }
         self.attachment_ingest.failed.insert(path.into(), problem);
     }
 
@@ -972,7 +944,7 @@ impl<S: Store> Replica<S> {
                     });
                     return Ok(());
                 }
-                self.ingest_failed(item.token, &item.path, p)
+                self.ingest_failed(&item.path, p)
             }
         }
     }

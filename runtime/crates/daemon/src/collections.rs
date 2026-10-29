@@ -365,7 +365,7 @@ impl CollectionHost {
                                     && let Some(mut failure) = crate::sync_failure::Failure::project(&s, &adopt)
                                 {
                                     if failure.cause == Some(crate::sync_failure::Cause::ResourceIngestDeferred) {
-                                        failure.paths = rt.pending_ingest_paths().await;
+                                        failure.set_paths(rt.pending_ingest_paths().await);
                                     }
                                     crate::sync_failure::retain_and_stop(
                                         &last_sync_failure,
@@ -679,11 +679,10 @@ impl CollectionHost {
                 .runtime()
                 .as_ref()
                 .is_some_and(|r| Arc::ptr_eq(r, &runtime))
+            && let Some((counters, notices)) = telemetry
         {
-            if let Some((counters, notices)) = telemetry {
-                status.notices.extend(notices);
-                status.sync = Some(counters);
-            }
+            status.notices.extend(notices);
+            status.sync = Some(counters);
         }
         status
     }
@@ -747,6 +746,13 @@ impl CollectionHost {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         if let Some(failure) = &last_sync_failure {
+            if let Some(count) = failure.paths_omitted {
+                notices.push(Notice {
+                    path: None,
+                    code: "resource_ingest_paths_omitted".into(),
+                    message: format!("{count} additional resource paths did not fit the saved failure diagnostic."),
+                });
+            }
             for path in &failure.paths {
                 notices.push(Notice {
                     path: Some(path.clone()),

@@ -1,4 +1,4 @@
-//! Bounded, content-free last terminal sync failure. Diagnostic only: never
+//! Bounded last terminal sync failure with local path diagnostics. Diagnostic only: never
 //! permission, currentness, replay, recovery or migration authority.
 
 use std::io::{self, Read};
@@ -10,7 +10,7 @@ use mdbn_wire::common::Value;
 use serde::{Deserialize, Serialize};
 
 const FILE: &str = "last-sync-failure.json";
-const MAX_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_BYTES: u64 = 4096;
 const RESOURCE_DEFERRED: &str = "Resource ingestion deferred: incomplete, unstable, invalid, over-budget or previously refused registry; original observations retained.";
 
 /// Terminal incident classes understood by the native readiness gate.
@@ -76,6 +76,9 @@ pub struct Failure {
     /// Local paths awaiting ingestion at a resource refusal; not a claim that each caused it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<String>,
+    /// Additional paths that did not fit the bounded local diagnostic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paths_omitted: Option<u64>,
 }
 
 pub(crate) type Shared = Arc<Mutex<Option<Failure>>>;
@@ -146,7 +149,27 @@ impl Failure {
             cause,
             persisted: Some(false),
             paths: Vec::new(),
+            paths_omitted: None,
         })
+    }
+
+    pub(crate) fn set_paths(&mut self, paths: Vec<String>) {
+        let total = paths.len();
+        self.paths = paths.into_iter().take(32).collect();
+        loop {
+            let omitted = (total - self.paths.len()) as u64;
+            self.paths_omitted = (omitted > 0).then_some(omitted);
+            let size = serde_json::to_vec(&Stored {
+                schema_version: 2,
+                failure: self.clone(),
+            })
+            .expect("failure diagnostic is serializable")
+            .len() as u64;
+            if size <= MAX_BYTES || self.paths.is_empty() {
+                break;
+            }
+            self.paths.pop();
+        }
     }
 
     fn persist_using(
@@ -160,7 +183,11 @@ impl Failure {
         // file nor a recovered receipt can assert the writer's later result.
         durable.persisted = None;
         let bytes = serde_json::to_vec(&Stored {
-            schema_version: 1,
+            schema_version: if durable.paths.is_empty() && durable.paths_omitted.is_none() {
+                1
+            } else {
+                2
+            },
             failure: durable,
         })
         .map_err(io::Error::other)?;
@@ -192,7 +219,7 @@ impl Failure {
             return Err(io::Error::other("failure diagnostic exceeds bound"));
         }
         let stored: Stored = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
-        if stored.schema_version != 1
+        if !matches!(stored.schema_version, 1 | 2)
             || stored.failure.persisted.is_some()
             || stored.failure.generation.is_some_and(|g| g != 0)
         {
@@ -202,7 +229,7 @@ impl Failure {
     }
 }
 
-/// Publish a content-free in-memory failure, close the serving gate, persist,
+/// Publish a local in-memory failure, close the serving gate, persist,
 /// THEN poll stop. Persistence failure never permits serving or prevents stop:
 /// status retains persisted=Some(false), while any recovered receipt is null.
 pub(crate) async fn retain_and_stop(

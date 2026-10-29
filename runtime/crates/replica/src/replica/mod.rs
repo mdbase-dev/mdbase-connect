@@ -582,6 +582,7 @@ pub struct Replica<S: Store> {
     pub(crate) unindexed_sources: unindexed_apply::Sources,
     pub(crate) unindexed_blob_fetches: unindexed_blob_fetch::Fetches,
     pub(crate) attachment_ingest: attachment_ingest::Ingests,
+    resource_ingest_paths: BTreeSet<String>,
     /// Keyring rebuild on open ([`crate::store::KeyringPersistence::RebuildOnOpen`]).
     pub(crate) device_keys: Option<key_rebuild::DeviceKeyRebuild>,
     pub(crate) device_keys_failed: bool,
@@ -886,6 +887,7 @@ impl<S: Store> Replica<S> {
             unindexed_sources: unindexed_apply::Sources::default(),
             unindexed_blob_fetches: unindexed_blob_fetch::Fetches::default(),
             attachment_ingest: attachment_ingest::Ingests::default(),
+            resource_ingest_paths: BTreeSet::new(),
             device_keys: None,
             device_keys_failed: false,
             attachment_inventories: attachment_inventory::Inventories::default(),

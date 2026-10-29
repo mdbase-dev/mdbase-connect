@@ -220,7 +220,6 @@ fn only_requested_resource_dependency_reads_reoffer_attachment_text() {
         "ordinary JSON stays ordinary"
     );
     assert!(s.resource_observation_text(&original, 2).unwrap().is_none());
-    assert_eq!(s.pending_resource_paths(), [original.path.clone()]);
     assert!(
         s.observe(None).unwrap().is_empty(),
         "over-bound read cannot arm resource redelivery"
@@ -2270,4 +2269,33 @@ fn sql_disk_db_follows_only_a_backend_that_defers() {
         s.defer_durability(false).unwrap();
         assert!(!w.data.borrow().deferred);
     }
+}
+
+#[test]
+fn invalid_utf8_notice_survives_rescan_and_clears_on_repair_or_removal() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    w.p.fs.write_replace("bad.md", b"caf\xe9").unwrap();
+    let mut s = w.open_with(Config {
+        quiescence_ms: 0,
+        move_window_ms: 0,
+        ..Config::default()
+    });
+    let observations = s.observe(None).unwrap();
+    s.commit(Tx {
+        ack_observations: observations.iter().map(|o| o.token).collect(),
+        ..Tx::default()
+    })
+    .unwrap();
+    s.request_rescan();
+    s.observe(None).unwrap();
+    assert!(s.stats.unsupported_paths["bad.md"].contains("UTF-8"));
+    w.p.fs.write_replace("bad.md", b"fixed").unwrap();
+    s.observe(Some(&["bad.md".into()])).unwrap();
+    assert!(!s.stats.unsupported_paths.contains_key("bad.md"));
+    w.p.fs.write_replace("bad.md", b"caf\xe9").unwrap();
+    s.observe(Some(&["bad.md".into()])).unwrap();
+    assert!(s.stats.unsupported_paths.contains_key("bad.md"));
+    w.p.fs.unlink("bad.md");
+    s.observe(Some(&["bad.md".into()])).unwrap();
+    assert!(!s.stats.unsupported_paths.contains_key("bad.md"));
 }

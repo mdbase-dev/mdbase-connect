@@ -1637,7 +1637,8 @@ fn file_store_never_ingests_or_publishes_through_a_symlink() {
 
 #[cfg(unix)]
 #[test]
-fn unsupported_filename_notice_preserves_the_original_name_bytes() {
+fn unsupported_filename_notice_does_not_modify_the_original_file() {
+    use mdbn_store_file::platform::FileKind;
     use std::os::unix::ffi::OsStrExt;
     let root = scratch("unsupported-name-notice");
     let name = std::ffi::OsStr::from_bytes(b"bad-\xff.md");
@@ -1650,7 +1651,7 @@ fn unsupported_filename_notice_preserves_the_original_name_bytes() {
         .iter()
         .find(|entry| entry.kind == FileKind::InvalidName)
         .unwrap();
-    assert!(entry.name.contains("6261642dff2e6d64"));
+    assert_eq!(entry.name, "bad-�.md");
     assert_eq!(fs::read(root.join(name)).unwrap(), b"untouched");
     fs::remove_dir_all(root).unwrap();
 }

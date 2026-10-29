@@ -277,7 +277,7 @@ fn unavailable_native_source_and_undecodable_text_are_held_not_uploaded() {
 #[test]
 fn server_size_refusal_remains_available_with_its_file_path() {
     let svc = FakeLogService::new();
-    let (mut a, _) = ingest_node(&svc, 1);
+    let (mut a, data_rc) = ingest_node(&svc, 1);
     a.r.store()
         .att_disk()
         .user_write(PATH, b"upload refused by server");
@@ -306,7 +306,47 @@ fn server_size_refusal_remains_available_with_its_file_path() {
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].0, PATH);
     assert_eq!(notices[0].1.code, "too_large");
-    assert!(notices[0].1.message.contains("too large"));
+    assert!(notices[0].1.message.contains("size limit"));
+    assert!(
+        a.r.store().att_disk().acked.is_empty(),
+        "refusal is not an acknowledgement"
+    );
+    drop(a);
+    {
+        let mut data = data_rc.borrow_mut();
+        let disk = data.att_disk.as_mut().unwrap();
+        assert_eq!(disk.restart(), [PATH.to_string()]);
+        disk.rescan(PATH);
+    }
+    let mut a = attach_node_with(&svc, 1, MemStore::shared(data_rc));
+    a.r.observe(None).unwrap();
+    assert!(
+        sync(&mut a) > 0,
+        "restart retries the unacknowledged upload"
+    );
+    assert!(file_at(&a, PATH).is_some());
     user(&mut a, |d| d.user_write(PATH, b"fixed"));
     assert!(a.r.attachment_ingest_failures().next().is_none());
+}
+
+#[test]
+fn upload_failure_notices_are_not_evicted_after_256_files() {
+    let svc = FakeLogService::new();
+    let (mut a, _) = ingest_node(&svc, 1);
+    for i in 0..257 {
+        a.r.ingest(vec![Observation {
+            token: ObservationId(i + 1),
+            path: format!("media/{i}.md"),
+            base: None,
+            now: Some(Observed::Attachment {
+                digest: B32([7; 32]),
+                size: 2 << 20,
+                class: AttachmentClass::OversizedMarkdown,
+            }),
+            moved_from: None,
+            provenance: Provenance::Normal,
+        }]);
+        sync(&mut a);
+    }
+    assert_eq!(a.r.attachment_ingest_failures().count(), 257);
 }

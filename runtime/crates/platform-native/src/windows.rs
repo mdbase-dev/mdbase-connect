@@ -198,7 +198,11 @@ pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
         let e = e?;
         let m = e.metadata()?;
         let kind = if is_link(&m) {
-            mdbn_store_file::platform::FileKind::Symlink
+            if m.file_type().is_symlink() {
+                mdbn_store_file::platform::FileKind::Symlink
+            } else {
+                mdbn_store_file::platform::FileKind::ReparsePoint
+            }
         } else {
             kind_of(m.file_type())
         };
@@ -232,7 +236,11 @@ pub(crate) fn stat(p: &Path) -> io::Result<FileMeta> {
     let m = fs::symlink_metadata(p)?;
     if is_link(&m) {
         let mut meta = other_meta();
-        meta.kind = mdbn_store_file::platform::FileKind::Symlink;
+        meta.kind = if m.file_type().is_symlink() {
+            mdbn_store_file::platform::FileKind::Symlink
+        } else {
+            mdbn_store_file::platform::FileKind::ReparsePoint
+        };
         return Ok(meta);
     }
     if !m.is_file() {

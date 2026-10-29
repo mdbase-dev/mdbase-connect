@@ -219,3 +219,33 @@ fn resource_response_budget_and_apply_fault_refuse_without_partial_text() {
         Some(ErrorCode::Unavailable)
     );
 }
+
+#[test]
+fn deferred_resource_ingestion_reports_paths_before_source_reads() {
+    let (_, mut a) = configured();
+    a.r.store_mut()
+        .commit(Tx {
+            resources_put: vec![("_types/oversized.md".into(), "x".repeat(1_048_577))],
+            ..Tx::default()
+        })
+        .unwrap();
+    a.r.ingest(vec![crate::store::Observation {
+        token: crate::store::ObservationId(901),
+        path: "_types/task.md".into(),
+        base: None,
+        now: Some(crate::store::Observed::Text(SOURCE.into())),
+        moved_from: None,
+        provenance: crate::store::Provenance::Normal,
+    }]);
+    assert!(
+        a.r.resource_ingest_paths()
+            .iter()
+            .any(|p| p == "_types/oversized.md")
+    );
+    assert!(
+        a.r.sync_status()
+            .incidents
+            .iter()
+            .any(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity)
+    );
+}

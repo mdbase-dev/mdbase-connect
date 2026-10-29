@@ -244,14 +244,9 @@ pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
                 name: n.to_string(),
                 kind,
             }),
-            // Not UTF-8: cannot be a collection path. Report it as "other" so
-            // the store can surface it, never touch it.
+            // Display only: an invalid name never becomes a filesystem path.
             None => out.push(DirEntry {
-                name: format!(
-                    "{} [filename bytes: {}]",
-                    String::from_utf8_lossy(raw),
-                    raw.iter().map(|b| format!("{b:02x}")).collect::<String>()
-                ),
+                name: String::from_utf8_lossy(raw).into_owned(),
                 kind: FileKind::InvalidName,
             }),
         }

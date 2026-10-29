@@ -154,6 +154,8 @@ pub enum FileKind {
     Dir,
     /// A symbolic link. Never followed.
     Symlink,
+    /// A Windows reparse point other than a symbolic link. Never followed.
+    ReparsePoint,
     /// An entry whose filename cannot be represented as UTF-8.
     InvalidName,
     /// A socket, device, or other special entry. Never read.

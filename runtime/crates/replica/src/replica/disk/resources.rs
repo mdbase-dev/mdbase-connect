@@ -56,12 +56,19 @@ fn apply(map: &mut BTreeMap<String, String>, o: &Observation) -> bool {
 }
 
 impl<S: Store> Replica<S> {
+    /// Known local paths involved in the last deferred resource ingestion.
+    /// Diagnostic only: this does not identify each path as a cause.
+    pub fn resource_ingest_paths(&self) -> Vec<String> {
+        self.resource_ingest_paths.iter().cloned().collect()
+    }
+
     /// None means deferred: no observation in this round was acknowledged.
     pub(super) async fn ingest_resource_set(
         &mut self,
         mut observations: Vec<Observation>,
     ) -> Result<Option<Vec<Observation>>, StoreError> {
         self.check_apply_store_health()?;
+        self.resource_ingest_paths.clear();
         let current = self.layer.catalog().unwrap_or_else(|| self.catalog.clone());
         if !observations.iter().any(|o| {
             current.is_resource_path(&o.path)
@@ -71,6 +78,13 @@ impl<S: Store> Replica<S> {
         }) {
             return Ok(Some(observations));
         }
+        self.resource_ingest_paths
+            .extend(observations.iter().flat_map(|o| {
+                std::iter::once(&o.path)
+                    .chain(o.moved_from.iter())
+                    .filter(|path| current.is_resource_path(path))
+                    .cloned()
+            }));
         if observations.len() > WORK {
             return Ok(None);
         }
@@ -89,6 +103,7 @@ impl<S: Store> Replica<S> {
                 break;
             }
             for path in paths {
+                self.resource_ingest_paths.insert(path.clone());
                 if after.as_ref().is_some_and(|p| path <= *p)
                     || path.len() > 4096
                     || sources.len() >= INVENTORY
@@ -111,6 +126,7 @@ impl<S: Store> Replica<S> {
         }
         let mut touched = 0;
         for (path, value) in self.layer.resource_changes() {
+            self.resource_ingest_paths.insert(path.to_owned());
             touched += 1;
             if touched > INVENTORY {
                 return Ok(None);
@@ -132,6 +148,7 @@ impl<S: Store> Replica<S> {
             ]
             .contains(&o.path.as_str())
             {
+                self.resource_ingest_paths.insert(o.path.clone());
                 if o.now.is_some() {
                     let Some(text) = self
                         .store
@@ -156,6 +173,7 @@ impl<S: Store> Replica<S> {
                     .as_ref()
                     .is_some_and(|p| current.is_resource_path(p))
             {
+                self.resource_ingest_paths.insert(o.path.clone());
                 if o.now.is_some() {
                     let Some(text) = self
                         .store
@@ -176,6 +194,7 @@ impl<S: Store> Replica<S> {
         // catalog, not these declarations, decides resource classification.
         let mut targets = BTreeSet::new();
         for (path, doc) in &sources {
+            self.resource_ingest_paths.insert(path.clone());
             let Ok(refs) = definition_schema_refs(path, doc) else {
                 return Ok(None);
             };
@@ -188,6 +207,7 @@ impl<S: Store> Replica<S> {
         }
         let mut work = 0usize;
         for target in targets {
+            self.resource_ingest_paths.insert(target.clone());
             let mut found = None;
             for (index, o) in observations.iter().enumerate() {
                 work += 1;

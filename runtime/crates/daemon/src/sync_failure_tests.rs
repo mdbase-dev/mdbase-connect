@@ -278,7 +278,7 @@ fn malformed_future_or_content_bearing_persistence_is_refused() {
         .unwrap();
     assert!(Failure::load(dir.path()).is_err());
     value["failure"].as_object_mut().unwrap().remove("message");
-    value["schema_version"] = serde_json::json!(2);
+    value["schema_version"] = serde_json::json!(3);
     crate::fsutil::write_atomic(&dir.path().join(FILE), &serde_json::to_vec(&value).unwrap())
         .unwrap();
     assert!(Failure::load(dir.path()).is_err());
@@ -303,4 +303,25 @@ fn diagnostic_symlink_is_not_followed() {
     std::fs::write(other.path().join("source"), b"never read").unwrap();
     std::os::unix::fs::symlink(other.path().join("source"), dir.path().join(FILE)).unwrap();
     assert!(Failure::load(dir.path()).is_err());
+}
+
+#[test]
+fn large_path_lists_preserve_the_failure_with_an_explicit_omitted_count() {
+    let dir = crate::testutil::TestDir::new("fatal-path-bound");
+    crate::fsutil::ensure_private_dir(dir.path()).unwrap();
+    let mut f = Failure::project(&status(IncidentKind::Integrity, None), &None).unwrap();
+    f.set_paths(
+        (0..100)
+            .map(|n| format!("_types/{n}-{}.md", "x".repeat(512)))
+            .collect(),
+    );
+    assert!(!f.paths.is_empty());
+    assert_eq!(f.paths.len() as u64 + f.paths_omitted.unwrap(), 100);
+    f.persist_using(dir.path(), crate::fsutil::write_atomic)
+        .unwrap();
+    assert!(std::fs::metadata(dir.path().join(FILE)).unwrap().len() <= MAX_BYTES);
+    let recovered = Failure::load(dir.path()).unwrap().unwrap();
+    assert_eq!(recovered.kind, Kind::Integrity);
+    assert_eq!(recovered.paths, f.paths);
+    assert_eq!(recovered.paths_omitted, f.paths_omitted);
 }
