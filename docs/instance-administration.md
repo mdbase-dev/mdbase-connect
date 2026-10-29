@@ -166,6 +166,44 @@ operator or marketing system. Standard resends omit the option.
 Invitation revocation is an exact-replay mutation and therefore also requires
 `--operation-id`.
 
+## Parked Next policy queues
+
+Non-CBOR HTTP failures are transport failures and retry automatically, including
+429 (rate limited), 403 and 413. A CBOR semantic refusal still parks its batch
+and blocks later policy work for that collection.
+
+Inspect the parked batch's `collection_id`, `id` and `error` in
+`next_policy_batches` through your trusted database tooling. After resolving the
+cause, allow another attempt for exactly one collection:
+
+```bash
+pnpm --filter @mdbase/connect-server instance:admin \
+  policy-outbox unpark --collection COLLECTION_UUID \
+  --operation-id "$(uuidgen)" \
+  --actor operator:example \
+  --reason "Corrected the proxy configuration that refused policy publication"
+```
+
+This transaction changes parked batches to `sending`, clears their current
+error and records the batch IDs and previous errors in `next_policy.unparked`
+audit events, alongside actor, reason, operation ID and timestamp. It uses the
+same collection lock as the emitter and recovery. It preserves signed bytes,
+positions, attempts and queued operations. The next emitter drain resends the
+original bytes before later work; a semantic refusal parks again. This command
+does not repair a missing genesis, corrupt retained operations or expired
+signatures: resolve those causes before retrying.
+
+The result lists `batch_ids` (empty when nothing is parked). A missing collection
+is an error. Reusing the same operation ID returns the stored result and never
+unparks a subsequently refused batch; use a new operation ID for a new attempt.
+Read the audit with `audit list --event-type next_policy.unparked`.
+
+`/ready` continues to return HTTP 503 with `next_policy: "parked"` while any
+batch is parked, preserving the production monitor's incident signal. Use
+`/health` for process health and routing, as the self-hosted Compose and managed
+Render configurations do. A collection's policy refusal must not remove the
+whole Connect instance from rotation or block other services' startup.
+
 ## Audit and deployment properties
 
 Mutations write actor, reason, subject, timestamp, and operation metadata to

@@ -85,6 +85,10 @@ async function runCommand(
     return repairAuthorityImportSources(context.db, mutationFlags(flags), expected,
       requiredFlag(flags, "expected-migration-sha256"));
   }
+  if (area === "policy-outbox" && action === "unpark") {
+    const flags = parseFlags(rest, new Set(["collection", "operation-id", "actor", "reason"]));
+    return instanceAdmin(context).unparkPolicy(requiredFlag(flags, "collection"), mutationFlags(flags));
+  }
   if (area === "policy" && action === "show") {
     requireNoArguments(rest);
     return {

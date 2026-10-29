@@ -10,6 +10,7 @@ import { recoverLostPolicy, withPolicyLock } from "./policy-recovery.js";
 import { registerPolicyRecoveryRoutes } from "./policy-recovery-routes.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { runAuthAdminCommand } from "../../auth-admin.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { activatePendingServices } from "./service-activation.js";
@@ -588,6 +589,104 @@ describePostgres("mdbase-next policy outbox", () => {
     expect(log).toHaveLength(3);
     const batches = await database.db.query<{ seq: string }>("SELECT seq FROM next_policy_batches WHERE collection_id = $1 AND state = 'appended' ORDER BY seq", [collectionId]);
     expect(batches.rows.map((row) => Number(row.seq))).toEqual([1, 3]);
+  });
+
+  it.each(["create_log", "append"])("retries original bytes and later ops after a non-CBOR 429 on %s", async (method) => {
+    const collectionId = await register(await newUser(database.db));
+    const sent: Buffer[] = [];
+    const transport = new LogServiceClient({ url: "http://log.test", tokenIssuerKeyPem: pem(issuer), transportKeyPem: pem(generateKeyPairSync("ed25519").privateKey) }, async (input, init) => {
+      if (init?.body) {
+        const frame = decodeCbor(Buffer.from(init.body as Buffer));
+        if (field(frame, 2) === method) {
+          const params = field(frame, 3);
+          sent.push(bytes(method === "create_log" ? field(params, 1) : (field(params, 3) as Decoded[])[0]));
+          if (sent.length === 1) return new Response("proxy", { status: 429 });
+        }
+      }
+      return service.fetch(input, init);
+    });
+    const emitter = new PolicyEmitter(database.db, transport, signer);
+    try {
+      if (method === "append") {
+        await emitter.drainCollection(collectionId);
+        await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: true }]);
+      }
+      await expect(emitter.drainCollection(collectionId)).rejects.toMatchObject({ retryable: true });
+      const batch = (await database.db.query<{ state: string; item: Buffer }>(
+        "SELECT state, item FROM next_policy_batches WHERE collection_id = $1 AND state <> 'appended'", [collectionId]
+      )).rows[0]!;
+      expect(batch.state).toBe("sending");
+      expect(batch.item).toEqual(sent[0]);
+      await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: false }]);
+      expect(await emitter.drainCollection(collectionId)).toBe(2);
+      expect(sent[1]).toEqual(batch.item);
+      const log = service.logs.get(collectionId.replaceAll("-", ""))!;
+      expect(log[method === "create_log" ? 0 : 1]).toEqual(batch.item);
+      expect(service.policyOps(collectionId, signer.cert.policyPublicKey)).toEqual(
+        method === "create_log" ? [["1", "4", "2", "2"], ["11"]] : [["1", "4", "2", "2"], ["11"], ["11"]]
+      );
+    } finally { await emitter.close(); }
+  });
+
+  it("unparks only the selected collection through the audited operator CLI, with exact replay", async () => {
+    const owner = await newUser(database.db);
+    const collectionId = await register(owner), other = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    const context = { db: database.db, defaultRegistrationMode: "closed" as const };
+    const operationId = randomUUID();
+    const command = ["policy-outbox", "unpark", "--collection", collectionId,
+      "--operation-id", operationId, "--actor", "operator:test", "--reason", "Proxy configuration repaired"];
+    try {
+      for (const id of [collectionId, other]) {
+        await emitter.drainCollection(id);
+        await queueNextPolicy(database.db, id, [{ op: "freeze", frozen: true }]);
+        service.refuseNextAppend = true;
+        await expect(emitter.drainCollection(id)).rejects.toThrow(/forbidden/);
+      }
+      const original = (await database.db.query("SELECT * FROM next_policy_batches WHERE collection_id = $1 AND state = 'parked'", [collectionId])).rows[0]!;
+      await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: false }]);
+      expect(await emitter.drainCollection(collectionId)).toBe(0);
+      for (const flag of ["--actor", "--reason", "--operation-id"]) {
+        const missing = command.filter((_, i) => command[i] !== flag && command[i - 1] !== flag);
+        await expect(runAuthAdminCommand(missing, context)).rejects.toThrow(/Missing required option/);
+      }
+      // Audit failure must roll back the permission to resend and its replay record.
+      await database.db.query("ALTER TABLE audit_events ADD CONSTRAINT test_unpark_audit_failure CHECK (event_type <> 'next_policy.unparked')");
+      try {
+        await expect(runAuthAdminCommand(command, context)).rejects.toThrow(/test_unpark_audit_failure/);
+      } finally {
+        await database.db.query("ALTER TABLE audit_events DROP CONSTRAINT test_unpark_audit_failure");
+      }
+      expect((await database.db.query("SELECT state FROM next_policy_batches WHERE id = $1", [original.id])).rows[0]!.state).toBe("parked");
+      expect((await database.db.query("SELECT 1 FROM operator_operations WHERE operation_id = $1", [operationId])).rows).toHaveLength(0);
+      const result = await runAuthAdminCommand(command, context);
+      expect(result).toEqual({ operation_id: operationId, collection_id: collectionId, batch_ids: [original.id] });
+      const resumed = (await database.db.query("SELECT * FROM next_policy_batches WHERE id = $1", [original.id])).rows[0]!;
+      expect(resumed).toEqual({ ...original, state: "sending", error: null });
+      expect((await database.db.query("SELECT state FROM next_policy_batches WHERE collection_id = $1 AND state = 'parked'", [other])).rows).toHaveLength(1);
+      const audit = (await database.db.query("SELECT * FROM audit_events WHERE event_type = 'next_policy.unparked' AND subject_id = $1", [collectionId])).rows;
+      expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({ user_id: owner, metadata: {
+        actor: "operator:test", reason: "Proxy configuration repaired", operation_id: operationId,
+        batches: [{ id: original.id, error: original.error }]
+      } });
+      expect(new Date(audit[0]!.created_at).getTime()).toBeGreaterThanOrEqual(new Date(original.created_at).getTime());
+      // A repeat semantic refusal parks again; retrying the operator request must
+      // return its old result without granting another send attempt.
+      service.refuseNextAppend = true;
+      await expect(emitter.drainCollection(collectionId)).rejects.toThrow(/forbidden/);
+      expect(await runAuthAdminCommand(command, context)).toEqual(result);
+      expect(await emitter.drainCollection(collectionId)).toBe(0);
+      const changedReason = command.slice(); changedReason[changedReason.length - 1] = "Different reason";
+      await expect(runAuthAdminCommand(changedReason, context)).rejects.toThrow(/different request/);
+      const retry = command.map(value => value === operationId ? randomUUID() : value);
+      await runAuthAdminCommand(retry, context);
+      expect(await emitter.drainCollection(collectionId)).toBe(2);
+      expect(service.logs.get(collectionId.replaceAll("-", ""))![1]).toEqual(original.item);
+      expect(await runAuthAdminCommand(["policy-outbox", "unpark", "--collection", collectionId,
+        "--operation-id", randomUUID(), "--actor", "operator:test", "--reason", "Nothing parked"], context))
+        .toEqual(expect.objectContaining({ batch_ids: [] }));
+    } finally { await emitter.close(); }
   });
 
   it("parks the queue on a refusal and keeps later ops behind it", async () => {

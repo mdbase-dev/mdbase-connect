@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { audit } from "./platform/audit-events.js";
+import { withPolicyLock } from "./features/next/policy-recovery.js";
 import type {
   DatabaseConnection,
   DatabasePool,
@@ -107,6 +109,39 @@ export class InstanceAdminService {
     private readonly hostedReplicaRevoker?: HostedReplicaRevoker,
     private readonly connectorSessionFencer?: ConnectorSessionFencer
   ) {}
+
+  async unparkPolicy(collectionId: string, mutation: OperatorMutation): Promise<unknown> {
+    const id = requireUuid(collectionId, "Collection ID").toLowerCase();
+    const normalized = normalizeMutation(mutation);
+    return withPolicyLock(this.db, id, async (lock) => {
+      await lock.query("BEGIN");
+      try {
+        const existing = await reserveOperation(lock, normalized, "next_policy.unpark", "collection", id);
+        if (existing !== null) { await lock.commit(); return existing; }
+        const collection = (await lock.query<{ owner_user_id: string }>(
+          "SELECT owner_user_id FROM next_collections WHERE collection_id = $1 FOR NO KEY UPDATE", [id]
+        )).rows[0];
+        if (!collection) throw new InstanceAdminNotFoundError("Collection was not found.");
+        const batches = (await lock.query<{ id: string; error: string | null }>(
+          "SELECT id, error FROM next_policy_batches WHERE collection_id = $1 AND state = 'parked' ORDER BY id", [id]
+        )).rows;
+        // Serialize with sending/recovery and retain every byte, position and
+        // outbox association. Only the operator's permission to retry changes.
+        await lock.assertOwned();
+        await lock.query("UPDATE next_policy_batches SET state = 'sending', error = NULL WHERE collection_id = $1 AND state = 'parked'", [id]);
+        const result = { operation_id: normalized.operationId, collection_id: id, batch_ids: batches.map(batch => batch.id) };
+        await audit(lock, collection.owner_user_id, "next_policy.unparked", id, {
+          actor: normalized.actor, reason: normalized.reason, operation_id: normalized.operationId, batches
+        });
+        await completeOperation(lock, normalized, "next_policy.unpark", "collection", id, result);
+        await lock.commit();
+        return result;
+      } catch (error) {
+        await lock.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      }
+    });
+  }
 
   async listUsers(input: UserPageInput = {}) {
     const limit = pageSize(input.limit);
@@ -922,21 +957,6 @@ function operationLockParts(operationId: string): [number, number] {
     Number.parseInt(hex.slice(0, 8), 16) | 0,
     Number.parseInt(hex.slice(8, 16), 16) | 0
   ];
-}
-
-async function audit(
-  db: DatabaseQueryable,
-  userId: string | null,
-  eventType: string,
-  subjectId: string | null,
-  metadata: unknown
-): Promise<void> {
-  await db.query(
-    `INSERT INTO audit_events
-       (id, user_id, event_type, subject_id, metadata)
-     VALUES ($1, $2, $3, $4, $5::jsonb)`,
-    [randomUUID(), userId, eventType, subjectId, JSON.stringify(metadata)]
-  );
 }
 
 function affected(result: { rowCount: number | null; rows: unknown[] }): number {
