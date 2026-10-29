@@ -303,7 +303,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
           <FeedbackButton className="connect-feedback-mobile-link" />
         </section>
       </nav>
-      <footer className="connect-nav-footer"><ThemeMenu /><FeedbackButton />{editorOrigin && <a href={editorCollectionUrl(selectedCollection?.id, editorOrigin)}><Trans>Open editor</Trans></a>}<RouteLink view="account" navigate={navigate} ariaLabel={t(i18n)({ message: "Open account and sessions" })}><strong>{data.user.name}</strong><small>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink></footer>
+      <footer className="connect-nav-footer"><ThemeMenu /><FeedbackButton />{editorOrigin && <a href={editorCollectionUrl(selectedCollection?.id, editorOrigin)}><Trans>Open editor</Trans></a>}<RouteLink view="account" navigate={navigate}><strong>{data.user.name}</strong><small>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink></footer>
     </aside>
     <main className="connect-main">
       {(mutationError || refreshError) && <div className="connect-notice error" role="alert"><Warning aria-hidden="true" />{mutationError || refreshError}<button onClick={() => mutationError ? setMutationError("") : setRefreshError("")}><Trans>Dismiss</Trans></button></div>}
@@ -319,7 +319,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       {activeView === "storage" && selectedCollection && <Storage editorOrigin={editorOrigin} collection={selectedCollection} busy={busy} perform={perform} />}
       {activeView === "access" && selectedCollection && <AppAccess collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform} />}
       {activeView === "collections" && <Collections key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />}
-      {activeView === "applications" && <AppAccess groups={applications} client={management} busy={busy} perform={perform} />}
+      {activeView === "applications" && <AppAccess editorOrigin={editorOrigin} groups={applications} client={management} busy={busy} perform={perform} />}
       {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
       {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onDeleted={() => setAccountDeleted(true)} />}
       {activeView === "feedback" && feedbackEnabled && <FeedbackPage onDone={() => navigate("overview", selectedCollection?.id)} />}
@@ -735,13 +735,13 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
       return computer ? [computer] : [];
     });
     const computer = computers.find((candidate) => isConnectorOnline(candidate.last_seen_at)) ?? computers[0];
-    const status = collection.sync === "cloud_copy" ? t(i18n)({ message: "Hosted", context: "Connect interface" })
+    const status = collection.sync === "cloud_copy" ? t(i18n)({ message: "Cloud copy", context: "Connect interface" })
       : computer ? isConnectorOnline(computer.last_seen_at) ? t(i18n)`On ${computer.name}` : t(i18n)`On ${computer.name}: offline`
       : t(i18n)({ message: "Computer not connected", context: "Connect interface" });
     return {
       id: collection.id,
       name: collection.display_name ?? t(i18n)({ message: "Unnamed collection", context: "Connect interface" }),
-      detail: collection.sync === "cloud_copy" ? t(i18n)({ message: "Cloud copy configured", context: "Connect interface" }) : t(i18n)({ message: "Stored on your devices", context: "Connect interface" }),
+      detail: collection.sync === "cloud_copy" ? t(i18n)({ message: "Cloud copy configured", context: "Connect interface" }) : t(i18n)({ message: "Private collection", context: "Connect interface" }),
       status,
       // Computer presence is not content readiness, Effective, or an app grant.
       available: false,
@@ -789,13 +789,12 @@ function NavLink({ label, icon, selected, view, collectionId, navigate }: {
   return <RouteLink className={selected ? "selected" : ""} ariaCurrent={selected ? "page" : undefined} view={view} collectionId={collectionId} navigate={navigate}><span aria-hidden="true">{icon}</span><strong>{label}</strong></RouteLink>;
 }
 
-function RouteLink({ view, collectionId, navigate, children, className = "", ariaLabel, ariaCurrent }: {
+function RouteLink({ view, collectionId, navigate, children, className = "", ariaCurrent }: {
   view: ConnectView;
   collectionId?: string;
   navigate(view: ConnectView, collectionId?: string): void;
   children: ReactNode;
   className?: string;
-  ariaLabel?: string;
   ariaCurrent?: "page";
 }) {
   useLocaleRevision();
@@ -804,7 +803,7 @@ function RouteLink({ view, collectionId, navigate, children, className = "", ari
     event.preventDefault();
     navigate(view, collectionId);
   }
-  return <a className={className} href={connectViewUrl(view, collectionId)} aria-label={ariaLabel} aria-current={ariaCurrent} onClick={activate}>{children}</a>;
+  return <a className={className} href={connectViewUrl(view, collectionId)} aria-current={ariaCurrent} onClick={activate}>{children}</a>;
 }
 
 const connectLoadingFailed = { kind: "error", id: 1 } as const;

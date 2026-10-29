@@ -28,7 +28,7 @@ function MinimalAuthPage({ children }: { children: React.ReactNode }) {
 }
 
 /** Keep native constraints, but announce errors beside the field. */
-function AuthInput({ label, matchValue, onChange, onBlur, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; matchValue?: string }) {
+function AuthInput({ label, matchValue, maxCharacters, onChange, onBlur, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; matchValue?: string; maxCharacters?: number }) {
   useLocaleRevision();
   const labelId = useId();
   const errorId = useId();
@@ -37,16 +37,19 @@ function AuthInput({ label, matchValue, onChange, onBlur, ...props }: InputHTMLA
   useEffect(() => {
     const field = input.current;
     if (!field) return;
-    field.setCustomValidity(matchValue !== undefined && field.value && field.value !== matchValue ? t(i18n)({ message: "Passwords do not match.", context: "Account sign-in" }) : "");
-    setError((current) => current ? field.validationMessage : "");
-  }, [matchValue, props.value]);
+    const tooLong = maxCharacters !== undefined && [...field.value].length > maxCharacters;
+    field.setCustomValidity(tooLong
+      ? t(i18n)`Password must contain no more than ${maxCharacters} characters.`
+      : matchValue !== undefined && field.value && field.value !== matchValue ? t(i18n)({ message: "Passwords do not match.", context: "Account sign-in" }) : "");
+    setError((current) => current || tooLong ? field.validationMessage : "");
+  }, [matchValue, maxCharacters, props.value]);
   return <label>
     <span id={labelId}>{label}</span>
     <input {...props} className="mdbase-field" ref={input} name={props.name ?? props.autoComplete}
       aria-labelledby={labelId}
       aria-invalid={error ? true : undefined}
       aria-describedby={[props["aria-describedby"], error ? errorId : ""].filter(Boolean).join(" ") || undefined}
-      onChange={(event) => { setError(""); onChange?.(event); }}
+      onChange={onChange}
       onBlur={(event) => { setError(event.currentTarget.validationMessage); onBlur?.(event); }}
       onInvalid={(event) => {
         event.preventDefault();
@@ -470,6 +473,8 @@ export function Signup({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const prepared = useRef(false);
+  const errorSummary = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (error) errorSummary.current?.focus(); }, [error]);
 
   useEffect(() => {
     if (prepared.current) return;
@@ -630,7 +635,7 @@ export function Signup({
           : isInvitation || hasVerification || externalSignup
             ? t(i18n)({ message: "The link is invalid, expired, already used, or account setup is temporarily unavailable." })
             : t(i18n)({ message: "Public account creation is temporarily unavailable." })}</p>
-        {error && <div className="message error" role="alert">{error}</div>}
+        {error && <div className="message error" role="alert" tabIndex={-1} ref={errorSummary}>{error}</div>}
         {ready && config.agreements && (
           <form className="password-auth-form signup-form" aria-busy={busy} onSubmit={(event) => void createAccount(event)}>
             <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
@@ -652,6 +657,7 @@ export function Signup({
               autoComplete="new-password"
               minLength={15}
               maxLength={1024}
+              maxCharacters={256}
               aria-describedby="password-guidance"
               required
               value={password}
@@ -665,6 +671,7 @@ export function Signup({
               autoComplete="new-password"
               minLength={15}
               maxLength={1024}
+              maxCharacters={256}
               required
               value={passwordConfirmation}
               onChange={(event) => setPasswordConfirmation(event.target.value)}

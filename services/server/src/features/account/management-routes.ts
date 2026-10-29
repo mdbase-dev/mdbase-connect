@@ -114,10 +114,16 @@ export function registerAccountManagementRoutes(
         options.db.query<{
           connectors: string | number;
           local_collections: string | number;
+          owned_collections: string | number;
         }>(
           `SELECT
              (SELECT count(*) FROM connectors WHERE user_id = $1 AND revoked_at IS NULL) AS connectors,
-             (SELECT count(*) FROM collections WHERE user_id = $1 AND present = true) AS local_collections`,
+             (SELECT count(*) FROM collections WHERE user_id = $1 AND present = true) AS local_collections,
+             (SELECT count(*) FROM (
+               SELECT id FROM hosted_collections WHERE user_id = $1
+               UNION
+               SELECT collection_id FROM next_collections WHERE owner_user_id = $1 AND runtime = 'next'
+             ) owned) AS owned_collections`,
           [user.id]
         ),
         options.authenticationPolicy.current(),
@@ -179,6 +185,7 @@ export function registerAccountManagementRoutes(
           : options.accountDeletionEnabled === false
             ? "temporarily_disabled"
             : null,
+        owned_collections: Number(counts.rows[0]!.owned_collections),
         hosted_collections: hostedCollections.rows.length,
         local_collections: Number(counts.rows[0]?.local_collections ?? 0),
         computers: Number(counts.rows[0]?.connectors ?? 0),

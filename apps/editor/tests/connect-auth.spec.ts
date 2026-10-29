@@ -165,6 +165,44 @@ test("reset and verified signup validate matching passwords inline", async ({ pa
   }
 });
 
+test("signup associates the 257-character password error and brings it into view", async ({ page }) => {
+  await page.route(`${portalOrigin}/v1/auth/password/signup/verification`, route => route.fulfill({ json: { verification: { email: "fixture@example.com" } } }));
+  let submitted = 0;
+  await page.route(`${portalOrigin}/v1/auth/password/signup/public`, route => {
+    submitted++;
+    return route.fulfill({ status: 503, json: { error: { message: "Please try again." } } });
+  });
+  await page.setViewportSize({ width: 375, height: 600 });
+  await page.goto(`${portalOrigin}/signup#verification=fixture`);
+  await page.getByLabel("Name", { exact: true }).fill("Fixture Person");
+  const password = page.getByLabel("Password", { exact: true });
+  const confirmation = page.getByLabel("Confirm password", { exact: true });
+  await page.getByRole("checkbox", { name: /I agree/ }).check();
+  await password.fill("a".repeat(257));
+  await confirmation.fill("a".repeat(257));
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await expect(password).toBeFocused();
+  await expect(password).toHaveAttribute("aria-invalid", "true");
+  await expect(confirmation).toHaveAttribute("aria-invalid", "true");
+  await expect(password).toHaveAccessibleDescription(/Password must contain no more than 256 characters/);
+  await expect(confirmation).toHaveAccessibleDescription(/Password must contain no more than 256 characters/);
+  await expect(password.locator("..").getByRole("alert")).toBeInViewport();
+  expect(submitted).toBe(0);
+  const alert = await password.locator("..").getByRole("alert").elementHandle();
+  await password.press("End");
+  await password.press("a");
+  expect(await alert!.evaluate(element => element.isConnected)).toBe(true);
+  // Count Unicode characters as the server does, without silently truncating.
+  await password.fill("😀".repeat(256));
+  await confirmation.fill("😀".repeat(256));
+  await expect(password).not.toHaveAttribute("aria-invalid", "true");
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Please try again.");
+  await expect(page.getByRole("alert")).toBeFocused();
+  await expect(page.getByRole("alert")).toBeInViewport();
+  expect(submitted).toBe(1);
+});
+
 test("configuration failure stays in the auth shell and offers a working retry", async ({ page }) => {
   await page.route(`${portalOrigin}/v1/auth/config`, (route) => route.fulfill({ status: 503, json: { error: { message: "Sign-in is temporarily unavailable." } } }));
   await page.goto(`${portalOrigin}/login`);
