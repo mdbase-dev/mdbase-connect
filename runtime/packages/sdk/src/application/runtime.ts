@@ -2,7 +2,7 @@ import type {AppWebSignInPortal,AppWebSignInSnapshot} from "../app-host/web-sign
 import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 import type {ApplicationDeclarationSnapshot} from "./declaration.js";
 import type {compileApplicationManifest} from "./manifest.js";
-import type {MdbaseApplicationConnection,MdbaseApplicationReadinessSnapshot,MdbaseApplicationRequestOptions,MdbaseApplicationSnapshot as PublicSnapshot,MdbaseSignOutOptions} from "./entry.js";
+import type {MdbaseApplicationConnection,MdbaseApplicationProblem,MdbaseApplicationReadinessSnapshot,MdbaseApplicationRequestOptions,MdbaseApplicationSnapshot as PublicSnapshot,MdbaseSignOutOptions} from "./entry.js";
 import {pendingWrites,signOutPendingWritesError} from "./sign-out.js";
 import {ApplicationScope} from "./scope.js";
 import {applicationLoopbackAllowed} from "./local-build.js";
@@ -102,7 +102,7 @@ export class ApplicationRuntime {
   private publish():void {
     if(this.closed){this.snapshot=Object.freeze({...this.raw,status:this.stopped?"closed":"blocked",problem:this.stopped?null:this.stopFailed?"application_stop_failed":"application_closing",selectedCollectionId:null,readiness:emptyReadiness()});}
     else {
-      const readiness=this.scope.getReadiness()??emptyReadiness();let status=this.raw.status,problem=this.raw.problem;
+      const readiness=this.scope.getReadiness()??emptyReadiness();let status=this.raw.status,problem=this.raw.problem,detail:MdbaseApplicationProblem["detail"];
       const id=this.raw.selectedCollectionId;
       // Open in the session, and this tab's own ports to it are on the way.
       // A scope this tab's own action is letting go of reads fenced: that is the
@@ -116,10 +116,11 @@ export class ApplicationRuntime {
         // evidence when it settles, and only that can read as blocked.
         const unassessed=this.assessing&&!readiness.assessment&&readiness.problem?.code!=="readiness_fenced";
         status=readiness.checking||unassessed?"opening":readiness.assessment?.status==="ready"?"ready":readiness.assessment?.status==="setup_required"?"setup_required":"blocked";
-        if(status==="blocked")problem=readiness.problem?.code??readiness.assessment?.problem?.code??"application_readiness_unavailable";
+        if(status==="blocked"){const blocked=readiness.problem??readiness.assessment?.problem;problem=blocked?.code??"application_readiness_unavailable";detail=blocked?.detail;}
       }
       // A blocked app names its typed code once in the console; the UI shows only copy.
-      if(status==="blocked"&&problem&&problem!==this.loggedProblem){this.loggedProblem=problem;try{console.error("mdbase application blocked:",problem);}catch{/* no console */}}
+      const diagnostic=`${problem}:${detail??""}`;
+      if(status==="blocked"&&problem&&diagnostic!==this.loggedProblem){this.loggedProblem=diagnostic;try{if(detail)console.error("mdbase application blocked:",problem,detail);else console.error("mdbase application blocked:",problem);}catch{/* no console */}}
       else if(status!=="blocked")this.loggedProblem=null;
       this.snapshot=Object.freeze({...this.raw,status,problem,collections:Object.freeze(this.raw.collections.map(value=>Object.freeze({...value}))),readiness});
     }

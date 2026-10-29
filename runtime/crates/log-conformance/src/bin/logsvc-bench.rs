@@ -7,7 +7,7 @@
 //! logsvc-bench --url ... blob --parts 16 --mib 8 --conc 4
 //! logsvc-bench --url ... recovery --secs 60
 //! logsvc-bench --url ... conformance [--hooks]
-//! logsvc-bench --url ... push [--origin <allowed browser origin>]
+//! logsvc-bench --url ... push [--origin <browser origin>]
 //! ```
 //! Prints one JSON line per run.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]

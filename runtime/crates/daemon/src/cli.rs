@@ -1908,6 +1908,12 @@ mod takeover_cli_tests {
     use super::*;
 
     #[test]
+    fn sync_only_offers_implemented_commands() {
+        assert!(Cli::try_parse_from(["mdbase", "sync", "enable", "Notes"]).is_ok());
+        assert!(Cli::try_parse_from(["mdbase", "sync", "disable", "Notes"]).is_err());
+    }
+
+    #[test]
     fn migrate_start_has_no_rollout_override() {
         assert!(Cli::try_parse_from(["mdbase", "migrate", "start"]).is_ok());
         assert!(Cli::try_parse_from(["mdbase", "migrate", "start", "--ignore-rollout"]).is_err());

@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { ciOnlySteps, classify, localSteps, workflowRunCommands } from "./ci-local.mjs";
+import { ciOnlySteps, classify, localSteps, selectSteps, workflowRunCommands } from "./ci-local.mjs";
 
-const commands = workflowRunCommands(
-  await readFile(new URL("../../.github/workflows/server-ci.yml", import.meta.url), "utf8")
-);
+const workflow = await readFile(new URL("../../.github/workflows/server-ci.yml", import.meta.url), "utf8");
+const commands = workflowRunCommands(workflow);
 
 test("every Server CI step runs in ci:local or is CI-only with a reason", () => {
   const unclassified = [...new Set(commands)].filter((command) => !classify(command));
@@ -28,6 +27,29 @@ test("strict root catalogue gate bootstraps the kit CLI in a clean checkout", as
   assert.match(scripts["i18n:check"], /^pnpm --filter @mdbase-dev\/i18n build && /);
   assert.match(scripts.build, /^pnpm i18n:check && /);
   assert.match(scripts.pretypecheck, /^pnpm i18n:check && /);
+});
+
+test("fullOnly matches the steps Server CI gates on full qualification", () => {
+  const job = (name) => workflow.split(`\n  ${name}:\n`)[1].split(/\n  [a-z][\w-]+:\n/)[0];
+  assert.match(job("hosted-provider-rust"), /^    if: needs\.classify\.outputs\.run_full == 'true'$/m);
+  const node = job("node");
+  for (const step of localSteps.filter((candidate) => candidate.tier !== "rust")) {
+    const gated = node.includes(`if: needs.classify.outputs.run_full == 'true'\n        run: ${step.command}\n`);
+    assert.equal(Boolean(step.fullOnly), gated, step.command);
+  }
+});
+
+test("the default selection mirrors the pull-request plan; tier flags run whole tiers", () => {
+  const commands = (tiers, native) => selectSteps(new Set(tiers), native).map((step) => step.command);
+  const fast = commands([], false);
+  assert.ok(fast.includes("pnpm test"));
+  assert.ok(!fast.includes("pnpm package:audit"));
+  assert.ok(!selectSteps(new Set(), false).some((step) => step.tier === "rust"));
+  const native = commands([], true);
+  assert.ok(native.includes("pnpm package:audit"));
+  assert.ok(native.includes("node scripts/ci/cargo-test.mjs --locked --workspace"));
+  assert.ok(!native.includes("pnpm test:accessibility"));
+  assert.deepEqual(commands(["node", "rust", "browser"], false), localSteps.map((step) => step.command));
 });
 
 test("folded and literal run blocks yield their command", () => {

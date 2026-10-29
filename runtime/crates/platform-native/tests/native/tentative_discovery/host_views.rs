@@ -7,6 +7,91 @@ use r::replica::{BasesExecutionPolicies, BasesExecutionWindow, BasesReadRequest}
 use std::collections::BTreeMap;
 
 #[test]
+fn large_bases_reads_and_windows_respect_app_parameter_limit() {
+    let path = scratch("bases_app_parameter_limit").join("app.db");
+    let service = log();
+    let probe = Rc::new(Probe::default());
+    let (mut app, session, _) = open(&path, probe.clone());
+    settle(&mut app, &service);
+    configure_resources(&mut app, session, &service);
+    let source = "views:\n  - type: table\n    filters: \"note.status == 'open'\"\n    order: [file.name, note.priority]\n    sort: [{property: file.name, direction: ASC}]\n";
+    submit(
+        &mut app,
+        session,
+        vec![create(SOURCE_ID, SOURCE_PATH, source)],
+        40,
+    );
+    settle(&mut app, &service);
+    for start in (0u16..501).step_by(25) {
+        let ops = (start..(start + 25).min(501))
+            .map(|number| {
+                let mut bytes = [64; 16];
+                bytes[14..].copy_from_slice(&number.to_be_bytes());
+                create(
+                    B16(bytes),
+                    &format!("tasks/{number:04}.md"),
+                    &format!(
+                        "---\nstatus: open\npriority: {}\ntags: [task, test]\n---\n",
+                        number % 4
+                    ),
+                )
+            })
+            .collect();
+        submit(
+            &mut app,
+            session,
+            ops,
+            41 + u8::try_from(start / 25).unwrap(),
+        );
+        settle(&mut app, &service);
+    }
+    probe.enforce_codec.set(true);
+    let hints = BTreeMap::new();
+    let mut full = Vec::new();
+    for window in [
+        None,
+        Some(BasesExecutionWindow {
+            offset: 0,
+            limit: 501,
+        }),
+        Some(BasesExecutionWindow {
+            offset: 97,
+            limit: 250,
+        }),
+    ] {
+        app.encode_indexed_bases_read_request(
+            session,
+            BasesReadRequest {
+                selection: BasesViewSelection {
+                    record: SOURCE_ID,
+                    revision: w::hash::sha256(source.as_bytes()),
+                    index: 0,
+                },
+                property_types: &hints,
+                timezone: "UTC",
+                window,
+            },
+            |result| {
+                let ids = result.rows.iter().map(|row| row.record).collect::<Vec<_>>();
+                match window {
+                    None => {
+                        assert_eq!(ids.len(), 501);
+                        full = ids;
+                    }
+                    Some(window) => assert_eq!(
+                        ids,
+                        full[window.offset as usize..(window.offset + window.limit) as usize]
+                    ),
+                }
+                Ok(1)
+            },
+            |_, size| Ok(vec![0; size]),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
 fn all_five_original_default_sources_execute_through_both_native_capture_paths() {
     let path = scratch("tentative-host-default-views").join("app.db");
     let service = log();

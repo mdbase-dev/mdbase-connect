@@ -19,9 +19,18 @@ import WebSocket from 'ws';
 import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync, readFileSync, readdirSync, appendFileSync, rmSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync, readFileSync, readdirSync, appendFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+
+if (process.env.MDBN_REQUIRE_REAL_BACKENDS === '1') {
+  assert.ok(process.env.LOGSVC_BENCH, 'LOGSVC_BENCH is required');
+}
+if (process.env.LOGSVC_BENCH) {
+  accessSync(resolve(process.env.LOGSVC_BENCH), constants.X_OK);
+} else {
+  console.error('LOGSVC_BENCH not set: skipping DO conformance and push checks');
+}
 
 const port = Number(process.env.LOGSVC_TEST_PORT ?? 18787);
 const inspector = Number(process.env.LOGSVC_TEST_INSPECTOR_PORT ?? 19229);
@@ -101,7 +110,8 @@ writeFileSync(config, JSON.stringify({
     { binding: 'OBJECTS_WNAM', bucket_name: 'logsvc-local-test-wnam' }],
   analytics_engine_datasets: [{ binding: 'METRICS', dataset: 'logsvc_local_test' }],
   vars: { PUBLIC_BASE: base, INSECURE_TEST_KEYS: '1', DEBUG_HOOKS: '1', TESTKIT_CP: 'conformance',
-    LOGSVC_CORS_ORIGINS: 'http://127.0.0.1:*,https://lab.tasknotes-app.pages.dev',
+    // A retained malformed legacy value must not disable any transport path.
+    LOGSVC_CORS_ORIGINS: 'ignored: not an origin list',
     // Deployed configs set a default region: every collection created here is
     // regional, so uploads, commits and reads all go through the region's bucket.
     LOGSVC_DO_LOCATION_HINT: 'oc', LOGSVC_REGION_BUCKETS: 'oc=OBJECTS_OC,wnam=OBJECTS_WNAM' },

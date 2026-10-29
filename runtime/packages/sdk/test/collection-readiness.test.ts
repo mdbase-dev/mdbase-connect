@@ -172,6 +172,49 @@ async function fixture() {
 }
 
 describe("original selected collection semantic readiness", () => {
+  it.each(["unauthenticated", "cancelled"] as const)("identifies a READ rejected as %s", async code => {
+    const f = await fixture(), assessor = f.make();
+    try {
+      f.refuse({code, recovery: code === "cancelled" ? "none" : "reauthorize", message: "secret server message", details: new Map([["condition", "secret server detail"]])});
+      await expect(assessor.start()).rejects.toMatchObject({code});
+      expect(assessor.getSnapshot().problem).toEqual({reason: "fenced", detail: `read_${code}`});
+    } finally { await assessor.close(); f.client.close(); }
+  });
+  it.each(["session_closed", "session_replaced", "session_collection_mismatch"] as const)("identifies %s during an original READ", async detail => {
+    const f = await fixture(), assessor = f.make(), session = f.client.currentSession()!, replacement = detail === "session_replaced" ? await fixture() : null;
+    try {
+      f.beforeReply(() => {
+        if (detail === "session_closed") vi.spyOn(session, "closed", "get").mockReturnValue(true);
+        else if (detail === "session_replaced") vi.spyOn(f.client, "currentSession").mockReturnValue(replacement!.client.currentSession());
+        else Object.defineProperty(session.hello, "collection", {value: "secret-other-collection"});
+      });
+      await expect(assessor.start()).rejects.toMatchObject({reason: "readiness_fenced", details: new Map([["condition", detail]])});
+      expect(assessor.getSnapshot().problem).toEqual({reason: "fenced", detail});
+    } finally { vi.restoreAllMocks(); await assessor.close(); f.client.close(); replacement?.client.close(); }
+  });
+  it.each(["binding_not_current", "binding_aborted", "readiness_closed"] as const)("identifies %s without exposing binding data", async detail => {
+    const f = await fixture(), assessor = f.make();
+    try {
+      if (detail === "binding_not_current") { f.beforeReply(f.fence); await expect(assessor.start()).rejects.toMatchObject({reason: "readiness_fenced"}); }
+      else if (detail === "binding_aborted") f.scope.abort();
+      else await assessor.close();
+      expect(assessor.getSnapshot().problem).toEqual({reason: "fenced", detail});
+    } finally { await assessor.close(); f.client.close(); }
+  });
+  it("identifies an invalid binding in the error detail", async () => {
+    const f = await fixture();
+    try {
+      expect(() => createAppCollectionReadiness(f.client, declared, {collection: "invalid-secret", generation, signal: f.scope.signal, isCurrent: () => true})).toThrow(expect.objectContaining({reason: "readiness_fenced", details: new Map([["condition", "binding_invalid"]])}));
+    } finally { f.client.close(); }
+  });
+  it("identifies caller abort during an original READ", async () => {
+    const f = await fixture(), assessor = f.make(), caller = new AbortController();
+    try {
+      f.beforeReply(() => caller.abort());
+      await expect(assessor.start(caller.signal)).rejects.toBeDefined();
+      expect(assessor.getSnapshot().problem).toEqual({reason: "fenced", detail: "read_aborted"});
+    } finally { await assessor.close(); f.client.close(); }
+  });
   it("bounds repeated busy reads to 15 seconds and permits a fresh explicit assessment", async () => {
     const f = await fixture(), assessor = f.make();
     try {

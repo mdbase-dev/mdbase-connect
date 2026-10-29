@@ -136,6 +136,21 @@ pub(crate) fn page<I: IndexStorage>(
     request: &QueryProjectionRequest,
 ) -> StoreResult<QueryProjectionPage> {
     request.check()?;
+    let projection_params = vec![
+        SqlValue::Integer(i64::from(!request.fields.is_empty())),
+        SqlValue::Integer(i64::from(request.tags)),
+    ];
+    let batch_limit =
+        crate::index_codec::CodecLimits::HOSTED.max_parameters - projection_params.len();
+    let original = request;
+    let mut bounded = request.clone();
+    bounded.limit = bounded.limit.min(batch_limit as u32);
+    let records_more = bounded.bases_records.as_mut().is_some_and(|ids| {
+        let more = ids.len() > batch_limit;
+        ids.truncate(batch_limit);
+        more
+    });
+    let request = &bounded;
     fence(index, request)?;
     let mut params = vec![];
     let (condition, candidates_more, expected) = if let Some(ids) = &request.bases_records {
@@ -211,7 +226,7 @@ pub(crate) fn page<I: IndexStorage>(
     }) {
         return Err(corrupt());
     }
-    let mut has_more = candidates_more || meta.len() > request.limit as usize;
+    let mut has_more = records_more || candidates_more || meta.len() > request.limit as usize;
     meta.truncate(request.limit as usize);
     let mut encoded_bytes = 0u64;
     let mut admitted = 0usize;
@@ -234,10 +249,7 @@ pub(crate) fn page<I: IndexStorage>(
         return Ok(QueryProjectionPage::default());
     }
     meta.truncate(admitted);
-    let mut params = vec![
-        SqlValue::Integer(i64::from(!request.fields.is_empty())),
-        SqlValue::Integer(i64::from(request.tags)),
-    ];
+    let mut params = projection_params;
     params.extend(meta.iter().map(|row| blob(&row.id.0)));
     let result = run(
         index,
@@ -304,6 +316,6 @@ pub(crate) fn page<I: IndexStorage>(
         encoded_bytes,
         has_more,
     };
-    page.check(request).map_err(|_| corrupt())?;
+    page.check(original).map_err(|_| corrupt())?;
     Ok(page)
 }

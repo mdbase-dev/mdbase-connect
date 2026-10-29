@@ -92,8 +92,8 @@ msgstr "{0} can now use {where}."
 
 #. placeholder {0}: collection.name
 #: src/renderer/collections-view.tsx
-msgid "{0} is on this computer only now."
-msgstr "{0} is on this computer only now."
+#~ msgid "{0} is on this computer only now."
+#~ msgstr "{0} is on this computer only now."
 
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
@@ -1536,8 +1536,8 @@ msgstr "Stop {0} from using {1} through this computer?"
 
 #. placeholder {0}: collection.name
 #: src/renderer/collections-view.tsx
-msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
-msgstr "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
+#~ msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
+#~ msgstr "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
 
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
@@ -1816,8 +1816,8 @@ msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "This version of mdbase is too old for the service. Update mdbase."
 
 #: src/renderer/collections-view.tsx
-msgid "Turn off sync"
-msgstr "Turn off sync"
+#~ msgid "Turn off sync"
+#~ msgstr "Turn off sync"
 
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"

@@ -131,6 +131,16 @@ const collection = (overrides = {}) => ({
   mode: "local", origin: "local", log: "none", state: "ready", notices: [], ...overrides
 });
 
+test("ready synced collections do not offer the unavailable turn-off action", async () => {
+  const { page, errors } = await desktop({ signedIn: true, collections: [collection({ mode: "synced", log: "hosted", sync: { pending: 0, holds: 0, unresolved: 0, connection: "online" } })] });
+  try {
+    await nav(page, "Collections").click();
+    await page.locator(".collection-card").waitFor();
+    assert.equal(await page.getByRole("button", { name: "Turn off sync" }).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 const entry = (overrides = {}) => ({
   grant: "g1", collection: "c-notes", app_id: "reader", app_name: "Reader", client_pk: "pk", capabilities: ["read", "write"],
   state: "active", first_seen_ms: Date.now(), acknowledged: true, ...overrides

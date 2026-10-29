@@ -24,13 +24,14 @@ test("connection: an account problem is explained in plain words, never as a cod
 
 test("collections: sync is offered only for a ready local collection; waiting work is never shown as up to date", () => {
   const local = presentCollection({ mode: "local", state: "ready" });
-  assert.deepEqual([local.canEnableSync, local.canDisableSync, local.status], [true, false, "Ready"]);
+  assert.deepEqual([local.canEnableSync, local.status], [true, "Ready"]);
+  assert.equal("canDisableSync" in local, false);
   assert.equal(presentCollection({ mode: "local", state: "opening" }).canEnableSync, false);
   const busy = presentCollection({ mode: "synced_e2e", state: "ready", sync: { pending: 2, holds: 1, unresolved: 0, connection: "online" } });
   assert.equal(busy.status, "Syncing…");
   assert.equal(busy.dot, "paused");
   assert.match(busy.detail, /2 changes to upload · 1 file waiting/);
-  assert.equal(busy.canDisableSync, true);
+  assert.equal(busy.canEnableSync, false);
   assert.match(presentCollection({ mode: "local", state: "failed", reason: "folder_missing" }).detail, /files are untouched/);
   assert.match(presentCollection({ mode: "local", state: "unavailable", reason: "old_connector_running" }).detail, /old mdbase Connect is running/);
   const turningOn = presentCollection({ mode: "local", state: "paused", reason: "private_sync_pending" });

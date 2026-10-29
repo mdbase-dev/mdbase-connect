@@ -7,6 +7,8 @@ import { createDatabase, type DatabasePool } from "../../db.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { registerConnectorPairingRoutes } from "../connectors/pairing-routes.js";
+import { createHostedCollectionInvitation } from "../../collection-invitations.js";
+import { registerHostedSharingRoutes } from "../hosted/sharing-routes.js";
 import { createHostedCollectionMembership } from "../../collection-policy.js";
 import { revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
 import { registerPeopleRoutes } from "../account/people-routes.js";
@@ -180,6 +182,7 @@ describePg("cloud-copy bootstrap", () => {
     registerMigrationProviderRoutes(app, { db, token: "synthetic-migration-target-token", bootstrap: { next: config, emitter, log: client, fetchImpl: deployments.fetch },
       provider: { legacyMigrationDrain: unused, legacyMigrationSource: unused, legacyMigrationFence: unused,
         legacyMigrationPlacement: async () => ({ timezone: "UTC", ownerTimezones: ["Europe/Berlin", "America/Denver"] }) } });
+    registerHostedSharingRoutes(app, { db, hostedCollections: true, hostedSharing: true, nativePolicyEmitter: emitter });
     registerCollectionLogTokenRoute(app,{db,log:client});
     registerPeopleRoutes(app,{db,issuer:"https://identity.test",publicUrl:"https://connect.test"});
   }, 60_000);
@@ -854,6 +857,25 @@ describePg("cloud-copy bootstrap", () => {
     }
     expect((await create(owner,await proof(owner,collection))).statusCode).not.toBe(200);
   });
+  it("publishes accepted membership before the recipient immediately joins", async () => {
+    const owner = await identity(), member = await identity(), collection = randomUUID();
+    expect((await create(owner, await proof(owner, collection))).statusCode).toBe(200);
+    for (const who of [owner, member]) {
+      const id = who.connector.user_id;
+      await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [id]);
+      await db.query("INSERT INTO email_identities(id,user_id,email,normalized_email,verified_at,is_primary) VALUES($1,$2,$3,$3,now(),true)", [randomUUID(), id, `${id}@example.test`]);
+    }
+    await db.query("INSERT INTO account_entitlement_grants(id,user_id,profile_code,source,source_reference) VALUES($1,$2,'beta_v1','operator',$3)", [randomUUID(), owner.connector.user_id, randomUUID()]);
+    await db.query("INSERT INTO account_storage_accounts(user_id,provider_account_id) VALUES($1,$2)", [owner.connector.user_id, randomUUID()]);
+    const invitation = await createHostedCollectionInvitation(db, { collectionId: collection, actorUserId: owner.connector.user_id, role: "editor", target: { email: `${member.connector.user_id}@example.test` } });
+    const accepted = await app.inject({ method: "POST", url: "/v1/hosted/collection-invitations/accept", headers: await session(member.connector.user_id), payload: { token: invitation.token } });
+    expect(accepted.statusCode, accepted.body).toBe(201);
+    const pending = await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND batch_id IS NULL", [collection]);
+    expect(pending.rows).toHaveLength(0);
+    const joined = await join(member, collection, await joinProof(member, collection));
+    expect(joined.statusCode, joined.body).toBe(200);
+  });
+
   it("refuses pending additions/removals and suspension while admitting acknowledged ordinary members",async()=>{
     const owner=await identity(),who=await installation(),collection=randomUUID();expect((await serviceCreate(await session(owner.connector.user_id),collection)).statusCode).toBe(200);await approveScope(who,collection);
     await policy(collection,[{op:"member-set",account:who.connector.user_id,role:"editor"}],false);

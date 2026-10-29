@@ -31,6 +31,12 @@ impl IndexStorage for Trace {
     }
     fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
         for s in &batch.stmts {
+            if s.sql.contains("FROM st_qraw") {
+                assert!(
+                    s.params.len()
+                        <= mdbn_store_file::index_codec::CodecLimits::HOSTED.max_parameters
+                );
+            }
             if s.sql
                 .contains("(SELECT count(*) FROM st_qrecord)=(SELECT count(*) FROM st_rec)")
             {

@@ -477,6 +477,27 @@ pub fn decode_reply(
 mod tests {
     use super::*;
     const L: CodecLimits = CodecLimits::HOSTED;
+    #[test]
+    fn hosted_parameter_boundary() {
+        for count in [98, 99, 100, 101] {
+            let req = request(vec![SqlValue::Null; count]);
+            if count <= L.max_parameters {
+                let bytes = encode_request(&req, L).unwrap();
+                assert_eq!(decode_request(&bytes, L).unwrap(), req);
+            } else {
+                assert!(encode_request(&req, L).is_err());
+                let bytes = encode_request(
+                    &req,
+                    CodecLimits {
+                        max_parameters: count,
+                        ..L
+                    },
+                )
+                .unwrap();
+                assert!(decode_request(&bytes, L).is_err());
+            }
+        }
+    }
     fn request(values: Vec<SqlValue>) -> IndexRequest {
         IndexRequest::Run(Batch {
             mode: BatchMode::Transaction,

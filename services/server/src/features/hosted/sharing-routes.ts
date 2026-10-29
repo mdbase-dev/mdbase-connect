@@ -137,6 +137,9 @@ export function registerHostedSharingRoutes(
         userId: user.id,
         token
       });
+      // Acceptance is committed even if publication is temporarily unavailable;
+      // wait for the existing bounded publisher without making the consumed link fail.
+      await publishMembershipPolicy(options, accepted.collectionId);
       return reply.code(201).send({
         membership: {
           id: accepted.membershipId,
