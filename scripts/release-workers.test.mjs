@@ -200,6 +200,35 @@ test('missing or changed handoff proof refuses even without signing', () => with
   const digest = save(); write('trust/release-trust-bundle.sigstore.json', 'changed');
   assert.throws(() => check(dir, digest, input, e));
 }));
+
+test('workflow keeps private assembly out of OIDC and binds only this build artifact', () => {
+  const yaml = readFileSync(new URL('../.github/workflows/release-workers.yml', import.meta.url), 'utf8');
+  const [build, sign] = yaml.split('\n  sign:');
+  assert.equal((yaml.match(/id-token: write/g) ?? []).length, 1);
+  assert.ok(yaml.includes('on:\n  workflow_dispatch:'));
+  assert.ok(!/workflow_call:|pull_request_target:|schedule:/.test(yaml));
+  assert.ok(yaml.includes("options: [staging, production]"));
+  assert.ok(!build.includes('id-token: write'));
+  assert.ok(build.indexOf('node scripts/release-workers.mjs verify') < build.indexOf('secrets.WORKER_RELEASE_READ_TOKEN'));
+  assert.ok(build.includes('ref: 20ecdf8bbd95c52ed6b7ff076ca1687b85619cf7'));
+  assert.ok(build.includes('node target/worker-release-deps/assembly/bin/lib/release-workers.mjs build'));
+  assert.ok(build.includes('"$RELEASE_ENVIRONMENT" verify-trust'));
+  assert.ok(build.includes('node --experimental-transform-types --test test/staging-escrow.test.mjs'));
+  assert.ok(build.includes("'^(#|ℹ) skipped 0$'"));
+  assert.ok(build.includes("! grep -Eq '^(#|ℹ) skipped [1-9][0-9]*$'"));
+  assert.ok(build.indexOf('git merge-base --is-ancestor') < build.indexOf('pnpm install'));
+  assert.ok(build.includes('--ignore-pnpmfile --config.manage-package-manager-versions=false'));
+  assert.ok(sign.includes('needs.build.outputs.manifest_sha256'));
+  assert.ok(sign.includes('needs.build.outputs.artifact_id'));
+  assert.ok(sign.includes('run: node scripts/release-workers.mjs check'));
+  assert.ok(sign.includes(IDENTITY));
+  assert.ok(sign.includes('--certificate-github-workflow-sha "$SOURCE_REVISION"'));
+  assert.ok(!sign.includes('WORKER_RELEASE_READ_TOKEN'));
+  assert.ok(!sign.includes('worker-release-deps'));
+  assert.ok(!yaml.includes('CLOUDFLARE_API_TOKEN'));
+  assert.ok(!yaml.includes('AWS_ACCESS_KEY_ID'));
+});
+
 test('no LAB profile or runtime signer override', () => {
   for (const environment of ['lab', 'local', '', '../production']) assert.throws(() => inputs(env(environment)));
   assert.equal(IDENTITY, 'https://github.com/mdbase-dev/mdbase-connect/.github/workflows/release-workers.yml@refs/heads/main');
