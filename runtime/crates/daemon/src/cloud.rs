@@ -360,6 +360,7 @@ pub struct Cloud {
     /// Server origin.
     pub server: String,
     token: Zeroizing<String>,
+    clock_skew: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for Cloud {
@@ -385,8 +386,26 @@ impl Cloud {
         Ok(Cloud {
             http: http(tls)?,
             server: server.to_string(),
+            clock_skew: std::sync::atomic::AtomicBool::new(false),
             token: Zeroizing::new(token),
         })
+    }
+
+    /// Diagnostic only; never adjusts clocks, token expiry or authorization.
+    pub fn clock_skew(&self) -> bool {
+        self.clock_skew.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn observe_server_date(&self, date: Option<&str>, local_ms: u64) {
+        if let Some(server) = date.and_then(|v| {
+            time::OffsetDateTime::parse(v, &time::format_description::well_known::Rfc2822).ok()
+        }) {
+            let server_ms = server.unix_timestamp_nanos() / 1_000_000;
+            self.clock_skew.store(
+                (server_ms - i128::from(local_ms)).abs() > 5 * 60 * 1000,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
     }
 
     /// Automatic local takeover permission (Connect #603). Only an explicit
@@ -629,6 +648,13 @@ impl Cloud {
         let response = request.send().await;
         current().map_err(CloudError::Local)?;
         let mut response = response.map_err(|e| CloudError::Network(e.to_string()))?;
+        self.observe_server_date(
+            response
+                .headers()
+                .get(reqwest::header::DATE)
+                .and_then(|v| v.to_str().ok()),
+            fsutil::now_ms(),
+        );
         check_rate_limit(&response)?;
         let status = response.status().as_u16();
         if expected_status.is_some_and(|expected| status != expected) {
@@ -1624,6 +1650,30 @@ mod tests {
     }
 
     #[test]
+    fn server_date_reports_large_clock_skew_and_clears_after_correction() {
+        let cloud = Cloud {
+            http: reqwest::Client::new(),
+            server: "http://127.0.0.1:1".into(),
+            clock_skew: std::sync::atomic::AtomicBool::new(false),
+            token: Zeroizing::new("synthetic".into()),
+        };
+        let date = "Thu, 29 Oct 2026 07:56:00 GMT";
+        let now = 1_793_260_560_000;
+        for offset in [86_400_000_i64, -86_400_000] {
+            cloud.observe_server_date(Some(date), (now + offset) as u64);
+            assert!(cloud.clock_skew());
+            cloud.observe_server_date(None, now as u64);
+            cloud.observe_server_date(Some("invalid"), now as u64);
+            assert!(
+                cloud.clock_skew(),
+                "missing evidence does not clear the diagnosis"
+            );
+            cloud.observe_server_date(Some(date), now as u64);
+            assert!(!cloud.clock_skew());
+        }
+    }
+
+    #[test]
     fn bootstrap_debug_never_exposes_tokens_or_genesis() {
         let joined = Joined {
             token: Zeroizing::new("synthetic-token-sentinel".into()),
@@ -1655,6 +1705,7 @@ mod tests {
         let cloud = Cloud {
             http: reqwest::Client::new(),
             server: "http://127.0.0.1:1".into(),
+            clock_skew: std::sync::atomic::AtomicBool::new(false),
             token: Zeroizing::new("synthetic-token".into()),
         };
         let id = DeviceIdentity::generate().unwrap();
@@ -1705,6 +1756,7 @@ mod tests {
         let cloud = Cloud {
             http: reqwest::Client::new(),
             server: format!("http://{address}"),
+            clock_skew: std::sync::atomic::AtomicBool::new(false),
             token: Zeroizing::new("synthetic-token".into()),
         };
         let id = DeviceIdentity::generate().unwrap();
@@ -1764,6 +1816,7 @@ mod tests {
         let cloud = Cloud {
             http: reqwest::Client::new(),
             server: format!("http://{address}"),
+            clock_skew: std::sync::atomic::AtomicBool::new(false),
             token: Zeroizing::new("synthetic-token".into()),
         };
         let id = DeviceIdentity::generate().unwrap();
@@ -1856,6 +1909,7 @@ mod tests {
         let cloud = Cloud {
             http: reqwest::Client::new(),
             server: format!("http://{address}"),
+            clock_skew: std::sync::atomic::AtomicBool::new(false),
             token: Zeroizing::new("synthetic-token".into()),
         };
         let result = call(&cloud, id).await;
@@ -2160,6 +2214,7 @@ mod tests {
         let cloud = Cloud {
             http: reqwest::Client::new(),
             server: format!("http://{address}"),
+            clock_skew: std::sync::atomic::AtomicBool::new(false),
             token: Zeroizing::new("synthetic-token".into()),
         };
         assert_eq!(

@@ -400,44 +400,38 @@ impl<S: Store> Replica<S> {
     ) -> Result<Option<(String, Uuid)>, StoreError> {
         let path = mdbn_core::paths::path_key(path);
         let reserved = format!("p:{path}");
-        if !self
-            .pending_keys
-            .values()
-            .any(|keys| keys.contains(&reserved))
-        {
-            return Ok(None);
-        }
-        let mut after = None;
-        loop {
-            let rows = self.store.pending(after, 256)?;
-            for row in &rows {
-                let [rt::Op::Legacy(Op::FileMove(op))] = row.mutation.ops.as_slice() else {
-                    continue;
-                };
-                if row.mutation.source != Source::External
-                    || mdbn_core::paths::path_key(&op.to) != path
-                {
-                    continue;
-                }
-                let Some(raw) = self.store.meta(&key(&row.mutation.id))? else {
-                    if !row.refs.is_empty() {
-                        return Err(StoreError::Corrupt(
-                            "native pending move missing fence".into(),
-                        ));
-                    }
-                    continue;
-                };
-                let fence = Fence::read(&raw)?;
-                if fence.file != op.id || fence.from != op.from || fence.to != op.to {
-                    return Err(StoreError::Corrupt("native move hint binding".into()));
-                }
-                return Ok(Some((fence.from, fence.file)));
+        for order in self.touch.affected([&reserved]) {
+            let row = self
+                .store
+                .pending(order.checked_sub(1), 1)?
+                .into_iter()
+                .next()
+                .filter(|r| r.order == order)
+                .ok_or_else(|| {
+                    StoreError::Corrupt("pending touch index differs from store".into())
+                })?;
+            let [rt::Op::Legacy(Op::FileMove(op))] = row.mutation.ops.as_slice() else {
+                continue;
+            };
+            if row.mutation.source != Source::External || mdbn_core::paths::path_key(&op.to) != path
+            {
+                continue;
             }
-            if rows.len() < 256 {
-                return Ok(None);
+            let Some(raw) = self.store.meta(&key(&row.mutation.id))? else {
+                if !row.refs.is_empty() {
+                    return Err(StoreError::Corrupt(
+                        "native pending move missing fence".into(),
+                    ));
+                }
+                continue;
+            };
+            let fence = Fence::read(&raw)?;
+            if fence.file != op.id || fence.from != op.from || fence.to != op.to {
+                return Err(StoreError::Corrupt("native move hint binding".into()));
             }
-            after = rows.last().map(|row| row.order);
+            return Ok(Some((fence.from, fence.file)));
         }
+        Ok(None)
     }
 
     /// Only a validated local fence selects native metadata-move emission.

@@ -116,12 +116,16 @@ impl<S: Store> Replica<S> {
             self.before.clear();
             return Ok(());
         }
+        if self.before.is_empty() {
+            return Ok(());
+        }
         let before = std::mem::take(&mut self.before);
         let mut deletes = Vec::new();
         let mut moves = Vec::new();
         let mut writes = Vec::new();
         // Keys whose file already shows the view (or that are held): resolved now.
         let mut settled: Vec<(DiskKey, PublishState)> = Vec::new();
+        let (fenced_ids, fenced_paths) = self.materialization_fences()?;
         for (key, was) in before {
             let id = match &key {
                 DiskKey::Record(id) => Some(*id),
@@ -129,12 +133,12 @@ impl<S: Store> Replica<S> {
             };
             let now = self.local_view_doc(&key);
             if let Some(i) = id
-                && self.file_materialization_fenced(
-                    i,
-                    now.as_ref()
+                && (fenced_ids.contains(&i)
+                    || now
+                        .as_ref()
                         .map(|(p, _)| p.as_str())
-                        .or_else(|| was.as_ref().map(|w| w.path.as_str())),
-                )?
+                        .or_else(|| was.as_ref().map(|w| w.path.as_str()))
+                        .is_some_and(|p| fenced_paths.contains(&mdbn_core::paths::path_key(p))))
             {
                 settled.push((key, PublishState::NotPublished));
                 continue;
@@ -509,23 +513,8 @@ impl<S: Store> Replica<S> {
             }
             return;
         }
-        let observations = match self.ingest_resource_set(observations).await {
-            Ok(Some(ready)) => ready,
-            Ok(None) => {
-                self.incident(mdbn_wire::client::IncidentKind::Integrity,
-                    Some(mdbn_wire::common::Value::Text("Resource ingestion deferred: incomplete, unstable, invalid, over-budget or previously refused registry; original observations retained.".into())));
-                self.flush_status();
-                return;
-            }
-            Err(e) => {
-                self.incident(
-                    mdbn_wire::client::IncidentKind::Integrity,
-                    Some(mdbn_wire::common::Value::Text(format!(
-                        "resource ingest: {e}"
-                    ))),
-                );
-                return;
-            }
+        let Some(observations) = self.prepare_ingest(observations).await else {
+            return;
         };
         if self.local_only() {
             self.ingest_local(observations);
@@ -564,6 +553,30 @@ impl<S: Store> Replica<S> {
         self.pump();
         self.attachment_upload_step();
         self.flush_status();
+    }
+
+    pub(super) async fn prepare_ingest(
+        &mut self,
+        observations: Vec<Observation>,
+    ) -> Option<Vec<Observation>> {
+        match self.ingest_resource_set(observations).await {
+            Ok(Some(ready)) => Some(ready),
+            Ok(None) => {
+                self.incident(mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text("Resource ingestion deferred: incomplete, unstable, invalid, over-budget or previously refused registry; original observations retained.".into())));
+                self.flush_status();
+                None
+            }
+            Err(e) => {
+                self.incident(
+                    mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text(format!(
+                        "resource ingest: {e}"
+                    ))),
+                );
+                None
+            }
+        }
     }
 
     /// Batch distinct new external documents only. Flush before duplicates,
@@ -1363,14 +1376,28 @@ impl<S: Store> Replica<S> {
         id: B16,
         path: Option<&str>,
     ) -> Result<bool, StoreError> {
+        let (ids, paths) = self.materialization_fences()?;
+        Ok(ids.contains(&id)
+            || path.is_some_and(|p| paths.contains(&mdbn_core::paths::path_key(p))))
+    }
+
+    // Build once per publication batch rather than scanning the entire pending
+    // queue for every record in a bulk ingest.
+    fn materialization_fences(
+        &self,
+    ) -> Result<
+        (
+            std::collections::BTreeSet<B16>,
+            std::collections::BTreeSet<String>,
+        ),
+        StoreError,
+    > {
         use mdbn_wire::attachment_runtime_v1 as rt;
-        let same_path = |p: &str| {
-            path.is_some_and(|q| mdbn_core::paths::path_key(p) == mdbn_core::paths::path_key(q))
-        };
-        if self.store.hold(&id)?.is_some()
-            || (path.is_some() && self.store.holds()?.iter().any(|h| same_path(&h.path)))
-        {
-            return Ok(true);
+        let mut ids = std::collections::BTreeSet::new();
+        let mut paths = std::collections::BTreeSet::new();
+        for hold in self.store.holds()? {
+            ids.insert(hold.id);
+            paths.insert(mdbn_core::paths::path_key(&hold.path));
         }
         let mut after = None;
         loop {
@@ -1381,17 +1408,19 @@ impl<S: Store> Replica<S> {
                 {
                     continue;
                 }
-                if row.mutation.ops.iter().any(|op| match op {
-                    rt::Op::Legacy(Op::FilePut(f)) => f.id == id || same_path(&f.path),
-                    rt::Op::FileAttach(f) => f.id == id || same_path(&f.path),
-                    rt::Op::OrdinaryAttachmentContinuation(f) => f.id == id || same_path(&f.path),
-                    _ => false,
-                }) {
-                    return Ok(true);
+                for op in &row.mutation.ops {
+                    let (id, path) = match op {
+                        rt::Op::Legacy(Op::FilePut(f)) => (f.id, &f.path),
+                        rt::Op::FileAttach(f) => (f.id, &f.path),
+                        rt::Op::OrdinaryAttachmentContinuation(f) => (f.id, &f.path),
+                        _ => continue,
+                    };
+                    ids.insert(id);
+                    paths.insert(mdbn_core::paths::path_key(path));
                 }
             }
             if page.len() < 256 {
-                return Ok(false);
+                return Ok((ids, paths));
             }
             after = page.last().map(|r| r.order);
         }

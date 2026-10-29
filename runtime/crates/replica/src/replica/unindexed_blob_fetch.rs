@@ -40,6 +40,10 @@ impl<S: Store> PlainSink for Sink<'_, S> {
     }
 }
 impl Fetches {
+    pub(crate) fn pending(&self) -> u64 {
+        self.queue.len() as u64 + u64::from(self.current.is_some())
+    }
+
     pub(crate) fn next_wakeup(&self) -> Option<i64> {
         [
             self.current.as_ref().and_then(|f| f.retry_at),

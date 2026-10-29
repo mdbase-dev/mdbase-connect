@@ -671,11 +671,21 @@ fn status(
 }
 
 #[test]
+fn pending_downloads_prevent_ready_online_and_from_an_offline_cache() {
+    use mdbn_wire::client::Connection;
+    for connection in [Connection::Online, Connection::Offline] {
+        let s = status(9, 9, connection, &[]);
+        assert_eq!(crate::runtime::synced_ready(&s, true, true, 2), Ok(false));
+        assert_eq!(crate::runtime::synced_ready(&s, true, true, 0), Ok(true));
+    }
+}
+
+#[test]
 fn synced_readiness_needs_genesis_keys_and_the_head() {
     use crate::runtime::synced_ready;
     use mdbn_wire::client::{Connection::*, IncidentKind as K};
     let r = |through, head, conn, inc: &[K], caught_up, cached| {
-        synced_ready(&status(through, head, conn, inc), caught_up, cached)
+        synced_ready(&status(through, head, conn, inc), caught_up, cached, 0)
     };
     assert_eq!(
         r(0, 0, Online, &[], true, false),
@@ -1012,7 +1022,7 @@ fn readiness_follows_every_observation() {
         ),
     ];
     for (s, caught_up, want) in seq {
-        assert_eq!(readiness_of(synced_ready(&s, caught_up, false)), want);
+        assert_eq!(readiness_of(synced_ready(&s, caught_up, false, 0)), want);
     }
 }
 

@@ -109,7 +109,7 @@ async fn freeze_refuses_an_invalid_resource_capture_instead_of_an_empty_base() {
 async fn one_existing_folder_observation_has_no_terminal_incident() {
     let (root, rt) = existing("observe");
     let inventory = rt.inventory().await.unwrap();
-    let (status, _, _) = rt.readiness().await.unwrap();
+    let (status, _, _, _) = rt.readiness().await.unwrap();
     rt.stop().await;
     let kinds: Vec<_> = status.incidents.iter().map(|i| i.kind).collect();
     let deferred = status.incidents.iter().any(|i| matches!(&i.details,
@@ -161,5 +161,48 @@ async fn one_existing_folder_observation_has_no_terminal_incident() {
         status.pending
     );
     assert_eq!((inventory.0.len(), inventory.1.len()), (2, 1));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_and_control_stay_responsive_during_4000_file_ingest() {
+    let (root, rt) = existing("bulk-status");
+    for i in 0..4000 {
+        std::fs::write(
+            root.join(format!("source/notes/bulk-{i}.md")),
+            "---\ntitle: '[test] bulk'\n---\nBulk ingest\n",
+        )
+        .unwrap();
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+    let mut progress_seen = false;
+    loop {
+        let status = tokio::time::timeout(std::time::Duration::from_secs(5), rt.telemetry())
+            .await
+            .expect("status waited behind bulk ingest")
+            .unwrap();
+        progress_seen |= status.pending > 0;
+        tokio::time::timeout(std::time::Duration::from_secs(5), rt.grants_barrier())
+            .await
+            .expect("control waited behind bulk ingest");
+        if status
+            .confirmed_record_digest
+            .as_ref()
+            .is_some_and(|d| d.records == 4002)
+            && status.pending == 0
+        {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "bulk ingest did not finish"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        progress_seen,
+        "unfinished disk ingestion must be visible in status"
+    );
+    rt.stop().await;
     std::fs::remove_dir_all(root).unwrap();
 }

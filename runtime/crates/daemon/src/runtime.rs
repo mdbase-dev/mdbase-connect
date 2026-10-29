@@ -22,7 +22,7 @@
 //!   no watcher could start).
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -87,11 +87,12 @@ pub struct RuntimeConfig {
     pub computer_name: Option<String>,
 }
 
-/// One readiness observation: status, caught up, and the adopt state (if adopting).
+/// One readiness observation: status, caught up, adopt state and unfinished downloads.
 pub type ReadinessView = (
     mdbn_wire::client::SyncStatus,
     bool,
     Option<mdbn_replica::AdoptStatus>,
+    u64,
 );
 
 /// A local collection's inventory: confirmed `(record ID, path)` in ID order and
@@ -808,13 +809,14 @@ pub fn cached_eligibility(
 /// Whether a synced runtime may be reported ready: `Ok(true)` when ready,
 /// `Ok(false)` while it should keep opening, `Err(reason)` when it never can
 /// (terminal). Ready needs the pinned genesis applied (`confirmed_through > 0`)
-/// and no missing epoch key, and then either: online, having read up to the head
+/// and no missing epoch key or unfinished downloads, and then either: online, having read up to the head
 /// heard in this connection (`caught_up`); or, only while not online, the verified
 /// cached membership checked before open (`cached`).
 pub fn synced_ready(
     s: &mdbn_wire::client::SyncStatus,
     caught_up: bool,
     cached: bool,
+    downloads: u64,
 ) -> Result<bool, &'static str> {
     use mdbn_wire::client::{Connection, IncidentKind as K};
     for i in &s.incidents {
@@ -828,7 +830,10 @@ pub fn synced_ready(
             _ => {}
         }
     }
-    if s.confirmed_through == 0 || s.incidents.iter().any(|i| i.kind == K::WaitingForKey) {
+    if downloads > 0
+        || s.confirmed_through == 0
+        || s.incidents.iter().any(|i| i.kind == K::WaitingForKey)
+    {
         return Ok(false);
     }
     Ok(match s.connection {
@@ -1370,6 +1375,7 @@ fn run(
     mut lock: mdbn_local_host::HostLock,
 ) {
     let GrantSignals { grants, changes } = signals;
+    let mut ingest = VecDeque::new();
     let mut active_log = None;
     let mut last_heartbeat = std::time::Instant::now();
     let mut observe_due: Option<std::time::Instant> = None;
@@ -1412,7 +1418,13 @@ fn run(
         } else {
             wake
         };
+        let wake = if ingest.is_empty() {
+            wake
+        } else {
+            Duration::ZERO
+        };
         let received = rx.recv_timeout(wake);
+        let ingest_turn = matches!(&received, Err(std_mpsc::RecvTimeoutError::Timeout));
         // Pure state queries must not wake their own waiters into a busy loop.
         let notify_grants = !matches!(
             &received,
@@ -1493,7 +1505,12 @@ fn run(
                 let _ = reply.send(result);
             }
             Ok(Cmd::Readiness(reply)) => {
-                let _ = reply.send((rep.sync_status(), rep.caught_up(), rep.adopt_status()));
+                let _ = reply.send((
+                    rep.sync_status(),
+                    rep.caught_up(),
+                    rep.adopt_status(),
+                    rep.pending_downloads(),
+                ));
             }
             #[cfg(test)]
             Ok(Cmd::TestSeedHold(hold, reply)) => {
@@ -1524,6 +1541,7 @@ fn run(
                 let _ = reply.send(result);
             }
             Ok(Cmd::Inventory(reply)) => {
+                ingest.clear();
                 rep.store_mut().inner_mut().request_rescan();
                 if let Err(e) = rep.observe(None) {
                     tracing::warn!(error = ?e, "observe failed");
@@ -1549,6 +1567,7 @@ fn run(
                     .map(|h| crate::secrets::hex(&h.chain.0));
                 let records = confirmed_digest(&rep);
                 let mut counters = sync_counters(&status, rep.caught_up(), head_digest, records);
+                counters.pending += ingest.len() as u64 + rep.pending_file_transfers();
                 counters.unsupported_entries = rep.store().inner().stats.unsupported_entries;
                 let _ = reply.send((counters, file_notices(&rep)));
             }
@@ -1704,12 +1723,13 @@ fn run(
             Err(std_mpsc::RecvTimeoutError::Timeout) => {}
             Err(std_mpsc::RecvTimeoutError::Disconnected) => return,
         }
-        if observe_due.is_some_and(|d| std::time::Instant::now() >= d) {
+        if ingest.is_empty() && observe_due.is_some_and(|d| std::time::Instant::now() >= d) {
             // Watcher-queued paths whose quiescence window has passed.
             observe_due = None;
             tracing::debug!("watcher observe");
-            if let Err(e) = rep.observe(None) {
-                tracing::warn!(error = ?e, "observe failed");
+            match rep.observe_changes() {
+                Ok(changes) => ingest.extend(changes),
+                Err(e) => tracing::warn!(error = ?e, "observe failed"),
             }
             log_retention_reclaims(&mut rep);
             // Paths still inside their quiescence window: observe again when due.
@@ -1720,25 +1740,34 @@ fn run(
                 );
             }
         }
-        if adopting && rep.adopt_status() != Some(mdbn_replica::AdoptStatus::Pending) {
+        if ingest.is_empty()
+            && adopting
+            && rep.adopt_status() != Some(mdbn_replica::AdoptStatus::Pending)
+        {
             // The base is applied: ingest what changed meanwhile now, not at the
             // next periodic rescan.
             adopting = false;
             rep.store_mut().inner_mut().request_rescan();
-            if let Err(e) = rep.observe(None) {
-                tracing::warn!(error = ?e, "observe failed");
+            match rep.observe_changes() {
+                Ok(changes) => ingest.extend(changes),
+                Err(e) => tracing::warn!(error = ?e, "observe failed"),
             }
             last_observe = std::time::Instant::now();
         }
-        if last_observe.elapsed() >= observe_every {
+        if ingest.is_empty() && last_observe.elapsed() >= observe_every {
             // No watcher yet: `observe(None)` only walks the folder when a rescan is
             // requested; without one, external edits were never seen.
             rep.store_mut().inner_mut().request_rescan();
-            if let Err(e) = rep.observe(None) {
-                tracing::warn!(error = ?e, "observe failed");
+            match rep.observe_changes() {
+                Ok(changes) => ingest.extend(changes),
+                Err(e) => tracing::warn!(error = ?e, "observe failed"),
             }
             log_retention_reclaims(&mut rep);
             last_observe = std::time::Instant::now();
+        }
+        if ingest_turn && !ingest.is_empty() {
+            let batch = ingest.drain(..ingest.len().min(32)).collect();
+            rep.ingest(batch);
         }
         let now_ms = crate::fsutil::now_ms() as u64;
         if lease_checked != 0 && now_ms >= lease_checked {

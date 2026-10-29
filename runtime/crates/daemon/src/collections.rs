@@ -344,7 +344,7 @@ impl CollectionHost {
                                 if cancel.load(Ordering::SeqCst) {
                                     return;
                                 }
-                                let Some((s, caught_up, adopt)) = rt.readiness().await else {
+                                let Some((s, caught_up, adopt, downloads)) = rt.readiness().await else {
                                     return; // stopped
                                 };
                                 let now = match &adopt {
@@ -361,7 +361,7 @@ impl CollectionHost {
                                                 Err(e) => tracing::warn!(collection = %id, error = %e, "adopt journal not removed"),
                                             }
                                         }
-                                        readiness_of(crate::runtime::synced_ready(&s, caught_up, offline))
+                                        readiness_of(crate::runtime::synced_ready(&s, caught_up, offline, downloads))
                                     }
                                 };
                                 if let Readiness::Failed(_) = now
@@ -674,10 +674,24 @@ impl CollectionHost {
         if !current() {
             return status;
         }
+        let clock_skew = self
+            .ctx
+            .as_ref()
+            .and_then(|c| c.sync.as_ref())
+            .is_some_and(|s| s.cloud.clock_skew());
+        if clock_skew {
+            status.notices.push(Notice {
+                code: "system_clock_wrong".into(),
+                message: "This computer's system clock looks wrong. Check its date and time to reconnect.".into(),
+            });
+        }
         let Some(runtime) = self.runtime() else {
             return status;
         };
-        let telemetry = current_telemetry(source, &self.cancel, runtime.telemetry()).await;
+        let mut telemetry = current_telemetry(source, &self.cancel, runtime.telemetry()).await;
+        if clock_skew && let Some(t) = telemetry.as_mut() {
+            t.last_error = Some("system_clock_wrong".into());
+        }
         if current()
             && self
                 .runtime()

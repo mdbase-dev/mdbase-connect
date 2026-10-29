@@ -115,6 +115,10 @@ pub(crate) struct Ingests {
 }
 
 impl Ingests {
+    pub(crate) fn pending(&self) -> u64 {
+        self.queue.len() as u64 + u64::from(self.current.is_some())
+    }
+
     /// The earliest retry time of a waiting item.
     pub(crate) fn next_wakeup(&self) -> Option<i64> {
         self.queue.iter().filter_map(|i| i.retry_at).min()

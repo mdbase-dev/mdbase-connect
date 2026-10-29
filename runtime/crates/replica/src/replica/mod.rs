@@ -1032,17 +1032,31 @@ impl<S: Store> Replica<S> {
     /// Retained disk scan and shared resource ingestion for suspending stores.
     /// Keep this original future alive; pending exclusively borrows the engine.
     pub async fn observe_async(&mut self, paths: Option<&[String]>) -> Result<(), StoreError> {
-        // Do not consume evidence while authorization/key recovery is paused.
+        let obs = self.observe_changes_async(paths).await?;
+        self.ingest_async(obs).await;
+        Ok(())
+    }
+
+    /// Capture one scan and ingest its coherent resource set. The native actor
+    /// drains the returned ordinary observations between commands; unacknowledged
+    /// observations remain owned by the store and are reoffered after a restart.
+    pub fn observe_changes(&mut self) -> Result<Vec<crate::store::Observation>, StoreError> {
+        disk::finish_native(self.observe_changes_async(None)).ok_or_else(|| {
+            StoreError::Io("Store suspended: retain Replica::observe_async.".into())
+        })?
+    }
+
+    async fn observe_changes_async(
+        &mut self,
+        paths: Option<&[String]>,
+    ) -> Result<Vec<crate::store::Observation>, StoreError> {
         self.check_apply_store_health()?;
-        // Adopt: the folder is not observed until the base is applied; the first
-        // observation afterwards sees everything that changed meanwhile.
         if self.adopt_gates() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let obs = self.store.observe_async(paths).await?;
         self.check_apply_store_health()?;
-        self.ingest_async(obs).await;
-        Ok(())
+        Ok(self.prepare_ingest(obs).await.unwrap_or_default())
     }
 
     // ------------------------------------------------------------ log moves

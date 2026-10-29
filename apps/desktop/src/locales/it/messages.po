@@ -25,10 +25,10 @@ msgstr " La vecchia cartella {0} rimane invariata."
 msgid ", and the files already in it become the first synced version"
 msgstr ", e i file già presenti diventano la prima versione sincronizzata"
 
-#. placeholder {0}: sync.pending
+#. placeholder {0}: collection.sync.pending
 #: src/renderer/daemon-view.mts
-msgid "{0, plural, one {# change to upload} other {# changes to upload}}"
-msgstr "{0, plural, one {# modifica da caricare} other {# modifiche da caricare}}"
+msgid "{0, plural, one {# change to sync} other {# changes to sync}}"
+msgstr "{0, plural, one {# modifica da sincronizzare} other {# modifiche da sincronizzare}}"
 
 #. placeholder {0}: app.grants.length
 #. placeholder {0}: collections.length
@@ -1774,6 +1774,10 @@ msgstr "Questo computer si è disconnesso"
 #: src/renderer/main.tsx
 msgid "This computer's account, app approval and background behavior."
 msgstr "Account, approvazione delle app e comportamento in background di questo computer."
+
+#: src/renderer/daemon-view.mts
+msgid "This computer's system clock looks wrong. Check its date and time to reconnect."
+msgstr "L’orologio di sistema di questo computer sembra errato. Controlla la data e l’ora per riconnetterti."
 
 #: src/renderer/daemon-view.mts
 msgid "This copy stopped following the collection. Join it again to keep it in sync."

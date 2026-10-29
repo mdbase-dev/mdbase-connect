@@ -446,7 +446,7 @@ pub struct SyncCounters {
     pub confirmed_through: u64,
     /// Highest head heard of.
     pub head_known: u64,
-    /// Unconfirmed mutations.
+    /// Unconfirmed mutations, disk ingestion and unfinished file transfers.
     pub pending: u64,
     /// Held files.
     pub holds: u64,

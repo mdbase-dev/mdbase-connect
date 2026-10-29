@@ -38,6 +38,11 @@ fn client_fetch_reuses_one_inflight_object_and_does_not_claim_publish() {
     let bytes = Rc::new(data(CHUNK + 31));
     upload(&mut a, PATH, &bytes);
     apply_available(&mut b, &svc);
+    assert_eq!(
+        b.r.pending_downloads(),
+        1,
+        "the in-flight object is unfinished sync work"
+    );
     let pending = b.r.take_log_calls();
     assert_eq!(
         pending
@@ -67,6 +72,11 @@ fn client_fetch_reuses_one_inflight_object_and_does_not_claim_publish() {
     assert_eq!(
         b.r.store().file(&FILE).unwrap().unwrap().local,
         FileLocal::Materialized
+    );
+    assert_eq!(
+        b.r.pending_downloads(),
+        0,
+        "published bytes finish the transfer"
     );
     let before = gets(&svc);
     b.r.fetch_file(b.s, FILE).unwrap();

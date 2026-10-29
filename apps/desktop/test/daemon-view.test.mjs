@@ -30,7 +30,7 @@ test("collections: sync is offered only for a ready local collection; waiting wo
   const busy = presentCollection({ mode: "synced_e2e", state: "ready", sync: { pending: 2, holds: 1, unresolved: 0, connection: "online" } });
   assert.equal(busy.status, "Syncing…");
   assert.equal(busy.dot, "paused");
-  assert.match(busy.detail, /2 changes to upload · 1 file waiting/);
+  assert.match(busy.detail, /2 changes to sync · 1 file waiting/);
   assert.equal(busy.canEnableSync, false);
   assert.match(presentCollection({ mode: "local", state: "failed", reason: "folder_missing" }).detail, /files are untouched/);
   assert.match(presentCollection({ mode: "local", state: "unavailable", reason: "old_connector_running" }).detail, /old mdbase Connect is running/);
@@ -38,6 +38,21 @@ test("collections: sync is offered only for a ready local collection; waiting wo
   assert.deepEqual([turningOn.status, turningOn.dot], ["Turning on Private sync…", "connecting"]);
   assert.match(turningOn.detail, /finishes this on its own; your files are untouched/);
   assert.equal(presentCollection({ mode: "local", state: "paused" }).status, "Paused");
+});
+
+test("connection follows collection outages even while the account relay is online", () => {
+  const account = { signed_in: true, online: true };
+  const collection = { mode: "synced", state: "opening", sync: { pending: 1, holds: 0, unresolved: 0, connection: "offline" } };
+  assert.equal(presentConnection({ account, collections: [collection] }, true).label, "Offline");
+  assert.equal(presentConnection({ account, collections: [{ ...collection, sync: { ...collection.sync, connection: "connecting" } }] }, true).dot, "connecting");
+  assert.equal(presentConnection({ account, collections: [{ ...collection, state: "paused" }] }, true).dot, "connected");
+  assert.equal(presentConnection({ account, collections: [{ ...collection, mode: "local" }] }, true).dot, "connected");
+  assert.equal(presentConnection({ account, collections: [{ ...collection, sync: { ...collection.sync, connection: "online" } }] }, true).dot, "connected");
+});
+
+test("clock problems have an actionable explanation", () => {
+  const collection = { mode: "synced", state: "ready", sync: { pending: 0, holds: 0, unresolved: 0, connection: "offline", last_error: "system_clock_wrong" } };
+  assert.match(presentCollection(collection).detail, /system clock looks wrong/);
 });
 
 test("access: pending, served-by-app and refused are separated; badge counts decisions and new notices", () => {

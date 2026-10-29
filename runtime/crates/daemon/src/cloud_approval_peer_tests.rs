@@ -145,6 +145,7 @@ async fn peer_read_stale_source_and_invalid_ack_deny_before_any_io() {
     let cloud = Cloud {
         http: reqwest::Client::new(),
         server: "http://127.0.0.1:1".into(),
+        clock_skew: std::sync::atomic::AtomicBool::new(false),
         token: Zeroizing::new("TEST-token".into()),
     };
     let identity = DeviceIdentity::generate().unwrap();
@@ -239,6 +240,7 @@ async fn actual_native_http_inbox_and_ack_sign_the_published_distinct_proofs() {
     let cloud = Cloud {
         http: reqwest::Client::new(),
         server: format!("http://{}", listener.local_addr().unwrap()),
+        clock_skew: std::sync::atomic::AtomicBool::new(false),
         token: Zeroizing::new("TEST-token".into()),
     };
     let identity = DeviceIdentity::generate().unwrap();
@@ -327,6 +329,7 @@ async fn changed_source_after_ack_sent_denies_result_without_claiming_not_sent()
     let cloud = Cloud {
         http: reqwest::Client::new(),
         server: format!("http://{}", listener.local_addr().unwrap()),
+        clock_skew: std::sync::atomic::AtomicBool::new(false),
         token: Zeroizing::new("TEST-token".into()),
     };
     let mock = tokio::spawn(async move {
@@ -367,6 +370,7 @@ async fn signed_foreign_device_metadata_denied_before_send_io() {
     let cloud = Cloud {
         http: reqwest::Client::new(),
         server: "http://127.0.0.1:1".into(),
+        clock_skew: std::sync::atomic::AtomicBool::new(false),
         token: Zeroizing::new("TEST-token".into()),
     };
     let mut identity = DeviceIdentity::generate().unwrap();

@@ -394,7 +394,7 @@ pub fn open(
 pub async fn adopted(rt: &Runtime, within: Duration) -> Duration {
     let t0 = Instant::now();
     loop {
-        let (_, _, adopt) = rt.readiness().await.expect("runtime stopped");
+        let (_, _, adopt, _) = rt.readiness().await.expect("runtime stopped");
         match adopt {
             Some(AdoptStatus::Pending) => {}
             Some(AdoptStatus::Failed(why)) => panic!("adopt failed: {why}"),

@@ -1293,6 +1293,47 @@ fn local_only_commits_to_files() {
     assert!(a.file("c.md").is_some());
 }
 
+#[test]
+fn synced_bulk_publication_scans_pending_once_per_batch() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    const RECORDS: u64 = 400;
+    for i in 0..RECORDS {
+        a.disk
+            .borrow_mut()
+            .user_write(&format!("bulk-{i}.md"), Some("bulk"));
+    }
+    a.r.observe(None).unwrap();
+    assert_eq!(a.r.sync_status().pending, RECORDS);
+    assert!(
+        a.disk.borrow().pending_rows_read <= RECORDS * 3,
+        "publication must not scan all pending rows for every record"
+    );
+    assert_eq!(a.disk.borrow().acknowledged, RECORDS);
+}
+
+#[test]
+fn captured_scan_can_be_ingested_between_status_observations() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    for i in 0..4000 {
+        a.disk
+            .borrow_mut()
+            .user_write(&format!("bulk-{i}.md"), Some("bulk"));
+    }
+    let mut observations = a.r.observe_changes().unwrap();
+    assert_eq!(observations.len(), 4000);
+    let batch = observations.drain(..32).collect();
+    a.r.ingest(batch);
+    assert_eq!(a.r.sync_status().pending, 32);
+    assert_eq!(observations.len(), 3968);
+    assert_eq!(
+        a.disk.borrow().acknowledged,
+        32,
+        "remaining observations retain original store ownership"
+    );
+}
+
 /// A cold scan must not leave an invisible timer-driven confirmation backlog.
 /// Counters bound work deterministically instead of asserting wall-clock speed.
 #[test]
