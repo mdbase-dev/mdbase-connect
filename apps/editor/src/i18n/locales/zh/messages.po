@@ -809,10 +809,6 @@ msgstr "Person 类型已存在，但需要兼容的映射。请在“类型”�
 msgid "A read default for “{field}” already exists."
 msgstr "“{field}”的读取默认值已存在。"
 
-#: src/gateway.ts
-msgid "A type definition is invalid. Fix it in Types before saving."
-msgstr "类型定义无效。请先在“类型”中修复，再保存。"
-
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "关于现有联系人"
@@ -5235,7 +5231,7 @@ msgstr "无法打开嵌入的笔记。"
 msgid "The type {name} is not defined in this collection."
 msgstr "此集合未定义类型 {name}。"
 
-#: src/gateway.ts
+#: src/native-gateway.ts
 msgid "The type definition is invalid: {types}. Fix it in Types before saving."
 msgstr "类型定义无效：{types}。请先在“类型”中修复，再保存。"
 

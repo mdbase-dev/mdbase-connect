@@ -18,19 +18,6 @@ const TEST_OPERATIONS = [
 ] as const;
 
 describe("bridge declaration readiness", () => {
-  it.each(["collection_type_registry_invalid", "collection_invalid"] as const)("names the malformed type for %s", (code) => {
-    const problem = connectProblem(code, "Failed to parse YAML frontmatter.", { details: { diagnostics: [
-      { severity: "error", code: "invalid_frontmatter", path: "_types/task.md", message: "Failed to parse YAML frontmatter." }
-    ] } });
-    expect(gatewayError(new MdbaseConnectError(problem))).toBe("The type definition is invalid: _types/task.md. Fix it in Types before saving.");
-  });
-
-  it("preserves configuration errors rather than calling them invalid types", () => {
-    expect(gatewayError(new MdbaseConnectError(connectProblem("collection_invalid", "Invalid configuration.", { details: { diagnostics: [
-      { severity: "error", path: "mdbase.yaml", message: "Invalid configuration." }
-    ] } })))).toBe("Invalid configuration.");
-  });
-
   it("keeps legacy edit, file, and definition authority visible without v2 expansion", () => {
     const connection = {
       collectionId: "legacy", operations: ["read"],

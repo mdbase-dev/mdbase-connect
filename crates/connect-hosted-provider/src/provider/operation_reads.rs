@@ -867,17 +867,6 @@ pub(super) fn compile_point_catalog(
                     type_resource.name
                 ))
             })?;
-            let diagnostics = mdbase::v03::validate_type_file(&definition, &path);
-            if diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.severity == "error")
-            {
-                return Err(ApiError::bad_request(
-                    "collection_type_registry_invalid",
-                    "A type definition is invalid.",
-                )
-                .with_details(json!({ "diagnostics": diagnostics })));
-            }
             Ok(mdbase::runtime::ResolvedTypeResource {
                 path,
                 revision: type_resource.revision.unwrap_or_default(),

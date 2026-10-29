@@ -809,10 +809,6 @@ msgstr "Ein Typ „Person“ ist bereits vorhanden, benötigt aber kompatible Zu
 msgid "A read default for “{field}” already exists."
 msgstr "Ein Lesestandardwert für „{field}“ ist bereits vorhanden."
 
-#: src/gateway.ts
-msgid "A type definition is invalid. Fix it in Types before saving."
-msgstr "Eine Typdefinition ist ungültig. Korrigieren Sie sie vor dem Speichern unter „Typen“."
-
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "Über vorhandene Kontakte"
@@ -5235,7 +5231,7 @@ msgstr "Die eingebettete Notiz konnte nicht geöffnet werden."
 msgid "The type {name} is not defined in this collection."
 msgstr "Der Typ {name} ist in dieser Sammlung nicht definiert."
 
-#: src/gateway.ts
+#: src/native-gateway.ts
 msgid "The type definition is invalid: {types}. Fix it in Types before saving."
 msgstr "Die Typdefinition ist ungültig: {types}. Korrigieren Sie sie vor dem Speichern unter „Typen“."
 

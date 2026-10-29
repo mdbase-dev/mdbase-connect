@@ -809,10 +809,6 @@ msgstr "Person 유형이 이미 있지만 호환되는 매핑이 필요합니다
 msgid "A read default for “{field}” already exists."
 msgstr "“{field}”의 읽기 기본값이 이미 있습니다."
 
-#: src/gateway.ts
-msgid "A type definition is invalid. Fix it in Types before saving."
-msgstr "유형 정의가 올바르지 않습니다. 저장하기 전에 유형에서 수정하세요."
-
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "기존 연락처 정보"
@@ -5235,7 +5231,7 @@ msgstr "삽입된 노트를 열지 못했습니다."
 msgid "The type {name} is not defined in this collection."
 msgstr "이 컬렉션에 {name} 유형이 정의되어 있지 않습니다."
 
-#: src/gateway.ts
+#: src/native-gateway.ts
 msgid "The type definition is invalid: {types}. Fix it in Types before saving."
 msgstr "유형 정의가 올바르지 않습니다: {types}. 저장하기 전에 유형에서 수정하세요."
 

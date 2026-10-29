@@ -32,7 +32,7 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
 
   const type = schemaType(resolved, value);
   const label = schemaLabel(name, required, hideLabel, resolved);
-  if (value !== undefined && typeof resolved?.type === "string" && !matchesType(resolved.type, value)) {
+  if (value !== undefined && typeof resolved?.type === "string" && !matchesType(resolved.type === "integer" ? "number" : resolved.type, value)) {
     return <div className="schema-value">
       <p className="schema-value-error" role="alert">{t`The existing value doesn't match type ${resolved.type}. Edit the JSON value to fix it.`}</p>
       <JsonSchemaValueEditor name={name} type={resolved.type} label={label} value={value} onChange={onChange} onValidityChange={onValidityChange} />

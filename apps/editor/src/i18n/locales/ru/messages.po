@@ -809,10 +809,6 @@ msgstr "Тип Person уже существует, но требует совм�
 msgid "A read default for “{field}” already exists."
 msgstr "Значение по умолчанию для чтения поля «{field}» уже существует."
 
-#: src/gateway.ts
-msgid "A type definition is invalid. Fix it in Types before saving."
-msgstr "Определение типа недопустимо. Исправьте его в разделе «Типы» перед сохранением."
-
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "О существующих контактах"
@@ -5235,7 +5231,7 @@ msgstr "Не удалось открыть встроенную заметку."
 msgid "The type {name} is not defined in this collection."
 msgstr "Тип {name} не определён в этой коллекции."
 
-#: src/gateway.ts
+#: src/native-gateway.ts
 msgid "The type definition is invalid: {types}. Fix it in Types before saving."
 msgstr "Определение типа недопустимо: {types}. Исправьте его в разделе «Типы» перед сохранением."
 

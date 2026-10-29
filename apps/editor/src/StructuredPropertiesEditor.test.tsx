@@ -21,6 +21,13 @@ describe("structured property selection controls", () => {
     expect(screen.getByRole("combobox", { name: "mobileRevision property type" })).toBeEnabled();
   });
 
+  it("keeps string tags editable as chips for nullable list schemas", () => {
+    render(<StructuredPropertiesEditor value={{ tags: ["kept"] }}
+      contract={{ properties: { tags: { type: ["array", "null"], items: { type: "string" } } }, required: [] }} onChange={() => {}} />);
+    expect(screen.getByRole("button", { name: "Add tag" })).toBeVisible();
+    expect(screen.getByLabelText("tags value item 1")).toHaveValue("kept");
+  });
+
   it("keeps free-form properties visible when no type groups them", () => {
     render(<StructuredPropertiesEditor value={{ custom: "Kept" }} contract={{ properties: {}, required: [] }} onChange={() => {}} />);
     expect(screen.getByRole("textbox", { name: "custom value" })).toBeVisible();

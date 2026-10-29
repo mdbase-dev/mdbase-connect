@@ -3,38 +3,6 @@ use super::operation_input::validate_hosted_operation_input;
 use super::*;
 
 #[test]
-fn malformed_type_catalog_preserves_engine_diagnostics() {
-    let resources = serde_json::from_value(json!({
-        "revision": "fixture", "spec_version": "0.3.0", "contracts": [],
-        "types": [{
-            "name": "task", "path": "_types/task.md", "schema": {"type": "object"},
-            "definition": {"kind": "mdbase.type", "name": "task", "version": "broken"},
-            "extensions": {}
-        }]
-    }))
-    .unwrap();
-    let error = super::operation_reads::compile_point_catalog(
-        resources,
-        vec![(
-            "mdbase.yaml".to_string(),
-            "spec_version: 0.3.0\n".to_string(),
-        )],
-    )
-    .err()
-    .unwrap();
-    assert_eq!(error.code, "collection_type_registry_invalid");
-    assert_eq!(error.status, axum::http::StatusCode::BAD_REQUEST);
-    let diagnostics = error.details.unwrap()["diagnostics"]
-        .as_array()
-        .unwrap()
-        .clone();
-    assert!(diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic["path"] == "_types/task.md"
-            && diagnostic["severity"] == "error"));
-}
-
-#[test]
 fn canonical_change_verifier_rejects_resource_descriptor_mismatch() {
     let expected = mdbase::runtime::ResourceChange {
         kind: mdbase::runtime::ResourceChangeKind::TypeDefinition,

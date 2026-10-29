@@ -71,7 +71,7 @@ describe("collection rail regions", () => {
     try {
       renderRail();
       const tools = screen.getByRole("group", { name: "Collection tools" });
-      expect([...tools.children].map((element) => element.textContent)).toEqual(["Types1", "Settings", "Send feedback"]);
+      expect([...tools.children].map((element) => element.textContent)).toEqual(["Types 1", "Settings", "Send feedback"]);
       screen.getByRole("button", { name: "Settings" }).focus();
       await user.tab();
       const entry = within(tools).getByRole("button", { name: "Send feedback" });

@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
+import { MdbaseError } from "@mdbase-dev/sdk";
 import { connectProblem } from "@mdbase-dev/connect-testing";
 import { App } from "./App";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
@@ -659,7 +660,7 @@ describe("mdbase editor", () => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
     const body = await screen.findByRole("textbox", { name: "Note body" });
     const search = screen.getByRole("combobox", { name: "Search notes and files" });
-    expect(screen.getByRole("button", { name: "Quick open" }).title).not.toContain("K");
+    expect(screen.getByRole("button", { name: /^Quick open · / }).title).not.toContain("K");
     for (const target of [search, body, screen.getByRole("button", { name: "Note properties" })]) {
       target.focus();
       const unhandled = fireEvent.keyDown(target, { key: "k", [modifier]: true });
@@ -792,14 +793,13 @@ describe("mdbase editor", () => {
   it("names a malformed type when saving a body edit and retains the draft", async () => {
     const gateway = new DemoCollectionGateway();
     const user = userEvent.setup();
-    vi.spyOn(gateway, "update").mockRejectedValue(new MdbaseConnectError(connectProblem("collection_invalid", "Invalid YAML.", {
-      details: { diagnostics: [{ severity: "error", code: "invalid_frontmatter", path: "_types/note.md", message: "Invalid YAML." }] }
-    })));
+    vi.spyOn(gateway, "update").mockRejectedValue(new MdbaseError({ code: "collection_invalid", recovery: "repair_collection",
+      message: "The type definition is invalid: note. Fix it in Types before saving." }));
     render(<App gateway={gateway} />);
     const body = await screen.findByRole("textbox", { name: "Note body" });
     await user.type(body, "\nUnsaved sentence.");
-    expect(await screen.findByText("The type definition is invalid: _types/note.md. Fix it in Types before saving.")).toBeVisible();
-    expect(body).toHaveValue(expect.stringContaining("Unsaved sentence."));
+    expect(await screen.findByText("The type definition is invalid: note. Fix it in Types before saving.")).toBeVisible();
+    expect((body as HTMLTextAreaElement).value).toContain("Unsaved sentence.");
     expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).not.toContain("Unsaved sentence.");
   });
 

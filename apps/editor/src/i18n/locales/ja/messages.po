@@ -809,10 +809,6 @@ msgstr "Person 型はすでに存在しますが、互換性のある対応付�
 msgid "A read default for “{field}” already exists."
 msgstr "「{field}」の読み取り時の既定値はすでに存在します。"
 
-#: src/gateway.ts
-msgid "A type definition is invalid. Fix it in Types before saving."
-msgstr "型定義が無効です。保存する前に「型」で修正してください。"
-
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "既存の連絡先について"
@@ -5235,7 +5231,7 @@ msgstr "埋め込まれたノートを開けませんでした。"
 msgid "The type {name} is not defined in this collection."
 msgstr "型{name}はこのコレクションで定義されていません。"
 
-#: src/gateway.ts
+#: src/native-gateway.ts
 msgid "The type definition is invalid: {types}. Fix it in Types before saving."
 msgstr "型定義が無効です: {types}。保存する前に「型」で修正してください。"
 

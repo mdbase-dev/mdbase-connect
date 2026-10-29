@@ -809,10 +809,6 @@ msgstr "Un type Personne existe déjà mais nécessite des associations compatib
 msgid "A read default for “{field}” already exists."
 msgstr "Une valeur par défaut en lecture existe déjà pour « {field} »."
 
-#: src/gateway.ts
-msgid "A type definition is invalid. Fix it in Types before saving."
-msgstr "Une définition de type est invalide. Corrigez-la dans Types avant d’enregistrer."
-
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "À propos des contacts existants"
@@ -5235,7 +5231,7 @@ msgstr "La note transclue n’a pas pu être ouverte."
 msgid "The type {name} is not defined in this collection."
 msgstr "Le type {name} n’est pas défini dans cette collection."
 
-#: src/gateway.ts
+#: src/native-gateway.ts
 msgid "The type definition is invalid: {types}. Fix it in Types before saving."
 msgstr "La définition de type est invalide : {types}. Corrigez-la dans Types avant d’enregistrer."
 
