@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "./test/render";
+import { act, fireEvent, render, screen, waitFor, within } from "./test/render";
 import { describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
 import { api } from "./api";
@@ -11,6 +11,38 @@ async function show(canCreate=true, selected="", hint=selected) {
   return {...view,picker:await screen.findByRole("listbox",{name:"Open in Reader"}),input:screen.getByRole("combobox",{name:"Open in Reader"})};
 }
 describe("approval collection chooser",()=>{
+  it("refreshes shared collections on return without losing the person's selection", async () => {
+    await show(true, "collection-5");
+    const pairing = (await vi.mocked(api).mock.results[0]!.value).pairing;
+    vi.mocked(api).mockResolvedValue({ pairing: { ...pairing, collections: [...collections, { collection_id: "shared", display_name: "Newly shared notes", role: "editor" }] } });
+    fireEvent(window, new Event("focus"));
+    expect(await screen.findByRole("option", { name: "Newly shared notes" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "[test] Notes 5" })).toHaveAttribute("aria-selected", "true");
+    expect(vi.mocked(api).mock.calls.every(([, options]) => !options?.method)).toBe(true);
+  });
+
+  it("refreshes the chooser while open and stops polling after unmount", async () => {
+    const view = await show();
+    const pairing = (await vi.mocked(api).mock.results[0]!.value).pairing;
+    vi.useFakeTimers();
+    try {
+      // Mount again with fake timers so the refresh interval is controlled.
+      view.unmount();
+      vi.mocked(api).mockResolvedValue({ pairing });
+      const next = render(<Pairing pairingId="pairing" />);
+      await act(async () => {});
+      vi.mocked(api).mockResolvedValue({ pairing: { ...pairing, collections: [...collections, { collection_id: "shared", display_name: "Newly shared notes", role: "editor" }] } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      expect(screen.getByRole("option", { name: "Newly shared notes" })).toBeInTheDocument();
+      next.unmount();
+      const calls = vi.mocked(api).mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+      expect(vi.mocked(api)).toHaveBeenCalledTimes(calls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("replaces the native select with one combobox/listbox and an explicit creation button",async()=>{
     const f=await show();
     expect(f.picker.parentElement?.querySelector("select")).toBeNull();

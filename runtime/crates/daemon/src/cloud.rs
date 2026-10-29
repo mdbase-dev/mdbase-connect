@@ -702,6 +702,7 @@ impl Cloud {
         &self,
         connector_id: &str,
         collection: &[u8; 16],
+        display_name: &str,
         identity: &DeviceIdentity,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Created, CloudError> {
@@ -710,6 +711,7 @@ impl Cloud {
             "collection_id".into(),
             json!(mdbn_wire::common::B16(*collection).to_uuid_string()),
         );
+        body.insert("display_name".into(), json!(display_name));
         let v = self
             .proven_post(
                 "/v1/next/collections/cloud-copy",
@@ -1565,6 +1567,7 @@ mod tests {
             .create_cloud_copy(
                 "11111111-1111-4111-8111-111111111111",
                 &[1; 16],
+                "[test] Notes",
                 &id,
                 &|| Err("account_changed".into()),
             )
@@ -1621,6 +1624,7 @@ mod tests {
             .create_cloud_copy(
                 "11111111-1111-4111-8111-111111111111",
                 &[1; 16],
+                "[test] Notes",
                 &id,
                 &current,
             )
@@ -1679,6 +1683,7 @@ mod tests {
             .create_cloud_copy(
                 "11111111-1111-4111-8111-111111111111",
                 &[1; 16],
+                "[test] Notes",
                 &id,
                 &current,
             )
@@ -1816,7 +1821,13 @@ mod tests {
                         let c = &collection;
                         match kind {
                             K::CloudCopyCreate => cloud
-                                .create_cloud_copy(CONNECTOR, c, id, &ok)
+                                .create_cloud_copy(
+                                    CONNECTOR,
+                                    c,
+                                    "[test] migrated Legacy name / Δ",
+                                    id,
+                                    &ok,
+                                )
                                 .await
                                 .map(drop),
                             K::PrivateCreate => cloud
@@ -1847,7 +1858,7 @@ mod tests {
             )
             .await;
             assert!(line.starts_with(&path), "{kind:?}: {line}");
-            if kind == K::PrivateCreate {
+            if matches!(kind, K::PrivateCreate | K::CloudCopyCreate) {
                 assert_eq!(body["display_name"], "[test] migrated Legacy name / Δ");
             }
             assert_eq!(body["challenge"], secrets::hex(&[7; 32]));

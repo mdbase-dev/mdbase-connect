@@ -257,28 +257,50 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     if (collection === NIL || body.device_id === NIL) return reply.code(400).send(apiError("invalid_request", "Nil identifiers are not accepted."));
     const digest = (challenge: Uint8Array) => cloudCopyJoinDigest({ challenge, connector: connector.id, device: body.device_id, collection });
     let device: Device;
+    const enrol = () => inTransaction(options.db, async (client) => {
+      await lock(client, collection);
+      const joining = await authenticate(client, body, connector, digest);
+      // The connector, account and device are current and stay locked until the
+      // enrolment commits: a revocation racing this request waits or wins.
+      await currentIdentity(client, connector, body.device_id, joining);
+      // Cloud copy only: a private collection, or one that has left sync, refuses
+      // before any policy op exists.
+      await currentJoiningCloudCopy(client, collection, connector);
+      await refuseRevoked(client, collection, body.device_id);
+      const prior = (await client.query<{ ops: { ops: Array<Record<string, unknown>> } }>(ENROLMENT, [collection, enrolmentKey(body.device_id)])).rows[0];
+      if (prior) {
+        const same = (await client.query(ENROLMENT, [collection, exactEnrolment(body.device_id, connector.user_id, joining)])).rows.length > 0;
+        if (!same) throw new CreateError(409, "device_enrolled_differently");
+      } else if (!(await queueNextPolicy(client, collection, [enrolOp(body.device_id, connector.user_id, joining)]))) {
+        throw new CreateError(409, "not_current_cloud_copy");
+      }
+      return joining;
+    });
     try {
-      device = await inTransaction(options.db, async (client) => {
-        await lock(client, collection);
-        const joining = await authenticate(client, body, connector, digest);
-        // The connector, account and device are current and stay locked until the
-        // enrolment commits: a revocation racing this request waits or wins.
-        await currentIdentity(client, connector, body.device_id, joining);
-        // Cloud copy only: a private collection, or one that has left sync, refuses
-        // before any policy op exists.
-        await currentJoiningCloudCopy(client, collection, connector);
-        await refuseRevoked(client, collection, body.device_id);
-        const prior = (await client.query<{ ops: { ops: Array<Record<string, unknown>> } }>(ENROLMENT, [collection, enrolmentKey(body.device_id)])).rows[0];
-        if (prior) {
-          const same = (await client.query(ENROLMENT, [collection, exactEnrolment(body.device_id, connector.user_id, joining)])).rows.length > 0;
-          if (!same) throw new CreateError(409, "device_enrolled_differently");
-        } else if (!(await queueNextPolicy(client, collection, [enrolOp(body.device_id, connector.user_id, joining)]))) {
-          throw new CreateError(409, "not_current_cloud_copy");
-        }
-        return joining;
-      });
+      device = await enrol();
     } catch (error) {
-      return refuse(reply, error, "The device was not enrolled; retry with a fresh proof.");
+      if (!(error instanceof CreateError) || error.code !== "not_member") {
+        return refuse(reply, error, "The device was not enrolled; retry with a fresh proof.");
+      }
+      const recent = await options.db.query(
+        `SELECT 1 FROM collection_invitations
+         WHERE collection_id=$1 AND target_user_id=$2 AND state='accepted'
+           AND accepted_at > now() - interval '30 seconds' LIMIT 1`,
+        [collection, connector.user_id]
+      );
+      if (!recent.rows.length) return refuse(reply, error, "The device was not enrolled; retry with a fresh proof.");
+      // Acceptance commits before its policy reaches the log. Publish the same
+      // outbox, then retry once; the rolled-back proof and all authority are rechecked.
+      try {
+        await options.emitter.publishCommitted(collection);
+      } catch {
+        return reply.code(503).send(apiError("not_ready", "Membership is not yet confirmed; retry with a fresh proof."));
+      }
+      try {
+        device = await enrol();
+      } catch (retryError) {
+        return refuse(reply, retryError, "The device was not enrolled; retry with a fresh proof.");
+      }
     }
     try {
       await options.emitter.drainCollection(collection);

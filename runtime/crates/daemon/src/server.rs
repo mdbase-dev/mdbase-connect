@@ -2474,7 +2474,7 @@ impl Daemon {
             }
             return Err(ControlError::invalid(
                 "already_synced",
-                "this collection already syncs",
+                "this collection already syncs; sync enable cannot change an existing sync mode",
             ));
         }
         let collection = crate::attest::uuid_bytes(&entry.id)
@@ -2710,7 +2710,13 @@ impl Daemon {
                         .await
                 } else {
                     ctx.cloud
-                        .create_cloud_copy(&ctx.connector_id, &collection, &identity, &current)
+                        .create_cloud_copy(
+                            &ctx.connector_id,
+                            &collection,
+                            &entry.name,
+                            &identity,
+                            &current,
+                        )
                         .await
                 }
                 .map_err(cloud_refusal)?;

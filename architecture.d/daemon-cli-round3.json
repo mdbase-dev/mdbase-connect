@@ -1,0 +1,6 @@
+{
+  "reason": "The app approval chooser reuses the existing pairing-progress module for a read-only inventory watcher. Its lifetime follows the open chooser and preserves user selections, while the existing preparation watcher retains its bounded attestation lifetime.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}
