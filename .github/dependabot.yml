@@ -32,6 +32,12 @@ updates:
       workflow-actions:
         patterns:
           - "*"
+    ignore:
+      # desktop-release.yml pins 6.0.9: 6.1.0 cannot bootstrap pnpm 11.15.1 on
+      # Intel macOS (ERR_PNPM_PNPM_ENGINE_IDENTITY_UNVERIFIABLE). Remove once a
+      # release passes the macOS Intel jobs.
+      - dependency-name: pnpm/action-setup
+        versions: [">= 6.1.0"]
     open-pull-requests-limit: 5
 
   - package-ecosystem: docker
