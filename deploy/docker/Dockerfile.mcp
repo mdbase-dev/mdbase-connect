@@ -1,4 +1,9 @@
-FROM node:24-bookworm-slim AS build
+FROM node:24.22.1-bookworm-slim AS build
+
+# Refresh the system trust store as well as Node's bundled CA store.
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable
 WORKDIR /app
@@ -26,7 +31,12 @@ RUN pnpm --filter @mdbase-dev/connect-protocol build \
  && pnpm --filter @mdbase-dev/connect build \
  && pnpm --filter @mdbase/connect-mcp build
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim AS runtime
+
+# Refresh the system trust store as well as Node's bundled CA store.
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
 ARG MDBASE_CONNECT_REVISION
 ENV NODE_ENV=production \
