@@ -5394,6 +5394,13 @@ impl crate::session::Handler for Daemon {
                         .recovery = mdbn_wire::client::Recovery::None;
                     return closed;
                 }
+                if s.reason.as_deref() == Some("sync_revoked") {
+                    return refuse(
+                        "forbidden",
+                        "sync_revoked",
+                        "this computer was removed from this collection and can no longer sync it",
+                    );
+                }
                 return refuse(
                     "unavailable",
                     s.reason.as_deref().unwrap_or("not_serving"),

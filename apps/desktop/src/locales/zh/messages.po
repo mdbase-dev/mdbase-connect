@@ -140,7 +140,7 @@ msgstr "已移除 {0}，但其文件未被改动。"
 msgid "{0} was saved."
 msgstr "已保存 {0}。"
 
-#. placeholder {0}: reasonText(collection.reason) ?? missingOpenReason()
+#. placeholder {0}: recovery ?? reasonText(collection.reason) ?? missingOpenReason()
 #: src/renderer/daemon-view.mts
 msgid "{0} Your files are untouched."
 msgstr "{0} 你的文件未被改动。"

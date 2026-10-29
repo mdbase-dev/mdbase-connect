@@ -140,7 +140,7 @@ msgstr "Убрано: {0}. Файлы не затронуты."
 msgid "{0} was saved."
 msgstr "Сохранено: {0}."
 
-#. placeholder {0}: reasonText(collection.reason) ?? missingOpenReason()
+#. placeholder {0}: recovery ?? reasonText(collection.reason) ?? missingOpenReason()
 #: src/renderer/daemon-view.mts
 msgid "{0} Your files are untouched."
 msgstr "{0} Ваши файлы не затронуты."

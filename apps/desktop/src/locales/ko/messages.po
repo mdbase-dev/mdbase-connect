@@ -140,7 +140,7 @@ msgstr "{0}이(가) 제거되었습니다. 파일은 변경되지 않았습니�
 msgid "{0} was saved."
 msgstr "{0}이(가) 저장되었습니다."
 
-#. placeholder {0}: reasonText(collection.reason) ?? missingOpenReason()
+#. placeholder {0}: recovery ?? reasonText(collection.reason) ?? missingOpenReason()
 #: src/renderer/daemon-view.mts
 msgid "{0} Your files are untouched."
 msgstr "{0} 파일은 변경되지 않았습니다."

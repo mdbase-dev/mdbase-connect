@@ -218,7 +218,7 @@ describePg("collection log-token refresh", () => {
     expect((await refresh(who, c, p)).statusCode).toBe(401);
   });
 
-  it("needs current membership: a removed member's device gets nothing until re-added and acknowledged", async () => {
+  it("permanently refuses removed devices after re-add; a fresh device can join", async () => {
     const owner = await identity(); const member = await identity();
     const c = await collection(owner, "cloud_copy", [owner, member]);
     expect((await refresh(member, c, await proof(member, c))).statusCode).toBe(200);
@@ -233,56 +233,44 @@ describePg("collection log-token refresh", () => {
       }
     };
     await queue([{ op: "member-remove", account: member.connector.user_id }]);
-    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("not_member");
+    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("device_revoked");
     await appendPending(c);
-    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("not_member");
+    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("device_revoked");
     await queue([{ op: "member-set", account: member.connector.user_id, role: "editor" }]);
-    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("not_member");
+    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("device_revoked");
     await appendPending(c);
-    expect((await refresh(member, c, await proof(member, c))).statusCode).toBe(200);
+    const before = mintCalls;
+    const refused = await refresh(member, c, await proof(member, c));
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe("device_revoked");
+    expect(refused.json().token).toBeUndefined();
+    expect(mintCalls).toBe(before);
+    // A new identity for the same account is enrolled after the removal.
+    const fresh = await identity(member.connector.user_id);
+    await queue([enrol(fresh)]);
+    await appendPending(c);
+    expect((await refresh(fresh, c, await proof(fresh, c))).statusCode).toBe(200);
+    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("device_revoked");
     expect((await refresh(owner, c, await proof(owner, c))).statusCode).toBe(200);
   });
 
-  it("membership is the latest effective op, in outbox order then op order within a batch", async () => {
-    const owner = await identity(); const member = await identity();
-    const c = await collection(owner, "cloud_copy", [owner, member]);
-    const queue = async (ops: Parameters<typeof queueNextPolicy>[2]) => {
-      const client = await db.connect();
-      try {
-        await client.query("BEGIN");
-        await queueNextPolicy(client, c, ops);
-        await client.query("COMMIT");
-      } finally {
-        client.release();
-      }
-    };
-    const account = member.connector.user_id;
-    const set = { op: "member-set" as const, account, role: "editor" as const };
-    const remove = { op: "member-remove" as const, account };
-    const code = async () => {
-      const r = await refresh(member, c, await proof(member, c));
-      return r.statusCode === 200 ? "ok" : r.json().error.code;
-    };
-    // Set then remove in one batch: removed, pending or appended.
-    await queue([set, remove]);
-    expect(await code()).toBe("not_member");
+  it("orders implicit revocation against enrollment inside an appended batch", async () => {
+    const owner = await identity(), member = await identity();
+    const c = await collection(owner, "private", [owner, member]);
+    const fresh = await identity(member.connector.user_id);
+    // A fresh enrollment after remove/set in the same batch is eligible.
+    await queueNextPolicy(db, c, [
+      { op: "member-remove", account: member.connector.user_id },
+      { op: "member-set", account: member.connector.user_id, role: "editor" },
+      enrol(fresh)
+    ]);
     await appendPending(c);
-    expect(await code()).toBe("not_member");
-    // Remove then set in one batch: the set only counts once appended.
-    await queue([remove, set]);
-    expect(await code()).toBe("not_member");
+    expect((await refresh(member, c, await proof(member, c))).json().error.code).toBe("device_revoked");
+    expect((await refresh(fresh, c, await proof(fresh, c))).statusCode).toBe(200);
+    await queueNextPolicy(db, c, [{ op: "member-remove", account: member.connector.user_id },
+      { op: "member-set", account: member.connector.user_id, role: "editor" }]);
     await appendPending(c);
-    expect(await code()).toBe("ok");
-    // Another account's ops never count for this one, even later in the same batch.
-    await queue([set, { op: "member-remove", account: owner.connector.user_id }]);
-    await appendPending(c);
-    expect(await code()).toBe("ok");
-    // Many batches: only the latest effective op decides.
-    for (let i = 0; i < 40; i += 1) await queue([i % 2 === 0 ? remove : set]);
-    await appendPending(c);
-    expect(await code()).toBe("ok");
-    await queue([remove]);
-    expect(await code()).toBe("not_member");
+    expect((await refresh(fresh, c, await proof(fresh, c))).json().error.code).toBe("device_revoked");
   });
 
   it.each([

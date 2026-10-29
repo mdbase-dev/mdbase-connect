@@ -87,3 +87,17 @@ test("deleted collections explain the terminal state and local removal", () => {
   assert.equal(view.canEnableSync, false);
   assert.equal("canDisableSync" in view, false);
 });
+
+test("revoked collection shows manual recovery even with stale connecting telemetry", () => {
+  const view = presentCollection({ mode: "synced", state: "failed", reason: "sync_revoked",
+    notices: [{ code: "sync_revoked", message: "This computer was removed from this collection and can no longer sync it. To rejoin, use a new device identity in a separate mdbase profile (--state-dir), sign in, and join the collection into a new empty folder. Local edits held in this folder are kept for you to copy across. Keep this folder and the old profile until you have copied your edits." }],
+    sync: { pending: 19, holds: 19, unresolved: 0, connection: "connecting", resyncing: true } });
+  assert.equal(view.status, "Stopped");
+  assert.equal(view.dot, "danger");
+  assert.equal(view.canEnableSync, false);
+  assert.match(view.detail, /was removed from this collection and can no longer sync it/);
+  assert.match(view.detail, /new empty folder/);
+  assert.match(view.detail, /Local edits held in this folder are kept/);
+  assert.match(view.detail, /separate mdbase profile/);
+  assert.equal(view.holds, 19);
+});

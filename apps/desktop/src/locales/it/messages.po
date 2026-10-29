@@ -140,7 +140,7 @@ msgstr "{0} è stata rimossa. I suoi file non sono stati modificati."
 msgid "{0} was saved."
 msgstr "{0} è stata salvata."
 
-#. placeholder {0}: reasonText(collection.reason) ?? missingOpenReason()
+#. placeholder {0}: recovery ?? reasonText(collection.reason) ?? missingOpenReason()
 #: src/renderer/daemon-view.mts
 msgid "{0} Your files are untouched."
 msgstr "{0} I file non sono stati modificati."

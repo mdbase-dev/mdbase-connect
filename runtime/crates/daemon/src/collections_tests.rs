@@ -95,6 +95,12 @@ async fn connect_counted(
     status: u16,
     answer: String,
 ) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    connect_sequence(vec![(status, answer)]).await
+}
+
+async fn connect_sequence(
+    answers: Vec<(u16, String)>,
+) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
     let posts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = posts.clone();
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -108,10 +114,12 @@ async fn connect_counted(
             let (st, body) = if req.contains("/v1/next/devices/challenge") {
                 (200, format!("{{\"challenge\":\"{}\"}}", "ab".repeat(32)))
             } else {
-                if req.contains("/log-token") {
-                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                }
-                (status, answer.clone())
+                let index = if req.contains("/log-token") {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                } else {
+                    0
+                };
+                answers[index.min(answers.len() - 1)].clone()
             };
             let resp = format!(
                 "HTTP/1.1 {st} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
@@ -1146,8 +1154,12 @@ async fn deletion_at_startup_is_explicit_and_preserves_local_files() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn token_renewal_deletion_is_sticky_but_other_refusals_are_not_deletion() {
-    for (code, deleted) in [("collection_deleted", true), ("not_enrolled", false)] {
+async fn terminal_token_refusals_are_sticky_but_other_refusals_can_retry() {
+    for (code, terminal) in [
+        ("collection_deleted", true),
+        ("device_revoked", true),
+        ("not_enrolled", false),
+    ] {
         let dir = scratch(code);
         let (server, posts) =
             connect_counted(409, format!(r#"{{"error":{{"code":"{code}"}}}}"#)).await;
@@ -1161,17 +1173,178 @@ async fn token_renewal_deletion_is_sticky_but_other_refusals_are_not_deletion() 
             Arc::new(|| Ok(())),
         );
         assert!(tokens.eligibility().await.is_err());
-        assert_eq!(tokens.deleted(), deleted);
+        assert_eq!(
+            tokens.terminal_reason(),
+            if terminal { Some(code) } else { None }
+        );
         assert_eq!(
             crate::logwire::TokenSource::current(&tokens).is_err(),
-            deleted
+            terminal
         );
         crate::logwire::TokenSource::refused(&tokens);
         assert!(crate::logwire::TokenSource::token(&tokens).await.is_err());
         assert_eq!(
             posts.load(std::sync::atomic::Ordering::SeqCst),
-            if deleted { 1 } else { 2 }
+            if terminal { 1 } else { 2 }
         );
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn revocation_at_startup_is_explicit_and_preserves_local_files() {
+    let dir = scratch("revoked-startup");
+    save(&dir, &link("cloud_copy"));
+    std::fs::write(dir.join("folder/keep.md"), "keep these bytes").unwrap();
+    // A real durable hold is seeded here; this test checks retention, not the
+    // earlier native generation of the read-only hold.
+    use mdbn_replica::store::{Store, Tx};
+    let open_store = || {
+        let index = std::rc::Rc::new(std::cell::RefCell::new(
+            mdbn_platform_native::SqliteIndex::open(
+                dir.join("collections")
+                    .join(COLLECTION)
+                    .join("index.sqlite"),
+                mdbn_store_file::index::IndexDurability::Durable,
+            )
+            .unwrap(),
+        ));
+        mdbn_store_file::SqlStore::open_with_limits(index, mdbn_store_file::SqlStoreLimits::DESKTOP)
+            .unwrap()
+    };
+    let held = mdbn_wire::client::Hold {
+        id: mdbn_wire::common::B16([7; 16]),
+        path: "keep.md".into(),
+        reason: mdbn_wire::client::HoldReason::ReadOnly,
+        since: 0,
+        base: None,
+        mine: mdbn_wire::snapshot::TextOrBlob::Text("keep these bytes".into()),
+        theirs: None,
+        saves: 0,
+    };
+    open_store()
+        .commit(Tx {
+            holds_put: vec![held.clone()],
+            ..Tx::default()
+        })
+        .unwrap();
+    let server = connect(409, "device_revoked").await;
+    let h = host(
+        &dir,
+        SyncMode::Synced,
+        ctx(&dir, Some(&server), Some(trust_for(&server))),
+    );
+    assert_eq!(
+        settled(&h).await,
+        (CollectionState::Failed, Some("sync_revoked".into()))
+    );
+    let status = h.status();
+    assert!(status.notices.iter().any(|n| n.code == "sync_revoked"
+        && n.message.contains("was removed from this collection")
+        && n.message.contains("new empty folder")
+        && n.message.contains("Local edits held")
+        && n.message.contains("--state-dir")));
+    assert!(h.runtime().is_none());
+    assert_eq!(open_store().holds().unwrap(), vec![held]);
+    assert_eq!(
+        std::fs::read_to_string(dir.join("folder/keep.md")).unwrap(),
+        "keep these bytes"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn token_revocation_after_open_stops_the_actor_and_retains_files() {
+    let dir = scratch("revoked-runtime");
+    save(&dir, &link("cloud_copy"));
+    std::fs::write(dir.join("folder/held.md"), b"local edits to copy across").unwrap();
+    // First pre-open eligibility succeeds. Runtime renewal is then refused.
+    // The token is inside the renewal margin so this needs no wall-clock wait.
+    let (server, posts) = connect_sequence(vec![
+        (
+            200,
+            format!(
+                r#"{{"token":"short-lived","expires_at":{}}}"#,
+                crate::fsutil::now_ms() + 30_000
+            ),
+        ),
+        (409, r#"{"error":{"code":"device_revoked"}}"#.into()),
+    ])
+    .await;
+    let mut h = host(
+        &dir,
+        SyncMode::Synced,
+        ctx(&dir, Some(&server), Some(trust_for(&server))),
+    );
+    // The opener completes before the asynchronous readiness verdict.
+    settled(&h).await;
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let failure = h.status().last_sync_failure;
+            if failure.is_some_and(|f| {
+                f.kind == crate::sync_failure::Kind::AccessRevoked && f.persisted == Some(true)
+            }) && h.runtime().unwrap().readiness().await.is_none()
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("terminal failure persists and the runtime stops");
+    h.refresh();
+    assert_eq!(h.state(), CollectionState::Failed);
+    assert!(!h.is_serving());
+    assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(
+        std::fs::read(dir.join("folder/held.md")).unwrap(),
+        b"local edits to copy across"
+    );
+    assert_eq!(
+        crate::sync_failure::Failure::load(&dir.join("collections").join(COLLECTION))
+            .unwrap()
+            .unwrap()
+            .kind,
+        crate::sync_failure::Kind::AccessRevoked
+    );
+    h.close().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn log_revocation_drops_cached_tokens_only_for_the_removed_collection() {
+    use crate::logwire::TokenSource;
+    let dir = scratch("revoked-token-cache");
+    let (server, posts) = connect_counted(
+        200,
+        format!(
+            r#"{{"token":"cached","expires_at":{}}}"#,
+            crate::fsutil::now_ms() + 900_000
+        ),
+    )
+    .await;
+    let context = ctx(&dir, Some(&server), Some(trust_for(&server)));
+    let sync = context.sync.as_ref().unwrap();
+    let make = |collection| {
+        crate::sync::ConnectTokens::new(
+            sync.cloud.clone(),
+            sync.connector_id.clone(),
+            collection,
+            context.identity.clone(),
+            Arc::new(|| Ok(())),
+        )
+    };
+    let removed = make([1; 16]);
+    let other = make([2; 16]);
+    removed.eligibility().await.unwrap();
+    assert!(removed.token().await.is_ok());
+    assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    removed.revoked();
+    removed.refused();
+    assert_eq!(removed.terminal_reason(), Some("device_revoked"));
+    assert!(removed.token().await.is_err());
+    assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    other.eligibility().await.unwrap();
+    assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 2);
+    std::fs::remove_dir_all(dir).unwrap();
 }

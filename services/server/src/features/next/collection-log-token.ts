@@ -16,7 +16,8 @@
 //   while pending (one projected row, statement-bounded);
 // - an enrolment of exactly this device (account, kind, sign/KEM/Noise keys) is in
 //   an appended policy batch: acknowledged by the log, not merely queued;
-// - no device-revoke for this device exists, appended or pending;
+// - no device-revoke, or member-remove after this device's enrolment, exists
+//   appended or pending; re-adding a member never reactivates an old device;
 // - no permanent CP deletion fact is known for this collection. Absence is NOT
 //   a current native floor/Gone observation, effect-time lease or startup permit.
 // The answer is only `{token, expires_at}`: no keys, no log URL.
@@ -139,12 +140,37 @@ async function refresh(
     kemPublicKey: { $hex: device.kem_pk.toString("hex") },
     noisePublicKey: { $hex: device.noise_pk.toString("hex") }
   }]);
-  const enrolled = await client.query(
-    `SELECT 1 FROM next_policy_outbox o JOIN next_policy_batches b ON b.id = o.batch_id
-     WHERE o.collection_id = $1 AND b.state = 'appended' AND b.lost_at IS NULL AND o.ops->'ops' @> $2::jsonb LIMIT 1`,
+  const enrolled = await client.query<{ seq: string; id: string; ord: string }>(
+    `SELECT b.seq, o.id, e.ord FROM next_policy_outbox o JOIN next_policy_batches b ON b.id = o.batch_id
+       CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY AS e(value, ord)
+     WHERE o.collection_id = $1 AND b.state = 'appended' AND b.lost_at IS NULL
+       AND o.ops->'ops' @> $2::jsonb AND e.value @> ($2::jsonb->0)
+     ORDER BY b.seq, o.id, e.ord LIMIT 1`,
     [collection, tuple]
   );
   if (!enrolled.rows.length) throw new Refused(409, "not_enrolled");
+  // Revocation is permanent for the device, including a member removal after
+  // enrolment. Native append order (then operation order) matters: a newly
+  // enrolled device after re-invitation must not inherit an old device's revoke.
+  // Pending/lost removals deny immediately, as they do for membership below.
+  const enrollment = enrolled.rows[0]!;
+  const revoked = await client.query(
+    `SELECT 1 FROM next_policy_outbox o
+       LEFT JOIN next_policy_batches b ON b.id = o.batch_id
+       CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY AS e(value, ord)
+      WHERE o.collection_id = $1 AND (
+        e.value @> $2::jsonb OR (
+          e.value @> $3::jsonb AND (
+            b.state IS DISTINCT FROM 'appended' OR b.lost_at IS NOT NULL
+            OR (b.seq, o.id, e.ord) > ($4::bigint, $5::bigint, $6::bigint)
+          )
+        )
+      ) LIMIT 1`,
+    [collection, JSON.stringify({ op: "device-revoke", device: deviceId }),
+      JSON.stringify({ op: "member-remove", account: connector.user_id }),
+      enrollment.seq, enrollment.id, enrollment.ord]
+  );
+  if (revoked.rows.length) throw new Refused(409, "device_revoked");
   // Derive current membership from native append order, not recovery/outbox IDs.
   // Queued/lost removals deny immediately; additions need a current appended batch.
   // One row at most, projected in SQL.
@@ -165,11 +191,6 @@ async function refresh(
   );
   const member = latest.rows[0]?.op === "member-set";
   if (!member) throw new Refused(409, "not_member");
-  const revoked = await client.query(
-    "SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb LIMIT 1",
-    [collection, JSON.stringify([{ op: "device-revoke", device: deviceId }])]
-  );
-  if (revoked.rows.length) throw new Refused(409, "device_revoked");
   // Reuse the permanent denial union immediately before mint. Never translate
   // an unexpected database failure into absence or a successful credential.
   try { await requireCollectionNotDeleted(client,collection); }
