@@ -4604,6 +4604,15 @@ async fn host_call(
 /// A Connect refusal as a control error (no secrets in messages).
 fn cloud_refusal(e: crate::cloud::CloudError) -> ControlError {
     match e {
+        crate::cloud::CloudError::Server(429, code)
+            if code == "account_collection_quota_exceeded" =>
+        {
+            ControlError::new(
+                "quota_exceeded",
+                &code,
+                "Your account has reached its synced collection limit. Delete a synced collection before creating another.",
+            )
+        }
         rate_limit @ crate::cloud::CloudError::RateLimited(_) => {
             ControlError::new("rate_limited", "rate_limited", rate_limit.to_string())
         }
