@@ -1323,6 +1323,7 @@ fn synced_batched_ingest_reads_only_matching_pending_rows() {
             .user_write(&format!("bulk-{i}.md"), Some("bulk"));
     }
     let mut queued = std::collections::VecDeque::from(a.r.observe_changes().unwrap());
+    let holds_before = a.disk.borrow().holds_reads;
     while !queued.is_empty() {
         let batch = queued.drain(..queued.len().min(32)).collect();
         a.r.ingest(batch);
@@ -1333,9 +1334,10 @@ fn synced_batched_ingest_reads_only_matching_pending_rows() {
         "batched publication must not repeatedly scan the growing pending queue"
     );
     assert_eq!(a.disk.borrow().acknowledged, RECORDS);
+    let holds_reads = a.disk.borrow().holds_reads - holds_before;
     assert!(
-        a.disk.borrow().holds_reads <= RECORDS.div_ceil(32) + 2,
-        "publication reads holds once per batch, not per record"
+        holds_reads <= RECORDS.div_ceil(32) + 1,
+        "publication reads holds once per batch plus the final status read: {holds_reads}"
     );
 }
 
