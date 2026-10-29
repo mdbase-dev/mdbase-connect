@@ -382,7 +382,7 @@ impl<S: Store> Replica<S> {
 
     /// File transfers not yet represented by unconfirmed mutation rows.
     pub fn pending_file_transfers(&self) -> u64 {
-        self.pending_downloads() + self.attachment_ingest.pending()
+        self.pending_downloads() + self.pending_attachment_ingests()
     }
 
     /// "Confirmed through N, plus pending".

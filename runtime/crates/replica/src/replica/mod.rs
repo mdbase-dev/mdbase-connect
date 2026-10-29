@@ -1032,7 +1032,7 @@ impl<S: Store> Replica<S> {
     /// Retained disk scan and shared resource ingestion for suspending stores.
     /// Keep this original future alive; pending exclusively borrows the engine.
     pub async fn observe_async(&mut self, paths: Option<&[String]>) -> Result<(), StoreError> {
-        let obs = self.observe_changes_async(paths).await?;
+        let obs = self.scan_changes_async(paths).await?;
         self.ingest_async(obs).await;
         Ok(())
     }
@@ -1041,12 +1041,18 @@ impl<S: Store> Replica<S> {
     /// drains the returned ordinary observations between commands; unacknowledged
     /// observations remain owned by the store and are reoffered after a restart.
     pub fn observe_changes(&mut self) -> Result<Vec<crate::store::Observation>, StoreError> {
-        disk::finish_native(self.observe_changes_async(None)).ok_or_else(|| {
-            StoreError::Io("Store suspended: retain Replica::observe_async.".into())
-        })?
+        disk::finish_native(async {
+            let obs = self.scan_changes_async(None).await?;
+            let obs = self.prepare_ingest(obs).await.unwrap_or_default();
+            if obs.is_empty() {
+                self.finish_ingest();
+            }
+            Ok(obs)
+        })
+        .ok_or_else(|| StoreError::Io("Store suspended: retain Replica::observe_async.".into()))?
     }
 
-    async fn observe_changes_async(
+    async fn scan_changes_async(
         &mut self,
         paths: Option<&[String]>,
     ) -> Result<Vec<crate::store::Observation>, StoreError> {
@@ -1056,7 +1062,7 @@ impl<S: Store> Replica<S> {
         }
         let obs = self.store.observe_async(paths).await?;
         self.check_apply_store_health()?;
-        Ok(self.prepare_ingest(obs).await.unwrap_or_default())
+        Ok(obs)
     }
 
     // ------------------------------------------------------------ log moves

@@ -109,7 +109,7 @@ async fn freeze_refuses_an_invalid_resource_capture_instead_of_an_empty_base() {
 async fn one_existing_folder_observation_has_no_terminal_incident() {
     let (root, rt) = existing("observe");
     let inventory = rt.inventory().await.unwrap();
-    let (status, _, _, _) = rt.readiness().await.unwrap();
+    let (status, _, _) = rt.readiness().await.unwrap();
     rt.stop().await;
     let kinds: Vec<_> = status.incidents.iter().map(|i| i.kind).collect();
     let deferred = status.incidents.iter().any(|i| matches!(&i.details,
@@ -176,11 +176,31 @@ async fn status_and_control_stay_responsive_during_4000_file_ingest() {
     }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
     let mut progress_seen = false;
+    let mut inventory_checked = false;
     loop {
         let status = tokio::time::timeout(std::time::Duration::from_secs(5), rt.telemetry())
             .await
             .expect("status waited behind bulk ingest")
             .unwrap();
+        if !inventory_checked
+            && status.pending > 0
+            && status
+                .confirmed_record_digest
+                .as_ref()
+                .is_some_and(|d| d.records + status.pending == 4002)
+        {
+            let inventory =
+                tokio::time::timeout(std::time::Duration::from_secs(10), rt.inventory())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(
+                inventory.0.len(),
+                4002,
+                "inventory discarded queued observations"
+            );
+            inventory_checked = true;
+        }
         progress_seen |= status.pending > 0;
         tokio::time::timeout(std::time::Duration::from_secs(5), rt.grants_barrier())
             .await
@@ -203,6 +223,52 @@ async fn status_and_control_stay_responsive_during_4000_file_ingest() {
         progress_seen,
         "unfinished disk ingestion must be visible in status"
     );
+    assert!(
+        inventory_checked,
+        "inventory must inspect an owned ingest queue"
+    );
     rt.stop().await;
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn freeze_drains_captured_changes_before_building_the_sync_base() {
+    let (root, rt) = existing("bulk-freeze");
+    for i in 0..4000 {
+        std::fs::write(
+            root.join(format!("source/notes/bulk-{i}.md")),
+            "[test] queued change\n",
+        )
+        .unwrap();
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let telemetry = tokio::time::timeout(std::time::Duration::from_secs(5), rt.telemetry())
+            .await
+            .unwrap()
+            .unwrap();
+        if telemetry.pending > 0
+            && telemetry
+                .confirmed_record_digest
+                .as_ref()
+                .is_some_and(|d| d.records + telemetry.pending == 4002)
+        {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "did not observe captured work"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let frozen = tokio::time::timeout(std::time::Duration::from_secs(15), rt.freeze())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        frozen.inventory.0.len(),
+        4002,
+        "freeze omitted captured disk changes"
+    );
     std::fs::remove_dir_all(root).unwrap();
 }

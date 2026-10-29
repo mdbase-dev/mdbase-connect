@@ -115,10 +115,6 @@ pub(crate) struct Ingests {
 }
 
 impl Ingests {
-    pub(crate) fn pending(&self) -> u64 {
-        self.queue.len() as u64 + u64::from(self.current.is_some())
-    }
-
     /// The earliest retry time of a waiting item.
     pub(crate) fn next_wakeup(&self) -> Option<i64> {
         self.queue.iter().filter_map(|i| i.retry_at).min()
@@ -154,6 +150,16 @@ impl<S: Store> Replica<S> {
             .failed
             .iter()
             .map(|(path, (_, problem))| (path.as_str(), problem))
+    }
+
+    pub(super) fn pending_attachment_ingests(&self) -> u64 {
+        let current = self.attachment_ingest.current.as_ref().is_some_and(|c| {
+            self.store
+                .pending_get(&c.mutation)
+                .map(|row| row.is_none())
+                .unwrap_or(true)
+        });
+        self.attachment_ingest.queue.len() as u64 + u64::from(current)
     }
 
     /// Ingest an attachment observation, or a delete at a path that holds (or

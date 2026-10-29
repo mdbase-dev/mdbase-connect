@@ -47,6 +47,7 @@ test("connection follows collection outages even while the account relay is onli
   assert.equal(presentConnection({ account, collections: [{ ...collection, sync: { ...collection.sync, connection: "connecting" } }] }, true).dot, "connecting");
   assert.equal(presentConnection({ account, collections: [{ ...collection, state: "paused" }] }, true).dot, "connected");
   assert.equal(presentConnection({ account, collections: [{ ...collection, mode: "local" }] }, true).dot, "connected");
+  assert.equal(presentConnection({ account, collections: [{ ...collection, state: "failed" }] }, true).dot, "connected");
   assert.equal(presentConnection({ account, collections: [{ ...collection, sync: { ...collection.sync, connection: "online" } }] }, true).dot, "connected");
 });
 

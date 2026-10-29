@@ -1294,20 +1294,24 @@ fn local_only_commits_to_files() {
 }
 
 #[test]
-fn synced_bulk_publication_scans_pending_once_per_batch() {
+fn synced_batched_ingest_reads_only_matching_pending_rows() {
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);
-    const RECORDS: u64 = 400;
+    const RECORDS: u64 = 4000;
     for i in 0..RECORDS {
         a.disk
             .borrow_mut()
             .user_write(&format!("bulk-{i}.md"), Some("bulk"));
     }
-    a.r.observe(None).unwrap();
+    let mut queued = std::collections::VecDeque::from(a.r.observe_changes().unwrap());
+    while !queued.is_empty() {
+        let batch = queued.drain(..queued.len().min(32)).collect();
+        a.r.ingest(batch);
+    }
     assert_eq!(a.r.sync_status().pending, RECORDS);
     assert!(
-        a.disk.borrow().pending_rows_read <= RECORDS * 3,
-        "publication must not scan all pending rows for every record"
+        a.disk.borrow().pending_rows_read <= RECORDS * 8,
+        "batched publication must not repeatedly scan the growing pending queue"
     );
     assert_eq!(a.disk.borrow().acknowledged, RECORDS);
 }

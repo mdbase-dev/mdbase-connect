@@ -344,7 +344,7 @@ impl CollectionHost {
                                 if cancel.load(Ordering::SeqCst) {
                                     return;
                                 }
-                                let Some((s, caught_up, adopt, downloads)) = rt.readiness().await else {
+                                let Some((s, caught_up, adopt)) = rt.readiness().await else {
                                     return; // stopped
                                 };
                                 let now = match &adopt {
@@ -361,7 +361,7 @@ impl CollectionHost {
                                                 Err(e) => tracing::warn!(collection = %id, error = %e, "adopt journal not removed"),
                                             }
                                         }
-                                        readiness_of(crate::runtime::synced_ready(&s, caught_up, offline, downloads))
+                                        readiness_of(crate::runtime::synced_ready(&s, caught_up, offline))
                                     }
                                 };
                                 if let Readiness::Failed(_) = now
@@ -689,7 +689,11 @@ impl CollectionHost {
             return status;
         };
         let mut telemetry = current_telemetry(source, &self.cancel, runtime.telemetry()).await;
-        if clock_skew && let Some(t) = telemetry.as_mut() {
+        if clock_skew
+            && let Some(t) = telemetry.as_mut()
+            && t.connection != "online"
+            && t.last_error.is_none()
+        {
             t.last_error = Some("system_clock_wrong".into());
         }
         if current()

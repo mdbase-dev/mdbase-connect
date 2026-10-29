@@ -47,7 +47,7 @@ export function presentConnection(status: StatusLike | null, checked: boolean): 
   if (account.pairing) return { label: t(i18n)({ message: "Waiting for sign-in approval" }), settingsLabel: t(i18n)({ message: "Signing in", context: "Local connection status" }), dot: "connecting" };
   if (!account.signed_in) return { label: t(i18n)({ message: "Not signed in", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Not signed in", context: "Local connection status" }), dot: "idle" };
   const detail = accountProblemText(account.last_error);
-  const syncs = status.collections?.filter((c) => c.mode !== "local" && c.state !== "paused") ?? [];
+  const syncs = status.collections?.filter((c) => c.mode !== "local" && (["ready", "opening", "moving"].includes(c.state) || c.reason === "sync_unreachable")) ?? [];
   const offline = syncs.some((c) => c.sync?.connection === "offline" || c.reason === "sync_unreachable");
   const connecting = syncs.some((c) => c.sync?.connection === "connecting");
   if (offline) return { label: t(i18n)({ message: "Offline", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Offline", context: "Local connection status" }), dot: "danger", ...(detail ? { detail } : {}) };

@@ -401,15 +401,15 @@ impl<S: Store> Replica<S> {
         let path = mdbn_core::paths::path_key(path);
         let reserved = format!("p:{path}");
         for order in self.touch.affected([&reserved]) {
-            let row = self
+            let Some(row) = self
                 .store
                 .pending(order.checked_sub(1), 1)?
                 .into_iter()
                 .next()
                 .filter(|r| r.order == order)
-                .ok_or_else(|| {
-                    StoreError::Corrupt("pending touch index differs from store".into())
-                })?;
+            else {
+                continue;
+            };
             let [rt::Op::Legacy(Op::FileMove(op))] = row.mutation.ops.as_slice() else {
                 continue;
             };

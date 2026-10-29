@@ -381,6 +381,39 @@ pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
     .await;
     println!("PASS: B -> A in {t:?}");
 
+    std::fs::create_dir_all(pa.join("bulk")).unwrap();
+    for i in 0..4000 {
+        std::fs::write(pa.join(format!("bulk/{i}.md")), "[test] bulk sync\n").unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let mut progress_seen = false;
+    loop {
+        let status = tokio::time::timeout(Duration::from_secs(5), ra.telemetry())
+            .await
+            .expect("synced status blocked behind bulk ingest")
+            .unwrap();
+        progress_seen |= status.pending > 0;
+        tokio::time::timeout(Duration::from_secs(5), ra.grants_barrier())
+            .await
+            .expect("synced control blocked behind bulk ingest");
+        let peer = tokio::time::timeout(Duration::from_secs(5), rb.telemetry())
+            .await
+            .expect("peer status blocked behind bulk ingest")
+            .unwrap();
+        if [&status, &peer].into_iter().all(|s| {
+            s.pending == 0
+                && s.confirmed_record_digest
+                    .as_ref()
+                    .is_some_and(|d| d.records == 4002)
+        }) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "bulk sync did not converge");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(progress_seen, "bulk sync work was never visible");
+    println!("PASS: 4,000-file synced ingest kept status/control responsive and converged");
+
     // Attachments (attachment-v1): a binary file dropped into A's folder is
     // uploaded as sealed chunk objects, then fetched, authenticated and placed on
     // B; a rename moves it on B without a refetch; a delete removes it on B.
