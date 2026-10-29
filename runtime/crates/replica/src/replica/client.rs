@@ -237,7 +237,7 @@ impl<S: Store> Replica<S> {
             .copied()
     }
 
-    fn session_grant(&self, auth: &SessionAuth) -> ApiResult<GrantInfo> {
+    pub(super) fn session_grant(&self, auth: &SessionAuth) -> ApiResult<GrantInfo> {
         Ok(match auth {
             SessionAuth::Host => {
                 let role = self.host_member_role().unwrap_or(Role::Owner);
@@ -291,13 +291,7 @@ impl<S: Store> Replica<S> {
     pub(crate) fn session_status(&self, session: SessionId) -> ApiResult<SyncStatus> {
         let mut status = self.sync_status();
         let auth = &self.session(session)?.auth;
-        if !matches!(auth, SessionAuth::Host)
-            || self.local_only()
-            || self.is_hosted()
-            || self.host_member_role().is_some()
-        {
-            status.grant = Some(self.session_grant(auth)?);
-        }
+        status.grant = self.session_grant(auth).ok();
         Ok(status)
     }
 
@@ -1052,20 +1046,7 @@ impl<S: Store> ClientApi for Replica<S> {
 
     fn list_holds(&mut self, session: SessionId) -> ApiResult<Vec<Hold>> {
         self.require(session, crate::policy::capability::READ)?;
-        let mut holds = self.store.holds().map_err(store_err)?;
-        for hold in &mut holds {
-            if hold.reason == mdbn_wire::client::HoldReason::ReadOnly {
-                let key = if self.catalog.is_resource_path(&hold.path) {
-                    super::disk::DiskKey::Resource(hold.path.clone())
-                } else {
-                    super::disk::DiskKey::Record(hold.id)
-                };
-                hold.theirs = self
-                    .local_view_doc(&key)
-                    .map(|(_, text)| mdbn_wire::snapshot::TextOrBlob::Text(text));
-            }
-        }
-        Ok(holds)
+        self.holds_view().map_err(store_err)
     }
 
     fn subscribe_holds(&mut self, session: SessionId) -> ApiResult<()> {

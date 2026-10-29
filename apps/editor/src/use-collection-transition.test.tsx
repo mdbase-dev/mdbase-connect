@@ -55,6 +55,24 @@ describe("useCollectionTransition serial ownership", () => {
     expect(state.input.scope.isFrozen).toBe(false);
   });
 
+  it("loads or leaves the workspace when role updates change core capability admission", async () => {
+    const state = setup();
+    const snapshot = (role: "editor" | "viewer"): CollectionSessionSnapshot => {
+      const connection = { collectionId: "a", role, operations: ["read"],
+        ...(role === "editor" ? { missingCapabilities: ["collection.read"] } : {}) };
+      return { status: "ready", connection, connections: [connection] };
+    };
+    state.setCurrent(snapshot("editor"));
+    await act(() => state.result.current.acceptSnapshot(state.input.gateway.sessionSnapshot()));
+    expect(state.input.start).not.toHaveBeenCalled();
+    state.setCurrent(snapshot("viewer"));
+    await act(() => state.result.current.acceptSnapshot(state.input.gateway.sessionSnapshot()));
+    expect(state.input.start).toHaveBeenCalledTimes(1);
+    state.setCurrent(snapshot("editor"));
+    await act(() => state.result.current.acceptSnapshot(state.input.gateway.sessionSnapshot()));
+    expect(state.input.setPhase).toHaveBeenLastCalledWith("disconnected");
+  });
+
   it("executes A, queued B, and C arriving during B without losing C", async () => {
     const state = setup();
     const a = deferred<void>(), b = deferred<void>(); state.gates.set("a", a); state.gates.set("b", b);

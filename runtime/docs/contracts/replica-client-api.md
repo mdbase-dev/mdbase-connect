@@ -79,8 +79,9 @@ From API 1.3, session status responses and pushes include the current effective
 `grant` at key 12. Clients use it to update role-dependent controls without
 reopening the collection. Earlier producers omit it; retain their negotiated
 hello grant. Synced hosting applications follow their device account's signed
-membership; this field is absent until their bootstrap establishes membership.
-Their pre-bootstrap Host authority is unchanged.
+membership once bootstrap establishes it. Their pre-bootstrap Host authority
+is unchanged. During recovery, status remains available even if the current
+grant cannot be resolved; its optional grant is then absent.
 
 ### Feature negotiation is not operation or permission discovery
 

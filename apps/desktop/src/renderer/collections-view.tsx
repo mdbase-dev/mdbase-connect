@@ -180,6 +180,7 @@ function Holds({ collection, busy, onAct, onLoaded }: {
               ? <div className="row-actions">
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Discard local changes</Trans></button>
+                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
               </div>
               : <div className="row-actions">
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>

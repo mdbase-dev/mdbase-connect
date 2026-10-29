@@ -90,7 +90,7 @@ const ACTIONS: Record<HoldReason, HoldAction[]> = {
   conflict: ["keep_mine", "take_theirs", "compare", "keep_both"],
   unknown_provenance: ["keep_mine", "take_theirs", "compare", "keep_both"],
   deleted_elsewhere: ["keep_mine", "delete"],
-  read_only: ["keep_mine", "take_theirs", "compare"],
+  read_only: ["keep_mine", "take_theirs", "compare", "keep_both"],
   editor_busy: ["keep_mine", "take_theirs", "compare"],
   suspect_write: ["keep_mine", "take_theirs", "compare", "keep_both"],
 };

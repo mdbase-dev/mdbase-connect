@@ -1699,10 +1699,14 @@ impl<S: Store> Replica<S> {
         if subs.is_empty() {
             return;
         }
+        let status = self.sync_status();
         for s in subs {
-            if let Ok(st) = self.session_status(s) {
-                self.pushes.push((s, Push::Status(st)));
-            }
+            let mut st = status.clone();
+            st.grant = self
+                .session(s)
+                .and_then(|session| self.session_grant(&session.auth))
+                .ok();
+            self.pushes.push((s, Push::Status(st)));
         }
     }
 

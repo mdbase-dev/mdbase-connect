@@ -3972,6 +3972,45 @@ fn grant_approval_retries_at_a_moved_head_and_revocation_wins() {
 }
 
 #[test]
+fn status_pushes_survive_a_temporarily_unresolvable_grant() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    let grant = B16([0x55; 16]);
+    let pk = [0x57; 32];
+    crate::testkit::TestControlPlane::new(COL).approved_grant(
+        &svc,
+        grant,
+        pk,
+        &["collection.read"],
+        None,
+        B16([101; 16]),
+    );
+    settle(&mut [&mut a]);
+    let (app, _) =
+        a.r.hello(
+            SessionAuth::Grant {
+                grant,
+                client_pk: pk,
+            },
+            recovery_hello(),
+        )
+        .unwrap();
+    a.r.subscribe_status(app).unwrap();
+    a.r.take_pushes();
+    // Model the interval between policy invalidating a grant and closing sessions.
+    a.r.policy.grants.remove(&grant);
+    a.r.status_dirty = true;
+    a.r.flush_status();
+    assert!(
+        a.r.take_pushes()
+            .iter()
+            .any(|(session, push)| *session == app
+                && matches!(push, Push::Status(status) if status.grant.is_none()))
+    );
+}
+
+#[test]
 fn sec3_lost_tail_latch_must_deny_granted_reads() {
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1, MemStore::new());

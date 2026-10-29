@@ -905,11 +905,21 @@ impl<S: Store> Replica<S> {
             if o.moved_from.is_none() && shown.as_ref().map(|(_, text)| text.as_str()) == text {
                 return self.ack(o.token);
             }
-            let hold_id = match key {
-                DiskKey::Record(id) => id,
-                DiskKey::Resource(_) => self.mint_v7(),
+            // A renamed held record still owns its original path in the synced
+            // view. A new file there needs a separate hold, not a replacement.
+            let occupied = match key {
+                DiskKey::Record(id) => self.store.hold(&id)?.is_some(),
+                _ => false,
             };
-            let theirs = shown.map(|(_, text)| TextOrBlob::Text(text));
+            let hold_id = match key {
+                DiskKey::Record(id) if !occupied => id,
+                _ => self.mint_v7(),
+            };
+            let theirs = if occupied {
+                None
+            } else {
+                shown.map(|(_, text)| TextOrBlob::Text(text))
+            };
             let hold = Hold {
                 id: hold_id,
                 path: o.path.clone(),
@@ -1555,6 +1565,23 @@ impl<S: Store> Replica<S> {
         Ok(false)
     }
 
+    pub(super) fn holds_view(&self) -> Result<Vec<Hold>, StoreError> {
+        let mut holds = self.store.holds()?;
+        for hold in &mut holds {
+            if hold.reason == HoldReason::ReadOnly {
+                let key = if self.catalog.is_resource_path(&hold.path) {
+                    DiskKey::Resource(hold.path.clone())
+                } else {
+                    DiskKey::Record(hold.id)
+                };
+                hold.theirs = self
+                    .local_view_doc(&key)
+                    .map(|(_, text)| TextOrBlob::Text(text));
+            }
+        }
+        Ok(holds)
+    }
+
     pub(crate) fn push_holds(&mut self) {
         let subs: Vec<SessionId> = self
             .sessions
@@ -1565,7 +1592,7 @@ impl<S: Store> Replica<S> {
         if subs.is_empty() {
             return;
         }
-        let holds = self.store.holds().unwrap_or_default();
+        let holds = self.holds_view().unwrap_or_default();
         for s in subs {
             self.pushes
                 .push((s, crate::api::Push::Holds(holds.clone())));
@@ -1726,6 +1753,7 @@ impl<S: Store> Replica<S> {
                 path: hold.path.clone(),
                 rev,
             });
+        let keep_both = matches!(&how, HoldResolution::KeepBoth);
         let receipt = match how {
             HoldResolution::TakeTheirs => Receipt {
                 relocated_from: None,
@@ -1738,7 +1766,7 @@ impl<S: Store> Replica<S> {
                 problem: None,
                 published: None,
             },
-            HoldResolution::KeepMine => {
+            HoldResolution::KeepMine | HoldResolution::KeepBoth => {
                 let TextOrBlob::Text(mine) = &hold.mine else {
                     return Err(
                         ErrorCode::InvalidRequest.err("binary holds are resolved by upload")
@@ -1753,43 +1781,62 @@ impl<S: Store> Replica<S> {
                         );
                     }
                 };
-                if self
-                    .local_view_doc(&key)
-                    .as_ref()
-                    .map(|(_, text)| text.as_str())
-                    != baseline
+                if !keep_both
+                    && self
+                        .local_view_doc(&key)
+                        .as_ref()
+                        .map(|(_, text)| text.as_str())
+                        != baseline
                 {
                     return Err(ErrorCode::Conflict.err_with_reason("concurrent_modification", "The synced file changed while your edit was held. Compare the versions before submitting it."));
                 }
-                let op = match &key {
-                    DiskKey::Resource(path) => {
-                        self.require(session, crate::policy::capability::DEFINITIONS)?;
-                        if shown.is_some() {
-                            Op::ResourcePut(ResourcePut {
-                                path: path.clone(),
-                                doc: Text::Inline(mine.clone()),
-                                base_revision: None,
-                                must_not_exist: None,
-                            })
-                        } else {
-                            Op::ResourceDelete(mdbn_wire::intent::ResourceDelete {
-                                path: path.clone(),
-                                base_revision: None,
-                            })
-                        }
+                let op = if keep_both {
+                    if !matches!(&key, DiskKey::Record(_)) || shown.is_none() {
+                        return Err(ErrorCode::InvalidRequest.err("keep both needs a local note"));
                     }
-                    DiskKey::Record(id) => Op::Document(Document {
-                        id: *id,
-                        base: self.local_view_doc(&key).map(|(path, doc)| DocVersion {
-                            path,
-                            doc: Text::Inline(doc),
+                    Op::Create(mdbn_wire::intent::Create {
+                        id: self.mint_v7(),
+                        path: Some(conflict_path(
+                            &hold.path,
+                            &self.cfg.device_id,
+                            &super::utc_date(self.now()),
+                        )),
+                        type_name: None,
+                        frontmatter: None,
+                        body: None,
+                        document: Some(Text::Inline(mine.clone())),
+                    })
+                } else {
+                    match &key {
+                        DiskKey::Resource(path) => {
+                            self.require(session, crate::policy::capability::DEFINITIONS)?;
+                            if shown.is_some() {
+                                Op::ResourcePut(ResourcePut {
+                                    path: path.clone(),
+                                    doc: Text::Inline(mine.clone()),
+                                    base_revision: None,
+                                    must_not_exist: None,
+                                })
+                            } else {
+                                Op::ResourceDelete(mdbn_wire::intent::ResourceDelete {
+                                    path: path.clone(),
+                                    base_revision: None,
+                                })
+                            }
+                        }
+                        DiskKey::Record(id) => Op::Document(Document {
+                            id: *id,
+                            base: self.local_view_doc(&key).map(|(path, doc)| DocVersion {
+                                path,
+                                doc: Text::Inline(doc),
+                            }),
+                            new: shown.as_ref().map(|_| DocVersion {
+                                path: hold.path.clone(),
+                                doc: Text::Inline(mine.clone()),
+                            }),
+                            if_revision: None,
                         }),
-                        new: shown.as_ref().map(|_| DocVersion {
-                            path: hold.path.clone(),
-                            doc: Text::Inline(mine.clone()),
-                        }),
-                        if_revision: None,
-                    }),
+                    }
                 };
                 // Validate with the canonical planner before capture. A real submit
                 // would materialize while the hold still protects the file.
@@ -1825,9 +1872,8 @@ impl<S: Store> Replica<S> {
                 receipt
             }
             _ => {
-                return Err(ErrorCode::InvalidRequest.err(
-                    "choose keep mine to submit this held change, or take theirs to discard it",
-                ));
+                return Err(ErrorCode::InvalidRequest
+                    .err("choose keep mine, keep both for a note, or take theirs to discard it"));
             }
         };
         self.store

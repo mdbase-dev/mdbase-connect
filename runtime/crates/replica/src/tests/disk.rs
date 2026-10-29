@@ -1081,11 +1081,16 @@ fn read_only_hold_preserves_newer_synced_edits_until_discard() {
     b.disk.borrow_mut().user_write("a.md", Some("viewer edit"));
     settle(&mut [&mut a, &mut b]);
     set_member_role(&svc, &mut [&mut a, &mut b], Role::Editor);
+    b.r.subscribe_holds(b.s).unwrap();
+    b.r.take_pushes();
     a.disk
         .borrow_mut()
         .user_write("a.md", Some("newer synced edit"));
     settle(&mut [&mut a, &mut b]);
     let hold = b.r.list_holds(b.s).unwrap().remove(0);
+    assert!(b.r.take_pushes().iter().any(
+        |(_, push)| matches!(push, crate::api::Push::Holds(holds) if holds == &vec![hold.clone()])
+    ));
     assert_eq!(
         hold.base,
         Some(mdbn_wire::snapshot::TextOrBlob::Text("original".into()))
@@ -1111,6 +1116,90 @@ fn read_only_hold_preserves_newer_synced_edits_until_discard() {
     settle(&mut [&mut a, &mut b]);
     assert_eq!(a.file("a.md").as_deref(), Some("newer synced edit"));
     assert_eq!(b.file("a.md").as_deref(), Some("newer synced edit"));
+}
+
+#[test]
+fn read_only_conflict_can_keep_both_without_overwriting_the_synced_note() {
+    use mdbn_wire::policy::Role;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "a.md", "original");
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Viewer);
+    b.disk.borrow_mut().user_write("a.md", Some("viewer edit"));
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Editor);
+    a.disk
+        .borrow_mut()
+        .user_write("a.md", Some("newer synced edit"));
+    settle(&mut [&mut a, &mut b]);
+    let id = b.r.list_holds(b.s).unwrap()[0].id;
+    assert!(b.r.resolve_hold(b.s, id, HoldResolution::KeepMine).is_err());
+    b.r.resolve_hold(b.s, id, HoldResolution::KeepBoth).unwrap();
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(a.file("a.md").as_deref(), Some("newer synced edit"));
+    assert_eq!(b.file("a.md").as_deref(), Some("newer synced edit"));
+    let copies: Vec<_> = a
+        .disk
+        .borrow()
+        .files
+        .iter()
+        .filter(|(path, _)| path.contains(" (conflict "))
+        .map(|(path, doc)| (path.clone(), doc.clone()))
+        .collect();
+    assert_eq!(copies.len(), 1);
+    assert_eq!(copies[0].1, "viewer edit");
+    assert_eq!(b.file(&copies[0].0).as_deref(), Some("viewer edit"));
+    assert!(b.r.list_holds(b.s).unwrap().is_empty());
+}
+
+#[test]
+fn viewer_rename_and_recreate_preserve_two_independent_holds() {
+    use mdbn_wire::policy::Role;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "a.md", "original");
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Viewer);
+    {
+        let mut disk = b.disk.borrow_mut();
+        let base = disk.known.get("a.md").copied();
+        disk.files.remove("a.md");
+        disk.user_write("b.md", Some("viewer renamed"));
+        let observation = disk.queued.last_mut().unwrap();
+        observation.moved_from = Some("a.md".into());
+        observation.base = base;
+    }
+    settle(&mut [&mut a, &mut b]);
+    b.disk
+        .borrow_mut()
+        .user_write("a.md", Some("viewer recreated"));
+    settle(&mut [&mut a, &mut b]);
+    let holds = b.r.list_holds(b.s).unwrap();
+    assert_eq!(holds.len(), 2);
+    let renamed = holds.iter().find(|hold| hold.path == "b.md").unwrap();
+    let recreated = holds.iter().find(|hold| hold.path == "a.md").unwrap();
+    assert_ne!(renamed.id, recreated.id);
+    assert!(recreated.base.is_none());
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Editor);
+    b.disk
+        .borrow_mut()
+        .user_write("b.md", Some("viewer saved again"));
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.r.sync_status().pending, 0);
+    assert_eq!(b.r.list_holds(b.s).unwrap().len(), 2);
+    assert_eq!(a.file("a.md").as_deref(), Some("original"));
+    assert!(a.file("b.md").is_none());
+    b.r.resolve_hold(b.s, renamed.id, HoldResolution::KeepMine)
+        .unwrap();
+    settle(&mut [&mut a, &mut b]);
+    b.r.resolve_hold(b.s, recreated.id, HoldResolution::KeepMine)
+        .unwrap();
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(a.file("a.md").as_deref(), Some("viewer recreated"));
+    assert_eq!(a.file("b.md").as_deref(), Some("viewer saved again"));
 }
 
 #[test]

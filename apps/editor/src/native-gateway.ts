@@ -86,6 +86,7 @@ export class NativeEditorGateway implements CollectionGateway {
   private readonly records: NextEditorRecords;
   private readonly listeners = new Set<(snapshot: CollectionSessionSnapshot) => void>();
   private disposed = false;
+  private membershipDowngrade = false;
   private readonly stops: Array<() => void> = [];
   private readonly fileReads = new AbortController();
   private readonly plans = new Map<string, TypePackPlan>();
@@ -100,9 +101,15 @@ export class NativeEditorGateway implements CollectionGateway {
     this.client = connection.records;
     if (connection.id !== this.client.collection) throw new Error(t`The editor requires its original SDK collection client.`);
     this.records = new NextEditorRecords(this.client, () => this.current());
+    let membership = this.membershipRole();
+    this.membershipDowngrade = membership === "viewer";
     let role = this.role();
     const changed = () => {
       if (!this.current()) return;
+      // A Connect downgrade can arrive before signed policy. Once policy has
+      // caught up, native status also owns upgrades of this open collection.
+      if (this.client.status.incidents.some((incident) => incident.kind === "read_only")
+        || (this.client.status as wire.SyncStatus & { grant?: wire.GrantInfo }).grant?.role === "viewer") this.membershipDowngrade = false;
       const next = this.role();
       if (next === role) return;
       role = next;
@@ -110,7 +117,14 @@ export class NativeEditorGateway implements CollectionGateway {
       for (const listener of [...this.listeners]) listener(snapshot);
     };
     this.stops.push(this.client.onStatus(changed));
-    const stop = this.application.subscribe?.(changed);
+    const stop = this.application.subscribe?.(() => {
+      const next = this.membershipRole();
+      if (next !== membership) {
+        membership = next;
+        this.membershipDowngrade = next === "viewer";
+      }
+      changed();
+    });
     if (stop) this.stops.push(stop);
     const people = connection.people;
     if (people) this.peopleDirectory = async (options: { signal?: AbortSignal } = {}) => {
@@ -542,9 +556,14 @@ export class NativeEditorGateway implements CollectionGateway {
     // The beta.141 SDK pin does not type API 1.3 status yet. Remove the
     // intersection when the SDK containing the live-grant codec is pinned.
     const status = this.client.status as wire.SyncStatus & { grant?: wire.GrantInfo };
+    if (this.membershipDowngrade) return "viewer";
     if (status.grant) return status.grant.role;
-    return this.application.getSnapshot?.().collections.find((entry) => entry.collectionId === this.connection.id)?.role
-      ?? this.client.hello.grant.role;
+    if (this.client.hello.grant.role === "viewer") return "viewer";
+    return this.membershipRole() ?? this.client.hello.grant.role;
+  }
+
+  private membershipRole() {
+    return this.application.getSnapshot?.().collections.find((entry) => entry.collectionId === this.connection.id)?.role;
   }
 
   private async checkWritable(): Promise<void> {

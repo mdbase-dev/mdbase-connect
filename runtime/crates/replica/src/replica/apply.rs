@@ -1981,7 +1981,12 @@ impl<S: Store> Replica<S> {
         if own_match && payload.mutation.origin == self.cfg.replica_id {
             self.prepare_conflict_holds(&payload.mutation, &conflicts, &mut tx, &t)?;
         }
-        let holds_changed = !tx.holds_put.is_empty();
+        let holds_changed = !tx.holds_put.is_empty()
+            || self.store.holds()?.iter().any(|hold| {
+                hold.reason == mdbn_wire::client::HoldReason::ReadOnly
+                    && (changed.contains(&crate::plan::id_key(&hold.id))
+                        || changed.contains(&resource_key(&hold.path)))
+            });
         attachment_files.extend(tx.holds_put.iter().map(|h| h.id));
         self.capture_effects(&legacy_effects);
         self.policy.note_entry(p, payload.sem.major, instant);

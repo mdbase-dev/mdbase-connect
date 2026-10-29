@@ -79,7 +79,9 @@ export function useCollectionTransition(input: TransitionInput) {
       if (accepted?.gateway === owner.gateway && accepted.snapshot.status === "ready" && authoritative.status === "ready"
         && accepted.snapshot.connection.role !== undefined && authoritative.connection.role !== undefined
         && accepted.snapshot.connection.collectionId === authoritative.connection.collectionId
-        && owner.currentOwner() === authoritative.connection.collectionId) {
+        && owner.currentOwner() === authoritative.connection.collectionId
+        && missingCoreCapabilities(accepted.snapshot.connection).length === 0
+        && missingCoreCapabilities(authoritative.connection).length === 0) {
         owner.setSnapshot(authoritative);
         acceptedSnapshot.current = { gateway: owner.gateway, snapshot: authoritative };
         return;

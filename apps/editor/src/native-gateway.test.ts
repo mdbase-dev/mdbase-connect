@@ -47,16 +47,16 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(await f.gateway.checkDirectAccess()).toBeNull();
   });
 
-  it("a read-only grant exposes no write operations and reports what it lacks", async () => {
+  it("a Viewer grant exposes no write operations or misleading access-update prompts", async () => {
     const f = await fixture({ capabilities: ["collection.read"], role: "viewer" });
     const snapshot = f.gateway.sessionSnapshot();
     const connection = snapshot.status === "ready" ? snapshot.connection : null;
     expect(editorPermissions(connection)).toMatchObject({
       canCreateNotes: false, canEditNotes: false, canRenameNotes: false, canDeleteNotes: false, canAttachFiles: false, canInstallTypes: false, canManageTypes: false
     });
-    expect(connection?.missingCapabilities).toEqual(["records.create", "records.edit", "records.delete", "definitions.manage"]);
+    expect(connection?.missingCapabilities).toBeUndefined();
     const upload = vi.spyOn(f.client.files, "upload");
-    await expect(f.gateway.uploadFile("attachments/a.txt", new Blob(["x"]))).rejects.toThrow("not available");
+    await expect(f.gateway.uploadFile("attachments/a.txt", new Blob(["x"]))).rejects.toMatchObject({ reason: "read_only" });
     expect(upload).not.toHaveBeenCalled();
   });
 
@@ -121,6 +121,30 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const upgraded = f.gateway.sessionSnapshot();
     expect(editorPermissions(upgraded.status === "ready" ? upgraded.connection : null).canEditNotes).toBe(true);
     expect(f.controls.observedActions().some((call) => call.action === "refreshCollectionList")).toBe(false);
+  });
+
+  it("refuses a membership downgrade before local signed policy catches up", async () => {
+    const f = await fixture({}, seedNotes);
+    const status = vi.spyOn(f.client, "status", "get").mockReturnValue({ ...f.client.status,
+      grant: { role: "editor", capabilities: ["collection.read", "records.edit"] }
+    } as typeof f.client.status);
+    const snapshot = f.application.getSnapshot();
+    f.controls.publishSnapshot({ ...snapshot, collections: snapshot.collections.map((entry) => ({ ...entry, role: "viewer" })) });
+    expect(f.gateway.sessionSnapshot()).toMatchObject({ connection: { role: "viewer" } });
+    await expect(f.gateway.create({ path: "early-downgrade.md", title: "Refused", body: "viewer", properties: {} }))
+      .rejects.toMatchObject({ reason: "read_only" });
+    expect(f.client.ledger.getSnapshot()).toMatchObject({ pending: [], rejected: [] });
+    status.mockReturnValue({ ...f.client.status, incidents: [{ kind: "read_only" }], grant: { role: "viewer", capabilities: ["collection.read"] } } as typeof f.client.status);
+    const notified = vi.fn();
+    const stop = f.client.onStatus(notified);
+    notified.mockClear();
+    f.replica.setOnline(false);
+    await vi.waitFor(() => expect(notified).toHaveBeenCalled());
+    stop();
+    // The Connect membership list is unchanged while this collection stays open.
+    status.mockReturnValue({ ...f.client.status, incidents: [], grant: { role: "editor", capabilities: ["collection.read", "records.edit"] } } as typeof f.client.status);
+    f.replica.setOnline(true);
+    await vi.waitFor(() => expect(f.gateway.sessionSnapshot()).toMatchObject({ connection: { role: "editor" } }));
   });
 
   it("forwards authorize, choose and forget to the original application with the caller signal", async () => {
