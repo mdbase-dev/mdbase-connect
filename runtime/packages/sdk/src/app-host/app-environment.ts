@@ -5,7 +5,7 @@ import type { AppBundledReleaseTrust } from "./cloud-copy-bootstrap.js";
 import { isAppOrigin } from "./app-origin.js";
 import { applicationEnvironmentAllowed, applicationLoopbackAllowed, LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin, localApplicationEnvironment, localApplicationOrigin } from "../application/local-build.js";
 export interface AppEnvironmentSelection {
-  readonly environment: "lab" | "production" | "local";
+  readonly environment: "lab" | "staging" | "production" | "local";
   readonly appOrigin: string;
   readonly cpOrigin: string;
   readonly logOrigin: string;
@@ -26,7 +26,7 @@ function origin(value: unknown, loopbackAllowed: boolean): string {
  * LAB app loopback is explicit; production loopback requires a native manifest.
  * Same-origin storage preservation is an app gate, not a runtime fallback. */
 export function selectAppEnvironment(input: {
-  environment: "lab" | "production" | "local";
+  environment: "lab" | "staging" | "production" | "local";
   appOrigin: string;
   platform?: "native";
   release: AppBundledReleaseTrust;

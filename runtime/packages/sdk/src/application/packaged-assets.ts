@@ -16,9 +16,8 @@ const unavailable = () => mdbaseError("unavailable", "SDK packaged application a
 /** Private SDK selector, not an application configuration callback. UI and
  * Worker use the same ESM artifact anchor. Selection performs no IO, storage,
  * Worker construction, dynamic imports or WASM initialization. */
-export function packagedApplicationAssets(environment:"lab"|"production"|"local",appOrigin:string,platform?:"native"):PackagedApplicationNativeAssets {
+export function packagedApplicationAssets(environment:"lab"|"staging"|"production"|"local",appOrigin:string,platform?:"native"):PackagedApplicationNativeAssets {
   if(!applicationEnvironmentAllowed(environment))throw unavailable();
-  if(environment==="production")throw mdbaseError("unavailable", "production trust unavailable", "application_production_trust_unavailable");
   const release=appReleaseTrust();
   selectAppEnvironment({environment,appOrigin,platform,release});
   // Literal `new URL(<asset>, import.meta.url)` forms let a consumer bundler
@@ -27,7 +26,7 @@ export function packagedApplicationAssets(environment:"lab"|"production"|"local"
   try {
     const module=new URL(import.meta.url);
     if(urlOrigin(module)!==appOrigin||module.username||module.password||module.search||module.hash)throw unavailable();
-    runtimeUrl=new URL("../native/runtime-lab.wasm",import.meta.url);
+    runtimeUrl=new URL("../native/runtime.wasm",import.meta.url);
     sqliteUrl=new URL("../native/sqlite3.wasm",import.meta.url);
     if(urlOrigin(runtimeUrl)!==appOrigin||urlOrigin(sqliteUrl)!==appOrigin)throw unavailable();
   } catch { throw unavailable(); }

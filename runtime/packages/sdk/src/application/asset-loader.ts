@@ -13,7 +13,7 @@ export interface ApplicationAsset {
 export interface ApplicationAssetHost {
   readonly origin:string;
   readonly platform?:"native";
-  readonly environment:"lab"|"production"|"local";
+  readonly environment:"lab"|"staging"|"production"|"local";
   readonly fetch?:typeof fetch;
 }
 const error=(reason:string)=>mdbaseError("unavailable","application asset unavailable",reason);

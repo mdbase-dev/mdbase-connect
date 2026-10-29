@@ -6,7 +6,7 @@ export function localApplicationEnvironment(environment: string): boolean {
 }
 
 export function applicationEnvironmentAllowed(environment: string): boolean {
-  return LOCAL_APPLICATION_BUILD ? environment === "local" : environment === "lab" || environment === "production";
+  return LOCAL_APPLICATION_BUILD ? environment === "local" : environment === "lab" || environment === "staging" || environment === "production";
 }
 
 export function applicationLoopbackAllowed(environment: string): boolean {
