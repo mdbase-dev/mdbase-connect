@@ -843,6 +843,44 @@ impl<S: Store> Replica<S> {
         Ok((!taken).then_some(id))
     }
 
+    fn read_only_hold_at(&mut self, path: &str) -> Result<Hold, StoreError> {
+        if let Some(hold) = self.store.holds()?.into_iter().find(|h| {
+            mdbn_core::paths::path_key(&h.path) == mdbn_core::paths::path_key(path)
+                && matches!(&h.mine, TextOrBlob::Text(_))
+        }) {
+            return Ok(hold);
+        }
+        let resource = self.catalog.is_resource_path(path);
+        let record = if resource { None } else { self.holder_at(path) };
+        // An identity held at a different path must retain its original evidence.
+        let occupied = if let Some(id) = record {
+            self.store.hold(&id)?.is_some()
+        } else {
+            false
+        };
+        let id = record
+            .filter(|_| !occupied)
+            .unwrap_or_else(|| self.mint_v7());
+        let key = if resource {
+            DiskKey::Resource(path.to_string())
+        } else {
+            DiskKey::Record(id)
+        };
+        let base = self
+            .local_view_doc(&key)
+            .map(|(_, text)| TextOrBlob::Text(text));
+        Ok(Hold {
+            id,
+            path: path.to_string(),
+            reason: HoldReason::ReadOnly,
+            since: self.now(),
+            base: base.clone(),
+            mine: TextOrBlob::Text(String::new()),
+            theirs: base,
+            saves: 0,
+        })
+    }
+
     fn ingest_one(
         &mut self,
         o: Observation,
@@ -857,8 +895,58 @@ impl<S: Store> Replica<S> {
         {
             return self.ack(o.token);
         }
-        let existing_hold = self.store.holds()?.into_iter().find(|h| {
-            matches!(&h.mine, TextOrBlob::Text(_))
+        // Admit record source before cloning/parsing or touching shown state.
+        // Resource documents are a different namespace with their own rules.
+        let catalog = self.layer.catalog().unwrap_or_else(|| self.catalog.clone());
+        if !catalog.is_resource_path(&o.path)
+            && catalog.is_record_path(&o.path)
+            && let Some(Observed::Text(source)) = &o.now
+            && let Err(e) = self.record_write_admission().check_source(source)
+        {
+            self.record_admission_incident(e);
+            return Ok(());
+        }
+        let viewer = self.host_is_viewer();
+        let holds = self.store.holds()?;
+        let protected_move = o
+            .moved_from
+            .as_deref()
+            .filter(|from| mdbn_core::paths::path_key(from) != mdbn_core::paths::path_key(&o.path))
+            .filter(|from| {
+                viewer
+                    || holds.iter().any(|h| {
+                        h.reason == HoldReason::ReadOnly
+                            && mdbn_core::paths::path_key(&h.path)
+                                == mdbn_core::paths::path_key(from)
+                    })
+            });
+        // One hold has one path: store both halves of a move atomically so
+        // discard can restore its source and neither half escapes after upgrade.
+        if !matches!(&o.now, Some(Observed::Attachment { .. }))
+            && let Some(from) = protected_move
+        {
+            let mut source = self.read_only_hold_at(from)?;
+            let mut target = self.read_only_hold_at(&o.path)?;
+            source.mine = TextOrBlob::Text(String::new());
+            source.saves += 1;
+            target.mine = TextOrBlob::Text(match &o.now {
+                Some(Observed::Text(text)) => text.clone(),
+                _ => String::new(),
+            });
+            target.saves += 1;
+            self.store.commit(Tx {
+                holds_put: vec![source, target],
+                ack_observations: vec![o.token],
+                ..Tx::default()
+            })?;
+            self.status_dirty = true;
+            self.push_holds();
+            return Ok(());
+        }
+        let existing_hold = holds.into_iter().find(|h| {
+            (h.reason == HoldReason::ReadOnly
+                || viewer && !matches!(&o.now, Some(Observed::Attachment { .. })))
+                && matches!(&h.mine, TextOrBlob::Text(_))
                 && (mdbn_core::paths::path_key(&h.path) == mdbn_core::paths::path_key(&o.path)
                     || o.moved_from.as_ref().is_some_and(|p| {
                         mdbn_core::paths::path_key(p) == mdbn_core::paths::path_key(&h.path)
@@ -884,52 +972,25 @@ impl<S: Store> Replica<S> {
             self.push_holds();
             return Ok(());
         }
-        if self.host_is_viewer() && !matches!(o.now, Some(Observed::Attachment { .. })) {
-            let from = o.moved_from.as_deref().unwrap_or(&o.path);
-            let id = self.holder_at(from).or_else(|| self.holder_at(&o.path));
-            let key = if self.catalog.is_resource_path(from) {
-                DiskKey::Resource(from.to_string())
-            } else if let Some(id) = id {
-                DiskKey::Record(id)
-            } else {
-                if !self.catalog.is_record_path(&o.path) || o.now.is_none() {
-                    return self.ack(o.token);
-                }
-                DiskKey::Record(self.mint_v7())
-            };
-            let shown = self.local_view_doc(&key);
+        if viewer && !matches!(&o.now, Some(Observed::Attachment { .. })) {
+            if !self.catalog.is_resource_path(&o.path) && !self.catalog.is_record_path(&o.path) {
+                return self.ack(o.token);
+            }
+            let mut hold = self.read_only_hold_at(&o.path)?;
             let text = match &o.now {
                 Some(Observed::Text(text)) => Some(text.as_str()),
                 _ => None,
             };
-            if o.moved_from.is_none() && shown.as_ref().map(|(_, text)| text.as_str()) == text {
+            if o.moved_from.is_none()
+                && hold.base.as_ref().and_then(|base| match base {
+                    TextOrBlob::Text(text) => Some(text.as_str()),
+                    _ => None,
+                }) == text
+            {
                 return self.ack(o.token);
             }
-            // A renamed held record still owns its original path in the synced
-            // view. A new file there needs a separate hold, not a replacement.
-            let occupied = match key {
-                DiskKey::Record(id) => self.store.hold(&id)?.is_some(),
-                _ => false,
-            };
-            let hold_id = match key {
-                DiskKey::Record(id) if !occupied => id,
-                _ => self.mint_v7(),
-            };
-            let theirs = if occupied {
-                None
-            } else {
-                shown.map(|(_, text)| TextOrBlob::Text(text))
-            };
-            let hold = Hold {
-                id: hold_id,
-                path: o.path.clone(),
-                reason: HoldReason::ReadOnly,
-                since: self.now(),
-                base: theirs.clone(),
-                mine: TextOrBlob::Text(text.unwrap_or_default().to_string()),
-                theirs,
-                saves: 1,
-            };
+            hold.mine = TextOrBlob::Text(text.unwrap_or_default().to_string());
+            hold.saves += 1;
             self.store.commit(Tx {
                 holds_put: vec![hold],
                 ack_observations: vec![o.token],
@@ -941,17 +1002,6 @@ impl<S: Store> Replica<S> {
         }
         // Attachment files (and deletes of files) go to attachment ingest (T6).
         if self.ingest_attachment(&o)? {
-            return Ok(());
-        }
-        // Admit record source before cloning/parsing or touching shown state.
-        // Resource documents are a different namespace with their own rules.
-        let catalog = self.layer.catalog().unwrap_or_else(|| self.catalog.clone());
-        if !catalog.is_resource_path(&o.path)
-            && catalog.is_record_path(&o.path)
-            && let Some(Observed::Text(source)) = &o.now
-            && let Err(e) = self.record_write_admission().check_source(source)
-        {
-            self.record_admission_incident(e);
             return Ok(());
         }
         let text = match &o.now {
@@ -1781,12 +1831,10 @@ impl<S: Store> Replica<S> {
                         );
                     }
                 };
+                let current = self.local_view_doc(&key);
                 if !keep_both
-                    && self
-                        .local_view_doc(&key)
-                        .as_ref()
-                        .map(|(_, text)| text.as_str())
-                        != baseline
+                    && (current.as_ref().map(|(_, text)| text.as_str()) != baseline
+                        || current.as_ref().is_some_and(|(path, _)| path != &hold.path))
                 {
                     return Err(ErrorCode::Conflict.err_with_reason("concurrent_modification", "The synced file changed while your edit was held. Compare the versions before submitting it."));
                 }
@@ -1826,7 +1874,7 @@ impl<S: Store> Replica<S> {
                         }
                         DiskKey::Record(id) => Op::Document(Document {
                             id: *id,
-                            base: self.local_view_doc(&key).map(|(path, doc)| DocVersion {
+                            base: current.map(|(path, doc)| DocVersion {
                                 path,
                                 doc: Text::Inline(doc),
                             }),

@@ -469,13 +469,6 @@ impl<S: Store> Replica<S> {
 
     /// "Confirmed through N, plus pending".
     pub fn sync_status(&self) -> SyncStatus {
-        let mut incidents: Vec<_> = self.incidents.values().cloned().collect();
-        if self.host_is_viewer() {
-            incidents.push(mdbn_wire::client::Incident {
-                kind: mdbn_wire::client::IncidentKind::ReadOnly,
-                details: None,
-            });
-        }
         // Resurrected acknowledged writes are re-syncing, not pending (§6).
         let pending = self
             .store
@@ -507,7 +500,7 @@ impl<S: Store> Replica<S> {
                 done: self.install_progress.0,
                 total: self.install_progress.1,
             }),
-            incidents,
+            incidents: self.incidents.values().cloned().collect(),
         }
     }
 

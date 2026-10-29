@@ -520,6 +520,7 @@ export class MdbaseClient {
   private linkError: MdbaseError | null = null;
   private linkListeners = new Set<(s: LinkState, why: MdbaseError | null) => void>();
   private lastStatus: SyncStatus;
+  private currentGrant: HelloResult["grant"];
   private statusListeners = new Set<(s: SyncStatus) => void>();
   private lives = new Set<LiveQuery>();
   private livesBySub = new Map<number, LiveQuery>();
@@ -559,6 +560,7 @@ export class MdbaseClient {
     this.session = session;
     this.collectionId = session.hello.collection;
     this.lastStatus = session.hello.status;
+    this.currentGrant = session.hello.status.grant ?? session.hello.grant;
     this.fenceReads = usesNextRelayFence(opts.connector);
     this.readFloor = session.hello.status.confirmedThrough;
     this.files = new FilesApi(this);
@@ -686,7 +688,7 @@ export class MdbaseClient {
   /** The negotiated session, with its latest role-effective grant. */
   get hello(): HelloResult {
     const hello = this.currentSession().hello;
-    return this.lastStatus.grant ? { ...hello, grant: this.lastStatus.grant } : hello;
+    return this.currentGrant === hello.grant ? hello : { ...hello, grant: this.currentGrant };
   }
 
   get collection(): Uuid {
@@ -895,7 +897,7 @@ export class MdbaseClient {
       }
     });
     s.onPush("status", (p) => {
-      if (this.fenceReads && this.session !== s) return;
+      if (this.session !== s) return;
       try {
         this.setStatus(syncStatus.dec(p));
       } catch {
@@ -973,6 +975,7 @@ export class MdbaseClient {
           throw mdbaseError("invalid_request", "reconnected to a different collection");
         }
         this.session = s;
+        this.currentGrant = s.hello.status.grant ?? s.hello.grant;
         this.attach(s);
         this.noteReplica(s);
         this.setStatus(s.hello.status);
@@ -1088,6 +1091,7 @@ export class MdbaseClient {
       if (this.readFencedAt === null) this.readFloor = Math.max(this.readFloor, s.confirmedThrough);
     }
     this.lastStatus = s;
+    if (s.grant) this.currentGrant = s.grant;
     for (const fn of [...this.statusListeners]) fn(s);
   }
 

@@ -102,14 +102,13 @@ export class NativeEditorGateway implements CollectionGateway {
     if (connection.id !== this.client.collection) throw new Error(t`The editor requires its original SDK collection client.`);
     this.records = new NextEditorRecords(this.client, () => this.current());
     let membership = this.membershipRole();
-    this.membershipDowngrade = membership === "viewer";
+    this.membershipDowngrade = membership === "viewer" || this.current() && this.client.hello.grant.role === "viewer";
     let role = this.current() ? this.role() : undefined;
     const changed = () => {
       if (!this.current()) return;
       // A Connect downgrade can arrive before signed policy. Once policy has
       // caught up, native status also owns upgrades of this open collection.
-      if (this.client.status.incidents.some((incident) => incident.kind === "read_only")
-        || (this.client.status as wire.SyncStatus & { grant?: wire.GrantInfo }).grant?.role === "viewer") this.membershipDowngrade = false;
+      if (this.client.hello.grant.role === "viewer") this.membershipDowngrade = false;
       const next = this.role();
       if (next === role) return;
       role = next;
@@ -552,14 +551,13 @@ export class NativeEditorGateway implements CollectionGateway {
   }
 
   private role(): "owner" | "editor" | "viewer" {
-    if (this.client.status.incidents.some((incident) => incident.kind === "read_only")) return "viewer";
-    // The beta.141 SDK pin does not type API 1.3 status yet. Remove the
-    // intersection when the SDK containing the live-grant codec is pinned.
-    const status = this.client.status as wire.SyncStatus & { grant?: wire.GrantInfo };
     if (this.membershipDowngrade) return "viewer";
-    if (status.grant) return status.grant.role;
-    if (this.client.hello.grant.role === "viewer") return "viewer";
-    return this.membershipRole() ?? this.client.hello.grant.role;
+    const hello = this.client.hello;
+    if (hello.grant.role === "viewer") return "viewer";
+    // API 1.3 SDKs keep hello.grant current. Remove the membership fallback
+    // when Editor's beta.141 SDK/native pin is replaced.
+    if (hello.version.minor >= 3) return hello.grant.role;
+    return this.membershipRole() ?? hello.grant.role;
   }
 
   private membershipRole() {
@@ -574,7 +572,7 @@ export class NativeEditorGateway implements CollectionGateway {
     });
   }
 
-  private current(): boolean { return !this.disposed && this.connection.isCurrent(); }
+  private current(): boolean { return !this.disposed && this.client.link !== "closed" && this.connection.isCurrent(); }
 
   private check(): void {
     if (!this.current()) throw new MdbaseError({ code: "cancelled", recovery: "none", message: t`This collection is no longer open in mdbase editor.` });

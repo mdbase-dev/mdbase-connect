@@ -37,7 +37,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
   it("can retire a borrowed scope before mounting without reading its closed hello", async () => {
     const f = await readyFixture();
     f.client.close();
-    const gateway = new NativeEditorGateway(f.application, { ...f.connection, isCurrent: () => false }, declaration);
+    const gateway = new NativeEditorGateway(f.application, { ...f.connection, isCurrent: () => true }, declaration);
     gateways.push(gateway);
     expect(gateway.sessionSnapshot()).toEqual({ status: "unselected", connections: [] });
     gateway.dispose();
@@ -117,13 +117,14 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     await expect(f.gateway.create({ path: "owner.md", title: "Owner", body: "allowed", properties: {} })).resolves.toMatchObject({ path: "owner.md" });
     const changed = vi.fn();
     const stop = f.gateway.onSessionChange(changed);
-    const status = vi.spyOn(f.client, "status", "get").mockReturnValue({ ...f.client.status, incidents: [{ kind: "read_only" }] });
+    const original = f.client.hello;
+    const hello = vi.spyOn(f.client, "hello", "get").mockReturnValue({ ...original, version: { major: 1, minor: 3 }, grant: { role: "viewer", capabilities: ["collection.read"] } });
     f.replica.setOnline(false);
     await vi.waitFor(() => expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ connection: expect.objectContaining({ role: "viewer" }) })));
     await expect(f.gateway.updateDocument(base.path, "downgraded", base.revision)).rejects.toMatchObject({ reason: "read_only" });
     expect((await f.gateway.read(base.path)).body).toBe(base.body);
     expect(f.client.ledger.getSnapshot()).toMatchObject({ pending: [], rejected: [] });
-    status.mockReturnValue({ ...f.client.status, incidents: [], grant: { role: "editor", capabilities: ["collection.read", "records.edit"] } } as typeof f.client.status);
+    hello.mockReturnValue({ ...original, version: { major: 1, minor: 3 }, grant: { role: "editor", capabilities: ["collection.read", "records.edit"] } });
     f.replica.setOnline(true);
     await vi.waitFor(() => expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ connection: expect.objectContaining({ role: "editor" }) })));
     stop();
@@ -134,16 +135,17 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
 
   it("refuses a membership downgrade before local signed policy catches up", async () => {
     const f = await fixture({}, seedNotes);
-    const status = vi.spyOn(f.client, "status", "get").mockReturnValue({ ...f.client.status,
+    const original = f.client.hello;
+    const hello = vi.spyOn(f.client, "hello", "get").mockReturnValue({ ...original, version: { major: 1, minor: 3 },
       grant: { role: "editor", capabilities: ["collection.read", "records.edit"] }
-    } as typeof f.client.status);
+    });
     const snapshot = f.application.getSnapshot();
     f.controls.publishSnapshot({ ...snapshot, collections: snapshot.collections.map((entry) => ({ ...entry, role: "viewer" })) });
     expect(f.gateway.sessionSnapshot()).toMatchObject({ connection: { role: "viewer" } });
     await expect(f.gateway.create({ path: "early-downgrade.md", title: "Refused", body: "viewer", properties: {} }))
       .rejects.toMatchObject({ reason: "read_only" });
     expect(f.client.ledger.getSnapshot()).toMatchObject({ pending: [], rejected: [] });
-    status.mockReturnValue({ ...f.client.status, incidents: [{ kind: "read_only" }], grant: { role: "viewer", capabilities: ["collection.read"] } } as typeof f.client.status);
+    hello.mockReturnValue({ ...original, version: { major: 1, minor: 3 }, grant: { role: "viewer", capabilities: ["collection.read"] } });
     const notified = vi.fn();
     const stop = f.client.onStatus(notified);
     notified.mockClear();
@@ -151,7 +153,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     await vi.waitFor(() => expect(notified).toHaveBeenCalled());
     stop();
     // The Connect membership list is unchanged while this collection stays open.
-    status.mockReturnValue({ ...f.client.status, incidents: [], grant: { role: "editor", capabilities: ["collection.read", "records.edit"] } } as typeof f.client.status);
+    hello.mockReturnValue({ ...original, version: { major: 1, minor: 3 }, grant: { role: "editor", capabilities: ["collection.read", "records.edit"] } });
     f.replica.setOnline(true);
     await vi.waitFor(() => expect(f.gateway.sessionSnapshot()).toMatchObject({ connection: { role: "editor" } }));
   });
