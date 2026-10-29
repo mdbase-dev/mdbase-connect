@@ -120,7 +120,7 @@ msgstr "{0} · 추천"
 msgid "{0} and {1}"
 msgstr "{0} 및 {1}"
 
-#. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
+#. placeholder {0}: countLabel(account.deletion.owned_collections, "collection")
 #: src/AccountManagement.tsx
 msgid "{0} and their stored data"
 msgstr "{0} 및 저장된 데이터"
@@ -773,6 +773,11 @@ msgctxt "Collection connection"
 msgid "Approving…"
 msgstr "승인하는 중…"
 
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "앱"
+
 #: src/AccountManagement.tsx
 msgid "Authentication"
 msgstr "인증"
@@ -1005,6 +1010,12 @@ msgstr "가입 종료"
 msgid "Cloud collection required"
 msgstr "클라우드 컬렉션 필요"
 
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Cloud copy"
+msgstr "클라우드 사본"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy configured"
@@ -1053,10 +1064,19 @@ msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "컬렉션 권한"
 
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Collections"
+msgstr "컬렉션"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "컬렉션"
+
+#: src/AccountManagement.tsx
+msgid "Collections you own. Local files remain on your devices."
+msgstr "소유한 컬렉션입니다. 로컬 파일은 기기에 남아 있습니다."
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
@@ -1916,6 +1936,10 @@ msgctxt "Application access approval"
 msgid "Manage and delete files"
 msgstr "파일 관리 및 삭제"
 
+#: src/AccountManagement.tsx
+msgid "Manage collections, sign-in methods, and browser sessions."
+msgstr "컬렉션, 로그인 방법 및 브라우저 세션을 관리합니다."
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
@@ -1924,10 +1948,6 @@ msgstr "정의 관리"
 #: src/auth-view.tsx
 msgid "Manage email preferences"
 msgstr "이메일 수신 설정 관리"
-
-#: src/AccountManagement.tsx
-msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr "호스팅 저장 공간, 로그인 방법 및 브라우저 세션을 관리합니다."
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
@@ -2289,9 +2309,9 @@ msgstr "{selectedName}을(를) {0}에서 열기"
 msgid "Open a collection in the editor or manage where its main copy lives."
 msgstr "편집기에서 컬렉션을 열거나 기본 사본의 저장 위치를 관리하세요."
 
-#: src/ConnectApp.tsx
-msgid "Open account and sessions"
-msgstr "계정 및 세션 열기"
+#: src/ApplicationAccess.tsx
+msgid "Open an app, then choose which collections it can access."
+msgstr "앱을 연 다음 접근을 허용할 컬렉션을 선택하세요."
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
@@ -2434,6 +2454,10 @@ msgid "Password changed. Other browser sessions were signed out."
 msgstr "비밀번호가 변경되었습니다. 다른 브라우저 세션에서 로그아웃되었습니다."
 
 #: src/auth-view.tsx
+msgid "Password must contain no more than {maxCharacters} characters."
+msgstr "비밀번호는 {maxCharacters}자를 초과할 수 없습니다."
+
+#: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
 msgstr "비밀번호 복구를 일시적으로 사용할 수 없습니다. 로그인 화면으로 돌아갈 수는 있습니다."
 
@@ -2518,6 +2542,7 @@ msgstr "개인정보 보호"
 msgid "Private"
 msgstr "비공개"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
@@ -3503,6 +3528,7 @@ msgctxt "Account management"
 msgid "Unavailable"
 msgstr "사용할 수 없음"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Unnamed collection"

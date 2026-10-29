@@ -566,6 +566,7 @@ async function auditPortalManagement() {
     }
     if (pathname === "/v1/account") {
       await route.fulfill({ json: {
+        backend: "legacy",
         user: { id: "user", name: "Example User", email: "user@example.com", login: "example" },
         authentication: {
           managed: true,
@@ -602,7 +603,7 @@ async function auditPortalManagement() {
           }]
         },
         email_preferences: { announcements: true, product_updates: false },
-        deletion: { available: true, hosted_collections: 1, local_collections: 1, computers: 1, development_confirmation: true }
+        deletion: { available: true, owned_collections: 1, hosted_collections: 1, local_collections: 1, computers: 1, development_confirmation: true }
       } });
       return;
     }

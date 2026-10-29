@@ -1,3 +1,4 @@
+import { mdbaseApps } from "@mdbase-dev/ui/apps";
 import { formatters } from "@mdbase-dev/i18n";
 import { countLabel } from "./count-label";
 import { t, plural } from "@lingui/core/macro";
@@ -90,6 +91,14 @@ export function AppAccess({ groups, client, busy, perform, collectionName }: {
       </details>)}
       {groups.length === 0 && <Empty title={t(i18n)({ message: "No connected applications" })} body={t(i18n)({ message: "Applications appear here after you approve access." })} />}
     </section>
+    {!collectionName && <section>
+      <SectionTitle title={t(i18n)({ message: "Apps", context: "Connect interface" })} note={t(i18n)({ message: "Open an app, then choose which collections it can access." })} />
+      <div className="connect-row-actions">
+        {mdbaseApps.map(app => <a key={app.id} href={app.url}>{app.name}</a>)}
+        <a href="https://journal.mdbase.dev">Journal</a>
+        <a href="https://app.tasknotes.dev">TaskNotes</a>
+      </div>
+    </section>}
   </Page>;
 }
 

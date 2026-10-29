@@ -120,7 +120,7 @@ msgstr "{0} · suggested"
 msgid "{0} and {1}"
 msgstr "{0} and {1}"
 
-#. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
+#. placeholder {0}: countLabel(account.deletion.owned_collections, "collection")
 #: src/AccountManagement.tsx
 msgid "{0} and their stored data"
 msgstr "{0} and their stored data"
@@ -773,6 +773,11 @@ msgctxt "Collection connection"
 msgid "Approving…"
 msgstr "Approving…"
 
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "Apps"
+
 #: src/AccountManagement.tsx
 msgid "Authentication"
 msgstr "Authentication"
@@ -1005,6 +1010,12 @@ msgstr "Closed registration"
 msgid "Cloud collection required"
 msgstr "Cloud collection required"
 
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Cloud copy"
+msgstr "Cloud copy"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy configured"
@@ -1053,10 +1064,19 @@ msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "Collection permissions"
 
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Collections"
+msgstr "Collections"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "Collections"
+
+#: src/AccountManagement.tsx
+msgid "Collections you own. Local files remain on your devices."
+msgstr "Collections you own. Local files remain on your devices."
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
@@ -1916,6 +1936,10 @@ msgctxt "Application access approval"
 msgid "Manage and delete files"
 msgstr "Manage and delete files"
 
+#: src/AccountManagement.tsx
+msgid "Manage collections, sign-in methods, and browser sessions."
+msgstr "Manage collections, sign-in methods, and browser sessions."
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
@@ -1924,10 +1948,6 @@ msgstr "Manage definitions"
 #: src/auth-view.tsx
 msgid "Manage email preferences"
 msgstr "Manage email preferences"
-
-#: src/AccountManagement.tsx
-msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr "Manage hosted storage, sign-in methods, and browser sessions."
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
@@ -2289,9 +2309,9 @@ msgstr "Open {0} with {selectedName}"
 msgid "Open a collection in the editor or manage where its main copy lives."
 msgstr "Open a collection in the editor or manage where its main copy lives."
 
-#: src/ConnectApp.tsx
-msgid "Open account and sessions"
-msgstr "Open account and sessions"
+#: src/ApplicationAccess.tsx
+msgid "Open an app, then choose which collections it can access."
+msgstr "Open an app, then choose which collections it can access."
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
@@ -2434,6 +2454,10 @@ msgid "Password changed. Other browser sessions were signed out."
 msgstr "Password changed. Other browser sessions were signed out."
 
 #: src/auth-view.tsx
+msgid "Password must contain no more than {maxCharacters} characters."
+msgstr "Password must contain no more than {maxCharacters} characters."
+
+#: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
 msgstr "Password recovery is temporarily unavailable. You can still return to sign in."
 
@@ -2518,6 +2542,7 @@ msgstr "Privacy"
 msgid "Private"
 msgstr "Private"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
@@ -3503,6 +3528,7 @@ msgctxt "Account management"
 msgid "Unavailable"
 msgstr "Unavailable"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Unnamed collection"

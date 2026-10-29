@@ -120,7 +120,7 @@ msgstr "{0} · 推奨"
 msgid "{0} and {1}"
 msgstr "{0} と {1}"
 
-#. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
+#. placeholder {0}: countLabel(account.deletion.owned_collections, "collection")
 #: src/AccountManagement.tsx
 msgid "{0} and their stored data"
 msgstr "{0} と保存されているデータ"
@@ -773,6 +773,11 @@ msgctxt "Collection connection"
 msgid "Approving…"
 msgstr "承認中…"
 
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "アプリ"
+
 #: src/AccountManagement.tsx
 msgid "Authentication"
 msgstr "認証"
@@ -1005,6 +1010,12 @@ msgstr "新規登録を停止中"
 msgid "Cloud collection required"
 msgstr "クラウドコレクションが必要です"
 
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Cloud copy"
+msgstr "クラウドコピー"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy configured"
@@ -1053,10 +1064,19 @@ msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "コレクションの権限"
 
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Collections"
+msgstr "コレクション"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "コレクション"
+
+#: src/AccountManagement.tsx
+msgid "Collections you own. Local files remain on your devices."
+msgstr "所有しているコレクションです。ローカルファイルはデバイス上に残ります。"
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
@@ -1916,6 +1936,10 @@ msgctxt "Application access approval"
 msgid "Manage and delete files"
 msgstr "ファイルの管理と削除"
 
+#: src/AccountManagement.tsx
+msgid "Manage collections, sign-in methods, and browser sessions."
+msgstr "コレクション、ログイン方法、ブラウザーセッションを管理します。"
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
@@ -1924,10 +1948,6 @@ msgstr "定義を管理"
 #: src/auth-view.tsx
 msgid "Manage email preferences"
 msgstr "メールの受信設定を管理"
-
-#: src/AccountManagement.tsx
-msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr "ホスト型ストレージ、ログイン方法、ブラウザーセッションを管理します。"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
@@ -2289,9 +2309,9 @@ msgstr "{selectedName} で {0} を開く"
 msgid "Open a collection in the editor or manage where its main copy lives."
 msgstr "エディターでコレクションを開くか、正本の場所を管理します。"
 
-#: src/ConnectApp.tsx
-msgid "Open account and sessions"
-msgstr "アカウントとセッションを開く"
+#: src/ApplicationAccess.tsx
+msgid "Open an app, then choose which collections it can access."
+msgstr "アプリを開き、アクセスを許可するコレクションを選択します。"
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
@@ -2434,6 +2454,10 @@ msgid "Password changed. Other browser sessions were signed out."
 msgstr "パスワードを変更しました。ほかのブラウザーセッションはログアウトしました。"
 
 #: src/auth-view.tsx
+msgid "Password must contain no more than {maxCharacters} characters."
+msgstr "パスワードは{maxCharacters}文字以下にしてください。"
+
+#: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
 msgstr "パスワードの復元は一時的に利用できません。ログイン画面には戻れます。"
 
@@ -2518,6 +2542,7 @@ msgstr "プライバシー"
 msgid "Private"
 msgstr "プライベート"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
@@ -3503,6 +3528,7 @@ msgctxt "Account management"
 msgid "Unavailable"
 msgstr "利用できません"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Unnamed collection"

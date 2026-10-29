@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { buildApp } from "../../app.js";
 import { deleteAccountLocally } from "../../account-management.js";
 import { revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
 import { createHostedCollectionMembership, type CollectionMembershipPolicy } from "../../collection-policy.js";
@@ -35,15 +36,16 @@ describePg("account deletion on native collections (dedicated local Postgres)", 
 
   /** A next account with a browser session and one enrolled desktop device. */
   async function account() {
+    const sessionToken = randomUUID();
     const id = randomUUID(), connector = randomUUID(), device = randomUUID(), email = `${id}@example.test`;
     await db.query("INSERT INTO users(id,email,name,account_backend,session_epoch) VALUES($1,$2,'Person','next',1)", [id, email]);
     await db.query("INSERT INTO email_identities(id,user_id,email,normalized_email,verified_at,is_primary) VALUES($1,$2,$3,$3,now(),true)", [randomUUID(), id, email]);
     await db.query("INSERT INTO account_entitlement_grants(id,user_id,profile_code,source,source_reference) VALUES($1,$2,'beta_v1','operator',$3)", [randomUUID(), id, randomUUID()]);
-    await db.query("INSERT INTO sessions(id,user_id,token_hash,provider,account_session_epoch,expires_at) VALUES($1,$2,$3,'password',1,now()+interval '1 day')", [randomUUID(), id, tokenHash(randomUUID())]);
+    await db.query("INSERT INTO sessions(id,user_id,token_hash,provider,account_session_epoch,expires_at) VALUES($1,$2,$3,'password',1,now()+interval '1 day')", [randomUUID(), id, tokenHash(sessionToken)]);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Desktop',$3)", [connector, id, tokenHash(randomUUID())]);
     await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,'desktop',$4,$5,$6)",
       [device, connector, id, randomBytes(32), randomBytes(32), randomBytes(32)]);
-    return { id, connector, device };
+    return { id, connector, device, cookie: `mdbase_session=${sessionToken}` };
   }
   type Account = Awaited<ReturnType<typeof account>>;
 
@@ -88,6 +90,24 @@ describePg("account deletion on native collections (dedicated local Postgres)", 
     }
     return left;
   }
+
+  it("reports every owned collection in the account deletion summary", async () => {
+    const owner = await account(), other = await account();
+    const cloud = await collection(owner), privateCollection = await collection(owner), left = await collection(owner);
+    await db.query("UPDATE next_collections SET sync='private' WHERE collection_id=$1", [privateCollection]);
+    await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [left]);
+    const shared = await collection(other);
+    await join(shared, other, owner);
+    await db.query(`INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'shadow','cloud_copy',$3)`, [randomUUID(), owner.id, randomBytes(32)]);
+    // Legacy and next-runtime rows with the same id count as one collection.
+    await db.query(`INSERT INTO hosted_collections(id,user_id,display_name,template,contracts) VALUES($1,$2,'Migrated','mdbase','[]'),($3,$2,'Legacy','mdbase','[]')`, [cloud, owner.id, randomUUID()]);
+    const { app } = await buildApp({ db, publicUrl: "https://connect.example", registration: "open", authRateLimitSecret: "account-test-rate-limit-secret-with-32-bytes" });
+    try {
+      const result = await app.inject({ method: "GET", url: "/v1/account", headers: { cookie: owner.cookie } });
+      expect(result.statusCode).toBe(200);
+      expect(result.json()).toMatchObject({ backend: "next", deletion: { hosted_collections: 2, owned_collections: 4 } });
+    } finally { await app.close(); }
+  });
 
   it("erases the account, permanently denies its own collections and removes it from other people's", async () => {
     const deleted = await account(), member = await account(), other = await account();

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "./test/render";
+import { act, fireEvent, render, screen, waitFor, within } from "./test/render";
 import { StrictMode } from "react";
 import { ConnectManagementClient, type AccountData, type ManagementOverview } from "@mdbase/connect-management";
 import { AccountManagement } from "./AccountManagement";
@@ -79,8 +79,45 @@ describe("ConnectApp", () => {
     expect(badge("Computer notes")).toHaveTextContent("On Home computer");
     expect(badge("Offline notes")).toHaveTextContent("On Sleeping laptop: offline");
     expect(badge("Unlinked notes")).toHaveTextContent("Computer not connected");
-    expect(badge("Cloud notes")).toHaveTextContent("Hosted");
+    expect(badge("Cloud notes")).toHaveTextContent("Cloud copy");
     expect(screen.queryByText("Availability unknown")).not.toBeInTheDocument();
+  });
+
+  it("lists apps for discovery before any access is approved", async () => {
+    overview.grants = [];
+    history.replaceState(null, "", "/applications");
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Apps" });
+    for (const [name, href] of [["Editor", "https://editor.mdbase.dev/"], ["Reader", "https://reader.mdbase.dev/"], ["Writer", "https://writer.mdbase.dev/"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
+      expect(screen.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
+    }
+    expect(screen.getByText("No connected applications")).toBeInTheDocument();
+  });
+
+  it("shows owned cloud-copy and Private collections and the complete deletion count", async () => {
+    const account = accountFixture();
+    account.backend = "next";
+    account.deletion.owned_collections = 2;
+    account.deletion.hosted_collections = 0;
+    account.storage.collections = [];
+    overview.native_collections = [
+      { id: "cloud", display_name: "Cloud notes", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: true } },
+      { id: "private", display_name: "Private notes", sync: "private", access: { relationship: "owner", role: "owner", can_manage_members: true } },
+      { id: "shared", display_name: "Someone else's notes", sync: "cloud_copy", access: { relationship: "member", role: "editor", can_manage_members: false } }
+    ];
+    const client = new ConnectManagementClient(location.origin);
+    vi.spyOn(client, "account").mockResolvedValue(account);
+    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={async () => {}} onDeleted={() => {}} />);
+    const heading = await screen.findByRole("heading", { name: "Collections", exact: true });
+    const collections = within(heading.closest("section")!);
+    expect(collections.getByText("Cloud notes")).toBeInTheDocument();
+    expect(collections.getByText("Cloud copy")).toBeInTheDocument();
+    expect(collections.getByText("Private notes")).toBeInTheDocument();
+    expect(collections.getByText("Private collection")).toBeInTheDocument();
+    expect(collections.queryByText("Someone else's notes")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 hosted collections")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Delete account…" }));
+    expect(screen.getByText("2 collections and their stored data")).toBeInTheDocument();
   });
 
   it("counts native collections without legacy shadow rows or content authorization", async () => {
@@ -228,7 +265,7 @@ describe("ConnectApp", () => {
     });
     const user = userEvent.setup();
     const { container } = render(<ConnectApp />);
-    await user.click(await screen.findByRole("link", { name: "Open account and sessions" }));
+    await user.click(await screen.findByRole("link", { name: /Example Person.*person@example\.com/ }));
     expect(await screen.findByText(/ID 22222222/)).toBeInTheDocument();
     expect(screen.getByText(/ID 11111111/)).toBeInTheDocument();
     expect([...container.querySelectorAll("time")].map(time => time.dateTime)).toEqual(sessions.map(session => session.created_at));
@@ -1074,7 +1111,7 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
 
-    await user.click(await screen.findByRole("link", { name: "Open account and sessions" }));
+    await user.click(await screen.findByRole("link", { name: /Example Person.*person@example\.com/ }));
     expect(await screen.findByText(
       "Account deletion is temporarily unavailable while we complete a service correction."
     )).toBeInTheDocument();
@@ -1101,7 +1138,7 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
 
-    await user.click(await screen.findByRole("link", { name: "Open account and sessions" }));
+    await user.click(await screen.findByRole("link", { name: /Example Person.*person@example\.com/ }));
     expect(await screen.findByRole("heading", { name: "Email" })).toBeInTheDocument();
     expect(screen.getByText("Always on")).toBeInTheDocument();
     const announcements = screen.getByRole("checkbox", { name: /Announcements/ });
@@ -1123,7 +1160,7 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
 
-    await user.click(await screen.findByRole("link", { name: "Open account and sessions" }));
+    await user.click(await screen.findByRole("link", { name: /Example Person.*person@example\.com/ }));
     expect(await screen.findByRole("heading", { name: "Hosted storage" })).toBeInTheDocument();
     expect(screen.getByText("Beta")).toBeInTheDocument();
     expect(screen.getByText("Permanent allowance")).toBeInTheDocument();
@@ -1247,6 +1284,7 @@ function hostedCollection(): ManagementOverview["hosted_collections"][number] {
 
 function accountFixture(): AccountData {
   return {
+    backend: "legacy",
     user: { id: "person", name: "Example Person", email: "person@example.com", login: null },
     authentication: {
       managed: true,
@@ -1291,6 +1329,7 @@ function accountFixture(): AccountData {
     deletion: {
       available: true,
       unavailable_reason: null,
+      owned_collections: 1,
       hosted_collections: 1,
       local_collections: 1,
       computers: 1,
