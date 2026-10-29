@@ -26,7 +26,7 @@ import { clientFingerprint, deviceRegistrationDigest, issueDeviceChallenge, regi
 import { collectionDirectory } from "./hosted-routes.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./policy-keys.js";
-import { PolicyEmitter, queueNextPolicy } from "./policy-outbox.js";
+import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { certDigest, chainHash, decodeCbor, encodeCbor, keyId, type Cbor, type Decoded } from "./policy-wire.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -790,9 +790,22 @@ describePg("cloud-copy bootstrap", () => {
   it("never enrols a device into a private collection, someone else's, or one that left sync", async () => {
     const who = await identity();
     const priv = randomUUID();
-    await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','private',$3)", [priv, who.connector.user_id, Buffer.from(config.policyCert.root_key_id, "hex")]);
-    expect((await join(who, priv, await joinProof(who, priv))).statusCode).toBe(404);
-    expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id = $1", [priv])).rows).toHaveLength(0);
+    const transaction = await db.connect();
+    try {
+      await transaction.query("BEGIN");
+      await registerNextCollection(transaction, {
+        collectionId: priv, ownerUserId: who.connector.user_id, runtime: "next", sync: "private", rootKeyId: Buffer.from(config.policyCert.root_key_id, "hex"),
+        ops: [{ op: "genesis", owner: who.connector.user_id, root: Buffer.from(config.policyCert.root_key_id, "hex"), state: "e2e" }, { op: "member-set", account: who.connector.user_id, role: "owner" }]
+      });
+      await transaction.query("COMMIT");
+    } finally {
+      transaction.release();
+    }
+    await emitter.drainCollection(priv);
+    const privateJoin = await join(who, priv, await joinProof(who, priv));
+    expect(privateJoin.statusCode, privateJoin.body).toBe(409);
+    expect(privateJoin.json().error.code).toBe("not_current_cloud_copy");
+    expect((await db.query(ENROLMENT_SQL, [priv, who.device])).rows).toHaveLength(0);
     const theirs = randomUUID(); const owner = await identity();
     expect((await serviceCreate(await session(owner.connector.user_id), theirs)).statusCode).toBe(200);
     expect((await join(who, theirs, await joinProof(who, theirs))).statusCode).toBe(404);

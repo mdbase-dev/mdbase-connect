@@ -138,6 +138,11 @@ test("unsent edits from old hosted mirrors: waiting until joined, then conflicts
   } } } });
   assert.match(offline.notices[0], /back to this computer in \/home\/me\/Hosted notes \(synced\)\. mdbase will retry when it can reach the server\./);
 
+  const notReady = presentTakeover({ ...done, mirror_imports: { h: { ...imp, join: {
+    state: "waiting", folder: "/home/me/Hosted notes (synced)", reason: "not_found", attempts: 2, cut_over: false
+  } } } });
+  assert.match(notReady.notices[0], /mdbase will retry once this collection has finished moving\./);
+
   const syncing = presentTakeover({ ...done, mirror_imports: { h: { ...imp, registered: true, name: "Hosted notes", join: {
     state: "joined", folder: "/home/me/Hosted notes (synced)", reason: "unexpected_status", cut_over: false
   } } } });

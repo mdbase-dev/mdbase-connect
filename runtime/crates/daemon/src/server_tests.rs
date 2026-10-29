@@ -1427,15 +1427,21 @@ fn a_joined_collection_takes_the_account_name() {
 #[test]
 fn an_unknown_collection_is_not_found_not_refused() {
     use crate::cloud::CloudError;
-    let e = cloud_refusal(CloudError::Server(404, "not_found".into()));
+    let e = join_refusal(CloudError::Server(404, "not_found".into()));
     assert_eq!(
         (e.code.as_str(), e.reason.as_deref()),
         ("not_found", Some("not_found"))
+    );
+    assert_eq!(
+        cloud_refusal(CloudError::Server(404, "not_found".into()))
+            .reason
+            .as_deref(),
+        Some("sync_refused")
     );
     for other in [
         CloudError::Server(404, "error".into()),
         CloudError::Server(409, "not_current_cloud_copy".into()),
     ] {
-        assert_eq!(cloud_refusal(other).reason.as_deref(), Some("sync_refused"));
+        assert_eq!(join_refusal(other).reason.as_deref(), Some("sync_refused"));
     }
 }

@@ -58,14 +58,15 @@ export function cloudCopyJoinDigest(input: { challenge: Uint8Array; connector: s
 
 async function currentJoiningCloudCopy(client: DatabaseConnection, collection: string, connector: ConnectorIdentity): Promise<void> {
   await requireInstallationScope(client,connector,collection);
+  const current = await client.query<{ current: boolean }>("SELECT n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL AS current FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 FOR UPDATE OF n",[collection]);
+  if (!current.rows.length) throw new CreateError(404,"not_found");
   try {
     await currentMember(client,collection,connector.user_id);
   } catch (error) {
     if (error instanceof CreateError && error.code === "not_member") throw new CreateError(404,"not_found");
     throw error;
   }
-  const current = await client.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR UPDATE OF n",[collection]);
-  if (!current.rows.length) throw new CreateError(409,"not_current_cloud_copy");
+  if (!current.rows[0].current) throw new CreateError(409,"not_current_cloud_copy");
   try {
     await requireCollectionNotDeleted(client, collection);
   } catch (error) {
