@@ -1,7 +1,6 @@
 {
   "name": "@mdbase-dev/sdk",
   "version": "0.0.0",
-  "private": true,
   "description": "TypeScript SDK: live queries, optimistic submits, receipts, status, holds, files and presence over the replica client API.",
   "license": "MIT",
   "type": "module",
@@ -60,7 +59,8 @@
     "dist",
     "LICENSE",
     "vendor/*.tgz",
-    "vendor/*.json"
+    "vendor/*.json",
+    "README.md"
   ],
   "engines": {
     "node": ">=20"
@@ -91,5 +91,20 @@
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0"
+  },
+  "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mdbase-dev/mdbase-connect.git",
+    "directory": "runtime/packages/sdk"
+  },
+  "homepage": "https://mdbase.dev",
+  "bugs": {
+    "url": "https://github.com/mdbase-dev/mdbase-connect/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "tag": "next"
   }
 }

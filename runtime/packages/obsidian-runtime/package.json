@@ -1,7 +1,6 @@
 {
   "name": "@mdbase-dev/obsidian-runtime",
   "version": "0.0.0",
-  "private": true,
   "description": "Runtime host for Obsidian: vault FilePlatform, dual journal, sqlite-wasm IndexStorage, editor fence, shared runtime registry.",
   "license": "MIT",
   "type": "module",
@@ -26,7 +25,8 @@
   },
   "files": [
     "dist",
-    "LICENSE"
+    "LICENSE",
+    "README.md"
   ],
   "engines": {
     "node": ">=20"
@@ -54,5 +54,20 @@
     "@noble/hashes": "2.4.0",
     "@sqlite.org/sqlite-wasm": "3.53.4-build2",
     "obsidian-bases-expression": "0.3.0-rc.4"
+  },
+  "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mdbase-dev/mdbase-connect.git",
+    "directory": "runtime/packages/obsidian-runtime"
+  },
+  "homepage": "https://mdbase.dev",
+  "bugs": {
+    "url": "https://github.com/mdbase-dev/mdbase-connect/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "tag": "next"
   }
 }
