@@ -140,7 +140,8 @@ mdbase collection delete Research --confirm 'Research'
 mdbase collection delete 11111111-1111-4111-8111-111111111111 --confirm 'Research'
 ```
 
-The daemon uses its signed-in owner-device credential. This computer must first
+The CLI authenticates with the daemon's control key before using its signed-in
+owner-device credential. This computer must first
 join the collection, with any required device approval. `--confirm` is mandatory
 even with `--yes` and must match the current shared catalog name, which can differ
 from a registered local alias. Duplicate local names require an ID. A mismatch

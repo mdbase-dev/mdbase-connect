@@ -2855,26 +2855,36 @@ impl Daemon {
         ctx.cloud
             .delete_collection(&id, &p.confirm_name, &current)
             .await
-            .map_err(|e| match e {
-                crate::cloud::CloudError::Server(409, code) if code == "device_not_enrolled" => {
-                    ControlError::new(
-                        "not_authorized",
-                        &code,
-                        "Join this collection on this computer first, then try again.",
-                    )
-                }
-                crate::cloud::CloudError::Server(409, code)
-                    if code == "collection_name_mismatch" =>
+            .map_err(|e| {
+                if matches!(&e, crate::cloud::CloudError::Network(_))
+                    || matches!(&e, crate::cloud::CloudError::Server(_, code) if matches!(code.as_str(), "malformed" | "response_too_large"))
                 {
-                    ControlError::invalid(
-                        &code,
-                        "The name you typed does not match this collection's name.",
-                    )
+                    return ControlError::unavailable(
+                        "outcome_unknown",
+                        "The deletion outcome is unknown. Check this collection in your account before taking further action; do not automatically retry.",
+                    );
                 }
-                crate::cloud::CloudError::Server(404, _) => {
-                    ControlError::not_found("Collection not found.")
+                match e {
+                    crate::cloud::CloudError::Server(409, code) if code == "device_not_enrolled" => {
+                        ControlError::new(
+                            "not_authorized",
+                            &code,
+                            "Join this collection on this computer first, then try again.",
+                        )
+                    }
+                    crate::cloud::CloudError::Server(409, code)
+                        if code == "collection_name_mismatch" =>
+                    {
+                        ControlError::invalid(
+                            &code,
+                            "The name you typed does not match this collection's name.",
+                        )
+                    }
+                    crate::cloud::CloudError::Server(404, _) => {
+                        ControlError::not_found("Collection not found.")
+                    }
+                    e => cloud_refusal(e),
                 }
-                e => cloud_refusal(e),
             })?;
         Ok(json!({ "collection_id": id, "deleted": true }))
     }

@@ -23,7 +23,7 @@ pub struct ActivityEntry {
     pub at_ms: u64,
     /// What, snake_case: `collection_added`, `collection_removed`,
     /// `collection_updated`, `collection_paused`, `collection_resumed`,
-    /// `collection_joined`, `collection_taken_over`, `sync_enabled`, `sync_disabled`, `app_connected`,
+    /// `collection_joined`, `collection_deleted`, `collection_taken_over`, `sync_enabled`, `sync_disabled`, `app_connected`,
     /// `app_requested`, `app_approved`, `app_declined`, `app_revoked`,
     /// `app_revoked_in_account`, `signed_in`, `signed_out`, `computer_renamed`.
     pub kind: String,
@@ -67,6 +67,7 @@ pub fn for_control_call(
     let kind = match method {
         Method::COLLECTION_ADD => "collection_added",
         Method::COLLECTION_REMOVE => "collection_removed",
+        Method::COLLECTION_DELETE => "collection_deleted",
         Method::COLLECTION_UPDATE => "collection_updated",
         Method::COLLECTION_PAUSE => "collection_paused",
         Method::COLLECTION_RESUME => "collection_resumed",

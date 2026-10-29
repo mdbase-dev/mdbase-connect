@@ -20,10 +20,40 @@ fn collection_delete_requires_confirmation_even_with_yes() {
 
 #[tokio::test]
 async fn collection_delete_cli_success_and_refusals() {
+    // Isolate backend selection from other tests; never change process-wide env
+    // or access the user's OS keychain.
+    if std::env::var("MDBASE_ENV").as_deref() != Ok("test")
+        || std::env::var("MDBASE_SECRET_BACKEND").as_deref() != Ok("insecure-test-file")
+    {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "cli::collection_delete_tests::collection_delete_cli_success_and_refusals",
+                "--nocapture",
+            ])
+            .env("MDBASE_ENV", "test")
+            .env("MDBASE_SECRET_BACKEND", "insecure-test-file")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        return;
+    }
     // Relative to this test crate, so even a long checkout path fits a Unix socket.
     let root = PathBuf::from("../../target/t").join(format!("cd{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     let profile = Profile::isolated(&root).unwrap();
+    let store = crate::secrets::store_for(&profile.secret_namespace(), &profile.state_dir);
+    assert_eq!(store.backend(), "insecure-test-file");
+    let control_key = [4; 32];
+    store
+        .set(crate::secrets::CONTROL_KEY, &control_key)
+        .unwrap();
     for (confirm, error) in [
         (
             "Wrong name",
@@ -41,11 +71,44 @@ async fn collection_delete_cli_success_and_refusals() {
             )),
         ),
         ("Research", None),
+        (
+            "Lost reply",
+            Some(ControlError::unavailable("outcome_unknown", "unknown")),
+        ),
+        (
+            "Malformed reply",
+            Some(ControlError::unavailable("outcome_unknown", "unknown")),
+        ),
     ] {
         let expected_error = error.as_ref().map(|e| e.reason.clone());
         let mut listener = ipc::Listener::bind(&profile.control).unwrap();
         let fixture = tokio::spawn(async move {
             let mut stream = listener.accept().await.unwrap();
+            let nonce = [5; 32];
+            for method in [Method::AUTH_CHALLENGE, Method::AUTH_PROVE] {
+                let bytes = ipc::read_frame(&mut stream, ipc::MAX_CONTROL_FRAME)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                let request: Request = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(request.method, method);
+                let result = if method == Method::AUTH_CHALLENGE {
+                    assert_eq!(request.params, json!({}));
+                    json!({"nonce": crate::secrets::hex(&nonce)})
+                } else {
+                    assert_eq!(
+                        request.params,
+                        json!({"proof": crate::secrets::hex(&crate::secrets::control_proof(&control_key, &nonce))})
+                    );
+                    json!({})
+                };
+                ipc::write_frame(
+                    &mut stream,
+                    &serde_json::to_vec(&Response::ok(request.id, result)).unwrap(),
+                )
+                .await
+                .unwrap();
+            }
             let bytes = ipc::read_frame(&mut stream, ipc::MAX_CONTROL_FRAME)
                 .await
                 .unwrap()
@@ -63,9 +126,13 @@ async fn collection_delete_cli_success_and_refusals() {
                     json!({"collection_id":COLLECTION,"deleted":true}),
                 ),
             };
-            ipc::write_frame(&mut stream, &serde_json::to_vec(&response).unwrap())
-                .await
-                .unwrap();
+            match confirm {
+                "Lost reply" => {} // The deletion was read; no reply arrives.
+                "Malformed reply" => ipc::write_frame(&mut stream, b"not-json").await.unwrap(),
+                _ => ipc::write_frame(&mut stream, &serde_json::to_vec(&response).unwrap())
+                    .await
+                    .unwrap(),
+            }
             listener.cleanup();
         });
         let result = run_command(
@@ -92,6 +159,10 @@ async fn collection_delete_cli_success_and_refusals() {
                         error.message,
                         "Join this collection on this computer first, then try again."
                     );
+                }
+                if reason == "outcome_unknown" {
+                    assert!(error.message.contains("outcome is unknown"));
+                    assert!(!error.message.contains("refused"));
                 }
                 assert_eq!(
                     Output {

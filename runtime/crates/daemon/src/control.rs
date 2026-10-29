@@ -702,8 +702,9 @@ pub struct ApproveDevice {
     pub code: String,
 }
 
-/// Methods that need a privileged connection: they widen access, reveal secrets
-/// or hide notices. Narrowing access (revoke, deny, pause, remove) never does.
+/// Methods that need a privileged connection: they widen access, reveal secrets,
+/// hide notices, or permanently delete an account collection. Local unregister
+/// (remove), revoke, deny and pause do not require the control key.
 pub const PRIVILEGED: &[&str] = &[
     Method::ACCESS_APPROVE,
     Method::ACCESS_ACK,
@@ -718,6 +719,7 @@ pub const PRIVILEGED: &[&str] = &[
     Method::PRIVATE_STRICT,
     Method::SYNC_ENABLE,
     Method::COLLECTION_JOIN,
+    Method::COLLECTION_DELETE,
     Method::ACCOUNT_SIGN_IN,
     Method::MIGRATE_START,
 ];

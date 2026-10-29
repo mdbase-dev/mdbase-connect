@@ -41,7 +41,6 @@ export const CONNECT_PROBLEM_CATALOG = {
   "connector_upgrade_required": { category: "compatibility", recovery: "upgrade_connector" },
   "cursor_capacity_exhausted": { category: "availability", recovery: "retry" },
   "device_authorization_failed": { category: "authorization", recovery: "reauthorize" },
-  "device_not_enrolled": { category: "authorization", recovery: "reauthorize" },
   "direct_operation_rejected": { category: "authorization", recovery: "reauthorize" },
   "discovery_failed": { category: "availability", recovery: "retry" },
   "durable_mutation_unsupported": { category: "compatibility", recovery: "upgrade_connector" },
@@ -225,7 +224,6 @@ export interface ConnectProblemDetailsByCode {
   "connector_upgrade_required": undefined;
   "cursor_capacity_exhausted": undefined;
   "device_authorization_failed": undefined;
-  "device_not_enrolled": undefined;
   "direct_operation_rejected": undefined;
   "discovery_failed": undefined;
   "durable_mutation_unsupported": {
@@ -577,12 +575,6 @@ export interface ConnectProblemByCode {
   };
   "device_authorization_failed": ConnectProblemBase & {
     code: "device_authorization_failed";
-    category: "authorization";
-    recovery: "reauthorize";
-    details?: never;
-  };
-  "device_not_enrolled": ConnectProblemBase & {
-    code: "device_not_enrolled";
     category: "authorization";
     recovery: "reauthorize";
     details?: never;

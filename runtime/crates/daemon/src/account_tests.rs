@@ -166,6 +166,16 @@ async fn collection_delete_uses_owner_credential_and_keeps_local_state() {
             (
                 "Shared name",
                 200,
+                Value::Null, // Malformed reply after receiving the DELETE.
+            ),
+            (
+                "Shared name",
+                0,
+                Value::Null, // Connection closes after receiving the DELETE.
+            ),
+            (
+                "Shared name",
+                200,
                 json!({"collection_id":COLLECTION,"deleted":true}),
             ),
         ] {
@@ -201,24 +211,53 @@ async fn collection_delete_uses_owner_credential_and_keeps_local_state() {
                     break;
                 }
             }
-            let body = body.to_string();
+            if status == 0 {
+                continue;
+            }
+            let body = if body.is_null() {
+                "not-json".into()
+            } else {
+                body.to_string()
+            };
             socket.write_all(format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
         }
     });
+    let unprivileged = d
+        .handle(
+            &Request {
+                v: PROTOCOL,
+                id: 1,
+                method: Method::COLLECTION_DELETE.into(),
+                params: json!({"collection":COLLECTION,"confirm_name":"Shared name"}),
+            },
+            &mut ConnAuth::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        unprivileged.reason.as_deref(),
+        Some("caller_not_authenticated")
+    );
+    assert!(d.activity.list(10).is_empty());
     for (confirm, reason) in [
         ("Wrong name", Some("collection_name_mismatch")),
         ("Shared name", Some("device_not_enrolled")),
+        ("Shared name", Some("outcome_unknown")),
+        ("Shared name", Some("outcome_unknown")),
         ("Shared name", None),
     ] {
         let result = d
-            .handle(
+            .handle_and_note(
                 &Request {
                     v: PROTOCOL,
                     id: 1,
                     method: Method::COLLECTION_DELETE.into(),
                     params: json!({"collection":COLLECTION,"confirm_name":confirm}),
                 },
-                &mut ConnAuth::default(),
+                &mut ConnAuth {
+                    privileged: true,
+                    ..Default::default()
+                },
             )
             .await;
         match reason {
@@ -243,6 +282,14 @@ async fn collection_delete_uses_owner_credential_and_keeps_local_state() {
         );
     }
     fixture.await.unwrap();
+    let activity = d.activity.list(10);
+    assert_eq!(
+        activity.len(),
+        1,
+        "only acknowledged success records deletion"
+    );
+    assert_eq!(activity[0].kind, "collection_deleted");
+    assert_eq!(activity[0].collection.as_deref(), Some(COLLECTION));
 }
 
 fn account_config(epoch: u64, connector: &str) -> crate::cloud::CloudConfig {

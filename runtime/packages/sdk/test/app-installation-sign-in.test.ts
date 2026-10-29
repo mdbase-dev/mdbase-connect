@@ -310,7 +310,8 @@ describe("explicit owner collection delete", () => {
     await expect(f.flow.deleteApprovedCollection(f.installation, connector, "Research")).rejects.toMatchObject({reason: "refused"});
     expect(f.request).toHaveBeenCalledTimes(calls);
     for (const [status, code, outcome] of [[409, "collection_name_mismatch", "collection_delete_name_mismatch"], [403, "not_owner", "collection_delete_not_owner"],
-      [409, "migration_frozen", "collection_delete_frozen"], [404, "not_found", "collection_delete_not_found"], [403, "constructor", "collection_delete_failed"]] as const) {
+      [409, "migration_frozen", "collection_delete_frozen"], [404, "not_found", "collection_delete_not_found"],
+      [409, "device_not_enrolled", "collection_delete_not_approved"], [403, "constructor", "collection_delete_failed"]] as const) {
       vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({error: {code, message: "server text"}}), {status}));
       const error = await f.flow.deleteApprovedCollection(f.installation, collection, "Research").catch((e: unknown) => e);
       expect(collectionDeleteError(error).code).toBe(outcome);

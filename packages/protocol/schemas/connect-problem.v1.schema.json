@@ -1762,46 +1762,6 @@
           "const": 1
         },
         "code": {
-          "const": "device_not_enrolled"
-        },
-        "category": {
-          "const": "authorization"
-        },
-        "recovery": {
-          "const": "reauthorize"
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1
-        },
-        "operation_outcome": {
-          "enum": [
-            "not_sent",
-            "rejected",
-            "unknown"
-          ]
-        },
-        "trace_id": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "problem_version",
-        "code",
-        "category",
-        "recovery",
-        "message"
-      ],
-      "properties": {
-        "problem_version": {
-          "const": 1
-        },
-        "code": {
           "const": "direct_operation_rejected"
         },
         "category": {

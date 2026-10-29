@@ -570,7 +570,19 @@ async fn call(profile: &Profile, method: &str, params: Value) -> Result<Value, C
     } else {
         crate::client::CALL_TIMEOUT
     };
-    c.call_within(method, params, timeout).await
+    // Authentication/connect failures above happen before deletion dispatch.
+    // Once dispatch is attempted, a missing/invalid reply cannot prove refusal.
+    match c.call_within(method, params, timeout).await {
+        Err(ClientError::Io(_) | ClientError::Protocol(_) | ClientError::Timeout)
+            if method == Method::COLLECTION_DELETE =>
+        {
+            Err(ClientError::Remote(ControlError::unavailable(
+                "outcome_unknown",
+                "The deletion outcome is unknown. Check this collection in your account before taking further action; do not automatically retry.",
+            )))
+        }
+        other => other,
+    }
 }
 
 /// `migrate start` answers only after the takeover run: the journal drain alone may
@@ -748,6 +760,7 @@ async fn run_command(
                 out.value(&v);
             } else {
                 println!("Deleted synced collection {id}. Local files and registration were kept.");
+                println!("To unregister the local folder, run `mdbase collection remove {id}`.");
             }
             Ok(ExitCode::SUCCESS)
         }

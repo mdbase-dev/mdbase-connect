@@ -79,17 +79,21 @@ unknown collections retain their existing responses, including `404 not_found`.
 
 The next runtime CLI exposes this route as
 `mdbase collection delete <name-or-id> --confirm <current-shared-name>` through
-the daemon's existing owner-device credential. A registered name or unique ID
+the daemon's existing owner-device credential after control-key authentication. A registered name or unique ID
 prefix resolves locally; a full collection UUID also works before local
 registration, so the server can explain missing enrollment. Duplicate local names
 require an ID. Confirmation always uses the **current shared name**, which may
 differ from the local alias. `--yes` does not replace `--confirm`.
-The command does not retry an uncertain response. Refresh the authorized catalog
+Network failures and malformed replies after deletion dispatch report `outcome_unknown`;
+they do not establish refusal. The command does not retry an uncertain response. Refresh the authorized catalog
 before deciding on any further action; a lost response is not proof of failure.
 
 Hosted deletion leaves local registration and files intact. Separately run
 `mdbase collection remove <name-or-id>` to unregister the local folder; `remove`
 does not delete the hosted collection or local files.
+The success message prints the corresponding `mdbase collection remove <id>` command.
+Acknowledged deletion adds a `collection_deleted` entry to local activity;
+refused or unknown outcomes do not add a success entry.
 
 ## Validation and privacy
 
