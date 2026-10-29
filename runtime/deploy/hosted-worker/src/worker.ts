@@ -1217,7 +1217,10 @@ export class HostedCollection extends DurableObject<Env> {
     if (url.pathname === "/v1/hosted/collection-mode/ready" || url.pathname === "/v1/hosted/collection-mode/retire") {
       const input = await modeServiceRequest(request, (this.env as Env & { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN);
       if (input instanceof Response) return input;
-      if (input.collection !== collection) return modeUnavailable();
+      if (input.collection !== collection) {
+        if (this.env.LAB === "1") console.info(JSON.stringify({ event: "collection_mode_not_ready", reason: "actor_collection_mismatch" }));
+        return modeUnavailable();
+      }
       if (url.pathname.endsWith("/retire")) {
         // Join any existing open OUTSIDE the short storage-only critical section.
         try { if (this.opening) await this.opening; } catch { /* Refusal may already retire it. */ }
@@ -1662,7 +1665,10 @@ export default {
     }
     if (url.pathname === "/internal/v1/collection-mode/ready" || url.pathname === "/internal/v1/collection-mode/retire") {
       const input = await modeServiceRequest(request,e.HOSTED_SERVICE_TOKEN);
-      if (input instanceof Response) return input;
+      if (input instanceof Response) {
+        if (e.LAB === "1" && input.status === 503) console.info(JSON.stringify({ event: "collection_mode_not_ready", reason: "invalid_internal_request" }));
+        return input;
+      }
       const operation = url.pathname.endsWith("/ready") ? "ready" : "retire";
       const stub = namedStub(env.COLLECTIONS,input.collection,hint);
       const headers = new Headers(request.headers); headers.delete("content-length");
