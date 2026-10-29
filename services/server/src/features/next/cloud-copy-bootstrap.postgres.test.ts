@@ -2,12 +2,13 @@ import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { registerConnectorPairingRoutes } from "../connectors/pairing-routes.js";
-import { acceptHostedCollectionInvitation, createHostedCollectionInvitation } from "../../collection-invitations.js";
+import { createHostedCollectionInvitation } from "../../collection-invitations.js";
+import { registerHostedSharingRoutes } from "../hosted/sharing-routes.js";
 import { createHostedCollectionMembership } from "../../collection-policy.js";
 import { revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
 import { registerPeopleRoutes } from "../account/people-routes.js";
@@ -181,6 +182,7 @@ describePg("cloud-copy bootstrap", () => {
     registerMigrationProviderRoutes(app, { db, token: "synthetic-migration-target-token", bootstrap: { next: config, emitter, log: client, fetchImpl: deployments.fetch },
       provider: { legacyMigrationDrain: unused, legacyMigrationSource: unused, legacyMigrationFence: unused,
         legacyMigrationPlacement: async () => ({ timezone: "UTC", ownerTimezones: ["Europe/Berlin", "America/Denver"] }) } });
+    registerHostedSharingRoutes(app, { db, hostedCollections: true, hostedSharing: true, nativePolicyEmitter: emitter });
     registerCollectionLogTokenRoute(app,{db,log:client});
     registerPeopleRoutes(app,{db,issuer:"https://identity.test",publicUrl:"https://connect.test"});
   }, 60_000);
@@ -855,7 +857,7 @@ describePg("cloud-copy bootstrap", () => {
     }
     expect((await create(owner,await proof(owner,collection))).statusCode).not.toBe(200);
   });
-  async function recentlyAcceptedShare() {
+  it("publishes accepted membership before the recipient immediately joins", async () => {
     const owner = await identity(), member = await identity(), collection = randomUUID();
     expect((await create(owner, await proof(owner, collection))).statusCode).toBe(200);
     for (const who of [owner, member]) {
@@ -866,60 +868,12 @@ describePg("cloud-copy bootstrap", () => {
     await db.query("INSERT INTO account_entitlement_grants(id,user_id,profile_code,source,source_reference) VALUES($1,$2,'beta_v1','operator',$3)", [randomUUID(), owner.connector.user_id, randomUUID()]);
     await db.query("INSERT INTO account_storage_accounts(user_id,provider_account_id) VALUES($1,$2)", [owner.connector.user_id, randomUUID()]);
     const invitation = await createHostedCollectionInvitation(db, { collectionId: collection, actorUserId: owner.connector.user_id, role: "editor", target: { email: `${member.connector.user_id}@example.test` } });
-    await acceptHostedCollectionInvitation(db, { userId: member.connector.user_id, token: invitation.token });
-    return { owner, member, collection };
-  }
-
-  it("joins immediately after acceptance by publishing the pending membership once", async () => {
-    const { member, collection } = await recentlyAcceptedShare();
+    const accepted = await app.inject({ method: "POST", url: "/v1/hosted/collection-invitations/accept", headers: await session(member.connector.user_id), payload: { token: invitation.token } });
+    expect(accepted.statusCode, accepted.body).toBe(201);
     const pending = await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND batch_id IS NULL", [collection]);
-    expect(pending.rows).toHaveLength(1);
+    expect(pending.rows).toHaveLength(0);
     const joined = await join(member, collection, await joinProof(member, collection));
     expect(joined.statusCode, joined.body).toBe(200);
-    expect((await db.query(ENROLMENT_SQL, [collection, member.device])).rows).toHaveLength(1);
-  });
-
-  it("reports publication failure as not ready and rechecks authority after publication", async () => {
-    const { member, collection } = await recentlyAcceptedShare();
-    const publish = emitter.publishCommitted.bind(emitter);
-    const publication = vi.spyOn(emitter, "publishCommitted");
-    try {
-      publication.mockRejectedValueOnce(new Error("log unavailable"));
-      const deferred = await join(member, collection, await joinProof(member, collection));
-      expect(deferred.statusCode, deferred.body).toBe(503);
-      expect(deferred.json().error.code).toBe("not_ready");
-      expect((await db.query(ENROLMENT_SQL, [collection, member.device])).rows).toHaveLength(0);
-      publication.mockImplementationOnce(async id => {
-        await publish(id);
-        await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1", [member.connector.id]);
-      });
-      const revoked = await join(member, collection, await joinProof(member, collection));
-      expect(revoked.statusCode, revoked.body).toBe(403);
-      expect((await db.query(ENROLMENT_SQL, [collection, member.device])).rows).toHaveLength(0);
-      expect(publication).toHaveBeenCalledTimes(2);
-    } finally {
-      publication.mockRestore();
-    }
-  });
-
-  it("still refuses a recent recipient removed before joining", async () => {
-    const { member, collection } = await recentlyAcceptedShare();
-    await queueNextPolicy(db, collection, [{ op: "member-remove", account: member.connector.user_id }]);
-    const joined = await join(member, collection, await joinProof(member, collection));
-    expect(joined.statusCode, joined.body).toBe(409);
-    expect(joined.json().error.code).toBe("not_member");
-    expect((await db.query(ENROLMENT_SQL, [collection, member.device])).rows).toHaveLength(0);
-  });
-
-  it("does not retry an old acceptance or an invalid device proof", async () => {
-    const { member, collection } = await recentlyAcceptedShare();
-    const invalid = await joinProof(member, collection);
-    const denied = await join(member, collection, { ...invalid, sig: "00".repeat(64) });
-    expect(denied.statusCode).toBe(403);
-    await db.query("UPDATE collection_invitations SET accepted_at=now()-interval '1 minute' WHERE collection_id=$1", [collection]);
-    const joined = await join(member, collection, await joinProof(member, collection));
-    expect(joined.statusCode, joined.body).toBe(409);
-    expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND batch_id IS NULL", [collection])).rows).toHaveLength(1);
   });
 
   it("refuses pending additions/removals and suspension while admitting acknowledged ordinary members",async()=>{

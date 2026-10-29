@@ -120,6 +120,18 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     ]);
   });
 
+  it("does not turn a committed acceptance into a failed consumed link when publication is unavailable", async () => {
+    const f = await fixture(), invitation = await invite(f);
+    publishCommitted.mockRejectedValueOnce(new Error("log unavailable"));
+    const accepted = await app.inject({ method: "POST", url: "/v1/hosted/collection-invitations/accept", headers: await session(f.member.id), payload: { token: invitation.token } });
+    expect(accepted.statusCode, accepted.body).toBe(201);
+    expect(publishCommitted).toHaveBeenLastCalledWith(f.collection);
+    expect(await memberOps(f)).toEqual([{ op: "member-set", account: f.member.id, role: "editor" }]);
+    const retry = await app.inject({ method: "POST", url: "/v1/hosted/collection-invitations/accept", headers: await session(f.member.id), payload: { token: invitation.token } });
+    expect(retry.statusCode).toBe(400);
+    expect(await memberOps(f)).toHaveLength(1);
+  });
+
   it("accepts an invitation concurrently once, reserving one seat and enqueueing one member", async () => {
     const f = await fixture(), invitation = await invite(f);
     const results = await Promise.allSettled([0, 1].map(() => acceptHostedCollectionInvitation(db, { userId: f.member.id, token: invitation.token })));

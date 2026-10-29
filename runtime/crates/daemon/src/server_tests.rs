@@ -1047,6 +1047,40 @@ async fn loopback_port_busy_only_after_the_old_service_was_fenced() {
     assert_eq!(loopback_check(true, addr).await.status, "ok");
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn add_validates_folder_derived_names_before_registration() {
+    let dir = crate::testutil::TestDir::new("derived-name");
+    let folders = crate::testutil::TestDir::new("derived-folders");
+    let d = paired_daemon(&dir).await;
+    let before = d.inner.lock().await.registry.clone();
+    for bad in [
+        "x".repeat(201),
+        "a\nb".into(),
+        "a\u{2028}b".into(),
+        "a\u{2029}b".into(),
+    ] {
+        let path = folders.path().join(bad);
+        std::fs::create_dir(&path).unwrap();
+        let error = d
+            .add(crate::control::AddCollection { path, name: None })
+            .await
+            .unwrap_err();
+        assert_eq!(error.reason.as_deref(), Some("name"));
+    }
+    assert_eq!(d.inner.lock().await.registry, before);
+    let path = folders.path().join("valid");
+    std::fs::create_dir(&path).unwrap();
+    let added = d
+        .add(crate::control::AddCollection { path, name: None })
+        .await
+        .unwrap();
+    assert_eq!(added["name"], "valid");
+    for host in d.inner.lock().await.hosts.iter_mut() {
+        host.close().await;
+    }
+}
+
 /// `collection.update` renames and describes a collection, persists it, and
 /// refuses names that could mislead an approval screen.
 #[tokio::test]
@@ -1079,7 +1113,15 @@ async fn update_renames_and_describes_and_persists() {
     let s = d.update_collection(update(None, Some(""))).await.unwrap();
     assert_eq!(s["name"], "Workouts");
     assert!(s.get("description").is_none());
-    for bad in ["", "   ", "Notes\u{202e}gpj", "a\nb", &"x".repeat(101)] {
+    for bad in [
+        "",
+        "   ",
+        "Notes\u{202e}gpj",
+        "a\nb",
+        "a\u{2028}b",
+        "a\u{2029}b",
+        &"x".repeat(101),
+    ] {
         let e = d
             .update_collection(update(Some(bad), None))
             .await

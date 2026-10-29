@@ -61,12 +61,10 @@ export function watchPairingCollections<T>(options: {
       refreshing = false;
     }
   }
-  const timer = window.setInterval(() => void refresh(), 2_000);
   window.addEventListener("focus", refresh);
   document.addEventListener("visibilitychange", refresh);
   return () => {
     lifetime.abort();
-    window.clearInterval(timer);
     window.removeEventListener("focus", refresh);
     document.removeEventListener("visibilitychange", refresh);
   };

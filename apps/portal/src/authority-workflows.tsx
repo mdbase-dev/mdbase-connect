@@ -102,7 +102,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       onCollections: collections => setPairing(previous => !previous || JSON.stringify(previous.collections) === JSON.stringify(collections)
         ? previous : { ...previous, collections }),
     });
-  }, [pairing?.installation_device, pairing?.account_selection_confirmed, pairing?.attested, pairing?.approved_at, outcome, busy, inspectionPath, attempt]);
+  }, [pairing?.installation_device, pairing?.account_selection_confirmed, pairing?.attested, pairing?.approved_at, outcome, busy, inspectionPath]);
 
   // Read-only portal progress: the SDK owns attestation and approval-receipt
   // polling. Do not make the user manually refresh to discover its device key.

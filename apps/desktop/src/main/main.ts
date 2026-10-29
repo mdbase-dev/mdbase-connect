@@ -329,10 +329,6 @@ function registerIpc(): void {
       ...(value.acceptTakeoverHolds ? ["--accept-takeover-holds"] : [])
     ], 600_000));
   });
-  ipcMain.handle("connect:collections:sync-disable", async (event, collectionId: unknown) => {
-    trustedIpc(event);
-    return requestReadyAgent("sync.disable", { collection: collectionIdOf(collectionId) }, 600_000);
-  });
   ipcMain.handle("connect:collections:holds", async (event, collectionId: unknown) => {
     trustedIpc(event);
     return requestReadyAgent("collection.holds", { collection: collectionIdOf(collectionId) }, 15_000);

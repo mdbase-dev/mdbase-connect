@@ -2002,16 +2002,11 @@ impl Daemon {
                 ),
             ));
         }
-        let name = p
-            .name
-            .as_deref()
-            .map(display_name)
-            .transpose()?
-            .unwrap_or_else(|| {
-                root.file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| root.display().to_string())
-            });
+        let name = display_name(&p.name.unwrap_or_else(|| {
+            root.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| root.display().to_string())
+        }))?;
         let (id, replica_id, origin) = match claim {
             FolderClaim::Ours {
                 collection,
@@ -2184,6 +2179,11 @@ impl Daemon {
             ));
         }
         let root = canonical_dir(&p.path)?;
+        let name = display_name(&p.name.unwrap_or_else(|| {
+            root.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| root.display().to_string())
+        }))?;
         if registry::overlaps(&root, &self.profile.state_dir) {
             return Err(ControlError::invalid(
                 "overlapping_state_dir",
@@ -2258,16 +2258,6 @@ impl Daemon {
             ));
         }
         self.write_link(&id, &collection, &trust, state, log_url, genesis)?;
-        let name = p
-            .name
-            .as_deref()
-            .map(display_name)
-            .transpose()?
-            .unwrap_or_else(|| {
-                root.file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| root.display().to_string())
-            });
         let entry = Entry {
             id: id.clone(),
             name,
@@ -5327,7 +5317,8 @@ fn checked_name(value: &str, what: &str) -> Result<String, ControlError> {
     let v = value.trim();
     if v.is_empty()
         || v.chars().count() > 100
-        || v.chars().any(|c| c.is_control() || is_bidi_control(c))
+        || v.chars()
+            .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') || is_bidi_control(c))
     {
         return Err(ControlError::invalid(
             "name",

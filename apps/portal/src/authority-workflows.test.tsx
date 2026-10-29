@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "./test/render";
+import { fireEvent, render, screen, waitFor, within } from "./test/render";
 import { describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
 import { api } from "./api";
@@ -21,26 +21,17 @@ describe("approval collection chooser",()=>{
     expect(vi.mocked(api).mock.calls.every(([, options]) => !options?.method)).toBe(true);
   });
 
-  it("refreshes the chooser while open and stops polling after unmount", async () => {
+  it("refreshes on visibility change and stops listening after unmount", async () => {
     const view = await show();
     const pairing = (await vi.mocked(api).mock.results[0]!.value).pairing;
-    vi.useFakeTimers();
-    try {
-      // Mount again with fake timers so the refresh interval is controlled.
-      view.unmount();
-      vi.mocked(api).mockResolvedValue({ pairing });
-      const next = render(<Pairing pairingId="pairing" />);
-      await act(async () => {});
-      vi.mocked(api).mockResolvedValue({ pairing: { ...pairing, collections: [...collections, { collection_id: "shared", display_name: "Newly shared notes", role: "editor" }] } });
-      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
-      expect(screen.getByRole("option", { name: "Newly shared notes" })).toBeInTheDocument();
-      next.unmount();
-      const calls = vi.mocked(api).mock.calls.length;
-      await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
-      expect(vi.mocked(api)).toHaveBeenCalledTimes(calls);
-    } finally {
-      vi.useRealTimers();
-    }
+    vi.mocked(api).mockResolvedValue({ pairing: { ...pairing, collections: [...collections, { collection_id: "shared", display_name: "Newly shared notes", role: "editor" }] } });
+    fireEvent(document, new Event("visibilitychange"));
+    expect(await screen.findByRole("option", { name: "Newly shared notes" })).toBeInTheDocument();
+    view.unmount();
+    const calls = vi.mocked(api).mock.calls.length;
+    fireEvent(window, new Event("focus"));
+    fireEvent(document, new Event("visibilitychange"));
+    expect(vi.mocked(api)).toHaveBeenCalledTimes(calls);
   });
 
   it("replaces the native select with one combobox/listbox and an explicit creation button",async()=>{

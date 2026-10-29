@@ -69,7 +69,6 @@ export interface CollectionPresentation {
   detail?: string;
   dot: ConnectionDotState;
   canEnableSync: boolean;
-  canDisableSync: boolean;
   paused: boolean;
   holds: number;
 }
@@ -112,7 +111,6 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
   const base = {
     mode: MODES[collection.mode] ?? collection.mode,
     canEnableSync: collection.mode === "local" && collection.state === "ready",
-    canDisableSync: collection.mode !== "local" && collection.state === "ready",
     paused: collection.state === "paused",
     holds
   };
