@@ -25,6 +25,10 @@ use crate::paths::Profile;
 use crate::registry::SyncMode;
 use crate::server::{self, RunError};
 
+#[cfg(test)]
+#[path = "cli_delete_tests.rs"]
+mod collection_delete_tests;
+
 /// How long `daemon start` waits for readiness.
 pub const START_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -57,7 +61,7 @@ enum Command {
     /// Manage the background daemon.
     #[command(subcommand)]
     Daemon(DaemonCmd),
-    /// Register, list and remove collections.
+    /// Register folders and manage local and synced collections.
     #[command(subcommand)]
     Collection(CollectionCmd),
     /// What changed on this computer recently (collections, app access, account).
@@ -173,10 +177,19 @@ enum CollectionCmd {
         #[arg(long)]
         private: bool,
     },
-    /// Unregister a collection. Its files are never touched.
+    /// Unregister a local folder. Does not delete the synced collection or files.
     Remove {
         /// Collection ID, ID prefix or name.
         collection: String,
+    },
+    /// Permanently delete a synced collection from your account. Local files and
+    /// registration are kept; use `remove` separately to unregister the folder.
+    Delete {
+        /// Registered name, ID prefix, or full synced collection ID.
+        collection: String,
+        /// Type the collection's current shared name to confirm deletion.
+        #[arg(long, value_name = "NAME")]
+        confirm: String,
     },
     /// Rename a collection or change its description. Files are untouched.
     Update {
@@ -557,7 +570,19 @@ async fn call(profile: &Profile, method: &str, params: Value) -> Result<Value, C
     } else {
         crate::client::CALL_TIMEOUT
     };
-    c.call_within(method, params, timeout).await
+    // Authentication/connect failures above happen before deletion dispatch.
+    // Once dispatch is attempted, a missing/invalid reply cannot prove refusal.
+    match c.call_within(method, params, timeout).await {
+        Err(ClientError::Io(_) | ClientError::Protocol(_) | ClientError::Timeout)
+            if method == Method::COLLECTION_DELETE =>
+        {
+            Err(ClientError::Remote(ControlError::unavailable(
+                "outcome_unknown",
+                "The deletion outcome is unknown. Check this collection in your account before taking further action; do not automatically retry.",
+            )))
+        }
+        other => other,
+    }
 }
 
 /// `migrate start` answers only after the takeover run: the journal drain alone may
@@ -714,6 +739,28 @@ async fn run_command(
                 out.value(&v);
             } else {
                 println!("Unregistered {id}. Its files were not touched.");
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Collection(CollectionCmd::Delete {
+            collection,
+            confirm,
+        }) => {
+            let id = match crate::attest::uuid_bytes(&collection.to_ascii_lowercase()) {
+                Some(id) => crate::secrets::uuid_string(&id),
+                None => resolve(profile, &collection).await?,
+            };
+            let v = call(
+                profile,
+                Method::COLLECTION_DELETE,
+                json!({ "collection": id, "confirm_name": confirm }),
+            )
+            .await?;
+            if out.json {
+                out.value(&v);
+            } else {
+                println!("Deleted synced collection {id}. Local files and registration were kept.");
+                println!("To unregister the local folder, run `mdbase collection remove {id}`.");
             }
             Ok(ExitCode::SUCCESS)
         }
