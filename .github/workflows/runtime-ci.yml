@@ -1,0 +1,355 @@
+# Existing runtime source qualification; no credentials, signing or deployment.
+name: Runtime CI
+on:
+  pull_request:
+    paths: ['runtime/**', '.github/workflows/runtime-ci.yml']
+  push:
+    branches: [main]
+    paths: ['runtime/**', '.github/workflows/runtime-ci.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: runtime-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+defaults:
+  run:
+    working-directory: runtime
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_NET_RETRY: '10'
+  WRANGLER_SEND_METRICS: 'false'
+jobs:
+  wasm:
+    name: wasm (build, size budget, determinism)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtime -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            runtime/tools/wasm/package-lock.json
+            runtime/packages/sdk/package-lock.json
+            runtime/tools/browser-smokes/package-lock.json
+      - name: Install pinned wasm-opt (binaryen)
+        run: npm ci --prefix tools/wasm --no-audit --no-fund
+      - name: clippy for wasm32, portable crates (-D warnings)
+        run: >-
+          cargo clippy --locked --target wasm32-unknown-unknown
+          -p mdbn-core -p mdbn-wire -p mdbn-replica -p mdbn-store-file -p mdbn-migrate-portable -p mdbn-wasm
+          -p mdbn-log-service -p mdbase-wasm
+          -- -D warnings
+      - name: build runtime.wasm (wasm-release + wasm-opt -Oz)
+        run: cargo xtask wasm
+      - name: size report regressions (no size gate)
+        run: node --test scripts/wasm-size.test.mjs
+      - name: size report (no size gate)
+        run: cargo xtask wasm-size
+      - name: determinism (native vs WASM replay)
+        run: cargo xtask determinism
+      - name: dedicated app runtime (feature tests, wasm32 clippy, size report, real SQLite ABI)
+        run: cargo xtask wasm-app
+      - name: Install isolated browser smoke tooling
+        run: |
+          npm ci --prefix tools/browser-smokes --no-audit --no-fund
+          npm exec --prefix tools/browser-smokes -- playwright install --with-deps chromium
+      - name: Native SDK and browser custody smokes
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/runtime/tools/browser-smokes/node_modules/playwright/index.mjs
+        run: |
+          mkdir -p target/app-handover-ci
+          cargo test --locked -p mdbn-replica handover_production_fixture_for_app_smoke -- --nocapture > target/app-handover-ci/test.log
+          node packages/sdk/scripts/prepare-app-handover-fixture.mjs target/app-handover-ci/test.log target/app-handover-ci
+          timeout 120s node packages/sdk/scripts/app-runtime-smoke.mjs target/wasm/app-runtime.wasm
+          timeout 120s node packages/sdk/scripts/app-handover-smoke.mjs target/wasm/app-runtime.wasm target/app-handover-ci/fixture.cbor target/app-handover-ci/policy-pins.cbor
+          timeout 120s node packages/sdk/scripts/app-noise-idb-smoke.mjs target/wasm/app-runtime.wasm
+          timeout 120s node packages/sdk/scripts/app-device-key-custody-smoke.mjs target/wasm/app-runtime.wasm
+      - uses: actions/upload-artifact@v7
+        with:
+          name: runtime-wasm
+          path: |
+            runtime/target/wasm/runtime.wasm
+            runtime/target/wasm/app-runtime.wasm
+          retention-days: 7
+
+  sdk:
+    name: sdk execution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: runtime/packages/sdk
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            runtime/packages/sdk/package-lock.json
+            runtime/tools/wasm/package-lock.json
+            runtime/tools/browser-smokes/package-lock.json
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        working-directory: runtime
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtime -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install pinned wasm-opt (binaryen)
+        working-directory: runtime
+        run: npm ci --prefix tools/wasm --no-audit --no-fund
+      - name: Build required SDK integration runtime and trust verifier
+        working-directory: runtime
+        run: cargo xtask wasm && cargo build -p mdbn-trust --locked
+      - name: Managed native trust compiler-input regressions (real shared verifier)
+        working-directory: runtime
+        run: node --test scripts/build-managed-native-trust.test.mjs
+      - name: install
+        run: npm ci --no-audit --no-fund
+      - name: typecheck
+        run: npm run typecheck
+      - name: build
+        run: npm run build
+      - name: tests (incl. conformance/wire golden fixtures)
+        run: npm test
+      - name: Managed application packaging (real shared verifier; synthetic custody only)
+        run: node --test scripts/production-application.node-test.mjs
+      - name: cold npm consumers (normal pack, empty install roots and caches)
+        run: npm run check:npm-consumer
+      - name: Browser storage and lifecycle smokes
+        working-directory: runtime
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/runtime/tools/browser-smokes/node_modules/playwright/index.mjs
+        run: |
+          npm ci --prefix tools/browser-smokes --no-audit --no-fund
+          npm exec --prefix tools/browser-smokes -- playwright install --with-deps chromium
+          node --test packages/sdk/scripts/prepare-app-handover-fixture.node-test.mjs
+          for smoke in app-storage app-sqlite app-owner keys-mv3 app-private-persistence app-cloud-copy-outcome; do
+            timeout 120s node "packages/sdk/scripts/$smoke-smoke.mjs"
+          done
+      - name: thin-client bundle size
+        run: npm run size
+
+  obsidian:
+    name: obsidian runtime execution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: runtime/packages/obsidian-runtime
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            runtime/packages/sdk/package-lock.json
+            runtime/packages/obsidian-runtime/package-lock.json
+      - name: build SDK storage dependency
+        working-directory: runtime/packages/sdk
+        run: npm ci --no-audit --no-fund && npm run build
+      - name: install
+        run: npm ci --no-audit --no-fund
+      - name: typecheck
+        run: npm run typecheck
+      - name: tests
+        run: npm test
+      - name: build
+        run: npm run build
+
+  hosted-worker:
+    name: Hosted worker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: mdbn
+          POSTGRES_PASSWORD: mdbn
+          POSTGRES_DB: mdbn_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mdbn" --health-interval 2s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        working-directory: runtime/deploy/hosted-worker
+    steps:
+      - uses: actions/checkout@v5
+
+      # hosted.wasm and the public app fixture are pure functions of the Rust
+      # sources, so reuse them while those are unchanged and skip cargo entirely.
+      - name: Restore hosted.wasm and public fixture (keyed by Rust sources)
+        id: wasm-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            runtime/deploy/hosted-worker/hosted.wasm
+            runtime/deploy/hosted-worker/.ci/fixture.json
+          key: hosted-worker-wasm-v1-${{ hashFiles('runtime/crates/**', 'runtime/conformance/**', 'runtime/Cargo.toml', 'runtime/Cargo.lock', 'runtime/rust-toolchain.toml', 'runtime/.cargo/**', '.github/workflows/runtime-ci.yml') }}
+
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        working-directory: runtime
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        with:
+          workspaces: runtime -> target
+          shared-key: hosted-worker
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Same command as build-wasm.sh, with local cargo instead of the remote builder.
+      - name: Build hosted.wasm (wasm32, wasm-release)
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo build --locked --target wasm32-unknown-unknown --profile wasm-release -p mdbn-hosted-worker
+          cp ../../target/wasm32-unknown-unknown/wasm-release/mdbn_hosted_worker.wasm hosted.wasm
+      - name: Generate the public fixed-value app fixture (lab_fixture 0e app)
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .ci
+          cargo run --quiet --locked -p mdbn-hosted-worker --example lab_fixture -- 0e app > .ci/fixture.json
+
+      - name: Fixture manifest and WASM digest
+        run: |
+          sha256sum hosted.wasm .ci/fixture.json
+          node -e '
+            const { readFileSync, writeFileSync } = require("node:fs");
+            const sha256 = require("node:crypto").createHash("sha256").update(readFileSync(".ci/fixture.json")).digest("hex");
+            writeFileSync(".ci/fixture.manifest.json", JSON.stringify({ publicFixedTestValuesOnly: true, managedCompositionQualified: false, sha256 }));
+          '
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: runtime/deploy/hosted-worker/package-lock.json
+      - name: install (pinned workerd, wrangler, esbuild)
+        run: npm ci --no-audit --no-fund
+
+      - name: tests (node + workerd, real Postgres; no skips allowed)
+        env:
+          MDBASE_HOSTED_LEGACY_TEST_PG: postgres://mdbn:mdbn@127.0.0.1:5432/mdbn_test
+          LEGACY_HOLD_PG_TEST_URL: postgres://mdbn:mdbn@127.0.0.1:5432/hold_frontend_test
+        run: |
+          set -o pipefail
+          # Separate database: hold composition counts backends and deletes its
+          # own source row while the other Postgres tests run concurrently.
+          node --input-type=module -e '
+            import { Client } from "pg";
+            const client = new Client({ connectionString: process.env.MDBASE_HOSTED_LEGACY_TEST_PG });
+            await client.connect();
+            try { await client.query("CREATE DATABASE hold_frontend_test"); }
+            finally { await client.end(); }
+          '
+          npm test 2>&1 | tee "$RUNNER_TEMP/hosted-worker-test.log"
+          # A missing hosted.wasm or Postgres turns tests into skips, not failures.
+          grep -Eq '^(#|ℹ) skipped 0$' "$RUNNER_TEMP/hosted-worker-test.log" || { echo "::error::hosted worker tests were skipped"; exit 1; }
+
+      - name: native workerd migration qualification
+        run: |
+          HOSTED_WASM="$PWD/hosted.wasm" PITR_APP_FIXTURE="$PWD/.ci/fixture.json" \
+            timeout 600s node --experimental-transform-types test/migration-native-workerd.mjs
+
+      - name: upload failed-run evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hosted-worker-test-state
+          path: runtime/deploy/hosted-worker/.test-state/
+          if-no-files-found: ignore
+          retention-days: 7
+  conformance:
+    name: logsvc DO (wasm32, local conformance, restart replay)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_NET_RETRY: '10'
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install pinned toolchain
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            runtime -> target
+            runtime/deploy/cloudflare-do -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/cache-cargo-install-action@v2
+        with:
+          tool: worker-build@0.8.7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: runtime/deploy/cloudflare-do/package-lock.json
+      - name: Install pinned Wrangler
+        run: npm ci --prefix deploy/cloudflare-do --no-audit --no-fund
+      - name: DO rustfmt
+        run: cargo fmt --manifest-path deploy/cloudflare-do/Cargo.toml --check
+      - name: Build Worker (wasm32)
+        working-directory: runtime/deploy/cloudflare-do
+        run: worker-build --release --locked
+      - name: Build wire conformance client
+        run: cargo build --locked -p mdbn-log-conformance --bin logsvc-bench
+      - name: Local DO conformance and restart regression
+        working-directory: runtime/deploy/cloudflare-do
+        env:
+          LOGSVC_BENCH: ../../target/debug/logsvc-bench
+        run: npm test
+      - name: Bundle checksums and source revision
+        working-directory: runtime/deploy/cloudflare-do
+        run: |
+          git rev-parse HEAD > build/SOURCE_REVISION
+          cp wrangler.jsonc build/wrangler.jsonc
+          python3 -B - <<'PY'
+          import json, os, pathlib
+          source = pathlib.Path("build/SOURCE_REVISION").read_text().strip()
+          assert source == os.environ["GITHUB_SHA"]
+          metadata = {
+              "schema": "mdbase-next-log-worker-build/1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "workflow": "runtime-ci.yml",
+              "source_revision": source,
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+          }
+          pathlib.Path("build/BUILD.json").write_text(json.dumps(metadata, sort_keys=True) + "\n")
+          PY
+          cd build
+          sha256sum index.js index_bg.wasm package.json worker/shim.mjs SOURCE_REVISION BUILD.json wrangler.jsonc > SHA256SUMS
+      - name: Upload tested Worker bundle (unsigned; ops attests/releases)
+        uses: actions/upload-artifact@v7
+        with:
+          name: logsvc-do-worker-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            runtime/deploy/cloudflare-do/build/index.js
+            runtime/deploy/cloudflare-do/build/index_bg.wasm
+            runtime/deploy/cloudflare-do/build/package.json
+            runtime/deploy/cloudflare-do/build/worker/shim.mjs
+            runtime/deploy/cloudflare-do/build/SOURCE_REVISION
+            runtime/deploy/cloudflare-do/build/BUILD.json
+            runtime/deploy/cloudflare-do/build/wrangler.jsonc
+            runtime/deploy/cloudflare-do/build/SHA256SUMS
+          retention-days: 14
+      - name: Runtime diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logsvc-do-runtime-diagnostics
+          include-hidden-files: true
+          path: runtime/deploy/cloudflare-do/.wrangler/runtime-test-*/wrangler.log
+          retention-days: 7

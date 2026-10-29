@@ -127,11 +127,11 @@ pub struct Stats {
     /// Attachment-class files not hashed again: unchanged size, times and
     /// file ID since their last hash.
     pub hashes_reused: u64,
-    /// Entries the last full walk found and did not ingest because they are
-    /// neither files nor directories: symlinks (never followed),
-    /// FIFOs, sockets and names that are not UTF-8. Hidden and excluded
-    /// entries are not counted.
+    /// Links, special files and unsupported names in the last full walk.
+    /// Hidden, dependency and explicitly excluded entries are not counted.
     pub unsupported_entries: u64,
+    /// Paths that cannot be indexed, from directory scans and file observations.
+    pub unsupported_paths: BTreeMap<String, String>,
     /// Creates whose path already held exactly the new bytes, recorded
     /// without writing.
     pub already_held: u64,
@@ -521,11 +521,19 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             None => {
                 if self.rescan {
                     let mut found = BTreeSet::new();
-                    let mut unsupported = 0;
+                    let mut unsupported = BTreeMap::new();
                     self.walk(&RelPath::ROOT, &settings, &mut found, &mut unsupported)
                         .await?;
                     self.rescan = false;
-                    self.stats.unsupported_entries = unsupported;
+                    self.stats.unsupported_entries = unsupported.len() as u64;
+                    unsupported.extend(
+                        self.stats
+                            .unsupported_paths
+                            .iter()
+                            .filter(|(path, _)| found.contains(*path))
+                            .map(|(path, reason)| (path.clone(), reason.clone())),
+                    );
+                    self.stats.unsupported_paths = unsupported;
                     for p in self.disk.keys().chain(self.seen.keys()) {
                         if !found.contains(p) {
                             todo.insert(p.clone(), false);
@@ -554,7 +562,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 let Ok(rp) = RelPath::new(p.clone()) else {
                     continue;
                 };
-                if !self.included(&rp, &settings) {
+                if self.excluded(&rp, &settings) {
                     continue;
                 }
             }
@@ -1474,28 +1482,42 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         ext.is_some_and(|e| self.cfg.text_extensions.contains(&e))
     }
 
-    fn included(&self, path: &RelPath, settings: &Option<FileInclusion>) -> bool {
-        if self.is_private(path) {
-            return false;
-        }
-        // Hidden files and folders (.git, .obsidian, .trash, .stfolder, ...)
-        // and anything else the portable-path policy rejects are never
-        // collection content: ingest ignores them, it never holds them.
-        if path.as_str().split('/').any(|seg| seg.starts_with('.'))
-            || crate::platform::portable_violation(path.as_str()).is_some()
-        {
-            return false;
-        }
-        if let Some(s) = settings
-            && let Some(ex) = &s.exclude
-            && ex.iter().any(|e| {
-                let e = e.trim_end_matches('/');
-                path.as_str() == e || path.as_str().starts_with(&format!("{e}/"))
-            })
-        {
-            return false;
-        }
-        true
+    fn excluded(&self, path: &RelPath, settings: &Option<FileInclusion>) -> bool {
+        self.is_private(path)
+            || path.as_str().split('/').any(|seg| seg.starts_with('.'))
+            || matches!(
+                crate::platform::portable_violation(path.as_str()),
+                Some("hidden_path" | "dependency_path")
+            )
+            || settings
+                .as_ref()
+                .and_then(|s| s.exclude.as_ref())
+                .is_some_and(|excluded| {
+                    excluded.iter().any(|e| {
+                        let e = e.trim_end_matches('/');
+                        path.as_str() == e || path.as_str().starts_with(&format!("{e}/"))
+                    })
+                })
+    }
+
+    fn unsupported_name(path: &str) -> Option<String> {
+        use mdbn_core::paths::{PathViolation, check_path};
+        let violation = check_path(path).err()?;
+        Some(match violation {
+            PathViolation::Hidden | PathViolation::Private | PathViolation::Dependency => {
+                return None;
+            }
+            PathViolation::ReservedName => {
+                "Filename uses a Windows reserved name; rename this file to sync it.".into()
+            }
+            PathViolation::ForbiddenCharacter(c) => {
+                format!("Filename contains {c:?}; rename this file to sync it.")
+            }
+            other => format!(
+                "Filename is not supported for sync: {}.",
+                other.reason().replace('_', " ")
+            ),
+        })
     }
 
     async fn walk(
@@ -1503,7 +1525,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         dir: &RelPath,
         settings: &Option<FileInclusion>,
         out: &mut BTreeSet<String>,
-        unsupported: &mut u64,
+        unsupported: &mut BTreeMap<String, String>,
     ) -> StoreResult<()> {
         let mut dirs = vec![dir.clone()];
         while let Some(dir) = dirs.pop() {
@@ -1513,21 +1535,56 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 Err(e) => return Err(fs_err(e)),
             };
             for e in entries {
-                let Ok(p) = dir.join(&e.name) else { continue };
-                if !self.included(&p, settings) {
+                if e.name.starts_with('.') || e.name == "Icon\r" {
                     continue;
                 }
-                match e.kind {
-                    FileKind::Dir => dirs.push(p),
-                    FileKind::File => {
-                        out.insert(p.as_str().to_string());
-                    }
-                    // Never followed or read; counted so the host can say so.
-                    FileKind::Other => *unsupported += 1,
+                let display_path = if dir.is_root() {
+                    e.name.clone()
+                } else {
+                    format!("{dir}/{}", e.name)
+                };
+                if e.kind == FileKind::InvalidName {
+                    unsupported.insert(
+                        display_path,
+                        "Filename is not valid UTF-8 (shown with replacement characters).".into(),
+                    );
+                    continue;
+                }
+                let Ok(p) = dir.join(&e.name) else {
+                    let reason = Self::unsupported_name(&display_path).unwrap_or_else(|| {
+                        "Filename contains unsupported separators or control characters.".into()
+                    });
+                    unsupported.insert(display_path, reason);
+                    continue;
+                };
+                if self.excluded(&p, settings) {
+                    continue;
+                }
+                if let Some(reason) = Self::unsupported_name(p.as_str()) {
+                    unsupported.insert(p.as_str().into(), reason);
+                    continue;
+                }
+                if let Some(reason) = Self::unsupported_kind(e.kind) {
+                    unsupported.insert(p.as_str().into(), reason.into());
+                } else if e.kind == FileKind::Dir {
+                    dirs.push(p);
+                } else {
+                    out.insert(p.as_str().to_string());
                 }
             }
         }
         Ok(())
+    }
+
+    fn unsupported_kind(kind: FileKind) -> Option<&'static str> {
+        match kind {
+            FileKind::Symlink => Some("Symlink not followed."),
+            FileKind::ReparsePoint => Some(
+                "Windows redirected or online-only file is not followed; use a regular local file.",
+            ),
+            FileKind::Other => Some("Special file or path through a linked folder; not synced."),
+            FileKind::File | FileKind::Dir | FileKind::InvalidName => None,
+        }
     }
 
     fn has_ext(path: &str, exts: &[String]) -> bool {
@@ -1802,10 +1859,28 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         quiet_recheck: bool,
     ) -> StoreResult<()> {
         let rp = Self::rel(path)?;
-        let meta = match self.observe_io(|| self.p.stat(&rp)).await? {
+        let stat = self.observe_io(|| self.p.stat(&rp)).await?;
+        if stat.is_ok()
+            && let Some(reason) = Self::unsupported_name(path)
+        {
+            self.stats.unsupported_paths.insert(path.into(), reason);
+            return Ok(());
+        }
+        let meta = match stat {
             Ok(m) if m.kind == FileKind::File => Some(m),
-            Ok(_) => None,
-            Err(e) if e.is_not_found() => None,
+            Ok(m) => {
+                self.stats.unsupported_paths.remove(path);
+                if let Some(reason) = Self::unsupported_kind(m.kind) {
+                    self.stats
+                        .unsupported_paths
+                        .insert(path.into(), reason.into());
+                }
+                None
+            }
+            Err(e) if e.is_not_found() => {
+                self.stats.unsupported_paths.remove(path);
+                None
+            }
             Err(e) => return Err(fs_err(e)),
         };
         // Start the evidence window at original stat completion: suspended
@@ -1814,7 +1889,11 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         let known = self.disk.get(path).cloned();
         let Some(meta) = meta else {
             self.appeared.remove(path);
+            let was_seen = self.seen.contains_key(path);
             self.forget_seen(changes, path);
+            if known.is_none() && was_seen && !self.already_reported(path, None) {
+                self.emit(changes, out, path, None, None, None, None)?;
+            }
             if let Some(k) = known
                 && !self.missing.contains_key(path)
             {
@@ -1831,6 +1910,21 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             }
             return Ok(());
         };
+        if !known
+            .as_ref()
+            .is_some_and(|k| Self::meta_unchanged(k, &meta))
+        {
+            self.stats.unsupported_paths.remove(path);
+        }
+        if Self::has_ext(path, &self.cfg.markdown_extensions) && meta.size > RECORD_CAP_BYTES {
+            self.stats.unsupported_paths.insert(
+                path.into(),
+                format!(
+                    "Too large to index as a note: {} bytes; limit is {RECORD_CAP_BYTES} bytes.",
+                    meta.size
+                ),
+            );
+        }
         // It exists: not missing (any more).
         if self.missing.remove(path).is_some() {
             // Came back (vim-style save, swap window): compare as usual.
@@ -1950,6 +2044,12 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             self.dirty
                 .insert(path.to_string(), self.now() + self.cfg.quiescence_ms);
             return Ok(None);
+        }
+        if self.is_text(path) && std::str::from_utf8(&read.bytes).is_err() {
+            self.stats.unsupported_paths.insert(
+                path.into(),
+                "Not valid UTF-8; cannot be read as text.".into(),
+            );
         }
         let rev = revision(&read.bytes);
         Ok(Some(Seen {
@@ -2734,6 +2834,21 @@ impl<P: FilePlatform + 'static, M: Store, D: DiskDb> Store for FileStore<P, M, D
         }
         Ok(())
     }
+    fn release_disk_observation(&mut self, token: ObservationId) -> StoreResult<()> {
+        self.ensure_commit_available()?;
+        if self
+            .outstanding
+            .get(&token.0)
+            .is_some_and(|o| o.evidence.is_some())
+        {
+            return Err(StoreError::Io(
+                "cannot release retained observation evidence".into(),
+            ));
+        }
+        self.take_outstanding(token.0);
+        Ok(())
+    }
+
     fn defer_disk_observations(&mut self, tokens: &[ObservationId]) -> StoreResult<()> {
         mdbn_replica::mirror_admission::ensure_open(&self.inner)?;
         if tokens.len() > 65536 {

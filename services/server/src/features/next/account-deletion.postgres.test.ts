@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -39,6 +40,7 @@ describePg("account deletion on native collections (dedicated local Postgres)", 
     const sessionToken = randomUUID();
     const id = randomUUID(), connector = randomUUID(), device = randomUUID(), email = `${id}@example.test`;
     await db.query("INSERT INTO users(id,email,name,account_backend,session_epoch) VALUES($1,$2,'Person','next',1)", [id, email]);
+    await ensureDevelopmentEntitlement(db, id);
     await db.query("INSERT INTO email_identities(id,user_id,email,normalized_email,verified_at,is_primary) VALUES($1,$2,$3,$3,now(),true)", [randomUUID(), id, email]);
     await db.query("INSERT INTO account_entitlement_grants(id,user_id,profile_code,source,source_reference) VALUES($1,$2,'beta_v1','operator',$3)", [randomUUID(), id, randomUUID()]);
     await db.query("INSERT INTO sessions(id,user_id,token_hash,provider,account_session_epoch,expires_at) VALUES($1,$2,$3,'password',1,now()+interval '1 day')", [randomUUID(), id, tokenHash(sessionToken)]);

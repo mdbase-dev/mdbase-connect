@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
@@ -79,6 +80,7 @@ describePostgres("Private native collection grants", () => {
   async function user() {
     const id = randomUUID();
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Fixture')", [id, `${id}@example.test`]);
+    await ensureDevelopmentEntitlement(db, id);
     return id;
   }
 

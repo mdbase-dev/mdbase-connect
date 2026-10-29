@@ -217,6 +217,9 @@ impl<S: Store> Store for KeychainKeyring<S> {
     // The wrapper changes key custody, not resource-source authority. Forward
     // the original observation/fence/retention operations (including their
     // borrowed async owners), never the trait's unavailable/no-op defaults.
+    fn release_disk_observation(&mut self, token: ObservationId) -> StoreResult<()> {
+        self.inner.release_disk_observation(token)
+    }
     fn defer_disk_observations(&mut self, tokens: &[ObservationId]) -> StoreResult<()> {
         self.inner.defer_disk_observations(tokens)
     }

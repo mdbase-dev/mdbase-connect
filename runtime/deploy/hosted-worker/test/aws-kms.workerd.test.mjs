@@ -19,12 +19,13 @@ const collection="11111111-1111-4111-8111-111111111111";
 const device="22222222-2222-4222-8222-222222222222";
 const arn=${JSON.stringify(arn)};
 export default { async fetch(incoming) {
-  const explicit=new URL(incoming.url).pathname==="/explicit";
+  const path=new URL(incoming.url).pathname;
+  const explicit=path.endsWith("explicit"), escrow=path.startsWith("/escrow");
   const args=explicit?[fetch]:[]; // productionParts passes raw global fetch explicitly.
-  const kms=new HostedAwsKms({keyArn:arn,region:"ap-southeast-1",environment:"lab",collections:[collection]},
+  const kms=new HostedAwsKms({keyArn:arn,region:"ap-southeast-1",environment:escrow?"staging":"lab",collections:[collection],...(escrow?{role:"escrow"}:{})},
     ()=>({accessKeyId:"A".repeat(20),secretAccessKey:"x".repeat(40)}),...args);
   // Test-only destination substitution: no production endpoint/config change.
-  kms.endpoint=${JSON.stringify(endpoint)};
+  kms.endpoint=${JSON.stringify(endpoint)}+(escrow?"escrow":"");
   try {
     const wrapped=await kms.wrapDeviceKeys({collection,device,secret:new Uint8Array(96)},AbortSignal.timeout(8000));
     return Response.json({ok:true,envelope_bytes:wrapped.envelope.length});
@@ -36,7 +37,7 @@ export default { async fetch(incoming) {
 `;
 }
 
-test("workerd HostedAwsKms default AND factory-style raw transport reach only the loopback KMS", { timeout: 20000 }, async () => {
+test("workerd hosted/staging-escrow contexts with default and raw transport reach only loopback KMS", { timeout: 20000 }, async () => {
   const artifactRoot = resolve(project, "../../.artifacts");
   await mkdir(artifactRoot, { recursive: true, mode: 0o700 });
   const root = await mkdtemp(resolve(artifactRoot, "kms-runtime-"));
@@ -65,7 +66,7 @@ const config :Workerd.Config = (
     const control = createInterface({ input: runtime.stdio[3] });
     const [{ port: workerPort }] = await once(control, "line", { signal: AbortSignal.timeout(5000) }).then(([line]) => [JSON.parse(line)]);
     assert.ok(Number.isInteger(workerPort) && workerPort > 0 && workerPort < 65536);
-    for (const mode of ["/default", "/explicit"]) {
+    for (const mode of ["/default", "/explicit", "/escrow-default", "/escrow-explicit"]) {
       const result = await (await fetch(`http://127.0.0.1:${workerPort}${mode}`, { signal: AbortSignal.timeout(10000) })).json();
       results.push({ mode, result });
     }
@@ -81,5 +82,5 @@ const config :Workerd.Config = (
     assert.equal(result.ok, true, JSON.stringify({ mode, result, counts }));
     assert.ok(result.envelope_bytes > 0);
   }
-  assert.deepEqual(counts, { calls: 2, invalid: 0 });
+  assert.deepEqual(counts, { calls: 4, invalid: 0 });
 });

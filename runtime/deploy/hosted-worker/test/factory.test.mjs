@@ -11,13 +11,13 @@ mock.module("#hosted-release-trust", { namedExports: { appReleaseTrust: () => bu
 // Test-only stand-in for the generated allowlist module (null = source default).
 let allowlistModule = null;
 mock.module("#hosted-kms-collections", { namedExports: { kmsCollections: () => allowlistModule } });
-const { ProductionCustody, hostedPort, productionParts, productionWrapper, ownedCppControlOrigin } = await import("../src/factory.ts");
+const { ProductionCustody, hostedPort, productionParts, serviceDeviceWrapper, ownedCppControlOrigin, migrationDeployment } = await import("../src/factory.ts");
 import { ControlClient } from "../src/control.ts";
 import { LocalSoftwareKms } from "../src/custody/local-kms.ts";
 import { localOrigin } from "../src/local-origin.ts";
 import { connectClient } from "../src/migration-connect.ts";
 import { encodeEnvelope } from "../src/custody/envelope.ts";
-import { KMS_ALLOWLIST_SCHEMA, canonicalKmsAllowlist, kmsAllowlistDigest } from "../src/custody/kms-allowlist.ts";
+import { KMS_ALLOWLIST_SCHEMA, KMS_ALLOW_ALL_TEXT, canonicalKmsAllowlist, kmsAllowlistDigest } from "../src/custody/kms-allowlist.ts";
 
 const full = {
   KMS_KEY_ARN: "arn:aws:kms:eu-west-1:123456789012:key/11111111-1111-4111-8111-111111111111",
@@ -103,8 +103,8 @@ test("fails closed unless fully configured", () => {
   assert.equal(productionParts({ ...full, KMS_ENVIRONMENT: "dev" }), null);
   assert.equal(productionParts({ ...full, AWS_REGION: "us-east-1" }), null, "ARN region must match");
   assert.equal(productionParts({ ...full, CP_URL: "http://cp.test" }), null);
-  assert.equal(productionWrapper(null), null);
-  assert.ok(productionWrapper(productionParts(full)));
+  assert.equal(serviceDeviceWrapper({}, "hosted"), null);
+  assert.ok(serviceDeviceWrapper(full, "hosted"));
 });
 
 test("one collection per DO; replica ID asked once", async () => {
@@ -184,4 +184,118 @@ test("bundled KMS allowlist: digest pinned by KMS_COLLECTIONS_SHA256, wins over 
     assert.equal(reached, 1);
   } finally { allowlistModule = null; }
   assert.equal(productionParts({ ...full, KMS_COLLECTIONS_SHA256: "00".repeat(32) }), null, "declared digest without a bundled module refuses");
+});
+
+test("verified staging/production factory has only the bundled KMS path at 1000 and 10000 entries", async () => {
+  try {
+    for (const environment of ["staging", "production"]) for (const count of [1_000, 10_000]) {
+      bundled = { ...configured, environment };
+      const ids = Array.from({ length: count }, (_, i) => `${(i + 1).toString(16).padStart(8, "0")}-abcd-4000-8000-${(i + 1).toString(16).padStart(12, "0")}`);
+      const text = canonicalKmsAllowlist(ids), sha256 = kmsAllowlistDigest(text);
+      const { KMS_COLLECTIONS: _secret, ...noSecret } = full;
+      const env = { ...noSecret, KMS_ENVIRONMENT: environment, KMS_COLLECTIONS_SHA256: sha256 };
+      allowlistModule = null;
+      assert.equal(productionParts({ ...env, KMS_COLLECTIONS: ids.join(",") }), null, "secret cannot substitute for the module");
+      allowlistModule = Object.freeze({ schema: KMS_ALLOWLIST_SCHEMA, sha256, text });
+      assert.ok(productionParts(env));
+      assert.ok(productionParts({ ...env, KMS_COLLECTIONS: "obsolete malformed binding" }), "inherited binding is not read");
+      assert.equal(productionParts({ ...env, KMS_COLLECTIONS_SHA256: undefined }), null);
+      assert.equal(productionParts({ ...env, KMS_COLLECTIONS_SHA256: "ff".repeat(32) }), null);
+      let calls = 0;
+      const parts = productionParts(env, async () => { calls++; throw Error("offline"); });
+      await assert.rejects(parts.kms.wrapDeviceKeys({ collection: ids[count - 1], device: ids[0], secret: new Uint8Array(96) }, AbortSignal.timeout(1000)), /kms_unavailable/);
+      assert.equal(calls, 1, "the last bundled member reaches KMS");
+      await assert.rejects(parts.kms.wrapDeviceKeys({ collection: full.KMS_COLLECTIONS, device: ids[0], secret: new Uint8Array(96) }, AbortSignal.timeout(1000)), /kms_collection_not_allowed/);
+      assert.equal(calls, 1, "non-member never reaches KMS");
+    }
+  } finally { bundled = configured; allowlistModule = null; }
+});
+
+test("staging escrow requires matching bundled trust, complete KMS and pinned allowlist; never acquires hosted CPP provenance", () => {
+  const staging = { ...configured, environment: "staging", cpOrigin: "https://connect-staging.mdbase.dev", logOrigin: "https://log-staging.mdbase.dev" };
+  const text = canonicalKmsAllowlist([full.KMS_COLLECTIONS]);
+  const sha256 = kmsAllowlistDigest(text);
+  const env = { ...full, KMS_ENVIRONMENT: "staging", CP_URL: staging.cpOrigin, LOG_URL: staging.logOrigin,
+    KMS_COLLECTIONS_SHA256: sha256 };
+  bundled = staging; allowlistModule = { schema: KMS_ALLOWLIST_SCHEMA, text, sha256 };
+  try {
+    const parts = productionParts(env, fetch, "escrow");
+    assert.ok(parts); assert.ok(serviceDeviceWrapper(env, "escrow"));
+    assert.ok(productionParts({ ...env, KMS_COLLECTIONS: "obsolete malformed binding" }, fetch, "escrow"),
+      "managed escrow reads only the authenticated bundled list, never the inherited secret");
+    assert.equal(serviceDeviceWrapper({ ...env, LAB: "1", LAB_CUSTODY_WRAP_KEY: "ab".repeat(32) }, "escrow"), null,
+      "staging trust cannot downgrade into LAB even with a valid stub key");
+    assert.equal(parts.control.cppClaimOriginData(), null);
+    assert.equal(ownedCppControlOrigin(parts.control), null, "escrow is not a hosted migration authority");
+    for (const field of ["KMS_KEY_ARN", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "CP_INBOUND_TOKEN", "KMS_COLLECTIONS_SHA256"]) {
+      assert.equal(productionParts({ ...env, [field]: "" }, fetch, "escrow"), null, field);
+    }
+    for (const change of [{ CP_URL: "https://foreign.test" }, { LOG_URL: "https://foreign.test" },
+      { KMS_ENVIRONMENT: "lab" }, { KMS_ENVIRONMENT: "production" }, { LOCAL_KMS_KEY: "ab".repeat(32) },
+      { KMS_COLLECTIONS_SHA256: "00".repeat(32) }]) {
+      assert.equal(productionParts({ ...env, ...change }, fetch, "escrow"), null);
+    }
+    bundled = null;
+    assert.equal(productionParts(env, fetch, "escrow"), null, "runtime roots/env never replace missing build trust");
+    bundled = configured;
+    assert.equal(productionParts(env, fetch, "escrow"), null, "LAB build trust cannot be relabeled staging");
+    bundled = { ...staging, environment: "lab" };
+    assert.equal(productionParts({ ...env, KMS_ENVIRONMENT: "lab" }, fetch, "escrow"), null,
+      "managed escrow remains DENY with LAB trust");
+    bundled = { ...staging, environment: "production" };
+    assert.ok(productionParts({ ...env, KMS_ENVIRONMENT: "production" }, fetch, "escrow"),
+      "production escrow generation composes with matching production trust");
+    assert.equal(productionParts({ ...env, KMS_ENVIRONMENT: "staging" }, fetch, "escrow"), null, "KMS env must equal the trust environment");
+    assert.equal(productionParts(env, fetch, "other"), null);
+    bundled = staging; allowlistModule = null;
+    assert.equal(productionParts({ ...env, KMS_COLLECTIONS_SHA256: undefined }, fetch, "escrow"), null,
+      "new staging escrow has no legacy secret-only allowlist path");
+  } finally { bundled = configured; allowlistModule = null; }
+});
+
+test("allow-all KMS module: only staging/production CP hosted/escrow deployments of the bundled role compose custody", async () => {
+  const sha256 = kmsAllowlistDigest(KMS_ALLOW_ALL_TEXT);
+  const { KMS_COLLECTIONS: _secret, ...noSecret } = full;
+  const anyCollection = "5a5a5a5a-5a5a-4a5a-8a5a-5a5a5a5a5a5a";
+  try {
+    for (const environment of ["staging", "production"]) for (const role of ["hosted", "escrow"]) {
+      bundled = { ...configured, environment };
+      allowlistModule = Object.freeze({ schema: KMS_ALLOWLIST_SCHEMA, sha256, text: KMS_ALLOW_ALL_TEXT, role });
+      const env = { ...noSecret, KMS_ENVIRONMENT: environment, KMS_COLLECTIONS_SHA256: sha256, SERVICE_KIND: role };
+      let calls = 0;
+      const parts = productionParts(env, async () => { calls++; throw Error("offline"); }, role);
+      assert.ok(parts, `${environment} ${role}`);
+      await assert.rejects(parts.kms.wrapDeviceKeys({ collection: anyCollection, device: full.HOSTED_SIGNERS, secret: new Uint8Array(96) },
+        AbortSignal.timeout(1000)), /kms_unavailable/);
+      assert.equal(calls, 1, "any valid collection reaches KMS");
+      assert.ok(serviceDeviceWrapper(env, role));
+      assert.ok(productionParts({ ...env, KMS_COLLECTIONS: "obsolete malformed binding" }, fetch, role), "inherited secret stays inert");
+      const other = role === "hosted" ? "escrow" : "hosted";
+      for (const [why, change, as] of [
+        ["no SERVICE_KIND", { SERVICE_KIND: undefined }, role],
+        ["SERVICE_KIND names the other role", { SERVICE_KIND: other }, role],
+        ["custody role differs from the module role", { SERVICE_KIND: other }, other],
+        ["migration token present", { CP_MIGRATION_TOKEN: "m".repeat(40) }, role],
+        ["legacy source var present", { LEGACY_SOURCE_COLLECTIONS: anyCollection }, role],
+        ["legacy binding present", { LEGACY_DB: {} }, role],
+        ["digest pin mismatch", { KMS_COLLECTIONS_SHA256: kmsAllowlistDigest("") }, role],
+        ["digest pin missing", { KMS_COLLECTIONS_SHA256: undefined }, role],
+      ]) {
+        assert.equal(productionParts({ ...env, ...change }, fetch, as), null, `${environment} ${role}: ${why}`);
+      }
+      // A module that does not name its role refuses even for a CP deployment.
+      allowlistModule = Object.freeze({ schema: KMS_ALLOWLIST_SCHEMA, sha256, text: KMS_ALLOW_ALL_TEXT });
+      assert.equal(productionParts(env, fetch, role), null, "allow-all without a role");
+    }
+    // LAB trust never serves allow-all.
+    bundled = configured;
+    for (const role of ["hosted", "escrow"]) {
+      allowlistModule = Object.freeze({ schema: KMS_ALLOWLIST_SCHEMA, sha256, text: KMS_ALLOW_ALL_TEXT, role });
+      assert.equal(productionParts({ ...noSecret, KMS_COLLECTIONS_SHA256: sha256, SERVICE_KIND: role }, fetch, role), null, `lab ${role}`);
+    }
+  } finally { bundled = configured; allowlistModule = null; }
+  assert.equal(migrationDeployment({ SERVICE_KIND: "hosted", CP_INBOUND_TOKEN: "t" }), false);
+  assert.equal(migrationDeployment({ CP_MIGRATION_TOKEN: undefined, LEGACY_DB: undefined }), false);
+  assert.equal(migrationDeployment({ CP_MIGRATION_TOKEN: "" }), true, "a declared (even empty) migration binding counts");
+  assert.equal(migrationDeployment({ LEGACY_R2_BUCKET: "b" }), true);
 });

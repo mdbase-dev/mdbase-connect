@@ -13,7 +13,7 @@ export interface ApplicationStorageDeclaration {
  * logical declaration identity is not an inferred CP registration receipt. */
 export interface MdbaseApplicationDeclaration {
   readonly id:string;readonly name:string;readonly origin:string;
-  readonly environment:"lab"|"production"|"local";
+  readonly environment:"lab"|"staging"|"production"|"local";
   /** Installation kind sent at pairing; the origin must be declared under the
    * manifest's `installation_origins.<environment>.<kind>`. Default: "mobile"
    * for `capacitor://` origins, else "app-runtime". Android Capacitor apps
@@ -83,6 +83,6 @@ export function applicationDeclaration(input:MdbaseApplicationDeclaration):Reado
   const storage={joinDatabaseName:fields?.joinDatabaseName??`mdbase.${id}.native-collection-join.v1`,setupDatabaseName:fields?.setupDatabaseName??`mdbase.${id}.native-model-setup.v1`,applicationNamespace:fields?.applicationNamespace??id};
   for(const value of Object.values(storage))if(typeof value!=="string"||!value||value.length>256||/[\u0000-\u001f\u007f]/.test(value))fail();
   if(storage.joinDatabaseName===storage.setupDatabaseName)fail();
-  const resolved=Object.freeze({id,name,origin,environment:environment as "lab"|"production"|"local",installationKind:kind as "app-runtime"|"mobile",manifest:manifest as ApplicationDeclarationSnapshot["manifest"],storage:Object.freeze(storage as Required<ApplicationStorageDeclaration>)});
+  const resolved=Object.freeze({id,name,origin,environment:environment as "lab"|"staging"|"production"|"local",installationKind:kind as "app-runtime"|"mobile",manifest:manifest as ApplicationDeclarationSnapshot["manifest"],storage:Object.freeze(storage as Required<ApplicationStorageDeclaration>)});
   storageOverrides.set(resolved,Object.freeze({...fields}) as Readonly<ApplicationStorageDeclaration>);return resolved;
 }

@@ -273,3 +273,135 @@ fn unavailable_native_source_and_undecodable_text_are_held_not_uploaded() {
     assert!(a.r.store().att_disk().acked.is_empty(), "kept by the store");
     assert!(a.r.store().pending(None, 10).unwrap().is_empty());
 }
+
+fn refuse_upload(a: &mut Node) {
+    let mut refused = false;
+    for _ in 0..100 {
+        let batch = a.r.take_log_calls();
+        for call in batch {
+            let reply = if matches!(call.request, LogRequest::PutObject { .. }) {
+                refused = true;
+                Err(crate::log::LogError::code(
+                    crate::log::LogErrorCode::TooLarge,
+                ))
+            } else {
+                a.log.call(call.request)
+            };
+            a.r.on_log_reply(call.id, reply);
+        }
+        a.r.tick();
+        if a.r.attachment_ingest_failure(PATH).is_some() {
+            break;
+        }
+    }
+    assert!(refused);
+    assert!(
+        a.r.store().att_disk().outstanding.is_empty(),
+        "refused token is released"
+    );
+}
+
+#[test]
+fn server_size_refusal_remains_available_with_its_file_path() {
+    let svc = FakeLogService::new();
+    let (mut a, data_rc) = ingest_node(&svc, 1);
+    a.r.store()
+        .att_disk()
+        .user_write(PATH, b"upload refused by server");
+    a.r.observe(None).unwrap();
+    refuse_upload(&mut a);
+    let notices = a.r.attachment_ingest_failures().collect::<Vec<_>>();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].0, PATH);
+    assert_eq!(notices[0].1.code, "too_large");
+    assert!(notices[0].1.message.contains("size limit"));
+    assert!(
+        a.r.store().att_disk().acked.is_empty(),
+        "refusal is not an acknowledgement"
+    );
+    let uploads = a.r.attachment_ingest.uploads_started;
+    for _ in 0..3 {
+        a.r.store().att_disk().rescan(PATH);
+        a.r.observe(None).unwrap();
+        assert!(
+            a.r.attachment_ingest_failure(PATH).is_some(),
+            "scan keeps the refusal visible while other uploads wait"
+        );
+        sync(&mut a);
+        assert!(a.r.attachment_ingest_failure(PATH).is_some());
+        assert_eq!(
+            a.r.attachment_ingest.uploads_started, uploads,
+            "unchanged refusals do not re-upload on periodic scans"
+        );
+        assert!(a.r.store().att_disk().outstanding.is_empty());
+    }
+    drop(a);
+    {
+        let mut data = data_rc.borrow_mut();
+        let disk = data.att_disk.as_mut().unwrap();
+        assert!(
+            !disk.known.contains_key(PATH),
+            "refused bytes are not acknowledged"
+        );
+        assert!(disk.restart().is_empty());
+        disk.rescan(PATH);
+    }
+    let mut a = attach_node_with(&svc, 1, MemStore::shared(data_rc));
+    a.r.observe(None).unwrap();
+    assert!(
+        sync(&mut a) > 0,
+        "restart retries the unacknowledged upload"
+    );
+    assert!(file_at(&a, PATH).is_some());
+    user(&mut a, |d| d.user_write(PATH, b"fixed"));
+    assert!(a.r.attachment_ingest_failures().next().is_none());
+}
+
+#[test]
+fn upload_refusals_clear_on_delete_or_rename_and_allow_reverting_bytes() {
+    let svc = FakeLogService::new();
+    let (mut a, _) = ingest_node(&svc, 1);
+    for rename in [false, true] {
+        a.r.store().att_disk().user_write(PATH, b"refused v1");
+        a.r.observe(None).unwrap();
+        refuse_upload(&mut a);
+        if rename {
+            user(&mut a, |d| d.user_move(PATH, "media/renamed.bin"));
+            assert!(a.r.attachment_ingest_failure(PATH).is_none());
+            user(&mut a, |d| d.user_move("media/renamed.bin", PATH));
+            assert_eq!(whole(&a, PATH), mdbn_wire::hash::sha256(b"refused v1"));
+        } else {
+            user(&mut a, |d| d.user_remove(PATH));
+            assert!(a.r.attachment_ingest_failure(PATH).is_none());
+        }
+    }
+    a.r.store().att_disk().user_write(PATH, b"refused v0");
+    a.r.observe(None).unwrap();
+    refuse_upload(&mut a);
+    user(&mut a, |d| d.user_write(PATH, b"accepted v2"));
+    user(&mut a, |d| d.user_write(PATH, b"refused v0"));
+    assert_eq!(whole(&a, PATH), mdbn_wire::hash::sha256(b"refused v0"));
+    assert!(a.r.attachment_ingest_failure(PATH).is_none());
+}
+
+#[test]
+fn upload_failure_notices_are_not_evicted_after_256_files() {
+    let svc = FakeLogService::new();
+    let (mut a, _) = ingest_node(&svc, 1);
+    for i in 0..257 {
+        a.r.ingest(vec![Observation {
+            token: ObservationId(i + 1),
+            path: format!("media/{i}.md"),
+            base: None,
+            now: Some(Observed::Attachment {
+                digest: B32([7; 32]),
+                size: 2 << 20,
+                class: AttachmentClass::OversizedMarkdown,
+            }),
+            moved_from: None,
+            provenance: Provenance::Normal,
+        }]);
+        sync(&mut a);
+    }
+    assert_eq!(a.r.attachment_ingest_failures().count(), 257);
+}

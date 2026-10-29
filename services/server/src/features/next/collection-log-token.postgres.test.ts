@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { createHash, generateKeyPairSync, randomUUID, sign, verify } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
@@ -56,6 +57,7 @@ describePg("collection log-token refresh", () => {
     const signPk = ed25519RawPublicKey(key);
     const kemPk = rawX(); const noisePk = rawX();
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'U') ON CONFLICT DO NOTHING", [user, `${user}@example.test`]);
+    await ensureDevelopmentEntitlement(db, user);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Daemon',$3)", [connector.id, user, tokenHash(token)]);
     const reg = await issueDeviceChallenge(db, connector.id);
     await registerDevice(db, connector, {

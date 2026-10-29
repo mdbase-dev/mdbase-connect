@@ -432,7 +432,10 @@ pub enum LogLocation {
 /// A collection-level notice for the UI. `code` is stable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Notice {
-    /// Stable code, e.g. `no_other_device_online`, `holds_pending`,
+    /// Relative local path, when this notice concerns one file. Never sent remotely.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Stable code, e.g. `no_other_device_online`, `file_held`,
     /// `devices_waiting_for_approval`, `recovery_key_not_set_up`.
     pub code: String,
     /// For people.
@@ -467,8 +470,8 @@ pub struct SyncCounters {
     /// Snapshot installation, bootstrap, or not yet caught up to the known head.
     #[serde(default)]
     pub resyncing: bool,
-    /// Folder entries not synced because they are symlinks (never followed)
-    /// or other special files, as of the last full scan.
+    /// Unsupported folder entries, as of the last full scan.
+    /// Hidden, dependency and explicitly excluded entries are not counted.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub unsupported_entries: u64,
 }

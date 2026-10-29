@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
@@ -51,6 +52,7 @@ describePostgres("legacy grant carry-over to a Private collection (real Postgres
     const legacyConnector = randomUUID();
     const legacyRow = randomUUID();
     await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Owner','next')", [owner, `${owner}@example.test`]);
+    await ensureDevelopmentEntitlement(db, owner);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash,relay_generation,revoked_at) VALUES($1,$2,'Old Connect',$3,2,now())", [legacyConnector, owner, randomUUID()]);
     await db.query(`INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,present,enabled,authority_state)
       VALUES($1,$2,$3,$4,'Journal','0.3.0',true,false,'retired')`, [legacyRow, owner, legacyConnector, collection]);

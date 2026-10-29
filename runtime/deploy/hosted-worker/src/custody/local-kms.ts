@@ -20,6 +20,8 @@ export class LocalSoftwareKms {
   constructor(private readonly keyArn: string, keyHex: string, environment: string, collections: KmsAllowlist | readonly string[]) {
     if (!LOCAL_REHEARSAL_BUILD || environment !== 'local' || !localKeyReference(keyArn) || !/^[0-9a-f]{64}$/.test(keyHex)) throw Error('kms_invalid_config');
     this.collections = allowlist(collections);
+    // Local rehearsal stacks always name their exact collections.
+    if (this.collections.all) throw Error('kms_invalid_config');
     this.keyBytes = Uint8Array.from(keyHex.match(/../g)!, value => parseInt(value, 16));
   }
   private context(collection: string, device: string): Uint8Array {

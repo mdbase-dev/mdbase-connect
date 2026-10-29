@@ -62,6 +62,7 @@ async fn daemon_lifecycle() {
     // pairing supplies it (never connector/device metadata backfill).
     let notes = root.join("notes");
     std::fs::create_dir_all(&notes).unwrap();
+    std::fs::write(notes.join("latin.md"), b"caf\xe9").unwrap();
     match c.call(Method::COLLECTION_ADD, json!({"path":notes})).await {
         Err(ClientError::Remote(error)) => {
             assert_eq!(error.reason.as_deref(), Some("account_identity_missing"))
@@ -135,6 +136,36 @@ async fn daemon_lifecycle() {
     assert_eq!(pushed.collections.len(), 1);
     assert_eq!(pushed.collections[0].id, added.id);
     assert_eq!(pushed.collections[0].reason, None);
+
+    // Both CLI formats carry the exact local path and refusal from status.
+    for json_output in [false, true] {
+        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_mdbase"));
+        command.arg("--state-dir").arg(&profile.state_dir);
+        if json_output {
+            command.arg("--json");
+        }
+        let output = command.arg("status").output().await.unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            text.contains("latin.md") && text.contains("Not valid UTF-8"),
+            "{text}"
+        );
+        if json_output {
+            let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert!(
+                value["collections"][0]["notices"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|n| n["path"] == "latin.md")
+            );
+        }
+    }
 
     // The replica endpoint: Noise IK with the key pinned from daemon.json.
     {

@@ -51,7 +51,7 @@ export interface AppWebSignInPortal {
   readonly closed?: boolean;
 }
 export interface AppWebSignInSessionOptions<Connection> extends Omit<AppInstallationSignInOptions, "mode" | "environmentSelection" | "environment"> {
-  readonly environment: "lab" | "production" | "local";
+  readonly environment: "lab" | "staging" | "production" | "local";
   readonly release: AppBundledReleaseTrust;
   loadRuntime(options: {signal: AbortSignal}): Promise<Uint8Array>;
   /** Reserve a first-party Connect popup/tab synchronously in the UI gesture.

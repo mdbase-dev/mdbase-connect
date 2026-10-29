@@ -1433,6 +1433,16 @@ impl Store for MemStore {
         Ok(CommitReport::default())
     }
 
+    fn release_disk_observation(&mut self, token: crate::store::ObservationId) -> StoreResult<()> {
+        #[cfg(test)]
+        if let Some(disk) = self.data.borrow_mut().att_disk.as_mut() {
+            disk.outstanding.remove(&token.0);
+        }
+        #[cfg(not(test))]
+        let _ = token;
+        Ok(())
+    }
+
     fn stages(&self) -> bool {
         !self.data.borrow().no_staging
     }

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import {
-  KMS_ALLOWLIST_SCHEMA, KmsAllowlist, MAX_KMS_COLLECTIONS, canonicalKmsAllowlist, cumulativeKmsAllowlist,
-  deploymentKmsAllowlist, kmsAllowlistDigest, type BundledKmsAllowlist,
+  KMS_ALLOWLIST_SCHEMA, KMS_ALLOW_ALL_TEXT, KmsAllowlist, MAX_KMS_COLLECTIONS, canonicalKmsAllowlist, cumulativeKmsAllowlist,
+  deploymentKmsAllowlist, kmsAllowlistDigest, type BundledKmsAllowlist, type KmsAllowAllRole, type KmsDeployment,
 } from "./kms-allowlist.ts";
 import { HostedAwsKms } from "./aws-kms.ts";
 
@@ -73,6 +73,24 @@ test("HostedAwsKms serves a 1,000+ entry allowlist and refuses non-members befor
     region: "us-east-1", environment: "staging", collections: ids(MAX_KMS_COLLECTIONS + 1) }, () => null), code("kms_invalid_config"));
 });
 
+test("staging/production require a digest-pinned module at 1000 and 10000 entries; inherited secrets are inert", () => {
+  for (const environment of ["staging", "production"]) for (const count of [1_000, 10_000]) {
+    const list = ids(count), b = bundle(list);
+    for (const obsolete of [undefined, "invalid obsolete secret", ids(1, count).join(",")]) {
+      const value = deploymentKmsAllowlist(b, b.sha256, obsolete, environment);
+      assert.equal(value.size, count); assert.ok(value.has(list[count - 1]));
+      assert.equal(value.has(ids(1, count)[0]), false);
+    }
+    for (const obsolete of [undefined, list.join(",")]) {
+      assert.throws(() => deploymentKmsAllowlist(null, b.sha256, obsolete, environment), code("kms_allowlist_bundle_required"));
+      assert.throws(() => deploymentKmsAllowlist(null, undefined, obsolete, environment), code("kms_allowlist_bundle_required"));
+    }
+    assert.throws(() => deploymentKmsAllowlist(b, undefined, list.join(","), environment), code("kms_allowlist_digest_mismatch"));
+    assert.throws(() => deploymentKmsAllowlist(b, sha("wrong"), undefined, environment), code("kms_allowlist_digest_mismatch"));
+  }
+  assert.throws(() => deploymentKmsAllowlist(null, undefined, undefined, "dev"), code("kms_invalid_config"));
+});
+
 test("cumulative: a shrinking allowlist is refused without the explicit retire list", () => {
   const prev = KmsAllowlist.fromList(ids(1_000));
   const grown = KmsAllowlist.fromList(ids(1_200));
@@ -93,22 +111,107 @@ test("cumulative: a shrinking allowlist is refused without the explicit retire l
 test("deployment allowlist: the bundled module wins, pinned by the declared digest; the secret must agree", () => {
   const list = ids(1_000);
   const b = bundle(list);
-  const fromBundle = deploymentKmsAllowlist(b, b.sha256, undefined);
+  const fromBundle = deploymentKmsAllowlist(b, b.sha256, undefined, "lab");
   assert.equal(fromBundle.size, 1_000);
-  assert.equal(deploymentKmsAllowlist(b, b.sha256, undefined), fromBundle, "validated once per bundle");
+  assert.equal(deploymentKmsAllowlist(b, b.sha256, undefined, "lab"), fromBundle, "validated once per bundle");
   // Digest pinned in the deploy config must equal the bundled module's.
-  assert.throws(() => deploymentKmsAllowlist(b, undefined, undefined), code("kms_allowlist_digest_mismatch"));
-  assert.throws(() => deploymentKmsAllowlist(b, sha("other"), undefined), code("kms_allowlist_digest_mismatch"));
+  assert.throws(() => deploymentKmsAllowlist(b, undefined, undefined, "lab"), code("kms_allowlist_digest_mismatch"));
+  assert.throws(() => deploymentKmsAllowlist(b, sha("other"), undefined, "lab"), code("kms_allowlist_digest_mismatch"));
   // A module whose text does not match its own digest refuses.
   const tampered = { ...b, text: canonicalKmsAllowlist(ids(1_000, 1)) };
-  assert.throws(() => deploymentKmsAllowlist(tampered, b.sha256, undefined), code("kms_allowlist_digest_mismatch"));
-  assert.throws(() => deploymentKmsAllowlist({ ...b, schema: "other" } as unknown as BundledKmsAllowlist, b.sha256, undefined), code("kms_allowlist_invalid"));
+  assert.throws(() => deploymentKmsAllowlist(tampered, b.sha256, undefined, "lab"), code("kms_allowlist_digest_mismatch"));
+  assert.throws(() => deploymentKmsAllowlist({ ...b, schema: "other" } as unknown as BundledKmsAllowlist, b.sha256, undefined, "lab"), code("kms_allowlist_invalid"));
   // Transitional secret: the same set (any order) is accepted; any difference refuses.
-  assert.equal(deploymentKmsAllowlist(b, b.sha256, [...list].reverse().join(",")).size, 1_000);
-  assert.throws(() => deploymentKmsAllowlist(b, b.sha256, list.slice(1).join(",")), code("kms_allowlist_secret_disagrees"));
-  assert.throws(() => deploymentKmsAllowlist(b, b.sha256, ""), code("kms_allowlist_secret_disagrees"));
+  assert.equal(deploymentKmsAllowlist(b, b.sha256, [...list].reverse().join(","), "lab").size, 1_000);
+  assert.throws(() => deploymentKmsAllowlist(b, b.sha256, list.slice(1).join(","), "lab"), code("kms_allowlist_secret_disagrees"));
+  assert.throws(() => deploymentKmsAllowlist(b, b.sha256, "", "lab"), code("kms_allowlist_secret_disagrees"));
   // No bundled module: the secret alone (transition); a declared digest without a module refuses.
-  assert.equal(deploymentKmsAllowlist(null, undefined, list.slice(0, 3).join(",")).size, 3);
-  assert.equal(deploymentKmsAllowlist(null, undefined, undefined).size, 0);
-  assert.throws(() => deploymentKmsAllowlist(null, b.sha256, undefined), code("kms_allowlist_digest_mismatch"));
+  assert.equal(deploymentKmsAllowlist(null, undefined, list.slice(0, 3).join(","), "lab").size, 3);
+  assert.equal(deploymentKmsAllowlist(null, undefined, undefined, "lab").size, 0);
+  assert.throws(() => deploymentKmsAllowlist(null, b.sha256, undefined, "lab"), code("kms_allowlist_digest_mismatch"));
+});
+
+// ---- Allow-all (CP hosted/escrow, staging/production only) ----
+const ALL_SHA = sha(KMS_ALLOW_ALL_TEXT);
+const allBundle = (role: KmsAllowAllRole): BundledKmsAllowlist => ({ schema: KMS_ALLOWLIST_SCHEMA, sha256: ALL_SHA, text: KMS_ALLOW_ALL_TEXT, role });
+const cp = (role: KmsAllowAllRole): KmsDeployment => ({ role, serviceKind: role, migration: false });
+
+test("allow-all: exactly \"*\\n\", digest-pinned like a list, admits every valid collection ID", () => {
+  const all = KmsAllowlist.parse(KMS_ALLOW_ALL_TEXT, ALL_SHA);
+  assert.equal(all.all, true); assert.equal(all.size, 0); assert.deepEqual([...all.ids()], []);
+  for (const id of ids(3, 77_000)) assert.ok(all.has(id));
+  for (const bad of ["", "00000000-0000-0000-0000-000000000000", ids(1)[0].toUpperCase(), "*", ids(1)[0] + "x"]) assert.equal(all.has(bad), false);
+  assert.equal(KmsAllowlist.parse("").all, false);
+  assert.equal(KmsAllowlist.parse(canonicalKmsAllowlist(ids(2))).all, false);
+  for (const near of ["*", "* \n", "*\r\n", "*\n*\n", "**\n", " *\n", "*\n" + ids(1)[0] + "\n", ids(1)[0] + "\n*\n", "ALL\n"]) {
+    assert.throws(() => KmsAllowlist.parse(near), code("kms_allowlist_invalid"), JSON.stringify(near));
+  }
+  assert.throws(() => KmsAllowlist.parse(KMS_ALLOW_ALL_TEXT, sha("")), code("kms_allowlist_digest_mismatch"));
+  assert.throws(() => KmsAllowlist.parse(KMS_ALLOW_ALL_TEXT, ALL_SHA.toUpperCase()), code("kms_allowlist_digest_mismatch"));
+  // The transitional comma-separated secret can never express allow-all.
+  assert.throws(() => KmsAllowlist.fromList(["*"]), code("kms_allowlist_invalid"));
+  assert.throws(() => KmsAllowlist.fromList(["*", ids(1)[0]]), code("kms_allowlist_invalid"));
+});
+
+test("allow-all cumulative transitions: list -> all is growth; all -> list always refuses", () => {
+  const all = KmsAllowlist.parse(KMS_ALLOW_ALL_TEXT);
+  const empty = KmsAllowlist.parse("");
+  const list = KmsAllowlist.fromList(ids(195));
+  assert.deepEqual(cumulativeKmsAllowlist(empty, all, null), { added: "all", retired: 0 });
+  assert.deepEqual(cumulativeKmsAllowlist(list, all, null), { added: "all", retired: 0 });
+  assert.deepEqual(cumulativeKmsAllowlist(all, all, null), { added: 0, retired: 0 });
+  // A retire list cannot accompany list -> all: every named ID is still served.
+  assert.throws(() => cumulativeKmsAllowlist(list, all, KmsAllowlist.fromList(ids(1))), code("kms_allowlist_retire_still_served"));
+  // all -> any list (even a superset, even with a retire list naming the removal) refuses.
+  for (const next of [empty, list, KmsAllowlist.fromList(ids(1_000))]) {
+    assert.throws(() => cumulativeKmsAllowlist(all, next, null), code("kms_allowlist_all_shrinks"));
+    assert.throws(() => cumulativeKmsAllowlist(all, next, KmsAllowlist.fromList(ids(1, 5_000))), code("kms_allowlist_all_shrinks"));
+  }
+  // allow-all is never a retire list.
+  assert.throws(() => cumulativeKmsAllowlist(list, empty, all), code("kms_allowlist_invalid"));
+  assert.throws(() => cumulativeKmsAllowlist(all, all, all), code("kms_allowlist_invalid"));
+});
+
+test("allow-all deployment: accepted only for a staging/production CP hosted/escrow Worker of the bundled role", () => {
+  for (const environment of ["staging", "production"]) for (const role of ["hosted", "escrow"] as const) {
+    const b = allBundle(role);
+    const value = deploymentKmsAllowlist(b, ALL_SHA, undefined, environment, cp(role));
+    assert.equal(value.all, true); assert.ok(value.has(ids(1, 42_000)[0]));
+    // An obsolete inherited secret stays inert, as for lists.
+    assert.equal(deploymentKmsAllowlist(b, ALL_SHA, ids(2).join(","), environment, cp(role)).all, true);
+    // Digest pin: the declared var must equal the module digest.
+    for (const declared of [undefined, sha(""), ALL_SHA.toUpperCase()]) {
+      assert.throws(() => deploymentKmsAllowlist(b, declared, undefined, environment, cp(role)), code("kms_allowlist_digest_mismatch"));
+    }
+    assert.throws(() => deploymentKmsAllowlist({ ...b, sha256: sha("") }, sha(""), undefined, environment, cp(role)), code("kms_allowlist_digest_mismatch"));
+    // Not a CP deployment of exactly this role.
+    const other: KmsAllowAllRole = role === "hosted" ? "escrow" : "hosted";
+    for (const deployment of [undefined, { ...cp(role), serviceKind: undefined }, { ...cp(role), serviceKind: other },
+      { ...cp(role), serviceKind: "migration" }, { ...cp(role), migration: true }, { ...cp(role), role: other }, cp(other)]) {
+      assert.throws(() => deploymentKmsAllowlist(b, ALL_SHA, undefined, environment, deployment), code("kms_allowlist_all_refused"), JSON.stringify(deployment));
+    }
+  }
+  // LAB/local never serve allow-all, with or without a secret.
+  for (const environment of ["lab", "local"]) for (const role of ["hosted", "escrow"] as const) {
+    for (const secret of [undefined, ids(2).join(",")]) {
+      assert.throws(() => deploymentKmsAllowlist(allBundle(role), ALL_SHA, secret, environment, cp(role)), code("kms_allowlist_all_refused"));
+    }
+  }
+});
+
+test("allow-all module must name its CP role; a list module must not carry one", () => {
+  const raw = { schema: KMS_ALLOWLIST_SCHEMA, sha256: ALL_SHA, text: KMS_ALLOW_ALL_TEXT };
+  for (const role of [undefined, "", "migration", "Hosted", "all", null]) {
+    const b = (role === undefined ? { ...raw } : { ...raw, role }) as unknown as BundledKmsAllowlist;
+    assert.throws(() => deploymentKmsAllowlist(b, ALL_SHA, undefined, "staging", cp("hosted")), code("kms_allowlist_invalid"), String(role));
+  }
+  const list = bundle(ids(3));
+  for (const role of ["hosted", "escrow", undefined]) {
+    const b = { ...list, role } as unknown as BundledKmsAllowlist;
+    assert.throws(() => deploymentKmsAllowlist(b, list.sha256, undefined, "staging", cp("hosted")), code("kms_allowlist_invalid"));
+  }
+  // A list module is unaffected by the deployment descriptor (migration Workers keep exact lists).
+  for (const deployment of [undefined, cp("hosted"), { role: "hosted" as const, serviceKind: undefined, migration: true }]) {
+    assert.equal(deploymentKmsAllowlist(list, list.sha256, undefined, "production", deployment).size, 3);
+  }
 });

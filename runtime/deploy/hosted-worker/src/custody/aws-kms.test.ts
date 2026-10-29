@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { HostedAwsKms } from "./aws-kms.ts";
 import { encodeEnvelope, parseEnvelope } from "./envelope.ts";
+import { KMS_ALLOW_ALL_TEXT, KmsAllowlist } from "./kms-allowlist.ts";
 
 // Public/non-deployable unit fixtures; NOT a KMS/CP fixture descriptor.
 const COLLECTION = "11111111-1111-4111-8111-111111111111";
@@ -44,6 +45,65 @@ test("wrap signs exact configured role/context and MDBK envelope without retaini
   const wrapped = await work;
   assert.equal(wrapped.kmsKeyArn, ARN);
   assert.deepEqual(parseEnvelope(wrapped.envelope), { keyRef: ARN, ciphertext: Uint8Array.of(1, 2, 3) });
+});
+
+test("staging escrow binds its own context for both wrap and unwrap; hosted default is unchanged", async () => {
+  const seen: string[] = [];
+  const kms = new HostedAwsKms({ ...CONFIG, environment: "staging", role: "escrow" }, () => CREDS, async input => {
+    const body = await requestBody(input);
+    const context = body.EncryptionContext as Record<string, string>;
+    assert.equal(context["mdbase:service"], "next-escrow");
+    assert.equal(context["mdbase:environment"], "staging");
+    assert.equal(context["mdbase:collection-id"], COLLECTION);
+    assert.equal(context["mdbase:device-id"], DEVICE);
+    seen.push(body.Plaintext === undefined ? "Decrypt" : "Encrypt");
+    return body.Plaintext === undefined ? response("Plaintext", new Uint8Array(96)) : response("CiphertextBlob", Uint8Array.of(1, 2, 3));
+  }, () => NOW);
+  const secret = new Uint8Array(96);
+  const wrapped = await kms.wrapDeviceKeys({ collection: COLLECTION, device: DEVICE, secret }, signal());
+  const opened = await kms.unwrapDeviceKeys(COLLECTION, DEVICE, wrapped.envelope, ARN, signal());
+  assert.equal(opened.length, 96); opened.fill(0);
+  assert.deepEqual(seen, ["Encrypt", "Decrypt"]);
+  for (const environment of ["lab", "local"]) {
+    assert.throws(() => new HostedAwsKms({ ...CONFIG, environment: environment as "lab", role: "escrow" }, () => CREDS), /kms_invalid_config/);
+  }
+});
+
+test("production escrow generation binds the exact next-escrow production context (allow-all)", async () => {
+  // Matches aws/lab-mig-kms.yaml (IsEscrow): exactly these six keys and values.
+  const other = "44444444-4444-4444-8444-444444444444";
+  const contexts: unknown[] = [];
+  const kms = new HostedAwsKms({ ...CONFIG, environment: "production", role: "escrow", collections: KmsAllowlist.parse(KMS_ALLOW_ALL_TEXT) },
+    () => CREDS, async input => {
+      const body = await requestBody(input);
+      contexts.push(body.EncryptionContext);
+      return response("CiphertextBlob", Uint8Array.of(1, 2, 3));
+    }, () => NOW);
+  for (const collection of [COLLECTION, other]) {
+    const wrapped = await kms.wrapDeviceKeys({ collection, device: DEVICE, secret: new Uint8Array(96) }, signal());
+    assert.equal(wrapped.kmsKeyArn, ARN);
+  }
+  assert.deepEqual(contexts, [COLLECTION, other].map(collection => ({
+    "mdbase:service": "next-escrow", "mdbase:environment": "production",
+    "mdbase:collection-id": collection, "mdbase:device-id": DEVICE,
+    "mdbase:purpose": "device-key", "mdbase:envelope-version": "1",
+  })));
+  // Allow-all still refuses malformed collection IDs before any KMS call.
+  await assert.rejects(kms.wrapDeviceKeys({ collection: "00000000-0000-0000-0000-000000000000", device: DEVICE, secret: new Uint8Array(96) }, signal()),
+    /kms_collection_not_allowed/);
+  assert.equal(contexts.length, 2);
+});
+
+test("allow-all custody is refused outside staging/production", () => {
+  const all = KmsAllowlist.parse(KMS_ALLOW_ALL_TEXT);
+  for (const role of ["hosted", "escrow"] as const) for (const environment of ["lab", "local"]) {
+    assert.throws(() => new HostedAwsKms({ ...CONFIG, environment: environment as "lab", role, collections: all }, () => CREDS), /kms_invalid_config/);
+  }
+  for (const role of ["hosted", "escrow"] as const) for (const environment of ["staging", "production"] as const) {
+    assert.doesNotThrow(() => new HostedAwsKms({ ...CONFIG, environment, role, collections: all }, () => CREDS));
+  }
+  // A list can never express allow-all.
+  assert.throws(() => new HostedAwsKms({ ...CONFIG, environment: "staging", collections: ["*"] }, () => CREDS), /kms_invalid_config/);
 });
 
 test("unwrap checks configured reference, explicit ARN and exact plaintext length", async () => {

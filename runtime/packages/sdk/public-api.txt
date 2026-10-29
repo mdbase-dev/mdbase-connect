@@ -2297,7 +2297,7 @@ AppEnvironmentSelection@app-host/app-environment.ts
   readonly appOrigin: string
   readonly assetSha256: string
   readonly cpOrigin: string
-  readonly environment: 'lab' | 'production' | 'local'
+  readonly environment: 'lab' | 'staging' | 'production' | 'local'
   readonly logOrigin: string
 
 AppExports@app-host/wasm-runtime.ts
@@ -2510,7 +2510,7 @@ AppInstallationSignInOptions@app-host/installation-sign-in.ts
   readonly appId: string
   readonly appName: string
   readonly cpOrigin: string
-  readonly environment: 'lab' | 'production' | 'local' | 'staging'
+  readonly environment: 'lab' | 'staging' | 'production' | 'local'
   readonly environmentSelection?: AppEnvironmentSelection | undefined
   readonly fetch?: { (input: RequestInfo | URL, init?: RequestInit): Promise<Response>; (input: string | URL | Request, init?: RequestInit): Promise<Response>; } | undefined
   readonly freshRequestedCreateCollections?: boolean | undefined
@@ -3166,7 +3166,7 @@ AppWebSignInSessionOptions@app-host/web-sign-in-session.ts
   readonly appName: string
   readonly autoSelect?: 'only' | 'never' | undefined
   readonly cpOrigin: string
-  readonly environment: 'lab' | 'production' | 'local'
+  readonly environment: 'lab' | 'staging' | 'production' | 'local'
   readonly fetch?: { (input: RequestInfo | URL, init?: RequestInit): Promise<Response>; (input: string | URL | Request, init?: RequestInit): Promise<Response>; } | undefined
   readonly freshRequestedCreateCollections?: boolean | undefined
   readonly installationKind?: 'mobile' | 'app-runtime' | undefined
@@ -4197,7 +4197,7 @@ MdbaseApplicationConnection@application/entry.ts
   readonly timers?: TimersApi | undefined
 
 MdbaseApplicationDeclaration@application/declaration.ts
-  readonly environment: 'lab' | 'production' | 'local'
+  readonly environment: 'lab' | 'staging' | 'production' | 'local'
   readonly id: string
   readonly installationKind?: 'mobile' | 'app-runtime' | undefined
   readonly manifest: unknown
@@ -6303,7 +6303,7 @@ sealBundle@account-key.ts
   : (secret: Uint8Array, password: string, account: string, options?: SealOptions) => Promise<Bundle>
 
 selectAppEnvironment@app-host/app-environment.ts
-  : (input: { environment: 'lab' | 'production' | 'local'; appOrigin: string; platform?: 'native'; release: AppBundledReleaseTrust; }) => AppEnvironmentSelection
+  : (input: { environment: 'lab' | 'staging' | 'production' | 'local'; appOrigin: string; platform?: 'native'; release: AppBundledReleaseTrust; }) => AppEnvironmentSelection
 
 serveNoise@testing/noise-server.ts
   : (carrier: MessageCarrier, backend: Connector, o: ServeNoiseOptions) => void

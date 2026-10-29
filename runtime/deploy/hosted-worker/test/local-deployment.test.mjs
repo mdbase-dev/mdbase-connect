@@ -9,7 +9,7 @@ const original = trust;
 mock.module('#hosted-release-trust', { namedExports: { appReleaseTrust: () => trust } });
 const { LocalSoftwareKms } = await import('../src/custody/local-kms.ts');
 const { localOrigin } = await import('../src/local-origin.ts');
-const { productionParts, deploymentRelease, ownedCppControlOrigin } = await import('../src/factory.ts');
+const { productionParts, deploymentRelease, serviceDeviceWrapper, ownedCppControlOrigin } = await import('../src/factory.ts');
 const { ControlClient } = await import('../src/control.ts');
 const { connectClient } = await import('../src/migration-connect.ts');
 const collection = '11111111-1111-4111-8111-111111111111', device = '22222222-2222-4222-8222-222222222222';
@@ -39,6 +39,10 @@ test('local factory preserves actual ControlClient provenance and rejects all ma
   const parts = productionParts(environment);
   assert.ok(parts?.kms instanceof LocalSoftwareKms);
   assert.equal(ownedCppControlOrigin(parts.control), trust.cpOrigin);
+  const escrow = productionParts(environment, fetch, 'escrow');
+  assert.ok(escrow?.kms instanceof LocalSoftwareKms);
+  assert.equal(ownedCppControlOrigin(escrow.control), null);
+  assert.ok(serviceDeviceWrapper(environment, 'escrow'));
   assert.equal(ownedCppControlOrigin(new ControlClient({ url: trust.cpOrigin, token: 't'.repeat(40), environment: 'local' })), null);
   for (const scope of ['lab', 'staging', 'production']) {
     assert.throws(() => new LocalSoftwareKms(arn, key, scope, [collection]), /invalid_config/);

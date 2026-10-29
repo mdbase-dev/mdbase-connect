@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
@@ -70,6 +71,7 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
     const sync = options.sync ?? "cloud_copy";
     const ops: PolicyOp[] = [{ op: "genesis", owner: id, root: unsigned.root, state: sync === "private" ? "e2e" : "cloud-copy" }];
     if (sync === "cloud_copy") ops.push({ op: "device-enrol", device: record.device_id, account: "00000000-0000-0000-0000-000000000000", kind: "hosted", signPublicKey: record.sign_pk, kemPublicKey: record.kem_pk, noisePublicKey: record.noise_pk });
+    await ensureDevelopmentEntitlement(db, id);
     await registerNextCollection(db, { collectionId: id, ownerUserId: id, runtime: options.runtime ?? "next", sync, rootKeyId: unsigned.root, ops });
     if (sync === "cloud_copy") await storeServiceDevice(db, id, record);
     const batch = await append(id, 1, ops, options.appended === false ? "sending" : "appended");

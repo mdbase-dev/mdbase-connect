@@ -446,3 +446,26 @@ test("settings renames this computer; activity lists recent changes", async () =
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test("collection notices list skipped files and reuse the hold review list", async () => {
+  const skipped = [
+    { code: "unsupported_entry", path: "notes/latin.md", message: "Not valid UTF-8; note is not synced." },
+    { code: "unsupported_entry", path: "notes/linked.md", message: "Symlink not followed." },
+    { code: "name_collision", path: "note.md", message: "Case or Unicode name collision with Note.md; file held." }
+  ];
+  const { page, errors } = await desktop({ collections: [collection({ notices: [...skipped, { code: "file_held", path: "held.md", message: "Changed here and elsewhere; file held." }] })] });
+  try {
+    await nav(page, "Collections").click();
+    for (const notice of skipped) {
+      const row = page.locator(".collection-notice").filter({ hasText: notice.path });
+      await row.waitFor();
+      assert.equal(await row.locator("code").innerText(), notice.path);
+      assert.ok((await row.innerText()).includes(notice.message));
+    }
+    assert.equal(await page.locator(".collection-notice").filter({ hasText: "held.md" }).count(), 0);
+    await page.evaluate(() => { window.fixture.collections[0].notices.shift(); });
+    await page.clock.runFor(5_000);
+    assert.equal(await page.locator(".collection-notice").count(), 2);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

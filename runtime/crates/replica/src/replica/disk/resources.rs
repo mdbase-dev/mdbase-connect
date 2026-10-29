@@ -56,6 +56,17 @@ fn apply(map: &mut BTreeMap<String, String>, o: &Observation) -> bool {
 }
 
 impl<S: Store> Replica<S> {
+    /// Known local paths involved in the last deferred resource ingestion.
+    /// Diagnostic only: this does not identify each path as a cause.
+    pub fn resource_ingest_paths(&self) -> Vec<String> {
+        let mut seen = BTreeSet::new();
+        self.resource_ingest_paths
+            .iter()
+            .filter(|path| seen.insert(path.as_str()))
+            .cloned()
+            .collect()
+    }
+
     /// None means deferred: no observation in this round was acknowledged.
     pub(super) async fn ingest_resource_set(
         &mut self,
@@ -71,6 +82,14 @@ impl<S: Store> Replica<S> {
         }) {
             return Ok(Some(observations));
         }
+        self.resource_ingest_paths.clear();
+        self.resource_ingest_paths
+            .extend(observations.iter().flat_map(|o| {
+                std::iter::once(&o.path)
+                    .chain(o.moved_from.iter())
+                    .filter(|path| current.is_resource_path(path))
+                    .cloned()
+            }));
         if observations.len() > WORK {
             return Ok(None);
         }
@@ -93,6 +112,7 @@ impl<S: Store> Replica<S> {
                     || path.len() > 4096
                     || sources.len() >= INVENTORY
                 {
+                    self.resource_ingest_paths.insert(0, path.clone());
                     return Ok(None);
                 }
                 let Some(doc) = self.store.resource_bounded(&path, DOCUMENT)? else {
@@ -101,9 +121,11 @@ impl<S: Store> Replica<S> {
                     ));
                 };
                 let Some(text) = doc.text else {
+                    self.resource_ingest_paths.insert(0, path.clone());
                     return Ok(None);
                 };
                 if doc.size != text.len() as u64 || !checked_insert(&mut sources, &path, &text) {
+                    self.resource_ingest_paths.insert(0, path.clone());
                     return Ok(None);
                 }
                 after = Some(path);
@@ -113,10 +135,12 @@ impl<S: Store> Replica<S> {
         for (path, value) in self.layer.resource_changes() {
             touched += 1;
             if touched > INVENTORY {
+                self.resource_ingest_paths.insert(0, path.to_owned());
                 return Ok(None);
             }
             if let Some(doc) = value {
                 if !checked_insert(&mut sources, path, doc) {
+                    self.resource_ingest_paths.insert(0, path.to_owned());
                     return Ok(None);
                 }
             } else {
@@ -132,18 +156,21 @@ impl<S: Store> Replica<S> {
             ]
             .contains(&o.path.as_str())
             {
+                self.resource_ingest_paths.push(o.path.clone());
                 if o.now.is_some() {
                     let Some(text) = self
                         .store
                         .resource_observation_text_async(o, DOCUMENT)
                         .await?
                     else {
+                        self.resource_ingest_paths.insert(0, o.path.clone());
                         return Ok(None);
                     };
                     self.check_apply_store_health()?;
                     o.now = Some(Observed::Text(text));
                 }
                 if !apply(&mut sources, o) {
+                    self.resource_ingest_paths.insert(0, o.path.clone());
                     return Ok(None);
                 }
             }
@@ -156,18 +183,21 @@ impl<S: Store> Replica<S> {
                     .as_ref()
                     .is_some_and(|p| current.is_resource_path(p))
             {
+                self.resource_ingest_paths.push(o.path.clone());
                 if o.now.is_some() {
                     let Some(text) = self
                         .store
                         .resource_observation_text_async(o, DOCUMENT)
                         .await?
                     else {
+                        self.resource_ingest_paths.insert(0, o.path.clone());
                         return Ok(None);
                     };
                     self.check_apply_store_health()?;
                     o.now = Some(Observed::Text(text));
                 }
                 if !apply(&mut sources, o) {
+                    self.resource_ingest_paths.insert(0, o.path.clone());
                     return Ok(None);
                 }
             }
@@ -177,10 +207,12 @@ impl<S: Store> Replica<S> {
         let mut targets = BTreeSet::new();
         for (path, doc) in &sources {
             let Ok(refs) = definition_schema_refs(path, doc) else {
+                self.resource_ingest_paths.insert(0, path.clone());
                 return Ok(None);
             };
             for target in refs {
                 if target.len() > 4096 || targets.len() == INVENTORY {
+                    self.resource_ingest_paths.insert(0, path.clone());
                     return Ok(None);
                 }
                 targets.insert(target);
@@ -192,10 +224,12 @@ impl<S: Store> Replica<S> {
             for (index, o) in observations.iter().enumerate() {
                 work += 1;
                 if work > WORK {
+                    self.resource_ingest_paths.insert(0, target.clone());
                     return Ok(None);
                 }
                 if o.path == target {
                     if found.is_some() {
+                        self.resource_ingest_paths.insert(0, target.clone());
                         return Ok(None);
                     }
                     found = Some(index);
@@ -209,12 +243,14 @@ impl<S: Store> Replica<S> {
                         .resource_observation_text_async(o, DOCUMENT)
                         .await?
                     else {
+                        self.resource_ingest_paths.insert(0, o.path.clone());
                         return Ok(None);
                     };
                     self.check_apply_store_health()?;
                     o.now = Some(Observed::Text(text));
                 }
                 if !apply(&mut sources, o) {
+                    self.resource_ingest_paths.insert(0, o.path.clone());
                     return Ok(None);
                 }
             }
@@ -226,6 +262,11 @@ impl<S: Store> Replica<S> {
                 .iter()
                 .any(|i| i.severity == Severity::Error)
         {
+            for issue in staged.issues().iter().rev() {
+                if let Some(path) = &issue.location {
+                    self.resource_ingest_paths.insert(0, path.clone());
+                }
+            }
             return Ok(None);
         }
         let mut selected = Vec::new();

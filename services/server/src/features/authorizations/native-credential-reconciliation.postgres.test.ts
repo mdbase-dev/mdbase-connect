@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 // Atomic immutable token metadata only: no reconciliation endpoint or race claim.
 import { randomBytes, randomUUID, sign } from "node:crypto";
 import pg from "pg";
@@ -64,6 +65,7 @@ suite("original native token completion (isolated PostgreSQL)", () => {
     const root = randomBytes(16);
     const owner = memberGrant ? randomUUID() : account;
     if (memberGrant) await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'[test] Collection owner','next')", [owner, `${owner}@example.test`]);
+    await ensureDevelopmentEntitlement(db, owner);
     await registerNextCollection(db, { collectionId: collection, ownerUserId: owner, runtime: "next", sync: "private", rootKeyId: root, displayName: "[test] Private completion",
       ops: [{ op: "genesis", owner, root, state: "e2e" }, { op: "member-set", account: owner, role: "owner" }] });
     if (memberGrant) await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner, userId: account, role: "editor" });
