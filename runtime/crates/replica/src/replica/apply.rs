@@ -1259,6 +1259,17 @@ impl<S: Store> Replica<S> {
         };
 
         let native = super::unindexed_apply::contains_native(&payload);
+        if native && mdbn_core::plan::check_request(&mutation).is_err() {
+            return self.commit_payload_void(head, &payload, "V7: invalid request");
+        }
+        let entry_sem = mdbn_core::semantics::Sem {
+            major: payload.sem.major,
+            minor: payload.sem.minor,
+        };
+        let previous_sem = entry_sem < mdbn_core::semantics::SEM
+            && mdbn_core::semantics::SEMANTICS
+                .iter()
+                .any(|info| info.sem == entry_sem);
         // T6b always verifies full kind/path/prior CAS, even for our own entry or
         // when optional legacy result checking is disabled.
         if native
@@ -1307,10 +1318,26 @@ impl<S: Store> Replica<S> {
                     if old.as_ref().is_some_and(|o|o.kind!=mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown) {
                         return self.commit_payload_void(head,&payload,"V7: unindexed effect changes ordinary kind");
                     }
+                    let record = self.store.record(&f.id)?;
+                    if payload.mutation.ops.iter().any(|op| match op {
+                        rt::Op::UnindexedMarkdownPut(op) if op.id == f.id => {
+                            op.expected.as_ref().map(|p| &p.content)
+                                != old.as_ref().map(|o| &o.content)
+                                || record.is_some()
+                                || (payload.resurrect.is_none()
+                                    && old.as_ref().is_some_and(|o| o.path != op.path))
+                        }
+                        rt::Op::RecordToUnindexedMarkdown(op) if op.id == f.id => record
+                            .as_ref()
+                            .is_none_or(|r| op.path != r.path || op.prior_revision != r.revision),
+                        _ => false,
+                    }) {
+                        return self.commit_payload_void(head, &payload, "V7: unindexed prior CAS");
+                    }
                     if let Some(o) = &old {
                         freed.insert(o.path_key.clone());
                     }
-                    if let Some(r) = self.store.record(&f.id)? {
+                    if let Some(r) = record {
                         freed.insert(r.path_key);
                         if self.store.materializes_attachments() {
                             tx.meta.push(super::attachment_fetch::shown_meta(
@@ -1367,6 +1394,14 @@ impl<S: Store> Replica<S> {
                     let Some(old)=old.filter(|o|o.kind==mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown) else {
                         return self.commit_payload_void(head,&payload,"V7: reindex requires unindexed holder");
                     };
+                    if payload.mutation.ops.iter().any(|op| match op {
+                        rt::Op::UnindexedMarkdownToRecord(op) if op.id == r.id => {
+                            op.path != old.path || op.prior.content != old.content
+                        }
+                        _ => false,
+                    }) {
+                        return self.commit_payload_void(head, &payload, "V7: reindex prior CAS");
+                    }
                     let Text::Inline(doc) = &r.doc else {
                         return self.commit_payload_void(
                             head,
@@ -1435,6 +1470,14 @@ impl<S: Store> Replica<S> {
                             "V7: promotion requires exact ordinary holder",
                         );
                     };
+                    if payload.mutation.ops.iter().any(|op| match op {
+                        rt::Op::OrdinaryFileToRecord(op) if op.id == r.id => {
+                            op.path != old.path || op.prior != old.content
+                        }
+                        _ => false,
+                    }) {
+                        return self.commit_payload_void(head, &payload, "V7: promotion prior CAS");
+                    }
                     let Text::Inline(doc) = &r.doc else {
                         return self.commit_payload_void(
                             head,
@@ -1797,9 +1840,9 @@ impl<S: Store> Replica<S> {
                     }
                 }
             } else {
-                if native {
+                if native && !previous_sem {
                     stall = Some("T6b semantics cannot be verified");
-                } else {
+                } else if !native {
                     self.stats.unverified += 1;
                 }
             }

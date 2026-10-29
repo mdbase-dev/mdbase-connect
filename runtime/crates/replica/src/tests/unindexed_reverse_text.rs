@@ -127,7 +127,7 @@ fn complete_reverse_blob_hydration_precedes_atomic_holder_swap_exactly() {
     assert!(a.r.store.tombstone(&f.id).unwrap().is_none());
 }
 #[test]
-fn hydration_never_replaces_fresh_core_full_prior_cas() {
+fn hydration_never_replaces_structural_full_prior_cas() {
     let mut a = node();
     let (p, refs, objects, mut f) = fixture(&mut a, "doc", b"doc");
     let h = retain(&mut a);
@@ -147,10 +147,8 @@ fn hydration_never_replaces_fresh_core_full_prior_cas() {
             ..Tx::default()
         })
         .unwrap();
-    assert!(matches!(
-        apply(&mut a, h, &p, &refs),
-        Outcome::Stall(mdbn_wire::client::IncidentKind::UpgradeRequired, _)
-    ));
+    assert!(matches!(apply(&mut a, h, &p, &refs), Outcome::Void(_)));
+    assert_eq!(a.r.store.head().unwrap(), h);
     assert_eq!(a.r.store.file(&f.id).unwrap(), Some(f));
     assert!(a.r.store.record(&B16([52; 16])).unwrap().is_none());
 }

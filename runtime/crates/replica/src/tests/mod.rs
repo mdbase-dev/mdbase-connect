@@ -32,6 +32,7 @@ mod unindexed_recovery;
 mod unindexed_reindex;
 mod unindexed_reverse_text;
 mod unindexed_reverse_upload;
+mod unindexed_sem;
 mod unindexed_snapshot;
 mod unindexed_upload;
 mod validation;
