@@ -1230,16 +1230,28 @@ export class HostedCollection extends DurableObject<Env> {
           } catch { return modeUnavailable(); }
         });
       }
+      let diagnostic: ReadyDiagnostic | undefined;
+      const refuse = (reason: string, facts: Record<string, unknown> = {}) => {
+        if (this.env.LAB === "1") console.info(JSON.stringify({ event: "collection_mode_not_ready",
+          role: this.escrow ? "escrow" : "hosted", reason, ...facts }));
+        return modeUnavailable();
+      };
       try {
-        const engine = await this.ready(collection);
+        const engine = await this.ready(collection, value => { diagnostic = value; });
         const generation = this.logGen;
         // CP enrolment activation can open this actor before the owner's grants
         // arrive. A warm cached open is not a fresh readiness observation.
         engine.refresh();
         await this.sync(engine);
-        if (this.engine !== engine || this.logGen !== generation || this.opening || this.collection !== collection || !modeReady(engine.modeServiceReady(),input)) return modeUnavailable();
+        if (this.engine !== engine) return refuse("engine_changed");
+        if (this.logGen !== generation) return refuse("generation_changed");
+        if (this.opening) return refuse("opening");
+        if (this.collection !== collection) return refuse("collection_changed");
+        const observation = engine.modeServiceReady();
+        if (!modeReady(observation,input)) return refuse(observation === null ? "native_not_ready" : "native_identity_mismatch",
+          { serving: engine.serving(), reset: engine.needsReset(), pin: engine.pinState() });
         return modeAck(input);
-      } catch { return modeUnavailable(); }
+      } catch (error) { return refuse("exception", { diagnostic: diagnostic ?? readyDiagnostic("unknown", error) }); }
     }
     if (url.pathname === "/v1/hosted/migration-admission") {
       if (this.escrow) return new Response("not found", { status: 404 });
