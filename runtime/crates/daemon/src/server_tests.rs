@@ -11,6 +11,34 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[test]
+fn cloud_rate_limits_are_retryable_control_errors() {
+    for (delay, message) in [
+        (Some(17), "rate limited; retry after 17 seconds"),
+        (None, "rate limited; try again later"),
+    ] {
+        let error = cloud_refusal(crate::cloud::CloudError::RateLimited(delay));
+        assert_eq!(
+            serde_json::to_value(&error).unwrap(),
+            serde_json::json!({
+                "code": "rate_limited",
+                "reason": "rate_limited",
+                "message": message
+            })
+        );
+        assert_eq!(
+            mdbn_wire::client::recovery_for(&error.code),
+            Some(mdbn_wire::client::Recovery::Retry)
+        );
+    }
+    assert_eq!(
+        cloud_refusal(crate::cloud::CloudError::Server(409, "conflict".into()))
+            .reason
+            .as_deref(),
+        Some("sync_refused")
+    );
+}
+
+#[test]
 fn hold_summary_marks_both_binary_profiles_without_exposing_content() {
     use mdbn_wire::{schema::Wire, snapshot::TextOrBlob};
     let hex = include_str!("../../wire/tests/fixtures/attachment-hold.hex").trim();

@@ -57,6 +57,7 @@ import {
   apiError,
   httpErrorStatus,
   OriginDeniedError,
+  RateLimitError,
   RequestValidationError
 } from "./http-errors.js";
 
@@ -65,6 +66,11 @@ export function registerErrorHandler(
   clientUpdate: ClientUpdatePolicy = DEFAULT_CLIENT_UPDATE_POLICY
 ): void {
   app.setErrorHandler((error, request, reply) => {
+    if (error instanceof RateLimitError) {
+      return reply.code(429).send(apiError("rate_limited", error.message, {
+        retry_after_ms: error.retryAfterMs
+      }));
+    }
     // The provider's fence answer on a migrating collection reaches old clients
     // through token and approval calls; give it the same plain-language refusal.
     const cutover = error instanceof CutoverProblemError

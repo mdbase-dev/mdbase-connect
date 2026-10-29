@@ -27,9 +27,9 @@ use crate::access::{AccessEntry, AccessEvent, AccessList, AccessState, CachedGra
 use crate::collections::CollectionHost;
 use crate::control::{
     AccountInfo, AddCollection, ApproveDevice, Check, CollectionRef, CollectionStatus,
-    ControlError, DaemonStatus, DeviceInfo, EnableSync, GrantRef, HoldAction, HoldResolved,
-    HoldSummary, JoinCollection, Method, NotReady, Notice, PROTOCOL, READINESS_SCHEMA, Readiness,
-    Request, ResolveHold, Response, Settings, UpdateCollection,
+    ControlError, DaemonStatus, DeleteCollection, DeviceInfo, EnableSync, GrantRef, HoldAction,
+    HoldResolved, HoldSummary, JoinCollection, Method, NotReady, Notice, PROTOCOL,
+    READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, Settings, UpdateCollection,
 };
 use crate::fsutil;
 use crate::instance::{InstanceLock, LockError};
@@ -1342,6 +1342,7 @@ impl Daemon {
                 let p: CollectionRef = params(req)?;
                 self.collection_mode_status(&p.collection).await
             }
+            Method::COLLECTION_DELETE => self.delete_collection(params(req)?).await,
             Method::COLLECTION_UPDATE => {
                 let p: UpdateCollection = params(req)?;
                 self.update_collection(p).await
@@ -2843,6 +2844,68 @@ impl Daemon {
         Ok(json!({}))
     }
 
+    /// Account deletion is separate from local unregister: no local state changes.
+    async fn delete_collection(&self, p: DeleteCollection) -> Result<Value, ControlError> {
+        let collection =
+            crate::attest::uuid_bytes(&p.collection.to_ascii_lowercase()).ok_or_else(|| {
+                ControlError::invalid("invalid_collection", "the collection is a UUID")
+            })?;
+        let id = secrets::uuid_string(&collection);
+        let _gate = self.account_gate.lock().await;
+        let source = self
+            .authority
+            .source(mdbn_wire::common::B16(collection))
+            .map_err(|_| {
+                ControlError::new(
+                    "unauthenticated",
+                    "not_signed_in",
+                    "sign this computer in first",
+                )
+            })?;
+        let (ctx, _) = self.sync_parts()?;
+        let current = || {
+            source
+                .active_account()
+                .map(|_| ())
+                .ok_or_else(|| "account_changed".to_string())
+        };
+        ctx.cloud
+            .delete_collection(&id, &p.confirm_name, &current)
+            .await
+            .map_err(|e| {
+                if matches!(&e, crate::cloud::CloudError::Network(_))
+                    || matches!(&e, crate::cloud::CloudError::Server(_, code) if matches!(code.as_str(), "malformed" | "response_too_large"))
+                {
+                    return ControlError::unavailable(
+                        "outcome_unknown",
+                        "The deletion outcome is unknown. Check this collection in your account before taking further action; do not automatically retry.",
+                    );
+                }
+                match e {
+                    crate::cloud::CloudError::Server(409, code) if code == "device_not_enrolled" => {
+                        ControlError::new(
+                            "not_authorized",
+                            &code,
+                            "Join this collection on this computer first, then try again.",
+                        )
+                    }
+                    crate::cloud::CloudError::Server(409, code)
+                        if code == "collection_name_mismatch" =>
+                    {
+                        ControlError::invalid(
+                            &code,
+                            "The name you typed does not match this collection's name.",
+                        )
+                    }
+                    crate::cloud::CloudError::Server(404, _) => {
+                        ControlError::not_found("Collection not found.")
+                    }
+                    e => cloud_refusal(e),
+                }
+            })?;
+        Ok(json!({ "collection_id": id, "deleted": true }))
+    }
+
     async fn collection_name(&self, id: Option<&str>) -> Option<String> {
         let id = id?;
         let inner = self.inner.lock().await;
@@ -3357,6 +3420,7 @@ impl Daemon {
             .map_err(|e| match e {
                 crate::cloud::CloudError::Server(_, code) => code,
                 crate::cloud::CloudError::Network(_) => "sync_unreachable".into(),
+                crate::cloud::CloudError::RateLimited(_) => "rate_limited".into(),
                 crate::cloud::CloudError::Unauthenticated => "not_signed_in".into(),
                 crate::cloud::CloudError::Local(m) => m,
             })
@@ -4509,6 +4573,9 @@ async fn host_call(
 /// A Connect refusal as a control error (no secrets in messages).
 fn cloud_refusal(e: crate::cloud::CloudError) -> ControlError {
     match e {
+        rate_limit @ crate::cloud::CloudError::RateLimited(_) => {
+            ControlError::new("rate_limited", "rate_limited", rate_limit.to_string())
+        }
         crate::cloud::CloudError::Unauthenticated => ControlError::new(
             "unauthenticated",
             "not_signed_in",

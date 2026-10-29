@@ -25,6 +25,7 @@ const SERVER: Readonly<Record<string, AppCollectionDeleteCode>> = Object.assign(
   migration_frozen: "collection_delete_frozen",
   busy: "collection_delete_busy",
   not_member: "collection_delete_not_approved",
+  device_not_enrolled: "collection_delete_not_approved",
   installation_collection_not_approved: "collection_delete_not_approved",
   installation_not_current: "collection_delete_sign_in",
   identity_not_current: "collection_delete_sign_in",

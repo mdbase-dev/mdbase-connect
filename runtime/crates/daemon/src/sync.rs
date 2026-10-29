@@ -278,6 +278,9 @@ impl ConnectTokens {
         // The authority may have changed while the request was in flight.
         self.check().map_err(Eligibility::Refused)?;
         let (token, expires_at_ms) = r.map_err(|e| match e {
+            rate_limit @ crate::cloud::CloudError::RateLimited(_) => {
+                Eligibility::Unreachable(rate_limit.to_string())
+            }
             crate::cloud::CloudError::Network(m) => Eligibility::Unreachable(m),
             crate::cloud::CloudError::Server(s, c) if s >= 500 => {
                 Eligibility::Unreachable(format!("{s} {c}"))

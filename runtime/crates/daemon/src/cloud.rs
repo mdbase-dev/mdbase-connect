@@ -154,6 +154,8 @@ pub enum CloudError {
     Network(String),
     /// The server refused: HTTP status and its error code.
     Server(u16, String),
+    /// HTTP 429, with the server's retry delay when supplied.
+    RateLimited(Option<u64>),
     /// The credential was rejected (401/403): sign in again.
     Unauthenticated,
 }
@@ -164,6 +166,10 @@ impl std::fmt::Display for CloudError {
             CloudError::Local(m) => write!(f, "account state: {m}"),
             CloudError::Network(m) => write!(f, "network: {m}"),
             CloudError::Server(s, c) => write!(f, "server refused ({s} {c})"),
+            CloudError::RateLimited(Some(seconds)) => {
+                write!(f, "rate limited; retry after {seconds} seconds")
+            }
+            CloudError::RateLimited(None) => f.write_str("rate limited; try again later"),
             CloudError::Unauthenticated => f.write_str("the account credential was rejected"),
         }
     }
@@ -223,6 +229,7 @@ fn http(tls: &Arc<rustls::ClientConfig>) -> Result<reqwest::Client, CloudError> 
 }
 
 async fn json_response(r: reqwest::Response) -> Result<(u16, Value), CloudError> {
+    check_rate_limit(&r)?;
     let status = r.status().as_u16();
     let v: Value = r.json().await.unwrap_or(Value::Null);
     if status == 401 || status == 403 {
@@ -237,6 +244,18 @@ async fn json_response(r: reqwest::Response) -> Result<(u16, Value), CloudError>
         return Err(CloudError::Server(status, code));
     }
     Ok((status, v))
+}
+
+fn check_rate_limit(response: &reqwest::Response) -> Result<(), CloudError> {
+    if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse().ok());
+        return Err(CloudError::RateLimited(retry_after));
+    }
+    Ok(())
 }
 
 /// A started pairing.
@@ -612,6 +631,7 @@ impl Cloud {
         let response = request.send().await;
         current().map_err(CloudError::Local)?;
         let mut response = response.map_err(|e| CloudError::Network(e.to_string()))?;
+        check_rate_limit(&response)?;
         let status = response.status().as_u16();
         if expected_status.is_some_and(|expected| status != expected) {
             return Err(CloudError::Server(status, "unexpected_status".into()));
@@ -1265,6 +1285,28 @@ impl Cloud {
             .ok_or_else(|| CloudError::Server(200, "malformed".into()))
     }
 
+    /// Permanently delete a synced collection using this owner-device credential.
+    /// The server checks enrollment and the current shared name. Never retries.
+    pub async fn delete_collection(
+        &self,
+        collection: &str,
+        confirm_name: &str,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<(), CloudError> {
+        let request = self
+            .http
+            .delete(format!("{}/v1/next/collections/{collection}", self.server))
+            .bearer_auth(self.token.as_str())
+            .json(&json!({ "confirm_name": confirm_name }));
+        let value = self.send_current(request, current).await?;
+        if value.get("collection_id").and_then(Value::as_str) != Some(collection)
+            || value.get("deleted").and_then(Value::as_bool) != Some(true)
+        {
+            return Err(CloudError::Server(200, "malformed".into()));
+        }
+        Ok(())
+    }
+
     /// Rename this computer in the account (`PATCH /v1/connectors/self`); returns
     /// the name the account stored.
     pub async fn rename_self(&self, name: &str) -> Result<String, CloudError> {
@@ -1686,6 +1728,59 @@ fn mode_missing_devices(value: &Value, members: &[B16]) -> Option<Vec<[u8; 16]>>
 
 #[cfg(test)]
 mod tests {
+
+    #[tokio::test]
+    async fn rate_limits_preserve_retry_after_without_requiring_a_problem_body() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for (retry_after, body, expected) in [
+            (
+                "Retry-After: 17\r\n",
+                r#"{"error":{"code":"rate_limited"}}"#,
+                Some(17),
+            ),
+            (
+                "Retry-After: 0\r\n",
+                r#"{"error":{"code":"invalid_request"}}"#,
+                Some(0),
+            ),
+            ("", "not json", None),
+            ("Retry-After: invalid\r\n", "", None),
+        ] {
+            for guarded in [false, true] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let mock = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut buffer = [0; 4096];
+                    let received = socket.read(&mut buffer).await.unwrap();
+                    assert!(received > 0);
+                    let reply = format!(
+                        "HTTP/1.1 429 Too Many Requests\r\n{retry_after}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    socket.write_all(reply.as_bytes()).await.unwrap();
+                });
+                let cloud = Cloud {
+                    http: reqwest::Client::new(),
+                    server: format!("http://{address}"),
+                    token: Zeroizing::new("synthetic-token".into()),
+                };
+                let request = cloud.http.get(&cloud.server);
+                let error = if guarded {
+                    cloud
+                        .send_current_status(request, &|| Ok(()), Some(200))
+                        .await
+                        .unwrap_err()
+                } else {
+                    json_response(request.send().await.unwrap())
+                        .await
+                        .unwrap_err()
+                };
+                assert_eq!(error, CloudError::RateLimited(expected));
+                mock.await.unwrap();
+            }
+        }
+    }
 
     #[test]
     fn bootstrap_debug_never_exposes_tokens_or_genesis() {

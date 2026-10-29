@@ -17,6 +17,12 @@ export class RequestValidationError extends Error {
 
 export class OriginDeniedError extends Error {}
 
+export class RateLimitError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super("Too many requests. Please try again later.");
+  }
+}
+
 export function apiError(code: string, message: string, details?: unknown) {
   return {
     error: {
