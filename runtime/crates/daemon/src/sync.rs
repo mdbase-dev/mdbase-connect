@@ -14,7 +14,6 @@
 
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use mdbn_wire::policy::CState;
@@ -209,7 +208,7 @@ pub struct ConnectTokens {
     identity: Arc<DeviceIdentity>,
     fence: Fence,
     cached: Mutex<Option<Token>>,
-    deleted: AtomicBool,
+    terminal: Mutex<Option<&'static str>>,
 }
 
 /// The current-authority check (account epoch, registration, collection, not
@@ -232,7 +231,7 @@ impl ConnectTokens {
             identity,
             fence,
             cached: Mutex::new(None),
-            deleted: AtomicBool::new(false),
+            terminal: Mutex::new(None),
         }
     }
 
@@ -244,8 +243,8 @@ impl ConnectTokens {
 
     fn check(&self) -> Result<(), String> {
         (self.fence)().inspect_err(|_| self.drop_cache())?;
-        if self.deleted() {
-            return Err("collection_deleted".into());
+        if let Some(reason) = self.terminal_reason() {
+            return Err(reason.into());
         }
         Ok(())
     }
@@ -293,9 +292,10 @@ impl ConnectTokens {
                 Eligibility::Unreachable(format!("{s} {c}"))
             }
             crate::cloud::CloudError::Server(_, c) => {
-                if c == "collection_deleted" {
-                    self.deleted.store(true, Ordering::SeqCst);
-                    self.drop_cache();
+                match c.as_str() {
+                    "collection_deleted" => self.terminate("collection_deleted"),
+                    "device_revoked" => self.terminate("device_revoked"),
+                    _ => {}
                 }
                 Eligibility::Refused(c)
             }
@@ -314,9 +314,14 @@ impl ConnectTokens {
         Ok(t)
     }
 
-    /// A deletion refusal is terminal for this collection, including token renewals.
-    pub fn deleted(&self) -> bool {
-        self.deleted.load(Ordering::SeqCst)
+    fn terminate(&self, reason: &'static str) {
+        *self.terminal.lock().unwrap_or_else(|e| e.into_inner()) = Some(reason);
+        self.drop_cache();
+    }
+
+    /// Permanent refusal for this collection, including token renewals.
+    pub fn terminal_reason(&self) -> Option<&'static str> {
+        *self.terminal.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Ask Connect for a token now (cached for the runtime's first connect).
@@ -339,6 +344,9 @@ impl TokenSource for ConnectTokens {
 
     fn refused(&self) {
         self.drop_cache();
+    }
+    fn revoked(&self) {
+        self.terminate("device_revoked");
     }
     fn current(&self) -> Result<(), String> {
         self.check()

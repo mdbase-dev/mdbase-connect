@@ -100,6 +100,8 @@ pub trait TokenSource: Send + Sync {
     fn token(&self) -> Pin<Box<dyn Future<Output = Result<Token, String>> + Send + '_>>;
     /// The last token was refused: drop any cached one.
     fn refused(&self) {}
+    /// This device was permanently revoked from this collection.
+    fn revoked(&self) {}
     /// Actual captured account/registration incarnation, re-read on every use.
     /// Missing custody/currentness is DENY, never a caller-provided wire flag.
     fn current(&self) -> Result<(), String> {
@@ -389,6 +391,8 @@ enum Ended {
     Retry(String),
     /// The token was refused: reconnect with a fresh one.
     Refused,
+    /// The collection permanently refuses this device; never renew or reconnect.
+    Revoked,
 }
 
 async fn run(
@@ -418,6 +422,12 @@ async fn run(
             backoff = Duration::from_secs(1);
         }
         match ended {
+            Ended::Revoked => {
+                if tokens.current().is_ok() {
+                    tokens.revoked();
+                }
+                return;
+            }
             Ended::Refused => {
                 tokens.refused();
                 tracing::warn!("log service refused the token; renewing");
@@ -710,6 +720,11 @@ async fn session(
                 if generation.check().is_err() { break Ended::Retry("stale budget delivery".into()); }
                 match LsFrame::from_bytes(&b) {
                     Ok(LsFrame::Response(r)) => {
+                        if (pending.contains_key(&r.id) || commits.contains_key(&r.id))
+                            && r.error.as_ref().is_some_and(is_revoked)
+                        {
+                            break Ended::Revoked;
+                        }
                         if let Some(id) = commits.remove(&r.id) {
                             // Only `true` completes the replica's put_object.
                             drop(share);
@@ -937,6 +952,7 @@ where
         {
             return match (r.result, r.error) {
                 (Some(_), None) => Ok(()),
+                (_, Some(e)) if is_revoked(&e) => Err(Ended::Revoked),
                 (_, Some(e)) if is_auth(&e) => {
                     tracing::warn!(code = %e.code, reason = ?e.reason, "hello refused");
                     Err(Ended::Refused)
@@ -948,6 +964,10 @@ where
             };
         }
     }
+}
+
+fn is_revoked(e: &LsError) -> bool {
+    e.code == "forbidden" && e.reason.as_deref() == Some("revoked")
 }
 
 fn is_auth(e: &mdbn_wire::log_service::LsError) -> bool {

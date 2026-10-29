@@ -348,9 +348,13 @@ impl CollectionHost {
                                 let Some((s, caught_up, adopt)) = rt.readiness().await else {
                                     return; // stopped
                                 };
-                                let deleted = tokens.deleted() || s.incidents.iter().any(|i| i.kind == mdbn_wire::client::IncidentKind::Gone);
+                                let deleted = tokens.terminal_reason() == Some("collection_deleted") || s.incidents.iter().any(|i| i.kind == mdbn_wire::client::IncidentKind::Gone);
+                                let revoked = tokens.terminal_reason() == Some("device_revoked")
+                                    || s.incidents.iter().any(|i| i.kind == mdbn_wire::client::IncidentKind::AccessRevoked);
                                 let now = if deleted {
                                     Readiness::Failed("collection_deleted")
+                                } else if revoked {
+                                    Readiness::Failed("sync_revoked")
                                 } else {
                                     match &adopt {
                                         Some(mdbn_replica::AdoptStatus::Pending) => Readiness::Adopting,
@@ -370,9 +374,9 @@ impl CollectionHost {
                                         }
                                     }
                                 };
-                                let failure = if deleted {
+                                let failure = if deleted || revoked {
                                     Some(crate::sync_failure::Failure {
-                                        kind: crate::sync_failure::Kind::Gone,
+                                        kind: if deleted { crate::sync_failure::Kind::Gone } else { crate::sync_failure::Kind::AccessRevoked },
                                         stage: crate::sync_failure::Stage::SyncedReadiness,
                                         seq: s.confirmed_through,
                                         generation: None,
@@ -640,6 +644,11 @@ impl CollectionHost {
             {
                 (CollectionState::Failed, Some("collection_deleted".into()))
             }
+            (CollectionState::Opening, Some(Some(Err(e))))
+                if e == &format!("{INELIGIBLE}device_revoked") =>
+            {
+                (CollectionState::Failed, Some("sync_revoked".into()))
+            }
             (CollectionState::Opening, Some(Some(Err(e)))) if e.starts_with(INELIGIBLE) => (
                 CollectionState::Unavailable,
                 Some("sync_not_eligible".into()),
@@ -770,6 +779,13 @@ impl CollectionHost {
                 path: None,
                 code: "collection_deleted".into(),
                 message: "This collection was deleted by its owner. Sync has stopped. Your local files are untouched. Remove the local registration with mdbase collection remove.".into(),
+            });
+        }
+        if self.current().1.as_deref() == Some("sync_revoked") {
+            notices.push(Notice {
+                path: None,
+                code: "sync_revoked".into(),
+                message: "This computer was removed from this collection and can no longer sync it. To rejoin, use a new device identity in a separate mdbase profile (--state-dir), sign in, and join the collection into a new empty folder. Local edits held in this folder are kept for you to copy across. Keep this folder and the old profile until you have copied your edits.".into(),
             });
         }
         if let Ok(closed) = self.mirror_closed.lock()

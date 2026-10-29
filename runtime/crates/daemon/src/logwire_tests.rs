@@ -23,6 +23,7 @@ const DEV: B16 = B16([0x0d; 16]);
 struct Tokens {
     issued: AtomicUsize,
     refused: AtomicUsize,
+    revoked: AtomicUsize,
 }
 
 impl TokenSource for Tokens {
@@ -38,6 +39,9 @@ impl TokenSource for Tokens {
     fn refused(&self) {
         self.refused.fetch_add(1, Ordering::SeqCst);
     }
+    fn revoked(&self) {
+        self.revoked.fetch_add(1, Ordering::SeqCst);
+    }
     fn current(&self) -> Result<(), String> {
         Ok(())
     } // synthetic loopback source
@@ -52,6 +56,10 @@ enum Script {
     DropAfterCall,
     /// Refuse the hello as unauthenticated.
     Refuse,
+    /// Permanently refuse the device at hello.
+    RevokeHello,
+    /// Permanently refuse the device on a call after hello.
+    RevokeCall,
     /// Accept the hello, then never answer anything.
     Silent,
 }
@@ -92,10 +100,15 @@ async fn peer(scripts: Vec<Script>, hellos: Arc<Mutex<Vec<LsHelloParams>>>) -> S
                         .into(),
                 )
             };
-            if let Script::Refuse = script {
+            if matches!(script, Script::Refuse | Script::RevokeHello) {
                 let e = LsError {
-                    code: "unauthenticated".into(),
-                    reason: None,
+                    code: if matches!(script, Script::RevokeHello) {
+                        "forbidden"
+                    } else {
+                        "unauthenticated"
+                    }
+                    .into(),
+                    reason: matches!(script, Script::RevokeHello).then(|| "revoked".into()),
                     message: None,
                     retry_after_ms: None,
                     details: None,
@@ -107,6 +120,26 @@ async fn peer(scripts: Vec<Script>, hellos: Arc<Mutex<Vec<LsHelloParams>>>) -> S
                 .await
                 .unwrap();
             match script {
+                Script::RevokeCall => {
+                    if let Some(Ok(Message::Binary(b))) = rx.next().await {
+                        let LsFrame::Request(call) = LsFrame::from_bytes(&b).unwrap() else {
+                            panic!("call")
+                        };
+                        tx.send(ok(
+                            call.id,
+                            None,
+                            Some(LsError {
+                                code: "forbidden".into(),
+                                reason: Some("revoked".into()),
+                                message: None,
+                                retry_after_ms: None,
+                                details: None,
+                            }),
+                        ))
+                        .await
+                        .unwrap();
+                    }
+                }
                 Script::Silent => while rx.next().await.is_some() {},
                 Script::DropAfterCall => {
                     let _ = rx.next().await;
@@ -323,6 +356,7 @@ fn tokens() -> Arc<Tokens> {
     Arc::new(Tokens {
         issued: AtomicUsize::new(0),
         refused: AtomicUsize::new(0),
+        revoked: AtomicUsize::new(0),
     })
 }
 
@@ -628,4 +662,72 @@ async fn an_unanswered_call_ends_the_session_and_is_lost() {
     }
     assert!(link.send(request(8, &seen)));
     until(&seen, "reply 8 head").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn revoked_device_stops_transport_at_hello_or_rpc_without_renewal() {
+    for script in [Script::RevokeHello, Script::RevokeCall] {
+        let hellos = Arc::new(Mutex::new(Vec::new()));
+        let url = peer(vec![script], hellos.clone()).await;
+        let (events, seen) = sink();
+        let t = tokens();
+        let (tx, rx) = mpsc::channel(MAX_QUEUED_CALLS);
+        let current = Arc::new(Mutex::new(None));
+        let cfg = LinkConfig::new(url, COL, Some(DEV));
+        let run = run(cfg, t.clone(), rx, events, current);
+        let submit = async {
+            if matches!(script, Script::RevokeCall) {
+                until(&seen, "up").await;
+                tx.send(Queued {
+                    call: request(9, &seen),
+                    _budget: Arc::new(tokio::sync::Semaphore::new(1))
+                        .acquire_owned()
+                        .await
+                        .unwrap(),
+                })
+                .await
+                .unwrap();
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(run, submit);
+        })
+        .await
+        .expect("revocation ends the transport instead of retrying");
+        assert_eq!(t.revoked.load(Ordering::SeqCst), 1);
+        assert_eq!(t.refused.load(Ordering::SeqCst), 0);
+        assert_eq!(t.issued.load(Ordering::SeqCst), 1);
+        assert_eq!(hellos.lock().unwrap().len(), 1);
+        if matches!(script, Script::RevokeCall) {
+            let tags = seen.lock().unwrap();
+            let lost = tags.iter().position(|tag| tag == "lost 9").unwrap();
+            assert_eq!(
+                tags[lost - 1],
+                "down",
+                "retire in-flight outcomes before stopping"
+            );
+        }
+    }
+}
+
+#[test]
+fn only_the_exact_device_revocation_is_terminal() {
+    for (code, reason, terminal) in [
+        ("forbidden", Some("revoked"), true),
+        ("forbidden", Some("viewer"), false),
+        ("forbidden", Some("not_enrolled"), false),
+        ("unauthenticated", Some("expired"), false),
+        ("unavailable", Some("revoked"), false),
+    ] {
+        assert_eq!(
+            is_revoked(&LsError {
+                code: code.into(),
+                reason: reason.map(str::to_owned),
+                message: None,
+                retry_after_ms: None,
+                details: None,
+            }),
+            terminal
+        );
+    }
 }

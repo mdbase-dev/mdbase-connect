@@ -67,6 +67,7 @@ interface CollectionLike {
   reason?: string;
   sync?: { pending: number; holds: number; unresolved: number; connection: string; resyncing?: boolean; last_error?: string };
   other_devices_online?: number;
+  notices?: ReadonlyArray<{ code: string; message: string }>;
 }
 
 export interface CollectionPresentation {
@@ -137,8 +138,14 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
       return { ...base, status: t(i18n)`Changing sync…`, detail: t(i18n)`Apps keep working while the change finishes.`, dot: "connecting" };
     case "unavailable":
       return { ...base, status: t(i18n)`Unavailable`, detail: reasonText(collection.reason), dot: "idle" };
-    case "failed":
-      return { ...base, status: t(i18n)`Stopped`, detail: t(i18n)`${reasonText(collection.reason) ?? missingOpenReason()} Your files are untouched.`, dot: "danger" };
+    case "failed": {
+      // The daemon owns the recovery instructions, including the manual rejoin
+      // boundary. Keep its notice intact through the existing status projection.
+      const recovery = collection.reason === "sync_revoked"
+        ? collection.notices?.find((notice) => notice.code === "sync_revoked")?.message
+        : undefined;
+      return { ...base, status: t(i18n)`Stopped`, detail: t(i18n)`${recovery ?? reasonText(collection.reason) ?? missingOpenReason()} Your files are untouched.`, dot: "danger" };
+    }
     default:
       break;
   }
