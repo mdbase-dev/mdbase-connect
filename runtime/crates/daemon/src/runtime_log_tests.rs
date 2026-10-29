@@ -239,14 +239,21 @@ fn idle_head_refresh_uses_the_existing_session_and_gone_is_terminal() {
     let (source, _) = epoch_source();
     let mut active = None;
     let session = up(&mut rep, &mut active, Generation::begin(source));
-    let initial = scope(&mut rep, &session);
-    deliver_log_reply(&mut rep, &session, initial, |_, _| {
-        Ok(LogResponse::Subscribed {
-            head: 0,
-            head_chain: B32([0; 32]),
-        })
-    })
-    .unwrap();
+    rep.tick();
+    let initial = rep
+        .take_authenticated_log_calls(session.authenticated())
+        .unwrap();
+    for (call, scope) in initial {
+        if call.request.method() == "subscribe" {
+            deliver_log_reply(&mut rep, &session, scope, |_, _| {
+                Ok(LogResponse::Subscribed {
+                    head: 0,
+                    head_chain: B32([0; 32]),
+                })
+            })
+            .unwrap();
+        }
+    }
     assert!(rep.request_head());
     assert!(
         !rep.request_head(),
