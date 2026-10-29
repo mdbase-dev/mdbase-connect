@@ -38,10 +38,13 @@ explicit failure over silent recovery, and simplification over expansion.
 - Never send local collection paths to the control plane or persist record
   payloads there.
 - Keep Rust and TypeScript protocol changes versioned and compatible.
-- Run `pnpm ci:local` before pushing. It runs Server CI's node and Rust gates
-  (including the architecture, feature and clippy checks) and reports every
-  failure at once; add `--browser` for the Chromium suites. Also run `pnpm e2e`
-  before handing off changes that affect the request path.
+- Run `pnpm ci:local` before pushing. It applies Server CI's pull-request
+  path plan to the branch's changes since `origin/main`: native changes run
+  the full node and Rust gates (including the architecture, feature and
+  clippy checks), others run the fast node gates. It reports every failure at
+  once; pass `--node --rust` for every gate, and `--browser` for the Chromium
+  suites. Also run `pnpm e2e` before handing off changes that affect the
+  request path.
 - Use `pnpm test:fast`, `pnpm test:integration`, and the narrowest registered
   `pnpm test:system -- --suite ...` selection for test-infrastructure changes;
   use `pnpm test:all` only when every local system boundary is required.
