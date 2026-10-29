@@ -239,6 +239,28 @@ fn apply_body(
     panic!("bounded source did not finish");
 }
 #[test]
+fn native_invalid_effect_path_voids_before_planner_mismatch() {
+    let mut node = node();
+    let writer = node.r.cfg.device_id;
+    let (content, objects) = contents(&mut node, &vec![b'x'; 1048577], true);
+    let mut payload = planned(&node, payload(content));
+    let rt::Effect::PutUnindexedMarkdown(effect) = &mut payload.effects[0] else {
+        panic!("expected a native put effect");
+    };
+    effect.path = "../escape.md".into();
+    let before_voids = node.r.policy.voids;
+    let head = retain(&mut node);
+    assert!(matches!(
+        apply_body(&mut node, head, &payload, &objects, writer),
+        crate::replica::apply::Outcome::Void("V7: unindexed effect descriptor or path")
+    ));
+    assert_eq!(node.r.head, head);
+    assert_eq!(node.r.store.head().unwrap(), head);
+    assert_eq!(node.r.policy.voids, before_voids + 1);
+    assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
+}
+
+#[test]
 fn native_planner_drift_stalls_before_head_advance() {
     use crate::plan::Planner;
     use mdbn_core::intent::Mutation;

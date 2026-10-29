@@ -2969,6 +2969,34 @@ fn pins(root: [u8; 32], key: [u8; 32], key_root: [u8; 32]) -> PolicyPins {
     }
 }
 
+#[test]
+fn policy_unpinned_key_with_bad_root_signature_voids() {
+    let pins = pins(ROOT, CP, ROOT);
+    let env = Env {
+        verifier: &Fake,
+        trusted_roots: &[ROOT],
+        policy_pins: Some(&pins),
+    };
+    let mut state = PolicyState::new();
+    state.apply_control(1, &CH, &genesis_item(), &env).unwrap();
+    let mut certificate = cert(0, 1000, [3; 32]);
+    certificate.sig.0[0] ^= 1;
+    let item = policy_with(
+        2,
+        2,
+        certificate,
+        vec![enrol(11, OWNER, DeviceKind::Desktop)],
+    );
+    let before_voids = state.voids;
+    assert_eq!(
+        state.apply_control(2, &CH, &item, &env).unwrap_err().rule(),
+        "cp-cert"
+    );
+    assert_eq!(state.seq, 2);
+    assert_eq!(state.voids, before_voids + 1);
+    assert!(!state.devices.contains_key(&dev(11)));
+}
+
 fn genesis_item() -> Item {
     policy(
         1,
@@ -2986,8 +3014,7 @@ fn genesis_item() -> Item {
     )
 }
 
-/// With published pins, a policy item is valid only when its certificate is by the
-/// pinned root for a pinned policy key; anything else is void, at genesis and after.
+/// Missing published pins stall; invalid certificates and logged revocations void.
 #[test]
 fn policy_pins_admit_only_published_keys() {
     let with = |p: &PolicyPins, item: &Item, s: &mut PolicyState, seq: u64| {
@@ -3027,9 +3054,8 @@ fn policy_pins_admit_only_published_keys() {
     assert!(s.devices.contains_key(&dev(11)));
     let mut revoked = before.clone();
     revoked.revoked_cp_keys.insert(key_id(&[3; 32]), 0);
-    assert!(with(&good, &other, &mut revoked, 3).unwrap_err().is_stall());
     assert_eq!(
-        with(&updated, &other, &mut revoked, 3).unwrap_err().rule(),
+        with(&good, &other, &mut revoked, 3).unwrap_err().rule(),
         "cp-cert"
     );
     assert_eq!(revoked.seq, 3);

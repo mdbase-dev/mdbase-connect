@@ -1295,23 +1295,6 @@ impl PolicyState {
                 "certificate root differs from genesis root",
             ));
         }
-        // Pins publish the control plane's roots and keys. Under an owner device's
-        // local root (after a root handover verified under the pinned root) the
-        // local root certifies its own keys, so pins do not apply (`policy.md` §2.1).
-        if let Some(pins) = env.policy_pins
-            && !self.local_root_in_force()
-        {
-            if !pins.root(&root, &root_pk) {
-                return Err(Rejected::Stall(
-                    "root is not a published pin in this build".into(),
-                ));
-            }
-            if !pins.policy_key(&c.key_id(), &c.policy_pk, &root) {
-                return Err(Rejected::Stall(
-                    "policy key is not a published pin in this build".into(),
-                ));
-            }
-        }
         let digest = c
             .signed_digest()
             .map_err(|e| void("cp-cert", e.to_string()))?;
@@ -1336,6 +1319,23 @@ impl PolicyState {
             .is_some_and(|from| *from <= p.issued_at)
         {
             return Err(void("cp-cert", "policy key revoked"));
+        }
+        // Pins publish the control plane's roots and keys. Under an owner device's
+        // local root (after a root handover verified under the pinned root) the
+        // local root certifies its own keys, so pins do not apply (`policy.md` §2.1).
+        if let Some(pins) = env.policy_pins
+            && !self.local_root_in_force()
+        {
+            if !pins.root(&root, &root_pk) {
+                return Err(Rejected::Stall(
+                    "root is not a published pin in this build".into(),
+                ));
+            }
+            if !pins.policy_key(&c.key_id(), &c.policy_pk, &root) {
+                return Err(Rejected::Stall(
+                    "policy key is not a published pin in this build".into(),
+                ));
+            }
         }
         Ok(())
     }

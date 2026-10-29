@@ -1266,120 +1266,10 @@ impl<S: Store> Replica<S> {
         {
             return self.commit_payload_void(head, &payload, "V7: unindexed source descriptor");
         }
-        // Verification (log-entry.md §5) against the state at p − 1.
-        if native || (self.cfg.verify && payload.mutation.origin != self.cfg.replica_id) {
-            let sem = mdbn_core::semantics::SEM;
-            if payload.sem.major == sem.major && payload.sem.minor == sem.minor {
-                let view = StoreView::new(&self.store, self.catalog.clone());
-                // The marker selects resurrection semantics only; it never widens
-                // what verification accepts.
-                let stage = if payload.resurrect.is_some() {
-                    Stage::Resurrect
-                } else {
-                    Stage::Head
-                };
-                let r = self.planner.plan(&mutation, &view, &PlanOptions { stage });
-                if native && let Some(e) = view.error() {
-                    return Err(e);
-                }
-                let ok = match r {
-                    Ok(pl) => {
-                        convert::wstatus(pl.status) == payload.status
-                            && pl
-                                .effects
-                                .iter()
-                                .map(convert::wruntime_effect)
-                                .collect::<CResult<Vec<_>>>()
-                                .as_ref()
-                                == Ok(&effects)
-                            && pl
-                                .conflicts
-                                .iter()
-                                .map(convert::wruntime_conflict)
-                                .collect::<CResult<Vec<_>>>()
-                                .as_ref()
-                                == Ok(&conflicts)
-                            && pl.aliases.iter().map(convert::walias).collect::<Vec<_>>()
-                                == payload.aliases.clone().unwrap_or_default()
-                    }
-                    Err(_) => false,
-                };
-                if ok {
-                    if !native {
-                        self.stats.verified += 1;
-                    }
-                } else {
-                    if native {
-                        return Ok(Outcome::Stall(
-                            IncidentKind::UpgradeRequired,
-                            "native results cannot be verified by this build's planner".into(),
-                        ));
-                    }
-                    self.stats.verify_mismatch += 1;
-                    self.incident(
-                        IncidentKind::VerificationMismatch,
-                        Some(Value::Map(vec![
-                            (
-                                "seq".into(),
-                                Value::Int(i64::try_from(p).unwrap_or(i64::MAX)),
-                            ),
-                            (
-                                "count".into(),
-                                Value::Int(
-                                    i64::try_from(self.stats.verify_mismatch).unwrap_or(i64::MAX),
-                                ),
-                            ),
-                        ])),
-                    );
-                }
-            } else {
-                if native {
-                    return Ok(Outcome::Stall(
-                        IncidentKind::UpgradeRequired,
-                        "T6b semantics cannot be verified".into(),
-                    ));
-                }
-                self.stats.unverified += 1;
-            }
-        }
-        let source_meta = if native {
-            match self.unindexed_source_check(head, &payload, refs) {
-                super::unindexed_apply::Check::StoreFailed(e) => return Err(e),
-                super::unindexed_apply::Check::Pending => return Ok(Outcome::SourcePending),
-                super::unindexed_apply::Check::Ready(meta) => {
-                    self.stats.verified += 1;
-                    meta
-                }
-                super::unindexed_apply::Check::InvalidUtf8 => {
-                    return self.commit_unindexed_invalid_utf8(head, &payload, writer, changed);
-                }
-                super::unindexed_apply::Check::InvalidRefs => {
-                    return self.commit_payload_void(head, &payload, "V7: native source refs");
-                }
-                super::unindexed_apply::Check::Failed(crate::attachments::StreamError::NoKey) => {
-                    return Ok(Outcome::Stall(
-                        IncidentKind::WaitingForKey,
-                        "T6b source key unavailable".into(),
-                    ));
-                }
-                super::unindexed_apply::Check::Failed(e) => {
-                    self.incident(
-                        IncidentKind::Integrity,
-                        Some(Value::Text(format!("T6b source: {e:?}"))),
-                    );
-                    self.unindexed_source_retry(head, &payload);
-                    return Ok(Outcome::SourcePending);
-                }
-            }
-        } else {
-            Vec::new()
-        };
-
         // Build the transaction, checking V7 against current state as we go.
         let instant = payload.mutation.clock.instant;
         let mut tx = Tx {
             head: Some(head),
-            meta: source_meta,
             ..Tx::default()
         };
         // Path keys this entry frees and takes, to check collisions after all effects.
@@ -1831,6 +1721,116 @@ impl<S: Store> Replica<S> {
                 return self.commit_payload_void(head, &payload, "V7: path already taken");
             }
         }
+        // Verification (log-entry.md §5) against the state at p − 1.
+        if native || (self.cfg.verify && payload.mutation.origin != self.cfg.replica_id) {
+            let sem = mdbn_core::semantics::SEM;
+            if payload.sem.major == sem.major && payload.sem.minor == sem.minor {
+                let view = StoreView::new(&self.store, self.catalog.clone());
+                // The marker selects resurrection semantics only; it never widens
+                // what verification accepts.
+                let stage = if payload.resurrect.is_some() {
+                    Stage::Resurrect
+                } else {
+                    Stage::Head
+                };
+                let r = self.planner.plan(&mutation, &view, &PlanOptions { stage });
+                if native && let Some(e) = view.error() {
+                    return Err(e);
+                }
+                let ok = match r {
+                    Ok(pl) => {
+                        convert::wstatus(pl.status) == payload.status
+                            && pl
+                                .effects
+                                .iter()
+                                .map(convert::wruntime_effect)
+                                .collect::<CResult<Vec<_>>>()
+                                .as_ref()
+                                == Ok(&effects)
+                            && pl
+                                .conflicts
+                                .iter()
+                                .map(convert::wruntime_conflict)
+                                .collect::<CResult<Vec<_>>>()
+                                .as_ref()
+                                == Ok(&conflicts)
+                            && pl.aliases.iter().map(convert::walias).collect::<Vec<_>>()
+                                == payload.aliases.clone().unwrap_or_default()
+                    }
+                    Err(_) => false,
+                };
+                if ok {
+                    if !native {
+                        self.stats.verified += 1;
+                    }
+                } else {
+                    if native {
+                        return Ok(Outcome::Stall(
+                            IncidentKind::UpgradeRequired,
+                            "native results cannot be verified by this build's planner".into(),
+                        ));
+                    }
+                    self.stats.verify_mismatch += 1;
+                    self.incident(
+                        IncidentKind::VerificationMismatch,
+                        Some(Value::Map(vec![
+                            (
+                                "seq".into(),
+                                Value::Int(i64::try_from(p).unwrap_or(i64::MAX)),
+                            ),
+                            (
+                                "count".into(),
+                                Value::Int(
+                                    i64::try_from(self.stats.verify_mismatch).unwrap_or(i64::MAX),
+                                ),
+                            ),
+                        ])),
+                    );
+                }
+            } else {
+                if native {
+                    return Ok(Outcome::Stall(
+                        IncidentKind::UpgradeRequired,
+                        "T6b semantics cannot be verified".into(),
+                    ));
+                }
+                self.stats.unverified += 1;
+            }
+        }
+        let source_meta = if native {
+            match self.unindexed_source_check(head, &payload, refs) {
+                super::unindexed_apply::Check::StoreFailed(e) => return Err(e),
+                super::unindexed_apply::Check::Pending => return Ok(Outcome::SourcePending),
+                super::unindexed_apply::Check::Ready(meta) => {
+                    self.stats.verified += 1;
+                    meta
+                }
+                super::unindexed_apply::Check::InvalidUtf8 => {
+                    return self.commit_unindexed_invalid_utf8(head, &payload, writer, changed);
+                }
+                super::unindexed_apply::Check::InvalidRefs => {
+                    return self.commit_payload_void(head, &payload, "V7: native source refs");
+                }
+                super::unindexed_apply::Check::Failed(crate::attachments::StreamError::NoKey) => {
+                    return Ok(Outcome::Stall(
+                        IncidentKind::WaitingForKey,
+                        "T6b source key unavailable".into(),
+                    ));
+                }
+                super::unindexed_apply::Check::Failed(e) => {
+                    self.incident(
+                        IncidentKind::Integrity,
+                        Some(Value::Text(format!("T6b source: {e:?}"))),
+                    );
+                    self.unindexed_source_retry(head, &payload);
+                    return Ok(Outcome::SourcePending);
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        tx.meta.extend(source_meta);
         // Record metadata under the catalog after this entry's resource effects.
         let catalog = if catalog_changed {
             let mut rs: std::collections::BTreeMap<String, String> =
