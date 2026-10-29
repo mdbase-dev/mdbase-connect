@@ -5,6 +5,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { MODE_SWITCH_CAPABILITY, advertiseModeCapability, armModeFloor } from "./collection-mode-capability.js";
@@ -64,6 +65,7 @@ describePg("collection mode capability floor and token drain", () => {
   async function fixture(bAdvertised = true) {
     const user = randomUUID(), collection = randomUUID(), token = randomUUID(), connector = randomUUID();
     await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Owner','next')", [user, `${user}@example.test`]);
+    await ensureDevelopmentEntitlement(db, user);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Native source',$3)", [connector, user, tokenHash(token)]);
     const a = randomUUID(), b = randomUUID(), key = generateKeyPairSync("ed25519").privateKey;
     const keys = { sign_pk: ed25519RawPublicKey(key), kem_pk: rawX(), noise_pk: rawX() };
