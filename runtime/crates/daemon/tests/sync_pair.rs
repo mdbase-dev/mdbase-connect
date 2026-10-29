@@ -42,6 +42,7 @@ async fn two_desktops_and_hosted_converge_through_the_log_service() {
     let server = tokio::spawn(mdbn_log_server::serve(gateway, listener));
     let dir = scratch("sp");
     scenario::run(&base, &dir, 600_000).await;
+    scenario::run_modes(&base, &dir.join("modes")).await;
     server.abort();
     let _ = std::fs::remove_dir_all(&dir);
 }

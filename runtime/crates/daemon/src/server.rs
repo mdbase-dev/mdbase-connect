@@ -2109,15 +2109,20 @@ impl Daemon {
         collection: &[u8; 16],
         trust: &crate::trust::Trust,
         state: mdbn_wire::policy::CState,
-        log_url: &str,
-        genesis: &[u8],
+        binding: (&str, &[u8]),
+        creating: bool,
     ) -> Result<(), ControlError> {
+        let (log_url, genesis) = binding;
         let refused = |m: String| ControlError::unavailable("sync_integrity", m);
         if crate::trust::origin(log_url).map_err(|e| refused(e.0))? != trust.log_origin {
             return Err(refused("the control plane named another log".into()));
         }
-        let pinned = crate::sync::verify_genesis(genesis, collection, trust, state)
-            .map_err(|e| refused(e.0))?;
+        let pinned = if creating {
+            crate::sync::verify_genesis(genesis, collection, trust, state)
+        } else {
+            crate::sync::verify_join_genesis(genesis, collection, trust)
+        }
+        .map_err(|e| refused(e.0))?;
         let device = self
             .identity
             .get()
@@ -2262,7 +2267,7 @@ impl Daemon {
                 "the folder changed during enrolment; no local files were adopted",
             ));
         }
-        self.write_link(&id, &collection, &trust, state, log_url, genesis)?;
+        self.write_link(&id, &collection, &trust, state, (log_url, genesis), false)?;
         let name = p
             .name
             .as_deref()
@@ -2771,7 +2776,14 @@ impl Daemon {
             let aside = collections.join(format!("{}.local-{}", entry.id, fsutil::now_ms()));
             std::fs::rename(&dir, &aside).map_err(|e| ControlError::internal(e.to_string()))?;
         }
-        self.write_link(&entry.id, &collection, &trust, state, &log_url, &genesis)?;
+        self.write_link(
+            &entry.id,
+            &collection,
+            &trust,
+            state,
+            (&log_url, &genesis),
+            true,
+        )?;
         let mut next = inner.registry.clone();
         let updated = next
             .get_mut(&entry.id)

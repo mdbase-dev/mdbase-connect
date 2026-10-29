@@ -143,6 +143,11 @@ msgctxt "Collection access interface"
 msgid "Cancel"
 msgstr "취소"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Cancel switch"
+msgstr "전환 취소"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Checking collection setup…"

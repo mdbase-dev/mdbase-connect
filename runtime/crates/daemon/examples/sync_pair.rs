@@ -42,5 +42,9 @@ async fn main() {
     let attach_bytes = arg("--attach-bytes")
         .map(|v| v.parse().expect("--attach-bytes"))
         .unwrap_or(600_000);
-    scenario::run(&log, &dir, attach_bytes).await;
+    if let (Some(node), Some(wasm)) = (arg("--sdk-node"), arg("--sdk-wasm")) {
+        scenario::run_modes_sdk(&log, &dir, Some((&node, &wasm))).await;
+    } else {
+        scenario::run(&log, &dir, attach_bytes).await;
+    }
 }

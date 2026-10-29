@@ -173,6 +173,10 @@ enum Cmd {
         oneshot::Sender<Result<Option<B16>, String>>,
     ),
     PrivateSigners(AccountKeyGuard, oneshot::Sender<Vec<B16>>),
+    ModeGeneration(
+        AccountKeyGuard,
+        oneshot::Sender<Option<mdbn_wire::common::B32>>,
+    ),
     ModeSource {
         private: bool,
         receipt: bool,
@@ -274,10 +278,16 @@ pub enum PrivateSwitchOp {
     Cancel,
     /// Read owner eligibility before persisting the host's Cloud choice.
     CloudCandidate,
-    /// Persist the user's explicit Cloud copy choice before the server request.
+    /// Persist the user's explicit Cloud copy choice before publication.
     ChooseCloud,
+    /// Resume explicit source choice only in its original Private generation.
+    ChooseCloudAt(mdbn_wire::common::B32),
+    /// Cancel source permission only while native policy still proves Private.
+    CancelCloud,
     /// Read a committed receiver-only Cloud selection; never source consent.
     CloudRead,
+    /// Read-only current selection, never source consent.
+    CloudSelected,
     /// Read a verified, durably applied private-mode choice.
     Accepted,
     /// Host link and registration durably contain the verified choice.
@@ -611,6 +621,15 @@ impl Runtime {
         rx.await.ok()
     }
 
+    /// Read the actor's local privacy generation for durable consent binding.
+    pub async fn mode_generation(
+        &self,
+        current: AccountKeyGuard,
+    ) -> Option<mdbn_wire::common::B32> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Cmd::ModeGeneration(current, tx)).ok()?;
+        rx.await.ok().flatten()
+    }
     pub(crate) async fn mode_source(
         &self,
         private: bool,
@@ -1464,6 +1483,13 @@ fn run(
             Ok(Cmd::Status(reply)) => {
                 let _ = reply.send(rep.sync_status());
             }
+            Ok(Cmd::ModeGeneration(current, reply)) => {
+                let _ = reply.send(if current() {
+                    rep.mode_generation()
+                } else {
+                    None
+                });
+            }
             Ok(Cmd::ModeSource {
                 private,
                 receipt,
@@ -1506,6 +1532,8 @@ fn run(
                     Err("account_changed".into())
                 } else if matches!(op, PrivateSwitchOp::CloudCandidate) {
                     Ok(rep.cloud_copy_candidate())
+                } else if matches!(op, PrivateSwitchOp::CloudSelected) {
+                    Ok(rep.cloud_copy_selected())
                 } else if matches!(op, PrivateSwitchOp::CloudRead) {
                     Ok(rep.cloud_read_owner())
                 } else if matches!(op, PrivateSwitchOp::Accepted) {
@@ -1527,10 +1555,15 @@ fn run(
                             PrivateSwitchOp::Request => rep.request_private_switch(session),
                             PrivateSwitchOp::Cancel => rep.cancel_private_switch(session),
                             PrivateSwitchOp::ChooseCloud => rep.choose_cloud_copy(session),
+                            PrivateSwitchOp::ChooseCloudAt(generation) => {
+                                rep.choose_cloud_copy_at(session, generation)
+                            }
+                            PrivateSwitchOp::CancelCloud => rep.cancel_cloud_copy(session),
                             PrivateSwitchOp::Acknowledge => rep.acknowledge_private_switch(session),
                             PrivateSwitchOp::Accepted
                             | PrivateSwitchOp::CloudCandidate
-                            | PrivateSwitchOp::CloudRead => {
+                            | PrivateSwitchOp::CloudRead
+                            | PrivateSwitchOp::CloudSelected => {
                                 unreachable!()
                             }
                         };

@@ -730,6 +730,41 @@ impl Cloud {
         .await
     }
 
+    pub(crate) async fn collection_mode_request_status(
+        &self,
+        collection: &str,
+        request: &str,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<Value, CloudError> {
+        self.send_current(
+            self.http
+                .get(format!(
+                    "{}/v1/next/collections/{collection}/mode/{request}",
+                    self.server
+                ))
+                .bearer_auth(self.token.as_str()),
+            current,
+        )
+        .await
+    }
+    pub(crate) async fn collection_mode_cancel(
+        &self,
+        collection: &str,
+        request: &str,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<Value, CloudError> {
+        self.send_current(
+            self.http
+                .delete(format!(
+                    "{}/v1/next/collections/{collection}/mode/{request}",
+                    self.server
+                ))
+                .bearer_auth(self.token.as_str()),
+            current,
+        )
+        .await
+    }
+
     /// Native mode prepare/finish. Fields are derived from the live replica, not
     /// forwarded from a web caller. This proof is independent of create/join.
     pub(crate) async fn collection_mode_post(

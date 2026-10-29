@@ -411,10 +411,6 @@ msgid "<0>Application origin unverified.</0> Continue only if you started this c
 msgstr "<0>애플리케이션 출처를 확인할 수 없습니다.</0> 직접 시작한 연결인 경우에만 계속하세요{1}.{3}"
 
 #: src/ConnectApp.tsx
-#~ msgid "A cloud copy helps your replicas sync. This page does not report their connection status."
-#~ msgstr "클라우드 사본은 복제본 간 동기화를 돕습니다. 이 페이지에는 복제본의 연결 상태가 표시되지 않습니다."
-
-#: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "컬렉션이 공유되었습니다"
 
@@ -1026,10 +1022,6 @@ msgstr "컬렉션"
 #: src/authorization-view.tsx
 msgid "Collection changes"
 msgstr "컬렉션 변경 사항"
-
-#: src/ConnectApp.tsx
-#~ msgid "Collection content remains in your replicas; no cloud copy is configured."
-#~ msgstr "컬렉션 내용은 복제본에 남아 있습니다. 클라우드 사본이 설정되지 않았습니다."
 
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
@@ -2521,11 +2513,6 @@ msgstr "개인정보 보호"
 #: src/CollectionPicker.tsx
 msgid "Private"
 msgstr "비공개"
-
-#: src/ConnectApp.tsx
-#~ msgctxt "Connect interface"
-#~ msgid "Private collection"
-#~ msgstr "비공개 컬렉션"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"

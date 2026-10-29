@@ -513,7 +513,8 @@ function Storage({ collection, busy, perform, editorOrigin }: {
   useLocaleRevision();
   if (collection.kind === "native") {
     return <Page title={t(i18n)({ message: "Storage & sync", context: "Connect interface" })} intro={t(i18n)`${collection.name} is stored in mdbase replicas on your devices.`}>
-      <CollectionModeControl key={collection.id} collectionId={collection.id} load={() => management.collectionModeStatus(collection.id)} change={(targetMode, requestId) => management.requestCollectionMode(collection.id, {targetMode, requestId})} />
+      <p>{collection.detail}</p>
+      <CollectionModeControl key={collection.id} collectionId={collection.id} load={() => management.collectionModeStatus(collection.id)} change={(targetMode, requestId) => management.requestCollectionMode(collection.id, {targetMode, requestId})} cancel={(_target, requestId) => management.cancelCollectionMode(collection.id, requestId)} />
       <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection replicas</Trans></strong><small><Trans>Replicas sync between your devices. Application access is managed separately.</Trans></small></div></div></section>
     </Page>;
   }

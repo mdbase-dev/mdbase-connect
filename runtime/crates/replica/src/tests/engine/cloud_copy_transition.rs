@@ -196,6 +196,33 @@ fn private_history_handover_survives_lost_reply_and_both_device_restarts() {
 }
 
 #[test]
+fn cloud_source_cancellation_revokes_permission_before_publication_only() {
+    let svc = FakeLogService::new();
+    let mut cp = TestControlPlane::signed(COL);
+    cp.genesis_with_keys(&svc, CState::E2e, OWNER, &SIGN, &KEM);
+    let mut a = owner(&svc, MemStore::new(), false);
+    settle(&mut [&mut a]);
+    a.r.choose_cloud_copy(a.s).unwrap();
+    assert_eq!(a.r.cloud_copy_source_epoch(), Some(1));
+    a.r.cancel_cloud_copy(a.s).unwrap();
+    assert!(a.r.cloud_copy_source_epoch().is_none());
+    assert_eq!(a.r.cfg.chosen_state, Some(CState::E2e));
+    convert(&mut cp, &svc);
+    settle(&mut [&mut a]);
+    assert!(
+        !a.r.policy.devices[&B16([102; 16])].keyed,
+        "cancelled consent cannot respond to a later flag"
+    );
+    a.r.cancel_cloud_copy(a.s).unwrap(); // No source intent: idempotent even after another operation.
+    a.r.choose_cloud_copy(a.s).unwrap();
+    settle(&mut [&mut a]);
+    assert!(
+        a.r.cancel_cloud_copy(a.s).is_err(),
+        "published Cloud mode must not be silently rolled back"
+    );
+}
+
+#[test]
 fn mode_policy_and_a_consenting_editor_cannot_substitute_for_the_keyed_owner() {
     let svc = FakeLogService::new();
     let mut cp = TestControlPlane::signed(COL);

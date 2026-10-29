@@ -3,7 +3,7 @@ import { t } from "@lingui/core/macro";
 import { i18n, useLocaleRevision } from "./i18n.js";
 
 type Mode = "private" | "cloud_copy";
-type Status = { current_mode: Mode; execution_available: true; change: null | { target_mode: Mode; phase: string; retry_at?: string } };
+type Status = { current_mode: Mode; execution_available: true; change: null | { request_id?: string; target_mode: Mode; phase: string; retry_at?: string } };
 function read(value: unknown): Status | null {
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
@@ -18,11 +18,12 @@ function read(value: unknown): Status | null {
 
 /** Owner controls only. Visibility follows actual executor registration, not a
  * mode flag. Browser intent cannot produce native key/source consent. */
-export function CollectionModeControl({ collectionId, load, change, native = false }: {
+export function CollectionModeControl({ collectionId, load, change, cancel, native = false }: {
   collectionId: string;
   load(): Promise<unknown>;
   change(target: Mode, requestId: string): Promise<unknown>;
   native?: boolean;
+  cancel?(target: Mode, requestId: string): Promise<unknown>;
 }) {
   useLocaleRevision();
   const [status, setStatus] = useState<Status | null>(null);
@@ -32,7 +33,7 @@ export function CollectionModeControl({ collectionId, load, change, native = fal
   const intent = useRef<{target: Mode; id: string} | null>(null);
   const generation = useRef(0);
   // Callback identity changes with parent renders; it must not restart I/O.
-  const callbacks = useRef({load, change}); callbacks.current = {load, change};
+  const callbacks = useRef({load, change, cancel}); callbacks.current = {load, change, cancel};
   useEffect(() => {
     const active = ++generation.current;
     setStatus(null); setStep(null); setFailure(false); setBusy(false); intent.current = null;
@@ -62,9 +63,19 @@ export function CollectionModeControl({ collectionId, load, change, native = fal
       const next = read(await callbacks.current.load());
       if (active !== generation.current) return;
       setStatus(next);
+      if (next && !next.change) intent.current = null;
       setStep(result && typeof result === "object" ? result as Record<string, unknown> : null);
     } catch { if (active === generation.current) setFailure(true); }
     finally { if (active === generation.current) setBusy(false); }
+  }
+  async function cancelPending() {
+    if (!status?.change?.request_id || !callbacks.current.cancel) return;
+    const active=generation.current;setBusy(true);setFailure(false);
+    try { await callbacks.current.cancel(status.change.target_mode,status.change.request_id);
+      const next=read(await callbacks.current.load()); if(active!==generation.current)return;
+      setStatus(next);setStep(null);intent.current=null;
+    }catch{if(active===generation.current)setFailure(true);}
+    finally{if(active===generation.current)setBusy(false);}
   }
   if (!status) return null;
   const pending = status.change;
@@ -86,6 +97,7 @@ export function CollectionModeControl({ collectionId, load, change, native = fal
     {failure && <p role="alert">{t(i18n)({ message: "We couldn’t confirm progress. Refresh, then retry. An interrupted switch may already have started.", context: "Collection storage mode" })}</p>}
     <div>
       {(!pending || native) && <button type="button" className="mdbase-button" disabled={busy} onClick={() => void commit(target)}>{busy ? t(i18n)({ message: "Working…", context: "Collection storage mode" }) : pending ? t(i18n)({ message: "Continue on this device", context: "Collection storage mode" }) : target === "private" ? t(i18n)({ message: "Make private", context: "Collection storage mode" }) : t(i18n)({ message: "Turn on Cloud copy", context: "Collection storage mode" })}</button>}
+      {cancel && pending?.request_id && ["waiting_for_device","waiting_for_token_expiry"].includes(pending.phase) && <button type="button" className="mdbase-button is-tertiary" disabled={busy} onClick={() => void cancelPending()}>{t(i18n)({message:"Cancel switch",context:"Collection storage mode"})}</button>}
       <button type="button" className="mdbase-button is-tertiary" disabled={busy} onClick={() => void refresh()}>{t(i18n)({ message: "Refresh status", context: "Collection storage mode" })}</button>
     </div>
   </section>;

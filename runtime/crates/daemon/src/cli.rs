@@ -236,6 +236,9 @@ enum SyncCmd {
         /// Advance existing local consent without asking to create new consent.
         #[arg(long)]
         resume: bool,
+        /// Cancel only if no switch policy can have been published.
+        #[arg(long, conflicts_with = "resume")]
+        cancel: bool,
     },
     /// Current collection-mode request and progress.
     ModeStatus { collection: String },
@@ -871,6 +874,7 @@ async fn run_command(
             collection,
             mode,
             resume,
+            cancel,
         }) => {
             let target = match mode {
                 SyncKind::Private => "private",
@@ -881,7 +885,7 @@ async fn run_command(
                 out,
                 Method::COLLECTION_MODE,
                 &collection,
-                json!({"target_mode":target,"resume":resume}),
+                json!({"target_mode":target,"resume":resume,"cancel":cancel}),
             )
             .await
         }

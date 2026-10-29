@@ -127,7 +127,7 @@ export async function queueNextPolicy(client: DatabaseQueryable, collectionId: s
   if (ops.length === 0) return false;
   if (ops.some((op) => op.op === "genesis")) throw new Error("genesis is only valid when registering a collection");
   if ((await client.query(`SELECT 1 FROM next_collection_mode_changes WHERE collection_id=$1
-    AND target_mode='private' AND policy_outbox_id IS NOT NULL AND rekey_verified_at IS NULL AND completed_at IS NULL`, [collectionId])).rows.length)
+    AND target_mode='private' AND policy_outbox_id IS NOT NULL AND rekey_verified_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL`, [collectionId])).rows.length)
     throw new Error("collection_mode_change_in_progress");
   const collection = await client.query<{ sync: HostedSync }>(
     "SELECT sync FROM next_collections WHERE collection_id = $1 FOR KEY SHARE",
@@ -340,7 +340,7 @@ export class PolicyEmitter {
     // An appended switch is not a release: only native verified rekey evidence is.
     const waiting = await lock.query(`SELECT 1 FROM next_collection_mode_changes m
       JOIN next_policy_outbox o ON o.id=m.policy_outbox_id JOIN next_policy_batches b ON b.id=o.batch_id
-      WHERE m.collection_id=$1 AND m.target_mode='private' AND m.rekey_verified_at IS NULL AND m.completed_at IS NULL
+      WHERE m.collection_id=$1 AND m.target_mode='private' AND m.rekey_verified_at IS NULL AND m.completed_at IS NULL AND m.cancelled_at IS NULL
       AND b.state='appended' AND b.lost_at IS NULL`, [collectionId]);
     if (waiting.rows.length) return "idle";
     const batch = await this.claim(lock, collectionId);

@@ -252,6 +252,7 @@ fn a_post_switch_hosted_introduction_is_not_added_by_a_later_server_mode_cycle()
     a.r.request_private_switch(a.s).unwrap();
     switch(&mut cp, &svc);
     settle(&mut [&mut a, &mut b]);
+    let original_private_generation = a.r.mode_generation().unwrap();
     assert!(a.r.cloud_copy_candidate().is_some());
     assert!(
         a.r.cloud_copy_source_epoch().is_none(),
@@ -382,6 +383,12 @@ fn a_post_switch_hosted_introduction_is_not_added_by_a_later_server_mode_cycle()
     );
     settle(&mut [&mut a, &mut b, &mut newcomer]);
     assert_eq!(b.r.policy.epoch, 3);
+    assert!(
+        a.r.choose_cloud_copy_at(a.s, original_private_generation)
+            .is_err(),
+        "old source recovery cannot declassify a later Private generation"
+    );
+    assert!(a.r.cloud_copy_source_epoch().is_none());
     assert!(!b.r.key_untrusted);
     assert!(
         !b.r.cfg.trusted_signers.contains(&B16([107; 16])),

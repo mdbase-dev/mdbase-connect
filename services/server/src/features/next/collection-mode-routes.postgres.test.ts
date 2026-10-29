@@ -87,6 +87,24 @@ describePg("durable owner mode intent", () => {
     expect((await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1", [f.collection])).rows).toEqual(before);
   });
 
+  it("cancels only before publication and retains an idempotent terminal request", async()=>{
+    const f=await fixture(),request=randomUUID();await start(f,request);
+    const cancel=()=>app.inject({method:"DELETE",url:`/v1/next/collections/${f.collection}/mode/${request}`,headers:f.headers});
+    expect((await cancel()).json()).toMatchObject({phase:"cancelled",request_id:request});
+    expect((await cancel()).json().phase).toBe("cancelled");
+    expect((await start(f,request)).json().phase).toBe("cancelled");
+    expect((await app.inject({method:"GET",url:`/v1/next/collections/${f.collection}/mode`,headers:f.headers})).json().change).toBeNull();
+    expect((await start(f,randomUUID())).statusCode).toBe(202);
+  });
+  it("never cancels an assigned or uncertain policy batch",async()=>{
+    const f=await fixture(),request=randomUUID();await start(f,request);
+    const outbox=(await db.query<{id:string}>("SELECT id FROM next_policy_outbox WHERE collection_id=$1",[f.collection])).rows[0]!.id;
+    await db.query("UPDATE next_collection_mode_changes SET policy_outbox_id=$3 WHERE collection_id=$1 AND request_id=$2",[f.collection,request,outbox]);
+    const result=await app.inject({method:"DELETE",url:`/v1/next/collections/${f.collection}/mode/${request}`,headers:f.headers});
+    expect(result.statusCode).toBe(409);expect(result.json().error.code).toBe("mode_already_published");
+    expect((await changes(f))[0].cancelled_at).toBeNull();
+  });
+
   it("recovers the same request after process restart and a lost success response", async () => {
     const f = await fixture(), request = randomUUID();
     let lost = true;

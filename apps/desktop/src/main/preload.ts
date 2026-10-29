@@ -21,8 +21,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   enableSync: (collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean) =>
     ipcRenderer.invoke("connect:collections:sync-enable", { collectionId, mode, acceptTakeoverHolds }),
   collectionModeStatus: (collectionId: string) => ipcRenderer.invoke("connect:collections:mode-status", collectionId),
-  changeCollectionMode: (collectionId: string, targetMode: "private" | "cloud_copy", resume: boolean) =>
-    ipcRenderer.invoke("connect:collections:mode-change", { collectionId, targetMode, resume }),
+  changeCollectionMode: (collectionId: string, targetMode: "private" | "cloud_copy", resume: boolean, cancel = false) =>
+    ipcRenderer.invoke("connect:collections:mode-change", { collectionId, targetMode, resume, cancel }),
   disableSync: (collectionId: string) => ipcRenderer.invoke("connect:collections:sync-disable", collectionId),
   listHolds: (collectionId: string) => ipcRenderer.invoke("connect:collections:holds", collectionId),
   resolveHold: (collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete") =>

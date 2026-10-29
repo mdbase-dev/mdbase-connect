@@ -24,12 +24,13 @@ const bodySchema = z.object({ device_id: uuid, challenge: hex32, sig: z.string()
   seq: uint, chain: hex32, members: z.array(uuid).max(1024) }).strict();
 type Body = z.infer<typeof bodySchema>;
 type Change = { target_mode: Mode; source_mode: Mode; source_epoch: string | null; policy_outbox_id: string | null;
-  completed_at: Date | null; rekey_verified_at: Date | null; rekey_seq: string | null; rekey_chain: Buffer | null };
+  completed_at: Date | null; cancelled_at: Date | null; rekey_verified_at: Date | null; rekey_seq: string | null; rekey_chain: Buffer | null };
 type NativeOwner = Owner & { connector: { id: string; user_id: string }; hash: string };
 
 async function change(client: DatabaseConnection, collection: string, request: string): Promise<Change> {
   const row = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2 FOR UPDATE", [collection, request])).rows[0];
   if (!row) throw new CreateError(404, "not_found");
+  if (row.cancelled_at) throw new CreateError(409,"mode_cancelled");
   return row;
 }
 async function currentDevice(client: DatabaseConnection, owner: NativeOwner, collection: string, body: Body, device: Device): Promise<void> {

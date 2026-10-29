@@ -265,6 +265,31 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
+    /// Local privacy generation, unchanged by ordinary rekeys but superseded
+    /// by a later qualifying Private switch. Never inferred from host flags.
+    pub fn mode_generation(&self) -> Option<B32> {
+        if self.check_apply_store_health().is_err() {
+            return None;
+        }
+        match self.private_switch.state {
+            State::Accepted { at, .. } if at.seq <= self.head.seq => Some(at.chain),
+            State::None => self.genesis,
+            _ => None,
+        }
+    }
+    /// Resume only the locally recorded privacy generation, never a later one.
+    pub fn choose_cloud_copy_at(
+        &mut self,
+        session: SessionId,
+        generation: B32,
+    ) -> crate::api::ApiResult<()> {
+        if self.mode_generation() != Some(generation) {
+            return Err(ErrorCode::Conflict
+                .err("Private generation changed; a new explicit choice is required"));
+        }
+        self.choose_cloud_copy(session)
+    }
+
     /// Read-only owner preflight. A host can persist its explicit choice before
     /// enabling source consent, closing its configuration-file crash boundary.
     pub fn cloud_copy_candidate(&self) -> Option<Uuid> {
@@ -408,6 +433,35 @@ impl<S: Store> Replica<S> {
             && self.policy.epoch > 0
             && self.sealer.current_epoch() == Some(self.policy.epoch))
         .then_some(self.policy.epoch)
+    }
+
+    /// Revoke local source permission only while policy still proves Private.
+    /// The host must first confirm that CP cannot publish this operation.
+    pub fn cancel_cloud_copy(&mut self, session: SessionId) -> crate::api::ApiResult<()> {
+        self.host_only(session)?;
+        if !self.private_switch.cloud_choice {
+            return Ok(());
+        }
+        if self.policy.cstate != Some(CState::E2e)
+            || self.private_switch.blocked()
+            || self
+                .policy
+                .devices
+                .values()
+                .any(|d| d.active && matches!(d.kind, DeviceKind::Hosted | DeviceKind::Escrow))
+        {
+            return Err(ErrorCode::Conflict.err("switch already committed"));
+        }
+        let mut next = self.private_switch.clone();
+        next.cloud_choice = false;
+        next.cloud_read = None;
+        self.save_private_switch(next)?;
+        self.cfg.chosen_state = Some(CState::E2e);
+        self.cfg.e2e = true;
+        self.cfg.user_enabled_cloud_copy = false;
+        self.restore_private_choice();
+        self.check_key_trust();
+        Ok(())
     }
 
     /// Clear an intent only before the switch policy has applied. A committed
@@ -684,6 +738,17 @@ impl<S: Store> Replica<S> {
         self.private_switch
             .cloud_read
             .is_some_and(|(at, _)| at.seq <= self.head.seq)
+    }
+
+    /// Read-only local selection, including a collection born Cloud copy.
+    pub fn cloud_copy_selected(&self) -> Option<Uuid> {
+        (self.check_apply_store_health().is_ok()
+            && self.policy.cstate == Some(CState::CloudCopy)
+            && self.cfg.chosen_state == Some(CState::CloudCopy)
+            && self.cfg.user_enabled_cloud_copy
+            && !self.key_untrusted
+            && !self.private_switch_blocks())
+        .then_some(self.cfg.device_id)
     }
 
     /// A committed owner grant selects reading only, never source consent.

@@ -139,6 +139,7 @@ impl Daemon {
         id: &str,
         runtime: &crate::runtime::Runtime,
         guard: AccountKeyGuard,
+        generation: mdbn_wire::common::B32,
     ) -> Result<(), crate::control::ControlError> {
         use crate::control::ControlError;
         let Some(Ok(Some(device))) = runtime
@@ -235,7 +236,7 @@ impl Daemon {
             })?
         };
         match runtime
-            .private_switch(PrivateSwitchOp::ChooseCloud, guard.clone())
+            .private_switch(PrivateSwitchOp::ChooseCloudAt(generation), guard.clone())
             .await
         {
             Some(Ok(_)) if guard() => {}
@@ -279,6 +280,95 @@ impl Daemon {
         Ok(())
     }
 
+    pub(super) async fn project_cancelled_cloud(
+        &self,
+        id: &str,
+        runtime: &crate::runtime::Runtime,
+        guard: AccountKeyGuard,
+    ) -> Result<(), crate::control::ControlError> {
+        use crate::control::ControlError;
+        let result = runtime
+            .private_switch(PrivateSwitchOp::CancelCloud, guard.clone())
+            .await;
+        if !matches!(result, Some(Ok(_))) || !guard() {
+            return Err(ControlError::unavailable(
+                "mode_cancel_pending",
+                "Native policy must confirm cancellation",
+            ));
+        }
+        if !matches!(
+            runtime
+                .private_switch(PrivateSwitchOp::CloudCandidate, guard.clone())
+                .await,
+            Some(Ok(Some(_)))
+        ) {
+            // No local source permission to revoke, or verified Cloud reading
+            // selected elsewhere: cancellation must not roll reading back.
+            return Ok(());
+        }
+        let signers = runtime
+            .private_switch_signers(guard.clone())
+            .await
+            .ok_or_else(|| ControlError::unavailable("account_changed", "account changed"))?;
+        let mut inner = self.inner.lock().await;
+        if !guard() {
+            return Err(ControlError::unavailable(
+                "account_changed",
+                "account changed",
+            ));
+        }
+        let entry = inner.registry.get(id).cloned().ok_or_else(|| {
+            ControlError::unavailable("not_registered", "collection not registered")
+        })?;
+        let trust = self
+            .trust
+            .as_ref()
+            .ok_or_else(|| ControlError::unavailable("not_ready", "trust unavailable"))?;
+        let dir = self.profile.collection_dir(id);
+        let cfg = crate::sync::SyncConfig::load(&dir.join(crate::sync::FILE))
+            .map_err(|e| ControlError::internal(e.0))?
+            .ok_or_else(|| ControlError::unavailable("not_ready", "sync link missing"))?;
+        let choice = Choice {
+            collection: id.into(),
+            account: entry
+                .owner_account
+                .clone()
+                .ok_or_else(|| ControlError::unavailable("not_ready", "account missing"))?,
+            device: entry
+                .device
+                .clone()
+                .ok_or_else(|| ControlError::unavailable("not_ready", "device missing"))?,
+            genesis: cfg.genesis_hash,
+            signer: entry.device.clone().unwrap(),
+            trusted_signers: signers.iter().map(|s| s.to_uuid_string()).collect(),
+            cloud_copy: false,
+            receiver_read: false,
+        };
+        if let Some(old) = load(&dir.join(FILE)).map_err(ControlError::internal)? {
+            if old.collection != choice.collection
+                || old.account != choice.account
+                || old.device != choice.device
+                || old.genesis != choice.genesis
+            {
+                return Err(ControlError::unavailable(
+                    "mode_cancel_pending",
+                    "journal identity differs",
+                ));
+            }
+            std::fs::remove_file(dir.join(FILE))
+                .map_err(|e| ControlError::internal(e.to_string()))?;
+        }
+        persist(&self.profile, &mut inner.registry, trust, &dir, &choice)
+            .map_err(ControlError::internal)?;
+        self.authority.publish_registry(&inner.registry);
+        if let Some(updated) = inner.registry.get(id).cloned()
+            && let Some(host) = inner.hosts.iter_mut().find(|h| h.entry().id == id)
+        {
+            host.set_entry(updated);
+        }
+        Ok(())
+    }
+
     /// Called before a native status observation. If a host has not yet observed
     /// acceptance, its signed-prefix META will recover it on the next open.
     pub(super) async fn reconcile_private_choices(&self) {
@@ -318,10 +408,26 @@ impl Daemon {
                     continue;
                 }
                 Ok(Some(choice)) if choice.cloud_copy && !choice.receiver_read => {
-                    let _ = self
-                        .choose_cloud_copy_locally(&entry.id, &runtime, guard)
-                        .await;
-                    continue;
+                    let cfg = crate::sync::SyncConfig::load(&dir.join(crate::sync::FILE))
+                        .ok()
+                        .flatten();
+                    if choice.collection != entry.id
+                        || entry.owner_account.as_deref() != Some(&choice.account)
+                        || entry.device.as_deref() != Some(&choice.device)
+                        || cfg
+                            .as_ref()
+                            .is_none_or(|cfg| cfg.genesis_hash != choice.genesis)
+                    {
+                        continue;
+                    }
+                    // Request/generation validation owns source resumption. Drop
+                    // only this bound projection journal; keep the request and
+                    // reconcile verified facts without reviving source consent.
+                    if std::fs::remove_file(dir.join(FILE)).is_err()
+                        || crate::fsutil::sync_dir(&dir).is_err()
+                    {
+                        continue;
+                    }
                 }
                 _ => {}
             }

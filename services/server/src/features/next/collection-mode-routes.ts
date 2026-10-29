@@ -17,7 +17,7 @@ export type Mode = z.infer<typeof mode>;
 export type Owner = { account: string } & ({ session: string } | { connector: Connector; hash: string });
 type Change = {
   request_id: string; source_mode: Mode; target_mode: Mode;
-  policy_outbox_id: string | null; completed_at: Date | null;
+  policy_outbox_id: string | null; completed_at: Date | null; cancelled_at: Date | null;
 };
 
 export async function authenticateOwner(request: FastifyRequest, reply: FastifyReply, db: DatabasePool): Promise<Owner | null> {
@@ -91,7 +91,7 @@ async function status(client: DatabaseConnection, collection: string, current: M
     if (phase === "finishing" && change.completed_at !== null) phase = "complete";
   }
   return { collection_id: collection, request_id: change.request_id, current_mode: current,
-    source_mode: change.source_mode, target_mode: change.target_mode, phase, ...(retryAt ? { retry_at: retryAt } : {}) };
+    source_mode: change.source_mode, target_mode: change.target_mode, phase: change.cancelled_at ? "cancelled" : phase, ...(retryAt ? { retry_at: retryAt } : {}) };
 }
 
 export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabasePool): void {
@@ -113,7 +113,7 @@ export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabaseP
           if (previous.target_mode !== target) throw new CreateError(409, "mode_request_conflict");
           return status(client, collection, current, previous);
         }
-        if ((await client.query("SELECT 1 FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL", [collection])).rows.length)
+        if ((await client.query("SELECT 1 FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL", [collection])).rows.length)
           throw new CreateError(409, "mode_change_in_progress");
         if (current === target) throw new CreateError(409, "mode_already_current");
         const change = (await client.query<Change>(
@@ -135,12 +135,42 @@ export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabaseP
     try {
       return await inTransaction(db, async client => {
         const current = await ownedMode(client, owner, params.data.id);
-        const change = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL", [params.data.id])).rows[0];
+        const change = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL", [params.data.id])).rows[0];
         return { collection_id: params.data.id, current_mode: current,
           execution_available: app.hasRoute({method:"POST",url:"/v1/next/collections/:id/mode/:requestId/prepare"}),
           change: change ? await status(client, params.data.id, current, change) : null };
       });
     } catch (error) { return refuse(reply, error, "The switch status is unavailable. Try again."); }
+  });
+
+  app.delete("/v1/next/collections/:id/mode/:requestId", async (request, reply) => {
+    reply.header("cache-control","no-store");
+    const params=z.object({id:uuid,requestId:uuid}).safeParse(request.params);
+    if (!params.success) return reply.code(400).send(apiError("invalid_request","A collection and request identifier are required."));
+    const owner=await authenticateOwner(request,reply,db); if(!owner) return reply;
+    try {
+      return await inTransaction(db,async client=>{
+        const current=await ownedMode(client,owner,params.data.id);
+        const row=(await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2 FOR UPDATE",[params.data.id,params.data.requestId])).rows[0];
+        if(!row) throw new CreateError(404,"not_found");
+        if(row.cancelled_at) return status(client,params.data.id,current,row);
+        if(row.completed_at) throw new CreateError(409,"mode_already_published");
+        if(row.policy_outbox_id!==null){
+          const queued=(await client.query<{batch_id:string|null}>("SELECT batch_id FROM next_policy_outbox WHERE id=$1 FOR UPDATE",[row.policy_outbox_id])).rows[0];
+          // Assigned/sent/unknown batches are irrevocable here. The emitter shares
+          // the collection lock, so a null batch cannot race a new assignment.
+          if(!queued||queued.batch_id!==null) throw new CreateError(409,"mode_already_published");
+          await client.query("UPDATE next_collection_mode_changes SET policy_outbox_id=NULL WHERE collection_id=$1 AND request_id=$2",[params.data.id,params.data.requestId]);
+          await client.query("DELETE FROM next_policy_outbox WHERE id=$1",[row.policy_outbox_id]);
+          if(row.target_mode==="cloud_copy"){
+            await client.query("DELETE FROM next_service_devices WHERE collection_id=$1",[params.data.id]);
+            await client.query("UPDATE next_collections SET sync=$2 WHERE collection_id=$1",[params.data.id,row.source_mode]);
+          }
+        }
+        const cancelled=(await client.query<Change>("UPDATE next_collection_mode_changes SET cancelled_at=now(),policy_outbox_id=NULL WHERE collection_id=$1 AND request_id=$2 RETURNING *",[params.data.id,params.data.requestId])).rows[0]!;
+        return status(client,params.data.id,row.source_mode,cancelled);
+      });
+    }catch(error){return refuse(reply,error,"The switch may already be published. Refresh its status.");}
   });
 
   app.get("/v1/next/collections/:id/mode/:requestId", async (request, reply) => {

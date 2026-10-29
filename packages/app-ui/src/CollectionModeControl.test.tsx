@@ -10,10 +10,10 @@ import { CollectionModeControl } from "./CollectionModeControl.js";
 let root: Root | undefined;
 let host: HTMLDivElement;
 const state = (mode="cloud_copy", change:unknown=null) => ({execution_available:true,current_mode:mode,change});
-async function mount(load:()=>Promise<unknown>,change:(target:"private"|"cloud_copy",requestId:string)=>Promise<unknown>=vi.fn(async()=>({})),native=false,id="one") {
+async function mount(load:()=>Promise<unknown>,change:(target:"private"|"cloud_copy",requestId:string)=>Promise<unknown>=vi.fn(async()=>({})),native=false,id="one",cancel?: (target:"private"|"cloud_copy",request:string)=>Promise<unknown>) {
   host ??= document.body.appendChild(document.createElement("div"));
   root ??= createRoot(host);
-  await act(async()=>root!.render(<I18nProvider i18n={i18n}><CollectionModeControl collectionId={id} load={load} change={change} native={native}/></I18nProvider>));
+  await act(async()=>root!.render(<I18nProvider i18n={i18n}><CollectionModeControl collectionId={id} load={load} change={change} cancel={cancel} native={native}/></I18nProvider>));
   return change;
 }
 const click = async (label:string) => {const button=[...host.querySelectorAll("button")].find(b=>b.textContent===label)!; expect(button).toBeTruthy(); await act(async()=>button.click());};
@@ -54,6 +54,12 @@ it("shows native update blockers, retry time and continuation without claiming P
   // Content-only fixture for batched real-browser light/dark/mobile layout checks.
   await mkdir("test-results",{recursive:true});
   await writeFile("test-results/mode-control.html",host.innerHTML);
+});
+it("cancels pending intent without an optimistic mode change and restores a fresh retry",async()=>{
+  let value=state("cloud_copy",{request_id:"request",target_mode:"private",phase:"waiting_for_token_expiry"});
+  const cancel=vi.fn(async()=>{value=state();return {phase:"cancelled"};});
+  await mount(async()=>value,undefined,false,"one",cancel);await click("Cancel switch");
+  expect(cancel).toHaveBeenCalledWith("private","request");expect(host.textContent).toContain("Make private");
 });
 it("ignores a stale response after switching collection",async()=>{
   let resolve!:(value:unknown)=>void;const old=new Promise<unknown>(r=>{resolve=r;});

@@ -7,7 +7,7 @@ use mdbn_wire::cbor::{self, Cbor};
 use mdbn_wire::common::{B16, B32, Uuid};
 use mdbn_wire::envelope::{Item, ItemKind};
 use mdbn_wire::hash::{CHAIN_ZERO, chain_hash, sha256};
-use mdbn_wire::policy::{CState, Grant, PolicyOp, PolicyPayload};
+use mdbn_wire::policy::{Grant, PolicyOp, PolicyPayload};
 use mdbn_wire::schema::Wire;
 
 use crate::noise_sessions::VerifiedAppCaller;
@@ -253,7 +253,7 @@ pub fn bind_original_app_caller(
     if g.prev != Some(CHAIN_ZERO)
         || original.owner != pins.owner
         || original.root != root
-        || original.state != CState::CloudCopy
+        // Current-mode admission is independent of immutable genesis mode.
         || gp
             .ops
             .iter()

@@ -411,10 +411,6 @@ msgid "<0>Application origin unverified.</0> Continue only if you started this c
 msgstr "<0>Origine de l’application non vérifiée.</0> Ne continuez que si vous avez délibérément lancé cette connexion{1}.{3}"
 
 #: src/ConnectApp.tsx
-#~ msgid "A cloud copy helps your replicas sync. This page does not report their connection status."
-#~ msgstr "Une copie dans le cloud aide à synchroniser vos répliques. Cette page ne donne pas leur état de connexion."
-
-#: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "Une collection a été partagée avec vous"
 
@@ -1026,10 +1022,6 @@ msgstr "Collection"
 #: src/authorization-view.tsx
 msgid "Collection changes"
 msgstr "Modifications de la collection"
-
-#: src/ConnectApp.tsx
-#~ msgid "Collection content remains in your replicas; no cloud copy is configured."
-#~ msgstr "Le contenu de la collection reste dans vos répliques ; aucune copie cloud n’est configurée."
 
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
@@ -2521,11 +2513,6 @@ msgstr "Confidentialité"
 #: src/CollectionPicker.tsx
 msgid "Private"
 msgstr "Privé"
-
-#: src/ConnectApp.tsx
-#~ msgctxt "Connect interface"
-#~ msgid "Private collection"
-#~ msgstr "Collection privée"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"

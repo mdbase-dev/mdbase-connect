@@ -485,7 +485,8 @@ impl<S: Store> Engine<S> {
         if genesis_item.kind != ItemKind::Policy
             || founding.len() != 1
             || founding[0].root != native.root_id()
-            || founding[0].state != CState::CloudCopy
+        // Original mode is immutable; current hosted readiness already
+        // requires applied Cloud mode and actual owner-delivered keys.
         {
             return Err(refuse());
         }

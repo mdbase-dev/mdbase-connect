@@ -165,7 +165,7 @@ export interface CollectionModeChange {
   current_mode: "private" | "cloud_copy";
   source_mode: "private" | "cloud_copy";
   target_mode: "private" | "cloud_copy";
-  phase: "waiting_for_device" | "waiting_for_token_expiry" | "publishing_policy" | "finishing" | "complete";
+  phase: "waiting_for_device" | "waiting_for_token_expiry" | "publishing_policy" | "finishing" | "complete" | "cancelled";
   retry_at?: string;
 }
 export interface CollectionModeStatus {
@@ -338,6 +338,10 @@ export class ConnectManagementClient {
 
   requestCollectionMode(collectionId: string, input: {requestId: string; targetMode: "private" | "cloud_copy"}, options?: ManagementRequestOptions): Promise<CollectionModeChange> {
     return this.request(`/v1/next/collections/${encodeURIComponent(collectionId)}/mode`, {method:"POST",body:JSON.stringify({request_id:input.requestId,target_mode:input.targetMode})}, options);
+  }
+
+  cancelCollectionMode(collectionId: string, requestId: string, options?: ManagementRequestOptions): Promise<CollectionModeChange> {
+    return this.request(`/v1/next/collections/${encodeURIComponent(collectionId)}/mode/${encodeURIComponent(requestId)}`, {method:"DELETE"}, options);
   }
 
   collectionModeRequest(collectionId: string, requestId: string, options?: ManagementRequestOptions): Promise<CollectionModeChange> {
