@@ -1622,7 +1622,7 @@ mod tests {
                     let received = socket.read(&mut buffer).await.unwrap();
                     assert!(received > 0);
                     let reply = format!(
-                        "HTTP/1.1 429 Too Many Requests\r\n{retry_after}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 429 Too Many Requests\r\nDate: Thu, 01 Jan 1970 00:00:00 GMT\r\n{retry_after}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len()
                     );
                     socket.write_all(reply.as_bytes()).await.unwrap();
@@ -1630,6 +1630,7 @@ mod tests {
                 let cloud = Cloud {
                     http: reqwest::Client::new(),
                     server: format!("http://{address}"),
+                    clock_skew: std::sync::atomic::AtomicBool::new(false),
                     token: Zeroizing::new("synthetic-token".into()),
                 };
                 let request = cloud.http.get(&cloud.server);
@@ -1644,6 +1645,12 @@ mod tests {
                         .unwrap_err()
                 };
                 assert_eq!(error, CloudError::RateLimited(expected));
+                if guarded {
+                    assert!(
+                        cloud.clock_skew(),
+                        "observe server time before refusing HTTP 429"
+                    );
+                }
                 mock.await.unwrap();
             }
         }
