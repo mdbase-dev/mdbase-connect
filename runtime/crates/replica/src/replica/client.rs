@@ -475,12 +475,7 @@ impl<S: Store> Replica<S> {
 
     /// "Confirmed through N, plus pending".
     pub fn sync_status(&self) -> SyncStatus {
-        let mut incidents: Vec<_> = self
-            .incidents
-            .values()
-            .filter(|incident| incident.kind != mdbn_wire::client::IncidentKind::ReadOnly)
-            .cloned()
-            .collect();
+        let mut incidents: Vec<_> = self.incidents.values().cloned().collect();
         if self.host_is_viewer() {
             incidents.push(mdbn_wire::client::Incident {
                 kind: mdbn_wire::client::IncidentKind::ReadOnly,

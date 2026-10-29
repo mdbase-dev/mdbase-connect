@@ -3848,7 +3848,7 @@ HoldPresentation@holds.ts
   id: string
   path: string
   reason: 'conflict' | 'unknown_provenance' | 'deleted_elsewhere' | 'read_only' | 'editor_busy' | 'suspect_write'
-  reversible: true
+  reversible: boolean
   reversibleNote: string
   saves: number
   since: number

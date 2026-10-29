@@ -11,6 +11,7 @@ describe("hold presentation", () => {
     const fresh = hold("read_only", { theirs: undefined });
     const viewer = describeHold(fresh, { collectionId: COLL, host: true, capabilities: ["collection.read"] });
     expect(viewer.actions.map((a) => a.action)).toEqual(["take_theirs"]);
+    expect(viewer.reversible).toBe(false);
     expect(viewer.actions[0]).toMatchObject({ label: "Discard local changes", discardsMine: true });
     const editor = describeHold(fresh, { collectionId: COLL, host: true, capabilities: ["collection.read", "records.edit"] });
     expect(editor.actions.map((a) => a.action)).toEqual(["keep_mine", "take_theirs"]);

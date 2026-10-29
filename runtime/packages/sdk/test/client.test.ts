@@ -63,13 +63,15 @@ describe("session", () => {
     try {
       const negotiated = c.hello;
       grant = { role: "viewer", capabilities: ["collection.read"] };
-      await c.getStatus();
+      replica.setOnline(false);
+      await until(() => c.hello.grant.role === "viewer");
       expect(c.hello.grant).toEqual(grant);
       await expect(c.create({ path: "viewer.md", body: "refused" })).rejects.toMatchObject({ code: "forbidden", reason: "read_only" });
       expect(replica.allRecords).toHaveLength(0);
       expect(c.ledger.getSnapshot()).toMatchObject({ pending: [], rejected: [] });
       grant = { role: "editor", capabilities: ["collection.read", "records.create", "records.edit"] };
-      await c.getStatus();
+      replica.setOnline(true);
+      await until(() => c.hello.grant.role === "editor");
       await expect(c.create({ path: "editor.md", body: "allowed" })).resolves.toMatchObject({ state: "pending" });
       grant = undefined;
       await c.getStatus();

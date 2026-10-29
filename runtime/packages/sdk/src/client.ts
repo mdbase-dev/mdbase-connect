@@ -521,7 +521,6 @@ export class MdbaseClient {
   private linkListeners = new Set<(s: LinkState, why: MdbaseError | null) => void>();
   private lastStatus: SyncStatus;
   private statusListeners = new Set<(s: SyncStatus) => void>();
-  private statusSubscribed = false;
   private lives = new Set<LiveQuery>();
   private livesBySub = new Map<number, LiveQuery>();
   private subscribing = 0;
@@ -569,6 +568,7 @@ export class MdbaseClient {
       pendingWrites: () => this.pendingWrites(),
     });
     this.attach(session);
+    void session.request("subscribe_status", null).catch(() => {});
     if (opts.ledger) this.startLedger();
   }
 
@@ -683,7 +683,7 @@ export class MdbaseClient {
 
   // ---------------------------------------------------------------- session and link
 
-  /** The negotiated session: API version, runtime, collection, grant, features. */
+  /** The negotiated session, with its latest role-effective grant. */
   get hello(): HelloResult {
     const hello = this.currentSession().hello;
     return this.lastStatus.grant ? { ...hello, grant: this.lastStatus.grant } : hello;
@@ -760,7 +760,6 @@ export class MdbaseClient {
     if (!this.fenceReads) return;
     const behind = s.hello.status.confirmedThrough < this.readFloor;
     this.readFencedAt = behind ? this.readFloor : null;
-    if (behind && !this.statusSubscribed) void s.request("subscribe_status", null).catch(() => {});
     if (!behind) this.wakeReadFence();
   }
 
@@ -997,7 +996,7 @@ export class MdbaseClient {
 
   private async restore(s: Session): Promise<void> {
     const jobs: Promise<unknown>[] = [];
-    if (this.statusSubscribed) jobs.push(s.request("subscribe_status", null).catch(() => {}));
+    jobs.push(s.request("subscribe_status", null).catch(() => {}));
     if (this.holdsWatch.listeners.size) jobs.push(this.refreshHolds(true).catch(() => {}));
     if (this.conflictsWatch.listeners.size) jobs.push(this.refreshConflicts(true).catch(() => {}));
     for (const l of this.lives) jobs.push(this._resubscribeLive(l, false, s).catch(() => {}));
@@ -1077,10 +1076,6 @@ export class MdbaseClient {
   onStatus(fn: (s: SyncStatus) => void): () => void {
     this.statusListeners.add(fn);
     fn(this.lastStatus);
-    if (!this.statusSubscribed) {
-      this.statusSubscribed = true;
-      void this.call("subscribe_status", null, { retry: true }).catch(() => {});
-    }
     return () => this.statusListeners.delete(fn);
   }
 

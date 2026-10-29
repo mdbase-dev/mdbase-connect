@@ -1269,7 +1269,7 @@ need the WASM core.
 **API versions.**
 - `hello` negotiates the highest common version.
 - A replica serves its current minor and the two previous minors of its major
-  (`00-overview.md` §6.4).
+  (`00-overview.md` §6.4); 1.3 also retains 1.0 for published clients.
 - New methods, push types and optional fields are minor changes. Clients ignore unknown
   push types and unknown fields.
 - Removing or changing behaviour is a major change, shipped with one release that

@@ -42,8 +42,8 @@ export interface HoldPresentation {
   /** Whether a confirmed version exists to compare against (absent when deleted elsewhere). */
   hasTheirs: boolean;
   actions: HoldActionOption[];
-  /** Every resolution is an ordinary mutation in the log, so the record's previous version stays in history. */
-  reversible: true;
+  /** Whether the held version can be recovered from collection history after resolution. */
+  reversible: boolean;
   reversibleNote: string;
   /** The compare hand-off (`mdbase://hold/compare?...`), when a merge view can be opened. */
   compareLink: string | null;
@@ -151,7 +151,7 @@ export function describeHold(h: Hold, o: DescribeHoldOptions): HoldPresentation 
     saves: h.saves,
     hasTheirs,
     actions,
-    reversible: true,
+    reversible: h.reason !== "read_only",
     reversibleNote: h.reason === "read_only" ? "These changes have not been synced. Copy the file before discarding it if you want to keep them." : "You can change your mind later: resolving is an ordinary change, and the previous version stays in the collection's history. Keep both if you want your version kept as a file as well.",
     compareLink: canCompare ? holdCompareLink(o.collectionId, h.id) : null,
   };
