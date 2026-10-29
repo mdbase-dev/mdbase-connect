@@ -29,7 +29,7 @@ export class ModeProbe extends HostedCollection {
    const calls=this.engine.logCalls();if(!calls.length)break;
    for(const call of calls){const frame=decode(call.frame),method=frame.get(2),p=frame.get(3);let result;
     if(method==='head')result=new Map([[0,head],[1,chain],[2,1]]);
-    else if(method==='read')result=new Map([[0,raw.map((b,i)=>[i+1,b]).filter(([n])=>n>p.get(1))],[1,head],[2,chain],[3,1],[4,false],[6,false]]);
+    else if(method==='read')result=new Map([[0,raw.map((b,i)=>[i+1,b]).filter(([n,b])=>n>p.get(1)&&(p.get(3)!==1||decode(b).get(1)!==1))],[1,head],[2,chain],[3,1],[4,false],[6,false]]);
     else throw Error('unexpected native log effect '+method);
     this.engine.logReply(call.id,encode(new Map([[0,1],[1,frame.get(1)],[2,result]])));call.frame.fill(0);
    }
@@ -63,7 +63,9 @@ try{
  assert.equal((await call('ready',input,'wrong')).status,401);
  await op('unkeyed');assert.equal((await call('ready')).status,503,'CP activation can open the actor before owner grants exist');
  await op('cloud'); // A commits grants later; no actor restart or synthetic head push.
- assert.equal((await call('ready')).status,200,'warm readiness must fetch the new signed owner grant and history');
+ const deadline=Date.now()+6000;let warm;
+ do{warm=await call('ready');if(warm.status===200)break;await new Promise(resolve=>setTimeout(resolve,1100));}while(Date.now()<deadline);
+ assert.equal(warm.status,200,'warm readiness must fetch the new signed owner grant and history without restarting or bypassing the bounded key probe');
  // Discard one readiness acknowledgement, then restart the actual runtime.
  // Retry must re-observe native custody, not a persisted host ready flag.
  await call('ready');await mf.dispose();mf=new Miniflare(options());

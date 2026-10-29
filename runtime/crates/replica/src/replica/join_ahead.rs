@@ -154,7 +154,6 @@ impl<S: Store> Replica<S> {
     fn join_ahead_eligible(&self) -> bool {
         !self.apply_fault
             && !self.local_only()
-            && !self.is_hosted()
             && !self.hosted_blocked()
             && self.install.is_none()
             && self.log_move == LogMove::None
@@ -244,7 +243,7 @@ impl<S: Store> Replica<S> {
             after,
             limit: PAGE,
             kinds: Some(ReadKinds::Control),
-            max_bytes: None,
+            max_bytes: self.read_bytes(),
         }));
         self.inflight.insert(call, Inflight::JoinAhead(position));
     }

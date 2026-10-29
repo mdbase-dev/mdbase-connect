@@ -109,7 +109,13 @@ blocker) remains outstanding; do not release or mark this implementation ready.
 - Actual workerd/WASM/SQLite warm readiness: an actor opened before the owner's
   grants must refresh the existing log session/pump before observing readiness;
   a cached open cannot strand it at the pre-grant head. Born-Cloud → Private →
-  Cloud history is exercised with fresh service identities and no signer override.
+  Cloud history is exercised with fresh service identities, encrypted Cloud and
+  Private records before service enrolment, and no signer override. Fresh service
+  replicas use the existing bounded join-ahead verifier when old encrypted content
+  precedes their owner grant: only keys matching already-applied commitments are
+  installed; policy/head/content never advance from read-ahead, and the later epoch
+  key is used only to open history. Hosted byte budgets apply to control pages too.
+  Warm retries preserve the existing one-second missing-key probe bound.
 - The native socket/SDK harness now keeps B online across the CP policy and rekey
   and requires new Private content without restart, then separately tests cold
   replay. It passes locally, including a short-token renewal stress run; this

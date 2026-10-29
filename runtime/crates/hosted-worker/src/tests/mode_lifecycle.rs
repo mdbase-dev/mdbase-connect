@@ -6,6 +6,7 @@ use mdbn_replica::{
     crypto::{hpke::KemKeyPair, keys::Recipient, sign::DeviceSigner},
     seal::KeyringSealer,
 };
+use mdbn_wire::attachment_runtime_v1 as rt;
 use mdbn_wire::{
     envelope::Item,
     policy::{CollectionState, DeviceEnrol, DeviceRevoke, PolicyOp},
@@ -27,6 +28,71 @@ fn append(svc: &FakeLogService, sealer: &KeyringSealer, kind: ItemKind, body: Ve
         sig: None,
     };
     sealer.sign(&mut item).unwrap();
+    svc.push_raw(&COL, item.to_bytes().unwrap());
+}
+fn encrypted_history_entry(svc: &FakeLogService, owner: &mut KeyringSealer, epoch: u64) {
+    let (seq, chain) = svc.head(&COL);
+    let payload = rt::EntryPayload {
+        sem: Version { major: 1, minor: 0 },
+        mutation: rt::Mutation {
+            id: B16([epoch as u8; 16]),
+            origin: OWNER_DEV,
+            base_seq: seq,
+            clock: mdbn_wire::intent::OpClock {
+                instant: 1_700_000_000_000,
+                tz: "UTC".into(),
+                local_date: "2023-11-14".into(),
+            },
+            seed: B32([epoch as u8; 32]),
+            source: mdbn_wire::intent::Source::Api,
+            ops: vec![rt::Op::Legacy(Op::Create(Create {
+                id: B16([epoch as u8; 16]),
+                path: Some(format!("history-{epoch}.md")),
+                type_name: None,
+                frontmatter: None,
+                body: None,
+                document: Some(Text::Inline(format!("history epoch {epoch}\n"))),
+            }))],
+            on_behalf: None,
+            conflict_mode: None,
+            validated_at: None,
+            room: None,
+        },
+        status: mdbn_wire::entry::Status::Applied,
+        effects: vec![rt::Effect::Legacy(mdbn_wire::entry::Effect::PutRecord(
+            mdbn_wire::entry::PutRecord {
+                id: B16([epoch as u8; 16]),
+                path: format!("history-{epoch}.md"),
+                doc: Text::Inline(format!("history epoch {epoch}\n")),
+            },
+        ))],
+        conflicts: None,
+        aliases: None,
+        texts: None,
+        resurrect: None,
+    };
+    let mut item = Item {
+        kind: ItemKind::Entry,
+        collection: COL,
+        seq: Some(seq + 1),
+        prev: Some(chain),
+        epoch: Some(epoch),
+        signer: Some(OWNER_DEV),
+        salt: Some(B16([epoch as u8; 16])),
+        idem: Some(B16([epoch as u8; 16])),
+        refs: None,
+        stream: None,
+        body: Bytes(payload.to_bytes().unwrap()),
+        sig: None,
+    };
+    owner
+        .seal(
+            &mut item,
+            &payload.to_bytes().unwrap(),
+            false,
+            &mut mdbn_replica::crypto::TestEntropy::new(epoch as u8),
+        )
+        .unwrap();
     svc.push_raw(&COL, item.to_bytes().unwrap());
 }
 #[test]
@@ -97,6 +163,7 @@ fn born_cloud_private_return_cold_service_observes_owner_history() {
     let mut owner = KeyringSealer::new(COL, OWNER_DEV, &[31; 32], &[32; 32]);
     owner.accept_rekey(&initial);
     owner.set_epoch(1);
+    encrypted_history_entry(&svc, &mut owner, 1);
     cp.append(
         &svc,
         vec![
@@ -123,6 +190,7 @@ fn born_cloud_private_return_cold_service_observes_owner_history() {
     append(&svc, &owner, ItemKind::Rekey, private.to_bytes().unwrap());
     owner.accept_rekey(&private);
     owner.set_epoch(2);
+    encrypted_history_entry(&svc, &mut owner, 2);
     cp.append(
         &svc,
         vec![
@@ -174,8 +242,10 @@ fn born_cloud_private_return_cold_service_observes_owner_history() {
     assert_eq!(
         hosted.e.mode_service_ready(),
         Some((HOSTED_DEV, 2)),
-        "born-Cloud history replay must not poison fresh service admission: {:?}",
-        hosted.e.admission()
+        "born-Cloud history replay must not poison fresh service admission: {:?}, {:?}, {:?}",
+        hosted.e.admission(),
+        hosted.e.replica().sync_status(),
+        hosted.e.replica().key_wait_reason()
     );
     let cloud_items = svc.items(&COL);
     cp.append(
