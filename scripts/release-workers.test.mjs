@@ -210,7 +210,7 @@ test('workflow keeps private assembly out of OIDC and binds only this build arti
   assert.ok(yaml.includes("options: [staging, production]"));
   assert.ok(!build.includes('id-token: write'));
   assert.ok(build.indexOf('node scripts/release-workers.mjs verify') < build.indexOf('secrets.WORKER_RELEASE_READ_TOKEN'));
-  assert.ok(build.includes('ref: 20ecdf8bbd95c52ed6b7ff076ca1687b85619cf7'));
+  assert.ok(build.includes('ref: 7a1f5603aae7cc1be6410abf0088ea463b4aecd1'));
   assert.ok(build.includes('node target/worker-release-deps/assembly/bin/lib/release-workers.mjs build'));
   assert.ok(build.includes('"$RELEASE_ENVIRONMENT" verify-trust'));
   assert.ok(build.includes('node --experimental-transform-types --test test/staging-escrow.test.mjs'));
