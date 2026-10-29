@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { runAuthAdminCommand } from "../../auth-admin.js";
 import { LogServiceClient } from "./log-service-client.js";
-import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
+import { nextDeviceNeedsRevoke, PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { activatePendingServices } from "./service-activation.js";
 import { certDigest, chainHash, decodeCbor, domainHash, encodeCbor, keyId, policyItemSignedDigest, type Cbor, type Decoded, type PolicyOp, type PolicySigner } from "./policy-wire.js";
 import { ed25519PublicKeyObject, ed25519RawPublicKey } from "./policy-keys.js";
@@ -93,6 +93,80 @@ describePostgres("mdbase-next policy outbox", () => {
     await registerNextCollection(database.db, { collectionId, ownerUserId: owner, runtime: "next", sync: "cloud_copy", rootKeyId: signer.cert.root, ops: genesisOps(owner, signer.cert.root) });
     return collectionId;
   }
+
+  it.each(["active", "other-member", "removed-before-enrolment", "removed", "rejoined", "explicit", "unenrolled"] as const)(
+    "only queues a needed device revoke: %s", async mode => {
+      const owner = await newUser(database.db), member = await newUser(database.db);
+      const collection = await register(owner), device = randomUUID();
+      const enrol: PolicyOp = {op:"device-enrol",device,account:member,kind:"app-runtime",...deviceKeys()};
+      const removal: PolicyOp = {op:"member-remove",account:member};
+      await queueNextPolicy(database.db, collection, [{op:"member-set",account:member,role:"editor"}]);
+      if (mode === "removed-before-enrolment")
+        await queueNextPolicy(database.db, collection, [removal,{op:"member-set",account:member,role:"editor"}]);
+      if (mode !== "unenrolled") await queueNextPolicy(database.db, collection, [enrol]);
+      if (mode === "removed" || mode === "rejoined") await queueNextPolicy(database.db, collection, [removal]);
+      if (mode === "rejoined") await queueNextPolicy(database.db, collection, [{op:"member-set",account:member,role:"editor"}]);
+      if (mode === "other-member") {
+        const other = randomUUID();
+        await queueNextPolicy(database.db, collection, [{op:"member-set",account:other,role:"editor"},{op:"member-remove",account:other}]);
+      }
+      if (mode === "explicit") await queueNextPolicy(database.db, collection, [{op:"device-revoke",device}]);
+      const needed = await nextDeviceNeedsRevoke(database.db, collection, device);
+      expect(needed).toBe(["active", "other-member", "removed-before-enrolment"].includes(mode));
+      if (needed) await queueNextPolicy(database.db, collection, [{op:"device-revoke",device}]);
+      const emitter = new PolicyEmitter(database.db, client, signer);
+      try {
+        await emitter.drainCollection(collection);
+        expect((await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id=$1 AND state='parked'", [collection])).rows).toEqual([]);
+      } finally { await emitter.close(); }
+    }
+  );
+
+  it.each([true, false])("compares member removal and enrolment within one policy row (removal last: %s)", async removalLast => {
+    const owner = await newUser(database.db), member = randomUUID(), collection = await register(owner), device = randomUUID();
+    const enrol: PolicyOp = {op:"device-enrol",device,account:member,kind:"app-runtime",...deviceKeys()};
+    const remove: PolicyOp = {op:"member-remove",account:member};
+    await queueNextPolicy(database.db, collection, [{op:"member-set",account:member,role:"editor"}]);
+    await queueNextPolicy(database.db, collection, removalLast ? [enrol,remove] : [remove,{op:"member-set",account:member,role:"editor"},enrol]);
+    expect(await nextDeviceNeedsRevoke(database.db, collection, device)).toBe(!removalLast);
+  });
+
+  it("does not treat a recovery reissue of an earlier removal as a later deactivation", async () => {
+    const owner = await newUser(database.db), member = randomUUID(), collection = await register(owner), device = randomUUID();
+    const removal: PolicyOp[] = [{op:"member-remove",account:member}];
+    await queueNextPolicy(database.db, collection, [{op:"member-set",account:member,role:"editor"},...removal]);
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    try {
+      await emitter.drainCollection(collection);
+      await queueNextPolicy(database.db, collection, [{op:"member-set",account:member,role:"editor"},
+        {op:"device-enrol",device,account:member,kind:"app-runtime",...deviceKeys()}]);
+      const batch = (await database.db.query("SELECT id FROM next_policy_batches WHERE collection_id=$1", [collection])).rows[0]!.id;
+      await database.db.query("INSERT INTO next_policy_outbox(collection_id,ops,reissue_of) VALUES($1,$2,$3)", [collection,{version:1,ops:removal},batch]);
+      expect(await nextDeviceNeedsRevoke(database.db, collection, device)).toBe(true);
+    } finally { await emitter.close(); }
+  });
+
+  it.each(["cp-intent", "native-registry"])("ignores parked batches only after a permanent %s deletion fact", async authority => {
+    const isolated = await withDatabase("mdbase_next_readiness_test"), app = Fastify();
+    const owner = await newUser(isolated.db), collection = randomUUID(), live = randomUUID();
+    const emitter = new PolicyEmitter(isolated.db, client, signer);
+    registerPolicyRecoveryRoutes(app, isolated.db, emitter);
+    app.get("/ready", () => ({ok:true}));
+    try {
+      for (const collectionId of [collection, live])
+        await registerNextCollection(isolated.db, {collectionId,ownerUserId:owner,runtime:"next",sync:"cloud_copy",rootKeyId:signer.cert.root,ops:genesisOps(owner,signer.cert.root)});
+      expect((await app.inject({url:"/ready"})).statusCode).toBe(200);
+      await emitter.drainCollection(collection);
+      await isolated.db.query("UPDATE next_policy_batches SET state='parked' WHERE collection_id=$1", [collection]);
+      expect((await app.inject({url:"/ready"})).statusCode).toBe(503);
+      await isolated.db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,$3)", [collection,randomUUID(),authority]);
+      expect((await app.inject({url:"/ready"})).statusCode).toBe(200);
+      expect((await isolated.db.query("SELECT state FROM next_policy_batches WHERE collection_id=$1", [collection])).rows).toEqual([{state:"parked"}]);
+      await emitter.drainCollection(live);
+      await isolated.db.query("UPDATE next_policy_batches SET state='parked' WHERE collection_id=$1", [live]);
+      expect((await app.inject({url:"/ready"})).statusCode).toBe(503);
+    } finally { await app.close(); await emitter.close(); await isolated.close(); }
+  });
 
   function gate() {
     let release!: () => void;
