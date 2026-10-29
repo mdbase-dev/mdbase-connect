@@ -225,7 +225,11 @@ impl ConnectTokens {
     }
 
     fn check(&self) -> Result<(), String> {
-        (self.fence)().inspect_err(|_| self.drop_cache())
+        (self.fence)().inspect_err(|_| self.drop_cache())?;
+        if self.deleted() {
+            return Err("collection_deleted".into());
+        }
+        Ok(())
     }
 }
 
@@ -245,9 +249,6 @@ pub enum Eligibility {
 impl ConnectTokens {
     async fn fetch(&self) -> Result<Token, Eligibility> {
         self.check().map_err(Eligibility::Refused)?;
-        if self.deleted() {
-            return Err(Eligibility::Refused("collection_deleted".into()));
-        }
         let now = i64::try_from(fsutil::now_ms()).unwrap_or(i64::MAX);
         if let Some(t) = self.cached.lock().ok().and_then(|c| c.clone())
             && t.expires_at_ms - RENEW_BEFORE_MS > now
