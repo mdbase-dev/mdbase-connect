@@ -10,7 +10,7 @@ if (!deb || !rpm || Boolean(previousDeb) !== Boolean(previousRpm)) {
 
 for (const [format, artifact, previous, image] of [
   ["deb", deb, previousDeb, "ubuntu:24.04"],
-  ["rpm", rpm, previousRpm, "fedora:43"]
+  ["rpm", rpm, previousRpm, "fedora:44"]
 ]) {
   const mounts = ["--volume", `${dirname(resolve(artifact))}:/packages:ro`];
   if (previous) mounts.push("--volume", `${dirname(resolve(previous))}:/previous:ro`);
@@ -33,6 +33,12 @@ apt-get update
 # Satisfy Electron's trash dependency without pulling in a KDE desktop.
 apt-get install -y --no-install-recommends trash-cli` : "dnf install -y --setopt=install_weak_deps=False util-linux"}
 package="$1"
+${format === "rpm" ? `# Bundled native binaries must not own global links that collide with other apps.
+rpm -qpl "$package" > /tmp/package-files
+if grep -E '^/usr/lib/\\.build-id(/|$)' /tmp/package-files; then
+  echo "RPM must not contain global build-ID links" >&2
+  exit 1
+fi` : ""}
 check() {
   # Fedora merges /usr/sbin into /usr/bin, so PATH may report either spelling.
   test "$(readlink -f "$(command -v mdbase)")" = /usr/lib/mdbase-connect/resources/mdbase-next/mdbase

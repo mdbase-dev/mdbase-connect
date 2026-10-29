@@ -2,7 +2,11 @@ diff --git a/resources/spec.ejs b/resources/spec.ejs
 index e07a8a3dac52b7ac5e165d203bc26d0ac336c6ec..70ba307254df39bcc41544fcf16a032dbbb1e297 100644
 --- a/resources/spec.ejs
 +++ b/resources/spec.ejs
-@@ -29,6 +29,10 @@ cp <%= process.platform === 'darwin' ? '-R' : '-r' %> usr/* %{buildroot}/usr/
+@@ -1 +1,3 @@
+ %define _binary_payload w<%= compressionLevel %>.xzdio
++%global _build_id_links none
++# Bundled Electron binaries must not claim global build-ID links shared by other apps.
+@@ -29,6 +31,10 @@ cp <%= process.platform === 'darwin' ? '-R' : '-r' %> usr/* %{buildroot}/usr/
  
  %files
  /usr/bin/<%= name %>
