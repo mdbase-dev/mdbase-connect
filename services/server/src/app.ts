@@ -28,6 +28,7 @@ import { activatePendingServices } from "./features/next/service-activation.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
 import { registerAccountKeyRoutes } from "./features/next/account-keys.js";
 import { registerPrivateCollectionRoutes } from "./features/next/private-collections.js";
+import { registerCollectionModeExecution } from "./features/next/collection-mode-execution.js";
 import { globalRateLimitKeying, registerNextHostedRoutes } from "./features/next/hosted-routes.js";
 import { registerLabPitrRoutes } from "./features/next/lab-pitr-routes.js";
 import { validatePitrCollections } from "./features/next/lab-pitr-config.js";
@@ -647,6 +648,7 @@ export async function buildApp(options: BuildOptions) {
     }
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog, tailscaleAuth: options.tailscaleAuth });
     if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog });
+    if (options.nextControlPlane.privateBootstrap && options.nextControlPlane.cloudCopyBootstrap) registerCollectionModeExecution(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog });
     // AK1 account keys: private only, and only with a persistent per-account rate limit.
     if (options.nextControlPlane.privateBootstrap && options.authRateLimitSecret) registerAccountKeyRoutes(app, {
       db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
