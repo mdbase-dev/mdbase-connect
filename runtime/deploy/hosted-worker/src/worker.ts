@@ -990,6 +990,8 @@ export class HostedCollection extends DurableObject<Env> {
     } : undefined, tag ? (call, observation) => {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_append_outcome", observation);
     } : undefined, { tokenRefused: () => this.dropLogToken(), report });
+    if (this.env.LAB === "1" && current() && report.rpcErrors.length) console.info(JSON.stringify({
+      event: "collection_mode_log_rpc_error", role: this.escrow ? "escrow" : "hosted", errors: report.rpcErrors }));
     if (!current() || !await this.checkPinRebuild(engine) || !current()) return;
     this.pruneAttachment();
     delivered += this.deliver(engine); // read_file response precedes object/network waits
