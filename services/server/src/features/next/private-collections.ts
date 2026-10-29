@@ -22,7 +22,7 @@ import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
 import {
-  authenticate, CreateError, currentIdentity, currentMember, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment, inTransaction, lock, NIL,
+  authenticate, CreateError, currentIdentity, currentMember, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment, inTransaction, joinedDisplayName, lock, NIL,
   refuse, refuseRevoked, type Device, type Proof
 } from "./bootstrap-common.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
@@ -243,8 +243,13 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
       // is a current private one and the account a current member. A cloud copy, or a
       // collection that has left sync, refuses before any policy op exists.
       await currentIdentity(client, connector, body.device_id, d);
+      try {
+        await currentMember(client, collection, connector.user_id);
+      } catch (error) {
+        if (error instanceof CreateError && error.code === "not_member") throw new CreateError(404, "not_found");
+        throw error;
+      }
       await currentPrivate(client, collection);
-      await currentMember(client, collection, connector.user_id);
       await refuseRevoked(client, collection, body.device_id);
     };
     let device: Device;
@@ -285,6 +290,7 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
         // An existing keyed device approves this one (SAS) and grants it the key next.
         return {
           collection_id: collection, enrolled_at: batch.seq, approval: "pending", log_url: options.next.logService.url,
+          display_name: await joinedDisplayName(client, collection),
           genesis: { seq: 1, item: genesis.item.toString("hex") },
           device: await mint(client, body.device_id, device.sign_pk, collection, body.capabilities)
         };

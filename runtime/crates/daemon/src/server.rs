@@ -2220,16 +2220,7 @@ impl Daemon {
             ));
         }
         let root = canonical_dir(&p.path)?;
-        let name = p
-            .name
-            .as_deref()
-            .map(display_name)
-            .transpose()?
-            .unwrap_or_else(|| {
-                root.file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| root.display().to_string())
-            });
+        p.name.as_deref().map(display_name).transpose()?;
         if registry::overlaps(&root, &self.profile.state_dir) {
             return Err(ControlError::invalid(
                 "overlapping_state_dir",
@@ -2304,6 +2295,7 @@ impl Daemon {
             ));
         }
         self.write_link(&id, &collection, &trust, state, (log_url, genesis), false)?;
+        let name = join_name(p.name.as_deref(), joined.display_name.as_deref(), &root)?;
         let entry = Entry {
             id: id.clone(),
             name,
@@ -4622,6 +4614,9 @@ fn cloud_refusal(e: crate::cloud::CloudError) -> ControlError {
             "sign this computer in again",
         ),
         crate::cloud::CloudError::Network(m) => ControlError::unavailable("sync_unreachable", m),
+        crate::cloud::CloudError::Server(404, code) if code == "not_found" => {
+            ControlError::not_found("the account has no collection with this ID")
+        }
         other => ControlError::unavailable("sync_refused", other.to_string()),
     }
 }
@@ -5461,6 +5456,29 @@ impl Daemon {
 /// (it is shown on approval screens and in the account).
 fn display_name(value: &str) -> Result<String, ControlError> {
     checked_name(value, "a collection name")
+}
+
+/// The control plane's name for a collection created without one.
+const SERVER_PLACEHOLDER_NAME: &str = "New collection";
+
+/// A joined collection's local name: the one given, else the account's (unless
+/// it is the control plane's placeholder), else the folder's.
+fn join_name(
+    given: Option<&str>,
+    account: Option<&str>,
+    root: &std::path::Path,
+) -> Result<String, ControlError> {
+    if let Some(n) = given {
+        return display_name(n);
+    }
+    Ok(account
+        .and_then(|n| display_name(n).ok())
+        .filter(|n| n != SERVER_PLACEHOLDER_NAME)
+        .unwrap_or_else(|| {
+            root.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| root.display().to_string())
+        }))
 }
 
 /// A name shown to people (collection or computer): trimmed, 1 to 100 characters,

@@ -1678,6 +1678,8 @@ pub struct Joined {
     pub log_url: Option<String>,
     /// Candidate genesis bytes (seq 1), verified by the caller before use.
     pub genesis_item: Option<Vec<u8>>,
+    /// The collection's name in the account, if the control plane sent one.
+    pub display_name: Option<String>,
 }
 
 impl std::fmt::Debug for Joined {
@@ -1710,6 +1712,10 @@ impl Joined {
             }
         };
         let log_url = v.get("log_url").and_then(Value::as_str).map(str::to_string);
+        let display_name = v
+            .get("display_name")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         let d = v.get("device").ok_or_else(bad)?;
         let token = d
             .get("token")
@@ -1725,6 +1731,7 @@ impl Joined {
             expires_at,
             log_url,
             genesis_item,
+            display_name,
         })
     }
 }
@@ -1869,12 +1876,31 @@ mod tests {
     }
 
     #[test]
+    fn a_join_answer_carries_the_account_name() {
+        let answer = |name: Value| {
+            json!({
+                "collection_id": "c",
+                "enrolled_at": 2,
+                "display_name": name,
+                "device": { "token": "t", "expires_at": 1 },
+            })
+        };
+        let named = Joined::parse(&answer(json!("Work notes"))).unwrap();
+        assert_eq!(named.display_name.as_deref(), Some("Work notes"));
+        assert_eq!(
+            Joined::parse(&answer(Value::Null)).unwrap().display_name,
+            None
+        );
+    }
+
+    #[test]
     fn bootstrap_debug_never_exposes_tokens_or_genesis() {
         let joined = Joined {
             token: Zeroizing::new("synthetic-token-sentinel".into()),
             expires_at: 0,
             log_url: Some("synthetic-origin-sentinel".into()),
             genesis_item: Some(b"synthetic-genesis-sentinel".to_vec()),
+            display_name: None,
         };
         let created = Created {
             collection_id: "synthetic-id-sentinel".into(),

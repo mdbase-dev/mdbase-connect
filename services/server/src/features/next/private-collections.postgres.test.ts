@@ -470,9 +470,11 @@ describePg("private collections", () => {
     const collection = await created(owner);
     const second = await identity(owner.connector.user_id);
     const sas = commit();
+    // The joining computer names the collection as the account does.
+    await db.query("UPDATE next_collections SET display_name = 'Work notes' WHERE collection_id = $1", [collection]);
     const response = await enrol(second, collection, await enrolProof(second, collection, sas));
     expect(response.statusCode, response.body).toBe(200);
-    expect(response.json()).toMatchObject({ collection_id: collection, enrolled_at: 2, approval: "pending", device: { device_id: second.device } });
+    expect(response.json()).toMatchObject({ collection_id: collection, enrolled_at: 2, approval: "pending", display_name: "Work notes", device: { device_id: second.device } });
     // The exact appended genesis, for the enrolling device to verify and pin.
     const appended = (await db.query<{ item: Buffer }>("SELECT item FROM next_policy_batches WHERE collection_id = $1 AND seq = 1", [collection])).rows[0];
     expect(response.json().genesis).toEqual({ seq: 1, item: appended.item.toString("hex") });
@@ -494,14 +496,29 @@ describePg("private collections", () => {
     const owner = await identity();
     const collection = await created(owner);
     const editor = await identity();
-    expect((await enrol(editor, collection, await enrolProof(editor, collection, commit()))).json().error.code).toBe("not_member");
+    expect((await enrol(editor, collection, await enrolProof(editor, collection, commit()))).json().error.code).toBe("not_found");
     await queue(collection, [{ op: "member-set", account: editor.connector.user_id, role: "editor" }]);
-    expect((await enrol(editor, collection, await enrolProof(editor, collection, commit()))).json().error.code).toBe("not_member");
+    expect((await enrol(editor, collection, await enrolProof(editor, collection, commit()))).json().error.code).toBe("not_found");
     await drain(collection);
     expect((await enrol(editor, collection, await enrolProof(editor, collection, commit()))).statusCode).toBe(200);
     const removed = await identity(editor.connector.user_id);
     await queue(collection, [{ op: "member-remove", account: editor.connector.user_id }]);
-    expect((await enrol(removed, collection, await enrolProof(removed, collection, commit()))).json().error.code).toBe("not_member");
+    expect((await enrol(removed, collection, await enrolProof(removed, collection, commit()))).json().error.code).toBe("not_found");
+  });
+
+  it("does not distinguish unknown collections from collections without current membership", async () => {
+    const owner = await identity(), stranger = await identity(), collection = await created(owner);
+    const unknown = randomUUID();
+    const missing = await enrol(stranger, unknown, await enrolProof(stranger, unknown, commit()));
+    expect(missing.statusCode, missing.body).toBe(404);
+    expect(missing.json().error.code).toBe("not_found");
+    for (const sync of ["private", "cloud_copy"] as const) {
+      await db.query("UPDATE next_collections SET sync=$2 WHERE collection_id=$1", [collection, sync]);
+      const inaccessible = await enrol(stranger, collection, await enrolProof(stranger, collection, commit()));
+      expect(inaccessible.statusCode, inaccessible.body).toBe(404);
+      expect(inaccessible.json()).toEqual(missing.json());
+    }
+    expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb", [collection, JSON.stringify([{ op: "device-enrol", device: stranger.device }])])).rows).toEqual([]);
   });
 
   it("refuses revoked devices, cloud copies, collections that left sync and other proofs", async () => {
@@ -523,8 +540,14 @@ describePg("private collections", () => {
     } finally {
       c.release();
     }
+    await drain(cloud);
     const third = await identity(owner.connector.user_id);
     expect((await enrol(third, cloud, await enrolProof(third, cloud, commit()))).json().error.code).toBe("not_current_private");
+    // No collection has this ID at all: not found, not "not private".
+    const unknown = randomUUID();
+    const missing = await enrol(third, unknown, await enrolProof(third, unknown, commit()));
+    expect(missing.statusCode, missing.body).toBe(404);
+    expect(missing.json().error.code).toBe("not_found");
 
     const create2 = await created(owner);
     const p = await createProof(third, create2);

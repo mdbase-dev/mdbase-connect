@@ -23,6 +23,11 @@ export class CreateError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
 }
 
+/** The collection's account name for a joining device; `null` when none was set. */
+export async function joinedDisplayName(client: DatabaseQueryable, collection: string): Promise<string | null> {
+  return (await client.query<{ display_name: string | null }>("SELECT display_name FROM next_collections WHERE collection_id = $1", [collection])).rows[0]?.display_name ?? null;
+}
+
 export const lock = (client: DatabaseConnection, collection: string) =>
   client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text, 20261005))", [collection]);
 
