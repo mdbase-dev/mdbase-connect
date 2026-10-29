@@ -73,7 +73,6 @@ impl<S: Store> Replica<S> {
         mut observations: Vec<Observation>,
     ) -> Result<Option<Vec<Observation>>, StoreError> {
         self.check_apply_store_health()?;
-        self.resource_ingest_paths.clear();
         let current = self.layer.catalog().unwrap_or_else(|| self.catalog.clone());
         if !observations.iter().any(|o| {
             current.is_resource_path(&o.path)
@@ -83,6 +82,7 @@ impl<S: Store> Replica<S> {
         }) {
             return Ok(Some(observations));
         }
+        self.resource_ingest_paths.clear();
         self.resource_ingest_paths
             .extend(observations.iter().flat_map(|o| {
                 std::iter::once(&o.path)

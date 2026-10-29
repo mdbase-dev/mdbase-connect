@@ -274,14 +274,7 @@ fn unavailable_native_source_and_undecodable_text_are_held_not_uploaded() {
     assert!(a.r.store().pending(None, 10).unwrap().is_empty());
 }
 
-#[test]
-fn server_size_refusal_remains_available_with_its_file_path() {
-    let svc = FakeLogService::new();
-    let (mut a, data_rc) = ingest_node(&svc, 1);
-    a.r.store()
-        .att_disk()
-        .user_write(PATH, b"upload refused by server");
-    a.r.observe(None).unwrap();
+fn refuse_upload(a: &mut Node) {
     let mut refused = false;
     for _ in 0..100 {
         let batch = a.r.take_log_calls();
@@ -302,6 +295,21 @@ fn server_size_refusal_remains_available_with_its_file_path() {
         }
     }
     assert!(refused);
+    assert!(
+        a.r.store().att_disk().outstanding.is_empty(),
+        "refused token is released"
+    );
+}
+
+#[test]
+fn server_size_refusal_remains_available_with_its_file_path() {
+    let svc = FakeLogService::new();
+    let (mut a, data_rc) = ingest_node(&svc, 1);
+    a.r.store()
+        .att_disk()
+        .user_write(PATH, b"upload refused by server");
+    a.r.observe(None).unwrap();
+    refuse_upload(&mut a);
     let notices = a.r.attachment_ingest_failures().collect::<Vec<_>>();
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].0, PATH);
@@ -315,7 +323,11 @@ fn server_size_refusal_remains_available_with_its_file_path() {
     {
         let mut data = data_rc.borrow_mut();
         let disk = data.att_disk.as_mut().unwrap();
-        assert_eq!(disk.restart(), [PATH.to_string()]);
+        assert!(
+            !disk.known.contains_key(PATH),
+            "refused bytes are not acknowledged"
+        );
+        assert!(disk.restart().is_empty());
         disk.rescan(PATH);
     }
     let mut a = attach_node_with(&svc, 1, MemStore::shared(data_rc));
@@ -327,6 +339,33 @@ fn server_size_refusal_remains_available_with_its_file_path() {
     assert!(file_at(&a, PATH).is_some());
     user(&mut a, |d| d.user_write(PATH, b"fixed"));
     assert!(a.r.attachment_ingest_failures().next().is_none());
+}
+
+#[test]
+fn upload_refusals_clear_on_delete_or_rename_and_allow_reverting_bytes() {
+    let svc = FakeLogService::new();
+    let (mut a, _) = ingest_node(&svc, 1);
+    for rename in [false, true] {
+        a.r.store().att_disk().user_write(PATH, b"refused v1");
+        a.r.observe(None).unwrap();
+        refuse_upload(&mut a);
+        if rename {
+            user(&mut a, |d| d.user_move(PATH, "media/renamed.bin"));
+            assert!(a.r.attachment_ingest_failure(PATH).is_none());
+            user(&mut a, |d| d.user_move("media/renamed.bin", PATH));
+            assert_eq!(whole(&a, PATH), mdbn_wire::hash::sha256(b"refused v1"));
+        } else {
+            user(&mut a, |d| d.user_remove(PATH));
+            assert!(a.r.attachment_ingest_failure(PATH).is_none());
+        }
+    }
+    a.r.store().att_disk().user_write(PATH, b"refused v0");
+    a.r.observe(None).unwrap();
+    refuse_upload(&mut a);
+    user(&mut a, |d| d.user_write(PATH, b"accepted v2"));
+    user(&mut a, |d| d.user_write(PATH, b"refused v0"));
+    assert_eq!(whole(&a, PATH), mdbn_wire::hash::sha256(b"refused v0"));
+    assert!(a.r.attachment_ingest_failure(PATH).is_none());
 }
 
 #[test]

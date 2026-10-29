@@ -1868,7 +1868,7 @@ fn limited_file_notices(
         shown.push(crate::control::Notice {
             path: None,
             code: "file_notices_omitted".into(),
-            message: format!("{omitted} additional file notices are not shown. Run mdbase holds to review held files."),
+            message: format!("{omitted} additional file notices are not shown."),
         });
     }
     shown

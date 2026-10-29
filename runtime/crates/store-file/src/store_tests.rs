@@ -68,6 +68,83 @@ impl World {
 }
 
 #[test]
+fn watcher_events_refresh_unsupported_name_notices() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open();
+    assert!(s.observe(None).unwrap().is_empty());
+    w.p.fs.write_replace("nul.md", b"reserved").unwrap();
+    assert!(s.observe(Some(&["nul.md".into()])).unwrap().is_empty());
+    assert!(s.stats.unsupported_paths["nul.md"].contains("reserved name"));
+    w.p.fs.rename_over("nul.md", "null.md");
+    let observations = s
+        .observe(Some(&["nul.md".into(), "null.md".into()]))
+        .unwrap();
+    assert!(!s.stats.unsupported_paths.contains_key("nul.md"));
+    assert!(observations.iter().any(|o| o.path == "null.md"));
+    w.p.fs.write_replace("nul.md", b"reserved again").unwrap();
+    s.observe(Some(&["nul.md".into()])).unwrap();
+    w.p.fs.unlink("nul.md");
+    s.observe(Some(&["nul.md".into()])).unwrap();
+    assert!(!s.stats.unsupported_paths.contains_key("nul.md"));
+}
+
+#[test]
+fn released_refusals_do_not_suppress_reverts_and_report_removal() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open_with(Config {
+        move_window_ms: 0,
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    w.p.fs.write_replace("a.bin", b"v1").unwrap();
+    let first = s.observe(None).unwrap().remove(0);
+    s.release_disk_observation(first.token).unwrap();
+    assert!(
+        !w.db
+            .load()
+            .unwrap()
+            .iter()
+            .any(|(kind, path, _)| *kind == Kind::Disk && path == b"a.bin")
+    );
+    w.p.fs.write_replace("a.bin", b"v2").unwrap();
+    let second = s.observe(Some(&["a.bin".into()])).unwrap();
+    assert_eq!(second.len(), 1);
+    s.commit(Tx {
+        ack_observations: vec![second[0].token],
+        ..Tx::default()
+    })
+    .unwrap();
+    w.p.fs.write_replace("a.bin", b"v1").unwrap();
+    let reverted = s.observe(Some(&["a.bin".into()])).unwrap();
+    assert_eq!(reverted.len(), 1);
+    assert_eq!(attachment(&reverted[0]).map(|a| a.0), Some(revision(b"v1")));
+
+    w.p.fs.write_replace("new.bin", b"refused").unwrap();
+    let refused = s.observe(Some(&["new.bin".into()])).unwrap().remove(0);
+    s.release_disk_observation(refused.token).unwrap();
+    w.p.fs.rename_over("new.bin", "renamed.bin");
+    let moved = s
+        .observe(Some(&["new.bin".into(), "renamed.bin".into()]))
+        .unwrap();
+    assert!(moved.iter().any(|o| o.path == "new.bin" && o.now.is_none()));
+    assert!(
+        moved
+            .iter()
+            .any(|o| o.path == "renamed.bin" && o.now.is_some())
+    );
+    for o in &moved {
+        s.release_disk_observation(o.token).unwrap();
+    }
+    w.p.fs.unlink("renamed.bin");
+    let removed = s.observe(Some(&["renamed.bin".into()])).unwrap();
+    assert!(
+        removed
+            .iter()
+            .any(|o| o.path == "renamed.bin" && o.now.is_none())
+    );
+}
+
+#[test]
 fn ordinary_unacknowledged_text_is_not_reoffered_as_a_resource() {
     let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
     let mut s = w.open_with(Config {

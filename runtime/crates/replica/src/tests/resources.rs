@@ -246,6 +246,16 @@ fn deferred_resource_ingestion_reports_paths_before_source_reads() {
         moved_from: None,
         provenance: crate::store::Provenance::Normal,
     }]);
+    let failure_paths = a.r.resource_ingest_paths();
+    a.r.ingest(vec![crate::store::Observation {
+        token: crate::store::ObservationId(902),
+        path: "ordinary.md".into(),
+        base: None,
+        now: Some(crate::store::Observed::Text("ordinary note".into())),
+        moved_from: None,
+        provenance: crate::store::Provenance::Normal,
+    }]);
+    assert_eq!(a.r.resource_ingest_paths(), failure_paths);
     assert_eq!(
         a.r.resource_ingest_paths().first().map(String::as_str),
         Some("_types/zz-oversized.md")

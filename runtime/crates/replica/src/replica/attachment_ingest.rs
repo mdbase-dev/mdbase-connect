@@ -153,6 +153,9 @@ impl<S: Store> Replica<S> {
     /// this module's (a record or resource path).
     pub(crate) fn ingest_attachment(&mut self, o: &Observation) -> Result<bool, StoreError> {
         self.attachment_ingest.failed.remove(&o.path);
+        if let Some(from) = &o.moved_from {
+            self.attachment_ingest.failed.remove(from);
+        }
         // Every newer store observation supersedes an uncommitted native job,
         // including shrink-to-record, malformed text, moves and deletion.
         if let Some(c) = self.attachment_ingest.current.take_if(|c| {
@@ -385,7 +388,7 @@ impl<S: Store> Replica<S> {
             Some(AttachmentUploadStatus::Failed(p)) => {
                 self.close_attachment_upload(&m);
                 self.attachment_ingest.current = None;
-                self.ingest_failed(&path, p)?;
+                self.ingest_failed(&path, token, p)?;
                 Ok(true)
             }
             None => {
@@ -395,13 +398,26 @@ impl<S: Store> Replica<S> {
         }
     }
 
-    /// Keep the observation unacknowledged so restart re-checks refused files.
-    /// The store suppresses unchanged observations during this launch.
-    fn ingest_failed(&mut self, path: &str, p: Problem) -> Result<(), StoreError> {
+    /// Refusal is not an acknowledgement. Release the finished token so it
+    /// cannot suppress a later edit back to these bytes; restart rechecks them.
+    fn ingest_failed(
+        &mut self,
+        path: &str,
+        token: ObservationId,
+        p: Problem,
+    ) -> Result<(), StoreError> {
         self.store.commit(Tx {
             meta: vec![(checkpoint_key(path), None)],
             ..Tx::default()
         })?;
+        // A held save still owns unresolved evidence even after its upload stops.
+        let held = match self.file_id_at(path)? {
+            Some(id) => self.store.hold(&id)?.is_some(),
+            None => false,
+        };
+        if !held && !self.apply_fault {
+            self.store.release_disk_observation(token)?;
+        }
         if p.code == ErrorCode::QuotaExceeded.as_str() {
             self.incident(mdbn_wire::client::IncidentKind::QuotaExceeded, None);
         }
@@ -946,7 +962,7 @@ impl<S: Store> Replica<S> {
                     });
                     return Ok(());
                 }
-                self.ingest_failed(&item.path, p)
+                self.ingest_failed(&item.path, item.token, p)
             }
         }
     }

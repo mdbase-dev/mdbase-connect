@@ -510,6 +510,20 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         changes: &mut Vec<Change>,
         out: &mut Vec<Observation>,
     ) -> StoreResult<()> {
+        // Unsupported names cannot all be passed to stat. Refresh them through
+        // the same directory scan that classifies names at startup.
+        let paths = if paths.is_some_and(|paths| {
+            paths.iter().any(|path| {
+                RelPath::new(path.clone()).is_err()
+                    || matches!(crate::platform::portable_violation(path),
+                    Some(reason) if !matches!(reason, "hidden_path" | "dependency_path"))
+            })
+        }) {
+            self.rescan = true;
+            None
+        } else {
+            paths
+        };
         let now_ms = self.now();
         self.settle_retained(changes).await?;
         self.deliver_evidence(out).await?;
@@ -1876,7 +1890,11 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         let known = self.disk.get(path).cloned();
         let Some(meta) = meta else {
             self.appeared.remove(path);
+            let was_seen = self.seen.contains_key(path);
             self.forget_seen(changes, path);
+            if known.is_none() && was_seen && !self.already_reported(path, None) {
+                self.emit(changes, out, path, None, None, None, None)?;
+            }
             if let Some(k) = known
                 && !self.missing.contains_key(path)
             {
@@ -2812,6 +2830,21 @@ impl<P: FilePlatform + 'static, M: Store, D: DiskDb> Store for FileStore<P, M, D
         }
         Ok(())
     }
+    fn release_disk_observation(&mut self, token: ObservationId) -> StoreResult<()> {
+        self.ensure_commit_available()?;
+        if self
+            .outstanding
+            .get(&token.0)
+            .is_some_and(|o| o.evidence.is_some())
+        {
+            return Err(StoreError::Io(
+                "cannot release retained observation evidence".into(),
+            ));
+        }
+        self.take_outstanding(token.0);
+        Ok(())
+    }
+
     fn defer_disk_observations(&mut self, tokens: &[ObservationId]) -> StoreResult<()> {
         mdbn_replica::mirror_admission::ensure_open(&self.inner)?;
         if tokens.len() > 65536 {
