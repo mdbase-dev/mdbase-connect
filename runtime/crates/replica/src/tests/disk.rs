@@ -886,6 +886,16 @@ fn external_edits_sync() {
     }
 }
 
+fn move_file(n: &mut Node, from: &str, to: &str, text: &str) {
+    let mut disk = n.disk.borrow_mut();
+    let base = disk.known.get(from).copied();
+    disk.files.remove(from);
+    disk.user_write(to, Some(text));
+    let observation = disk.queued.last_mut().unwrap();
+    observation.moved_from = Some(from.into());
+    observation.base = base;
+}
+
 fn set_member_role(svc: &FakeLogService, nodes: &mut [&mut Node], role: mdbn_wire::policy::Role) {
     use mdbn_wire::policy::{MemberSet, PolicyOp, Role};
     let mut cp = crate::testkit::TestControlPlane::new(COL);
@@ -1291,6 +1301,73 @@ fn discarding_view_only_definition_moves_restores_the_original_after_restart() {
     assert!(a.file("_types/moved.md").is_none());
     assert!(a.file("_types/moved-again.md").is_none());
     assert!(a.r.list_holds(a.s).unwrap().is_empty());
+}
+
+#[test]
+fn moving_onto_a_read_only_hold_also_holds_the_source_after_upgrade() {
+    use mdbn_wire::policy::Role;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "source.md", "source");
+    create(&mut a, 2, "target.md", "target");
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Viewer);
+    b.disk.borrow_mut().user_write("target.md", Some("viewer"));
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Editor);
+    move_file(&mut b, "source.md", "target.md", "source");
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.r.list_holds(b.s).unwrap().len(), 2);
+    assert_eq!(b.r.sync_status().pending, 0);
+    for hold in b.r.list_holds(b.s).unwrap() {
+        b.r.resolve_hold(b.s, hold.id, HoldResolution::TakeTheirs)
+            .unwrap();
+    }
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.file("source.md").as_deref(), Some("source"));
+    assert_eq!(b.file("target.md").as_deref(), Some("target"));
+}
+
+#[test]
+fn discarding_a_viewer_move_does_not_delete_its_unmanaged_destination() {
+    use mdbn_wire::policy::Role;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    create(&mut a, 1, "a.md", "original");
+    settle(&mut [&mut a]);
+    set_member_role(&svc, &mut [&mut a], Role::Viewer);
+    move_file(&mut a, "a.md", ".private/a.md", "original");
+    settle(&mut [&mut a]);
+    let holds = a.r.list_holds(a.s).unwrap();
+    assert_eq!(holds.len(), 1);
+    assert_eq!(holds[0].path, "a.md");
+    a.r.resolve_hold(a.s, holds[0].id, HoldResolution::TakeTheirs)
+        .unwrap();
+    settle(&mut [&mut a]);
+    assert_eq!(a.file("a.md").as_deref(), Some("original"));
+    assert_eq!(a.file(".private/a.md").as_deref(), Some("original"));
+}
+
+#[test]
+fn viewer_case_only_rename_can_be_submitted_after_upgrade() {
+    use mdbn_wire::policy::Role;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "A.md", "original");
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Viewer);
+    move_file(&mut b, "A.md", "a.md", "original");
+    settle(&mut [&mut a, &mut b]);
+    let hold = b.r.list_holds(b.s).unwrap().remove(0);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Editor);
+    b.r.resolve_hold(b.s, hold.id, HoldResolution::KeepMine)
+        .unwrap();
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(a.file("a.md").as_deref(), Some("original"));
+    assert!(a.file("A.md").is_none());
+    assert!(b.r.list_holds(b.s).unwrap().is_empty());
 }
 
 #[test]

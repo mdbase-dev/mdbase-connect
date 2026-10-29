@@ -887,18 +887,12 @@ impl<S: Store> Replica<S> {
         batch: Option<(&mut Vec<Op>, &mut Vec<ObservationId>)>,
     ) -> Result<(), StoreError> {
         self.check_apply_store_health()?;
-        // Namespace safety: such paths are never part of the collection.
-        if mdbn_core::paths::check_path(&o.path).is_err()
-            || o.moved_from
-                .as_deref()
-                .is_some_and(|p| mdbn_core::paths::check_path(p).is_err())
-        {
-            return self.ack(o.token);
-        }
+        let destination_valid = mdbn_core::paths::check_path(&o.path).is_ok();
         // Admit record source before cloning/parsing or touching shown state.
         // Resource documents are a different namespace with their own rules.
         let catalog = self.layer.catalog().unwrap_or_else(|| self.catalog.clone());
-        if !catalog.is_resource_path(&o.path)
+        if destination_valid
+            && !catalog.is_resource_path(&o.path)
             && catalog.is_record_path(&o.path)
             && let Some(Observed::Text(source)) = &o.now
             && let Err(e) = self.record_write_admission().check_source(source)
@@ -916,8 +910,10 @@ impl<S: Store> Replica<S> {
                 viewer
                     || holds.iter().any(|h| {
                         h.reason == HoldReason::ReadOnly
-                            && mdbn_core::paths::path_key(&h.path)
+                            && (mdbn_core::paths::path_key(&h.path)
                                 == mdbn_core::paths::path_key(from)
+                                || mdbn_core::paths::path_key(&h.path)
+                                    == mdbn_core::paths::path_key(&o.path))
                     })
             });
         // One hold has one path: store both halves of a move atomically so
@@ -925,23 +921,42 @@ impl<S: Store> Replica<S> {
         if !matches!(&o.now, Some(Observed::Attachment { .. }))
             && let Some(from) = protected_move
         {
-            let mut source = self.read_only_hold_at(from)?;
-            let mut target = self.read_only_hold_at(&o.path)?;
-            source.mine = TextOrBlob::Text(String::new());
-            source.saves += 1;
-            target.mine = TextOrBlob::Text(match &o.now {
-                Some(Observed::Text(text)) => text.clone(),
-                _ => String::new(),
-            });
-            target.saves += 1;
+            let mut protected = Vec::new();
+            if mdbn_core::paths::check_path(from).is_ok()
+                && (catalog.is_resource_path(from) || catalog.is_record_path(from))
+            {
+                let mut source = self.read_only_hold_at(from)?;
+                source.mine = TextOrBlob::Text(String::new());
+                source.saves += 1;
+                protected.push(source);
+            }
+            if destination_valid
+                && (catalog.is_resource_path(&o.path) || catalog.is_record_path(&o.path))
+            {
+                let mut target = self.read_only_hold_at(&o.path)?;
+                target.mine = TextOrBlob::Text(match &o.now {
+                    Some(Observed::Text(text)) => text.clone(),
+                    _ => String::new(),
+                });
+                target.saves += 1;
+                protected.push(target);
+            }
             self.store.commit(Tx {
-                holds_put: vec![source, target],
+                holds_put: protected,
                 ack_observations: vec![o.token],
                 ..Tx::default()
             })?;
             self.status_dirty = true;
             self.push_holds();
             return Ok(());
+        }
+        // Namespace safety: such paths are never part of the collection.
+        if mdbn_core::paths::check_path(&o.path).is_err()
+            || o.moved_from
+                .as_deref()
+                .is_some_and(|p| mdbn_core::paths::check_path(p).is_err())
+        {
+            return self.ack(o.token);
         }
         let existing_hold = holds.into_iter().find(|h| {
             (h.reason == HoldReason::ReadOnly
@@ -1834,7 +1849,10 @@ impl<S: Store> Replica<S> {
                 let current = self.local_view_doc(&key);
                 if !keep_both
                     && (current.as_ref().map(|(_, text)| text.as_str()) != baseline
-                        || current.as_ref().is_some_and(|(path, _)| path != &hold.path))
+                        || current.as_ref().is_some_and(|(path, _)| {
+                            mdbn_core::paths::path_key(path)
+                                != mdbn_core::paths::path_key(&hold.path)
+                        }))
                 {
                     return Err(ErrorCode::Conflict.err_with_reason("concurrent_modification", "The synced file changed while your edit was held. Compare the versions before submitting it."));
                 }

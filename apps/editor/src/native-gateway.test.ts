@@ -58,6 +58,8 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
 
   it("a Viewer grant exposes no write operations or misleading access-update prompts", async () => {
     const f = await fixture({ capabilities: ["collection.read"], role: "viewer" });
+    const membership = f.application.getSnapshot();
+    f.controls.publishSnapshot({ ...membership, collections: membership.collections.map((entry) => ({ ...entry, role: "viewer" })) });
     const snapshot = f.gateway.sessionSnapshot();
     const connection = snapshot.status === "ready" ? snapshot.connection : null;
     expect(editorPermissions(connection)).toMatchObject({
@@ -131,6 +133,24 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const upgraded = f.gateway.sessionSnapshot();
     expect(editorPermissions(upgraded.status === "ready" ? upgraded.connection : null).canEditNotes).toBe(true);
     expect(f.controls.observedActions().some((call) => call.action === "refreshCollectionList")).toBe(false);
+  });
+
+  it("publishes changed capabilities even when the role is unchanged", async () => {
+    const f = await fixture();
+    const original = f.client.hello;
+    const hello = vi.spyOn(f.client, "hello", "get").mockReturnValue({ ...original, version: { major: 1, minor: 3 }, grant: { role: "editor", capabilities: ["collection.read", "records.edit"] } });
+    const changed = vi.fn();
+    const stop = f.gateway.onSessionChange(changed);
+    f.replica.setOnline(false);
+    await vi.waitFor(() => expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ connection: expect.objectContaining({ role: "editor" }) })));
+    hello.mockReturnValue({ ...original, version: { major: 1, minor: 3 }, grant: { role: "editor", capabilities: ["collection.read"] } });
+    f.replica.setOnline(true);
+    await vi.waitFor(() => {
+      const last = changed.mock.lastCall?.[0];
+      expect(last?.status).toBe("ready");
+      expect(editorPermissions(last?.status === "ready" ? last.connection : null).canEditNotes).toBe(false);
+    });
+    stop();
   });
 
   it("refuses a membership downgrade before local signed policy catches up", async () => {

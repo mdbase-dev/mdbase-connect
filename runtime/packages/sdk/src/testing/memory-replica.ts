@@ -499,7 +499,7 @@ export class MemoryReplica {
     if (f.kind !== "request" || f.method !== "hello") throw new Error("expected hello");
     if (this.opts.refuse) return w.clientFrame.enc({ kind: "response", id: f.id, problem: this.opts.refuse });
     const p = w.helloParams.dec(f.params);
-    const minor = Math.max(-1, ...p.versions.filter((v) => v.major === 1 && v.minor <= 2).map((v) => v.minor));
+    const minor = Math.max(-1, ...p.versions.filter((v) => v.major === 1 && v.minor <= 3).map((v) => v.minor));
     if (minor < 0) {
       return w.clientFrame.enc({
         kind: "response",

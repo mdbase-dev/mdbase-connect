@@ -85,6 +85,39 @@ describe("session", () => {
     } finally { c.close(); }
   });
 
+  it("preserves hello identity across equal status grants for handover consumers", async () => {
+    const { replica, client } = setup();
+    const original = (replica as unknown as { status(): SyncStatus }).status.bind(replica);
+    let grant: GrantInfo | undefined;
+    vi.spyOn(replica as unknown as { status(): SyncStatus }, "status").mockImplementation(() => ({ ...original(), ...(grant ? { grant } : {}) }));
+    const c = await client();
+    try {
+      const negotiated = c.hello;
+      grant = { ...negotiated.grant, capabilities: [...negotiated.grant.capabilities] };
+      await c.getStatus();
+      expect(c.hello).toBe(negotiated);
+      grant = { role: "viewer", capabilities: ["collection.read"] };
+      await c.getStatus();
+      const viewer = c.hello;
+      expect(viewer).not.toBe(negotiated);
+      await c.getStatus();
+      expect(c.hello).toBe(viewer);
+      grant = undefined;
+      await c.getStatus();
+      expect(c.hello).toBe(viewer);
+    } finally { c.close(); }
+  });
+
+  it("delegates a stale Viewer hello to older runtimes that recheck current permission", async () => {
+    const { client } = setup();
+    const c = await client();
+    try {
+      const hello = c.hello;
+      vi.spyOn(c, "hello", "get").mockReturnValue({ ...hello, version: { major: 1, minor: 2 }, grant: { role: "viewer", capabilities: ["collection.read"] } });
+      await expect(c.create({ path: "upgraded.md", body: "allowed now" })).resolves.toMatchObject({ state: "pending" });
+    } finally { c.close(); }
+  });
+
   it("surfaces a refused hello as the problem's code", async () => {
     const { client } = setup({ refuse: { code: "forbidden", recovery: "reauthorize", message: "grant revoked" } });
     await expect(client()).rejects.toMatchObject({ code: "forbidden", recovery: "reauthorize" });

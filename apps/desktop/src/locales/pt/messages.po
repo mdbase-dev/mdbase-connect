@@ -728,6 +728,11 @@ msgstr "Diferia quando o mdbase assumiu o controle do aplicativo antigo; a vers�
 msgid "Discard local changes"
 msgstr "Descartar alterações locais"
 
+#. placeholder {0}: hold.path
+#: src/renderer/collections-view.tsx
+msgid "Discard local changes to {0}? They haven't been synced. Copy the file first if you want to keep them."
+msgstr "Descartar as alterações locais de {0}? Elas não foram sincronizadas. Copie o arquivo primeiro se quiser mantê-las."
+
 #: src/renderer/main.tsx
 msgid "Dismiss"
 msgstr "Dispensar"

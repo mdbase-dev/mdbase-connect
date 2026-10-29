@@ -501,7 +501,14 @@ test("a view-only new file can be discarded without a synced version", async () 
     await page.getByRole("button", { name: "Review 1 file", exact: true }).click();
     await page.getByText("new.md", { exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: "Keep both", exact: true }).count(), 1);
-    await page.getByRole("button", { name: "Discard local changes", exact: true }).click();
+    const discard = page.getByRole("button", { name: "Discard local changes", exact: true });
+    let prompt;
+    page.once("dialog", (dialog) => { prompt = dialog.message(); void dialog.dismiss(); });
+    await discard.click();
+    assert.match(prompt, /new\.md.*haven't been synced/);
+    assert.deepEqual(await calls("resolveHold"), []);
+    page.once("dialog", (dialog) => void dialog.accept());
+    await discard.click();
     await page.getByText("Nothing is waiting.", { exact: true }).waitFor();
     assert.deepEqual(await calls("resolveHold"), [["c-notes", "viewer:1", "take_theirs"]]);
     assert.deepEqual(errors, []);

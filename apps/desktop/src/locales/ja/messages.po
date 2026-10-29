@@ -728,6 +728,11 @@ msgstr "旧アプリから mdbase に移行した時点で内容が異なって�
 msgid "Discard local changes"
 msgstr "ローカルの変更を破棄"
 
+#. placeholder {0}: hold.path
+#: src/renderer/collections-view.tsx
+msgid "Discard local changes to {0}? They haven't been synced. Copy the file first if you want to keep them."
+msgstr "{0} のローカルの変更を破棄しますか？まだ同期されていません。残しておく場合は、先にファイルをコピーしてください。"
+
 #: src/renderer/main.tsx
 msgid "Dismiss"
 msgstr "閉じる"

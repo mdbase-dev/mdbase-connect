@@ -102,17 +102,17 @@ export class NativeEditorGateway implements CollectionGateway {
     if (connection.id !== this.client.collection) throw new Error(t`The editor requires its original SDK collection client.`);
     this.records = new NextEditorRecords(this.client, () => this.current());
     let membership = this.membershipRole();
-    this.membershipDowngrade = membership === "viewer" || this.current() && this.client.hello.grant.role === "viewer";
-    let role = this.current() ? this.role() : undefined;
+    this.membershipDowngrade = membership === "viewer";
+    let fingerprint = this.current() ? JSON.stringify(this.sessionSnapshot()) : undefined;
     const changed = () => {
       if (!this.current()) return;
       // A Connect downgrade can arrive before signed policy. Once policy has
       // caught up, native status also owns upgrades of this open collection.
       if (this.client.hello.grant.role === "viewer") this.membershipDowngrade = false;
-      const next = this.role();
-      if (next === role) return;
-      role = next;
       const snapshot = this.sessionSnapshot();
+      const next = JSON.stringify(snapshot);
+      if (next === fingerprint) return;
+      fingerprint = next;
       for (const listener of [...this.listeners]) listener(snapshot);
     };
     this.stops.push(this.client.onStatus(changed));
@@ -553,7 +553,6 @@ export class NativeEditorGateway implements CollectionGateway {
   private role(): "owner" | "editor" | "viewer" {
     if (this.membershipDowngrade) return "viewer";
     const hello = this.client.hello;
-    if (hello.grant.role === "viewer") return "viewer";
     // API 1.3 SDKs keep hello.grant current. Remove the membership fallback
     // when Editor's beta.141 SDK/native pin is replaced.
     if (hello.version.minor >= 3) return hello.grant.role;

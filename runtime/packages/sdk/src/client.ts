@@ -231,6 +231,14 @@ function params(entries: [number, CborValue | undefined][]): Map<number, CborVal
   return m;
 }
 
+function withCurrentGrant(hello: HelloResult, grant: HelloResult["grant"] | undefined): HelloResult {
+  const prior = hello.grant;
+  if (!grant || prior.grant === grant.grant && prior.role === grant.role
+    && valueEquals(prior.capabilities, grant.capabilities)
+    && valueEquals(prior.fileFolders ?? null, grant.fileFolders ?? null)) return hello;
+  return { ...hello, grant };
+}
+
 export interface CreateInput {
   /** A record ID minted by the caller; default a new UUIDv7. */
   id?: Uuid;
@@ -520,7 +528,7 @@ export class MdbaseClient {
   private linkError: MdbaseError | null = null;
   private linkListeners = new Set<(s: LinkState, why: MdbaseError | null) => void>();
   private lastStatus: SyncStatus;
-  private currentGrant: HelloResult["grant"];
+  private currentHello: HelloResult;
   private statusListeners = new Set<(s: SyncStatus) => void>();
   private lives = new Set<LiveQuery>();
   private livesBySub = new Map<number, LiveQuery>();
@@ -560,7 +568,7 @@ export class MdbaseClient {
     this.session = session;
     this.collectionId = session.hello.collection;
     this.lastStatus = session.hello.status;
-    this.currentGrant = session.hello.status.grant ?? session.hello.grant;
+    this.currentHello = withCurrentGrant(session.hello, session.hello.status.grant);
     this.fenceReads = usesNextRelayFence(opts.connector);
     this.readFloor = session.hello.status.confirmedThrough;
     this.files = new FilesApi(this);
@@ -687,8 +695,8 @@ export class MdbaseClient {
 
   /** The negotiated session, with its latest role-effective grant. */
   get hello(): HelloResult {
-    const hello = this.currentSession().hello;
-    return this.currentGrant === hello.grant ? hello : { ...hello, grant: this.currentGrant };
+    this.currentSession();
+    return this.currentHello;
   }
 
   get collection(): Uuid {
@@ -975,7 +983,7 @@ export class MdbaseClient {
           throw mdbaseError("invalid_request", "reconnected to a different collection");
         }
         this.session = s;
-        this.currentGrant = s.hello.status.grant ?? s.hello.grant;
+        this.currentHello = withCurrentGrant(s.hello, s.hello.status.grant);
         this.attach(s);
         this.noteReplica(s);
         this.setStatus(s.hello.status);
@@ -1091,7 +1099,7 @@ export class MdbaseClient {
       if (this.readFencedAt === null) this.readFloor = Math.max(this.readFloor, s.confirmedThrough);
     }
     this.lastStatus = s;
-    if (s.grant) this.currentGrant = s.grant;
+    this.currentHello = withCurrentGrant(this.currentHello, s.grant);
     for (const fn of [...this.statusListeners]) fn(s);
   }
 
@@ -1693,7 +1701,7 @@ export class MdbaseClient {
 
   /** Submit operations as one mutation (or one per op with `allowPartial`). */
   async submit(ops: Op[], o: WriteOptions & { allowPartial?: boolean } = {}): Promise<Write[]> {
-    if (this.hello.grant.role === "viewer") throw mdbaseError("forbidden", "You have view access, so changes can't be saved.", "read_only");
+    if (this.hello.version.minor >= 3 && this.hello.grant.role === "viewer") throw mdbaseError("forbidden", "You have view access, so changes can't be saved.", "read_only");
     if (o.intent !== undefined && o.mutationId === undefined) o = { ...o, mutationId: (await intentIds(this.collectionId, o.intent))[0] };
     const p: SubmitParams = { ops, mutationId: o.mutationId ?? uuidv7() };
     if (o.allowPartial) {
