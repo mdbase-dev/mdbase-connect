@@ -1,7 +1,7 @@
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { message } from "./portal-model";
 import { PageBrand } from "./portal-ui";
 
@@ -36,6 +36,15 @@ export function GettingStarted() {
       location.replace(result.editor_url ?? "/");
     }).catch((reason) => {
       requestInFlight.current = false;
+      // Use normal collection setup until this account can receive a starter.
+      if (reason instanceof ApiError && (
+        (reason.status === 409 && (reason.code === "onboarding_moved" || reason.code === "starter_unavailable"))
+        || (reason.status === 503 && reason.code === "starter_content_unavailable")
+        || (reason.status === 429 && reason.code === "account_collection_quota_exceeded")
+      )) {
+        location.replace("/");
+        return;
+      }
       setError(message(reason));
     });
   }

@@ -34,6 +34,20 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it("opens normal first-collection setup at home for an empty account", async () => {
+    history.replaceState(null, "", "/");
+    overview.collections = [];
+    overview.hosted_collections = [];
+    overview.native_collections = [];
+    render(<ConnectApp />);
+
+    expect(await screen.findByText("No collections")).toBeInTheDocument();
+    expect(screen.getByText("Add a collection to get started.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add collection" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await waitFor(() => expect(location.pathname).toBe("/collections"));
+  });
+
   it.each([false, true])("offers one Add collection flow with a Native handoff when Hosted enabled=%s", async hosted => {
     history.replaceState(null, "", "/collections");
     overview.hosted_collections_available = hosted;
