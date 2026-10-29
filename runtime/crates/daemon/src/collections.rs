@@ -398,7 +398,7 @@ impl CollectionHost {
                                             if resource_failure { rt.pending_ingest_paths().await } else { Vec::new() }
                                         },
                                         async {
-                                            if now == Readiness::Failed("collection_deleted") {
+                                            if deleted {
                                                 rt.stop_deleted().await;
                                             } else {
                                                 rt.stop().await;

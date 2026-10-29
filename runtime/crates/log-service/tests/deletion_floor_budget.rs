@@ -203,8 +203,9 @@ fn subscription_refuses_a_deletion_floor_without_marking_the_log_gone() {
     let error = response.error.unwrap();
     assert_eq!(error.code, "gone");
     assert_eq!(error.reason.as_deref(), Some("collection_deletion_floor"));
-    assert!(
-        host.0.borrow_mut().close_gone().is_empty(),
+    assert_eq!(
+        host.0.borrow().subscriber_count(),
+        0,
         "refused before subscribing"
     );
     let mut tx = ready(svc.backend.begin(&c, Mode::Read)).unwrap();

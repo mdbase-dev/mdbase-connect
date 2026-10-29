@@ -715,7 +715,6 @@ export class MdbaseClient {
     this.recordSessions.dispose();
     this.session?.close();
     this.setLink("closed");
-    for (const w of this.reconnectWaiters.splice(0)) w();
     this.wakeReadFence();
   }
 
@@ -982,9 +981,8 @@ export class MdbaseClient {
         await this.restore(s);
         return;
       } catch (e) {
-        if (isMdbaseError(e) && (["unauthenticated", "forbidden", "upgrade_required"].includes(e.code))) {
+        if (isMdbaseError(e) && ["unauthenticated", "forbidden", "upgrade_required"].includes(e.code)) {
           this.setLink("closed", e);
-          for (const w of this.reconnectWaiters.splice(0)) w();
           return;
         }
         if (isMdbaseError(e)) this.setLink("reconnecting", e);
