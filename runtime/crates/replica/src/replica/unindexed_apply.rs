@@ -144,13 +144,19 @@ impl<S: Store> Replica<S> {
                             continue;
                         }
                     },
-                    FileContent::AttachmentV1(a) if verified => {
-                        match self.attachment_inventory(&a.reference.manifest_cipher_hash) {
-                            Ok(addresses) => addresses,
-                            Err(e) => return Check::StoreFailed(e),
+                    FileContent::AttachmentV1(a) => {
+                        if !refs_cover(refs.as_ref(), &[a.reference.manifest_cipher_hash]) {
+                            return Check::InvalidRefs;
+                        }
+                        if verified {
+                            match self.attachment_inventory(&a.reference.manifest_cipher_hash) {
+                                Ok(addresses) => addresses,
+                                Err(e) => return Check::StoreFailed(e),
+                            }
+                        } else {
+                            None
                         }
                     }
-                    FileContent::AttachmentV1(_) => None,
                     _ => return Check::Failed(StreamError::Protocol("native source profile")),
                 };
                 if let Some(addresses) = &addresses

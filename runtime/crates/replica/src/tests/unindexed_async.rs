@@ -1,3 +1,53 @@
+#[test]
+fn review_pr1057_main_comparison_manifest_refs_ignore_keys_and_cache() {
+    let mut outcomes = Vec::new();
+    for (warm_proof, know_old_key) in [(false, false), (false, true), (true, false), (true, true)] {
+        let mut replica = node();
+        let (content, objects) = contents(&mut replica, &vec![b'x'; 1048577], true);
+        if warm_proof {
+            cache_source_proof(&mut replica, &content, &objects);
+        }
+        let FileContent::AttachmentV1(attachment) = &content else {
+            unreachable!()
+        };
+        let manifest = attachment.reference.manifest_cipher_hash;
+        let refs = objects
+            .keys()
+            .filter(|address| **address != manifest)
+            .copied()
+            .collect::<Vec<_>>();
+        replica.r.policy.epoch = 2;
+        let entry = planned(&replica, payload(content));
+        let mut keys = crate::crypto::keys::Keyring::new();
+        keys.insert(2, Secret32([9; 32]));
+        if know_old_key {
+            keys.insert(1, Secret32([9; 32]));
+        }
+        let raw = keys.to_bytes();
+        let mut saved = Zeroizing::new((raw.len() as u64).to_be_bytes().to_vec());
+        saved.extend_from_slice(&raw);
+        let mut sealer = KeyringSealer::new(COL, B16([101; 16]), &[6; 32], &[7; 32]);
+        sealer.import(&saved).unwrap();
+        sealer.set_epoch(2);
+        replica.r.sealer = Box::new(sealer);
+        let head = retain(&mut replica);
+        let writer = replica.r.cfg.device_id;
+        let outcome = apply_body_with_refs(&mut replica, head, &entry, &objects, writer, &refs);
+        outcomes.push((
+            warm_proof,
+            know_old_key,
+            format!("{outcome:?}"),
+            replica.r.head.seq,
+        ));
+    }
+    eprintln!("omitted manifest ref (warm, old-key, outcome, head): {outcomes:?}");
+    assert!(
+        outcomes
+            .iter()
+            .all(|(_, _, outcome, _)| outcome == "Void(\"V7: native source refs\")")
+    );
+}
+
 use super::engine::{COL, Node};
 use crate::{
     attachments::{AttachmentWriter, StreamError},
