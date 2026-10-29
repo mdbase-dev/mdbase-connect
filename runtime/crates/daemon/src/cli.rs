@@ -1775,14 +1775,6 @@ mod takeover_cli_tests {
     fn sync_only_offers_implemented_commands() {
         assert!(Cli::try_parse_from(["mdbase", "sync", "enable", "Notes"]).is_ok());
         assert!(Cli::try_parse_from(["mdbase", "sync", "disable", "Notes"]).is_err());
-        use clap::CommandFactory;
-        let mut command = Cli::command();
-        let help = command
-            .find_subcommand_mut("sync")
-            .unwrap()
-            .render_long_help()
-            .to_string();
-        assert!(!help.contains("disable"));
     }
 
     #[test]

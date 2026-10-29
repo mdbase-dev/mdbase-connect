@@ -2002,11 +2002,16 @@ impl Daemon {
                 ),
             ));
         }
-        let name = display_name(&p.name.unwrap_or_else(|| {
-            root.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| root.display().to_string())
-        }))?;
+        let name = p
+            .name
+            .as_deref()
+            .map(display_name)
+            .transpose()?
+            .unwrap_or_else(|| {
+                root.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| root.display().to_string())
+            });
         let (id, replica_id, origin) = match claim {
             FolderClaim::Ours {
                 collection,
@@ -2179,11 +2184,16 @@ impl Daemon {
             ));
         }
         let root = canonical_dir(&p.path)?;
-        let name = display_name(&p.name.unwrap_or_else(|| {
-            root.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| root.display().to_string())
-        }))?;
+        let name = p
+            .name
+            .as_deref()
+            .map(display_name)
+            .transpose()?
+            .unwrap_or_else(|| {
+                root.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| root.display().to_string())
+            });
         if registry::overlaps(&root, &self.profile.state_dir) {
             return Err(ControlError::invalid(
                 "overlapping_state_dir",

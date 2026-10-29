@@ -95,14 +95,14 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   }, [pairingId, attempt, inspectionPath]);
 
   useEffect(() => {
-    if (!pairing?.installation_device || !pairing.account_selection_confirmed || !pairing.attested || pairing.approved_at || outcome || busy) return;
+    if (!pairing?.installation_device || pairing.approved_at || outcome || busy) return;
     return watchPairingCollections({
       read: async signal => (await api<{ pairing: DevicePairing }>(inspectionPath, { signal })).pairing.collections,
       isDispatching: () => dispatching.current,
       onCollections: collections => setPairing(previous => !previous || JSON.stringify(previous.collections) === JSON.stringify(collections)
         ? previous : { ...previous, collections }),
     });
-  }, [pairing?.installation_device, pairing?.account_selection_confirmed, pairing?.attested, pairing?.approved_at, outcome, busy, inspectionPath]);
+  }, [pairing?.installation_device, pairing?.approved_at, outcome, busy, inspectionPath]);
 
   // Read-only portal progress: the SDK owns attestation and approval-receipt
   // polling. Do not make the user manually refresh to discover its device key.
