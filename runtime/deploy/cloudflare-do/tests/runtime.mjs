@@ -101,7 +101,8 @@ writeFileSync(config, JSON.stringify({
     { binding: 'OBJECTS_WNAM', bucket_name: 'logsvc-local-test-wnam' }],
   analytics_engine_datasets: [{ binding: 'METRICS', dataset: 'logsvc_local_test' }],
   vars: { PUBLIC_BASE: base, INSECURE_TEST_KEYS: '1', DEBUG_HOOKS: '1', TESTKIT_CP: 'conformance',
-    LOGSVC_CORS_ORIGINS: 'http://127.0.0.1:*,https://lab.tasknotes-app.pages.dev',
+    // A retained malformed legacy value must not disable any transport path.
+    LOGSVC_CORS_ORIGINS: 'ignored: not an origin list',
     // Deployed configs set a default region: every collection created here is
     // regional, so uploads, commits and reads all go through the region's bucket.
     LOGSVC_DO_LOCATION_HINT: 'oc', LOGSVC_REGION_BUCKETS: 'oc=OBJECTS_OC,wnam=OBJECTS_WNAM' },

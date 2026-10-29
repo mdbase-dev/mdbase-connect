@@ -20,18 +20,13 @@ the platform declaration does not make credentials portable between origins.
 Redirects stay exact manifest entries (including path/query/port); any port may
 be declared, with no redirect wildcard or authorization-code matching change.
 
-The requested log CORS pattern is `http://127.0.0.1:*`, not a general hostname
-or IP wildcard. mdbase-next main has already superseded the exact-string
-`LOGSVC_CORS_ORIGINS` allowlist: its log Worker returns
-`Access-Control-Allow-Origin: *` without credentials for every origin. Preserve
-that policy; it already covers every loopback port. Add regression cases for
-multiple ports rather than restoring an origin allowlist or a config knob.
-Connect’s imported log runtime still uses the allowlist: add only the literal
-`http://127.0.0.1:*` configuration pattern there, reflecting the matched exact
-request origin. No hostname wildcard, HTTPS/IPv6 loopback pattern or general
-glob is accepted. Without this explicit entry, exact-origin behavior is preserved.
-Allowed methods/headers, bearer authentication, nonce signatures and replay
-checks continue to apply. No deployment/configuration change is part of this work.
+The log Worker matches mdbase-next's credentialless wildcard CORS policy:
+`Access-Control-Allow-Origin: *` for every origin, with no Origin-based WebSocket
+rejection. `LOGSVC_CORS_ORIGINS` is ignored; no loopback pattern or per-environment
+log-origin list is needed. This transport policy does not change SDK or
+control-plane application-origin admission. Allowed methods/headers, bearer
+authentication, nonce signatures and replay checks continue to apply.
+No deployment/configuration change is part of this work.
 
 Native consent is shown only when the recorded request origin is loopback;
 otherwise web consent shows the requesting origin. Native consent says **"an

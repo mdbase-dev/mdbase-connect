@@ -64,8 +64,8 @@ async function invoke(q, env, ctx, actorHandler, onPut) {
   if (q.corsMetadataOnly) {
     // Preflight must require only public CORS metadata, not authentication,
     // native bindings/actor lookup or reading even the instrumented body.
-    const scoped = { LOGSVC_CORS_ORIGINS: q.corsOrigins ?? env.LOGSVC_CORS_ORIGINS };
-    for (const name of ["INSECURE_TEST_KEYS", "LOGSVC_ROOT_KEYS", "LOGSVC_TOKEN_ISSUERS", "LOGSVC_URL_SECRET", "LOG", "OBJECTS", "METRICS"]) {
+    const scoped = {};
+    for (const name of ["LOGSVC_CORS_ORIGINS", "INSECURE_TEST_KEYS", "LOGSVC_ROOT_KEYS", "LOGSVC_TOKEN_ISSUERS", "LOGSVC_URL_SECRET", "LOG", "OBJECTS", "METRICS"]) {
       Object.defineProperty(scoped, name, { get() { throw new Error("preflight side effect"); } });
     }
     const result = await new worker(ctx, scoped).fetch(incoming);

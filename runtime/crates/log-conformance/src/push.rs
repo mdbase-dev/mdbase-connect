@@ -1,9 +1,9 @@
-//! Browser push transport (Durable Object host): the single-use `n` nonce, the
-//! `Origin` check, platform ping/pong, and the server closing a socket whose
+//! Browser push transport (Durable Object host): the single-use `n` nonce, any
+//! `Origin` without authority, platform ping/pong, and the server closing a socket whose
 //! access ended. Adversarial: revoked sockets are closed by the server, writes
 //! from a revoked device are refused, and a stale reconnect fails closed.
 //!
-//! Run by `logsvc-bench --url … push --origin <allowed origin>`; the Postgres
+//! Run by `logsvc-bench --url … push --origin <browser origin>`; the Postgres
 //! gateway keeps the closed-push-only behaviour and is not a target here.
 
 use std::time::Duration;
@@ -69,7 +69,7 @@ async fn next_kind(c: &Client, kinds: &[&str], wait: Duration) -> Option<LsPush>
 }
 
 /// `n` nonce: hello right after open, live pushes, ping answered, and the same
-/// nonce refused a second time; a foreign `Origin` refused at the upgrade.
+/// nonce refused a second time; a foreign `Origin` opens but gets nothing pre-hello.
 async fn push_browser_session(t: &Target, origin: &str) -> Result<(), String> {
     let fx = Fx::new(t).await?;
     let opts = browser(t, origin);
@@ -121,10 +121,26 @@ async fn push_browser_session(t: &Target, origin: &str) -> Result<(), String> {
         Client::open(&t.ws, &fx.c, &forged).await.is_err(),
         "a forged nonce opened a socket"
     );
+    // `Origin` is not authority: any origin may open a socket with a fresh
+    // nonce, and nothing is served before a signed `hello`.
     let evil = browser(t, "https://evil.test");
+    let anon = Client::open(&t.ws, &fx.c, &evil)
+        .await
+        .map_err(|e| format!("a foreign origin could not open a socket: {e:?}"))?;
+    let r = anon
+        .call(
+            "subscribe",
+            SubscribeParams {
+                collection: fx.c,
+                after: 0,
+                inline_bytes: None,
+            }
+            .to_cbor(),
+        )
+        .await;
     ensure!(
-        Client::open(&t.ws, &fx.c, &evil).await.is_err(),
-        "a foreign origin opened a socket"
+        matches!(&r, Err(e) if e.code == Code::Unauthenticated),
+        "subscribe before hello: {r:?}"
     );
     Ok(())
 }
@@ -277,7 +293,7 @@ macro_rules! case {
     };
 }
 
-/// Run the push cases; `origin` must be in the target's allowed origins.
+/// Run the push cases; `origin` is the browser `Origin` sent at the upgrade.
 pub async fn run(t: &Target, origin: &str) -> Vec<CaseResult> {
     let cases = [
         case!(push_browser_session),

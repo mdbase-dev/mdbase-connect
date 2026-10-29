@@ -113,26 +113,17 @@ deployment artifacts; real environment configs enable neither test flag.
 
 ## Browser CORS
 
-`LOGSVC_CORS_ORIGINS` additionally accepts the single pattern
-`http://127.0.0.1:*` for native application loopback servers on any valid port.
-It reflects only a canonical literal IPv4 loopback origin, never localhost names,
-other addresses, URL paths or `app://obsidian.md`. This opt-in does not grant
-authentication or possession authority; existing exact origins remain exact.
+Every origin may read log responses: they carry `access-control-allow-origin: *`
+and never `access-control-allow-credentials`, and a browser WebSocket upgrade is
+accepted from any page origin. The log has no ambient authority (no cookies);
+every RPC needs a bearer log token plus a nonce signature, and `GET /v1/nonce` is
+public by design. CORS is transport visibility only, never authentication,
+possession, grant or nonce authority, so there is no per-environment origin list:
+staging, production, native (`capacitor://`), extension and registered
+third-party app origins all work without a release. The former
+`LOGSVC_CORS_ORIGINS` var is ignored; remove it from deploy configs separately.
 
-
-`LOGSVC_CORS_ORIGINS` is a comma-separated list of exact canonical HTTP(S)
-origins, Capacitor iOS app origins (`capacitor://<lowercase host>`) or Chrome
-extension origins (`chrome-extension://<32-letter id>`), with no ports, paths,
-credentials, wildcard, scheme-wide entry or `null`. Absent/empty disables CORS;
-malformed, duplicate or oversized configuration refuses. It is transport
-visibility only, never authentication, possession, grant or nonce authority.
-
-Environment-specific values to configure through the guarded release path:
-
-- LAB: `http://127.0.0.1:48218,https://lab.tasknotes-app.pages.dev`
-- Production, **set later; not deployed by this change**: `https://app.tasknotes.dev`
-
-Only allowlisted origins may get empty unauthenticated OPTIONS responses. The
+Unauthenticated OPTIONS responses are empty. The
 requested method must be GET/POST/PUT and requested headers must be in the fixed
 list: authorization, content-type, x-mdbase-nonce, x-mdbase-sig, range,
 x-amz-checksum-sha256. Preflight does not read bodies/auth keys, generate or consume
@@ -141,16 +132,16 @@ Allowed preflights carry `access-control-max-age: 7200` (Chrome's cap), so a
 browser sends one OPTIONS per two hours, not one per RPC.
 
 Every signed-RPC response (`/v1/rpc` and the two closing routes) carries
-`x-mdbase-next-nonce` (exposed to allowlisted origins): a fresh nonce minted
+`x-mdbase-next-nonce` (exposed to every origin): a fresh nonce minted
 exactly like `GET /v1/nonce`, which the SDK uses for its next RPC so a
 steady-state call is one request. It is not authority: nonces stay stateless,
 60 s, single use per collection actor, and bound to a request only by the
 device signature. `tests/nonce-piggyback-cases.mjs` covers replay, cross-device
 and cross-collection transplant, expiry, a foreign secret and a concurrent race.
 Real responses retain their original status/body stream/WebSocket and existing
-RPC auth; allowlisted responses get exact ACAO and exposed object metadata.
-Vary preserves existing tokens and adds Origin, including on denied/no-origin
-responses. Credentials/cookie access is not enabled. Unhandled platform exceptions
+RPC auth; responses get wildcard ACAO and exposed object metadata. Preflight
+varies by requested method and headers, not Origin. Credentials/cookie access
+is not enabled. Unhandled platform exceptions
 are not converted into successful CORS responses.
 
 Targeted local check after building the real Worker: `LOGSVC_CORS_ONLY=1 node
@@ -163,8 +154,8 @@ browser acceptance follows from these tests.
 
 Reuse considered: Connect uses `@fastify/cors` with reflective `origin: true` and
 credentials enabled; that Node plugin/policy cannot be reused in this Rust
-exact-allowlist Worker. No CORS helper exists in the hosted Worker or Rust log
-server. The small adapter uses existing Workers SDK Headers/Url APIs and no new
+credentialless Worker. No CORS helper exists in the hosted Worker or Rust log
+server. The small adapter uses existing Workers SDK Headers APIs and no new
 dependency. It decorates the unchanged authenticated handler, not its auth logic.
 
 ## CLOSED native pre-key constructor

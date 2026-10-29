@@ -55,7 +55,7 @@ export default {
     if (path === "/instrument") return Response.json(await instrument(q));
     if (path === "/ordinary-cors") {
       const origin = "https://lab.tasknotes-app.pages.dev";
-      const worker = new ordinary({}, { INSECURE_TEST_KEYS: "1", TESTKIT_CP: "conformance", PUBLIC_BASE: "https://test", LOGSVC_CORS_ORIGINS: origin });
+      const worker = new ordinary({}, { INSECURE_TEST_KEYS: "1", TESTKIT_CP: "conformance", PUBLIC_BASE: "https://test" });
       const requests = [
         new Request("https://test/v1/rpc", { method: "OPTIONS", headers: { origin, "access-control-request-method": "POST" } }),
         new Request("https://test/v1/rpc", { method: "OPTIONS", headers: { origin: "https://denied.invalid", "access-control-request-method": "POST" } }),
