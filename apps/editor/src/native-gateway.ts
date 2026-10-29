@@ -86,6 +86,8 @@ export class NativeEditorGateway implements CollectionGateway {
   private readonly records: NextEditorRecords;
   private readonly listeners = new Set<(snapshot: CollectionSessionSnapshot) => void>();
   private disposed = false;
+  private membershipDowngrade = false;
+  private readonly stops: Array<() => void> = [];
   private readonly fileReads = new AbortController();
   private readonly plans = new Map<string, TypePackPlan>();
 
@@ -99,6 +101,30 @@ export class NativeEditorGateway implements CollectionGateway {
     this.client = connection.records;
     if (connection.id !== this.client.collection) throw new Error(t`The editor requires its original SDK collection client.`);
     this.records = new NextEditorRecords(this.client, () => this.current());
+    let membership = this.membershipRole();
+    this.membershipDowngrade = membership === "viewer";
+    let fingerprint = this.current() ? JSON.stringify(this.sessionSnapshot()) : undefined;
+    const changed = () => {
+      if (!this.current()) return;
+      // A Connect downgrade can arrive before signed policy. Once policy has
+      // caught up, native status also owns upgrades of this open collection.
+      if (this.client.hello.grant.role === "viewer") this.membershipDowngrade = false;
+      const snapshot = this.sessionSnapshot();
+      const next = JSON.stringify(snapshot);
+      if (next === fingerprint) return;
+      fingerprint = next;
+      for (const listener of [...this.listeners]) listener(snapshot);
+    };
+    this.stops.push(this.client.onStatus(changed));
+    const stop = this.application.subscribe?.(() => {
+      const next = this.membershipRole();
+      if (next !== membership) {
+        membership = next;
+        this.membershipDowngrade = next === "viewer";
+      }
+      changed();
+    });
+    if (stop) this.stops.push(stop);
     const people = connection.people;
     if (people) this.peopleDirectory = async (options: { signal?: AbortSignal } = {}) => {
       const directory = await people.directory({ members: "omit", signal: this.signal(options.signal) });
@@ -115,6 +141,7 @@ export class NativeEditorGateway implements CollectionGateway {
     if (this.disposed) return;
     this.disposed = true;
     this.fileReads.abort("The editor collection scope was retired");
+    for (const stop of this.stops) stop();
     this.records.dispose();
     const snapshot = this.sessionSnapshot();
     for (const listener of [...this.listeners]) listener(snapshot);
@@ -319,6 +346,7 @@ export class NativeEditorGateway implements CollectionGateway {
   }
 
   async uploadFile(path: string, source: MdbaseFileSource, { signal, onProgress, transferId }: FileUploadRequest = {}): Promise<CollectionFile> {
+    await this.checkWritable();
     const current = this.signal(signal);
     // Unknown/older grants stay closed. The native replica checks folder scope
     // and every actual operation; this UI gate never grants authority.
@@ -352,11 +380,11 @@ export class NativeEditorGateway implements CollectionGateway {
     }
   }
 
-  create(input: CreateNoteInput): Promise<NoteDocument> { return this.records.create(input); }
-  restore(document: NoteDocument, id?: string): Promise<NoteDocument> { return this.records.restore(document, id); }
-  update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> { return this.records.update(base, change); }
-  updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> { return this.records.updateProperties(path, patch, revision); }
-  updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> { return this.records.updateDocument(path, document, revision); }
+  async create(input: CreateNoteInput): Promise<NoteDocument> { await this.checkWritable(); return this.records.create(input); }
+  async restore(document: NoteDocument, id?: string): Promise<NoteDocument> { await this.checkWritable(); return this.records.restore(document, id); }
+  async update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> { await this.checkWritable(); return this.records.update(base, change); }
+  async updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> { await this.checkWritable(); return this.records.updateProperties(path, patch, revision); }
+  async updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> { await this.checkWritable(); return this.records.updateDocument(path, document, revision); }
 
   async preflightRename(from: string, to: string, revision: string): Promise<RenamePreflight> {
     const result = await this.records.preflightRename(from, to, revision);
@@ -369,7 +397,8 @@ export class NativeEditorGateway implements CollectionGateway {
     };
   }
 
-  rename(from: string, to: string, revision: string, updateRefs = true, options: MutationOperationOptions = {}): Promise<NoteDocument> {
+  async rename(from: string, to: string, revision: string, updateRefs = true, options: MutationOperationOptions = {}): Promise<NoteDocument> {
+    await this.checkWritable();
     return this.records.rename(from, to, revision, updateRefs, options.signal);
   }
 
@@ -379,7 +408,8 @@ export class NativeEditorGateway implements CollectionGateway {
     return { brokenLinkPaths, operation: { path, deleted: false, dryRun: true, wouldDelete: true, brokenLinks: brokenLinkPaths.map((broken) => ({ path: broken })) } };
   }
 
-  delete(path: string, revision: string, options: MutationOperationOptions = {}): Promise<void> {
+  async delete(path: string, revision: string, options: MutationOperationOptions = {}): Promise<void> {
+    await this.checkWritable();
     return this.records.delete(path, revision, options.signal);
   }
 
@@ -423,6 +453,7 @@ export class NativeEditorGateway implements CollectionGateway {
   /** Core derives the name and `<types_folder>/<name>.md` path; the write is
    * create-only, so a concurrent creator of the same type loses with conflict. */
   async createType(document: string): Promise<TypeDocument> {
+    await this.checkWritable();
     const signal = this.signal();
     const created = await this.client.createType(document, { signal });
     this.check();
@@ -433,6 +464,7 @@ export class NativeEditorGateway implements CollectionGateway {
   /** Guarded by the reviewed revision: an edit made elsewhere since it was
    * opened is refused as a conflict, never overwritten. */
   async updateType(current: TypeDocument, source: string): Promise<TypeDocument> {
+    await this.checkWritable();
     const signal = this.signal();
     const write = await this.client.resources.put(current.path, source, { baseRevision: current.revision, signal });
     this.check();
@@ -452,6 +484,7 @@ export class NativeEditorGateway implements CollectionGateway {
   /** Applies exactly the reviewed plan as one guarded mutation and waits for
    * its receipt; any change since review is refused, never re-planned. */
   async applyTypePack(provision: TypePackProvision, assessment: TypePackAssessment, adoptResources: Record<string, string> = {}): Promise<TypePackApplyResult> {
+    await this.checkWritable();
     let plan = this.plans.get(assessment.assessmentDigest);
     if (!plan) {
       plan = await this.client.typePacks.plan(provision, { installedBy: INSTALLED_BY, adopt: adoptResources, signal: this.signal() });
@@ -495,27 +528,50 @@ export class NativeEditorGateway implements CollectionGateway {
 
   private summary(): ConnectionSummary {
     const missing = this.missingCapabilities();
-    return { collectionId: this.connection.id, displayName: this.connection.displayName, operations: this.operations(), fileActions: this.fileActions(),
+    return { collectionId: this.connection.id, role: this.role(), displayName: this.connection.displayName, operations: this.operations(), fileActions: this.fileActions(),
       ...(missing.length ? { missingCapabilities: missing } : {}) };
   }
 
   /** Declared capability groups the current grant lacks (SDK-computed). */
   private missingCapabilities(): string[] {
-    if (!this.declaration || !this.current()) return [];
+    if (!this.declaration || !this.current() || this.role() === "viewer") return [];
     return [...(effectiveCapabilities(this.declaration, this.connection)?.missing ?? [])];
   }
 
   private operations(): CollectionOperation[] {
-    const granted = new Set(this.client.hello.grant.capabilities);
+    const viewer = this.role() === "viewer";
+    const granted = new Set(this.client.hello.grant.capabilities.filter((capability) => !viewer || capability === "collection.read"));
     return [...new Set(Object.entries(CAPABILITY_OPERATIONS).flatMap(([capability, operations]) => granted.has(capability) ? operations : []))];
   }
 
   /** Never widened: only an explicit file action in the grant is reported. */
   private fileActions(): string[] {
-    return [...(this.connection.files.grant?.actions ?? [])];
+    const viewer = this.role() === "viewer";
+    return (this.connection.files.grant?.actions ?? []).filter((action) => !viewer || action === "list" || action === "read");
   }
 
-  private current(): boolean { return !this.disposed && this.connection.isCurrent(); }
+  private role(): "owner" | "editor" | "viewer" {
+    if (this.membershipDowngrade) return "viewer";
+    const hello = this.client.hello;
+    // API 1.3 SDKs keep hello.grant current. Remove the membership fallback
+    // when Editor's beta.141 SDK/native pin is replaced.
+    if (hello.version.minor >= 3) return hello.grant.role;
+    return this.membershipRole() ?? hello.grant.role;
+  }
+
+  private membershipRole() {
+    return this.application.getSnapshot?.().collections.find((entry) => entry.collectionId === this.connection.id)?.role;
+  }
+
+  private async checkWritable(): Promise<void> {
+    this.check();
+    if (this.role() === "viewer") throw new MdbaseError({
+      code: "forbidden", recovery: "none", reason: "read_only",
+      message: t`You have view access, so changes can't be saved.`
+    });
+  }
+
+  private current(): boolean { return !this.disposed && this.client.link !== "closed" && this.connection.isCurrent(); }
 
   private check(): void {
     if (!this.current()) throw new MdbaseError({ code: "cancelled", recovery: "none", message: t`This collection is no longer open in mdbase editor.` });

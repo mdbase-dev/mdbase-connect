@@ -724,6 +724,15 @@ msgstr "详情"
 msgid "Differed when mdbase took over from the old app; this computer's version is in the folder"
 msgstr "旧应用交接给 mdbase 时出现差异；此电脑的版本位于以下文件夹中："
 
+#: src/renderer/collections-view.tsx
+msgid "Discard local changes"
+msgstr "放弃本地更改"
+
+#. placeholder {0}: hold.path
+#: src/renderer/collections-view.tsx
+msgid "Discard local changes to {0}? They haven't been synced. Copy the file first if you want to keep them."
+msgstr "要放弃对 {0} 的本地更改吗？这些更改尚未同步。如需保留，请先复制文件。"
+
 #: src/renderer/main.tsx
 msgid "Dismiss"
 msgstr "关闭"

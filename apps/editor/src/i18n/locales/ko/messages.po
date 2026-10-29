@@ -5970,6 +5970,11 @@ msgstr "계속 사용하거나 유형에서 현재 기본 유형과 비교할 �
 msgid "You don’t have permission to upload {name}."
 msgstr "{name}을(를) 업로드할 권한이 없습니다."
 
+#: src/App.tsx
+#: src/native-gateway.ts
+msgid "You have view access, so changes can't be saved."
+msgstr "보기 권한만 있어 변경 사항을 저장할 수 없습니다."
+
 #: src/ConnectionScreens.tsx
 msgid "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."
 msgstr "mdbase로 이동합니다. 요청이 있으면 로그인하고 컬렉션을 선택한 다음 mdbase editor를 승인하세요. 자동으로 여기로 돌아오며 파일은 원래 위치에 유지됩니다."

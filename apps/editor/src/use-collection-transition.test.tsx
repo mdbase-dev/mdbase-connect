@@ -36,6 +36,43 @@ function setup() {
 }
 
 describe("useCollectionTransition serial ownership", () => {
+  it("publishes a live role change without draining refused drafts or reloading the same scope", async () => {
+    const state = setup();
+    const withRole = (role: "editor" | "viewer"): CollectionSessionSnapshot => {
+      const connection = { collectionId: "a", role, operations: role === "viewer" ? ["read"] : ["all"] };
+      return { status: "ready", connection, connections: [connection] };
+    };
+    state.setCurrent(withRole("editor"));
+    await act(() => state.result.current.acceptSnapshot(state.input.gateway.sessionSnapshot()));
+    const token = state.input.scope.token();
+    state.input.drain.mockRejectedValue(new Error("Viewer draft cannot be saved"));
+    state.setCurrent(withRole("viewer"));
+    await act(() => state.result.current.acceptSnapshot(state.input.gateway.sessionSnapshot()));
+    expect(state.input.setSnapshot).toHaveBeenLastCalledWith(state.input.gateway.sessionSnapshot());
+    expect(state.input.drain).toHaveBeenCalledTimes(1);
+    expect(state.input.start).toHaveBeenCalledTimes(1);
+    expect(state.input.scope.token()).toEqual(token);
+    expect(state.input.scope.isFrozen).toBe(false);
+  });
+
+  it("loads or leaves the workspace when role updates change core capability admission", async () => {
+    const state = setup();
+    const snapshot = (role: "editor" | "viewer"): CollectionSessionSnapshot => {
+      const connection = { collectionId: "a", role, operations: ["read"],
+        ...(role === "editor" ? { missingCapabilities: ["collection.read"] } : {}) };
+      return { status: "ready", connection, connections: [connection] };
+    };
+    state.setCurrent(snapshot("editor"));
+    await act(() => state.result.current.acceptSnapshot(state.input.gateway.sessionSnapshot()));
+    expect(state.input.start).not.toHaveBeenCalled();
+    state.setCurrent(snapshot("viewer"));
+    await act(() => state.result.current.acceptSnapshot(state.input.gateway.sessionSnapshot()));
+    expect(state.input.start).toHaveBeenCalledTimes(1);
+    state.setCurrent(snapshot("editor"));
+    await act(() => state.result.current.acceptSnapshot(state.input.gateway.sessionSnapshot()));
+    expect(state.input.setPhase).toHaveBeenLastCalledWith("disconnected");
+  });
+
   it("executes A, queued B, and C arriving during B without losing C", async () => {
     const state = setup();
     const a = deferred<void>(), b = deferred<void>(); state.gates.set("a", a); state.gates.set("b", b);

@@ -490,3 +490,27 @@ test("deleted collection keeps skipped-file details without repeating the deleti
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test("a view-only new file can be discarded without a synced version", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection({ sync: { holds: 1 } })] });
+  try {
+    await page.evaluate(() => {
+      window.fixture.holds = [{ id: "viewer:1", path: "new.md", reason: "read_only", since: Date.now(), saves: 1, has_theirs: false, binary: false }];
+    });
+    await nav(page, "Collections").click();
+    await page.getByRole("button", { name: "Review 1 file", exact: true }).click();
+    await page.getByText("new.md", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Keep both", exact: true }).count(), 1);
+    const discard = page.getByRole("button", { name: "Discard local changes", exact: true });
+    let prompt;
+    page.once("dialog", (dialog) => { prompt = dialog.message(); void dialog.dismiss(); });
+    await discard.click();
+    assert.match(prompt, /new\.md.*haven't been synced/);
+    assert.deepEqual(await calls("resolveHold"), []);
+    page.once("dialog", (dialog) => void dialog.accept());
+    await discard.click();
+    await page.getByText("Nothing is waiting.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("resolveHold"), [["c-notes", "viewer:1", "take_theirs"]]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

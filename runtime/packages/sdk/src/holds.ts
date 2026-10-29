@@ -22,7 +22,7 @@ export interface HoldActionOption {
   /** The `resolve_hold` resolution, absent for `compare`. */
   resolution?: HoldResolution;
   /** The capability `resolve_hold` needs for it. */
-  needs?: "records.edit" | "records.delete";
+  needs?: "collection.read" | "records.edit" | "records.delete";
   /** True when the user's held bytes are not kept anywhere by this action (offer "keep both" next to it). */
   discardsMine: boolean;
 }
@@ -42,8 +42,8 @@ export interface HoldPresentation {
   /** Whether a confirmed version exists to compare against (absent when deleted elsewhere). */
   hasTheirs: boolean;
   actions: HoldActionOption[];
-  /** Every resolution is an ordinary mutation in the log, so the record's previous version stays in history. */
-  reversible: true;
+  /** Whether the held version can be recovered from collection history after resolution. */
+  reversible: boolean;
   reversibleNote: string;
   /** The compare hand-off (`mdbase://hold/compare?...`), when a merge view can be opened. */
   compareLink: string | null;
@@ -63,8 +63,8 @@ const CAUSES: Record<HoldReason, { cause: string; detail: string }> = {
     detail: "Your version is kept here; nothing is deleted until you choose.",
   },
   read_only: {
-    cause: "You do not have permission to change this file in this collection.",
-    detail: "Your edit is kept on this device and is not synced.",
+    cause: "Changed with view access.",
+    detail: "Edit access will not sync these changes. Submit or discard them.",
   },
   editor_busy: {
     cause: "An editor still has this file open with unsaved changes.",
@@ -90,7 +90,7 @@ const ACTIONS: Record<HoldReason, HoldAction[]> = {
   conflict: ["keep_mine", "take_theirs", "compare", "keep_both"],
   unknown_provenance: ["keep_mine", "take_theirs", "compare", "keep_both"],
   deleted_elsewhere: ["keep_mine", "delete"],
-  read_only: ["take_theirs", "keep_both", "compare"],
+  read_only: ["keep_mine", "take_theirs", "compare", "keep_both"],
   editor_busy: ["keep_mine", "take_theirs", "compare"],
   suspect_write: ["keep_mine", "take_theirs", "compare", "keep_both"],
 };
@@ -121,16 +121,28 @@ export interface DescribeHoldOptions {
   canCompare?: boolean;
   /** The caller's capabilities, to drop actions it cannot perform (default: all). */
   capabilities?: readonly string[];
+  /** True only for the local hosting app (hello.grant.grant is absent).
+   * View-only holds are resolved locally; granted apps may compare them. */
+  host?: boolean;
 }
 
 /** Present one hold: cause, detail, applicable actions and the compare link. */
 export function describeHold(h: Hold, o: DescribeHoldOptions): HoldPresentation {
+  const readOnly = h.reason === "read_only";
   const hasTheirs = h.theirs !== undefined;
   const canCompare = (o.canCompare ?? true) && hasTheirs;
   const can = (needs?: HoldActionOption["needs"]) => !needs || !o.capabilities || o.capabilities.includes(needs);
   const actions = ACTIONS[h.reason]
-    .filter((a) => (a === "compare" ? canCompare : a === "take_theirs" ? hasTheirs : true))
-    .map((action) => ({ action, ...OPTIONS[action] }))
+    .filter((a) => a === "compare" ? canCompare : (!readOnly || o.host === true) && (a !== "take_theirs" || hasTheirs || readOnly))
+    .map((action): HoldActionOption => {
+      const option = { action, ...OPTIONS[action] };
+      if (readOnly && action === "take_theirs") {
+        option.label = "Discard local changes";
+        option.description = "Discard unsynced changes on this device.";
+        option.needs = "collection.read";
+      }
+      return option;
+    })
     .filter((a) => can(a.needs));
   const text = CAUSES[h.reason];
   return {
@@ -144,8 +156,8 @@ export function describeHold(h: Hold, o: DescribeHoldOptions): HoldPresentation 
     saves: h.saves,
     hasTheirs,
     actions,
-    reversible: true,
-    reversibleNote: "You can change your mind later: resolving is an ordinary change, and the previous version stays in the collection's history. Keep both if you want your version kept as a file as well.",
+    reversible: !readOnly,
+    reversibleNote: readOnly ? "Copy before discarding." : "You can change your mind later: resolving is an ordinary change, and the previous version stays in the collection's history. Keep both if you want your version kept as a file as well.",
     compareLink: canCompare ? holdCompareLink(o.collectionId, h.id) : null,
   };
 }

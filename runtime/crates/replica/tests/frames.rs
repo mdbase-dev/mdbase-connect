@@ -184,6 +184,7 @@ fn hosted_file_request_codec_preserves_ids_and_refuses_bad_ranges() {
 
 fn status() -> SyncStatus {
     SyncStatus {
+        grant: None,
         resyncing: None,
         confirmed_head: None,
         mode: SyncMode::Synced,

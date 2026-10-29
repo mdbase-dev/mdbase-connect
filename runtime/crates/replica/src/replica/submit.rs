@@ -178,6 +178,9 @@ impl<S: Store> Replica<S> {
                 "the folder is being adopted; retry once sync is on",
             ));
         }
+        if s.grant().is_none() {
+            self.require(session, crate::policy::capability::EDIT)?;
+        }
         // Capabilities per operation, against the grant in the confirmed policy
         // (`policy.md` §7.2). The writer re-checks at head and replicas at replay (V6).
         if s.grant().is_some() {

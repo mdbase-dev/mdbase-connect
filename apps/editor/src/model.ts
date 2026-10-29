@@ -44,6 +44,7 @@ export interface CollectionSnapshot {
 }
 
 export interface ConnectionSummary {
+  role?: "owner" | "editor" | "viewer";
   collectionId: string;
   displayName?: string;
   operations: string[];

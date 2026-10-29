@@ -1699,9 +1699,14 @@ impl<S: Store> Replica<S> {
         if subs.is_empty() {
             return;
         }
-        let st = self.sync_status();
+        let status = self.sync_status();
         for s in subs {
-            self.pushes.push((s, Push::Status(st.clone())));
+            let mut st = status.clone();
+            st.grant = self
+                .session(s)
+                .and_then(|session| self.session_grant(&session.auth))
+                .ok();
+            self.pushes.push((s, Push::Status(st)));
         }
     }
 

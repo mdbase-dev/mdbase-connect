@@ -153,8 +153,11 @@ function Holds({ collection, busy, onAct, onLoaded }: {
     .then((list) => { setHolds(list); onLoaded?.(list); })
     .catch((reason) => setFailure(message(reason)));
   React.useEffect(() => { void load(); }, [collection.id, collection.sync?.holds]);
-  const resolve = (hold: HoldSummary, how: "keep_mine" | "take_theirs" | "keep_both") =>
+  const resolve = (hold: HoldSummary, how: "keep_mine" | "take_theirs" | "keep_both") => {
+    if (hold.reason === "read_only" && how === "take_theirs" && !hold.has_theirs
+      && !window.confirm(t(i18n)`Discard local changes to ${hold.path}? They haven't been synced. Copy the file first if you want to keep them.`)) return;
     void onAct(async () => { await window.mdbaseConnect.resolveHold(collection.id, hold.id, how); await load(); });
+  };
   return (
     <div className="collection-holds">
       <p><Trans>mdbase kept these files instead of overwriting them. Choose which version to keep.</Trans></p>
@@ -174,6 +177,12 @@ function Holds({ collection, busy, onAct, onLoaded }: {
               ? <div className="row-actions">
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep current</Trans></button>
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Use my unsent edit</Trans></button>
+                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
+              </div>
+              : hold.reason === "read_only"
+              ? <div className="row-actions">
+                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
+                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Discard local changes</Trans></button>
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
               </div>
               : <div className="row-actions">

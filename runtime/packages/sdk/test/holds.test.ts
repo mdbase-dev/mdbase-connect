@@ -7,6 +7,17 @@ const ID = "018f6d2e-1c3a-7b4d-9e1f-2a3b4c5d6e7f";
 const hold = (reason: HoldReason, more: Partial<Hold> = {}): Hold => ({ id: ID, path: "notes/a.md", reason, since: 1, mine: "mine", theirs: "theirs", saves: 2, ...more });
 
 describe("hold presentation", () => {
+  it("offers local hosts a Viewer discard and an Editor submit, including new files", () => {
+    const fresh = hold("read_only", { theirs: undefined });
+    const viewer = describeHold(fresh, { collectionId: COLL, host: true, capabilities: ["collection.read"] });
+    expect(viewer.actions.map((a) => a.action)).toEqual(["take_theirs"]);
+    expect(viewer.reversible).toBe(false);
+    expect(viewer.actions[0]).toMatchObject({ label: "Discard local changes", discardsMine: true });
+    const editor = describeHold(fresh, { collectionId: COLL, host: true, capabilities: ["collection.read", "records.edit"] });
+    expect(editor.actions.map((a) => a.action)).toEqual(["keep_mine", "take_theirs", "keep_both"]);
+    expect(describeHold(fresh, { collectionId: COLL, capabilities: ["collection.read", "records.edit"] }).actions).toEqual([]);
+  });
+
   it("reads as protection with a plain cause, actions from the wire vocabulary, and a compare link", () => {
     const p = describeHold(hold("conflict"), { collectionId: COLL });
     expect(p.title).toBe(HOLD_TITLE);

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { GrantInfo, SyncStatus } from "../src/wire.js";
 import { connect, isMdbaseError, LiveQuery, MdbaseClient, MdbaseError } from "../src/index.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { clientFrame, problem } from "../src/wire.js";
@@ -53,6 +54,71 @@ function setup(opts: ConstructorParameters<typeof MemoryReplica>[0] = {}) {
 }
 
 describe("session", () => {
+  it("uses live session grants without reconnecting and refuses Viewer writes before ledger capture", async () => {
+    const { replica, client } = setup();
+    const original = (replica as unknown as { status(): SyncStatus }).status.bind(replica);
+    let grant: GrantInfo | undefined;
+    vi.spyOn(replica as unknown as { status(): SyncStatus }, "status").mockImplementation(() => ({ ...original(), ...(grant ? { grant } : {}) }));
+    const c = await client();
+    try {
+      const negotiated = c.hello;
+      await c.getStatus();
+      expect(c.hello).toBe(negotiated);
+      grant = { role: "viewer", capabilities: ["collection.read"] };
+      replica.setOnline(false);
+      await until(() => c.hello.grant.role === "viewer");
+      expect(c.hello.grant).toEqual(grant);
+      await expect(c.create({ path: "viewer.md", body: "refused" })).rejects.toMatchObject({ code: "forbidden", reason: "read_only" });
+      expect(replica.allRecords).toHaveLength(0);
+      expect(c.ledger.getSnapshot()).toMatchObject({ pending: [], rejected: [] });
+      grant = undefined;
+      await c.getStatus();
+      expect(c.hello.grant.role).toBe("viewer");
+      await expect(c.create({ path: "still-viewer.md", body: "refused" })).rejects.toMatchObject({ reason: "read_only" });
+      grant = { role: "editor", capabilities: ["collection.read", "records.create", "records.edit"] };
+      replica.setOnline(true);
+      await until(() => c.hello.grant.role === "editor");
+      await expect(c.create({ path: "editor.md", body: "allowed" })).resolves.toMatchObject({ state: "pending" });
+      grant = undefined;
+      await c.getStatus();
+      expect(c.hello.grant.role).toBe("editor");
+    } finally { c.close(); }
+  });
+
+  it("preserves hello identity across equal status grants for handover consumers", async () => {
+    const { replica, client } = setup();
+    const original = (replica as unknown as { status(): SyncStatus }).status.bind(replica);
+    let grant: GrantInfo | undefined;
+    vi.spyOn(replica as unknown as { status(): SyncStatus }, "status").mockImplementation(() => ({ ...original(), ...(grant ? { grant } : {}) }));
+    const c = await client();
+    try {
+      const negotiated = c.hello;
+      grant = { ...negotiated.grant, capabilities: [...negotiated.grant.capabilities] };
+      await c.getStatus();
+      expect(c.hello).toBe(negotiated);
+      grant = { role: "viewer", capabilities: ["collection.read"],
+        grant: "00000000-0000-4000-8000-000000000001", account: "00000000-0000-4000-8000-000000000002" };
+      await c.getStatus();
+      const viewer = c.hello;
+      expect(viewer).not.toBe(negotiated);
+      await c.getStatus();
+      expect(c.hello).toBe(viewer);
+      grant = undefined;
+      await c.getStatus();
+      expect(c.hello).toBe(viewer);
+    } finally { c.close(); }
+  });
+
+  it("delegates a stale Viewer hello to older runtimes that recheck current permission", async () => {
+    const { client } = setup();
+    const c = await client();
+    try {
+      const hello = c.hello;
+      vi.spyOn(c, "hello", "get").mockReturnValue({ ...hello, version: { major: 1, minor: 2 }, grant: { role: "viewer", capabilities: ["collection.read"] } });
+      await expect(c.create({ path: "upgraded.md", body: "allowed now" })).resolves.toMatchObject({ state: "pending" });
+    } finally { c.close(); }
+  });
+
   it("surfaces a refused hello as the problem's code", async () => {
     const { client } = setup({ refuse: { code: "forbidden", recovery: "reauthorize", message: "grant revoked" } });
     await expect(client()).rejects.toMatchObject({ code: "forbidden", recovery: "reauthorize" });

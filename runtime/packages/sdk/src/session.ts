@@ -14,7 +14,7 @@ import { inheritOriginalAppGrant } from "./transport/original-session.js";
 import { clientFrame, helloParams, HelloParams, helloResult, HelloResult, Problem, problem } from "./wire.js";
 
 /** API versions this SDK speaks, highest first. */
-export const API_VERSIONS = [{ major: 1, minor: 2 }, { major: 1, minor: 1 }, { major: 1, minor: 0 }];
+export const API_VERSIONS = [{ major: 1, minor: 3 }, { major: 1, minor: 2 }, { major: 1, minor: 1 }, { major: 1, minor: 0 }];
 
 export type PushHandler = (payload: CborValue) => void;
 export type RequestHandler = (params: CborValue) => Promise<CborValue> | CborValue;

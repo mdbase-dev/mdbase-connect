@@ -724,6 +724,15 @@ msgstr "Details"
 msgid "Differed when mdbase took over from the old app; this computer's version is in the folder"
 msgstr "Unterschied sich beim Übergang von der alten App zu mdbase; die Version dieses Computers liegt im Ordner"
 
+#: src/renderer/collections-view.tsx
+msgid "Discard local changes"
+msgstr "Lokale Änderungen verwerfen"
+
+#. placeholder {0}: hold.path
+#: src/renderer/collections-view.tsx
+msgid "Discard local changes to {0}? They haven't been synced. Copy the file first if you want to keep them."
+msgstr "Lokale Änderungen an {0} verwerfen? Sie wurden nicht synchronisiert. Kopieren Sie die Datei zuerst, wenn Sie sie behalten möchten."
+
 #: src/renderer/main.tsx
 msgid "Dismiss"
 msgstr "Schließen"

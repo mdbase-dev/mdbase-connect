@@ -231,6 +231,14 @@ function params(entries: [number, CborValue | undefined][]): Map<number, CborVal
   return m;
 }
 
+function withCurrentGrant(hello: HelloResult, grant: HelloResult["grant"] | undefined): HelloResult {
+  const prior = hello.grant;
+  if (!grant || prior.grant === grant.grant && prior.role === grant.role
+    && valueEquals(prior.capabilities, grant.capabilities)
+    && valueEquals(prior.fileFolders ?? null, grant.fileFolders ?? null)) return hello;
+  return { ...hello, grant };
+}
+
 export interface CreateInput {
   /** A record ID minted by the caller; default a new UUIDv7. */
   id?: Uuid;
@@ -520,8 +528,8 @@ export class MdbaseClient {
   private linkError: MdbaseError | null = null;
   private linkListeners = new Set<(s: LinkState, why: MdbaseError | null) => void>();
   private lastStatus: SyncStatus;
+  private currentHello: HelloResult;
   private statusListeners = new Set<(s: SyncStatus) => void>();
-  private statusSubscribed = false;
   private lives = new Set<LiveQuery>();
   private livesBySub = new Map<number, LiveQuery>();
   private subscribing = 0;
@@ -560,6 +568,7 @@ export class MdbaseClient {
     this.session = session;
     this.collectionId = session.hello.collection;
     this.lastStatus = session.hello.status;
+    this.currentHello = withCurrentGrant(session.hello, session.hello.status.grant);
     this.fenceReads = usesNextRelayFence(opts.connector);
     this.readFloor = session.hello.status.confirmedThrough;
     this.files = new FilesApi(this);
@@ -569,6 +578,7 @@ export class MdbaseClient {
       pendingWrites: () => this.pendingWrites(),
     });
     this.attach(session);
+    void session.request("subscribe_status", null).catch(() => {});
     if (opts.ledger) this.startLedger();
   }
 
@@ -683,9 +693,10 @@ export class MdbaseClient {
 
   // ---------------------------------------------------------------- session and link
 
-  /** The negotiated session: API version, runtime, collection, grant, features. */
+  /** The negotiated session, with its latest role-effective grant. */
   get hello(): HelloResult {
-    return this.currentSession().hello;
+    this.currentSession();
+    return this.currentHello;
   }
 
   get collection(): Uuid {
@@ -759,7 +770,6 @@ export class MdbaseClient {
     if (!this.fenceReads) return;
     const behind = s.hello.status.confirmedThrough < this.readFloor;
     this.readFencedAt = behind ? this.readFloor : null;
-    if (behind && !this.statusSubscribed) void s.request("subscribe_status", null).catch(() => {});
     if (!behind) this.wakeReadFence();
   }
 
@@ -895,7 +905,7 @@ export class MdbaseClient {
       }
     });
     s.onPush("status", (p) => {
-      if (this.fenceReads && this.session !== s) return;
+      if (this.session !== s) return;
       try {
         this.setStatus(syncStatus.dec(p));
       } catch {
@@ -973,6 +983,7 @@ export class MdbaseClient {
           throw mdbaseError("invalid_request", "reconnected to a different collection");
         }
         this.session = s;
+        this.currentHello = withCurrentGrant(s.hello, s.hello.status.grant);
         this.attach(s);
         this.noteReplica(s);
         this.setStatus(s.hello.status);
@@ -996,7 +1007,7 @@ export class MdbaseClient {
 
   private async restore(s: Session): Promise<void> {
     const jobs: Promise<unknown>[] = [];
-    if (this.statusSubscribed) jobs.push(s.request("subscribe_status", null).catch(() => {}));
+    jobs.push(s.request("subscribe_status", null).catch(() => {}));
     if (this.holdsWatch.listeners.size) jobs.push(this.refreshHolds(true).catch(() => {}));
     if (this.conflictsWatch.listeners.size) jobs.push(this.refreshConflicts(true).catch(() => {}));
     for (const l of this.lives) jobs.push(this._resubscribeLive(l, false, s).catch(() => {}));
@@ -1076,10 +1087,6 @@ export class MdbaseClient {
   onStatus(fn: (s: SyncStatus) => void): () => void {
     this.statusListeners.add(fn);
     fn(this.lastStatus);
-    if (!this.statusSubscribed) {
-      this.statusSubscribed = true;
-      void this.call("subscribe_status", null, { retry: true }).catch(() => {});
-    }
     return () => this.statusListeners.delete(fn);
   }
 
@@ -1092,6 +1099,7 @@ export class MdbaseClient {
       if (this.readFencedAt === null) this.readFloor = Math.max(this.readFloor, s.confirmedThrough);
     }
     this.lastStatus = s;
+    this.currentHello = withCurrentGrant(this.currentHello, s.grant);
     for (const fn of [...this.statusListeners]) fn(s);
   }
 
@@ -1693,6 +1701,7 @@ export class MdbaseClient {
 
   /** Submit operations as one mutation (or one per op with `allowPartial`). */
   async submit(ops: Op[], o: WriteOptions & { allowPartial?: boolean } = {}): Promise<Write[]> {
+    if (this.hello.version.minor >= 3 && this.hello.grant.role === "viewer") throw mdbaseError("forbidden", "You have view access, so changes can't be saved.", "read_only");
     if (o.intent !== undefined && o.mutationId === undefined) o = { ...o, mutationId: (await intentIds(this.collectionId, o.intent))[0] };
     const p: SubmitParams = { ops, mutationId: o.mutationId ?? uuidv7() };
     if (o.allowPartial) {

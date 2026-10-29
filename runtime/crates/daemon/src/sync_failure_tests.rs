@@ -3,6 +3,7 @@ use mdbn_wire::client::{Connection, Incident, SyncMode};
 
 fn status(kind: IncidentKind, details: Option<Value>) -> SyncStatus {
     SyncStatus {
+        grant: None,
         mode: SyncMode::Synced,
         confirmed_through: 3,
         head_known: 8,

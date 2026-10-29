@@ -20,10 +20,11 @@ const KiB = 1024;
 // declaration) carries it; the thin client must not.
 const entries = [
   { name: "thin-client", entry: "src/thin-client.ts", ceiling: 68 * KiB, forbidden: ["ajv", "ajv-formats", "yaml"] },
-  // Measured at 192.4 KiB with bounded Private relay-close diagnostic detail.
-  // Ceiling 196 KiB; thin stays at 68 KiB.
+  // Measured at 196.1 KiB with live Viewer grants and explicit-choice hold UI.
+  // Shared error guidance and stable handover grants stay intact; 197 KiB is
+  // the measured root-entry tripwire plus a small margin. Thin stays at 68 KiB.
   // The app-grant entry itself loads lazily.
-  { name: "sdk", entry: "src/index.ts", ceiling: 196 * KiB, forbidden: ["ajv", "ajv-formats"] },
+  { name: "sdk", entry: "src/index.ts", ceiling: 197 * KiB, forbidden: ["ajv", "ajv-formats"] },
 ];
 
 let failed = false;

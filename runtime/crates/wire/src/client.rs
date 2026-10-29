@@ -346,6 +346,8 @@ wire_struct! {
         10 opt resyncing: Resyncing,
         /// Optional authoritative handover fence; absence always means stay hosted.
         11 opt confirmed_head: ConfirmedHead,
+        /// Current role-effective grant of this session (API 1.3).
+        12 opt grant: GrantInfo,
     }
 }
 

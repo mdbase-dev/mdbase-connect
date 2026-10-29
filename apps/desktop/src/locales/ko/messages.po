@@ -724,6 +724,15 @@ msgstr "세부 정보"
 msgid "Differed when mdbase took over from the old app; this computer's version is in the folder"
 msgstr "mdbase가 이전 앱으로부터 제어권을 넘겨받을 때 내용이 달랐습니다. 이 컴퓨터의 버전은 다음 폴더에 있습니다"
 
+#: src/renderer/collections-view.tsx
+msgid "Discard local changes"
+msgstr "로컬 변경 사항 버리기"
+
+#. placeholder {0}: hold.path
+#: src/renderer/collections-view.tsx
+msgid "Discard local changes to {0}? They haven't been synced. Copy the file first if you want to keep them."
+msgstr "{0}의 로컬 변경 사항을 버릴까요? 아직 동기화되지 않았습니다. 보관하려면 먼저 파일을 복사하세요."
+
 #: src/renderer/main.tsx
 msgid "Dismiss"
 msgstr "닫기"
