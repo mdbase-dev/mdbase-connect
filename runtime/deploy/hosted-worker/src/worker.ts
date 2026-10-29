@@ -24,7 +24,7 @@
  * Note: the engine still rebuilds its local cache in the DO's SQLite (never served).
  */
 import { DurableObject } from "cloudflare:workers";
-import { encode, type CborValue } from "../../../packages/sdk/src/cbor.js";
+import { decode, encode, type CborValue } from "../../../packages/sdk/src/cbor.js";
 import { Engine, type CppClaimTicket, type MigrationPendingTicket, type MigrationPhysicalTicket } from "./engine.js";
 import type { MigrationProviderResult } from "./migration-provider-result.js";
 import type { MigrationSourceResult } from "./migration-source-result.js";
@@ -1258,8 +1258,21 @@ export class HostedCollection extends DurableObject<Env> {
         if (this.opening) return refuse("opening");
         if (this.collection !== collection) return refuse("collection_changed");
         const observation = engine.modeServiceReady();
-        if (!modeReady(observation,input)) return refuse(observation === null ? "native_not_ready" : "native_identity_mismatch",
-          { serving: engine.serving(), reset: engine.needsReset(), pin: engine.pinState() });
+        if (!modeReady(observation,input)) {
+          let cachedHead: string | null = null;
+          if (this.env.LAB === "1") {
+            try {
+              const row = this.ctx.storage.sql.exec<{ v: ArrayBuffer }>("SELECT v FROM st_kv WHERE k='head'").toArray()[0];
+              const head = row && decode(new Uint8Array(row.v));
+              if (Array.isArray(head) && (typeof head[0] === "number" || typeof head[0] === "bigint")) cachedHead = String(head[0]);
+            } catch { /* Read-only diagnostic, never cache authority. */ }
+          }
+          const admission = engine.admission();
+          return refuse(observation === null ? "native_not_ready" : "native_identity_mismatch",
+            { serving: engine.serving(), reset: engine.needsReset(), pin: engine.pinState(), cached_head: cachedHead,
+              admission: Array.isArray(admission) && admission[0] === 0 && typeof admission[1] === "string" ? admission[1] : "verified",
+              timing: this.env.LAB === "1" ? this.timings : undefined });
+        }
         return modeAck(input);
       } catch (error) { return refuse("exception", { diagnostic: diagnostic ?? readyDiagnostic("unknown", error) }); }
     }
