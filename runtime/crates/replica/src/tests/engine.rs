@@ -5634,6 +5634,7 @@ fn pinned_open_validates_the_host_trust_shape_first() {
 fn policy_pins_gate_a_warm_reopen() {
     use crate::crypto::sign::DeviceSigner;
     use crate::policy::{PolicyKeyPin, PolicyPins, RootPin, key_id};
+    use crate::store::Store;
     let svc = FakeLogService::new();
     // The signing test control plane (real Ed25519 root and policy keys).
     let dev = B16([101; 16]);
@@ -5720,7 +5721,6 @@ fn policy_pins_gate_a_warm_reopen() {
         reopen(store.clone(), misattributed),
         Err(crate::replica::OpenError::Mismatch(_))
     ));
-    let published_again = || published.clone();
     let opened = reopen(store.clone(), published.clone());
     assert!(opened.is_ok(), "{:?}", opened.err());
     let root = DeviceSigner::from_seed(&[0x31; 32]).public();
@@ -5743,7 +5743,6 @@ fn policy_pins_gate_a_warm_reopen() {
         ),
         "built under keys that are not pinned"
     );
-    // Applying from the log under pins: the published keys apply, others are void.
     let sync = |pins: PolicyPins| {
         let mut r = reopen(MemStore::new(), pins).unwrap();
         let mut log = svc.client(dev);
@@ -5751,22 +5750,26 @@ fn policy_pins_gate_a_warm_reopen() {
             pump(&mut r, &mut log, 100);
             r.tick();
         }
-        (
-            r.policy.root.is_some(),
-            r.policy.voids,
-            r.hosted_pins_consistent(),
-        )
+        r
     };
-    let (applied, _, consistent) = sync(published_again());
-    assert!(applied && consistent, "published keys apply");
-    let (applied, voids, consistent) = sync(other.clone());
-    assert!(!applied && voids >= 1, "unpinned keys are void");
-    // A store rebuilt from a log that was not built under the pins fails the
-    // same check its next open would.
-    assert!(
-        !consistent,
-        "a log built under other keys fails the pin check"
+    let applied = sync(published.clone());
+    assert!(applied.policy.root.is_some() && applied.hosted_pins_consistent());
+    let stalled = sync(other.clone());
+    assert_eq!(stalled.head().seq, 0);
+    assert_eq!(stalled.store().head().unwrap().seq, 0);
+    assert_eq!(stalled.policy, crate::policy::PolicyState::new());
+    assert_eq!(
+        stalled.stalled,
+        Some((mdbn_wire::client::IncidentKind::UpgradeRequired, 1))
     );
+    let mut retried = reopen(stalled.into_store(), published).unwrap();
+    let mut log = svc.client(dev);
+    for _ in 0..20 {
+        pump(&mut retried, &mut log, 100);
+        retried.tick();
+    }
+    assert_eq!(retried.head(), applied.head());
+    assert_eq!(retried.policy, applied.policy);
     let malformed = PolicyPins {
         policy_keys: vec![],
         ..other

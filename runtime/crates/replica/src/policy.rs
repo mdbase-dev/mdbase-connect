@@ -180,10 +180,10 @@ pub struct Void {
 pub enum Rejected {
     /// Void: a deterministic no-op that still occupies its position.
     Void(Void),
-    /// Stall (`00-overview.md` §6.1–6.2): an unknown format or variant. The replica
-    /// stops **before** this position (`upgrade_required`); nothing is applied, not
-    /// even the position or the control chain. Voiding instead would let replicas
-    /// of different versions disagree on `P`.
+    /// Stall (`00-overview.md` §6.1–6.2): an unknown format/variant or missing
+    /// local trust. The replica stops **before** this position (`upgrade_required`);
+    /// nothing is applied, not even the position or the control chain. Voiding
+    /// instead would let replicas of different builds disagree on `P`.
     Stall(String),
 }
 
@@ -205,6 +205,9 @@ impl Rejected {
 /// The verdict on an item.
 pub type Verdict = Result<(), Rejected>;
 
+/// Only entry bytes and log-authoritative state may determine a void verdict.
+/// Local trust configuration and planner/build limitations must stall instead.
+/// New void sites require classification in the void-site inventory test.
 fn void(rule: &'static str, detail: impl Into<String>) -> Rejected {
     Rejected::Void(Void {
         rule,
@@ -684,8 +687,10 @@ impl PolicyState {
     /// fabricate a linking item without a signer's key.
     pub(crate) fn observed_signature_valid(&self, item: &Item, env: &Env<'_>) -> bool {
         match item.kind {
-            ItemKind::Policy => PolicyPayload::from_bytes(&item.body.0)
-                .is_ok_and(|p| self.check_cert(&p, item, env).is_ok()),
+            ItemKind::Policy => PolicyPayload::from_bytes(&item.body.0).is_ok_and(|p| {
+                let mut stall = None;
+                self.check_cert(&p, item, env, &mut stall).is_ok() && stall.is_none()
+            }),
             _ => item
                 .signer
                 .and_then(|s| self.devices.get(&s))
@@ -1214,26 +1219,27 @@ impl PolicyState {
         events: &mut Vec<PolicyEvent>,
     ) -> Verdict {
         let p = PolicyPayload::from_bytes(&item.body.0).map_err(decode_err)?;
+        let mut stall = None;
         let is_genesis_item = p.ops.iter().any(|o| matches!(o, PolicyOp::Genesis(_)));
         if seq == 1 {
             let Some(PolicyOp::Genesis(g)) = p.ops.first() else {
                 return Err(void("genesis", "the first item must be a genesis policy"));
             };
-            let pk = env
-                .trusted_roots
-                .iter()
-                .find(|pk| key_id(pk) == g.root)
-                .ok_or_else(|| void("genesis", "root is not trusted"))?;
+            let pk = env.trusted_roots.iter().find(|pk| key_id(pk) == g.root);
             self.root = Some(g.root);
-            self.root_pk = Some(B32(*pk));
-            self.cp_roots.insert(B32(*pk));
+            if let Some(pk) = pk {
+                self.root_pk = Some(B32(*pk));
+                self.cp_roots.insert(B32(*pk));
+            } else {
+                stall = Some("genesis root is not trusted by this build");
+            }
         } else if is_genesis_item {
             return Err(void("genesis", "genesis only at position 1"));
         }
-        self.check_cert(&p, item, env)?;
+        self.check_cert(&p, item, env, &mut stall)?;
         let cstate_before = self.cstate;
         for op in &p.ops {
-            self.policy_op(seq, item.collection, op, env, events)?;
+            self.policy_op(seq, item.collection, op, env, events, &mut stall)?;
         }
         // Service devices are allowed only in cloud copy: an escrow or hosted device
         // enrolled while the collection stays e2e is void.
@@ -1276,11 +1282,20 @@ impl PolicyState {
             ));
         }
         self.last_issued_at = Some(p.issued_at);
-        Ok(())
+        match stall {
+            Some(reason) => Err(Rejected::Stall(reason.into())),
+            None => Ok(()),
+        }
     }
 
-    fn check_cert(&self, p: &PolicyPayload, item: &Item, env: &Env<'_>) -> Verdict {
-        let (Some(root), Some(root_pk)) = (self.root, self.root_pk) else {
+    fn check_cert(
+        &self,
+        p: &PolicyPayload,
+        item: &Item,
+        env: &Env<'_>,
+        stall: &mut Option<&'static str>,
+    ) -> Verdict {
+        let Some(root) = self.root else {
             return Err(void("cp-cert", "no genesis"));
         };
         let c: &CpCert = &p.cert;
@@ -1296,18 +1311,22 @@ impl PolicyState {
         if let Some(pins) = env.policy_pins
             && !self.local_root_in_force()
         {
-            if !pins.root(&root, &root_pk) {
-                return Err(void("cp-cert", "root is not a published pin"));
+            if self.root_pk.is_some_and(|pk| !pins.root(&root, &pk)) {
+                stall.get_or_insert("root is not a published pin in this build");
             }
             if !pins.policy_key(&c.key_id(), &c.policy_pk, &root) {
-                return Err(void("cp-cert", "policy key is not a published pin"));
+                stall.get_or_insert("policy key is not a published pin in this build");
             }
         }
         let digest = c
             .signed_digest()
             .map_err(|e| void("cp-cert", e.to_string()))?;
-        if !env.verifier.verify(&root_pk.0, &digest.0, &c.sig.0) {
-            return Err(void("cp-cert", "bad root signature on certificate"));
+        if let Some(root_pk) = self.root_pk {
+            if !env.verifier.verify(&root_pk.0, &digest.0, &c.sig.0) {
+                return Err(void("cp-cert", "bad root signature on certificate"));
+            }
+        } else {
+            stall.get_or_insert("genesis root is not trusted by this build");
         }
         if item.signer != Some(c.key_id()) {
             return Err(void("cp-cert", "signer is not the certified key"));
@@ -1353,6 +1372,7 @@ impl PolicyState {
         op: &PolicyOp,
         env: &Env<'_>,
         events: &mut Vec<PolicyEvent>,
+        stall: &mut Option<&'static str>,
     ) -> Verdict {
         match op {
             PolicyOp::Genesis(g) => {
@@ -1497,16 +1517,17 @@ impl PolicyState {
                 }
             }
             PolicyOp::CpKeyRevoke(r) => {
-                if self.cp_roots.is_empty() {
+                if self.cp_roots.is_empty() && stall.is_none() {
                     return Err(void("cp-key-revoke", "no genesis"));
                 }
                 let msg = Cbor::Array(vec![r.key_id.to_cbor(), Cbor::int(r.revoked_from)]);
                 let bytes = cbor::encode(&msg).map_err(|e| void("cp-key-revoke", e.to_string()))?;
                 let d = h("mdbase/v1/cp-key-revoke", &bytes);
-                if !self
-                    .cp_roots
-                    .iter()
-                    .any(|pk| env.verifier.verify(&pk.0, &d.0, &r.root_sig.0))
+                if !self.cp_roots.is_empty()
+                    && !self
+                        .cp_roots
+                        .iter()
+                        .any(|pk| env.verifier.verify(&pk.0, &d.0, &r.root_sig.0))
                 {
                     return Err(void("cp-key-revoke", "bad root signature"));
                 }
@@ -1557,7 +1578,7 @@ impl PolicyState {
                 let to_cp = env.trusted_roots.contains(&rh.new_root.0);
                 let to_local = od.local_root == Some(rh.new_root);
                 if !(to_cp || to_local) {
-                    return Err(void("root-handover", "target root not allowed"));
+                    stall.get_or_insert("root-handover target is not trusted by this build");
                 }
                 // In a cloud copy the control plane
                 // (enrolling an owner-account device with its own sign key and
@@ -1576,7 +1597,7 @@ impl PolicyState {
                 }
                 self.root = Some(key_id(&rh.new_root.0));
                 self.root_pk = Some(rh.new_root);
-                if to_cp {
+                if to_cp || !to_local {
                     self.cp_roots.insert(rh.new_root);
                 } else {
                     self.handover_roots.insert(key_id(&rh.new_root.0));

@@ -1,3 +1,53 @@
+#[test]
+fn review_pr1057_main_comparison_manifest_refs_ignore_keys_and_cache() {
+    let mut outcomes = Vec::new();
+    for (warm_proof, know_old_key) in [(false, false), (false, true), (true, false), (true, true)] {
+        let mut replica = node();
+        let (content, objects) = contents(&mut replica, &vec![b'x'; 1048577], true);
+        if warm_proof {
+            cache_source_proof(&mut replica, &content, &objects);
+        }
+        let FileContent::AttachmentV1(attachment) = &content else {
+            unreachable!()
+        };
+        let manifest = attachment.reference.manifest_cipher_hash;
+        let refs = objects
+            .keys()
+            .filter(|address| **address != manifest)
+            .copied()
+            .collect::<Vec<_>>();
+        replica.r.policy.epoch = 2;
+        let entry = planned(&replica, payload(content));
+        let mut keys = crate::crypto::keys::Keyring::new();
+        keys.insert(2, Secret32([9; 32]));
+        if know_old_key {
+            keys.insert(1, Secret32([9; 32]));
+        }
+        let raw = keys.to_bytes();
+        let mut saved = Zeroizing::new((raw.len() as u64).to_be_bytes().to_vec());
+        saved.extend_from_slice(&raw);
+        let mut sealer = KeyringSealer::new(COL, B16([101; 16]), &[6; 32], &[7; 32]);
+        sealer.import(&saved).unwrap();
+        sealer.set_epoch(2);
+        replica.r.sealer = Box::new(sealer);
+        let head = retain(&mut replica);
+        let writer = replica.r.cfg.device_id;
+        let outcome = apply_body_with_refs(&mut replica, head, &entry, &objects, writer, &refs);
+        outcomes.push((
+            warm_proof,
+            know_old_key,
+            format!("{outcome:?}"),
+            replica.r.head.seq,
+        ));
+    }
+    eprintln!("omitted manifest ref (warm, old-key, outcome, head): {outcomes:?}");
+    assert!(
+        outcomes
+            .iter()
+            .all(|(_, _, outcome, _)| outcome == "Void(\"V7: native source refs\")")
+    );
+}
+
 use super::engine::{COL, Node};
 use crate::{
     attachments::{AttachmentWriter, StreamError},
@@ -19,6 +69,253 @@ use mdbn_wire::{
 use std::collections::BTreeMap;
 use zeroize::Zeroizing;
 type Objects = BTreeMap<Hash, Vec<u8>>;
+#[test]
+fn missing_epoch_key_does_not_mask_other_source_refs_void() {
+    for (know_old_key, reverse_sources) in
+        [(false, false), (true, false), (false, true), (true, true)]
+    {
+        let mut node = node();
+        let (first, first_objects) = contents(&mut node, &vec![b'a'; 1048577], false);
+        let (second, _) = blob::seal_blob(
+            &Secret32([9; 32]),
+            2,
+            &COL,
+            &vec![b'b'; 1048577],
+            blob::MIN_PART_SIZE,
+            false,
+            &mut *node.r.host.entropy,
+        )
+        .unwrap();
+        node.r.policy.epoch = 2;
+        let mut entry = payload(first);
+        entry
+            .mutation
+            .ops
+            .push(rt::Op::UnindexedMarkdownPut(UnindexedMarkdownPut {
+                id: B16([53; 16]),
+                path: "second.md".into(),
+                payload: UnindexedMarkdownPayloadV1 {
+                    content: FileContent::Blob(second),
+                },
+                expected: None,
+            }));
+        if reverse_sources {
+            entry.mutation.ops.reverse();
+        }
+        let entry = planned(&node, entry);
+        let mut keys = crate::crypto::keys::Keyring::new();
+        keys.insert(2, Secret32([9; 32]));
+        if know_old_key {
+            keys.insert(1, Secret32([9; 32]));
+        }
+        let raw = keys.to_bytes();
+        let mut saved = Zeroizing::new((raw.len() as u64).to_be_bytes().to_vec());
+        saved.extend_from_slice(&raw);
+        let mut sealer = KeyringSealer::new(COL, B16([101; 16]), &[6; 32], &[7; 32]);
+        sealer.import(&saved).unwrap();
+        sealer.set_epoch(2);
+        node.r.sealer = Box::new(sealer);
+        let head = retain(&mut node);
+        let writer = node.r.cfg.device_id;
+        let before_voids = node.r.policy.voids;
+        let outcome = node
+            .r
+            .test_apply_authorized_unindexed_with_refs(
+                head.seq,
+                head,
+                entry,
+                &mut Default::default(),
+                writer,
+                &first_objects.keys().copied().collect::<Vec<_>>(),
+            )
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            crate::replica::apply::Outcome::Void("V7: native source refs")
+        ));
+        assert_eq!(node.r.store.head().unwrap(), head);
+        assert_eq!(node.r.head, head);
+        assert_eq!(node.r.policy.voids, before_voids + 1);
+        assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
+        assert!(node.r.store.file(&B16([53; 16])).unwrap().is_none());
+    }
+}
+
+#[test]
+fn missing_epoch_key_does_not_mask_authenticated_attachment_refs_void() {
+    for warm_proof in [false, true] {
+        let mut node = node();
+        let (content, objects) = contents(&mut node, &vec![b'a'; 1048577], true);
+        if warm_proof {
+            cache_source_proof(&mut node, &content, &objects);
+        }
+        let (missing, parts) = blob::seal_blob(
+            &Secret32([9; 32]),
+            2,
+            &COL,
+            &vec![b'b'; 1048577],
+            blob::MIN_PART_SIZE,
+            false,
+            &mut *node.r.host.entropy,
+        )
+        .unwrap();
+        let FileContent::AttachmentV1(attachment) = &content else {
+            unreachable!()
+        };
+        let mut refs = parts.iter().map(|part| part.address).collect::<Vec<_>>();
+        refs.push(attachment.reference.manifest_cipher_hash);
+        let mut entry = payload(FileContent::Blob(missing));
+        entry
+            .mutation
+            .ops
+            .push(rt::Op::UnindexedMarkdownPut(UnindexedMarkdownPut {
+                id: B16([53; 16]),
+                path: "second.md".into(),
+                payload: UnindexedMarkdownPayloadV1 { content },
+                expected: None,
+            }));
+        node.r.policy.epoch = 2;
+        let entry = planned(&node, entry);
+        let head = retain(&mut node);
+        let writer = node.r.cfg.device_id;
+        let before_voids = node.r.policy.voids;
+        assert!(matches!(
+            apply_body_with_refs(&mut node, head, &entry, &objects, writer, &refs),
+            crate::replica::apply::Outcome::Void("V7: native source refs")
+        ));
+        assert_eq!(node.r.head, head);
+        assert_eq!(node.r.store.head().unwrap(), head);
+        assert_eq!(node.r.policy.voids, before_voids + 1);
+        assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
+        assert!(node.r.store.file(&B16([53; 16])).unwrap().is_none());
+    }
+}
+
+fn cache_source_proof(node: &mut Node, content: &FileContent, objects: &Objects) {
+    let source = payload(content.clone());
+    let head = Head {
+        seq: node.r.head.seq + 1,
+        chain: B32([4; 32]),
+    };
+    let refs = objects.keys().copied().collect::<Vec<_>>();
+    assert!(matches!(
+        node.r.unindexed_source_check(head, &source, Some(&refs)),
+        Check::Pending
+    ));
+    for _ in 0..3 {
+        step(node, objects, head, false);
+    }
+    let Check::Ready(meta) = node.r.unindexed_source_check(head, &source, Some(&refs)) else {
+        panic!("original descriptor was not authenticated");
+    };
+    node.r
+        .store
+        .commit(crate::store::Tx {
+            meta,
+            ..Default::default()
+        })
+        .unwrap();
+}
+
+#[test]
+fn inventory_requires_current_descriptor_authentication_before_refs_void() {
+    for (warm_inventory, warm_proof) in [(false, false), (true, false), (true, true)] {
+        let mut node = node();
+        let (mut content, objects) = contents(&mut node, &vec![b'x'; 1048577], true);
+        if warm_proof {
+            cache_source_proof(&mut node, &content, &objects);
+        }
+        let FileContent::AttachmentV1(attachment) = &mut content else {
+            unreachable!()
+        };
+        let manifest_address = attachment.reference.manifest_cipher_hash;
+        if warm_inventory {
+            let (descriptor, expected) = crate::replica::attachment_fetch::descriptor(attachment);
+            let manifest = node
+                .r
+                .sealer
+                .open_attachment_manifest(
+                    &descriptor,
+                    expected,
+                    &objects[&manifest_address],
+                    AttachmentLimits::default(),
+                )
+                .unwrap();
+            node.r
+                .store
+                .commit(crate::store::Tx {
+                    meta: vec![crate::replica::attachment_inventory::inventory_meta(
+                        manifest_address,
+                        &manifest.manifest().chunks,
+                    )],
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        attachment.reference.attachment_id = B32([123; 32]);
+        let entry = planned(&node, payload(content));
+        let head = retain(&mut node);
+        let writer = node.r.cfg.device_id;
+        let before_head = node.r.store.head().unwrap();
+        let before_voids = node.r.policy.voids;
+        let before_proofs = node.r.store.meta("replica.unindexed_byte_proofs").unwrap();
+        let mut outcome = node
+            .r
+            .test_apply_authorized_unindexed_with_refs(
+                head.seq,
+                head,
+                entry.clone(),
+                &mut Default::default(),
+                writer,
+                &[manifest_address],
+            )
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            crate::replica::apply::Outcome::SourcePending
+        ));
+        assert_eq!(node.r.store.head().unwrap(), before_head);
+        step(&mut node, &objects, head, false);
+        outcome = node
+            .r
+            .test_apply_authorized_unindexed_with_refs(
+                head.seq,
+                head,
+                entry,
+                &mut Default::default(),
+                writer,
+                &[manifest_address],
+            )
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            crate::replica::apply::Outcome::SourcePending
+        ));
+        assert_eq!(node.r.store.head().unwrap(), before_head);
+        assert_eq!(node.r.head, before_head);
+        assert_eq!(node.r.policy.voids, before_voids);
+        assert_eq!(
+            node.r.store.meta("replica.unindexed_byte_proofs").unwrap(),
+            before_proofs
+        );
+        assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
+    }
+}
+struct ErrorPlanner;
+impl crate::plan::Planner for ErrorPlanner {
+    fn plan(
+        &self,
+        _: &mdbn_core::intent::Mutation,
+        _: &dyn mdbn_core::state::StateView,
+        _: &mdbn_core::plan::PlanOptions,
+    ) -> Result<mdbn_core::plan::Planned, mdbn_core::plan::Rejection> {
+        Err(mdbn_core::plan::Rejection::new(
+            mdbn_core::plan::RejectCode::InvalidRequest,
+            None,
+            "planner error",
+        ))
+    }
+}
 pub(super) fn node() -> Node {
     node_store(crate::mem::MemStore::new())
 }
@@ -204,8 +501,18 @@ fn apply_body(
     objects: &Objects,
     writer: B16,
 ) -> crate::replica::apply::Outcome {
-    let mut changed = std::collections::BTreeSet::new();
     let refs = objects.keys().copied().collect::<Vec<_>>();
+    apply_body_with_refs(a, head, p, objects, writer, &refs)
+}
+fn apply_body_with_refs(
+    a: &mut Node,
+    head: Head,
+    p: &rt::EntryPayload,
+    objects: &Objects,
+    writer: B16,
+    refs: &[Hash],
+) -> crate::replica::apply::Outcome {
+    let mut changed = std::collections::BTreeSet::new();
     let first =
         a.r.test_apply_authorized_unindexed_with_refs(
             head.seq,
@@ -213,7 +520,7 @@ fn apply_body(
             p.clone(),
             &mut changed,
             writer,
-            &refs,
+            refs,
         )
         .unwrap();
     if !matches!(first, crate::replica::apply::Outcome::SourcePending) {
@@ -229,7 +536,7 @@ fn apply_body(
                 p.clone(),
                 &mut changed,
                 writer,
-                &refs,
+                refs,
             )
             .unwrap();
         if !matches!(outcome, crate::replica::apply::Outcome::SourcePending) {
@@ -238,6 +545,127 @@ fn apply_body(
     }
     panic!("bounded source did not finish");
 }
+#[test]
+fn native_invalid_effect_path_voids_before_planner_mismatch() {
+    let mut node = node();
+    let writer = node.r.cfg.device_id;
+    let (content, objects) = contents(&mut node, &vec![b'x'; 1048577], true);
+    let mut payload = planned(&node, payload(content));
+    let rt::Effect::PutUnindexedMarkdown(effect) = &mut payload.effects[0] else {
+        panic!("expected a native put effect");
+    };
+    effect.path = "../escape.md".into();
+    let before_voids = node.r.policy.voids;
+    let head = retain(&mut node);
+    assert!(matches!(
+        apply_body(&mut node, head, &payload, &objects, writer),
+        crate::replica::apply::Outcome::Void("V7: unindexed effect descriptor or path")
+    ));
+    assert_eq!(node.r.head, head);
+    assert_eq!(node.r.store.head().unwrap(), head);
+    assert_eq!(node.r.policy.voids, before_voids + 1);
+    assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
+}
+
+#[test]
+fn missing_native_refs_void_despite_planner_drift_or_error() {
+    let mut outcomes = Vec::new();
+    for planner_error in [false, true] {
+        let mut node = node();
+        let writer = node.r.cfg.device_id;
+        let (content, objects) = contents(&mut node, &vec![b'x'; 1048577], true);
+        let payload = planned(&node, payload(content));
+        let head = retain(&mut node);
+        if planner_error {
+            node.r.planner = Box::new(ErrorPlanner);
+        }
+        let outcome = apply_body_with_refs(&mut node, head, &payload, &objects, writer, &[]);
+        outcomes.push(format!("{outcome:?}"));
+    }
+    assert_eq!(outcomes[0], "Void(\"V7: native source refs\")");
+    assert_eq!(
+        outcomes[1], outcomes[0],
+        "same refs omission, planner-dependent verdict: {outcomes:?}"
+    );
+}
+
+#[test]
+fn native_planner_drift_stalls_before_head_advance() {
+    use crate::plan::Planner;
+    use mdbn_core::intent::Mutation;
+    use mdbn_core::plan::{PlanOptions, Planned, RejectCode, Rejection};
+    use mdbn_core::state::StateView;
+
+    struct DriftPlanner(bool);
+    impl Planner for DriftPlanner {
+        fn plan(
+            &self,
+            mutation: &Mutation,
+            state: &dyn StateView,
+            options: &PlanOptions,
+        ) -> Result<Planned, Rejection> {
+            if self.0 {
+                return Err(Rejection::new(
+                    RejectCode::InvalidRequest,
+                    None,
+                    "planner drift",
+                ));
+            }
+            let mut result = crate::plan::CorePlanner.plan(mutation, state, options)?;
+            result.effects.clear();
+            Ok(result)
+        }
+    }
+
+    for planner_error in [false, true] {
+        let mut node = node();
+        let writer = node.r.cfg.device_id;
+        let (content, objects) = contents(&mut node, &vec![b'x'; 1048577], true);
+        let FileContent::AttachmentV1(attachment) = &content else {
+            unreachable!()
+        };
+        let manifest = attachment.reference.manifest_cipher_hash;
+        let payload = planned(&node, payload(content));
+        assert!(!payload.effects.is_empty());
+        let before_head = node.r.head;
+        let before_policy = node.r.policy.clone();
+        let before_meta = node.r.policy_meta();
+        let before_verified = node.r.stats.verified;
+        let head = retain(&mut node);
+        node.r.planner = Box::new(DriftPlanner(planner_error));
+        assert!(matches!(
+            apply_body(&mut node, head, &payload, &objects, writer),
+            crate::replica::apply::Outcome::Stall(
+                mdbn_wire::client::IncidentKind::UpgradeRequired,
+                _
+            )
+        ));
+        assert_eq!(node.r.head, before_head);
+        assert_eq!(node.r.store.head().unwrap(), before_head);
+        assert_eq!(node.r.policy, before_policy);
+        assert_eq!(node.r.store.meta(&before_meta.0).unwrap(), before_meta.1);
+        assert_eq!(node.r.stats.verified, before_verified);
+        assert!(
+            node.r
+                .store
+                .meta("replica.unindexed_byte_proofs")
+                .unwrap()
+                .is_none()
+        );
+        assert!(node.r.attachment_inventory(&manifest).unwrap().is_none());
+        assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
+        assert!(node.r.before.is_empty());
+        assert!(!node.r.unindexed_sources.pending());
+        node.r.planner = Box::new(crate::plan::CorePlanner);
+        assert!(matches!(
+            apply_body(&mut node, head, &payload, &objects, writer),
+            crate::replica::apply::Outcome::Applied
+        ));
+        assert_eq!(node.r.head, head);
+        assert_eq!(node.r.policy.voids, before_policy.voids);
+    }
+}
+
 #[test]
 fn atomic_native_create_and_both_kind_transitions_preserve_identity_without_tombs() {
     let mut a = node();
@@ -330,7 +758,7 @@ fn cached_source_never_replaces_mandatory_full_prior_descriptor_cas() {
     let h = retain(&mut a);
     assert!(matches!(
         apply_body(&mut a, h, &stale, &objects, writer),
-        crate::replica::apply::Outcome::Void("V7: unindexed result or prior CAS mismatch")
+        crate::replica::apply::Outcome::Stall(mdbn_wire::client::IncidentKind::UpgradeRequired, _)
     ));
     assert_eq!(a.r.store.file(&B16([52; 16])).unwrap().unwrap(), before);
 }
@@ -424,6 +852,80 @@ fn complete_invalid_utf8_rejects_with_actual_writer_receipt_and_advances_only_pr
             .unwrap()
             .is_none()
     );
+}
+#[test]
+fn authenticated_invalid_utf8_precedes_planner_stall() {
+    for attachment in [false, true] {
+        for planner_error in [false, true] {
+            let mut node = node();
+            let mut plain = vec![b'x'; 1048577];
+            plain[0] = 255;
+            let (content, objects) = contents(&mut node, &plain, attachment);
+            let payload = planned(&node, payload(content));
+            let head = retain(&mut node);
+            let writer = node.r.cfg.device_id;
+            let before_verified = node.r.stats.verified;
+            if planner_error {
+                node.r.planner = Box::new(ErrorPlanner);
+            }
+            assert!(matches!(
+                apply_body(&mut node, head, &payload, &objects, writer),
+                crate::replica::apply::Outcome::Void("unindexed_markdown_invalid_utf8")
+            ));
+            assert_eq!(node.r.store.head().unwrap(), head);
+            assert_eq!(node.r.stats.verified, before_verified);
+        }
+    }
+}
+#[test]
+fn missing_chunk_refs_precedes_planner_stall_with_cold_or_warm_inventory() {
+    for planner_error in [false, true] {
+        for warm_inventory in [false, true] {
+            let mut node = node();
+            let (content, objects) = contents(&mut node, &vec![b'x'; 1048577], true);
+            let FileContent::AttachmentV1(attachment) = &content else {
+                unreachable!()
+            };
+            let refs = [attachment.reference.manifest_cipher_hash];
+            if warm_inventory {
+                let (descriptor, expected) =
+                    crate::replica::attachment_fetch::descriptor(attachment);
+                let manifest = node
+                    .r
+                    .sealer
+                    .open_attachment_manifest(
+                        &descriptor,
+                        expected,
+                        &objects[&refs[0]],
+                        AttachmentLimits::default(),
+                    )
+                    .unwrap();
+                node.r
+                    .store
+                    .commit(crate::store::Tx {
+                        meta: vec![crate::replica::attachment_inventory::inventory_meta(
+                            refs[0],
+                            &manifest.manifest().chunks,
+                        )],
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            let payload = planned(&node, payload(content));
+            let head = retain(&mut node);
+            let writer = node.r.cfg.device_id;
+            let before_verified = node.r.stats.verified;
+            if planner_error {
+                node.r.planner = Box::new(ErrorPlanner);
+            }
+            assert!(matches!(
+                apply_body_with_refs(&mut node, head, &payload, &objects, writer, &refs),
+                crate::replica::apply::Outcome::Void("V7: native source refs")
+            ));
+            assert_eq!(node.r.store.head().unwrap(), head);
+            assert_eq!(node.r.stats.verified, before_verified);
+        }
+    }
 }
 #[test]
 fn async_production_profiles_never_confirm_before_complete_source() {
@@ -624,11 +1126,10 @@ fn invalid_prefix_only_rejects_after_complete_authentication_and_late_corruption
         let mut plain = vec![b'x'; 8 * 1048576 + 1];
         plain[0] = 255;
         let (content, objects) = contents(&mut a, &plain, true);
-        let p = payload(content);
-        let head = Head {
-            seq: before.seq + 1,
-            chain: B32([4; 32]),
-        };
+        let p = planned(&a, payload(content));
+        let head = retain(&mut a);
+        let writer = a.r.cfg.device_id;
+        a.r.planner = Box::new(ErrorPlanner);
         assert!(matches!(
             a.r.unindexed_source_check(
                 head,
@@ -658,5 +1159,28 @@ fn invalid_prefix_only_rejects_after_complete_authentication_and_late_corruption
             _ => panic!("incorrect complete-source classification"),
         }
         assert_eq!(a.r.store.head().unwrap(), before);
+        let outcome =
+            a.r.test_apply_authorized_unindexed_with_refs(
+                head.seq,
+                head,
+                p,
+                &mut Default::default(),
+                writer,
+                &objects.keys().copied().collect::<Vec<_>>(),
+            )
+            .unwrap();
+        if corrupt {
+            assert!(matches!(
+                outcome,
+                crate::replica::apply::Outcome::SourcePending
+            ));
+            assert_eq!(a.r.store.head().unwrap(), before);
+        } else {
+            assert!(matches!(
+                outcome,
+                crate::replica::apply::Outcome::Void("unindexed_markdown_invalid_utf8")
+            ));
+            assert_eq!(a.r.store.head().unwrap(), head);
+        }
     }
 }

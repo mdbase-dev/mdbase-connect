@@ -149,7 +149,7 @@ fn hydration_never_replaces_fresh_core_full_prior_cas() {
         .unwrap();
     assert!(matches!(
         apply(&mut a, h, &p, &refs),
-        Outcome::Void("V7: unindexed result or prior CAS mismatch")
+        Outcome::Stall(mdbn_wire::client::IncidentKind::UpgradeRequired, _)
     ));
     assert_eq!(a.r.store.file(&f.id).unwrap(), Some(f));
     assert!(a.r.store.record(&B16([52; 16])).unwrap().is_none());

@@ -262,6 +262,131 @@ fn create_op() -> Op {
 }
 
 #[test]
+fn genesis_trust_configuration_stalls_then_retries_identical_bytes() {
+    let item = genesis_item();
+    let mut state = PolicyState::new();
+    let before = state.clone();
+    let missing = Env {
+        trusted_roots: &[],
+        ..env()
+    };
+    assert!(
+        state
+            .apply_control(1, &CH, &item, &missing)
+            .unwrap_err()
+            .is_stall()
+    );
+    assert_eq!(state, before);
+    state.apply_control(1, &CH, &item, &env()).unwrap();
+    assert_eq!(state.seq, 1);
+    assert_eq!(state.voids, 0);
+    assert_eq!(state.root, Some(key_id(&ROOT)));
+}
+
+#[test]
+fn genesis_root_mismatch_voids_despite_missing_trust() {
+    let mut certificate = cert(0, 1000, CP);
+    certificate.root = key_id(&[8; 32]);
+    certificate.sig = sign(&ROOT, &certificate.signed_digest().unwrap().0);
+    let ops = PolicyPayload::from_bytes(&genesis_item().body.0)
+        .unwrap()
+        .ops;
+    let item = policy_with(1, 1, certificate, ops);
+    let known = PolicyState::new()
+        .apply_control(1, &CH, &item, &env())
+        .unwrap_err();
+    let missing = Env {
+        trusted_roots: &[],
+        ..env()
+    };
+    let unknown = PolicyState::new()
+        .apply_control(1, &CH, &item, &missing)
+        .unwrap_err();
+    assert_eq!(known.rule(), "cp-cert");
+    assert_eq!(
+        unknown.rule(),
+        known.rule(),
+        "same bytes, known={known:?}, unknown={unknown:?}"
+    );
+}
+
+#[test]
+fn duplicate_device_voids_despite_missing_root_or_key_pins() {
+    let mut outcomes = Vec::new();
+    for missing_root in [false, true] {
+        let mut state = setup(CState::E2e);
+        let missing_pins = if missing_root {
+            pins([8; 32], [9; 32], [8; 32])
+        } else {
+            pins(ROOT, CP, ROOT)
+        };
+        let environment = Env {
+            policy_pins: Some(&missing_pins),
+            ..env()
+        };
+        let item = policy_with(
+            3,
+            3,
+            cert(0, 1000, [3; 32]),
+            vec![enrol(10, OWNER, DeviceKind::Desktop)],
+        );
+        let known = state
+            .clone()
+            .apply_control(3, &CH, &item, &env())
+            .unwrap_err();
+        let unpinned = state
+            .apply_control(3, &CH, &item, &environment)
+            .unwrap_err();
+        assert_eq!(known.rule(), "device-enrol");
+        outcomes.push((
+            missing_root,
+            known.rule().to_owned(),
+            unpinned.rule().to_owned(),
+        ));
+    }
+    assert!(
+        outcomes
+            .iter()
+            .all(|(_, known, unpinned)| known == unpinned),
+        "pin-dependent verdicts: {outcomes:?}"
+    );
+}
+
+#[test]
+fn removing_sole_owner_voids_after_untrusted_handover() {
+    let mut state = setup(CState::E2e);
+    let mut handover = mdbn_wire::policy::RootHandover {
+        new_root: B32([8; 32]),
+        owner_device: dev(10),
+        move_id: B16([3; 16]),
+        consent: B64([0; 64]),
+    };
+    handover.consent = sign(&dpk(10).0, &handover.consent_digest(&COL, 3).0);
+    let item = policy(
+        3,
+        vec![
+            PolicyOp::RootHandover(handover),
+            PolicyOp::MemberRemove(MemberRemove { account: OWNER }),
+        ],
+    );
+    let updated = Env {
+        trusted_roots: &[ROOT, [8; 32]],
+        ..env()
+    };
+    let known = state
+        .clone()
+        .apply_control(3, &CH, &item, &updated)
+        .unwrap_err();
+    let unknown = state.apply_control(3, &CH, &item, &env()).unwrap_err();
+    assert_eq!(known.rule(), "member-remove");
+    assert_eq!(
+        unknown.rule(),
+        known.rule(),
+        "same bytes, known={known:?}, unknown={unknown:?}"
+    );
+}
+
+#[test]
 fn genesis_must_be_first_and_trusted() {
     let mut s = PolicyState::new();
     let r = s.apply_control(
@@ -2187,7 +2312,6 @@ fn root_handover_needs_owner_consent_and_an_allowed_target() {
         rh.consent = sign(&dpk(signer_key).0, &rh.consent_digest(&COL, seq).0);
         PolicyOp::RootHandover(rh)
     };
-    // No owner consent (signed by another key), a non-owner device, a disallowed target: void.
     assert!(
         base()
             .apply_control(5, &CH, &policy(5, vec![handover(5, LOCAL, 14, 10)]), &env())
@@ -2198,16 +2322,24 @@ fn root_handover_needs_owner_consent_and_an_allowed_target() {
             .apply_control(5, &CH, &policy(5, vec![handover(5, LOCAL, 11, 11)]), &env())
             .is_err()
     );
+    let item = policy(5, vec![handover(5, [8; 32], 14, 14)]);
+    let mut state = base();
+    let before = state.clone();
     assert!(
-        base()
-            .apply_control(
-                5,
-                &CH,
-                &policy(5, vec![handover(5, [8; 32], 14, 14)]),
-                &env()
-            )
-            .is_err()
+        state
+            .apply_control(5, &CH, &item, &env())
+            .unwrap_err()
+            .is_stall()
     );
+    assert_eq!(state, before);
+    let updated = Env {
+        trusted_roots: &[ROOT, [8; 32]],
+        ..env()
+    };
+    state.apply_control(5, &CH, &item, &updated).unwrap();
+    assert_eq!(state.root, Some(key_id(&[8; 32])));
+    assert_eq!(state.seq, 5);
+    assert_eq!(state.voids, before.voids);
     // Consent bound to the position.
     assert!(
         base()
@@ -2929,6 +3061,34 @@ fn pins(root: [u8; 32], key: [u8; 32], key_root: [u8; 32]) -> PolicyPins {
     }
 }
 
+#[test]
+fn policy_unpinned_key_with_bad_root_signature_voids() {
+    let pins = pins(ROOT, CP, ROOT);
+    let env = Env {
+        verifier: &Fake,
+        trusted_roots: &[ROOT],
+        policy_pins: Some(&pins),
+    };
+    let mut state = PolicyState::new();
+    state.apply_control(1, &CH, &genesis_item(), &env).unwrap();
+    let mut certificate = cert(0, 1000, [3; 32]);
+    certificate.sig.0[0] ^= 1;
+    let item = policy_with(
+        2,
+        2,
+        certificate,
+        vec![enrol(11, OWNER, DeviceKind::Desktop)],
+    );
+    let before_voids = state.voids;
+    assert_eq!(
+        state.apply_control(2, &CH, &item, &env).unwrap_err().rule(),
+        "cp-cert"
+    );
+    assert_eq!(state.seq, 2);
+    assert_eq!(state.voids, before_voids + 1);
+    assert!(!state.devices.contains_key(&dev(11)));
+}
+
 fn genesis_item() -> Item {
     policy(
         1,
@@ -2946,8 +3106,7 @@ fn genesis_item() -> Item {
     )
 }
 
-/// With published pins, a policy item is valid only when its certificate is by the
-/// pinned root for a pinned policy key; anything else is void, at genesis and after.
+/// Missing published pins stall; invalid certificates and logged revocations void.
 #[test]
 fn policy_pins_admit_only_published_keys() {
     let with = |p: &PolicyPins, item: &Item, s: &mut PolicyState, seq: u64| {
@@ -2968,17 +3127,33 @@ fn policy_pins_admit_only_published_keys() {
         2,
     )
     .unwrap();
-    // A later item under another (root-certified) policy key: void.
     let other = policy_with(
         3,
         3,
         cert(0, 1000, [3; 32]),
         vec![enrol(11, OWNER, DeviceKind::Desktop)],
     );
+    let before = s.clone();
+    assert!(with(&good, &other, &mut s, 3).unwrap_err().is_stall());
+    assert_eq!(s, before);
+    let mut updated = good.clone();
+    updated
+        .policy_keys
+        .extend(pins(ROOT, [3; 32], ROOT).policy_keys);
+    with(&updated, &other, &mut s, 3).unwrap();
+    assert_eq!(s.seq, 3);
+    assert_eq!(s.voids, before.voids);
+    assert!(s.devices.contains_key(&dev(11)));
+    let mut revoked = before.clone();
+    revoked.revoked_cp_keys.insert(key_id(&[3; 32]), 0);
     assert_eq!(
-        with(&good, &other, &mut s, 3).unwrap_err().rule(),
+        with(&good, &other, &mut revoked, 3).unwrap_err().rule(),
         "cp-cert"
     );
+    assert_eq!(revoked.seq, 3);
+    assert_eq!(revoked.voids, before.voids + 1);
+    assert!(!revoked.devices.contains_key(&dev(11)));
+    s = before;
     assert!(s.consistent_with(&good));
     // The same key pinned only under another root: not this store's attribution
     // even with this store's root still pinned.
@@ -3033,12 +3208,17 @@ fn policy_pins_admit_only_published_keys() {
         }, // the root ID with another key
     ] {
         let mut s = PolicyState::new();
-        assert_eq!(
-            with(&bad, &genesis_item(), &mut s, 1).unwrap_err().rule(),
-            "cp-cert",
+        let before = s.clone();
+        assert!(
+            with(&bad, &genesis_item(), &mut s, 1)
+                .unwrap_err()
+                .is_stall(),
             "{bad:?}"
         );
-        assert!(s.root.is_none() && s.voids == 1, "void: nothing applied");
+        assert_eq!(s, before);
+        with(&good, &genesis_item(), &mut s, 1).unwrap();
+        assert_eq!(s.seq, 1);
+        assert_eq!(s.voids, 0);
     }
     // Without pins, today's behaviour.
     let mut s = PolicyState::new();
