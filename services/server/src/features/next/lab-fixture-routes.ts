@@ -10,6 +10,7 @@ import { requireConnector } from "../../platform/request-authentication.js";
 import { validateLabFixtureConfig, type LabFixtureConfig } from "./lab-fixture-config.js";
 import { LogServiceClient, LogServiceError, LOG_TOKEN_LIFETIME_MS } from "./log-service-client.js";
 import { ed25519PublicKeyObject, loadPolicySigner, type NextControlPlaneConfig } from "./policy-keys.js";
+import { CreateError } from "./bootstrap-common.js";
 import { PolicyEmitter, registerNextCollection } from "./policy-outbox.js";
 import { domainHash, encodeCbor, uuidBytes, type RegisteredDeviceKind } from "./policy-wire.js";
 
@@ -143,7 +144,7 @@ export function registerLabFixtureRoutes(app: FastifyInstance, options: {
         await client.query("COMMIT");
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
-        if (error instanceof FixtureError) return reply.code(error.status).send(apiError(error.code, "LAB fixture request refused."));
+        if (error instanceof FixtureError || error instanceof CreateError) return reply.code(error.status).send(apiError(error.code, "LAB fixture request refused."));
         throw error;
       } finally {
         client.release();

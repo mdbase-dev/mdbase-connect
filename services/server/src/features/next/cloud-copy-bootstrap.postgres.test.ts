@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
@@ -16,6 +17,7 @@ import { collectionLogTokenDigest, registerCollectionLogTokenRoute } from "./col
 import { cloudCopyCreateDigest, cloudCopyJoinDigest, registerCloudCopyRoutes } from "./cloud-copy-bootstrap.js";
 import { createServiceCloudCopy } from "./service-cloud-copy.js";
 import { createAccountCollection } from "../account/collection-creation.js";
+import { registerAccountCollectionCreationRoutes } from "../account/collection-creation-routes.js";
 import { registerMigrationProviderRoutes } from "./migration-provider.js";
 import { currentAccount } from "./bootstrap-common.js";
 import { createCohort, addToCohort, acceptCohortArchive, cohortArchiveBinding, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
@@ -184,6 +186,8 @@ describePg("cloud-copy bootstrap", () => {
         legacyMigrationPlacement: async () => ({ timezone: "UTC", ownerTimezones: ["Europe/Berlin", "America/Denver"] }) } });
     registerHostedSharingRoutes(app, { db, hostedCollections: true, hostedSharing: true, nativePolicyEmitter: emitter });
     registerCollectionLogTokenRoute(app,{db,log:client});
+    registerAccountCollectionCreationRoutes(app, { db, publicUrl: "https://connect.test", hostedCollections: true,
+      native: { db, next: config, emitter, log: client, fetchImpl: deployments.fetch } });
     registerPeopleRoutes(app,{db,issuer:"https://identity.test",publicUrl:"https://connect.test"});
   }, 60_000);
   afterAll(async () => {
@@ -200,6 +204,7 @@ describePg("cloud-copy bootstrap", () => {
     const signPk = ed25519RawPublicKey(key);
     const kemPk = rawX(); const noisePk = rawX();
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner') ON CONFLICT DO NOTHING", [user, `${user}@example.test`]);
+    await ensureDevelopmentEntitlement(db, user);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Daemon',$3)", [connector.id, user, tokenHash(token)]);
     const registration = await issueDeviceChallenge(db, connector.id);
     await registerDevice(db, connector, {
@@ -298,6 +303,19 @@ describePg("cloud-copy bootstrap", () => {
   const named=(p:Awaited<ReturnType<typeof nativePortal>>,display_name:unknown)=>app.inject({method:"POST",url:`${p.base}/collections`,headers:p.headers,payload:{display_name}});
   const picked=(p:Awaited<ReturnType<typeof nativePortal>>,collection:string)=>app.inject({method:"POST",url:`${p.base}/approve`,headers:p.headers,payload:{fingerprint:p.fingerprint,collection_ids:[collection],selected_collection_id:collection}});
   const nativeReceipt=(p:Awaited<ReturnType<typeof nativePortal>>)=>app.inject({method:"POST",url:`${p.base}/exchange`,headers:p.bearer});
+
+  it("pairing creation returns the collection quota problem without completing its intent", async () => {
+    const pairing = await nativePortal(), owner = pairing.who.connector.user_id;
+    await db.query("UPDATE account_entitlement_grants SET profile_code='free_v1' WHERE user_id=$1", [owner]);
+    expect((await serviceCreate(pairing.headers, randomUUID())).statusCode).toBe(200);
+    const response = await named(pairing, "Over allowance");
+    expect(response.statusCode).toBe(429);
+    expect(response.json().error).toMatchObject({ code: "account_collection_quota_exceeded", message: expect.stringContaining("synced collection limit") });
+    const intent = (await db.query("SELECT collection_id,completed_at FROM installation_pairing_collection_creations WHERE pairing_id=$1", [pairing.original.request_id])).rows[0];
+    expect(intent.completed_at).toBeNull();
+    expect(await registered(intent.collection_id)).toBe(false);
+    expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1", [intent.collection_id])).rows).toEqual([]);
+  });
 
   it("uses the canonical creator for one named portal collection and exact final creation provenance",async()=>{
     const p=await nativePortal(),created=await named(p," My tasks ");
@@ -553,9 +571,54 @@ describePg("cloud-copy bootstrap", () => {
     app.inject({ method: "POST", url: `/v1/next/collections/${collection}/devices`, headers: who.headers, payload });
   const genesisOps = (item: string) => field(decodeCbor(field(decodeCbor(Buffer.from(item, "hex")), 11) as Uint8Array), 3) as Decoded[];
 
+  it("account Add refuses over quota, creates no collection/services/outbox, and retries after owner deletion", async () => {
+    const who = await identity(), owner = who.connector.user_id, headers = await session(owner);
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [owner]);
+    await db.query("INSERT INTO next_migration_account_flips(account_id,collections,evidence_digest) VALUES($1,'{}',$2)", [owner, "d".repeat(64)]);
+    await db.query("UPDATE account_entitlement_grants SET profile_code='free_v1' WHERE user_id=$1", [owner]);
+    const add = (requestId: string) => app.inject({ method: "POST", url: "/v1/account/collections", headers,
+      payload: { account_id: owner, request_id: requestId, display_name: "Quota fixture", timezone: "UTC" } });
+    const firstRequest = randomUUID(), refusedRequest = randomUUID();
+    const first = await add(firstRequest);
+    expect(first.statusCode).toBe(200);
+    const collection = first.json().collection.id;
+    expect((await add(firstRequest)).json().collection.id).toBe(collection);
+    const rejected = await add(refusedRequest);
+    expect(rejected.statusCode).toBe(429);
+    expect(rejected.json().error).toMatchObject({ code: "account_collection_quota_exceeded", message: expect.stringContaining("synced collection limit") });
+    const intent = (await db.query("SELECT collection_id,published_at FROM account_collection_creations WHERE user_id=$1 AND request_id=$2", [owner, refusedRequest])).rows[0];
+    expect(intent.published_at).toBeNull();
+    expect(await registered(intent.collection_id)).toBe(false);
+    expect((await db.query("SELECT 1 FROM next_service_devices WHERE collection_id=$1", [intent.collection_id])).rows).toEqual([]);
+    expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1", [intent.collection_id])).rows).toEqual([]);
+    expect(log.logs.has(intent.collection_id.replaceAll("-", ""))).toBe(false);
+    expect((await join(who, collection, await joinProof(who, collection))).statusCode).toBe(200);
+    const deleted = await app.inject({ method: "DELETE", url: `/v1/next/collections/${collection}`, headers: who.headers, payload: { confirm_name: "Quota fixture" } });
+    expect(deleted.statusCode).toBe(200);
+    const retry = await add(refusedRequest);
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json().collection.id).toBe(intent.collection_id);
+  });
+
+  it("service and owner-device cloud-copy paths share the same quota admission", async () => {
+    const who = await identity(), owner = who.connector.user_id;
+    await db.query("UPDATE account_entitlement_grants SET profile_code='free_v1' WHERE user_id=$1", [owner]);
+    const collection = randomUUID(), headers = await session(owner);
+    expect((await serviceCreate(headers, collection)).statusCode).toBe(200);
+    expect((await serviceCreate(headers, collection)).statusCode).toBe(200);
+    for (const mode of ["service", "device"]) {
+      const refused = randomUUID();
+      const response = mode === "service" ? await serviceCreate(headers, refused) : await create(who, await proof(who, refused));
+      expect(response.statusCode).toBe(429);
+      expect(response.json().error.code).toBe("account_collection_quota_exceeded");
+      expect(await registered(refused)).toBe(false);
+    }
+  });
+
   it("account Add resumes the canonical creator after accepted zero-Hosted migration completion without thaw", async () => {
     const owner = randomUUID(), cohort = `account-add-${randomUUID()}`, actor = "synthetic-local-pg";
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner')", [owner, `${owner}@example.test`]);
+    await ensureDevelopmentEntitlement(db, owner);
     await createCohort(db, cohort, actor); await addToCohort(db, cohort, [owner], actor);
     await releaseCohort(db, cohort, actor); await setCohortFrozen(db, cohort, true, "synthetic archive", actor);
     const binding = await cohortArchiveBinding(db, cohort);
@@ -865,8 +928,6 @@ describePg("cloud-copy bootstrap", () => {
       await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [id]);
       await db.query("INSERT INTO email_identities(id,user_id,email,normalized_email,verified_at,is_primary) VALUES($1,$2,$3,$3,now(),true)", [randomUUID(), id, `${id}@example.test`]);
     }
-    await db.query("INSERT INTO account_entitlement_grants(id,user_id,profile_code,source,source_reference) VALUES($1,$2,'beta_v1','operator',$3)", [randomUUID(), owner.connector.user_id, randomUUID()]);
-    await db.query("INSERT INTO account_storage_accounts(user_id,provider_account_id) VALUES($1,$2)", [owner.connector.user_id, randomUUID()]);
     const invitation = await createHostedCollectionInvitation(db, { collectionId: collection, actorUserId: owner.connector.user_id, role: "editor", target: { email: `${member.connector.user_id}@example.test` } });
     const accepted = await app.inject({ method: "POST", url: "/v1/hosted/collection-invitations/accept", headers: await session(member.connector.user_id), payload: { token: invitation.token } });
     expect(accepted.statusCode, accepted.body).toBe(201);

@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
@@ -41,6 +42,7 @@ describePg("native migration record (isolated real PostgreSQL; synthetic acknowl
   async function identity(kind: RegisteredDeviceKind | null = "desktop") {
     const account = randomUUID(), connector = { id: randomUUID(), user_id: account }, token = randomUUID(), device = randomUUID();
     await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Synthetic','next')", [account, `${account}@example.test`]);
+    await ensureDevelopmentEntitlement(db, account);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Synthetic',$3)", [connector.id, account, tokenHash(token)]);
     const key = generateKeyPairSync("ed25519").privateKey, signPk = ed25519RawPublicKey(key), kemPk = rawX(), noisePk = rawX();
     if (kind) {

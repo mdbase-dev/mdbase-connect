@@ -9,6 +9,8 @@
 // - any other refusal parks the collection's queue (order matters) until an operator
 //   looks at it. Nothing is dropped silently.
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
+import { effectiveEntitlement, HostedEntitlementRequiredError } from "../../entitlements.js";
+import { CreateError } from "./bootstrap-common.js";
 import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
 import { recoverLostPolicy, withPolicyLock, type PolicyLock } from "./policy-recovery.js";
@@ -93,6 +95,19 @@ export async function registerNextCollection(
   // Cleartext catalog metadata for either sync mode; never part of private policy/key material.
   // The initial catalog label belongs to the first registration, never a retry.
   const displayName = input.displayName ?? DEFAULT_COLLECTION_DISPLAY_NAME;
+  if (input.runtime === "next") {
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended('next-collection-quota:' || $1::uuid::text, 0))", [input.ownerUserId]);
+    const entitlement = await effectiveEntitlement(client, input.ownerUserId);
+    if (!entitlement) throw new HostedEntitlementRequiredError();
+    const usage = await client.query<{ count: string }>(
+      `SELECT count(*) FROM next_collections n
+       WHERE n.owner_user_id = $1 AND n.runtime = 'next'
+         AND n.sync IN ('cloud_copy', 'private') AND n.left_sync_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id = n.collection_id)`,
+      [input.ownerUserId]
+    );
+    if (Number(usage.rows[0]!.count) >= entitlement.maxHostedCollections) throw new CreateError(429, "account_collection_quota_exceeded");
+  }
   await client.query(
     `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id, display_name)
      VALUES ($1, $2, $3, $4, $5, $6)`,

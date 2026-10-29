@@ -131,6 +131,7 @@ async function provisionNativeStarter(
 }
 
 const REFUSALS: Record<string, [number, string]> = {
+  account_collection_quota_exceeded: [429, "Your account has reached its synced collection limit. Delete a synced collection before setting up your starter collection."],
   onboarding_not_ready: [409, "Your account is still moving. Try again in a little while."],
   starter_unavailable: [409, "Your starter collection can't be set up automatically."],
   starter_content_unavailable: [503, "Starter collections are temporarily unavailable. Try again later."],

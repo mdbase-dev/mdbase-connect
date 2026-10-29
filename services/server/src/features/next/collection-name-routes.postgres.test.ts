@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import Fastify from "fastify";
@@ -55,6 +56,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     const credential = `fixture_${randomUUID()}`;
     const kind = installation ? "app-runtime" as const : "desktop" as const;
     await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Fixture owner','next')", [user, `${user}@example.test`]);
+    await ensureDevelopmentEntitlement(db, user);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Fixture connector',$3)", [connector, user, tokenHash(installation ? `unused_${randomUUID()}` : credential)]);
     await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,$4,$5,$6,$7)", [device, connector, user, kind, keys.sign_pk, keys.kem_pk, keys.noise_pk]);
     await inTransaction(db, client => registerNextCollection(client, {
@@ -167,6 +169,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
   });
   it("uses the shared synced label for grant tokens and app catalog, not a device alias", async () => {
     const id = await localGrantFixture(db);
+    await ensureDevelopmentEntitlement(db, id);
     await db.query("UPDATE grants SET activated_at=now() WHERE id=$1", [id]);
     await inTransaction(db,client => registerNextCollection(client,{collectionId:id,ownerUserId:id,runtime:"next",sync,rootKeyId:Buffer.alloc(32),displayName:"Shared catalog",ops:[{op:"genesis",owner:id,root:Buffer.alloc(32),state:sync === "cloud_copy" ? "cloud-copy" : "e2e"},{op:"member-set",account:id,role:"owner"}]}));
     const tokens = await issueApplicationTokens(db,undefined,id);

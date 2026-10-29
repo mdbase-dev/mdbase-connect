@@ -27,7 +27,7 @@ import {
   installationApp,
   FILE_ACTIONS,
 } from "./installation-pairing.js";
-import { CreateError, isLockTimeout } from "../next/bootstrap-common.js";
+import { CreateError, isLockTimeout, refuse } from "../next/bootstrap-common.js";
 import { createInstallationPairingCollection } from "./installation-pairing-collection.js";
 import type { CloudCopyBootstrapOptions } from "../next/service-cloud-copy.js";
 import type { RelayHub } from "../../relay.js";
@@ -47,11 +47,7 @@ async function installationResult(
     if (e instanceof ServiceDeviceError)
       return reply.code(e.status===502?503:e.status).send(apiError(e.code,"Collection creation is incomplete. Resume the original named collection."));
     if (e instanceof CreateError)
-      return reply
-        .code(e.status)
-        .send(
-          apiError(e.code, "Device sign-in authority is no longer current."),
-        );
+      return refuse(reply, e, "Device sign-in authority is no longer current.");
     if ((e as { code?: unknown } | null)?.code === "23505")
       return reply.code(409).send(apiError("installation_actor_conflict", "This installation already has an original sign-in. Preserve and reconcile it."));
     if (isLockTimeout(e))

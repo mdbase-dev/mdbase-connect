@@ -3,6 +3,7 @@
 // and a modeled pause-mode Worker that drives those real CP routes; no
 // runtime/cloud qualification.
 import { createHash, randomUUID } from "node:crypto";
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import pg from "pg";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -316,6 +317,7 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     const normal = { hosted: { url: "https://hosted.example.test", token: "h".repeat(40) }, escrow: { url: "https://escrow.example.test", token: "e".repeat(40) } };
     const cloudCopy = (collectionId: string, owner: string) => registerNextCollection(db, { collectionId, ownerUserId: owner, runtime: "next", sync: "cloud_copy",
       rootKeyId: Buffer.alloc(16, 18), ops: [{ op: "genesis", owner, root: Buffer.alloc(16, 18), state: "cloud-copy" }, { op: "member-set", account: owner, role: "owner" }] });
+    await ensureDevelopmentEntitlement(db, f.account);
     await cloudCopy(native, f.account); // A CP-native cloud copy the owner already had.
     const routes = () => Promise.all([...f.collections, local!, native].map(id => migrationRoute(db, routing, id)));
     const expected = ["migration", "migration", "default", "default"];
@@ -337,6 +339,7 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     const other = randomUUID(), history = randomUUID();
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Synthetic other')", [other, `${other}@example.test`]);
     await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,authority_state) VALUES($1,$2,'History','mdbase','transferred')", [history, f.account]);
+    await ensureDevelopmentEntitlement(db, other);
     await cloudCopy(history, other);
     await expect(migrationRoute(db, routing, history)).rejects.toThrow("ambiguous_collection_owner");
   });

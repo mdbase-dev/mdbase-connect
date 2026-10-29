@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
@@ -11,7 +12,8 @@ import { STARTER_COLLECTION_NAME } from "../../starter-collection.js";
 import { registerOnboardingRoutes } from "../onboarding/routes.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, type NextControlPlaneConfig } from "./policy-keys.js";
-import { PolicyEmitter } from "./policy-outbox.js";
+import { PolicyEmitter, registerNextCollection } from "./policy-outbox.js";
+import { inTransaction } from "./bootstrap-common.js";
 import { certDigest, chainHash, decodeCbor, encodeCbor, keyId, type Cbor, type Decoded } from "./policy-wire.js";
 import { registerNativeStarterRoutes, type StarterContentPort } from "./starter-onboarding.js";
 
@@ -119,6 +121,7 @@ describePg("native starter onboarding", () => {
   async function account(options: { flipped?: boolean } = {}) {
     const id = randomUUID(), token = randomUUID();
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner')", [id, `${id}@example.test`]);
+    await ensureDevelopmentEntitlement(db, id);
     await db.query("INSERT INTO sessions(id,user_id,token_hash,provider,account_session_epoch,expires_at) VALUES($1,$2,$3,'password',1,now()+interval '1 day')", [randomUUID(), id, tokenHash(token)]);
     const starter = await scheduleStarterCollection(db, id, timezone);
     if (options.flipped !== false) await flip(id);
@@ -134,6 +137,35 @@ describePg("native starter onboarding", () => {
     "SELECT starter_collection_id::text, template_version, timezone, provisioned_at, provisioning_started_at FROM account_onboarding WHERE user_id=$1", [who.id])).rows[0];
   const owned = async (who: Account) => (await db.query(
     "SELECT collection_id::text, runtime, sync, display_name FROM next_collections WHERE owner_user_id=$1", [who.id])).rows;
+
+  it("the starter consumes an ordinary slot and its retry works at the limit", async () => {
+    const who = await account();
+    await db.query("UPDATE account_entitlement_grants SET profile_code='free_v1' WHERE user_id=$1", [who.id]);
+    expect((await onboard(who)).statusCode).toBe(200);
+    expect((await onboard(who)).statusCode).toBe(200);
+    const root = Buffer.from(config.policyCert.root_key_id, "hex");
+    await expect(inTransaction(db, client => registerNextCollection(client, {
+      collectionId: randomUUID(), ownerUserId: who.id, runtime: "next", sync: "cloud_copy", rootKeyId: root,
+      ops: [{ op: "genesis", owner: who.id, root, state: "cloud-copy" }]
+    }))).rejects.toMatchObject({ code: "account_collection_quota_exceeded" });
+    expect(await owned(who)).toHaveLength(1);
+  });
+
+  it("refuses a starter at capacity before content sealing or registration", async () => {
+    const who = await account(), root = Buffer.from(config.policyCert.root_key_id, "hex");
+    await db.query("UPDATE account_entitlement_grants SET profile_code='free_v1' WHERE user_id=$1", [who.id]);
+    await inTransaction(db, client => registerNextCollection(client, {
+      collectionId: randomUUID(), ownerUserId: who.id, runtime: "next", sync: "private", rootKeyId: root,
+      ops: [{ op: "genesis", owner: who.id, root, state: "e2e" }]
+    }));
+    const calls = port.seal.mock.calls.length;
+    const response = await onboard(who);
+    expect(response.statusCode).toBe(429);
+    expect(response.json().error.code).toBe("account_collection_quota_exceeded");
+    expect(port.seal.mock.calls).toHaveLength(calls);
+    expect((await db.query("SELECT 1 FROM next_collections WHERE collection_id=$1", [who.starter])).rows).toEqual([]);
+    expect((await reservation(who)).provisioning_started_at).toBeNull();
+  });
 
   it("creates nothing before the flip or while frozen, and the legacy route refuses a moved account", async () => {
     const who = await account({ flipped: false }), before = await reservation(who), calls = port.seal.mock.calls.length;

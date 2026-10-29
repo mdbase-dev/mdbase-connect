@@ -7,6 +7,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { capabilityOperations, RELAY_ENCRYPTION_SUITE } from "@mdbase-dev/connect-protocol";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
 import { tokenHash } from "../../security.js";
 import { carryOverLegacyGrants, carryOverLegacyLocalGrants } from "./legacy-grant-carry-over.js";
@@ -55,6 +56,7 @@ describePostgres("carried-over grants through a fenced local rollback (real Post
     const legacyRow = randomUUID();
     const connectorKey = randomBytes(65).toString("base64url");
     await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Owner','next')", [owner, `${owner}@example.test`]);
+    await ensureDevelopmentEntitlement(db, owner);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash,relay_generation,relay_public_key) VALUES($1,$2,'Old Connect',$3,2,$4)",
       [legacyConnector, owner, randomUUID(), connectorKey]);
     await db.query(`INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,present,enabled,authority_state)
@@ -122,6 +124,7 @@ describePostgres("carried-over grants through a fenced local rollback (real Post
     }
     // The user removes one app while on Private sync: rollback must not bring it back.
     await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [revoked.grant]);
+    await db.query("UPDATE account_entitlement_grants SET revoked_at = now() WHERE user_id = $1", [f.owner]);
 
     const response = await f.rollback();
     expect(response.statusCode).toBe(200);

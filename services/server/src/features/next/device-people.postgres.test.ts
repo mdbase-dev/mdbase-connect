@@ -1,3 +1,4 @@
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
@@ -33,6 +34,7 @@ suite("current next-device people without legacy authority (isolated PostgreSQL)
     const keys={kind:"desktop" as const,sign_pk:randomBytes(32),kem_pk:randomBytes(32),noise_pk:randomBytes(32)};
     await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,'desktop',$4,$5,$6)",[device,connector,account,keys.sign_pk,keys.kem_pk,keys.noise_pk]);
     const root=randomBytes(16);
+    await ensureDevelopmentEntitlement(db, owner);
     await registerNextCollection(db,{collectionId:collection,ownerUserId:owner,runtime:"next",sync,rootKeyId:root,ops:[
       {op:"genesis",owner,root,state:sync==="private"?"e2e":"cloud-copy"},
       {op:"member-set",account:owner,role:"owner"},
