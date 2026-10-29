@@ -944,7 +944,7 @@ export class MdbaseClient {
     this.livesBySub.clear();
     this.early.clear();
     if (this.closing || this.opts.reconnect === false) {
-      this.setLink("closed");
+      this.setLink("closed", e ?? null);
       return;
     }
     if (e && (e.code === "unauthenticated" || e.code === "upgrade_required" || e.code === "forbidden")) {

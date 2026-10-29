@@ -24,11 +24,11 @@ export interface ApplicationReadinessOptions {
 }
 const GATING=["configuration","files"] as const,ADVISORY=["people","notifications"] as const;
 export class ApplicationReadinessError extends Error {
-  constructor(readonly code:"application_readiness_fenced"|"application_readiness_busy"){
+  constructor(readonly code:"application_readiness_fenced"|"application_readiness_busy",readonly detail?:string){
     super("SDK application readiness unavailable");this.name="ApplicationReadinessError";
   }
 }
-const empty=(code:string|null,checking=false):MdbaseApplicationFacetSnapshot=>Object.freeze({checking,assessment:null,problem:code?Object.freeze({code}):null});
+const empty=(code:string|null,checking=false,detail?:string):MdbaseApplicationFacetSnapshot=>Object.freeze({checking,assessment:null,problem:code?Object.freeze({code,...(detail?{detail}:{})}):null});
 function nativeFacet(value:AppCollectionReadinessSnapshot):MdbaseApplicationFacetSnapshot {
   const problem=value.problem?Object.freeze({code:`readiness_${value.problem.reason}`}):null;
   const types=value.assessment?.unavailableTypes;
@@ -56,7 +56,17 @@ export class ApplicationReadiness {
     for(const source of Object.values(this.sources))if(source)this.stops.push(source.subscribe(this.changed));
     this.signal.addEventListener("abort",this.abort,{once:true});
   }
-  private current():boolean {try{return !this.closed&&!this.signal.aborted&&this.observed()===true&&this.connection.isCurrent()&&this.connection.records.collection===this.connection.id;}catch{return false;}}
+  private fenceDetail():string|null {
+    try{
+      if(this.signal.aborted)return "scope_aborted";
+      if(this.closed)return "scope_closed";
+      if(this.observed()!==true)return "observer_not_current";
+      if(!this.connection.isCurrent())return "connection_not_current";
+      if(this.connection.records.collection!==this.connection.id)return "collection_mismatch";
+      return null;
+    }catch{return "currentness_check_failed";}
+  }
+  private current():boolean {return this.fenceDetail()===null;}
   /** The retained connection may stop being current because its native session
    * ended. Keep the typed closing reason while this scope's lifetime is still
    * live; never replace it with the generic fencing/busy placeholder. */
@@ -78,7 +88,8 @@ export class ApplicationReadiness {
     let native=unsupported;
     if(current&&this.native){
       const value=this.native.getSnapshot(),witness=value.assessment?.witness;
-      native=witness&&(witness.collection!==this.connection.id||witness.generation!==this.connection.generation)?empty("readiness_fenced"):nativeFacet(value);
+      const detail=witness&&witness.collection!==this.connection.id?"native_witness_collection_mismatch":witness&&witness.generation!==this.connection.generation?"native_witness_generation_mismatch":null;
+      native=detail?empty("readiness_fenced",false,detail):nativeFacet(value);
     }
     const read=(name:keyof typeof this.sources)=>{
       if(!current)return unsupported;const source=this.sources[name];
@@ -95,7 +106,9 @@ export class ApplicationReadiness {
     let assessment:MdbaseApplicationFacetSnapshot["assessment"]=null,problem:MdbaseApplicationFacetSnapshot["problem"]=null;
     if(!current)problem=Object.freeze({code:"readiness_fenced"});
     else if(!checking){
-      problem=values.find(value=>value.problem)?.problem??null;
+      const failed=(["capabilities","contracts",...GATING] as const).find(name=>facets[name].problem);
+      problem=failed?facets[failed].problem:null;
+      if(problem?.code==="readiness_fenced"&&!problem.detail)problem=Object.freeze({...problem,detail:`${failed}_facet`});
       if(values.every(value=>value.assessment!==null)){
         const incompatible=values.find(value=>value.assessment?.status==="incompatible"),setup=values.find(value=>value.assessment?.status==="setup_required"),selected=incompatible??setup;
         const types=native.assessment?.unavailableTypes;
@@ -103,7 +116,8 @@ export class ApplicationReadiness {
       }
     }
     // Source getters/observers can synchronously retire the connection.
-    if(!this.current()){this.lastReady=null;return Object.freeze({checking:false,assessment:null,problem:Object.freeze({code:this.connectionProblem()}),facets:Object.freeze({capabilities:empty("readiness_fenced"),contracts:empty("readiness_fenced"),configuration:empty("readiness_fenced"),files:empty("readiness_fenced"),people:empty("readiness_fenced"),notifications:empty("readiness_fenced")})});}
+    const detail=this.fenceDetail();
+    if(detail){this.lastReady=null;return Object.freeze({checking:false,assessment:null,problem:Object.freeze({code:this.connectionProblem(),detail}),facets:Object.freeze({capabilities:empty("readiness_fenced",false,detail),contracts:empty("readiness_fenced",false,detail),configuration:empty("readiness_fenced",false,detail),files:empty("readiness_fenced",false,detail),people:empty("readiness_fenced",false,detail),notifications:empty("readiness_fenced",false,detail)})});}
     // A collection that was READY stays READY while a change (this device's or
     // another's) is re-checked: re-checks and concurrent-change retries are not
     // problems. A settled non-ready assessment or any other problem replaces it.
@@ -118,7 +132,8 @@ export class ApplicationReadiness {
   }
   refresh(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationReadinessSnapshot>{
     const caller=options.signal;
-    if(!this.current()||caller?.aborted)return Promise.reject(new ApplicationReadinessError("application_readiness_fenced"));
+    const detail=this.fenceDetail()??(caller?.aborted?"caller_aborted":null);
+    if(detail)return Promise.reject(new ApplicationReadinessError("application_readiness_fenced",detail));
     if(this.pending)return Promise.reject(new ApplicationReadinessError("application_readiness_busy"));
     this.checking=true;
     const pending=Promise.resolve().then(async()=>{
@@ -142,7 +157,7 @@ export class ApplicationReadiness {
       this.changed();
     }).then(()=>this.getSnapshot());
     this.pending=pending;this.changed();
-    return pending.then(value=>{if(!this.current()||caller?.aborted)throw new ApplicationReadinessError("application_readiness_fenced");return value;});
+    return pending.then(value=>{const detail=this.fenceDetail()??(caller?.aborted?"caller_aborted":null);if(detail)throw new ApplicationReadinessError("application_readiness_fenced",detail);return value;});
   }
   close():Promise<void>{
     if(this.closing)return this.closing;

@@ -45,7 +45,7 @@ import type {SyncStatus} from "../wire.js";
 import {ApplicationPrivateCollections,withPrivateCollections} from "./private-collections.js";
 
 export type MdbaseApplicationFacet="capabilities"|"contracts"|"configuration"|"files"|"people"|"notifications";
-export interface MdbaseApplicationProblem {readonly code:string}
+export interface MdbaseApplicationProblem {readonly code:string;readonly detail?:string}
 /** A declared type the app cannot use: its definition has an error-level issue.
  * Listed only with `readiness: {typeIssues: "degrade"}`. Pass an entry to
  * `describeError` for the copy; show the rest of the collection as usual. */

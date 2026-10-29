@@ -1,6 +1,8 @@
 import {afterEach,describe,expect,it,vi} from "vitest";
 import {MdbaseClient} from "../src/client.js";
 import {mdbaseError} from "../src/errors.js";
+import {clientFrame,problem as problemCodec} from "../src/wire.js";
+import type {FramePort} from "../src/transport/port.js";
 import {describeError} from "../src/describe-error.js";
 import {MdbasePeopleClient} from "../src/people.js";
 import {MemoryReplica} from "../src/testing/index.js";
@@ -17,21 +19,46 @@ function source(value=ready):ApplicationReadinessFacetSource{return{getSnapshot:
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>resolve=r);return{promise,resolve};}
 async function fixture(facets:Partial<Record<"configuration"|"files"|"people"|"notifications",ApplicationReadinessFacetSource>>={},nativeRequirements:ConstructorParameters<typeof ApplicationReadiness>[0]["nativeRequirements"]=null){
   // Actual SDK client, explicit declared facet producers. Not native/READY proof.
-  const client=await MdbaseClient.connect({app:{name:"Fixture",version:"1"},connector:new MemoryReplica({collection}).connector()}),lifetime=new AbortController();let current=true;
-  const connection:MdbaseApplicationConnection={id:collection,generation,displayName:"Fixture",scope:{collection,account:"11111111-1111-4111-8111-111111111111",installation:"22222222-2222-4222-8222-222222222222"},records:client,files:client.files,people:new MdbasePeopleClient(client,{collection,isCurrent:()=>current,request:async()=>{throw Error("unused fixture authority");}}),isCurrent:()=>current};
+  const original=new MemoryReplica({collection}).connector();let port!:FramePort;
+  const client=await MdbaseClient.connect({app:{name:"Fixture",version:"1"},reconnect:false,connector:{description:original.description,async open(hello,signal){const opened=await original.open(hello,signal);port=opened.port;return opened;}}}),lifetime=new AbortController();let current=true;
+  const connection:MdbaseApplicationConnection={id:collection,generation,displayName:"Fixture",scope:{collection,account:"11111111-1111-4111-8111-111111111111",installation:"22222222-2222-4222-8222-222222222222"},records:client,files:client.files,people:new MdbasePeopleClient(client,{collection,isCurrent:()=>current,request:async()=>{throw Error("unused fixture authority");}}),isCurrent:()=>current&&client.link==="open"};
   const assess=new ApplicationReadiness({connection,nativeRequirements,signal:lifetime.signal,isCurrent:()=>current,...facets});cleanup.push(async()=>{await assess.close().catch(()=>{});client.close();});
-  return{assess,client,lifetime,retire:()=>{current=false;}};
+  return{assess,client,connection,lifetime,retire:()=>{current=false;},end:(error:ReturnType<typeof mdbaseError>)=>port.onframe!(clientFrame.enc({kind:"push",type:"closed",payload:problemCodec.enc(error.toProblem())}))};
 }
 afterEach(async()=>{for(const close of cleanup.splice(0))await close();vi.restoreAllMocks();});
 describe("SDK current aggregate readiness",()=>{
+  it.each(["scope_closed","scope_aborted","observer_not_current","connection_not_current","collection_mismatch","currentness_check_failed"])("identifies %s without exposing identities or exception text",async detail=>{
+    const f=await fixture();
+    if(detail==="scope_closed")await f.assess.close();
+    else if(detail==="scope_aborted")f.lifetime.abort();
+    else if(detail==="observer_not_current")f.retire();
+    else if(detail==="connection_not_current")vi.spyOn(f.connection,"isCurrent").mockReturnValue(false);
+    else if(detail==="collection_mismatch")vi.spyOn(f.client,"collection","get").mockReturnValue("other-secret-collection");
+    else vi.spyOn(f.connection,"isCurrent").mockImplementation(()=>{throw Error("secret exception text");});
+    expect(f.assess.getSnapshot().problem).toEqual({code:"readiness_fenced",detail});
+    await expect(f.assess.refresh()).rejects.toMatchObject({code:"application_readiness_fenced",detail});
+  });
+  it.each(["collection","generation"] as const)("identifies a mismatched native witness %s",async field=>{
+    vi.spyOn(CollectionReadiness,"createAppCollectionReadiness").mockImplementation((_client,_declared,binding)=>({start:async()=>{},close:async()=>{},subscribe:()=>()=>{},
+      getSnapshot:()=>({checking:false,problem:null,assessment:{status:"ready",problem:null,witness:{collection:binding.collection,generation:binding.generation,resources:[],[field]:"secret-wrong-identity"}}})}) as unknown as CollectionReadiness.AppCollectionReadiness);
+    const f=await fixture({configuration:source(),files:source()},{capabilityContractVersion:2,requiredNativeCapabilities:[],contracts:[]});
+    const expected={code:"readiness_fenced",detail:`native_witness_${field}_mismatch`};
+    expect(f.assess.getSnapshot().problem).toEqual(expected);
+    expect(f.assess.getSnapshot().facets.contracts.problem).toEqual(expected);
+  });
+  it("identifies the gating facet that fences readiness",async()=>{
+    vi.spyOn(CollectionReadiness,"createAppCollectionReadiness").mockImplementation((_client,_declared,binding)=>({start:async()=>{},close:async()=>{},subscribe:()=>()=>{},
+      getSnapshot:()=>({checking:false,problem:null,assessment:{status:"ready",problem:null,witness:{collection:binding.collection,generation:binding.generation,resources:[]}}})}) as unknown as CollectionReadiness.AppCollectionReadiness);
+    const f=await fixture({configuration:source({checking:false,assessment:null,problem:{code:"readiness_fenced"}})},{capabilityContractVersion:2,requiredNativeCapabilities:[],contracts:[]});
+    expect(f.assess.getSnapshot().problem).toEqual({code:"readiness_fenced",detail:"configuration_facet"});
+  });
   it.each([
     {code:"upgrade_required" as const,reason:"incompatible_version",problem:"update_required",action:"update_app"},
     {code:"unavailable" as const,reason:"file_read_failed",problem:"file_read_failed",action:"retry"},
   ])("preserves native closing $reason instead of describing it as indefinite busy",async({code,reason,problem,action})=>{
     const f=await fixture();
-    vi.spyOn(f.client,"link","get").mockReturnValue("closed");
-    vi.spyOn(f.client,"linkProblem","get").mockReturnValue(mdbaseError(code,"native session ended",reason));
-    f.retire();
+    f.end(mdbaseError(code,"native session ended",reason));
+    expect(f.client.link).toBe("closed");expect(f.client.linkProblem).toMatchObject({code,reason});
     const view=f.assess.getSnapshot();
     expect(view.problem?.code).toBe(problem);
     expect(describeError(view)).toMatchObject({action,transient:false});

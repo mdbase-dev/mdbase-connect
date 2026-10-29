@@ -4219,6 +4219,7 @@ MdbaseApplicationFacetSnapshot@application/entry.ts
 
 MdbaseApplicationProblem@application/entry.ts
   readonly code: string
+  readonly detail?: string | undefined
 
 MdbaseApplicationReadinessSnapshot@application/entry.ts
   readonly assessment: MdbaseApplicationAssessment | null

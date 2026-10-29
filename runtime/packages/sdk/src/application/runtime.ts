@@ -119,7 +119,8 @@ export class ApplicationRuntime {
         if(status==="blocked")problem=readiness.problem?.code??readiness.assessment?.problem?.code??"application_readiness_unavailable";
       }
       // A blocked app names its typed code once in the console; the UI shows only copy.
-      if(status==="blocked"&&problem&&problem!==this.loggedProblem){this.loggedProblem=problem;try{console.error("mdbase application blocked:",problem);}catch{/* no console */}}
+      const detail=readiness.problem?.detail??readiness.assessment?.problem?.detail,diagnostic=`${problem}:${detail??""}`;
+      if(status==="blocked"&&problem&&diagnostic!==this.loggedProblem){this.loggedProblem=diagnostic;try{if(detail)console.error("mdbase application blocked:",problem,detail);else console.error("mdbase application blocked:",problem);}catch{/* no console */}}
       else if(status!=="blocked")this.loggedProblem=null;
       this.snapshot=Object.freeze({...this.raw,status,problem,collections:Object.freeze(this.raw.collections.map(value=>Object.freeze({...value}))),readiness});
     }
