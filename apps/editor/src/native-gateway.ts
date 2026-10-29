@@ -103,7 +103,7 @@ export class NativeEditorGateway implements CollectionGateway {
     this.records = new NextEditorRecords(this.client, () => this.current());
     let membership = this.membershipRole();
     this.membershipDowngrade = membership === "viewer";
-    let role = this.role();
+    let role = this.current() ? this.role() : undefined;
     const changed = () => {
       if (!this.current()) return;
       // A Connect downgrade can arrive before signed policy. Once policy has

@@ -34,6 +34,15 @@ async function settled(observation: { getSnapshot(): NoteObservationSnapshot }, 
 }
 
 describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () => {
+  it("can retire a borrowed scope before mounting without reading its closed hello", async () => {
+    const f = await readyFixture();
+    f.client.close();
+    const gateway = new NativeEditorGateway(f.application, { ...f.connection, isCurrent: () => false }, declaration);
+    gateways.push(gateway);
+    expect(gateway.sessionSnapshot()).toEqual({ status: "unselected", connections: [] });
+    gateway.dispose();
+  });
+
   it("reports the original selected scope and maps only granted record capabilities", async () => {
     const f = await fixture();
     const snapshot = f.gateway.sessionSnapshot();
