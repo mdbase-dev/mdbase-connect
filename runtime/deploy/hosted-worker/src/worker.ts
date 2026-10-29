@@ -1670,14 +1670,18 @@ export default {
     if (url.pathname === "/internal/v1/collection-mode/ready" || url.pathname === "/internal/v1/collection-mode/retire") {
       const input = await modeServiceRequest(request,e.HOSTED_SERVICE_TOKEN);
       if (input instanceof Response) {
-        if (e.LAB === "1" && input.status === 503) console.info(JSON.stringify({ event: "collection_mode_not_ready", reason: "invalid_internal_request" }));
+        if (env.LAB === "1" && input.status === 503) console.info(JSON.stringify({ event: "collection_mode_not_ready", reason: "invalid_internal_request" }));
         return input;
       }
       const operation = url.pathname.endsWith("/ready") ? "ready" : "retire";
       const stub = namedStub(env.COLLECTIONS,input.collection,hint);
       const headers = new Headers(request.headers); headers.delete("content-length");
-      return stub.fetch(new Request(`${url.origin}/v1/hosted/collection-mode/${operation}?collection=${input.collection}`,
+      const response = await stub.fetch(new Request(`${url.origin}/v1/hosted/collection-mode/${operation}?collection=${input.collection}`,
         {method:"POST",headers,body:JSON.stringify(input)}));
+      if (env.LAB === "1" && response.status === 503) console.info(JSON.stringify({ event: "collection_mode_forward_refused",
+        reason: "actor_503", json: response.headers.get("content-type")?.includes("application/json") ?? false,
+        kind, epoch: input.epoch }));
+      return response;
     }
     if (url.pathname === "/internal/v1/migration-admission") {
       if (kind !== "hosted") return new Response("not found", { status: 404 });
