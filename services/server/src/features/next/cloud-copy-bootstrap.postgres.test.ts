@@ -928,8 +928,6 @@ describePg("cloud-copy bootstrap", () => {
       await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [id]);
       await db.query("INSERT INTO email_identities(id,user_id,email,normalized_email,verified_at,is_primary) VALUES($1,$2,$3,$3,now(),true)", [randomUUID(), id, `${id}@example.test`]);
     }
-    await db.query("INSERT INTO account_entitlement_grants(id,user_id,profile_code,source,source_reference) VALUES($1,$2,'beta_v1','operator',$3)", [randomUUID(), owner.connector.user_id, randomUUID()]);
-    await db.query("INSERT INTO account_storage_accounts(user_id,provider_account_id) VALUES($1,$2)", [owner.connector.user_id, randomUUID()]);
     const invitation = await createHostedCollectionInvitation(db, { collectionId: collection, actorUserId: owner.connector.user_id, role: "editor", target: { email: `${member.connector.user_id}@example.test` } });
     const accepted = await app.inject({ method: "POST", url: "/v1/hosted/collection-invitations/accept", headers: await session(member.connector.user_id), payload: { token: invitation.token } });
     expect(accepted.statusCode, accepted.body).toBe(201);
