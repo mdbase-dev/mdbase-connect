@@ -9,14 +9,13 @@ import { fileURLToPath } from 'node:url';
 import { it } from 'node:test';
 import { parse } from 'yaml';
 import { assertDispatch, assertCurrentHead, deploymentFor } from './refs.mjs';
-import { loadOriginals, protectedHashes } from './originals.mjs';
+import { loadOriginals, originalMembers, protectedHashes } from './originals.mjs';
 import { assertArtifactMetadata, assertArtifactRun, assertArtifactDirectory } from './artifact.mjs';
 import { inventoryDirectory } from './native-publish-bytes.mjs';
 import { headersPolicy, redirectsPolicy, assertHostingSource, verifyHosting, verifyPublication } from './hosting.mjs';
 import { assertBuiltManifest, captureDeployment, createReceipt } from './publisher.mjs';
 const repoRoot=fileURLToPath(new URL('../../../../',import.meta.url));
 const hashes={NATIVE_SDK_SHA256:'15eb64b50fc7c2809ff3dba9cce5104fe48d8592208b3af8acb529862a1af18c',
- NATIVE_UI_SHA256:'8f785294454321c40596bdaad976dc4c5374c3f23dfa828f47e3e7b3139b77e5',
  NATIVE_PROTOCOL_SHA256:'cd1e15236ab7e25c511a4ba13af6a9df23f4b41715161479bba97b0445e1c138',
  NATIVE_TRUST_ASSET_SHA256:'67e117646c9c26927f0d5a44cbd26f057c318975032e9cd24f24b020150cdbc7'};
 const productionHashes={...hashes,
@@ -31,8 +30,11 @@ const run={id:30,head_sha:source,run_attempt:1,event:expected.event,head_branch:
 const deployment={id:uuid,url:'https://12345678.mdbase-editor.pages.dev',sourceSha:source,pagesBranch:'staging'};
 const sha=b=>createHash('sha256').update(b).digest('hex');
 
-// These test vectors are the authenticated historical beta141 pins, not the
-// current workspace UI. Never relax loadOriginals to accept workspace builds.
+const fetchUi=async(url,options)=>{
+ assert.equal(url,'https://registry.npmjs.org/@mdbase-dev/ui/-/ui-0.1.0-beta.133.tgz');
+ assert.equal(options.redirect,'error');assert.ok(options.signal instanceof AbortSignal);
+ return new Response(await readFile(join(repoRoot,'apps/editor/vendor/mdbase-dev-ui-dev-b2d7c464.tgz')));
+};
 async function originalFixture(target) {
  const root=await mkdtemp(join(tmpdir(),'editor-'+target+'-originals-'));
  const app=join(root,'apps/editor');await mkdir(app,{recursive:true});
@@ -40,18 +42,24 @@ async function originalFixture(target) {
  await cp(join(repoRoot,'apps/editor/vendor'),join(app,'vendor'),{recursive:true});
  const pkg=JSON.parse(await readFile(join(repoRoot,'apps/editor/package.json'),'utf8'));
  const facts=JSON.parse(await readFile(join(app,'vendor/mdbase-next-sdk.json'),'utf8'));
- pkg.dependencies['@mdbase-dev/ui']='file:vendor/'+facts.ui.artifact;
+ pkg.dependencies['@mdbase-dev/ui']=facts.ui.version;
+ for(const environment of ['staging','production']) {
+  const configPath=join(root,`config/native-publish/${environment}.json`);
+  const config=JSON.parse(await readFile(configPath,'utf8'));
+  config.ui={version:facts.ui.version,integrity:facts.ui.integrity};
+  await writeFile(configPath,JSON.stringify(config));
+ }
  let lock=await readFile(join(repoRoot,'pnpm-lock.yaml'),'utf8');
  const importer=lock.split('\n  apps/editor:\n')[1].split(/\n  [^ ]/)[0];
  const uiPin=pkg.dependencies['@mdbase-dev/ui'];
  const updated=importer.replace(/('@mdbase-dev\/ui':\n        specifier: )[^\n]+\n        version: [^\n]+/,
-  '$1'+uiPin+'\n        version: file:apps/editor/vendor/'+facts.ui.artifact);
- assert.notEqual(updated,importer,'fixture replaces workspace UI importer');
+  '$1'+uiPin+'\n        version: '+uiPin);
+ assert.notEqual(updated,importer,'fixture replaces registry UI importer');
  lock=lock.replace(importer,updated);
  const uiPath='apps/editor/vendor/'+facts.ui.artifact;
  const uiBytes=await readFile(join(root,uiPath));
  const sri='sha512-'+createHash('sha512').update(uiBytes).digest('base64');
- lock=lock.replace('\npackages:\n', "\npackages:\n\n  '@mdbase-dev/ui@file:"+uiPath+"':\n    resolution: {integrity: "+sri+", tarball: file:"+uiPath+"}\n");
+ lock=lock.replace('\npackages:\n', "\npackages:\n\n  '@mdbase-dev/ui@"+uiPin+"':\n    resolution: {integrity: "+sri+"}\n");
  if(target==='staging') {
   const current=pkg.dependencies['@mdbase-dev/sdk'].slice('file:vendor/'.length);
   const staging='sdk-dev-eaa4e697-staging.tgz';
@@ -63,40 +71,87 @@ async function originalFixture(target) {
  await writeFile(join(root,'pnpm-lock.yaml'),lock);
  for(const name of ['@mdbase-dev/sdk','@mdbase-dev/ui','@mdbase-dev/connect-protocol']) {
   const installed=join(app,'node_modules',name);await mkdir(installed,{recursive:true});
-  execFileSync('tar',['-xzf',join(app,pkg.dependencies[name].slice(5)),'--strip-components=1','-C',installed]);
+  const archive=name==='@mdbase-dev/ui'?uiPath:join('apps/editor',pkg.dependencies[name].slice(5));
+  execFileSync('tar',['-xzf',join(root,archive),'--strip-components=1','-C',installed]);
  }
  return root;
 }
 it('binds the historical Stage packet, lock and ALL extracted SDK/UI/protocol originals without importing them',async()=>{
  const root=await originalFixture('staging');
  try {
- const result=await loadOriginals({target:'staging',repoRoot:root,hashes,installed:true});
+ const result=await loadOriginals({target:'staging',repoRoot:root,hashes,installed:true,fetchImpl:fetchUi});
  assert.equal(result.environment,'staging');assert.equal(result.release.cpOrigin,'https://connect-staging.mdbase.dev');
  assert.equal(result.archives.sdk.members,896);assert.equal(result.archives.sdk.sha256,hashes.NATIVE_SDK_SHA256);
  assert.equal(result.release.assetSha256,hashes.NATIVE_TRUST_ASSET_SHA256);
- await assert.rejects(loadOriginals({target:'production',repoRoot:root,hashes}),/ENOENT|mismatch/);
- await assert.rejects(loadOriginals({target:'staging',repoRoot:root,hashes:{...hashes,NATIVE_TRUST_ASSET_SHA256:'15e0c28ca828287666dc13cd1ab8cd90caa8f3a4a0036c5fa0eb6f8fbf162d9e'}}),/RAW signed asset/);
+ await assert.rejects(loadOriginals({target:'production',repoRoot:root,hashes,fetchImpl:fetchUi}),/ENOENT|mismatch/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot:root,hashes:{...hashes,NATIVE_TRUST_ASSET_SHA256:'15e0c28ca828287666dc13cd1ab8cd90caa8f3a4a0036c5fa0eb6f8fbf162d9e'},fetchImpl:fetchUi}),/RAW signed asset/);
  await assert.rejects(loadOriginals({target:'staging',repoRoot:root,hashes:{...hashes,NATIVE_SDK_SHA256:'0'.repeat(64)}}),/protected archive hash/);
- await assert.rejects(loadOriginals({target:'staging',repoRoot:root}),/four protected/);
- assert.throws(()=>protectedHashes({}),/four protected/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot:root}),/three protected/);
+ assert.throws(()=>protectedHashes({}),/three protected/);
  }finally{await rm(root,{recursive:true,force:true});}
 });
 it('binds the original production beta141 packet and ALL extracted SDK/UI/protocol members',async()=>{
  const root=await originalFixture('production');
  try {
- const result=await loadOriginals({target:'production',repoRoot:root,hashes:productionHashes,installed:true});
+ const result=await loadOriginals({target:'production',repoRoot:root,hashes:productionHashes,installed:true,fetchImpl:fetchUi});
  assert.equal(result.environment,'production');assert.equal(result.archives.sdk.members,896);
  assert.equal(result.archives.sdk.sha256,productionHashes.NATIVE_SDK_SHA256);
  assert.equal(result.release.cpOrigin,'https://connect.mdbase.dev');
  assert.equal(result.release.source.version,'0.1.0-beta.141');
  assert.equal(result.release.assetSha256,productionHashes.NATIVE_TRUST_ASSET_SHA256);
  await assert.rejects(loadOriginals({target:'production',repoRoot:root,hashes}),/protected archive hash/);
- await assert.rejects(loadOriginals({target:'staging',repoRoot:root,hashes:productionHashes}),/producer complete SDK inventory|canonical artifact facts/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot:root,hashes:productionHashes,fetchImpl:fetchUi}),/producer complete SDK inventory|canonical artifact facts/);
  }finally{await rm(root,{recursive:true,force:true});}
 });
-it('refuses to publish the current workspace UI as an authenticated original',async()=>{
- await assert.rejects(loadOriginals({target:'production',repoRoot,hashes:productionHashes,installed:true}),
-  /@mdbase-dev\/ui must remain a file pin/);
+it('records the pinned npm UI archive and compares every installed member',async()=>{
+ const root=await originalFixture('production');
+ try {
+ const options={target:'production',repoRoot:root,hashes:productionHashes,installed:true,fetchImpl:fetchUi};
+ const result=await loadOriginals(options);
+ assert.equal(result.archives.ui.version,'0.1.0-beta.133');
+ assert.equal(result.archives.ui.path,'https://registry.npmjs.org/@mdbase-dev/ui/-/ui-0.1.0-beta.133.tgz');
+ assert.match(result.archives.ui.sri,/^sha512-/);
+ const installed=join(root,'apps/editor/node_modules/@mdbase-dev/ui');
+ const member=originalMembers(await readFile(join(repoRoot,'apps/editor/vendor/mdbase-dev-ui-dev-b2d7c464.tgz'))).find(member=>member.path!=='package.json');
+ const path=join(installed,member.path),bytes=await readFile(path);
+ await writeFile(path,Buffer.concat([bytes,Buffer.from('tampered')]));
+ await assert.rejects(loadOriginals(options),/ALL installed original members differ/);
+ await writeFile(path,bytes);await rm(path);
+ await assert.rejects(loadOriginals(options),/ALL installed original members differ/);
+ await writeFile(path,bytes);await writeFile(join(installed,'unexpected.txt'),'extra');
+ await assert.rejects(loadOriginals(options),/ALL installed original members differ/);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+it('refuses mutable UI dependencies, missing pins, lock drift, unavailable and mismatched archives',async()=>{
+ const root=await originalFixture('production');
+ try {
+ const options={target:'production',repoRoot:root,hashes:productionHashes,fetchImpl:fetchUi};
+ const pkgPath=join(root,'apps/editor/package.json'),pkg=JSON.parse(await readFile(pkgPath,'utf8'));
+ for(const pin of ['workspace:*','^0.1.0-beta.133','~0.1.0','latest','beta','file:vendor/ui.tgz',undefined]) {
+  await writeFile(pkgPath,JSON.stringify({...pkg,dependencies:{...pkg.dependencies,'@mdbase-dev/ui':pin}}));
+  await assert.rejects(loadOriginals(options),/must be an exact npm version/);
+ }
+ await writeFile(pkgPath,JSON.stringify(pkg));
+ const configPath=join(root,'config/native-publish/production.json'),config=JSON.parse(await readFile(configPath,'utf8'));
+ for(const ui of [undefined,{version:pkg.dependencies['@mdbase-dev/ui']},{...config.ui,version:'0.1.0-beta.134'},{...config.ui,integrity:'sha256-'+'a'.repeat(64)}]) {
+  await writeFile(configPath,JSON.stringify({...config,ui}));
+  await assert.rejects(loadOriginals(options),/committed version\/integrity pin/);
+ }
+ await writeFile(configPath,JSON.stringify(config));
+ const lockPath=join(root,'pnpm-lock.yaml'),lock=await readFile(lockPath,'utf8');
+ for(const replacement of [lock.replace(config.ui.integrity,'sha512-'+'a'.repeat(86)+'=='),lock.replace('specifier: 0.1.0-beta.133','specifier: latest'),lock.replace('version: 0.1.0-beta.133','version: 0.1.0-beta.1330')]) {
+  await writeFile(lockPath,replacement);
+  await assert.rejects(loadOriginals(options),/frozen registry integrity mismatch/);
+ }
+ await writeFile(lockPath,lock);
+ await assert.rejects(loadOriginals({...options,fetchImpl:async()=>new Response('',{status:404})}),/registry archive unavailable \(404\)/);
+ await assert.rejects(loadOriginals({...options,fetchImpl:async()=>new Response('wrong bytes')}),/registry archive integrity mismatch/);
+ await assert.rejects(loadOriginals({...options,fetchImpl:async()=>{throw Error('offline');}}),/offline/);
+ pkg.dependencies['@mdbase-dev/ui']='0.1.0-beta.134';config.ui.version='0.1.0-beta.134';
+ await writeFile(pkgPath,JSON.stringify(pkg));await writeFile(configPath,JSON.stringify(config));
+ await writeFile(lockPath,lock.replaceAll('0.1.0-beta.133','0.1.0-beta.134'));
+ await assert.rejects(loadOriginals({...options,fetchImpl:async()=>new Response(await readFile(join(repoRoot,'apps/editor/vendor/mdbase-dev-ui-dev-b2d7c464.tgz')))}),/UI registry package identity mismatch/);
+ }finally{await rm(root,{recursive:true,force:true});}
 });
 it('requires exact manual release-ref HEAD, never a tag/main/short/moving source',async()=>{
  assert.equal(assertDispatch(env).sha,source);

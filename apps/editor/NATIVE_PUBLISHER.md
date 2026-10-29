@@ -14,20 +14,32 @@ and a deployment GO must precede dispatch. A PR/CI result is not Stage acceptanc
 The ten original public target packet files live under
 `vendor/native-release/<target>/`. `config/native-publish/<target>.json` binds the
 accepted SDK source/tree and original facts digest as DATA, never authorization.
-Off-CI release/asset authentication is not repeated or replaced in CI. The SDK,
-UI and direct protocol remain original file archives. No LAB archive retargeting,
+Off-CI release/asset authentication is not repeated or replaced in CI. The SDK
+and direct protocol remain original file archives. No LAB archive retargeting,
 repacking, generated trust context or replacement receipt is allowed.
+
+The UI input is the exact published npm version in `apps/editor/package.json`,
+currently `@mdbase-dev/ui@0.1.0-beta.147`, not workspace source. Both target
+configs commit its version and registry SHA512 integrity; the frozen lock must
+match both. The dependency-free guard downloads that version's archive from
+`registry.npmjs.org`, rejects redirects/unavailable versions and verifies its
+SHA512 and package identity before inspecting its complete original inventory.
+ALL installed UI members are compared against that archive before execution,
+using the same comparison as SDK/protocol. The plan and receipt retain the UI
+version, archive URL, SHA512, SHA256, byte length and member count. There is no
+file/workspace fallback, range or tag resolution and no protected
+`NATIVE_UI_SHA256` input. Update the dependency, both config pins and frozen lock
+together when adopting a new published UI version; do not pre-pin beta.148.
 
 Protected `editor-staging` environment variables:
 
 | Variable | Original SHA256 |
 | --- | --- |
 | `NATIVE_SDK_SHA256` | `15eb64b50fc7c2809ff3dba9cce5104fe48d8592208b3af8acb529862a1af18c` |
-| `NATIVE_UI_SHA256` | `8f785294454321c40596bdaad976dc4c5374c3f23dfa828f47e3e7b3139b77e5` |
 | `NATIVE_PROTOCOL_SHA256` | `cd1e15236ab7e25c511a4ba13af6a9df23f4b41715161479bba97b0445e1c138` |
 | `NATIVE_TRUST_ASSET_SHA256` | `67e117646c9c26927f0d5a44cbd26f057c318975032e9cd24f24b020150cdbc7` |
 
-The fourth value is the RAW signed asset, not its module, context or receipt.
+The trust asset value is the RAW signed asset, not its module, context or receipt.
 Facts digest: `d54aef71521ab3561bd9a81cd1303410a3fde29f8fbd35a1e0041e58d0569de3`.
 The ordinary Editor dependency uses the unchanged original production SDK with
 beta.141 trust. Its production packet is supplied separately from staging and
@@ -41,7 +53,6 @@ inspected or changed by this source):
 | Variable | Original SHA256 |
 | --- | --- |
 | `NATIVE_SDK_SHA256` | `e64771a90bed2fb3837d4b65df8930fcd124d3059fcb0bcbaf9d64dbfb148205` |
-| `NATIVE_UI_SHA256` | `8f785294454321c40596bdaad976dc4c5374c3f23dfa828f47e3e7b3139b77e5` |
 | `NATIVE_PROTOCOL_SHA256` | `cd1e15236ab7e25c511a4ba13af6a9df23f4b41715161479bba97b0445e1c138` |
 | `NATIVE_TRUST_ASSET_SHA256` | `7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7` |
 
@@ -52,7 +63,7 @@ This intake is not per-app live qualification or a deployment GO.
 ## Build and upload
 
 1. A dependency-free guard checks exact clean source/ref, frozen archive pins,
-   complete original inventories and unchanged packet bindings. Four nonsecret
+   complete original inventories and unchanged packet bindings. Three nonsecret
    expectations leave the protected input job; the build has no environment or
    Cloudflare credentials.
 2. Frozen install disables lifecycle/pnpmfile hooks. ALL installed original

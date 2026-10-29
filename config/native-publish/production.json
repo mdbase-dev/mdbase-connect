@@ -2,5 +2,9 @@
   "target": "production",
   "sdkSource": "eaa4e697fc1198f32fc3714f377342a24c56d985",
   "sdkTree": "71ddecbca5dd54b5153d6bcd500cc89ce189474e",
-  "factsSha256": "51bdf004a7f5a72a358b4534660b11f23196cb23a8d583138b75bbc284719617"
+  "factsSha256": "51bdf004a7f5a72a358b4534660b11f23196cb23a8d583138b75bbc284719617",
+  "ui": {
+    "version": "0.1.0-beta.147",
+    "integrity": "sha512-BslLGNFzNSzQX8Uvhoj7NvtvG0Y1ea/jLhXU+NQlqTb/58CX4m3xeV+ambV7acuzD7zcKr54USEd10SU4ncyQA=="
+  }
 }

@@ -11,10 +11,10 @@ const requireValue = (ok, reason) => { if (!ok) throw Error(`Refusing native ori
 const equal = (a, b, reason) => requireValue(isDeepStrictEqual(a, b), reason);
 const json = async (path) => JSON.parse(await readFile(path, 'utf8'));
 const packages = { sdk: '@mdbase-dev/sdk', ui: '@mdbase-dev/ui', protocol: '@mdbase-dev/connect-protocol' };
-export const digestNames = ['NATIVE_SDK_SHA256', 'NATIVE_UI_SHA256', 'NATIVE_PROTOCOL_SHA256', 'NATIVE_TRUST_ASSET_SHA256'];
+export const digestNames = ['NATIVE_SDK_SHA256', 'NATIVE_PROTOCOL_SHA256', 'NATIVE_TRUST_ASSET_SHA256'];
 export function protectedHashes(env = process.env) {
   const hashes = Object.fromEntries(digestNames.map(name => [name, env[name]]));
-  requireValue(Object.values(hashes).every(value => /^[a-f0-9]{64}$/.test(value ?? '')), 'four protected per-environment original SHA256 values required');
+  requireValue(Object.values(hashes).every(value => /^[a-f0-9]{64}$/.test(value ?? '')), 'three protected per-environment original SHA256 values required');
   return hashes;
 }
 async function regular(root, name) {
@@ -23,8 +23,8 @@ async function regular(root, name) {
   requireValue((await lstat(path)).isFile() && await realpath(path) === path, 'input symlink/nonregular file');
   return readFile(path);
 }
-export function originalMembers(archive) {
-  return JSON.parse(execFileSync('python3', ['-B', fileURLToPath(new URL('./archive-members.py', import.meta.url)), archive], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }));
+export function originalMembers(bytes) {
+  return JSON.parse(execFileSync('python3', ['-B', fileURLToPath(new URL('./archive-members.py', import.meta.url))], { input: bytes, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }));
 }
 function memberBytes(archive, members, path) {
   requireValue(members.some(m => m.path === path), `missing original ${path}`);
@@ -51,7 +51,7 @@ export async function installedMembers(root, ignoredPaths = new Set()) {
   await walk(root);
   return out.sort((a,b) => a.path < b.path ? -1 : 1);
 }
-export async function loadOriginals({ target, repoRoot, hashes, installed = false }) {
+export async function loadOriginals({ target, repoRoot, hashes, installed = false, fetchImpl = fetch }) {
   requireValue(['staging','production'].includes(target), 'unknown target; no LAB retarget');
   // Library callers must supply explicit expectations. Only the CLI's separate
   // protectedHashes() call intentionally reads process.env; undefined here must
@@ -68,18 +68,35 @@ export async function loadOriginals({ target, repoRoot, hashes, installed = fals
   const archives = {}, originals = {};
   for (const [key, name] of Object.entries(packages)) {
     const pin = pkg.dependencies?.[name];
-    requireValue(typeof pin === 'string' && pin.startsWith('file:'), `${name} must remain a file pin`);
-    const path = relative(repoRoot, resolve(app, pin.slice(5)));
-    const bytes = await regular(repoRoot, path);
-    const sha256 = hash(bytes), sri = `sha512-${hash(bytes, 'sha512')}`;
-    equal(sha256, hashes[`NATIVE_${key.toUpperCase()}_SHA256`], `${key} protected archive hash mismatch`);
-    // No package code/YAML module is loaded to inspect the frozen lock.
+    let path, bytes;
     const importer = lock.split('\n  apps/editor:\n')[1]?.split(/\n  [^ ]/)[0];
-    requireValue(importer?.includes(`'${name}':\n        specifier: ${pin}\n`), `${name} frozen importer pin mismatch`);
-    const escaped = `${name}@file:${path}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const resolution = new RegExp(`  '${escaped}':\\n    resolution: \\{integrity: ([^,]+), tarball: file:([^}]+)\\}`).exec(lock);
-    requireValue(resolution?.[1] === sri && resolution?.[2] === path, `${name} frozen archive integrity mismatch`);
-    const members = originalMembers(join(repoRoot, path));
+    if (key === 'ui') {
+      requireValue(typeof pin === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(pin), `${name} must be an exact npm version`);
+      requireValue(approved.ui?.version === pin && /^sha512-[A-Za-z0-9+/]{86}==$/.test(approved.ui?.integrity ?? ''), 'UI committed version/integrity pin missing or mismatched');
+      const entry = lock.split(`\n  '${name}@${pin}':\n`)[1]?.split(/\n  [^ ]/)[0];
+      const dependency = importer?.split(`'${name}':\n        specifier: ${pin}\n        version: `)[1]?.split('\n')[0];
+      requireValue(dependency?.split('(')[0] === pin && entry?.includes(`    resolution: {integrity: ${approved.ui.integrity}}\n`), `${name} frozen registry integrity mismatch`);
+      path = `https://registry.npmjs.org/${name}/-/ui-${pin}.tgz`;
+      const response = await fetchImpl(path, { redirect: 'error', signal: AbortSignal.timeout(30000) });
+      requireValue(response.ok, `${name}@${pin} registry archive unavailable (${response.status})`);
+      bytes = Buffer.from(await response.arrayBuffer());
+      equal(`sha512-${hash(bytes, 'sha512')}`, approved.ui.integrity, 'UI registry archive integrity mismatch');
+    } else {
+      requireValue(typeof pin === 'string' && pin.startsWith('file:'), `${name} must remain a file pin`);
+      path = relative(repoRoot, resolve(app, pin.slice(5)));
+      bytes = await regular(repoRoot, path);
+      const sha256 = hash(bytes), sri = `sha512-${hash(bytes, 'sha512')}`;
+      equal(sha256, hashes[`NATIVE_${key.toUpperCase()}_SHA256`], `${key} protected archive hash mismatch`);
+      requireValue(importer?.includes(`'${name}':\n        specifier: ${pin}\n`), `${name} frozen importer pin mismatch`);
+      const escaped = `${name}@file:${path}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const resolution = new RegExp(`  '${escaped}':\\n    resolution: \\{integrity: ([^,]+), tarball: file:([^}]+)\\}`).exec(lock);
+      requireValue(resolution?.[1] === sri && resolution?.[2] === path, `${name} frozen archive integrity mismatch`);
+    }
+    const members = originalMembers(bytes);
+    if (key === 'ui') {
+      const manifest = JSON.parse(execFileSync('tar', ['-xOzf', '-', 'package/package.json'], { input: bytes }));
+      requireValue(manifest.name === name && manifest.version === pin, 'UI registry package identity mismatch');
+    }
     if (installed) {
       const installedRoot = await realpath(join(app, 'node_modules', name));
       requireValue(!relative(repoRoot, installedRoot).startsWith('..'), 'installed package outside checkout');
@@ -98,7 +115,7 @@ export async function loadOriginals({ target, repoRoot, hashes, installed = fals
       const differences = members.filter(m => !isDeepStrictEqual(m,byPath.get(m.path))).slice(0,3).map(m => ({expected:m,actual:byPath.get(m.path)??null}));
       equal(actual, members, `${name} ALL installed original members differ: ${JSON.stringify({expectedCount:members.length,actualCount:actual.length,extras,differences})}`);
     }
-    archives[key] = { path, bytes: bytes.length, sha256, sri, members: members.length };
+    archives[key] = { path, ...(key === 'ui' ? { version: pin } : {}), bytes: bytes.length, sha256: hash(bytes), sri: `sha512-${hash(bytes, 'sha512')}`, members: members.length };
     originals[key] = members;
   }
   // This is a delivery location, not a new approval descriptor/schema.

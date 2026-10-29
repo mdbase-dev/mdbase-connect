@@ -125,22 +125,20 @@ jobs:
     environment: editor-${{ inputs.target }}
     outputs:
       sdk: ${{ steps.hashes.outputs.sdk }}
-      ui: ${{ steps.hashes.outputs.ui }}
       protocol: ${{ steps.hashes.outputs.protocol }}
       trust: ${{ steps.hashes.outputs.trust }}
     steps:
       - id: hashes
         env:
           NATIVE_SDK_SHA256: ${{ vars.NATIVE_SDK_SHA256 }}
-          NATIVE_UI_SHA256: ${{ vars.NATIVE_UI_SHA256 }}
           NATIVE_PROTOCOL_SHA256: ${{ vars.NATIVE_PROTOCOL_SHA256 }}
           NATIVE_TRUST_ASSET_SHA256: ${{ vars.NATIVE_TRUST_ASSET_SHA256 }}
         run: |
           set -euo pipefail
-          for name in NATIVE_SDK_SHA256 NATIVE_UI_SHA256 NATIVE_PROTOCOL_SHA256 NATIVE_TRUST_ASSET_SHA256; do
+          for name in NATIVE_SDK_SHA256 NATIVE_PROTOCOL_SHA256 NATIVE_TRUST_ASSET_SHA256; do
             [[ "${!name}" =~ ^[0-9a-f]{64}$ ]]
           done
-          printf 'sdk=%s\nui=%s\nprotocol=%s\ntrust=%s\n' "$NATIVE_SDK_SHA256" "$NATIVE_UI_SHA256" "$NATIVE_PROTOCOL_SHA256" "$NATIVE_TRUST_ASSET_SHA256" >> "$GITHUB_OUTPUT"
+          printf 'sdk=%s\nprotocol=%s\ntrust=%s\n' "$NATIVE_SDK_SHA256" "$NATIVE_PROTOCOL_SHA256" "$NATIVE_TRUST_ASSET_SHA256" >> "$GITHUB_OUTPUT"
 
   native-build:
     name: Unprivileged frozen native Editor build
@@ -155,7 +153,6 @@ jobs:
       VITE_MDBASE_FEEDBACK_URL: ${{ inputs.target == 'production' && 'https://feedback-api.mdbase.dev/v1/feedback' || 'https://feedback-api-staging.mdbase.dev/v1/feedback' }}
       VITE_MDBASE_TURNSTILE_SITE_KEY: ${{ inputs.target == 'production' && '0x4AAAAAAEboz_mLT-taI3H-' || '0x4AAAAAAEbkvA4d9vQJq2D1' }}
       NATIVE_SDK_SHA256: ${{ needs.native-inputs.outputs.sdk }}
-      NATIVE_UI_SHA256: ${{ needs.native-inputs.outputs.ui }}
       NATIVE_PROTOCOL_SHA256: ${{ needs.native-inputs.outputs.protocol }}
       NATIVE_TRUST_ASSET_SHA256: ${{ needs.native-inputs.outputs.trust }}
     outputs:
@@ -218,7 +215,6 @@ jobs:
       TARGET: ${{ inputs.target }}
       SOURCE_SHA: ${{ inputs.source_sha }}
       NATIVE_SDK_SHA256: ${{ vars.NATIVE_SDK_SHA256 }}
-      NATIVE_UI_SHA256: ${{ vars.NATIVE_UI_SHA256 }}
       NATIVE_PROTOCOL_SHA256: ${{ vars.NATIVE_PROTOCOL_SHA256 }}
       NATIVE_TRUST_ASSET_SHA256: ${{ vars.NATIVE_TRUST_ASSET_SHA256 }}
       ARTIFACT_ID: ${{ needs.native-build.outputs.artifact-id }}

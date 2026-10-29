@@ -4,7 +4,7 @@ import json
 import sys
 import tarfile
 
-with tarfile.open(sys.argv[1], 'r:gz') as archive:
+with tarfile.open(fileobj=sys.stdin.buffer, mode='r:gz') as archive:
     found = {}
     total = 0
     for member in archive:

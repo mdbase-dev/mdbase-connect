@@ -71,6 +71,7 @@ auditConfig:
 
 minimumReleaseAgeExclude:
   - hono@4.13.7
+  - '@mdbase-dev/ui@0.1.0-beta.147'
 
 patchedDependencies:
   electron-installer-common@0.10.4: patches/electron-installer-common@0.10.4.patch

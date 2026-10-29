@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { loadOriginals, protectedHashes } from './originals.mjs';
+import { digestNames, loadOriginals, protectedHashes } from './originals.mjs';
 import { assertInventory, inventoryDirectory } from './native-publish-bytes.mjs';
 import { assertCheckout, assertDispatch, deploymentFor } from './refs.mjs';
 import { assertHostingSource } from './hosting.mjs';
@@ -83,7 +83,7 @@ export function createReceipt({plan,inventory=[],deployment,verification,artifac
  const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(deployment?.id??'') && deployment.sourceSha===plan.sha && deployment.pagesBranch===plan.pagesBranch;
  return {schema:'mdbase-editor/native-publisher-receipt@1',status:complete && uuid && inventory.length && artifactBound && projectBound?'verified':'failed-or-incomplete',
    source:plan,run:{repository:env.GITHUB_REPOSITORY,id:env.GITHUB_RUN_ID,attempt:env.GITHUB_RUN_ATTEMPT,event:env.GITHUB_EVENT_NAME,ref:env.GITHUB_REF},
-   protectedHashes:Object.fromEntries(['NATIVE_SDK_SHA256','NATIVE_UI_SHA256','NATIVE_PROTOCOL_SHA256','NATIVE_TRUST_ASSET_SHA256'].map(k=>[k,env[k]??null])),
+   protectedHashes:Object.fromEntries(digestNames.map(k=>[k,env[k]??null])),
    project:project??null,artifact:artifact??{id:env.ARTIFACT_ID,digest:env.ARTIFACT_DIGEST},assets:inventory,deployment:deployment??null,verification:verification??{ok:false,reason:'not attempted/available'},
    authentication:'OFF-CI owner handoff only; CI original-byte binding, not fresh authentication',admission:'not assessed'};
 }

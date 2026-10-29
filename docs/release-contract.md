@@ -139,7 +139,7 @@ gh workflow run editor-pages.yml --repo mdbase-dev/mdbase-connect \
 Pushes to main, pull requests and dispatches without `source_sha` run the Editor
 checks and publish nothing; no main or version-tag dispatch publishes the Editor.
 The unprivileged frozen build, protected `editor-<target>` environment, pinned
-SDK/UI/protocol archive hashes and served-byte verification are described in
+SDK/protocol file hashes, exact npm UI version/SHA512 and served-byte verification are described in
 `apps/editor/NATIVE_PUBLISHER.md`. Production additionally requires its own
 target intake on `release/native-production` and Callum's separate reviewer GO.
 UI-only Editor changes do not require a new backend, npm package, or desktop
