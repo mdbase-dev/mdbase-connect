@@ -685,7 +685,8 @@ export class MdbaseClient {
 
   /** The negotiated session: API version, runtime, collection, grant, features. */
   get hello(): HelloResult {
-    return this.currentSession().hello;
+    const hello = this.currentSession().hello;
+    return this.lastStatus.grant ? { ...hello, grant: this.lastStatus.grant } : hello;
   }
 
   get collection(): Uuid {
@@ -1693,6 +1694,7 @@ export class MdbaseClient {
 
   /** Submit operations as one mutation (or one per op with `allowPartial`). */
   async submit(ops: Op[], o: WriteOptions & { allowPartial?: boolean } = {}): Promise<Write[]> {
+    if (this.hello.grant.role === "viewer") throw mdbaseError("forbidden", "You have view access, so changes can't be saved.", "read_only");
     if (o.intent !== undefined && o.mutationId === undefined) o = { ...o, mutationId: (await intentIds(this.collectionId, o.intent))[0] };
     const p: SubmitParams = { ops, mutationId: o.mutationId ?? uuidv7() };
     if (o.allowPartial) {

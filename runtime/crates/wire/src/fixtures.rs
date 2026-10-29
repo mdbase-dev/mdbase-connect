@@ -1208,6 +1208,7 @@ pub fn all() -> Vec<Fixture> {
                 file_folders: None,
             },
             status: SyncStatus {
+                grant: None,
                 resyncing: None,
                 confirmed_head: None,
                 mode: SyncMode::Synced,
@@ -1229,6 +1230,7 @@ pub fn all() -> Vec<Fixture> {
         "client",
         "status",
         SyncStatus {
+            grant: None,
             resyncing: None,
             confirmed_head: None,
             mode: SyncMode::Synced,

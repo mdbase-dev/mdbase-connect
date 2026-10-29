@@ -284,6 +284,8 @@ export interface SyncStatus {
   resyncing?: Resyncing;
   /** Optional confirmed-only fence. Absence is NOT permission to infer one. */
   confirmedHead?: ConfirmedHead;
+  /** Current role-effective session grant (API 1.3). Older replicas omit it. */
+  grant?: GrantInfo;
 }
 
 export const syncStatus = struct<SyncStatus>("sync-status", [
@@ -299,6 +301,7 @@ export const syncStatus = struct<SyncStatus>("sync-status", [
   [9, "incidents", list(incident)],
   [10, "resyncing", resyncing, "opt"],
   [11, "confirmedHead", confirmedHead, "opt"],
+  [12, "grant", grantInfo, "opt"],
 ]);
 
 export interface HelloResult {

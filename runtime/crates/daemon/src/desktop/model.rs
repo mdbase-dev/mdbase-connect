@@ -101,7 +101,7 @@ impl HoldCause {
             Self::Conflict => "another device changed it at the same time",
             Self::UnknownProvenance => "mdbase could not tell which version it was based on",
             Self::DeletedElsewhere => "it was deleted on another device",
-            Self::ReadOnly => "you can only read this collection",
+            Self::ReadOnly => "changed while this collection was view only",
             Self::EditorBusy => "an editor still has unsaved changes",
             Self::SuspectWrite => "the write could not be verified",
             Self::TakenOver => "the old connector was changing it when mdbase took over",

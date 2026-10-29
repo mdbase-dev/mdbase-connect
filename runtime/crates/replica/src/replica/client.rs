@@ -31,9 +31,10 @@ use crate::layer::LayerView;
 use crate::plan::StoreView;
 use crate::store::{FileLocal, Page, Store};
 
-/// The client API version this replica serves (and the two previous minors).
-/// 1.1: upload file identity. 1.2: `grant-info` file folder scope and change-feed entity.
-pub const API_VERSION: Version = Version { major: 1, minor: 2 };
+/// The client API version this replica serves (compatible back through 1.0).
+/// 1.1: upload file identity. 1.2: grant file scope and change-feed entity.
+/// 1.3: current role-effective grant in status.
+pub const API_VERSION: Version = Version { major: 1, minor: 3 };
 
 /// Every capability (`policy.md` §5), granted to the hosting app.
 pub const ALL_CAPABILITIES: [&str; 8] = [
@@ -221,14 +222,83 @@ impl<S: Store> Replica<S> {
 
     /// Preserve Host capture before bootstrap; a confirmed Viewer role narrows it.
     pub(crate) fn host_is_viewer(&self) -> bool {
+        self.host_member_role() == Some(Role::Viewer)
+    }
+
+    fn host_member_role(&self) -> Option<Role> {
         if self.local_only() || self.is_hosted() {
-            return false;
+            return None;
         }
         self.policy
             .devices
             .get(&self.cfg.device_id)
             .filter(|device| device.active)
-            .is_some_and(|device| self.policy.members.get(&device.account) == Some(&Role::Viewer))
+            .and_then(|device| self.policy.members.get(&device.account))
+            .copied()
+    }
+
+    fn session_grant(&self, auth: &SessionAuth) -> ApiResult<GrantInfo> {
+        Ok(match auth {
+            SessionAuth::Host => {
+                let role = self.host_member_role().unwrap_or(Role::Owner);
+                GrantInfo {
+                    grant: None,
+                    capabilities: ALL_CAPABILITIES
+                        .iter()
+                        .filter(|cap| {
+                            **cap == crate::policy::capability::READ || role >= Role::Editor
+                        })
+                        .map(|s| s.to_string())
+                        .collect(),
+                    role,
+                    file_folders: None,
+                }
+            }
+            SessionAuth::Grant { grant, client_pk } => {
+                if let Err(why) = self.serves_apps() {
+                    return Err(ErrorCode::Unavailable.err_with_reason("untrusted", why));
+                }
+                let g = self.grant_for_client(grant, client_pk).ok_or_else(|| {
+                    ErrorCode::Unauthenticated.err("no active grant for this client")
+                })?;
+                if !self.serving_account_matches(&g.account) {
+                    return Err(ErrorCode::Forbidden.err_with_reason(
+                        "grant_account_mismatch",
+                        "this device may not serve another account's grant",
+                    ));
+                }
+                // Advertise current role-effective capabilities, not merely the
+                // approved/declarative intersection. Calls still reauthorize.
+                let caps: Vec<String> = g
+                    .capabilities
+                    .iter()
+                    .filter(|cap| g.allows(cap))
+                    .cloned()
+                    .collect();
+                if caps.is_empty() {
+                    return Err(ErrorCode::Forbidden.err("the grant allows nothing"));
+                }
+                GrantInfo {
+                    grant: Some(*grant),
+                    capabilities: caps,
+                    role: g.role,
+                    file_folders: g.file_folders.clone(),
+                }
+            }
+        })
+    }
+
+    pub(crate) fn session_status(&self, session: SessionId) -> ApiResult<SyncStatus> {
+        let mut status = self.sync_status();
+        let auth = &self.session(session)?.auth;
+        if !matches!(auth, SessionAuth::Host)
+            || self.local_only()
+            || self.is_hosted()
+            || self.host_member_role().is_some()
+        {
+            status.grant = Some(self.session_grant(auth)?);
+        }
+        Ok(status)
     }
 
     /// The session, checked for `cap` against its grant in the current confirmed
@@ -405,6 +475,18 @@ impl<S: Store> Replica<S> {
 
     /// "Confirmed through N, plus pending".
     pub fn sync_status(&self) -> SyncStatus {
+        let mut incidents: Vec<_> = self
+            .incidents
+            .values()
+            .filter(|incident| incident.kind != mdbn_wire::client::IncidentKind::ReadOnly)
+            .cloned()
+            .collect();
+        if self.host_is_viewer() {
+            incidents.push(mdbn_wire::client::Incident {
+                kind: mdbn_wire::client::IncidentKind::ReadOnly,
+                details: None,
+            });
+        }
         // Resurrected acknowledged writes are re-syncing, not pending (§6).
         let pending = self
             .store
@@ -417,6 +499,7 @@ impl<S: Store> Replica<S> {
             .ok()
             .and_then(|r| r.first().map(|r| r.mutation.clock.instant));
         SyncStatus {
+            grant: None,
             resyncing: self.resyncing(),
             confirmed_head: self.confirmed_handover_head(),
             mode: self.cfg.mode,
@@ -435,7 +518,7 @@ impl<S: Store> Replica<S> {
                 done: self.install_progress.0,
                 total: self.install_progress.1,
             }),
-            incidents: self.incidents.values().cloned().collect(),
+            incidents,
         }
     }
 
@@ -694,50 +777,12 @@ impl<S: Store> ClientApi for Replica<S> {
             .filter(|v| {
                 v.major == API_VERSION.major
                     && v.minor <= API_VERSION.minor
-                    && v.minor >= API_VERSION.minor.saturating_sub(2)
+                    && v.minor >= API_VERSION.minor.saturating_sub(3)
             })
             .max_by_key(|v| v.minor)
             .cloned()
             .ok_or_else(|| ErrorCode::UpgradeRequired.err("no common API version"))?;
-        let grant_info = match &auth {
-            SessionAuth::Host => GrantInfo {
-                grant: None,
-                capabilities: ALL_CAPABILITIES.iter().map(|s| s.to_string()).collect(),
-                role: Role::Owner,
-                file_folders: None,
-            },
-            SessionAuth::Grant { grant, client_pk } => {
-                if let Err(why) = self.serves_apps() {
-                    return Err(ErrorCode::Unavailable.err_with_reason("untrusted", why));
-                }
-                let g = self.grant_for_client(grant, client_pk).ok_or_else(|| {
-                    ErrorCode::Unauthenticated.err("no active grant for this client")
-                })?;
-                if !self.serving_account_matches(&g.account) {
-                    return Err(ErrorCode::Forbidden.err_with_reason(
-                        "grant_account_mismatch",
-                        "this device may not serve another account's grant",
-                    ));
-                }
-                // Advertise current role-effective capabilities, not merely the
-                // approved/declarative intersection. Calls still reauthorize.
-                let caps: Vec<String> = g
-                    .capabilities
-                    .iter()
-                    .filter(|cap| g.allows(cap))
-                    .cloned()
-                    .collect();
-                if caps.is_empty() {
-                    return Err(ErrorCode::Forbidden.err("the grant allows nothing"));
-                }
-                GrantInfo {
-                    grant: Some(*grant),
-                    capabilities: caps,
-                    role: g.role,
-                    file_folders: g.file_folders.clone(),
-                }
-            }
-        };
+        let grant_info = self.session_grant(&auth)?;
         if let Some(tz) = &params.timezone
             && self.host.zones.local_date(0, tz).is_none()
         {
@@ -989,7 +1034,7 @@ impl<S: Store> ClientApi for Replica<S> {
 
     fn status(&mut self, session: SessionId) -> ApiResult<SyncStatus> {
         self.require(session, crate::policy::capability::READ)?;
-        Ok(self.sync_status())
+        self.session_status(session)
     }
 
     fn applied_prefix(
@@ -1005,14 +1050,27 @@ impl<S: Store> ClientApi for Replica<S> {
         if let Some(s) = self.sessions.get_mut(&session) {
             s.status_sub = true;
         }
-        let st = self.sync_status();
+        let st = self.session_status(session)?;
         self.pushes.push((session, Push::Status(st)));
         Ok(())
     }
 
     fn list_holds(&mut self, session: SessionId) -> ApiResult<Vec<Hold>> {
         self.require(session, crate::policy::capability::READ)?;
-        self.store.holds().map_err(store_err)
+        let mut holds = self.store.holds().map_err(store_err)?;
+        for hold in &mut holds {
+            if hold.reason == mdbn_wire::client::HoldReason::ReadOnly {
+                let key = if self.catalog.is_resource_path(&hold.path) {
+                    super::disk::DiskKey::Resource(hold.path.clone())
+                } else {
+                    super::disk::DiskKey::Record(hold.id)
+                };
+                hold.theirs = self
+                    .local_view_doc(&key)
+                    .map(|(_, text)| mdbn_wire::snapshot::TextOrBlob::Text(text));
+            }
+        }
+        Ok(holds)
     }
 
     fn subscribe_holds(&mut self, session: SessionId) -> ApiResult<()> {

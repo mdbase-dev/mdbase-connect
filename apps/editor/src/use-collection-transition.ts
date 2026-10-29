@@ -24,7 +24,7 @@ export function useCollectionTransition(input: TransitionInput) {
   const serialTail = useRef<Promise<void>>(Promise.resolve());
   const serialBusy = useRef(false);
   const authorizationFlight = useRef<Promise<void> | undefined>(undefined);
-  const acceptedSnapshot = useRef<string | undefined>(undefined);
+  const acceptedSnapshot = useRef<{ gateway: CollectionGateway; snapshot: CollectionSessionSnapshot } | undefined>(undefined);
 
   const enqueue = useCallback((task: () => Promise<void>): Promise<void> => {
     let own: Promise<void>;
@@ -53,7 +53,7 @@ export function useCollectionTransition(input: TransitionInput) {
       if (nextOwner !== previousOwner) owner.clear();
       owner.scope.changeOwner(nextOwner);
       owner.setSnapshot(snapshot);
-      acceptedSnapshot.current = exactSnapshot(snapshot);
+      acceptedSnapshot.current = { gateway: owner.gateway, snapshot };
       if (snapshot.status === "ready" && missingCoreCapabilities(snapshot.connection).length === 0) {
         owner.setPhase("loading");
         await owner.start();
@@ -72,7 +72,18 @@ export function useCollectionTransition(input: TransitionInput) {
     return enqueue(async () => {
       const owner = latest.current;
       const authoritative = owner.gateway.sessionSnapshot();
-      if (delayed && acceptedSnapshot.current === exactSnapshot(authoritative)) return;
+      const accepted = acceptedSnapshot.current;
+      if (delayed && accepted?.gateway === owner.gateway && exactSnapshot(accepted.snapshot) === exactSnapshot(authoritative)) return;
+      // A live role update belongs to this open scope. Do not drain a refused
+      // draft, retire its operation token, or reload the workspace to display it.
+      if (accepted?.gateway === owner.gateway && accepted.snapshot.status === "ready" && authoritative.status === "ready"
+        && accepted.snapshot.connection.role !== undefined && authoritative.connection.role !== undefined
+        && accepted.snapshot.connection.collectionId === authoritative.connection.collectionId
+        && owner.currentOwner() === authoritative.connection.collectionId) {
+        owner.setSnapshot(authoritative);
+        acceptedSnapshot.current = { gateway: owner.gateway, snapshot: authoritative };
+        return;
+      }
       await execute(() => requested);
     });
   }, [enqueue, execute]);

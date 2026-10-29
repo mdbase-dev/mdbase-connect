@@ -724,6 +724,10 @@ msgstr "Détails"
 msgid "Differed when mdbase took over from the old app; this computer's version is in the folder"
 msgstr "Différent lors de la reprise par mdbase de l’ancienne application ; la version de cet ordinateur se trouve dans le dossier"
 
+#: src/renderer/collections-view.tsx
+msgid "Discard local changes"
+msgstr "Ignorer les modifications locales"
+
 #: src/renderer/main.tsx
 msgid "Dismiss"
 msgstr "Ignorer"

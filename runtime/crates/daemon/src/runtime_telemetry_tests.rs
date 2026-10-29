@@ -4,6 +4,7 @@ use mdbn_wire::client::{Connection, Incident, IncidentKind, SyncMode, SyncStatus
 
 fn sample() -> SyncStatus {
     SyncStatus {
+        grant: None,
         mode: SyncMode::Synced,
         confirmed_through: 12,
         head_known: 14,

@@ -22,7 +22,7 @@ export interface HoldActionOption {
   /** The `resolve_hold` resolution, absent for `compare`. */
   resolution?: HoldResolution;
   /** The capability `resolve_hold` needs for it. */
-  needs?: "records.edit" | "records.delete";
+  needs?: "collection.read" | "records.edit" | "records.delete";
   /** True when the user's held bytes are not kept anywhere by this action (offer "keep both" next to it). */
   discardsMine: boolean;
 }
@@ -63,8 +63,8 @@ const CAUSES: Record<HoldReason, { cause: string; detail: string }> = {
     detail: "Your version is kept here; nothing is deleted until you choose.",
   },
   read_only: {
-    cause: "You do not have permission to change this file in this collection.",
-    detail: "Your edit is kept on this device and is not synced.",
+    cause: "This file was changed while you had view access.",
+    detail: "Your edit stays on this device until you submit or discard it. Gaining edit access will not submit it automatically.",
   },
   editor_busy: {
     cause: "An editor still has this file open with unsaved changes.",
@@ -90,7 +90,7 @@ const ACTIONS: Record<HoldReason, HoldAction[]> = {
   conflict: ["keep_mine", "take_theirs", "compare", "keep_both"],
   unknown_provenance: ["keep_mine", "take_theirs", "compare", "keep_both"],
   deleted_elsewhere: ["keep_mine", "delete"],
-  read_only: ["take_theirs", "keep_both", "compare"],
+  read_only: ["keep_mine", "take_theirs", "compare"],
   editor_busy: ["keep_mine", "take_theirs", "compare"],
   suspect_write: ["keep_mine", "take_theirs", "compare", "keep_both"],
 };
@@ -121,6 +121,9 @@ export interface DescribeHoldOptions {
   canCompare?: boolean;
   /** The caller's capabilities, to drop actions it cannot perform (default: all). */
   capabilities?: readonly string[];
+  /** True only for the local hosting app (hello.grant.grant is absent).
+   * View-only holds are resolved locally; granted apps may compare them. */
+  host?: boolean;
 }
 
 /** Present one hold: cause, detail, applicable actions and the compare link. */
@@ -129,8 +132,12 @@ export function describeHold(h: Hold, o: DescribeHoldOptions): HoldPresentation 
   const canCompare = (o.canCompare ?? true) && hasTheirs;
   const can = (needs?: HoldActionOption["needs"]) => !needs || !o.capabilities || o.capabilities.includes(needs);
   const actions = ACTIONS[h.reason]
-    .filter((a) => (a === "compare" ? canCompare : a === "take_theirs" ? hasTheirs : true))
+    .filter((a) => h.reason !== "read_only" || a === "compare" || o.host === true)
+    .filter((a) => (a === "compare" ? canCompare : a === "take_theirs" ? hasTheirs || h.reason === "read_only" : true))
     .map((action) => ({ action, ...OPTIONS[action] }))
+    .map((option): HoldActionOption => h.reason === "read_only" && option.action === "take_theirs"
+      ? { ...option, label: "Discard local changes", description: "Discard the changes kept on this computer.", needs: "collection.read" }
+      : option)
     .filter((a) => can(a.needs));
   const text = CAUSES[h.reason];
   return {
@@ -145,7 +152,7 @@ export function describeHold(h: Hold, o: DescribeHoldOptions): HoldPresentation 
     hasTheirs,
     actions,
     reversible: true,
-    reversibleNote: "You can change your mind later: resolving is an ordinary change, and the previous version stays in the collection's history. Keep both if you want your version kept as a file as well.",
+    reversibleNote: h.reason === "read_only" ? "These changes have not been synced. Copy the file before discarding it if you want to keep them." : "You can change your mind later: resolving is an ordinary change, and the previous version stays in the collection's history. Keep both if you want your version kept as a file as well.",
     compareLink: canCompare ? holdCompareLink(o.collectionId, h.id) : null,
   };
 }

@@ -3623,6 +3623,7 @@ DescribeHoldOptions@holds.ts
   canCompare?: boolean | undefined
   capabilities?: readonly string[] | undefined
   collectionId: string
+  host?: boolean | undefined
 
 DescribeOptions@client.ts
   definitions?: boolean | undefined
@@ -3835,7 +3836,7 @@ HoldActionOption@holds.ts
   description: string
   discardsMine: boolean
   label: string
-  needs?: 'records.edit' | 'records.delete' | undefined
+  needs?: 'collection.read' | 'records.edit' | 'records.delete' | undefined
   resolution?: 'delete' | 'keep_mine' | 'take_theirs' | 'use' | 'keep_both' | undefined
 
 HoldPresentation@holds.ts
@@ -5431,7 +5432,7 @@ Strength@strength.ts
   acceptable: boolean
   bits: number
   feedback: string[]
-  score: 0 | 1 | 2 | 3 | 4
+  score: 0 | 1 | 3 | 2 | 4
 
 StrictPendingTarget@private-account.ts
   collectionId: string
@@ -5464,6 +5465,7 @@ SyncStatus@wire.ts
   confirmedHead?: ConfirmedHead | undefined
   confirmedThrough: number
   connection: Connection
+  grant?: GrantInfo | undefined
   headKnown: number
   holds: number
   incidents: Incident[]

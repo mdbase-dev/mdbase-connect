@@ -75,6 +75,13 @@ replace and move need `records.edit`, delete needs `records.delete`.
 `hello` is the first request. Before it, every other request fails with
 `unauthenticated`. Version negotiation is in §13.
 
+From API 1.3, session status responses and pushes include the current effective
+`grant` at key 12. Clients use it to update role-dependent controls without
+reopening the collection. Earlier producers omit it; retain their negotiated
+hello grant. Synced hosting applications follow their device account's signed
+membership; this field is absent until their bootstrap establishes membership.
+Their pre-bootstrap Host authority is unchanged.
+
 ### Feature negotiation is not operation or permission discovery
 
 `hello-result.features` is the intersection of the features requested in this
@@ -641,6 +648,7 @@ sync-status = {
   9: [* incident],       ; conditions that need attention
   ? 10: resyncing,       ; present while repairing a lost tail (log-entry.md §3.3)
   ? 11: confirmed-head,  ; authoritative confirmed-prefix handover fence
+  ? 12: grant-info,      ; API 1.3: this session's current role-effective grant
 }
 confirmed-head = {
   0: seq,               ; committed applied position

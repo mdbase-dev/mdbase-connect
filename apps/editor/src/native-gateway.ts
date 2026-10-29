@@ -70,7 +70,7 @@ const RECEIPT_TIMEOUT_MS = 30_000;
 /** Production scopes belong to the SDK, for both cloud copies and Private
  * collections. Isolated tests may supply their own fenced scope actions. */
 export type EditorScopeActions = Pick<MdbaseApplication, "chooseAnother" | "reauthorize" | "select" | "forget">
-  & Partial<Pick<MdbaseApplication, "getSnapshot" | "subscribe" | "refreshCollectionList">>;
+  & Partial<Pick<MdbaseApplication, "getSnapshot" | "subscribe">>;
 
 /** One borrowed collection. People access exists only when the SDK supplies its
  * scoped client; document access never implies metadata permission. */
@@ -86,9 +86,7 @@ export class NativeEditorGateway implements CollectionGateway {
   private readonly records: NextEditorRecords;
   private readonly listeners = new Set<(snapshot: CollectionSessionSnapshot) => void>();
   private disposed = false;
-  private readonly stopSession?: () => void;
-  private readonly rolePoll?: ReturnType<typeof setInterval>;
-  private roleRefresh?: Promise<unknown>;
+  private readonly stops: Array<() => void> = [];
   private readonly fileReads = new AbortController();
   private readonly plans = new Map<string, TypePackPlan>();
 
@@ -102,16 +100,18 @@ export class NativeEditorGateway implements CollectionGateway {
     this.client = connection.records;
     if (connection.id !== this.client.collection) throw new Error(t`The editor requires its original SDK collection client.`);
     this.records = new NextEditorRecords(this.client, () => this.current());
+    let role = this.role();
     const changed = () => {
+      if (!this.current()) return;
+      const next = this.role();
+      if (next === role) return;
+      role = next;
       const snapshot = this.sessionSnapshot();
       for (const listener of [...this.listeners]) listener(snapshot);
     };
-    this.stopSession = this.application.subscribe?.(changed);
-    if (this.application.refreshCollectionList) {
-      this.rolePoll = setInterval(() => {
-        if (document.visibilityState !== "hidden") void this.refreshRole().catch(() => {});
-      }, 5_000);
-    }
+    this.stops.push(this.client.onStatus(changed));
+    const stop = this.application.subscribe?.(changed);
+    if (stop) this.stops.push(stop);
     const people = connection.people;
     if (people) this.peopleDirectory = async (options: { signal?: AbortSignal } = {}) => {
       const directory = await people.directory({ members: "omit", signal: this.signal(options.signal) });
@@ -128,8 +128,7 @@ export class NativeEditorGateway implements CollectionGateway {
     if (this.disposed) return;
     this.disposed = true;
     this.fileReads.abort("The editor collection scope was retired");
-    clearInterval(this.rolePoll);
-    this.stopSession?.();
+    for (const stop of this.stops) stop();
     this.records.dispose();
     const snapshot = this.sessionSnapshot();
     for (const listener of [...this.listeners]) listener(snapshot);
@@ -539,19 +538,16 @@ export class NativeEditorGateway implements CollectionGateway {
   }
 
   private role(): "owner" | "editor" | "viewer" {
+    if (this.client.status.incidents.some((incident) => incident.kind === "read_only")) return "viewer";
+    // The beta.141 SDK pin does not type API 1.3 status yet. Remove the
+    // intersection when the SDK containing the live-grant codec is pinned.
+    const status = this.client.status as wire.SyncStatus & { grant?: wire.GrantInfo };
+    if (status.grant) return status.grant.role;
     return this.application.getSnapshot?.().collections.find((entry) => entry.collectionId === this.connection.id)?.role
       ?? this.client.hello.grant.role;
   }
 
-  private async refreshRole(): Promise<void> {
-    if (!this.current() || !this.application.refreshCollectionList) return;
-    this.roleRefresh ??= this.application.refreshCollectionList().finally(() => { this.roleRefresh = undefined; });
-    await this.roleRefresh;
-  }
-
   private async checkWritable(): Promise<void> {
-    this.check();
-    await this.refreshRole();
     this.check();
     if (this.role() === "viewer") throw new MdbaseError({
       code: "forbidden", recovery: "none", reason: "read_only",

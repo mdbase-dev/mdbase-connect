@@ -943,7 +943,10 @@ fn viewer_disk_changes_wait_for_explicit_choice_after_upgrade_and_restart() {
     assert!(a.file("new.md").is_none());
     assert!(b.r.store().resource("_types/viewer.md").unwrap().is_none());
     assert!(
-        b.r.sync_status().incidents.is_empty(),
+        !b.r.sync_status()
+            .incidents
+            .iter()
+            .any(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity),
         "a refused type must not invalidate readiness"
     );
     let edit = holds.iter().find(|h| h.path == "edit.md").unwrap().id;
@@ -1008,7 +1011,26 @@ fn host_writes_recheck_current_role_and_leave_no_viewer_pending() {
     use mdbn_wire::policy::Role;
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);
+    a.r.subscribe_status(a.s).unwrap();
     set_member_role(&svc, &mut [&mut a], Role::Viewer);
+    assert_eq!(a.r.status(a.s).unwrap().grant.unwrap().role, Role::Viewer);
+    assert!(a.r.take_pushes().iter().any(|(session, push)| *session == a.s
+        && matches!(push, crate::api::Push::Status(status) if status.grant.as_ref().is_some_and(|g| g.role == Role::Viewer))));
+    let (viewer_session, hello) =
+        a.r.hello(
+            SessionAuth::Host,
+            HelloParams {
+                versions: vec![Version { major: 1, minor: 0 }],
+                client_name: "viewer".into(),
+                client_version: "0".into(),
+                features: None,
+                timezone: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(hello.grant.role, Role::Viewer);
+    assert_eq!(hello.grant.capabilities, vec!["collection.read"]);
+    a.r.close(viewer_session);
     let mut request = SubmitParams {
         ops: vec![Op::Create(Create {
             id: B16([44; 16]),
@@ -1031,6 +1053,9 @@ fn host_writes_recheck_current_role_and_leave_no_viewer_pending() {
     assert_eq!(error.problem().reason.as_deref(), Some("read_only"));
     assert_eq!(a.r.sync_status().pending, 0);
     set_member_role(&svc, &mut [&mut a], Role::Editor);
+    assert_eq!(a.r.status(a.s).unwrap().grant.unwrap().role, Role::Editor);
+    assert!(a.r.take_pushes().iter().any(|(session, push)| *session == a.s
+        && matches!(push, crate::api::Push::Status(status) if status.grant.as_ref().is_some_and(|g| g.role == Role::Editor))));
     request.ops[0] = Op::Create(Create {
         id: B16([45; 16]),
         path: Some("allowed.md".into()),
@@ -1042,6 +1067,122 @@ fn host_writes_recheck_current_role_and_leave_no_viewer_pending() {
     a.r.submit(a.s, request).unwrap();
     settle(&mut [&mut a]);
     assert_eq!(a.file("allowed.md").as_deref(), Some("editor"));
+}
+
+#[test]
+fn read_only_hold_preserves_newer_synced_edits_until_discard() {
+    use mdbn_wire::policy::Role;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "a.md", "original");
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Viewer);
+    b.disk.borrow_mut().user_write("a.md", Some("viewer edit"));
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Editor);
+    a.disk
+        .borrow_mut()
+        .user_write("a.md", Some("newer synced edit"));
+    settle(&mut [&mut a, &mut b]);
+    let hold = b.r.list_holds(b.s).unwrap().remove(0);
+    assert_eq!(
+        hold.base,
+        Some(mdbn_wire::snapshot::TextOrBlob::Text("original".into()))
+    );
+    assert_eq!(
+        hold.theirs,
+        Some(mdbn_wire::snapshot::TextOrBlob::Text(
+            "newer synced edit".into()
+        ))
+    );
+    let error =
+        b.r.resolve_hold(b.s, hold.id, HoldResolution::KeepMine)
+            .unwrap_err();
+    assert_eq!(
+        error.problem().reason.as_deref(),
+        Some("concurrent_modification")
+    );
+    assert_eq!(b.file("a.md").as_deref(), Some("viewer edit"));
+    assert_eq!(b.r.store().holds().unwrap().len(), 1);
+    assert_eq!(b.r.sync_status().pending, 0);
+    b.r.resolve_hold(b.s, hold.id, HoldResolution::TakeTheirs)
+        .unwrap();
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(a.file("a.md").as_deref(), Some("newer synced edit"));
+    assert_eq!(b.file("a.md").as_deref(), Some("newer synced edit"));
+}
+
+#[test]
+fn read_only_definition_submission_validates_before_releasing_the_hold() {
+    use mdbn_wire::{
+        client::{IncidentKind, ReceiptState},
+        policy::Role,
+    };
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    set_member_role(&svc, &mut [&mut a], Role::Viewer);
+    a.disk
+        .borrow_mut()
+        .user_write("_types/task.md", Some("invalid type source"));
+    settle(&mut [&mut a]);
+    set_member_role(&svc, &mut [&mut a], Role::Editor);
+    let id = a.r.list_holds(a.s).unwrap()[0].id;
+    let receipt = a.r.resolve_hold(a.s, id, HoldResolution::KeepMine).unwrap();
+    assert_eq!(receipt.state, ReceiptState::Rejected);
+    assert_eq!(a.r.list_holds(a.s).unwrap().len(), 1);
+    assert_eq!(a.r.sync_status().pending, 0);
+    assert!(
+        !a.r.sync_status()
+            .incidents
+            .iter()
+            .any(|i| i.kind == IncidentKind::Integrity)
+    );
+    a.disk
+        .borrow_mut()
+        .user_write("_types/task.md", Some("---\nkind: mdbase.type\nname: task\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n"));
+    settle(&mut [&mut a]);
+    let receipt = a.r.resolve_hold(a.s, id, HoldResolution::KeepMine).unwrap();
+    assert_ne!(receipt.state, ReceiptState::Rejected);
+    settle(&mut [&mut a]);
+    assert!(a.r.list_holds(a.s).unwrap().is_empty());
+    assert!(a.r.store().resource("_types/task.md").unwrap().is_some());
+}
+
+#[test]
+fn viewer_saves_preserve_an_existing_conflict_hold() {
+    use mdbn_wire::{client::HoldReason, policy::Role};
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "a.md", "base");
+    settle(&mut [&mut a, &mut b]);
+    a.disk.borrow_mut().user_write("a.md", Some("mine A"));
+    b.disk.borrow_mut().user_write("a.md", Some("mine B"));
+    a.step();
+    b.step();
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Viewer);
+    let loser = if a.r.store().holds().unwrap().is_empty() {
+        &mut b
+    } else {
+        &mut a
+    };
+    let before = loser.r.list_holds(loser.s).unwrap().remove(0);
+    assert_eq!(before.reason, HoldReason::Conflict);
+    loser
+        .disk
+        .borrow_mut()
+        .user_write("a.md", Some("viewer save"));
+    loser.step();
+    let after = loser.r.list_holds(loser.s).unwrap().remove(0);
+    assert_eq!(after.id, before.id);
+    assert_eq!(after.reason, before.reason);
+    assert_eq!(after.base, before.base);
+    assert_eq!(after.theirs, before.theirs);
+    assert_eq!(after.saves, before.saves + 1);
+    assert_eq!(loser.r.sync_status().pending, 0);
 }
 
 #[test]

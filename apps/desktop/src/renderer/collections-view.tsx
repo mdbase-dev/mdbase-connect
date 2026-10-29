@@ -176,6 +176,11 @@ function Holds({ collection, busy, onAct, onLoaded }: {
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Use my unsent edit</Trans></button>
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
               </div>
+              : hold.reason === "read_only"
+              ? <div className="row-actions">
+                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
+                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Discard local changes</Trans></button>
+              </div>
               : <div className="row-actions">
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
                 {hold.has_theirs && <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Take the other version</Trans></button>}

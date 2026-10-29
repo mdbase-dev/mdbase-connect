@@ -101,16 +101,26 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     stop();
   });
 
-  it("refreshes membership before saving to apply a downgrade immediately", async () => {
+  it("applies native role changes live and keeps saves independent of Connect list refreshes", async () => {
     const f = await fixture({}, seedNotes);
     const base = await f.gateway.read("notes/plan.md");
-    const snapshot = f.application.getSnapshot();
-    f.controls.setHandler("refreshCollectionList", () => ({
-      ...snapshot, collections: snapshot.collections.map((entry) => ({ ...entry, role: "viewer" as const }))
-    }));
+    f.controls.setHandler("refreshCollectionList", () => { throw new Error("Connect unavailable"); });
+    await expect(f.gateway.create({ path: "owner.md", title: "Owner", body: "allowed", properties: {} })).resolves.toMatchObject({ path: "owner.md" });
+    const changed = vi.fn();
+    const stop = f.gateway.onSessionChange(changed);
+    const status = vi.spyOn(f.client, "status", "get").mockReturnValue({ ...f.client.status, incidents: [{ kind: "read_only" }] });
+    f.replica.setOnline(false);
+    await vi.waitFor(() => expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ connection: expect.objectContaining({ role: "viewer" }) })));
     await expect(f.gateway.updateDocument(base.path, "downgraded", base.revision)).rejects.toMatchObject({ reason: "read_only" });
     expect((await f.gateway.read(base.path)).body).toBe(base.body);
     expect(f.client.ledger.getSnapshot()).toMatchObject({ pending: [], rejected: [] });
+    status.mockReturnValue({ ...f.client.status, incidents: [], grant: { role: "editor", capabilities: ["collection.read", "records.edit"] } } as typeof f.client.status);
+    f.replica.setOnline(true);
+    await vi.waitFor(() => expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ connection: expect.objectContaining({ role: "editor" }) })));
+    stop();
+    const upgraded = f.gateway.sessionSnapshot();
+    expect(editorPermissions(upgraded.status === "ready" ? upgraded.connection : null).canEditNotes).toBe(true);
+    expect(f.controls.observedActions().some((call) => call.action === "refreshCollectionList")).toBe(false);
   });
 
   it("forwards authorize, choose and forget to the original application with the caller signal", async () => {

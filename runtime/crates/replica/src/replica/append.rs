@@ -1699,9 +1699,10 @@ impl<S: Store> Replica<S> {
         if subs.is_empty() {
             return;
         }
-        let st = self.sync_status();
         for s in subs {
-            self.pushes.push((s, Push::Status(st.clone())));
+            if let Ok(st) = self.session_status(s) {
+                self.pushes.push((s, Push::Status(st)));
+            }
         }
     }
 

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { GrantInfo, SyncStatus } from "../src/wire.js";
 import { connect, isMdbaseError, LiveQuery, MdbaseClient, MdbaseError } from "../src/index.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { clientFrame, problem } from "../src/wire.js";
@@ -53,6 +54,29 @@ function setup(opts: ConstructorParameters<typeof MemoryReplica>[0] = {}) {
 }
 
 describe("session", () => {
+  it("uses live session grants without reconnecting and refuses Viewer writes before ledger capture", async () => {
+    const { replica, client } = setup();
+    const original = (replica as unknown as { status(): SyncStatus }).status.bind(replica);
+    let grant: GrantInfo | undefined;
+    vi.spyOn(replica as unknown as { status(): SyncStatus }, "status").mockImplementation(() => ({ ...original(), ...(grant ? { grant } : {}) }));
+    const c = await client();
+    try {
+      const negotiated = c.hello;
+      grant = { role: "viewer", capabilities: ["collection.read"] };
+      await c.getStatus();
+      expect(c.hello.grant).toEqual(grant);
+      await expect(c.create({ path: "viewer.md", body: "refused" })).rejects.toMatchObject({ code: "forbidden", reason: "read_only" });
+      expect(replica.allRecords).toHaveLength(0);
+      expect(c.ledger.getSnapshot()).toMatchObject({ pending: [], rejected: [] });
+      grant = { role: "editor", capabilities: ["collection.read", "records.create", "records.edit"] };
+      await c.getStatus();
+      await expect(c.create({ path: "editor.md", body: "allowed" })).resolves.toMatchObject({ state: "pending" });
+      grant = undefined;
+      await c.getStatus();
+      expect(c.hello).toBe(negotiated);
+    } finally { c.close(); }
+  });
+
   it("surfaces a refused hello as the problem's code", async () => {
     const { client } = setup({ refuse: { code: "forbidden", recovery: "reauthorize", message: "grant revoked" } });
     await expect(client()).rejects.toMatchObject({ code: "forbidden", recovery: "reauthorize" });

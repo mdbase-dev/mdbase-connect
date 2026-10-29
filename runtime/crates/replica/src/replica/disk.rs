@@ -69,7 +69,7 @@ fn rev(s: &str) -> Hash {
 }
 
 impl<S: Store> Replica<S> {
-    fn local_view_doc(&self, key: &DiskKey) -> Option<(String, String)> {
+    pub(super) fn local_view_doc(&self, key: &DiskKey) -> Option<(String, String)> {
         let view = StoreView::new(&self.store, self.catalog.clone());
         let lv = LayerView {
             base: &view,
@@ -534,7 +534,7 @@ impl<S: Store> Replica<S> {
             Ok(holds) => holds
                 .into_iter()
                 .filter(|h| h.reason == HoldReason::ReadOnly)
-                .map(|h| h.path)
+                .map(|h| mdbn_core::paths::path_key(&h.path))
                 .collect::<std::collections::BTreeSet<_>>(),
             Err(e) => {
                 self.incident(
@@ -547,10 +547,10 @@ impl<S: Store> Replica<S> {
         let viewer = self.host_is_viewer();
         let (protected, observations): (Vec<_>, Vec<_>) = observations.into_iter().partition(|o| {
             viewer
-                || held_paths.contains(&o.path)
+                || held_paths.contains(&mdbn_core::paths::path_key(&o.path))
                 || o.moved_from
                     .as_ref()
-                    .is_some_and(|p| held_paths.contains(p))
+                    .is_some_and(|p| held_paths.contains(&mdbn_core::paths::path_key(p)))
         });
         for observation in protected {
             if let Err(e) = self.ingest_one(observation, None) {
@@ -858,8 +858,11 @@ impl<S: Store> Replica<S> {
             return self.ack(o.token);
         }
         let existing_hold = self.store.holds()?.into_iter().find(|h| {
-            h.reason == HoldReason::ReadOnly
-                && (h.path == o.path || o.moved_from.as_ref() == Some(&h.path))
+            matches!(&h.mine, TextOrBlob::Text(_))
+                && (mdbn_core::paths::path_key(&h.path) == mdbn_core::paths::path_key(&o.path)
+                    || o.moved_from.as_ref().is_some_and(|p| {
+                        mdbn_core::paths::path_key(p) == mdbn_core::paths::path_key(&h.path)
+                    }))
         });
         if let Some(mut hold) = existing_hold {
             if let Some(Observed::Text(text)) = &o.now {
@@ -867,6 +870,8 @@ impl<S: Store> Replica<S> {
             } else if o.now.is_none() {
                 hold.mine = TextOrBlob::Text(String::new());
             } else {
+                // Keep the prior hold and its evidence until attachment holds
+                // can collect this replacement without inventing a descriptor.
                 return Ok(());
             }
             hold.path = o.path.clone();
@@ -904,14 +909,15 @@ impl<S: Store> Replica<S> {
                 DiskKey::Record(id) => id,
                 DiskKey::Resource(_) => self.mint_v7(),
             };
+            let theirs = shown.map(|(_, text)| TextOrBlob::Text(text));
             let hold = Hold {
                 id: hold_id,
                 path: o.path.clone(),
                 reason: HoldReason::ReadOnly,
                 since: self.now(),
-                base: None,
+                base: theirs.clone(),
                 mine: TextOrBlob::Text(text.unwrap_or_default().to_string()),
-                theirs: shown.map(|(_, text)| TextOrBlob::Text(text)),
+                theirs,
                 saves: 1,
             };
             self.store.commit(Tx {
@@ -1738,6 +1744,23 @@ impl<S: Store> Replica<S> {
                         ErrorCode::InvalidRequest.err("binary holds are resolved by upload")
                     );
                 };
+                let baseline = match &hold.base {
+                    Some(TextOrBlob::Text(text)) => Some(text.as_str()),
+                    None => None,
+                    _ => {
+                        return Err(
+                            ErrorCode::InvalidRequest.err("binary holds are resolved by upload")
+                        );
+                    }
+                };
+                if self
+                    .local_view_doc(&key)
+                    .as_ref()
+                    .map(|(_, text)| text.as_str())
+                    != baseline
+                {
+                    return Err(ErrorCode::Conflict.err_with_reason("concurrent_modification", "The synced file changed while your edit was held. Compare the versions before submitting it."));
+                }
                 let op = match &key {
                     DiskKey::Resource(path) => {
                         self.require(session, crate::policy::capability::DEFINITIONS)?;
@@ -1768,6 +1791,30 @@ impl<S: Store> Replica<S> {
                         if_revision: None,
                     }),
                 };
+                // Validate with the canonical planner before capture. A real submit
+                // would materialize while the hold still protects the file.
+                let preview = self
+                    .submit_ops(
+                        session,
+                        mdbn_wire::client::SubmitParams {
+                            ops: vec![op.clone()],
+                            mutation_id: None,
+                            conflict_mode: None,
+                            timezone: None,
+                            allow_partial: None,
+                            mutation_ids: None,
+                            dry_run: Some(true),
+                            include: None,
+                            wait: None,
+                        },
+                    )?
+                    .pop()
+                    .ok_or_else(|| {
+                        ErrorCode::Internal.err("hold submission returned no receipt")
+                    })?;
+                if preview.state == ReceiptState::Rejected {
+                    return Ok(preview);
+                }
                 let mutation = self.capture(vec![op], Source::Api);
                 let receipt = self
                     .queue_mutation(mutation, Vec::new(), Some(session))

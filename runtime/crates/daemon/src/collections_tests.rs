@@ -649,6 +649,7 @@ fn status(
     incidents: &[mdbn_wire::client::IncidentKind],
 ) -> mdbn_wire::client::SyncStatus {
     mdbn_wire::client::SyncStatus {
+        grant: None,
         mode: mdbn_wire::client::SyncMode::Synced,
         confirmed_through: through,
         head_known: head,
