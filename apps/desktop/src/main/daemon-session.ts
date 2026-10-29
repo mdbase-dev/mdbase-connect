@@ -1,7 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { i18n } from "@mdbase-dev/ui/i18n";
 import { DaemonCli, type DaemonProfile } from "./daemon-cli";
-import { CONTROL_PROTOCOL, DaemonConnection, daemonNotRunning, requestDaemon } from "./daemon-client";
+import { CONTROL_PROTOCOL, DaemonConnection, DaemonControlError, daemonNotRunning, requestDaemon } from "./daemon-client";
 import { ensureNextDaemon, nextDaemonRunner } from "./next-daemon";
 
 /**
@@ -75,6 +75,7 @@ export class DaemonSession {
   private stopped = false;
   private attempt = 0;
   private timer: NodeJS.Timeout | null = null;
+  private connecting: Promise<void> | null = null;
 
   constructor(private readonly options: SessionOptions) {}
 
@@ -88,10 +89,13 @@ export class DaemonSession {
     return () => this.listeners.delete(listener);
   }
 
-  /** Make sure the daemon runs, then attach. Resolves once ready (or rejects). */
-  async start(): Promise<void> {
-    await this.ensureRunning();
-    await this.attach();
+  /**
+   * Make sure the daemon runs, then attach. Resolves once attached (or rejects).
+   * An attached session is left alone, and concurrent callers share one attempt, so
+   * the session never holds more than one control connection.
+   */
+  start(): Promise<void> {
+    return this.connect();
   }
 
   /** Unprivileged request on the session's connection (or a fresh one). */
@@ -123,18 +127,37 @@ export class DaemonSession {
     await this.options.cli.run(["daemon", "start"], READY_WAIT_MS + 5_000);
   }
 
+  private connect(): Promise<void> {
+    if (this.connection && !this.connection.isClosed) return Promise.resolve();
+    this.connecting ??= this.ensureRunning()
+      .then(() => this.attach())
+      .finally(() => { this.connecting = null; });
+    return this.connecting;
+  }
+
   private async attach(): Promise<void> {
     const connection = await DaemonConnection.connect(this.options.profile.control);
-    this.connection = connection;
     connection.onPush((type, payload) => {
       if (type === "status") this.publish(payload as DaemonStatus);
     });
+    let status: DaemonStatus;
+    try {
+      // `status.subscribe` answers with the current status and pushes every change.
+      status = await connection.request<DaemonStatus>("status.subscribe");
+    } catch (error) {
+      connection.close();
+      throw error;
+    }
+    if (connection.isClosed || this.stopped) {
+      connection.close();
+      throw new DaemonControlError("unavailable", "The connection to mdbase closed.");
+    }
+    this.connection = connection;
     connection.onClose(() => {
       if (this.connection === connection) this.connection = null;
       if (!this.stopped) this.scheduleReconnect("The connection to mdbase closed.");
     });
-    // `status.subscribe` answers with the current status and pushes every change.
-    this.publish(await connection.request<DaemonStatus>("status.subscribe"));
+    this.publish(status);
     this.attempt = 0;
   }
 
@@ -148,11 +171,9 @@ export class DaemonSession {
       if (this.stopped) return;
       // A stopped isolated daemon is restarted; an installed service is restarted by
       // its manager (and `ensureRunning` repairs a missing registration).
-      this.ensureRunning()
-        .then(() => this.attach())
-        .catch((reason) => {
-          if (!this.stopped) this.scheduleReconnect(reason instanceof Error ? reason.message : String(reason));
-        });
+      this.connect().catch((reason) => {
+        if (!this.stopped && !this.timer) this.scheduleReconnect(reason instanceof Error ? reason.message : String(reason));
+      });
     }, delay);
     this.timer.unref?.();
   }

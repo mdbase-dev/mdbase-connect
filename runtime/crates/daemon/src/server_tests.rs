@@ -72,6 +72,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         secrets: Arc::new(crate::secrets::MemoryStore::default()),
         readiness: watch::channel(readiness(true, None)).0,
         changes: watch::channel(0).0,
+        status_feed: watch::channel(None).0,
         access_events: tokio::sync::broadcast::channel(64).0,
         activity: crate::activity::ActivityLog::open(dir.path().join("activity.jsonl")),
         control_key: std::sync::OnceLock::new(),
@@ -1357,4 +1358,26 @@ async fn doc_at(rt: &Arc<crate::runtime::Runtime>, path: &str) -> Option<String>
     use crate::takeover::mirror_import::Target;
     let mut t = HostTarget { rt: rt.clone() };
     t.get(path).await.unwrap().map(|c| c.document)
+}
+
+#[tokio::test]
+async fn status_is_built_once_per_change_for_every_subscriber() {
+    let dir = crate::testutil::TestDir::new("status-feed");
+    let d = daemon(&dir);
+    let publisher = tokio::spawn(d.clone().publish_status());
+    let (mut a, mut b) = (d.status_feed.subscribe(), d.status_feed.subscribe());
+    while d.changes.receiver_count() == 0 {
+        tokio::task::yield_now().await;
+    }
+    d.bump();
+    for feed in [&mut a, &mut b] {
+        tokio::time::timeout(Duration::from_secs(5), feed.changed())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    let (a, b) = (a.borrow().clone().unwrap(), b.borrow().clone().unwrap());
+    assert!(Arc::ptr_eq(&a, &b), "one build shared by both subscribers");
+    assert_eq!(a["pid"], std::process::id());
+    publisher.abort();
 }
