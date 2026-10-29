@@ -156,7 +156,8 @@ test("pull requests changing native or system-suite inputs run full Server CI", 
   for (const path of ["runtime/crates/log-conformance/src/suite.rs", "runtime/crates/log-server/src/pg.rs",
     "runtime/crates/log-service/src/service.rs", "runtime/deploy/cloudflare-do/tests/runtime.mjs",
     "services/server/src/features/next/policy-outbox.ts", "services/server/src/features/next/policy-outbox.postgres.test.ts",
-    "services/server/src/features/next/log-service-client.ts"]) {
+    "services/server/src/features/next/log-service-client.ts", "runtime/crates/wire/src/log_service.rs",
+    "runtime/Cargo.toml", "runtime/Cargo.lock", "runtime/rust-toolchain.toml"]) {
     assert.deepEqual(serverTestPlan([path]), { native: true }, path);
   }
   for (const paths of [[], ["apps/editor/src/App.tsx"], ["docs/ci-qualification.md"], ["packages/client/src/index.ts"]]) {
