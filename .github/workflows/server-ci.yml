@@ -498,6 +498,65 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: test/upgrade/provider-from-previous --current-upgrade
 
+  log-postgres-conformance:
+    name: Log conformance (Postgres)
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: logsvc_test
+          POSTGRES_USER: mdbase
+          POSTGRES_PASSWORD: logsvc-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mdbase -d logsvc_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: runtime
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install 1.94.0 --profile minimal
+      - name: Run all Postgres log conformance cases
+        env:
+          MDBN_REQUIRE_REAL_BACKENDS: '1'
+          MDBN_TEST_PG_URL: postgres://mdbase:logsvc-test@127.0.0.1:5432/logsvc_test
+        run: cargo test --locked -p mdbn-log-conformance --test conformance postgres_backend -- --exact --nocapture
+
+  log-do-conformance:
+    name: Log conformance (Durable Objects)
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: runtime/deploy/cloudflare-do
+    env:
+      MDBN_REQUIRE_REAL_BACKENDS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: rustup toolchain install 1.94.0 --profile minimal --target wasm32-unknown-unknown
+      - run: cargo install worker-build --version 0.8.7 --locked
+      - run: worker-build --release --locked
+      - run: cargo build --locked -p mdbn-log-conformance --bin logsvc-bench
+        working-directory: runtime
+      - run: npm ci --no-audit --no-fund
+      - name: Run all 20 DO log conformance cases and local runtime checks
+        env:
+          LOGSVC_BENCH: ${{ github.workspace }}/runtime/target/debug/logsvc-bench
+        run: node tests/runtime.mjs
+
   hosted-provider-rust:
     name: Hosted provider Rust workspace
     needs: classify
@@ -710,6 +769,8 @@ jobs:
       - retained-v2-server-pending
       - previous-provider-upgrade
       - retained-v2-provider-upgrade
+      - log-postgres-conformance
+      - log-do-conformance
       - hosted-provider-rust
       - hosted-provider-system
     runs-on: ubuntu-24.04
@@ -727,13 +788,15 @@ jobs:
           SERVER_RETAINED_V2: ${{ needs.retained-v2-server-pending.result }}
           PROVIDER_UPGRADE: ${{ needs.previous-provider-upgrade.result }}
           RETAINED_V2: ${{ needs.retained-v2-provider-upgrade.result }}
+          LOG_POSTGRES: ${{ needs.log-postgres-conformance.result }}
+          LOG_DO: ${{ needs.log-do-conformance.result }}
           PROVIDER_RUST: ${{ needs.hosted-provider-rust.result }}
           PROVIDER_SYSTEM: ${{ needs.hosted-provider-system.result }}
         run: |
           if [[ "$RUN_FULL" == true ]]; then
             for result in "$WINDOWS" "$WINDOWS_DAEMON" "$RUNTIME" "$NODE" "$CONTAINER" \
               "$SERVER_UPGRADE" "$SERVER_RETAINED_V2" "$PROVIDER_UPGRADE" "$RETAINED_V2" "$PROVIDER_RUST" \
-              "$PROVIDER_SYSTEM"
+              "$PROVIDER_SYSTEM" "$LOG_POSTGRES" "$LOG_DO"
             do
               [[ $result == success ]]
             done

@@ -2282,6 +2282,10 @@ pub fn cases() -> Vec<(&'static str, bool, CaseFn)> {
 
 /// Run every case (optionally only those whose name contains `filter`).
 pub async fn run(t: &Target, filter: Option<&str>) -> Vec<CaseResult> {
+    if std::env::var("MDBN_REQUIRE_REAL_BACKENDS").as_deref() == Ok("1") {
+        assert!(filter.is_none(), "required conformance must run every case");
+        assert!(t.debug_hooks, "required conformance needs debug hooks");
+    }
     let mut out = Vec::new();
     for (name, hooks, f) in cases() {
         if filter.is_some_and(|x| !name.contains(x)) {

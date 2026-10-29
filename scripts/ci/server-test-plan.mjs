@@ -10,6 +10,11 @@ import { systemSuites } from "../../test/system/suites.mjs";
 // release gate.
 const nativePrefixes = [
   "crates/",
+  "runtime/crates/log-",
+  "runtime/crates/wire/",
+  "runtime/deploy/cloudflare-do/",
+  "services/server/src/features/next/policy-outbox",
+  "services/server/src/features/next/log-service-client",
   ".cargo/",
   "rust-toolchain",
   "deploy/docker/",
@@ -21,6 +26,9 @@ const nativePrefixes = [
 const nativeFiles = new Set([
   "Cargo.toml",
   "Cargo.lock",
+  "runtime/Cargo.toml",
+  "runtime/Cargo.lock",
+  "runtime/rust-toolchain.toml",
   "scripts/check-cargo-features",
   ".github/previous-release.env",
   ".github/retained-v2-predecessor.env",

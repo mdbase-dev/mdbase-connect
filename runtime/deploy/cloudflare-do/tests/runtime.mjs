@@ -19,9 +19,18 @@ import WebSocket from 'ws';
 import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync, readFileSync, readdirSync, appendFileSync, rmSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync, readFileSync, readdirSync, appendFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+
+if (process.env.MDBN_REQUIRE_REAL_BACKENDS === '1') {
+  assert.ok(process.env.LOGSVC_BENCH, 'LOGSVC_BENCH is required');
+}
+if (process.env.LOGSVC_BENCH) {
+  accessSync(resolve(process.env.LOGSVC_BENCH), constants.X_OK);
+} else {
+  console.error('LOGSVC_BENCH not set: skipping DO conformance and push checks');
+}
 
 const port = Number(process.env.LOGSVC_TEST_PORT ?? 18787);
 const inspector = Number(process.env.LOGSVC_TEST_INSPECTOR_PORT ?? 19229);
