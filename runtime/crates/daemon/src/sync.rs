@@ -14,6 +14,7 @@
 
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use mdbn_wire::policy::CState;
@@ -190,6 +191,7 @@ pub struct ConnectTokens {
     identity: Arc<DeviceIdentity>,
     fence: Fence,
     cached: Mutex<Option<Token>>,
+    deleted: AtomicBool,
 }
 
 /// The current-authority check (account epoch, registration, collection, not
@@ -212,6 +214,7 @@ impl ConnectTokens {
             identity,
             fence,
             cached: Mutex::new(None),
+            deleted: AtomicBool::new(false),
         }
     }
 
@@ -242,6 +245,9 @@ pub enum Eligibility {
 impl ConnectTokens {
     async fn fetch(&self) -> Result<Token, Eligibility> {
         self.check().map_err(Eligibility::Refused)?;
+        if self.deleted() {
+            return Err(Eligibility::Refused("collection_deleted".into()));
+        }
         let now = i64::try_from(fsutil::now_ms()).unwrap_or(i64::MAX);
         if let Some(t) = self.cached.lock().ok().and_then(|c| c.clone())
             && t.expires_at_ms - RENEW_BEFORE_MS > now
@@ -267,7 +273,13 @@ impl ConnectTokens {
             crate::cloud::CloudError::Server(s, c) if s >= 500 => {
                 Eligibility::Unreachable(format!("{s} {c}"))
             }
-            crate::cloud::CloudError::Server(_, c) => Eligibility::Refused(c),
+            crate::cloud::CloudError::Server(_, c) => {
+                if c == "collection_deleted" {
+                    self.deleted.store(true, Ordering::SeqCst);
+                    self.drop_cache();
+                }
+                Eligibility::Refused(c)
+            }
             crate::cloud::CloudError::Unauthenticated => {
                 Eligibility::Refused("unauthenticated".into())
             }
@@ -281,6 +293,17 @@ impl ConnectTokens {
             *c = Some(t.clone());
         }
         Ok(t)
+    }
+
+    /// A deletion refusal is terminal for this collection, including token renewals.
+    pub fn deleted(&self) -> bool {
+        self.deleted.load(Ordering::SeqCst)
+    }
+
+    /// Recheck idle collections without waiting for their log token to expire.
+    pub async fn recheck(&self) -> Result<(), Eligibility> {
+        self.drop_cache();
+        self.eligibility().await
     }
 
     /// Ask Connect for a token now (cached for the runtime's first connect).

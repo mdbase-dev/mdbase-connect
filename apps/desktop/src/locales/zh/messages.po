@@ -561,6 +561,10 @@ msgstr "关闭导航"
 msgid "Cloud copy"
 msgstr "云端副本"
 
+#: src/renderer/daemon-view.mts
+msgid "Collection deleted"
+msgstr "集合已删除"
+
 #: src/renderer/main.tsx
 msgid "Collection name"
 msgstr "集合名称"
@@ -1558,6 +1562,10 @@ msgid "sync problem: {0}"
 msgstr "同步问题：{0}"
 
 #: src/renderer/daemon-view.mts
+msgid "Sync stopped"
+msgstr "同步已停止"
+
+#: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "已同步"
@@ -1718,6 +1726,10 @@ msgstr "此版本的 mdbase 尚不能同步。请更新 mdbase。"
 #: src/renderer/daemon-view.mts
 msgid "This collection belongs to a different mdbase account."
 msgstr "此集合属于其他 mdbase 账户。"
+
+#: src/renderer/daemon-view.mts
+msgid "This collection was deleted by its owner. Your local files are untouched. Choose Remove to remove its local registration."
+msgstr "此集合已被所有者删除。本地文件保持不变。选择“移除”以移除其本地注册。"
 
 #: src/renderer/daemon-view.mts
 msgid "This collection's sync settings could not be verified. Turn sync off and on again, or contact support."

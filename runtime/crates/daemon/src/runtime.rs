@@ -164,7 +164,7 @@ enum Cmd {
     /// Re-check sessions; the sender (if any) is answered once that is done.
     GrantsChanged(Option<oneshot::Sender<()>>),
     Close(SessionId),
-    Stop(oneshot::Sender<()>),
+    Stop(Option<&'static str>, oneshot::Sender<()>),
     /// From the synced collection's log transport.
     Log(crate::logwire::Event),
     /// The replica's sync status.
@@ -527,7 +527,7 @@ impl Runtime {
     /// [`Runtime::stop`] for a plain (non-async) thread.
     pub fn stop_blocking(&self) {
         let (tx, rx) = oneshot::channel();
-        if self.tx.send(Cmd::Stop(tx)).is_ok() {
+        if self.tx.send(Cmd::Stop(None, tx)).is_ok() {
             let _ = rx.blocking_recv();
         }
         let thread = self.thread.lock().ok().and_then(|mut t| t.take());
@@ -702,8 +702,17 @@ impl Runtime {
     /// replica, and wait for the thread. Works through any shared handle: sessions
     /// holding the runtime do not keep it serving. Later calls are refused.
     pub async fn stop(&self) {
+        self.stop_with_reason(None).await;
+    }
+
+    /// Stop after an authoritative collection deletion, telling open apps why.
+    pub async fn stop_deleted(&self) {
+        self.stop_with_reason(Some("collection_deleted")).await;
+    }
+
+    async fn stop_with_reason(&self, reason: Option<&'static str>) {
         let (tx, rx) = oneshot::channel();
-        if self.tx.send(Cmd::Stop(tx)).is_ok() {
+        if self.tx.send(Cmd::Stop(reason, tx)).is_ok() {
             let _ = rx.await;
         }
         let thread = self.thread.lock().ok().and_then(|mut t| t.take());
@@ -823,7 +832,7 @@ pub fn synced_ready(
                 return Err("sync_integrity");
             }
             K::AccessRevoked => return Err("sync_revoked"),
-            K::Gone => return Err("sync_gone"),
+            K::Gone => return Err("collection_deleted"),
             K::UpgradeRequired => return Err("sync_upgrade_required"),
             _ => {}
         }
@@ -1707,7 +1716,23 @@ fn run(
                 let _ = reply.send(frozen);
                 return;
             }
-            Ok(Cmd::Stop(done)) => {
+            Ok(Cmd::Stop(reason, done)) => {
+                if let Some(reason) = reason {
+                    use mdbn_wire::client::{ClientFrame, ClientPush};
+                    use mdbn_wire::schema::Wire;
+                    let mut problem = mdbn_replica::api::ErrorCode::Forbidden
+                        .problem("collection deleted by its owner");
+                    problem.reason = Some(reason.into());
+                    let closed = ClientFrame::Push(ClientPush {
+                        kind: "closed".into(),
+                        payload: problem.to_cbor(),
+                    })
+                    .to_bytes()
+                    .expect("closed problem encodes");
+                    for out in outs.values() {
+                        let _ = out.send(closed.clone());
+                    }
+                }
                 // Classify original in-flight outcomes while the Store is still
                 // alive, before cancellation/join drops the transport and actor.
                 if let Some(session) = active_log.take() {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { connect, isMdbaseError, LiveQuery, MdbaseClient } from "../src/index.js";
 import { MemoryReplica } from "../src/testing/index.js";
+import { clientFrame, problem } from "../src/wire.js";
 import { toPlain } from "../src/values.js";
 import { mdbaseError } from "../src/errors.js";
 import type { FramePort } from "../src/transport/port.js";
@@ -325,5 +326,26 @@ describe("local-only collection behavior", () => {
     expect(summarizeStatus(st, null, { kind: "server_busy", retryAfterMs: 30_000 })).toMatchObject({ kind: "synced", health: "server_busy" });
     expect(summarizeStatus(st, "collection_migrating", { kind: "rate_limited" }).kind).toBe("collection_migrating");
     expect(summarizeStatus(st).health).toBeNull();
+  });
+});
+
+describe("collection deletion", () => {
+  it("closes permanently with the deletion reason and refuses further writes", async () => {
+    const replica = new MemoryReplica();
+    const base = replica.connector();
+    let opens = 0;
+    let port: Awaited<ReturnType<typeof base.open>>["port"] | undefined;
+    const c = await connect({ connector: { ...base, async open(hello, signal) {
+      opens++;
+      const opened = await base.open(hello, signal);
+      port = opened.port;
+      return opened;
+    } }, app, reconnect: { minDelayMs: 1, maxDelayMs: 1 } });
+    port!.onframe?.(clientFrame.enc({ kind: "push", type: "closed", payload: problem.enc({ code: "forbidden", recovery: "reauthorize", reason: "collection_deleted", message: "deleted by owner" }) }));
+    expect(c.link).toBe("closed");
+    expect(c.linkProblem?.reason).toBe("collection_deleted");
+    await expect(c.create({ path: "late.md", body: "late edit" })).rejects.toMatchObject({ reason: "collection_deleted" });
+    expect(opens).toBe(1);
+    c.close();
   });
 });

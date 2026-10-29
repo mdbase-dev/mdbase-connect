@@ -275,7 +275,7 @@ function Overview({ cloud, connectionLabel, collections, attention, busy, onNavi
 }) {
   useLocaleRevision();
   if (!cloud?.configured) return null;
-  const synced = collections.filter((collection) => collection.mode !== "local").length;
+  const synced = collections.filter((collection) => collection.mode !== "local" && collection.reason !== "collection_deleted").length;
   return (
     <div className="workspace-stack">
       {collections.length === 0 && <section>

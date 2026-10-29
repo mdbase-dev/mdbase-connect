@@ -726,7 +726,7 @@ export class MdbaseClient {
   async readFence(signal?: AbortSignal): Promise<void> {
     if (!this.fenceReads) return;
     while (this.readFencedAt !== null) {
-      if (this.linkState === "closed") throw mdbaseError("unavailable", "client closed");
+      if (this.linkState === "closed") throw this.linkError ?? mdbaseError("unavailable", "client closed");
       if (signal?.aborted) throw mdbaseError("cancelled", "aborted while the replica catches up");
       await new Promise<void>(res => {
         const done = () => {
@@ -739,7 +739,7 @@ export class MdbaseClient {
         signal?.addEventListener("abort", done, { once: true });
       });
     }
-    if (this.linkState === "closed") throw mdbaseError("unavailable", "client closed");
+    if (this.linkState === "closed") throw this.linkError ?? mdbaseError("unavailable", "client closed");
     if (signal?.aborted) throw mdbaseError("cancelled", "aborted while the replica catches up");
   }
 
@@ -774,7 +774,7 @@ export class MdbaseClient {
   /** The open session, or throw `unavailable` (SDK-internal use). */
   currentSession(): Session {
     if (!this.session || this.session.closed) {
-      throw mdbaseError("unavailable", "not connected to the replica", { reason: "reconnecting" });
+      throw this.linkError ?? mdbaseError("unavailable", "not connected to the replica", { reason: "reconnecting" });
     }
     return this.session;
   }
@@ -782,7 +782,7 @@ export class MdbaseClient {
   /** @internal Wait until a session is open (or the client closes). */
   async ready(signal?: AbortSignal): Promise<Session> {
     for (;;) {
-      if (this.linkState === "closed") throw mdbaseError("unavailable", "client closed");
+      if (this.linkState === "closed") throw this.linkError ?? mdbaseError("unavailable", "client closed");
       if (this.session && !this.session.closed) return this.session;
       if (signal?.aborted) throw mdbaseError("cancelled", "aborted while reconnecting");
       await new Promise<void>((res) => {
@@ -1022,6 +1022,7 @@ export class MdbaseClient {
     if (this.linkState === s && this.linkError?.reason === why?.reason) return;
     this.linkState = s;
     this.linkError = s === "open" ? null : why;
+    if (s === "closed") for (const wake of this.reconnectWaiters.splice(0)) wake();
     for (const fn of [...this.linkListeners]) fn(s, this.linkError);
   }
 

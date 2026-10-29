@@ -60,6 +60,7 @@ describe("SDK current aggregate readiness",()=>{
     expect(f.assess.getSnapshot().problem).toEqual({code:"readiness_fenced",detail:"configuration_facet"});
   });
   it.each([
+    {code:"forbidden" as const,reason:"collection_deleted",problem:"collection_deleted",action:"choose_collection"},
     {code:"upgrade_required" as const,reason:"incompatible_version",problem:"update_required",action:"update_app"},
     {code:"unavailable" as const,reason:"file_read_failed",problem:"file_read_failed",action:"retry"},
   ])("preserves native closing $reason instead of describing it as indefinite busy",async({code,reason,problem,action})=>{

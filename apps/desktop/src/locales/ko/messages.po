@@ -561,6 +561,10 @@ msgstr "탐색 메뉴 닫기"
 msgid "Cloud copy"
 msgstr "클라우드 사본"
 
+#: src/renderer/daemon-view.mts
+msgid "Collection deleted"
+msgstr "컬렉션 삭제됨"
+
 #: src/renderer/main.tsx
 msgid "Collection name"
 msgstr "컬렉션 이름"
@@ -1558,6 +1562,10 @@ msgid "sync problem: {0}"
 msgstr "동기화 문제: {0}"
 
 #: src/renderer/daemon-view.mts
+msgid "Sync stopped"
+msgstr "동기화 중지됨"
+
+#: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "동기화됨"
@@ -1718,6 +1726,10 @@ msgstr "이 mdbase 빌드에서는 아직 동기화할 수 없습니다. mdbase�
 #: src/renderer/daemon-view.mts
 msgid "This collection belongs to a different mdbase account."
 msgstr "이 컬렉션은 다른 mdbase 계정에 속합니다."
+
+#: src/renderer/daemon-view.mts
+msgid "This collection was deleted by its owner. Your local files are untouched. Choose Remove to remove its local registration."
+msgstr "소유자가 이 컬렉션을 삭제했습니다. 로컬 파일은 그대로 유지됩니다. 제거를 선택하여 로컬 등록을 해제하세요."
 
 #: src/renderer/daemon-view.mts
 msgid "This collection's sync settings could not be verified. Turn sync off and on again, or contact support."
