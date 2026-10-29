@@ -653,7 +653,7 @@ impl Cloud {
                 .headers()
                 .get(reqwest::header::DATE)
                 .and_then(|v| v.to_str().ok()),
-            fsutil::now_ms(),
+            fsutil::now_ms() as u64,
         );
         check_rate_limit(&response)?;
         let status = response.status().as_u16();
