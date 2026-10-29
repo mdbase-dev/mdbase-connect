@@ -359,6 +359,7 @@ async fn deletion_closes_open_apps_with_a_reason_and_keeps_files() {
             private_dir: root.join("state"),
             adopt: None,
             id_hints: vec![],
+            computer_name: None,
             sync: None,
         },
         DeviceSecrets {

@@ -84,5 +84,5 @@ test("deleted collections explain the terminal state and local removal", () => {
   assert.match(view.detail, /local files are untouched/);
   assert.match(view.detail, /Remove/);
   assert.equal(view.canEnableSync, false);
-  assert.equal(view.canDisableSync, false);
+  assert.equal("canDisableSync" in view, false);
 });
