@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { tokenHash } from "../../security.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { parseLabFixtureConfig } from "./lab-fixture-config.js";
@@ -132,6 +133,7 @@ describePg("LAB disposable fixture provisioning", () => {
     const rawX = () => (generateKeyPairSync("x25519").publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(-32);
     const kemPk = rawX(); const noisePk = rawX();
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Fixture Owner')", [connector.user_id, `${connector.user_id}@example.test`]);
+    await ensureDevelopmentEntitlement(db, connector.user_id);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Fixture connector',$3)", [connector.id, connector.user_id, tokenHash(token)]);
     const registration = await issueDeviceChallenge(db, connector.id);
     await registerDevice(db, connector, {

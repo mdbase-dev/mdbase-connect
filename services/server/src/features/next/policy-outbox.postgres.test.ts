@@ -715,7 +715,10 @@ describePostgres("mdbase-next policy outbox", () => {
       SELECT id, $2, 'next', 'cloud_copy', $3 FROM unnest($1::uuid[]) id`, [healthy, owner, signer.cert.root]);
     await isolated.db.query(`INSERT INTO next_policy_batches(collection_id, seq, prev, item, issued_at, state)
       SELECT id, 1, $2, $3, 1, 'appended' FROM unnest($1::uuid[]) id`, [healthy, Buffer.alloc(32), item]);
-    await registerNextCollection(isolated.db, { collectionId, ownerUserId: owner, runtime: "next", sync: "cloud_copy", rootKeyId: signer.cert.root, ops: genesisOps(owner, signer.cert.root) });
+    // The healthy history is seeded past any account's collection limit, so the
+    // registered collection belongs to a second owner.
+    const lateOwner = await newUser(isolated.db);
+    await registerNextCollection(isolated.db, { collectionId, ownerUserId: lateOwner, runtime: "next", sync: "cloud_copy", rootKeyId: signer.cert.root, ops: genesisOps(lateOwner, signer.cert.root) });
     const emitter = new PolicyEmitter(isolated.db, client, signer, undefined, 2_000, () => now);
     await emitter.drainCollection(collectionId);
     await queueNextPolicy(isolated.db, collectionId, [{ op: "member-remove", account: randomUUID() }]);

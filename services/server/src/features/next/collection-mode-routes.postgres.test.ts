@@ -4,6 +4,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { tokenHash } from "../../security.js";
 import { inTransaction, lock } from "./bootstrap-common.js";
@@ -40,6 +41,7 @@ describePg("durable owner mode intent", () => {
     const user = randomUUID(), connector = randomUUID(), device = randomUUID(), collection = randomUUID(), session = randomUUID();
     const token = randomUUID(), browser = randomUUID();
     await db.query("INSERT INTO users(id,email,name,account_backend) VALUES($1,$2,'Owner','next')", [user, `${user}@example.test`]);
+    await ensureDevelopmentEntitlement(db, user);
     await db.query("INSERT INTO sessions(id,user_id,token_hash,provider,account_session_epoch,expires_at) VALUES($1,$2,$3,'password',1,now()+interval '1 day')", [session, user, tokenHash(browser)]);
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Owner device',$3)", [connector, user, tokenHash(token)]);
     await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,'desktop',$4,$5,$6)", [device, connector, user, keys.sign_pk, keys.kem_pk, keys.noise_pk]);
