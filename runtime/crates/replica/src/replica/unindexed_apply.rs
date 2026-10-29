@@ -112,12 +112,43 @@ fn refs_cover(refs: Option<&BTreeSet<Hash>>, addresses: &[Hash]) -> bool {
     addresses.is_empty() || refs.is_some_and(|refs| addresses.iter().all(|a| refs.contains(a)))
 }
 impl<S: Store> Replica<S> {
+    pub(crate) fn unindexed_refs_valid(
+        &self,
+        payload: &rt::EntryPayload,
+        refs: Option<&[Hash]>,
+    ) -> Result<bool, crate::store::StoreError> {
+        let refs = refs.map(|refs| refs.iter().copied().collect::<BTreeSet<_>>());
+        for content in descriptors(payload) {
+            let addresses = match content {
+                FileContent::Blob(blob) => self.sealer.blob_part_addresses(&blob),
+                FileContent::AttachmentV1(attachment) => {
+                    if !refs_cover(refs.as_ref(), &[attachment.reference.manifest_cipher_hash]) {
+                        return Ok(false);
+                    }
+                    self.attachment_inventory(&attachment.reference.manifest_cipher_hash)?
+                }
+                _ => None,
+            };
+            if let Some(addresses) = addresses
+                && !refs_cover(refs.as_ref(), &addresses)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     pub(crate) fn unindexed_source_check(
         &mut self,
         head: Head,
         p: &rt::EntryPayload,
         refs: Option<&[Hash]>,
     ) -> Check {
+        match self.unindexed_refs_valid(p, refs) {
+            Ok(true) => {}
+            Ok(false) => return Check::InvalidRefs,
+            Err(error) => return Check::StoreFailed(error),
+        }
         let refs = refs.map(|refs| refs.iter().copied().collect::<BTreeSet<_>>());
         let replace = self.unindexed_sources.job.as_ref().is_none_or(|j| {
             j.head != head
@@ -133,17 +164,12 @@ impl<S: Store> Replica<S> {
             let mut cache = super::unindexed_cache::Cache::load(raw.as_deref());
             let mut queue = VecDeque::new();
             for c in descriptors(p) {
-                // Byte proofs do not establish the signed entry's complete refs closure.
-                // Validate closure before even considering a cached plaintext proof.
                 let addresses = match &c {
                     FileContent::Blob(b) => match self.sealer.blob_part_addresses(b) {
                         Some(addresses) => Some(addresses),
                         None => return Check::Failed(StreamError::NoKey),
                     },
                     FileContent::AttachmentV1(a) => {
-                        if !refs_cover(refs.as_ref(), &[a.reference.manifest_cipher_hash]) {
-                            return Check::InvalidRefs;
-                        }
                         match self.attachment_inventory(&a.reference.manifest_cipher_hash) {
                             Ok(addresses) => addresses,
                             Err(e) => return Check::StoreFailed(e),
@@ -151,13 +177,8 @@ impl<S: Store> Replica<S> {
                     }
                     _ => return Check::Failed(StreamError::Protocol("native source profile")),
                 };
-                if let Some(addresses) = addresses {
-                    if !refs_cover(refs.as_ref(), &addresses) {
-                        return Check::InvalidRefs;
-                    }
-                    if cache.hit(&c) {
-                        continue;
-                    }
+                if addresses.is_some() && cache.hit(&c) {
+                    continue;
                 }
                 // An attachment without inventory must authenticate its manifest, even
                 // with a byte-proof hit, to establish every required chunk address.

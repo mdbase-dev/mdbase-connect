@@ -20,7 +20,7 @@ fn void_site_inventory_requires_determinism_review() {
     let apply = include_str!("../replica/apply.rs");
     assert_eq!(policy.matches("void(").count(), 112);
     assert_eq!(apply.matches(".commit_void(").count(), 11);
-    assert_eq!(apply.matches(".commit_payload_void(").count(), 39);
+    assert_eq!(apply.matches(".commit_payload_void(").count(), 40);
 }
 
 /// Fake verifier: a signature is `digest ‖ pk`.
@@ -292,6 +292,109 @@ fn genesis_trust_configuration_stalls_then_retries_identical_bytes() {
     assert_eq!(state.seq, 1);
     assert_eq!(state.voids, 0);
     assert_eq!(state.root, Some(key_id(&ROOT)));
+}
+
+#[test]
+fn genesis_root_mismatch_voids_despite_missing_trust() {
+    let mut certificate = cert(0, 1000, CP);
+    certificate.root = key_id(&[8; 32]);
+    certificate.sig = sign(&ROOT, &certificate.signed_digest().unwrap().0);
+    let ops = PolicyPayload::from_bytes(&genesis_item().body.0)
+        .unwrap()
+        .ops;
+    let item = policy_with(1, 1, certificate, ops);
+    let known = PolicyState::new()
+        .apply_control(1, &CH, &item, &env())
+        .unwrap_err();
+    let missing = Env {
+        trusted_roots: &[],
+        ..env()
+    };
+    let unknown = PolicyState::new()
+        .apply_control(1, &CH, &item, &missing)
+        .unwrap_err();
+    assert_eq!(known.rule(), "cp-cert");
+    assert_eq!(
+        unknown.rule(),
+        known.rule(),
+        "same bytes, known={known:?}, unknown={unknown:?}"
+    );
+}
+
+#[test]
+fn duplicate_device_voids_despite_missing_root_or_key_pins() {
+    let mut outcomes = Vec::new();
+    for missing_root in [false, true] {
+        let mut state = setup(CState::E2e);
+        let missing_pins = if missing_root {
+            pins([8; 32], [9; 32], [8; 32])
+        } else {
+            pins(ROOT, CP, ROOT)
+        };
+        let environment = Env {
+            policy_pins: Some(&missing_pins),
+            ..env()
+        };
+        let item = policy_with(
+            3,
+            3,
+            cert(0, 1000, [3; 32]),
+            vec![enrol(10, OWNER, DeviceKind::Desktop)],
+        );
+        let known = state
+            .clone()
+            .apply_control(3, &CH, &item, &env())
+            .unwrap_err();
+        let unpinned = state
+            .apply_control(3, &CH, &item, &environment)
+            .unwrap_err();
+        assert_eq!(known.rule(), "device-enrol");
+        outcomes.push((
+            missing_root,
+            known.rule().to_owned(),
+            unpinned.rule().to_owned(),
+        ));
+    }
+    assert!(
+        outcomes
+            .iter()
+            .all(|(_, known, unpinned)| known == unpinned),
+        "pin-dependent verdicts: {outcomes:?}"
+    );
+}
+
+#[test]
+fn removing_sole_owner_voids_after_untrusted_handover() {
+    let mut state = setup(CState::E2e);
+    let mut handover = mdbn_wire::policy::RootHandover {
+        new_root: B32([8; 32]),
+        owner_device: dev(10),
+        move_id: B16([3; 16]),
+        consent: B64([0; 64]),
+    };
+    handover.consent = sign(&dpk(10).0, &handover.consent_digest(&COL, 3).0);
+    let item = policy(
+        3,
+        vec![
+            PolicyOp::RootHandover(handover),
+            PolicyOp::MemberRemove(MemberRemove { account: OWNER }),
+        ],
+    );
+    let updated = Env {
+        trusted_roots: &[ROOT, [8; 32]],
+        ..env()
+    };
+    let known = state
+        .clone()
+        .apply_control(3, &CH, &item, &updated)
+        .unwrap_err();
+    let unknown = state.apply_control(3, &CH, &item, &env()).unwrap_err();
+    assert_eq!(known.rule(), "member-remove");
+    assert_eq!(
+        unknown.rule(),
+        known.rule(),
+        "same bytes, known={known:?}, unknown={unknown:?}"
+    );
 }
 
 #[test]

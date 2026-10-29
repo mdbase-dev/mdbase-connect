@@ -1,3 +1,3 @@
 ## Fixed
 
-- Void structurally invalid native replay effects and invalid or revoked policy certificates before build-dependent planner and pin checks can stall replay.
+- Defer build-dependent replay stalls until deterministic validation finishes, and keep stalled native promotions from changing record, head, or disk state.

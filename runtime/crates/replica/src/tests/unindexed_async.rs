@@ -261,6 +261,53 @@ fn native_invalid_effect_path_voids_before_planner_mismatch() {
 }
 
 #[test]
+fn missing_native_refs_void_despite_planner_drift_or_error() {
+    struct ErrorPlanner;
+    impl crate::plan::Planner for ErrorPlanner {
+        fn plan(
+            &self,
+            _: &mdbn_core::intent::Mutation,
+            _: &dyn mdbn_core::state::StateView,
+            _: &mdbn_core::plan::PlanOptions,
+        ) -> Result<mdbn_core::plan::Planned, mdbn_core::plan::Rejection> {
+            Err(mdbn_core::plan::Rejection::new(
+                mdbn_core::plan::RejectCode::InvalidRequest,
+                None,
+                "planner error",
+            ))
+        }
+    }
+    let mut outcomes = Vec::new();
+    for planner_error in [false, true] {
+        let mut node = node();
+        let writer = node.r.cfg.device_id;
+        let (content, _) = contents(&mut node, &vec![b'x'; 1048577], true);
+        let payload = planned(&node, payload(content));
+        let head = retain(&mut node);
+        if planner_error {
+            node.r.planner = Box::new(ErrorPlanner);
+        }
+        let outcome = node
+            .r
+            .test_apply_authorized_unindexed_with_refs(
+                head.seq,
+                head,
+                payload,
+                &mut Default::default(),
+                writer,
+                &[],
+            )
+            .unwrap();
+        outcomes.push(format!("{outcome:?}"));
+    }
+    assert_eq!(outcomes[0], "Void(\"V7: native source refs\")");
+    assert_eq!(
+        outcomes[1], outcomes[0],
+        "same refs omission, planner-dependent verdict: {outcomes:?}"
+    );
+}
+
+#[test]
 fn native_planner_drift_stalls_before_head_advance() {
     use crate::plan::Planner;
     use mdbn_core::intent::Mutation;
@@ -311,6 +358,8 @@ fn native_planner_drift_stalls_before_head_advance() {
         assert_eq!(node.r.policy, before_policy);
         assert_eq!(node.r.store.meta(&before_meta.0).unwrap(), before_meta.1);
         assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
+        assert!(node.r.before.is_empty());
+        assert!(!node.r.unindexed_sources.pending());
         node.r.planner = Box::new(crate::plan::CorePlanner);
         assert!(matches!(
             apply_body(&mut node, head, &payload, &objects, writer),

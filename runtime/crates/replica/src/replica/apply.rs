@@ -1272,6 +1272,7 @@ impl<S: Store> Replica<S> {
             head: Some(head),
             ..Tx::default()
         };
+        let mut before = super::disk::Before::new();
         // Path keys this entry frees and takes, to check collisions after all effects.
         let mut taken: std::collections::BTreeMap<String, Uuid> = std::collections::BTreeMap::new();
         let mut freed: BTreeSet<String> = BTreeSet::new();
@@ -1375,7 +1376,7 @@ impl<S: Store> Replica<S> {
                         );
                     }
                     if self.store.has_files() {
-                        self.before
+                        before
                             .entry(super::disk::DiskKey::Record(r.id))
                             .or_insert(Some(super::disk::Shown {
                                 path: old.path.clone(),
@@ -1445,7 +1446,7 @@ impl<S: Store> Replica<S> {
                         );
                     }
                     if self.store.has_files() {
-                        self.before
+                        before
                             .entry(super::disk::DiskKey::Record(r.id))
                             .or_insert(Some(super::disk::Shown {
                                 path: old.path.clone(),
@@ -1721,6 +1722,10 @@ impl<S: Store> Replica<S> {
                 return self.commit_payload_void(head, &payload, "V7: path already taken");
             }
         }
+        if native && !self.unindexed_refs_valid(&payload, refs)? {
+            return self.commit_payload_void(head, &payload, "V7: native source refs");
+        }
+        let mut stall = None;
         // Verification (log-entry.md §5) against the state at p − 1.
         if native || (self.cfg.verify && payload.mutation.origin != self.cfg.replica_id) {
             let sem = mdbn_core::semantics::SEM;
@@ -1765,37 +1770,37 @@ impl<S: Store> Replica<S> {
                     }
                 } else {
                     if native {
-                        return Ok(Outcome::Stall(
-                            IncidentKind::UpgradeRequired,
-                            "native results cannot be verified by this build's planner".into(),
-                        ));
-                    }
-                    self.stats.verify_mismatch += 1;
-                    self.incident(
-                        IncidentKind::VerificationMismatch,
-                        Some(Value::Map(vec![
-                            (
-                                "seq".into(),
-                                Value::Int(i64::try_from(p).unwrap_or(i64::MAX)),
-                            ),
-                            (
-                                "count".into(),
-                                Value::Int(
-                                    i64::try_from(self.stats.verify_mismatch).unwrap_or(i64::MAX),
+                        stall = Some("native results cannot be verified by this build's planner");
+                    } else {
+                        self.stats.verify_mismatch += 1;
+                        self.incident(
+                            IncidentKind::VerificationMismatch,
+                            Some(Value::Map(vec![
+                                (
+                                    "seq".into(),
+                                    Value::Int(i64::try_from(p).unwrap_or(i64::MAX)),
                                 ),
-                            ),
-                        ])),
-                    );
+                                (
+                                    "count".into(),
+                                    Value::Int(
+                                        i64::try_from(self.stats.verify_mismatch)
+                                            .unwrap_or(i64::MAX),
+                                    ),
+                                ),
+                            ])),
+                        );
+                    }
                 }
             } else {
                 if native {
-                    return Ok(Outcome::Stall(
-                        IncidentKind::UpgradeRequired,
-                        "T6b semantics cannot be verified".into(),
-                    ));
+                    stall = Some("T6b semantics cannot be verified");
+                } else {
+                    self.stats.unverified += 1;
                 }
-                self.stats.unverified += 1;
             }
+        }
+        if let Some(reason) = stall {
+            return Ok(Outcome::Stall(IncidentKind::UpgradeRequired, reason.into()));
         }
         let source_meta = if native {
             match self.unindexed_source_check(head, &payload, refs) {
@@ -1975,6 +1980,9 @@ impl<S: Store> Replica<S> {
         }
         let holds_changed = !tx.holds_put.is_empty();
         attachment_files.extend(tx.holds_put.iter().map(|h| h.id));
+        for (key, shown) in before {
+            self.before.entry(key).or_insert(shown);
+        }
         self.capture_effects(&legacy_effects);
         self.policy.note_entry(p, payload.sem.major, instant);
         tx.meta.push(self.policy_meta());

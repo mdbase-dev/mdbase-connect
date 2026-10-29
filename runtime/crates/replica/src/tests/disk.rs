@@ -648,6 +648,119 @@ fn node(svc: &FakeLogService, n: u8) -> Node {
     node_mode(svc, n, mdbn_wire::client::SyncMode::Synced)
 }
 
+#[test]
+fn planner_stalled_promotion_preserves_ordinary_file_on_disk() {
+    use mdbn_wire::ordinary_file_promotion::{OrdinaryFileToRecord, ReindexOrdinaryFile};
+    use mdbn_wire::{attachment::FileContent, attachment_runtime_v1 as rt, common::B32};
+    let mut node = node(&FakeLogService::new(), 1);
+    let id = B16([52; 16]);
+    let path = "a.base";
+    let document = "views: []\n";
+    let blob = mdbn_wire::intent::BlobRef {
+        plain_hash: h(document),
+        size: document.len() as u64,
+        blob_id: B32([3; 32]),
+        id_epoch: 1,
+        part_size: crate::crypto::blob::MIN_PART_SIZE,
+    };
+    let refs = node.r.sealer.blob_part_addresses(&blob).unwrap();
+    let content = FileContent::Blob(blob);
+    node.r
+        .store
+        .commit(Tx {
+            files_put: vec![FileRow {
+                id,
+                path: path.into(),
+                path_key: path.into(),
+                content: content.clone(),
+                kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
+                media: mdbn_wire::intent::MediaClass::Other,
+                modified_seq: 0,
+                mtime: None,
+                bucket: 0,
+                local: FileLocal::Remote,
+            }],
+            ..Tx::default()
+        })
+        .unwrap();
+    node.disk
+        .borrow_mut()
+        .files
+        .insert(path.into(), document.into());
+    node.disk
+        .borrow_mut()
+        .known
+        .insert(path.into(), h(document));
+    let mut payload = super::unindexed_async::payload(content.clone());
+    payload.mutation.source = mdbn_wire::intent::Source::Api;
+    payload.mutation.ops = vec![rt::Op::OrdinaryFileToRecord(OrdinaryFileToRecord {
+        id,
+        path: path.into(),
+        doc: Text::Inline(document.into()),
+        prior: content,
+    })];
+    payload.effects = vec![rt::Effect::ReindexOrdinaryFile(ReindexOrdinaryFile {
+        id,
+        path: path.into(),
+        doc: Text::Inline(document.into()),
+    })];
+    let sem = mdbn_core::semantics::SEM;
+    payload.sem = Version {
+        major: sem.major,
+        minor: sem.minor,
+    };
+    let before_head = node.r.head;
+    let before_policy = node.r.policy.clone();
+    let before_disk = node.disk.borrow().files.clone();
+    let before_bookkeeping = node.r.before.clone();
+    let mut changed = std::collections::BTreeSet::new();
+    let head = Head {
+        seq: before_head.seq + 1,
+        chain: mdbn_wire::hash::chain_hash(&[0x80]),
+    };
+    node.r.retaining = Some(TailRow {
+        seq: head.seq,
+        item: vec![0x80],
+        applied_at: 0,
+    });
+    let writer = node.r.cfg.device_id;
+    let outcome = node
+        .r
+        .test_apply_authorized_unindexed_with_refs(
+            head.seq,
+            head,
+            payload,
+            &mut changed,
+            writer,
+            &refs,
+        )
+        .unwrap();
+    assert!(
+        matches!(
+            outcome,
+            crate::replica::apply::Outcome::Stall(
+                mdbn_wire::client::IncidentKind::UpgradeRequired,
+                _
+            )
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(node.r.head, before_head);
+    assert_eq!(node.r.store.head().unwrap(), before_head);
+    assert_eq!(node.r.policy, before_policy);
+    assert_eq!(node.r.before, before_bookkeeping);
+    assert!(changed.is_empty());
+    assert!(node.r.store.file(&id).unwrap().is_some());
+    assert!(node.r.store.record(&id).unwrap().is_none());
+    node.r.materialize().unwrap();
+    assert_eq!(node.disk.borrow().files, before_disk);
+    assert_eq!(
+        node.file(path).as_deref(),
+        Some(document),
+        "a stalled entry must not publish deletion of the unchanged ordinary holder"
+    );
+}
+
 fn node_mode(svc: &FakeLogService, n: u8, mode: mdbn_wire::client::SyncMode) -> Node {
     let clock = Rc::new(Cell::new(1_700_000_000_000));
     let disk = Rc::new(RefCell::new(Disk::default()));
