@@ -2049,7 +2049,6 @@ mod tests {
             id_hints: vec![],
             computer_name: None,
             sync: None,
-            computer_name: None,
         };
         let (mut rep, _lock) = super::open_replica(
             &cfg,

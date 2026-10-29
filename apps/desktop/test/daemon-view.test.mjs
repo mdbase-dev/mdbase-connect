@@ -77,7 +77,8 @@ test("activity reads as sentences and never hides an unknown kind", () => {
 });
 
 test("deleted collections explain the terminal state and local removal", () => {
-  const view = presentCollection({ mode: "synced", state: "failed", reason: "collection_deleted" });
+  const view = presentCollection({ mode: "synced", state: "failed", reason: "collection_deleted",
+    sync: { pending: 3, holds: 0, unresolved: 0, connection: "offline", resyncing: true } });
   assert.equal(view.status, "Collection deleted");
   assert.equal(view.mode, "Sync stopped");
   assert.match(view.detail, /deleted by its owner/);
