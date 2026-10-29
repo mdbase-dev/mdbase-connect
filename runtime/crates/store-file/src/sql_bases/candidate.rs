@@ -1,6 +1,7 @@
 //! Optional bounded raw facts. Unknown/unsafe rows always remain candidates.
 //! Facts update in the SAME raw/record transaction and raw version fence.
 use super::*;
+use crate::index_codec::CodecLimits;
 use mdbn_core::views::bases::{BasesCandidate, BasesCandidateAtom, BasesCandidateCompare};
 const MAX_FACTS: usize = 64;
 const MAX_FACT_BYTES: usize = 65_536;
@@ -132,7 +133,7 @@ pub(super) fn condition(p: &BasesCandidate) -> StoreResult<(String, Vec<SqlValue
     }
     let mut b = Builder { params: vec![] };
     let expression = b.lower(p);
-    if b.params.len() > 98
+    if b.params.len() > CodecLimits::HOSTED.max_parameters - 2
         || b.params
             .iter()
             .map(|v| match v {

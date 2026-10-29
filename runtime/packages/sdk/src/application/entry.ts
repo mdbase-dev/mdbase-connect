@@ -43,9 +43,10 @@ import {applicationSessionHint,type ApplicationSessionHint,type ApplicationSessi
 import type {AppWebSignOutResult} from "../app-host/web-sign-in-session.js";
 import type {SyncStatus} from "../wire.js";
 import {ApplicationPrivateCollections,withPrivateCollections} from "./private-collections.js";
+import type {AppCollectionReadinessFenceDetail} from "../app-host/collection-readiness.js";
 
 export type MdbaseApplicationFacet="capabilities"|"contracts"|"configuration"|"files"|"people"|"notifications";
-export interface MdbaseApplicationProblem {readonly code:string;readonly detail?:string}
+export interface MdbaseApplicationProblem {readonly code:string;readonly detail?:AppCollectionReadinessFenceDetail|"scope_aborted"|"scope_closed"|"observer_not_current"|"connection_not_current"|"collection_mismatch"|"currentness_check_failed"|"native_witness_collection_mismatch"|"native_witness_generation_mismatch"|"caller_aborted"|`${MdbaseApplicationFacet}_facet`}
 /** A declared type the app cannot use: its definition has an error-level issue.
  * Listed only with `readiness: {typeIssues: "degrade"}`. Pass an entry to
  * `describeError` for the copy; show the rest of the collection as usual. */

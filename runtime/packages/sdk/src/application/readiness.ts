@@ -1,7 +1,7 @@
 import {describeError} from "../describe-error.js";
 import {isMdbaseError} from "../errors.js";
 import {createAppCollectionReadiness,type AppCollectionReadiness,type AppCollectionReadinessRequirements,type AppCollectionReadinessSnapshot} from "../app-host/collection-readiness.js";
-import type {MdbaseApplicationConnection,MdbaseApplicationFacetSnapshot,MdbaseApplicationReadinessSnapshot,MdbaseApplicationRequestOptions} from "./entry.js";
+import type {MdbaseApplicationConnection,MdbaseApplicationFacetSnapshot,MdbaseApplicationProblem,MdbaseApplicationReadinessSnapshot,MdbaseApplicationRequestOptions} from "./entry.js";
 
 /** Internal current facet sources; never declaration callbacks or app authority.
  * The singleton supplies the genuine SDK configuration/files/people/notifications
@@ -24,15 +24,16 @@ export interface ApplicationReadinessOptions {
 }
 const GATING=["configuration","files"] as const,ADVISORY=["people","notifications"] as const;
 export class ApplicationReadinessError extends Error {
-  constructor(readonly code:"application_readiness_fenced"|"application_readiness_busy",readonly detail?:string){
+  constructor(readonly code:"application_readiness_fenced"|"application_readiness_busy",readonly detail?:MdbaseApplicationProblem["detail"]){
     super("SDK application readiness unavailable");this.name="ApplicationReadinessError";
   }
 }
-const empty=(code:string|null,checking=false,detail?:string):MdbaseApplicationFacetSnapshot=>Object.freeze({checking,assessment:null,problem:code?Object.freeze({code,...(detail?{detail}:{})}):null});
+const empty=(code:string|null,checking=false,detail?:MdbaseApplicationProblem["detail"]):MdbaseApplicationFacetSnapshot=>Object.freeze({checking,assessment:null,problem:code?Object.freeze({code,...(detail?{detail}:{})}):null});
 function nativeFacet(value:AppCollectionReadinessSnapshot):MdbaseApplicationFacetSnapshot {
-  const problem=value.problem?Object.freeze({code:`readiness_${value.problem.reason}`}):null;
+  const convert=(problem:AppCollectionReadinessSnapshot["problem"]):MdbaseApplicationFacetSnapshot["problem"]=>problem?Object.freeze({code:`readiness_${problem.reason}`,...(problem.detail?{detail:problem.detail}:{})}):null;
+  const problem=convert(value.problem);
   const types=value.assessment?.unavailableTypes;
-  return Object.freeze({checking:value.checking,assessment:value.assessment?Object.freeze({status:value.assessment.status,problem:value.assessment.problem?Object.freeze({code:`readiness_${value.assessment.problem.reason}`}):null,
+  return Object.freeze({checking:value.checking,assessment:value.assessment?Object.freeze({status:value.assessment.status,problem:convert(value.assessment.problem),
     ...(types?.length?{unavailableTypes:types}:{})}):null,problem});
 }
 /** Aggregate semantic evidence is SDK-owned. A compiler/transport/setup receipt
@@ -56,7 +57,7 @@ export class ApplicationReadiness {
     for(const source of Object.values(this.sources))if(source)this.stops.push(source.subscribe(this.changed));
     this.signal.addEventListener("abort",this.abort,{once:true});
   }
-  private fenceDetail():string|null {
+  private fenceDetail():NonNullable<MdbaseApplicationProblem["detail"]>|null {
     try{
       if(this.signal.aborted)return "scope_aborted";
       if(this.closed)return "scope_closed";
@@ -108,7 +109,7 @@ export class ApplicationReadiness {
     else if(!checking){
       const failed=(["capabilities","contracts",...GATING] as const).find(name=>facets[name].problem);
       problem=failed?facets[failed].problem:null;
-      if(problem?.code==="readiness_fenced"&&!problem.detail)problem=Object.freeze({...problem,detail:`${failed}_facet`});
+      if(failed&&problem?.code==="readiness_fenced"&&!problem.detail)problem=Object.freeze({...problem,detail:`${failed}_facet`});
       if(values.every(value=>value.assessment!==null)){
         const incompatible=values.find(value=>value.assessment?.status==="incompatible"),setup=values.find(value=>value.assessment?.status==="setup_required"),selected=incompatible??setup;
         const types=native.assessment?.unavailableTypes;

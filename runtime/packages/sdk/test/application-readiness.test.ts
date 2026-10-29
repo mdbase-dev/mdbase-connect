@@ -27,6 +27,13 @@ async function fixture(facets:Partial<Record<"configuration"|"files"|"people"|"n
 }
 afterEach(async()=>{for(const close of cleanup.splice(0))await close();vi.restoreAllMocks();});
 describe("SDK current aggregate readiness",()=>{
+  it.each(["session_closed","session_replaced","session_collection_mismatch","read_unauthenticated","read_cancelled"] as const)("preserves native %s through the aggregate",async detail=>{
+    vi.spyOn(CollectionReadiness,"createAppCollectionReadiness").mockImplementation(()=>({start:async()=>{},close:async()=>{},subscribe:()=>()=>{},
+      getSnapshot:()=>({checking:false,assessment:null,problem:{reason:"fenced",detail}})}) as unknown as CollectionReadiness.AppCollectionReadiness);
+    const f=await fixture({configuration:source(),files:source()},{capabilityContractVersion:2,requiredNativeCapabilities:[],contracts:[]});
+    expect(f.assess.getSnapshot().problem).toEqual({code:"readiness_fenced",detail});
+    expect(f.assess.getSnapshot().facets.capabilities.problem).toEqual({code:"readiness_fenced",detail});
+  });
   it.each(["scope_closed","scope_aborted","observer_not_current","connection_not_current","collection_mismatch","currentness_check_failed"])("identifies %s without exposing identities or exception text",async detail=>{
     const f=await fixture();
     if(detail==="scope_closed")await f.assess.close();

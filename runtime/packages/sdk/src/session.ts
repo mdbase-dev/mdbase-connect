@@ -294,8 +294,9 @@ export class Session {
   }
 
   private fail(e: MdbaseError): void {
-    this.onClosed(e);
+    this.port.onclose = null;
     this.port.close();
+    this.onClosed(e);
   }
 
   private onClosed(e?: MdbaseError): void {

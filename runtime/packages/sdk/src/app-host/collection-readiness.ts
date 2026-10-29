@@ -50,7 +50,21 @@ export type AppCollectionReadinessReason =
   | "budget";
 export interface AppCollectionReadinessProblem {
   readonly reason: AppCollectionReadinessReason;
+  readonly detail?: AppCollectionReadinessFenceDetail;
 }
+const fenceConditions = [
+  "binding_invalid",
+  "binding_aborted",
+  "binding_not_current",
+  "readiness_closed",
+  "read_aborted",
+  "session_closed",
+  "session_replaced",
+  "session_collection_mismatch",
+  "read_unauthenticated",
+  "read_cancelled",
+] as const;
+export type AppCollectionReadinessFenceDetail = typeof fenceConditions[number];
 export interface AppCollectionReadinessWitness {
   readonly collection: string;
   readonly generation: string;
@@ -80,7 +94,10 @@ const text = (value: unknown, max = 4096): value is string =>
   typeof value === "string" &&
   !!value.trim() &&
   new TextEncoder().encode(value).length <= max;
-const error = (reason: AppCollectionReadinessReason) =>
+const error = (
+  reason: AppCollectionReadinessReason,
+  detail?: AppCollectionReadinessFenceDetail,
+) =>
   mdbaseError(
     reason === "fenced"
       ? "unauthenticated"
@@ -88,7 +105,10 @@ const error = (reason: AppCollectionReadinessReason) =>
         ? "too_large"
         : "unavailable",
     "collection readiness unavailable",
-    `readiness_${reason}`,
+    {
+      reason: `readiness_${reason}`,
+      ...(detail ? {details: new Map([["condition", detail]])} : {}),
+    },
   );
 function requirements(
   source: AppCollectionReadinessRequirements,
@@ -150,8 +170,17 @@ function issuePath(details: unknown): string | null {
 }
 function problem(
   reason: AppCollectionReadinessReason,
+  detail?: AppCollectionReadinessFenceDetail,
 ): AppCollectionReadinessProblem {
-  return Object.freeze({ reason });
+  return Object.freeze({ reason, ...(reason === "fenced" && detail ? {detail} : {}) });
+}
+function fenceDetailOf(value: unknown): AppCollectionReadinessFenceDetail | undefined {
+  if (!isMdbaseError(value)) return;
+  const condition = value.details instanceof Map ? value.details.get("condition") : undefined;
+  const detail = fenceConditions.find(candidate => candidate === condition);
+  if (detail) return detail;
+  if (value.code === "unauthenticated") return "read_unauthenticated";
+  if (value.code === "cancelled") return "read_cancelled";
 }
 function reasonOf(value: unknown): AppCollectionReadinessReason {
   try {
@@ -243,7 +272,7 @@ export class AppCollectionReadiness {
       source.collection === "00000000-0000-0000-0000-000000000000" ||
       !uuid.test(source.generation)
     )
-      throw error("fenced");
+      throw error("fenced", "binding_invalid");
     this.binding = Object.freeze({
       collection: source.collection,
       generation: source.generation,
@@ -275,7 +304,7 @@ export class AppCollectionReadiness {
           this.publish({
             checking: false,
             assessment: null,
-            problem: problem(reason),
+            problem: problem(reason, fenceDetailOf(original)),
           });
       }
     }
@@ -299,24 +328,24 @@ export class AppCollectionReadiness {
   }
   private check(signal?: AbortSignal, session?: Session, epoch?: number): void {
     signal?.throwIfAborted();
-    if (
-      this.closed ||
-      this.binding.signal.aborted ||
-      this.binding.isCurrent() !== true
-    )
-      throw error("fenced");
-    if (
-      session &&
-      (session.closed ||
-        session !== this.client.currentSession() ||
-        session.hello.collection !== this.binding.collection)
-    )
-      throw error("fenced");
+    const detail = this.fenceDetail(signal);
+    if (detail) throw error("fenced", detail);
+    if (session?.closed) throw error("fenced", "session_closed");
+    if (session && session !== this.client.currentSession())
+      throw error("fenced", "session_replaced");
+    if (session && session.hello.collection !== this.binding.collection)
+      throw error("fenced", "session_collection_mismatch");
     if (
       epoch !== undefined &&
       (epoch !== this.epoch || this.watch?.state !== "active")
     )
       throw error("changed");
+  }
+  private fenceDetail(signal?: AbortSignal): AppCollectionReadinessFenceDetail | undefined {
+    if (this.binding.signal.aborted) return "binding_aborted";
+    if (this.closed) return "readiness_closed";
+    if (signal?.aborted) return "read_aborted";
+    if (this.binding.isCurrent() !== true) return "binding_not_current";
   }
   /** A change notice (watch batch, status, link). With a settled assessment,
    * first compare the catalog: unchanged definitions keep it as is (P1). */
@@ -501,7 +530,7 @@ export class AppCollectionReadiness {
           this.publish({
             checking: false,
             assessment: null,
-            problem: problem(reason),
+            problem: problem(reason, this.fenceDetail(signal) ?? fenceDetailOf(value)),
           });
         throw value; // Original rejection identity, never a diagnostic replacement.
       });
@@ -525,7 +554,7 @@ export class AppCollectionReadiness {
           this.publish({
             checking: false,
             assessment: null,
-            problem: problem(reason),
+            problem: problem(reason, this.fenceDetail(signal) ?? fenceDetailOf(original)),
           });
         throw original;
       }
@@ -727,7 +756,7 @@ export class AppCollectionReadiness {
       this.publish({
         checking: false,
         assessment: null,
-        problem: problem("fenced"),
+        problem: problem("fenced", this.fenceDetail()),
       });
     }
     await this.pending?.catch(() => {});

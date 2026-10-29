@@ -2,8 +2,37 @@ import { describe, expect, it } from "vitest";
 import { connect, isMdbaseError, LiveQuery, MdbaseClient } from "../src/index.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { toPlain } from "../src/values.js";
+import { mdbaseError } from "../src/errors.js";
+import type { FramePort } from "../src/transport/port.js";
 
 const app = { name: "test", version: "0.0.0" };
+
+describe("session failure closes the transport before notifying listeners", () => {
+  it.each([false, true])("preserves the error with a throwing listener: %s", async throws => {
+    const original = new MemoryReplica().connector(), events: string[] = [];
+    const client = await connect({app, reconnect: false, connector: {description: original.description, async open(hello, signal) {
+      const opened = await original.open(hello, signal);
+      const port: FramePort = {onclose: null, onframe: null, send: frame => opened.port.send(frame), close() {
+        events.push("port_closed");
+        opened.port.close();
+        port.onclose?.();
+      }};
+      opened.port.onframe = frame => port.onframe?.(frame);
+      opened.port.onclose = error => port.onclose?.(error);
+      return {...opened, port};
+    }}});
+    const stop = client.onLink(() => {events.push("listener"); if (throws) throw Error("listener failed");});
+    const error = mdbaseError("unavailable", "native read failed", "file_read_failed");
+    const session = client.currentSession();
+    try {
+      const close = () => session.closeWith(error);
+      if (throws) expect(close).toThrow("listener failed"); else close();
+      expect(events).toEqual(["port_closed", "listener"]);
+      expect(client.linkProblem).toBe(error);
+      expect(session.closed).toBe(true);
+    } finally {stop(); client.close();}
+  });
+});
 
 async function until(cond: () => boolean, ms = 2000): Promise<void> {
   const t0 = Date.now();

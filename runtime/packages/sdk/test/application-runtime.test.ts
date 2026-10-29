@@ -16,6 +16,18 @@ function fixture(registered=declaration,compiledManifest=Manifest.compileApplica
 }
 afterEach(async()=>{for(const stop of cleanup.splice(0))await stop();vi.unstubAllGlobals();vi.restoreAllMocks();});
 describe("SDK singleton original lifecycle",()=>{
+ it("never combines a native blocked code with a stale readiness detail",()=>{
+  const f=fixture(),app=f.app as unknown as {scope:Record<string,unknown>;raw:unknown;publish():void},error=vi.spyOn(console,"error").mockImplementation(()=>{});
+  app.scope.getReadiness=()=>({checking:false,assessment:null,problem:{code:"readiness_fenced",detail:"connection_not_current"},facets:f.app.getSnapshot().readiness.facets});
+  app.raw={...snapshot,status:"blocked",problem:"collection_migrating",selectedCollectionId:"secret-collection"};app.publish();
+  expect(error).toHaveBeenCalledExactlyOnceWith("mdbase application blocked:","collection_migrating");
+ });
+ it("logs the selected readiness problem without borrowing the assessment detail",()=>{
+  const f=fixture(),app=f.app as unknown as {scope:Record<string,unknown>;raw:unknown;publish():void},error=vi.spyOn(console,"error").mockImplementation(()=>{});
+  app.scope.getReadiness=()=>({checking:false,assessment:{status:"incompatible",problem:{code:"readiness_fenced",detail:"session_closed"}},problem:{code:"configuration_unavailable"},facets:f.app.getSnapshot().readiness.facets});
+  app.raw={...snapshot,status:"ready",selectedCollectionId:"secret-collection"};app.publish();
+  expect(error).toHaveBeenCalledExactlyOnceWith("mdbase application blocked:","configuration_unavailable");
+ });
  it("logs the safe readiness fence detail without the collection identity",()=>{
   const f=fixture(),app=f.app as unknown as {scope:Record<string,unknown>;raw:unknown;publish():void},error=vi.spyOn(console,"error").mockImplementation(()=>{});
   let detail="connection_not_current";
