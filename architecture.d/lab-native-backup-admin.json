@@ -1,0 +1,9 @@
+{
+  "reason": "Fixed LAB-only service-local admin capture reuses the existing authenticated request execution, Next config/policy signer, fresh collection-locked CP deletion/revocation checks and nonce/role1 log transport. Two internal modules separate observed native cut/inventory closure from fixed CLI admission/private immutable artifact publication. Thirteen relative imports wire those existing key/client/DB/audit/filesystem boundaries; eight internal TS declarations name bounded native restore tuples/observations and capture/admin interfaces, not public HTTP/SDK APIs. Typed backup/import/object/snapshot/aux methods stay on the existing LogServiceClient; no generic RPC tunnel, exported tokens, new credential store, live permit, schema or hosted-state exporter. Restore/resume remain unavailable pending real owner bindings. Root allowance is requested for this exact small source adapter, not relaxation of hard limits.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 13,
+    "typeScriptExportDeclarations": 8,
+    "services/server": 2
+  }
+}

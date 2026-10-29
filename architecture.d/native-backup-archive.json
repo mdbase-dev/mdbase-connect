@@ -1,0 +1,9 @@
+{
+  "reason": "Three internal composition modules close the existing native backup capture: coverage/strict scratch replay, owner-only immutable filesystem transport, and the existing independent native verifier process boundary. They replace an unusable R2-only transport proposal with ordinary files consumed by the separate ops uploader; no new package, dependency, Worker binding, schema, credential flag, scheduler, HTTP route or public SDK API. Eight relative imports wire existing capture/log/wire/verifier/filesystem boundaries. Thirteen exported internal declarations name these concrete transport, trust and restore seams; target admission stays explicit and no live restore command is enabled.",
+  "growth": {
+    "productionFiles": 3,
+    "relativeImports": 8,
+    "typeScriptExportDeclarations": 13,
+    "services/server": 3
+  }
+}
