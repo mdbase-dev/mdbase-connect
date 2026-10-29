@@ -472,6 +472,15 @@ function mutationKey(from: string, to: string, revision: string): string {
 
 export function gatewayError(error: unknown): string {
   if (error instanceof MdbaseConnectError) {
+    if (error.problem.code === "collection_type_registry_invalid" || error.problem.code === "collection_invalid") {
+      const diagnostics = error.problem.details?.diagnostics ?? [];
+      const types = [...new Set(diagnostics.filter((diagnostic) => diagnostic.severity === "error")
+        .map((diagnostic) => typeof diagnostic.type === "string" ? diagnostic.type
+          : typeof diagnostic.path === "string" && diagnostic.path !== "mdbase.yaml" ? diagnostic.path : undefined)
+        .filter(Boolean))].join(", ");
+      if (types) return t`The type definition is invalid: ${types}. Fix it in Types before saving.`;
+      if (error.problem.code === "collection_type_registry_invalid") return t`A type definition is invalid. Fix it in Types before saving.`;
+    }
     if (error.problem.code === "connector_offline") return t`The computer holding this collection is offline.`;
     if (error.problem.recovery === "reauthorize") {
       return t`This collection needs authorization again. Choose the collection to continue.`;

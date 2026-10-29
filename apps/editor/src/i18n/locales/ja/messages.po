@@ -809,6 +809,10 @@ msgstr "Person 型はすでに存在しますが、互換性のある対応付�
 msgid "A read default for “{field}” already exists."
 msgstr "「{field}」の読み取り時の既定値はすでに存在します。"
 
+#: src/gateway.ts
+msgid "A type definition is invalid. Fix it in Types before saving."
+msgstr "型定義が無効です。保存する前に「型」で修正してください。"
+
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "既存の連絡先について"
@@ -3952,10 +3956,14 @@ msgid "Provided by the note's type, not stored in this file."
 msgstr "ノートの型から提供され、このファイルには保存されません。"
 
 #: src/editor-commands.ts
-#: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "クイックオープン"
+
+#. placeholder {0}: shortcutModifier()
+#: src/NoteSearchField.tsx
+msgid "Quick open · {0} P"
+msgstr "クイックオープン · {0} P"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
@@ -5058,6 +5066,11 @@ msgstr "エディターは確認済みのこれらのファイルを置き換え
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "中断されたノート操作の正確な内容を利用できません。新たな書き込みは試行されていません。"
 
+#. placeholder {0}: resolved.type
+#: src/SchemaValueEditor.tsx
+msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
+msgstr "既存の値は型 {0} と一致しません。JSON 値を編集して修正してください。"
+
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
 msgstr "ファイルを開けませんでした。"
@@ -5221,6 +5234,10 @@ msgstr "埋め込まれたノートを開けませんでした。"
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "型{name}はこのコレクションで定義されていません。"
+
+#: src/gateway.ts
+msgid "The type definition is invalid: {types}. Fix it in Types before saving."
+msgstr "型定義が無効です: {types}。保存する前に「型」で修正してください。"
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

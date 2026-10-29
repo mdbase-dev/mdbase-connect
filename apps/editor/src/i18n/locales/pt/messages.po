@@ -809,6 +809,10 @@ msgstr "Um tipo Pessoa já existe, mas precisa de mapeamentos compatíveis. Revi
 msgid "A read default for “{field}” already exists."
 msgstr "Já existe um valor padrão de leitura para “{field}”."
 
+#: src/gateway.ts
+msgid "A type definition is invalid. Fix it in Types before saving."
+msgstr "Uma definição de tipo é inválida. Corrija-a em Tipos antes de salvar."
+
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "Sobre os contatos existentes"
@@ -3952,10 +3956,14 @@ msgid "Provided by the note's type, not stored in this file."
 msgstr "Fornecido pelo tipo da nota; não é armazenado neste arquivo."
 
 #: src/editor-commands.ts
-#: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "Abertura rápida"
+
+#. placeholder {0}: shortcutModifier()
+#: src/NoteSearchField.tsx
+msgid "Quick open · {0} P"
+msgstr "Abertura rápida · {0} P"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
@@ -5058,6 +5066,11 @@ msgstr "O editor substituirá os arquivos revisados e registrará seu código-fo
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "A operação exata interrompida na nota está indisponível. Nenhuma nova gravação foi tentada."
 
+#. placeholder {0}: resolved.type
+#: src/SchemaValueEditor.tsx
+msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
+msgstr "O valor existente não corresponde ao tipo {0}. Edite o valor JSON para corrigi-lo."
+
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
 msgstr "Não foi possível abrir o arquivo."
@@ -5221,6 +5234,10 @@ msgstr "Não foi possível abrir a nota transcluída."
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "O tipo {name} não está definido nesta coleção."
+
+#: src/gateway.ts
+msgid "The type definition is invalid: {types}. Fix it in Types before saving."
+msgstr "A definição de tipo é inválida: {types}. Corrija-a em Tipos antes de salvar."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

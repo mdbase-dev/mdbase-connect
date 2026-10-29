@@ -36,7 +36,7 @@ describe("collection rail regions", () => {
     expect(within(scroll).getByRole("button", { name: "Notes folder" })).toBeInTheDocument();
     expect(within(scroll).getByRole("button", { name: "New folder" })).toBeInTheDocument();
     expect(scroll).not.toContainElement(tools);
-    expect([...tools.children].map((element) => element.textContent)).toEqual(["Types1", "Settings"]);
+    expect([...tools.children].map((element) => element.textContent)).toEqual(["Types 1", "Settings"]);
     expect(within(tools).getByRole(links ? "link" : "button", { name: "Settings" })).toHaveClass("selected");
     expect(tools.parentElement).toBe(scroll.parentElement);
     expect(screen.getByRole("status").closest("footer")).toBe(tools.parentElement!.nextElementSibling);

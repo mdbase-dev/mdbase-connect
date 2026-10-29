@@ -82,7 +82,7 @@ function RailLink({ destination, selected, label, ariaLabel, icon, count }: {
   count?: number;
 }) {
   useLingui();
-  const content = <><span>{icon}<span className="rail-row-label">{label}</span></span>{count !== undefined && <small>{count.toLocaleString(displayLocale())}</small>}</>;
+  const content = <><span>{icon}<span className="rail-row-label">{label}</span></span>{count !== undefined && <> <small>{count.toLocaleString(displayLocale())}</small></>}</>;
   if (destination.href) {
     return <a className={`editor-rail-link${selected ? " selected" : ""}`} href={destination.href} aria-label={ariaLabel} aria-current={selected ? "page" : undefined}>{content}</a>;
   }

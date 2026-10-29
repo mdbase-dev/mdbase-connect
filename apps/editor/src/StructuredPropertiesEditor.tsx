@@ -455,8 +455,9 @@ function schemaAllowsNull(schema?: JsonObject): boolean {
 }
 
 function isStringList(name: string, schema: JsonObject | undefined, value: unknown): boolean {
-  if (!Array.isArray(value)) return false;
-  if (name.toLocaleLowerCase() === "tags") return value.every((item) => typeof item === "string");
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return false;
+  if (schema?.type && schema.type !== "array") return false;
+  if (name.toLocaleLowerCase() === "tags") return true;
   return schema?.type === "array"
     && isObject(schema.items)
     && (schema.items as JsonObject).type === "string"

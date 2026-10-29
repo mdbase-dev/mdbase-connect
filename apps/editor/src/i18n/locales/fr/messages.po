@@ -809,6 +809,10 @@ msgstr "Un type Personne existe déjà mais nécessite des associations compatib
 msgid "A read default for “{field}” already exists."
 msgstr "Une valeur par défaut en lecture existe déjà pour « {field} »."
 
+#: src/gateway.ts
+msgid "A type definition is invalid. Fix it in Types before saving."
+msgstr "Une définition de type est invalide. Corrigez-la dans Types avant d’enregistrer."
+
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "À propos des contacts existants"
@@ -3952,10 +3956,14 @@ msgid "Provided by the note's type, not stored in this file."
 msgstr "Fournie par le type de la note, non stockée dans ce fichier."
 
 #: src/editor-commands.ts
-#: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "Ouverture rapide"
+
+#. placeholder {0}: shortcutModifier()
+#: src/NoteSearchField.tsx
+msgid "Quick open · {0} P"
+msgstr "Ouverture rapide · {0} P"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
@@ -5058,6 +5066,11 @@ msgstr "L’éditeur remplacera ces fichiers examinés et consignera leur source
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "L’opération interrompue sur la note est introuvable. Aucune nouvelle écriture n’a été tentée."
 
+#. placeholder {0}: resolved.type
+#: src/SchemaValueEditor.tsx
+msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
+msgstr "La valeur existante ne correspond pas au type {0}. Modifiez la valeur JSON pour la corriger."
+
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
 msgstr "Le fichier n’a pas pu être ouvert."
@@ -5221,6 +5234,10 @@ msgstr "La note transclue n’a pas pu être ouverte."
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "Le type {name} n’est pas défini dans cette collection."
+
+#: src/gateway.ts
+msgid "The type definition is invalid: {types}. Fix it in Types before saving."
+msgstr "La définition de type est invalide : {types}. Corrigez-la dans Types avant d’enregistrer."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

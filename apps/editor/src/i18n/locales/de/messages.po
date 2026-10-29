@@ -809,6 +809,10 @@ msgstr "Ein Typ „Person“ ist bereits vorhanden, benötigt aber kompatible Zu
 msgid "A read default for “{field}” already exists."
 msgstr "Ein Lesestandardwert für „{field}“ ist bereits vorhanden."
 
+#: src/gateway.ts
+msgid "A type definition is invalid. Fix it in Types before saving."
+msgstr "Eine Typdefinition ist ungültig. Korrigieren Sie sie vor dem Speichern unter „Typen“."
+
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "Über vorhandene Kontakte"
@@ -3952,10 +3956,14 @@ msgid "Provided by the note's type, not stored in this file."
 msgstr "Vom Typ der Notiz bereitgestellt, nicht in dieser Datei gespeichert."
 
 #: src/editor-commands.ts
-#: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "Schnellauswahl"
+
+#. placeholder {0}: shortcutModifier()
+#: src/NoteSearchField.tsx
+msgid "Quick open · {0} P"
+msgstr "Schnell öffnen · {0} P"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
@@ -5058,6 +5066,11 @@ msgstr "Der Editor ersetzt diese geprüften Dateien und hält ihren genauen Quel
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "Der genaue unterbrochene Notizvorgang ist nicht verfügbar. Es wurde kein neuer Schreibversuch unternommen."
 
+#. placeholder {0}: resolved.type
+#: src/SchemaValueEditor.tsx
+msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
+msgstr "Der vorhandene Wert entspricht nicht dem Typ {0}. Bearbeiten Sie den JSON-Wert, um ihn zu korrigieren."
+
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
 msgstr "Die Datei konnte nicht geöffnet werden."
@@ -5221,6 +5234,10 @@ msgstr "Die eingebettete Notiz konnte nicht geöffnet werden."
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "Der Typ {name} ist in dieser Sammlung nicht definiert."
+
+#: src/gateway.ts
+msgid "The type definition is invalid: {types}. Fix it in Types before saving."
+msgstr "Die Typdefinition ist ungültig: {types}. Korrigieren Sie sie vor dem Speichern unter „Typen“."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

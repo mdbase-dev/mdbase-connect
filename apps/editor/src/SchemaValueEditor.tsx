@@ -32,6 +32,12 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
 
   const type = schemaType(resolved, value);
   const label = schemaLabel(name, required, hideLabel, resolved);
+  if (value !== undefined && typeof resolved?.type === "string" && !matchesType(resolved.type, value)) {
+    return <div className="schema-value">
+      <p className="schema-value-error" role="alert">{t`The existing value doesn't match type ${resolved.type}. Edit the JSON value to fix it.`}</p>
+      <JsonSchemaValueEditor name={name} type={resolved.type} label={label} value={value} onChange={onChange} onValidityChange={onValidityChange} />
+    </div>;
+  }
   if (resolved && "const" in resolved) {
     return <div className="schema-value schema-constant">{label}<output>{formatValue(resolved.const)}</output></div>;
   }
@@ -269,29 +275,37 @@ function ObjectMapValueEditor({ name, schema, rootSchema, value, required, hideL
 
 function JsonSchemaValueEditor({ name, type, label, value, onChange, onValidityChange }: {
   name: string;
-  type: "array" | "object";
+  type: string;
   label: ReactNode;
   value: unknown;
   onChange: (value: unknown) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
   useLingui();
-  const initial = useMemo(() => value ?? (type === "array" ? [] : {}), [type, value, i18n.locale]);
+  const initial = useMemo(() => value === undefined ? (type === "array" ? [] : {}) : value, [type, value, i18n.locale]);
   const [text, setText] = useState(() => JSON.stringify(initial, null, 2));
   const [error, setError] = useState<string>();
   return <label className="schema-value schema-json-value">{label}<CodeEditor value={text} label={t`${name} JSON value`} language="json" lineWrapping={false} onChange={(next) => {
     setText(next);
     try {
       const parsed = JSON.parse(next) as unknown;
-      if ((type === "array" && !Array.isArray(parsed)) || (type === "object" && !isObject(parsed))) throw new Error(t`Enter a JSON ${type}.`);
+      if (!matchesType(type, parsed)) throw new Error(t`Enter a JSON ${type}.`);
+      onValidityChange?.(true);
       onChange(parsed);
       setError(undefined);
-      onValidityChange?.(true);
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : t`Invalid JSON.`);
       onValidityChange?.(false);
     }
   }} />{error && <small className="schema-value-error" role="alert">{error}</small>}</label>;
+}
+
+function matchesType(type: string, value: unknown): boolean {
+  if (type === "array") return Array.isArray(value);
+  if (type === "object") return isObject(value);
+  if (type === "integer") return Number.isInteger(value);
+  if (type === "null") return value === null;
+  return typeof value === type;
 }
 
 export function schemaInitialValue(schema?: JsonObject, rootSchema: JsonObject | undefined = schema): unknown {

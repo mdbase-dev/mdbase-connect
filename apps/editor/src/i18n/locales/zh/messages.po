@@ -809,6 +809,10 @@ msgstr "Person 类型已存在，但需要兼容的映射。请在“类型”�
 msgid "A read default for “{field}” already exists."
 msgstr "“{field}”的读取默认值已存在。"
 
+#: src/gateway.ts
+msgid "A type definition is invalid. Fix it in Types before saving."
+msgstr "类型定义无效。请先在“类型”中修复，再保存。"
+
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "关于现有联系人"
@@ -3952,10 +3956,14 @@ msgid "Provided by the note's type, not stored in this file."
 msgstr "由笔记的类型提供，不存储在此文件中。"
 
 #: src/editor-commands.ts
-#: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "快速打开"
+
+#. placeholder {0}: shortcutModifier()
+#: src/NoteSearchField.tsx
+msgid "Quick open · {0} P"
+msgstr "快速打开 · {0} P"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
@@ -5058,6 +5066,11 @@ msgstr "编辑器将替换这些已检查的文件，并在 <0>mdbase.lock.yaml<
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "无法获取中断的笔记操作的确切信息。未尝试新的写入。"
 
+#. placeholder {0}: resolved.type
+#: src/SchemaValueEditor.tsx
+msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
+msgstr "现有值与类型 {0} 不匹配。请编辑 JSON 值以修复。"
+
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
 msgstr "无法打开文件。"
@@ -5221,6 +5234,10 @@ msgstr "无法打开嵌入的笔记。"
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "此集合未定义类型 {name}。"
+
+#: src/gateway.ts
+msgid "The type definition is invalid: {types}. Fix it in Types before saving."
+msgstr "类型定义无效：{types}。请先在“类型”中修复，再保存。"
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

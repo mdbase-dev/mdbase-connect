@@ -809,6 +809,10 @@ msgstr "Тип Person уже существует, но требует совм�
 msgid "A read default for “{field}” already exists."
 msgstr "Значение по умолчанию для чтения поля «{field}» уже существует."
 
+#: src/gateway.ts
+msgid "A type definition is invalid. Fix it in Types before saving."
+msgstr "Определение типа недопустимо. Исправьте его в разделе «Типы» перед сохранением."
+
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "О существующих контактах"
@@ -3952,10 +3956,14 @@ msgid "Provided by the note's type, not stored in this file."
 msgstr "Задано типом заметки, не хранится в этом файле."
 
 #: src/editor-commands.ts
-#: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "Быстрый переход"
+
+#. placeholder {0}: shortcutModifier()
+#: src/NoteSearchField.tsx
+msgid "Quick open · {0} P"
+msgstr "Быстрое открытие · {0} P"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
@@ -5058,6 +5066,11 @@ msgstr "Редактор заменит проверенные файлы и з�
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "Точная прерванная операция с заметкой недоступна. Новая запись данных не предпринималась."
 
+#. placeholder {0}: resolved.type
+#: src/SchemaValueEditor.tsx
+msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
+msgstr "Существующее значение не соответствует типу {0}. Измените значение JSON, чтобы исправить его."
+
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
 msgstr "Не удалось открыть файл."
@@ -5221,6 +5234,10 @@ msgstr "Не удалось открыть встроенную заметку."
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "Тип {name} не определён в этой коллекции."
+
+#: src/gateway.ts
+msgid "The type definition is invalid: {types}. Fix it in Types before saving."
+msgstr "Определение типа недопустимо: {types}. Исправьте его в разделе «Типы» перед сохранением."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

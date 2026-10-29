@@ -809,6 +809,10 @@ msgstr "A Person type already exists but needs compatible mappings. Review it in
 msgid "A read default for “{field}” already exists."
 msgstr "A read default for “{field}” already exists."
 
+#: src/gateway.ts
+msgid "A type definition is invalid. Fix it in Types before saving."
+msgstr "A type definition is invalid. Fix it in Types before saving."
+
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "About existing contacts"
@@ -3952,10 +3956,14 @@ msgid "Provided by the note's type, not stored in this file."
 msgstr "Provided by the note's type, not stored in this file."
 
 #: src/editor-commands.ts
-#: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "Quick open"
+
+#. placeholder {0}: shortcutModifier()
+#: src/NoteSearchField.tsx
+msgid "Quick open · {0} P"
+msgstr "Quick open · {0} P"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
@@ -5058,6 +5066,11 @@ msgstr "The editor will replace these reviewed files and record their exact sour
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "The exact interrupted note operation is unavailable. No new write was attempted."
 
+#. placeholder {0}: resolved.type
+#: src/SchemaValueEditor.tsx
+msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
+msgstr "The existing value doesn't match type {0}. Edit the JSON value to fix it."
+
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
 msgstr "The file could not be opened."
@@ -5221,6 +5234,10 @@ msgstr "The transcluded note could not be opened."
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "The type {name} is not defined in this collection."
+
+#: src/gateway.ts
+msgid "The type definition is invalid: {types}. Fix it in Types before saving."
+msgstr "The type definition is invalid: {types}. Fix it in Types before saving."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

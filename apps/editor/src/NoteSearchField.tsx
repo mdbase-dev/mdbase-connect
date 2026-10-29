@@ -49,7 +49,7 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setActive((value) => (value + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length); }
         if (event.key === "Enter") { event.preventDefault(); choose(suggestions[Math.min(active, suggestions.length - 1)].filter); }
       }} />
-      {search ? <button aria-label={t`Clear search`} onClick={() => onSearch("")}><X aria-hidden="true" /></button> : !filter && <button className="quick-open-trigger" aria-label={t`Quick open`} title={t`Quick open · ${shortcutModifier()} P anywhere`} onClick={onQuickOpen}><kbd><Trans>{shortcutModifier()} P</Trans></kbd></button>}
+      {search ? <button aria-label={t`Clear search`} onClick={() => onSearch("")}><X aria-hidden="true" /></button> : !filter && <button className="quick-open-trigger" aria-label={t`Quick open · ${shortcutModifier()} P`} title={t`Quick open · ${shortcutModifier()} P anywhere`} onClick={onQuickOpen}><kbd><Trans>{shortcutModifier()} P</Trans></kbd></button>}
       <button aria-label={t`Search filters`} aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} onClick={() => { setBrowse((value) => !value); setDismissed(false); setActive(0); }}><Filters aria-hidden="true" /></button>
     </div>
     {open && <div id="note-filter-suggestions" className="search-filter-suggestions" role="listbox" aria-label={t`Search filters`}>

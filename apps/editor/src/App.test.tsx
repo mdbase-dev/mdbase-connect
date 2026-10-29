@@ -789,6 +789,20 @@ describe("mdbase editor", () => {
     expect((screen.getByRole("textbox", { name: "Note body" }) as HTMLTextAreaElement).value).toContain("Still here.");
   });
 
+  it("names a malformed type when saving a body edit and retains the draft", async () => {
+    const gateway = new DemoCollectionGateway();
+    const user = userEvent.setup();
+    vi.spyOn(gateway, "update").mockRejectedValue(new MdbaseConnectError(connectProblem("collection_invalid", "Invalid YAML.", {
+      details: { diagnostics: [{ severity: "error", code: "invalid_frontmatter", path: "_types/note.md", message: "Invalid YAML." }] }
+    })));
+    render(<App gateway={gateway} />);
+    const body = await screen.findByRole("textbox", { name: "Note body" });
+    await user.type(body, "\nUnsaved sentence.");
+    expect(await screen.findByText("The type definition is invalid: _types/note.md. Fix it in Types before saving.")).toBeVisible();
+    expect(body).toHaveValue(expect.stringContaining("Unsaved sentence."));
+    expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).not.toContain("Unsaved sentence.");
+  });
+
   it("keeps a background save failure attached to its note", async () => {
     const gateway = new FailingUpdateGateway();
     const user = userEvent.setup();
