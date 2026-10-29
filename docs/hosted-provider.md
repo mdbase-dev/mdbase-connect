@@ -1,5 +1,13 @@
 # Hosted provider architecture
 
+> **Scope (October 2026):** This document covers the **legacy hosted provider** in root
+> `crates/connect-hosted-provider`, including its retained `mdbase-rs` dependency.
+> It remains relevant to legacy serving/recovery, including the beta.141 image;
+> "legacy" does not mean switched off. The successor replica/daemon graph lives
+> under [`runtime/`](../runtime/README.md), with daemon code in
+> [`runtime/crates/daemon`](../runtime/crates/daemon). Worker deployment and
+> collection migration are separately qualified operations.
+
 Status: accepted implementation architecture for the production hosted path
 
 The provider does not report readiness until its SQL migrations, embedded
