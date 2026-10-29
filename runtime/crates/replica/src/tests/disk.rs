@@ -1142,6 +1142,7 @@ fn read_only_conflict_can_keep_both_without_overwriting_the_synced_note() {
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);
     let mut b = node(&svc, 2);
+    b.r.set_conflict_label("Work PC");
     create(&mut a, 1, "a.md", "original");
     settle(&mut [&mut a, &mut b]);
     set_member_role(&svc, &mut [&mut a, &mut b], Role::Viewer);
@@ -1167,6 +1168,7 @@ fn read_only_conflict_can_keep_both_without_overwriting_the_synced_note() {
         .map(|(path, doc)| (path.clone(), doc.clone()))
         .collect();
     assert_eq!(copies.len(), 1);
+    assert!(copies[0].0.starts_with("a (conflict Work PC "));
     assert_eq!(copies[0].1, "viewer edit");
     assert_eq!(b.file(&copies[0].0).as_deref(), Some("viewer edit"));
     assert!(b.r.list_holds(b.s).unwrap().is_empty());

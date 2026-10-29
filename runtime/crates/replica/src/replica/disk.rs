@@ -1860,11 +1860,15 @@ impl<S: Store> Replica<S> {
                     if !matches!(&key, DiskKey::Record(_)) || shown.is_none() {
                         return Err(ErrorCode::InvalidRequest.err("keep both needs a local note"));
                     }
+                    let label = self
+                        .conflict_label
+                        .clone()
+                        .unwrap_or_else(|| self.cfg.device_id.to_hex()[..8].to_string());
                     Op::Create(mdbn_wire::intent::Create {
                         id: self.mint_v7(),
                         path: Some(conflict_path(
                             &hold.path,
-                            &self.cfg.device_id,
+                            &label,
                             &super::utc_date(self.now()),
                         )),
                         type_name: None,
