@@ -241,3 +241,40 @@ fn newer_sem_native_entry_stalls() {
     assert!(node.r.store().record(&B16([52; 16])).unwrap().is_none());
     assert!(format!("{:?}", node.r.sync_status()).contains("UpgradeRequired"));
 }
+
+#[test]
+fn review_1062_stateless_request_defects_void_across_sem_versions() {
+    let mut outcomes = Vec::new();
+    for defect in ["duplicate_id", "unsafe_op_path"] {
+        for minor in [0, 1, 2] {
+            let node = replay(Version { major: 1, minor }, |payload| match defect {
+                "duplicate_id" => payload.mutation.ops.push(payload.mutation.ops[0].clone()),
+                "unsafe_op_path" => {
+                    payload
+                        .mutation
+                        .ops
+                        .push(rt::Op::Legacy(mdbn_wire::intent::Op::Document(
+                            mdbn_wire::intent::Document {
+                                id: B16([90; 16]),
+                                base: None,
+                                new: Some(mdbn_wire::intent::DocVersion {
+                                    path: "../escape.md".into(),
+                                    doc: Text::Inline("other\n".into()),
+                                }),
+                                if_revision: None,
+                            },
+                        )))
+                }
+                _ => unreachable!(),
+            });
+            outcomes.push((defect, minor, node.r.head().seq, node.r.policy.voids));
+        }
+    }
+    eprintln!("request defects (defect, SEM minor, head, voids): {outcomes:?}");
+    assert!(
+        outcomes
+            .iter()
+            .all(|(_, _, head, voids)| *head == 3 && *voids == 1),
+        "format-level request defects must void identically: {outcomes:?}"
+    );
+}

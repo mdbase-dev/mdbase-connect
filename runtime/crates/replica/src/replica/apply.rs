@@ -1259,6 +1259,9 @@ impl<S: Store> Replica<S> {
         };
 
         let native = super::unindexed_apply::contains_native(&payload);
+        if native && mdbn_core::plan::check_request(&mutation).is_err() {
+            return self.commit_payload_void(head, &payload, "V7: invalid request");
+        }
         let entry_sem = mdbn_core::semantics::Sem {
             major: payload.sem.major,
             minor: payload.sem.minor,
