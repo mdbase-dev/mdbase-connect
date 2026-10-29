@@ -1419,7 +1419,6 @@ fn run(
             Duration::ZERO
         };
         let received = rx.recv_timeout(wake);
-        let ingest_turn = matches!(&received, Err(std_mpsc::RecvTimeoutError::Timeout));
         // Pure state queries must not wake their own waiters into a busy loop.
         let notify_grants = !matches!(
             &received,
@@ -1756,8 +1755,8 @@ fn run(
             log_retention_reclaims(&mut rep);
             last_observe = std::time::Instant::now();
         }
-        if ingest_turn && !ingest.is_empty() {
-            let batch = ingest.drain(..ingest.len().min(32)).collect();
+        if !ingest.is_empty() {
+            let batch = ingest.drain(..ingest.len().min(64)).collect();
             rep.ingest(batch);
         }
         let now_ms = crate::fsutil::now_ms() as u64;

@@ -1838,6 +1838,9 @@ fn print_private_collections(v: &Value) {
 /// The daemon reports account problems as reason codes; say them in plain words.
 fn account_problem(reason: &str) -> &'static str {
     match reason {
+        "system_clock_wrong" => {
+            "this computer's system clock looks wrong; check its date and time to reconnect"
+        }
         "sign_in_failed" => "sign-in did not finish; try again",
         "sign_in_expired" => "the sign-in request expired; start again",
         "sign_in_cancelled" => "sign-in was cancelled; start again",

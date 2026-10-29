@@ -408,7 +408,9 @@ impl<S: Store> Replica<S> {
                 .next()
                 .filter(|r| r.order == order)
             else {
-                continue;
+                return Err(StoreError::Corrupt(
+                    "pending touch index differs from store".into(),
+                ));
             };
             let [rt::Op::Legacy(Op::FileMove(op))] = row.mutation.ops.as_slice() else {
                 continue;

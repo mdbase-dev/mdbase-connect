@@ -119,6 +119,12 @@ impl<S: Store> Replica<S> {
         if self.before.is_empty() {
             return Ok(());
         }
+        let holds = self.store.holds()?;
+        let held_ids: std::collections::BTreeSet<_> = holds.iter().map(|h| h.id).collect();
+        let held_paths: std::collections::BTreeSet<_> = holds
+            .iter()
+            .map(|h| mdbn_core::paths::path_key(&h.path))
+            .collect();
         let before = std::mem::take(&mut self.before);
         let mut deletes = Vec::new();
         let mut moves = Vec::new();
@@ -131,13 +137,14 @@ impl<S: Store> Replica<S> {
                 DiskKey::Resource(_) => None,
             };
             let now = self.local_view_doc(&key);
+            let path = now
+                .as_ref()
+                .map(|(p, _)| p.as_str())
+                .or_else(|| was.as_ref().map(|w| w.path.as_str()));
             if let Some(i) = id
-                && self.file_materialization_fenced(
-                    i,
-                    now.as_ref()
-                        .map(|(p, _)| p.as_str())
-                        .or_else(|| was.as_ref().map(|w| w.path.as_str())),
-                )?
+                && (held_ids.contains(&i)
+                    || path.is_some_and(|p| held_paths.contains(&mdbn_core::paths::path_key(p)))
+                    || self.pending_file_materialization_fenced(i, path)?)
             {
                 settled.push((key, PublishState::NotPublished));
                 continue;
@@ -497,12 +504,9 @@ impl<S: Store> Replica<S> {
     /// No partial catalog/capture is exposed; native ingest uses this SAME path.
     /// Publication uses its existing independent outcome/progress machinery.
     pub async fn ingest_async(&mut self, observations: Vec<Observation>) {
-        if self.check_apply_store_health().is_err() {
-            return;
-        }
-        // Adopt: nothing is captured before the base. Observations handed in
-        // directly stay unacknowledged and eligible for redelivery.
-        if self.adopt_gates() {
+        // Captured observations can outlive the scan's healthy apply state.
+        // Return ownership to the store whenever capture is temporarily blocked.
+        if self.check_apply_store_health().is_err() || self.adopt_gates() {
             let tokens: Vec<_> = observations.iter().map(|o| o.token).collect();
             if let Err(e) = self.store.defer_disk_observations(&tokens) {
                 self.incident(
@@ -1379,39 +1383,55 @@ impl<S: Store> Replica<S> {
         id: B16,
         path: Option<&str>,
     ) -> Result<bool, StoreError> {
+        if self.store.hold(&id)?.is_some() {
+            return Ok(true);
+        }
+        if let Some(path) = path
+            && self
+                .store
+                .holds()?
+                .iter()
+                .any(|h| mdbn_core::paths::path_key(&h.path) == mdbn_core::paths::path_key(path))
+        {
+            return Ok(true);
+        }
+        self.pending_file_materialization_fenced(id, path)
+    }
+
+    fn pending_file_materialization_fenced(
+        &self,
+        id: B16,
+        path: Option<&str>,
+    ) -> Result<bool, StoreError> {
         use mdbn_wire::attachment_runtime_v1 as rt;
         let same_path = |p: &str| {
             path.is_some_and(|q| mdbn_core::paths::path_key(p) == mdbn_core::paths::path_key(q))
         };
-        if self.store.hold(&id)?.is_some()
-            || (path.is_some() && self.store.holds()?.iter().any(|h| same_path(&h.path)))
-        {
-            return Ok(true);
-        }
         let mut keys = vec![crate::plan::id_key(&id)];
         if let Some(path) = path {
             keys.push(format!("p:{}", mdbn_core::paths::path_key(path)));
         }
         for order in self.touch.affected(&keys) {
-            for row in self
+            let row = self
                 .store
                 .pending(order.checked_sub(1), 1)?
                 .into_iter()
+                .next()
                 .filter(|row| row.order == order)
+                .ok_or_else(|| {
+                    StoreError::Corrupt("pending touch index differs from store".into())
+                })?;
+            if row.mutation.origin != self.cfg.replica_id || row.mutation.source != Source::External
             {
-                if row.mutation.origin != self.cfg.replica_id
-                    || row.mutation.source != Source::External
-                {
-                    continue;
-                }
-                if row.mutation.ops.iter().any(|op| match op {
-                    rt::Op::Legacy(Op::FilePut(f)) => f.id == id || same_path(&f.path),
-                    rt::Op::FileAttach(f) => f.id == id || same_path(&f.path),
-                    rt::Op::OrdinaryAttachmentContinuation(f) => f.id == id || same_path(&f.path),
-                    _ => false,
-                }) {
-                    return Ok(true);
-                }
+                continue;
+            }
+            if row.mutation.ops.iter().any(|op| match op {
+                rt::Op::Legacy(Op::FilePut(f)) => f.id == id || same_path(&f.path),
+                rt::Op::FileAttach(f) => f.id == id || same_path(&f.path),
+                rt::Op::OrdinaryAttachmentContinuation(f) => f.id == id || same_path(&f.path),
+                _ => false,
+            }) {
+                return Ok(true);
             }
         }
         Ok(false)

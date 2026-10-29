@@ -33,6 +33,7 @@ struct Disk {
     /// What the store last knew was at each path.
     known: BTreeMap<String, Hash>,
     queued: Vec<Observation>,
+    outstanding: BTreeMap<ObservationId, Observation>,
     next: u64,
     /// Simulate a crash after the inner commit: drop this many publish batches.
     drop_publishes: u32,
@@ -46,6 +47,7 @@ struct Disk {
     publish_attempts: u64,
     max_pending: u64,
     pending_rows_read: u64,
+    holds_reads: u64,
     source_paused: bool,
     current_paused: bool,
     complete_paused: bool,
@@ -331,6 +333,7 @@ impl Store for DiskStore {
         self.inner.local_receipt(m)
     }
     fn holds(&self) -> StoreResult<Vec<Hold>> {
+        self.disk.borrow_mut().holds_reads += 1;
         self.inner.holds()
     }
     fn hold(&self, id: &Uuid) -> StoreResult<Option<Hold>> {
@@ -374,7 +377,7 @@ impl Store for DiskStore {
         d.publish_attempts += publish.len() as u64;
         // Acknowledged observations: their bytes are now known.
         for a in acks {
-            let _ = a;
+            d.outstanding.remove(&a);
         }
         let paths: Vec<String> = d.files.keys().cloned().collect();
         for p in paths {
@@ -422,7 +425,23 @@ impl Store for DiskStore {
     fn observe(&mut self, _paths: Option<&[String]>) -> StoreResult<Vec<Observation>> {
         let mut d = self.disk.borrow_mut();
         d.observe_calls += 1;
-        Ok(std::mem::take(&mut d.queued))
+        let observations = std::mem::take(&mut d.queued);
+        for o in &observations {
+            d.outstanding.insert(o.token, o.clone());
+        }
+        Ok(observations)
+    }
+
+    fn defer_disk_observations(&mut self, tokens: &[ObservationId]) -> StoreResult<()> {
+        let mut d = self.disk.borrow_mut();
+        for token in tokens {
+            if let Some(o) = d.outstanding.get(token).cloned()
+                && !d.queued.iter().any(|queued| queued.token == *token)
+            {
+                d.queued.push(o);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1314,6 +1333,33 @@ fn synced_batched_ingest_reads_only_matching_pending_rows() {
         "batched publication must not repeatedly scan the growing pending queue"
     );
     assert_eq!(a.disk.borrow().acknowledged, RECORDS);
+    assert!(
+        a.disk.borrow().holds_reads <= RECORDS.div_ceil(32) + 2,
+        "publication reads holds once per batch, not per record"
+    );
+}
+
+#[test]
+fn captured_observations_are_reoffered_after_apply_recovery() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    a.disk
+        .borrow_mut()
+        .user_write("retained.md", Some("user edit"));
+    let captured = a.r.observe_changes().unwrap();
+    assert_eq!(captured.len(), 1);
+    a.r.apply_blocked = Some(a.r.head.seq + 1);
+    a.r.ingest(captured.clone());
+    assert_eq!(a.disk.borrow().acknowledged, 0);
+    a.r.apply_blocked = None;
+    let reoffered = a.r.observe_changes().unwrap();
+    assert_eq!(
+        reoffered, captured,
+        "recovery retains the original observation token"
+    );
+    a.r.ingest(reoffered);
+    assert_eq!(a.disk.borrow().acknowledged, 1);
+    assert_eq!(a.r.sync_status().pending, 1);
 }
 
 #[test]

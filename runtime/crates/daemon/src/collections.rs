@@ -663,6 +663,16 @@ impl CollectionHost {
         self.state = CollectionState::Paused;
     }
 
+    pub(crate) fn clock_skew(&self) -> bool {
+        self.entry.mode != SyncMode::Local
+            && !self.cancel.load(Ordering::SeqCst)
+            && self
+                .ctx
+                .as_ref()
+                .and_then(|c| c.sync.as_ref())
+                .is_some_and(|s| s.cloud.clock_skew())
+    }
+
     /// Read-only live status. Hold the exact opened runtime and captured source
     /// across the actor await; stale/stopped/paused hosts return no counters.
     pub async fn observed_status(&self) -> CollectionStatus {
@@ -674,28 +684,10 @@ impl CollectionHost {
         if !current() {
             return status;
         }
-        let clock_skew = self
-            .ctx
-            .as_ref()
-            .and_then(|c| c.sync.as_ref())
-            .is_some_and(|s| s.cloud.clock_skew());
-        if clock_skew {
-            status.notices.push(Notice {
-                code: "system_clock_wrong".into(),
-                message: "This computer's system clock looks wrong. Check its date and time to reconnect.".into(),
-            });
-        }
         let Some(runtime) = self.runtime() else {
             return status;
         };
-        let mut telemetry = current_telemetry(source, &self.cancel, runtime.telemetry()).await;
-        if clock_skew
-            && let Some(t) = telemetry.as_mut()
-            && t.connection != "online"
-            && t.last_error.is_none()
-        {
-            t.last_error = Some("system_clock_wrong".into());
-        }
+        let telemetry = current_telemetry(source, &self.cancel, runtime.telemetry()).await;
         if current()
             && self
                 .runtime()

@@ -733,6 +733,11 @@ pub fn effect_keys(effects: &[mdbn_wire::entry::Effect]) -> Vec<String> {
 /// Touch keys a mutation names directly (IDs and resource paths in its ops).
 pub fn mutation_keys(m: &mdbn_wire::intent::Mutation) -> Vec<String> {
     let mut out: Vec<String> = m.ops.iter().map(op_key).collect();
+    for op in &m.ops {
+        if let mdbn_wire::intent::Op::FilePut(f) = op {
+            out.push(format!("p:{}", mdbn_core::paths::path_key(&f.path)));
+        }
+    }
     out.sort();
     out.dedup();
     out
@@ -755,6 +760,15 @@ pub fn runtime_mutation_keys(m: &mdbn_wire::attachment_runtime_v1::Mutation) -> 
             R::OrdinaryAttachmentContinuation(f) => id_key(&f.id),
         })
         .collect();
+    for op in &m.ops {
+        let path = match op {
+            R::Legacy(mdbn_wire::intent::Op::FilePut(f)) => &f.path,
+            R::FileAttach(f) => &f.path,
+            R::OrdinaryAttachmentContinuation(f) => &f.path,
+            _ => continue,
+        };
+        out.push(format!("p:{}", mdbn_core::paths::path_key(path)));
+    }
     out.sort();
     out.dedup();
     out

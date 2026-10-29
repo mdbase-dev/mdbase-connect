@@ -52,8 +52,9 @@ test("connection follows collection outages even while the account relay is onli
 });
 
 test("clock problems have an actionable explanation", () => {
-  const collection = { mode: "synced", state: "ready", sync: { pending: 0, holds: 0, unresolved: 0, connection: "offline", last_error: "system_clock_wrong" } };
-  assert.match(presentCollection(collection).detail, /system clock looks wrong/);
+  const status = { account: { signed_in: true, online: false, last_error: "system_clock_wrong" }, collections: [{ mode: "local", state: "ready" }] };
+  assert.match(presentConnection(status, true).detail, /system clock looks wrong/);
+  assert.equal(presentCollection(status.collections[0]).detail, undefined);
 });
 
 test("access: pending, served-by-app and refused are separated; badge counts decisions and new notices", () => {

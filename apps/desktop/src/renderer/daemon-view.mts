@@ -23,6 +23,7 @@ export interface ConnectionPresentation {
 export function accountProblemText(reason: string | null | undefined): string | undefined {
   if (!reason) return undefined;
   switch (reason) {
+    case "system_clock_wrong": return t(i18n)`This computer's system clock looks wrong. Check its date and time to reconnect.`;
     case "sign_in_failed": return t(i18n)({ message: "Sign-in did not finish. Try again." });
     case "sign_in_expired": return t(i18n)({ message: "The sign-in request expired. Start again." });
     case "sign_in_cancelled": return t(i18n)({ message: "Sign-in was cancelled. Start again." });
@@ -128,7 +129,7 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
       }
       return { ...base, status: t(i18n)`Paused`, detail: t(i18n)`Apps cannot use it until you resume it.`, dot: "paused" };
     case "opening":
-      return { ...base, status: t(i18n)`Opening…`, detail: collection.sync?.last_error === "system_clock_wrong" ? t(i18n)`This computer's system clock looks wrong. Check its date and time to reconnect.` : pendingText ?? reasonText(collection.reason), dot: "connecting" };
+      return { ...base, status: t(i18n)`Opening…`, detail: pendingText ?? reasonText(collection.reason), dot: "connecting" };
     case "moving":
       return { ...base, status: t(i18n)`Changing sync…`, detail: t(i18n)`Apps keep working while the change finishes.`, dot: "connecting" };
     case "unavailable":
@@ -146,7 +147,7 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
   if (pendingText) waiting.push(pendingText);
   if (holds > 0) waiting.push(t(i18n)`${plural(holds, { one: "# file waiting for you", other: "# files waiting for you" })}`);
   if (sync.unresolved > 0) waiting.push(t(i18n)`${plural(sync.unresolved, { one: "# unresolved conflict", other: "# unresolved conflicts" })}`);
-  if (sync.last_error) waiting.push(sync.last_error === "system_clock_wrong" ? t(i18n)`This computer's system clock looks wrong. Check its date and time to reconnect.` : t(i18n)`sync problem: ${sync.last_error.replaceAll("_", " ")}`);
+  if (sync.last_error) waiting.push(t(i18n)`sync problem: ${sync.last_error.replaceAll("_", " ")}`);
   const status = sync.resyncing ? t(i18n)({ message: "Catching up…", context: "Local connection status" })
     : sync.connection === "online" ? (sync.pending > 0 ? t(i18n)({ message: "Syncing…", context: "Local connection status" }) : t(i18n)({ message: "Up to date", context: "Local connection status" }))
       : sync.connection === "connecting" ? t(i18n)({ message: "Connecting…", context: "Local connection status" }) : t(i18n)({ message: "Offline", context: "Local connection status" });

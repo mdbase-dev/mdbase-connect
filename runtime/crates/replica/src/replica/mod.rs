@@ -1283,11 +1283,14 @@ impl<S: Store> Replica<S> {
                 if let Some(e) = view.error() {
                     return Err(e);
                 }
-                let keys = updates
+                let mut keys = updates
                     .last()
                     .filter(|u| u.order == row.order)
                     .map(|u| u.touches.clone())
                     .unwrap_or(row.touches.clone());
+                keys.extend(crate::plan::runtime_mutation_keys(&row.mutation));
+                keys.sort();
+                keys.dedup();
                 touch.add(row.order, &keys);
                 keys_by_order.insert(row.order, keys);
             }
