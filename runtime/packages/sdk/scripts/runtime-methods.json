@@ -1,7 +1,7 @@
 {
   "source": {
-    "commit": "4fb345e4ebb99538a8e20a8218b410a14928021a",
-    "path": "crates/replica/src/frames.rs"
+    "commit": "5f5a4d83e815a9a0e509872d771963a494a02ba5",
+    "path": "runtime/crates/replica/src/frames.rs"
   },
   "methods": [
     "abort_upload",
