@@ -5970,6 +5970,11 @@ msgstr "È ancora possibile usarlo o confrontarlo con il modello iniziale attual
 msgid "You don’t have permission to upload {name}."
 msgstr "Non è disponibile l'autorizzazione per caricare {name}."
 
+#: src/App.tsx
+#: src/native-gateway.ts
+msgid "You have view access, so changes can't be saved."
+msgstr "Hai accesso in sola lettura, quindi le modifiche non possono essere salvate."
+
 #: src/ConnectionScreens.tsx
 msgid "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."
 msgstr "Si proseguirà in mdbase. Accedi se richiesto, scegli una raccolta e autorizza l'editor mdbase. Il ritorno qui è automatico; i file rimangono dove sono."
