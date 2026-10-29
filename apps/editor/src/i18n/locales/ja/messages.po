@@ -2278,8 +2278,8 @@ msgid "Enter a folder name without slashes."
 msgstr "スラッシュを含まないフォルダー名を入力してください。"
 
 #: src/SchemaValueEditor.tsx
-msgid "Enter a JSON {type}."
-msgstr "JSON の{type}を入力してください。"
+msgid "Enter a JSON {expectedType}."
+msgstr "JSON の{expectedType}を入力してください。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a list."
@@ -5062,10 +5062,9 @@ msgstr "エディターは確認済みのこれらのファイルを置き換え
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "中断されたノート操作の正確な内容を利用できません。新たな書き込みは試行されていません。"
 
-#. placeholder {0}: resolved.type
 #: src/SchemaValueEditor.tsx
-msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
-msgstr "既存の値は型 {0} と一致しません。JSON 値を編集して修正してください。"
+msgid "The existing value doesn't match type {expectedType}. Edit the JSON value to fix it."
+msgstr "既存の値は型 {expectedType} と一致しません。JSON 値を編集して修正してください。"
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
@@ -5230,10 +5229,6 @@ msgstr "埋め込まれたノートを開けませんでした。"
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "型{name}はこのコレクションで定義されていません。"
-
-#: src/native-gateway.ts
-msgid "The type definition is invalid: {types}. Fix it in Types before saving."
-msgstr "型定義が無効です: {types}。保存する前に「型」で修正してください。"
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

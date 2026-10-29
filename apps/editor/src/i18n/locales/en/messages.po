@@ -2278,8 +2278,8 @@ msgid "Enter a folder name without slashes."
 msgstr "Enter a folder name without slashes."
 
 #: src/SchemaValueEditor.tsx
-msgid "Enter a JSON {type}."
-msgstr "Enter a JSON {type}."
+msgid "Enter a JSON {expectedType}."
+msgstr "Enter a JSON {expectedType}."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a list."
@@ -5062,10 +5062,9 @@ msgstr "The editor will replace these reviewed files and record their exact sour
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "The exact interrupted note operation is unavailable. No new write was attempted."
 
-#. placeholder {0}: resolved.type
 #: src/SchemaValueEditor.tsx
-msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
-msgstr "The existing value doesn't match type {0}. Edit the JSON value to fix it."
+msgid "The existing value doesn't match type {expectedType}. Edit the JSON value to fix it."
+msgstr "The existing value doesn't match type {expectedType}. Edit the JSON value to fix it."
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
@@ -5230,10 +5229,6 @@ msgstr "The transcluded note could not be opened."
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "The type {name} is not defined in this collection."
-
-#: src/native-gateway.ts
-msgid "The type definition is invalid: {types}. Fix it in Types before saving."
-msgstr "The type definition is invalid: {types}. Fix it in Types before saving."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

@@ -2278,8 +2278,8 @@ msgid "Enter a folder name without slashes."
 msgstr "슬래시가 없는 폴더 이름을 입력하세요."
 
 #: src/SchemaValueEditor.tsx
-msgid "Enter a JSON {type}."
-msgstr "JSON {type}을(를) 입력하세요."
+msgid "Enter a JSON {expectedType}."
+msgstr "JSON {expectedType}을(를) 입력하세요."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a list."
@@ -5062,10 +5062,9 @@ msgstr "편집기는 검토된 파일을 대체하고 정확한 소스, 버전 �
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "중단된 정확한 노트 작업을 사용할 수 없습니다. 새 쓰기 작업은 시도하지 않았습니다."
 
-#. placeholder {0}: resolved.type
 #: src/SchemaValueEditor.tsx
-msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
-msgstr "기존 값이 {0} 유형과 일치하지 않습니다. JSON 값을 편집하여 수정하세요."
+msgid "The existing value doesn't match type {expectedType}. Edit the JSON value to fix it."
+msgstr "기존 값이 {expectedType} 유형과 일치하지 않습니다. JSON 값을 편집하여 수정하세요."
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
@@ -5230,10 +5229,6 @@ msgstr "삽입된 노트를 열지 못했습니다."
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "이 컬렉션에 {name} 유형이 정의되어 있지 않습니다."
-
-#: src/native-gateway.ts
-msgid "The type definition is invalid: {types}. Fix it in Types before saving."
-msgstr "유형 정의가 올바르지 않습니다: {types}. 저장하기 전에 유형에서 수정하세요."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

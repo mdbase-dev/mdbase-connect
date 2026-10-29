@@ -2278,8 +2278,8 @@ msgid "Enter a folder name without slashes."
 msgstr "Inserisci un nome di cartella senza barre."
 
 #: src/SchemaValueEditor.tsx
-msgid "Enter a JSON {type}."
-msgstr "Inserisci un {type} JSON."
+msgid "Enter a JSON {expectedType}."
+msgstr "Inserisci un {expectedType} JSON."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a list."
@@ -5062,10 +5062,9 @@ msgstr "L'editor sostituirà questi file revisionati e registrerà la loro esatt
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "L'operazione esatta della nota interrotta non è disponibile. Non è stata tentata alcuna nuova scrittura."
 
-#. placeholder {0}: resolved.type
 #: src/SchemaValueEditor.tsx
-msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
-msgstr "Il valore esistente non corrisponde al tipo {0}. Modifica il valore JSON per correggerlo."
+msgid "The existing value doesn't match type {expectedType}. Edit the JSON value to fix it."
+msgstr "Il valore esistente non corrisponde al tipo {expectedType}. Modifica il valore JSON per correggerlo."
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
@@ -5230,10 +5229,6 @@ msgstr "Impossibile aprire la nota trasclusa."
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "Il tipo {name} non è definito in questa raccolta."
-
-#: src/native-gateway.ts
-msgid "The type definition is invalid: {types}. Fix it in Types before saving."
-msgstr "La definizione di tipo non è valida: {types}. Correggila in Tipi prima di salvare."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

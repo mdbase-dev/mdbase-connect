@@ -2278,8 +2278,8 @@ msgid "Enter a folder name without slashes."
 msgstr "Geben Sie einen Ordnernamen ohne Schrägstriche ein."
 
 #: src/SchemaValueEditor.tsx
-msgid "Enter a JSON {type}."
-msgstr "Geben Sie einen JSON-Wert vom Typ {type} ein."
+msgid "Enter a JSON {expectedType}."
+msgstr "Geben Sie einen JSON-Wert vom Typ {expectedType} ein."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a list."
@@ -3959,7 +3959,7 @@ msgstr "Schnellauswahl"
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
 msgid "Quick open · {0} P"
-msgstr "Schnell öffnen · {0} P"
+msgstr "Schnellauswahl · {0} P"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
@@ -5062,10 +5062,9 @@ msgstr "Der Editor ersetzt diese geprüften Dateien und hält ihren genauen Quel
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "Der genaue unterbrochene Notizvorgang ist nicht verfügbar. Es wurde kein neuer Schreibversuch unternommen."
 
-#. placeholder {0}: resolved.type
 #: src/SchemaValueEditor.tsx
-msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
-msgstr "Der vorhandene Wert entspricht nicht dem Typ {0}. Bearbeiten Sie den JSON-Wert, um ihn zu korrigieren."
+msgid "The existing value doesn't match type {expectedType}. Edit the JSON value to fix it."
+msgstr "Der vorhandene Wert entspricht nicht dem Typ {expectedType}. Bearbeiten Sie den JSON-Wert, um ihn zu korrigieren."
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
@@ -5230,10 +5229,6 @@ msgstr "Die eingebettete Notiz konnte nicht geöffnet werden."
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "Der Typ {name} ist in dieser Sammlung nicht definiert."
-
-#: src/native-gateway.ts
-msgid "The type definition is invalid: {types}. Fix it in Types before saving."
-msgstr "Die Typdefinition ist ungültig: {types}. Korrigieren Sie sie vor dem Speichern unter „Typen“."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

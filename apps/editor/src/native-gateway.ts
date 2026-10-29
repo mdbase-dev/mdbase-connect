@@ -352,31 +352,11 @@ export class NativeEditorGateway implements CollectionGateway {
     }
   }
 
-  create(input: CreateNoteInput): Promise<NoteDocument> { return this.explainSaveError(this.records.create(input)); }
-  restore(document: NoteDocument, id?: string): Promise<NoteDocument> { return this.explainSaveError(this.records.restore(document, id)); }
-  update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> { return this.explainSaveError(this.records.update(base, change)); }
-  updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> { return this.explainSaveError(this.records.updateProperties(path, patch, revision)); }
-  updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> { return this.explainSaveError(this.records.updateDocument(path, document, revision)); }
-
-  private async explainSaveError<Value>(save: Promise<Value>): Promise<Value> {
-    try { return await save; }
-    catch (error) {
-      if (!isMdbaseError(error, "collection_invalid")) throw error;
-      // Catalog diagnostics require collection.read; the write error alone
-      // deliberately carries no global type metadata.
-      const description = await this.client.describe(this.signal()).catch(() => undefined);
-      this.check();
-      const types = [...new Set(description?.issues.filter((issue) => issue.severity === "error")
-        .flatMap((issue) => {
-          const details = jsonObject(issue.details);
-          if (typeof details?.typeName === "string") return [details.typeName];
-          return issue.code === "invalid_type" && typeof details?.path === "string" ? [details.path] : [];
-        }) ?? [])].join(", ");
-      if (!types) throw error;
-      throw new MdbaseError({ ...error.toProblem(), message: t`The type definition is invalid: ${types}. Fix it in Types before saving.` },
-        { mutationId: error.mutationId, cause: error });
-    }
-  }
+  create(input: CreateNoteInput): Promise<NoteDocument> { return this.records.create(input); }
+  restore(document: NoteDocument, id?: string): Promise<NoteDocument> { return this.records.restore(document, id); }
+  update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> { return this.records.update(base, change); }
+  updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> { return this.records.updateProperties(path, patch, revision); }
+  updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> { return this.records.updateDocument(path, document, revision); }
 
   async preflightRename(from: string, to: string, revision: string): Promise<RenamePreflight> {
     const result = await this.records.preflightRename(from, to, revision);

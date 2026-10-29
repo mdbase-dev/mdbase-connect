@@ -33,14 +33,69 @@ describe("typed note properties", () => {
     await act(async () => vi.advanceTimersByTime(1_000));
     expect(onSave).not.toHaveBeenCalled();
     fireEvent.change(rating, { target: { value: '"49"' } });
-    expect(screen.getByLabelText("rating value")).toHaveValue("49");
+    fireEvent.blur(rating);
+    expect(screen.getByLabelText("rating value JSON value")).toBe(rating);
+    expect(rating).toHaveValue('"49"');
     fireEvent.change(tags, { target: { value: "[" } });
     await act(async () => vi.advanceTimersByTime(1_000));
     expect(onSave).not.toHaveBeenCalled();
     fireEvent.change(tags, { target: { value: '["original"]' } });
+    fireEvent.blur(tags);
     await act(async () => vi.advanceTimersByTime(500));
     expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { rating: "49", tags: ["original"], title: "After" });
     view.unmount();
+  });
+
+  it("keeps correction focused and never autosaves a transient empty JSON string", async () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const note = { ...eventNote, frontmatter: { rating: 49 } };
+    render(<PropertiesPanel note={note}
+      types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: "string" } } } }]}
+      onClose={vi.fn()} onSave={onSave} />);
+    const rating = screen.getByRole("textbox", { name: "rating value JSON value" });
+    rating.focus();
+    fireEvent.change(rating, { target: { value: '""' } });
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(rating).toHaveFocus();
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.change(rating, { target: { value: '"49 stars"' } });
+    expect(rating).toHaveFocus();
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.blur(rating);
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { rating: "49 stars" });
+  });
+
+  it("shows and corrects a mismatched nullable scalar", async () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const note = { ...eventNote, frontmatter: { rating: 49 } };
+    render(<PropertiesPanel note={note}
+      types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: ["string", "null"] } } } }]}
+      onClose={vi.fn()} onSave={onSave} />);
+    const rating = screen.getByRole("textbox", { name: "rating value JSON value" });
+    expect(rating).toHaveValue("49");
+    expect(screen.getByText(/doesn't match type string \| null/)).toBeVisible();
+    fireEvent.change(rating, { target: { value: '"49"' } });
+    fireEvent.blur(rating);
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { rating: "49" });
+  });
+
+  it("clears invalid JSON validation when the property is removed", async () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const note = { ...eventNote, frontmatter: { rating: 49, title: "Before" } };
+    render(<PropertiesPanel note={note}
+      types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: "string" }, title: { type: "string" } } } }]}
+      onClose={vi.fn()} onSave={onSave} />);
+    fireEvent.change(screen.getByLabelText("rating value JSON value"), { target: { value: '"' } });
+    fireEvent.click(screen.getByRole("button", { name: "Remove rating property" }));
+    fireEvent.change(screen.getByLabelText("title value"), { target: { value: "After" } });
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { title: "After" });
   });
 
   it("never flushes a hidden empty replacement when retyped properties are closed", async () => {

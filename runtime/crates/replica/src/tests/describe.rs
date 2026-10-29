@@ -102,27 +102,6 @@ fn describe_projects_resolved_versions_fields_bindings_paths_and_exact_implement
 }
 
 #[test]
-fn describe_identifies_malformed_type_sources() {
-    let (_, mut a) = configured(vec![
-        ("mdbase.yaml".into(), "spec_version: '0.3.0'\n".into()),
-        (
-            "_types/task.md".into(),
-            "---\nkind: mdbase.type\nname: task\nversion: broken\n---\n".into(),
-        ),
-    ]);
-    let d = a.r.describe(a.s).unwrap();
-    let issue = d.issues.iter().find(|i| i.code == "invalid_type").unwrap();
-    assert_eq!(issue.severity, mdbn_wire::client::Severity::Error);
-    assert_eq!(
-        issue.details,
-        Some(Value::Map(vec![
-            ("path".into(), Value::Text("_types/task.md".into())),
-            ("typeName".into(), Value::Text("task".into())),
-        ]))
-    );
-}
-
-#[test]
 fn describe_reports_catalog_issues_without_advertising_invalid_implementations() {
     let mut sources = resources();
     sources.push(("_types/bad.md".into(), type_source("bad", "^9.0.0", false)));

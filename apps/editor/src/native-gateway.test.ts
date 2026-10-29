@@ -72,44 +72,6 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
         ["select", f.replica.collection, true], ["forget", f.replica.collection, false]]));
   });
 
-  it("names invalid type definitions from the authorized catalog after a rejected native save", async () => {
-    const f = await fixture({}, seedNotes);
-    const note = await f.gateway.read("notes/plan.md");
-    const problem = new MdbaseError({ code: "collection_invalid", recovery: "repair_collection", message: "the collection configuration does not load" });
-    vi.spyOn(f.client, "update").mockRejectedValue(problem);
-    const description = await f.client.describe();
-    const describe = vi.spyOn(f.client, "describe").mockResolvedValue({ ...description, issues: [
-      { code: "invalid_type", severity: "error", message: "invalid frontmatter", details: new Map([["path", "_types/task.md"], ["typeName", "task"]]) }
-    ] });
-    await expect(f.gateway.update(note, { body: "Unsaved" })).rejects.toMatchObject({
-      code: "collection_invalid", recovery: "repair_collection", cause: problem,
-      message: "The type definition is invalid: task. Fix it in Types before saving."
-    });
-    expect(describe).toHaveBeenCalledOnce();
-    expect((await f.gateway.read(note.path)).body).toBe(note.body);
-  });
-
-  it("uses the malformed source path when YAML cannot supply a type name", async () => {
-    const f = await fixture({}, seedNotes);
-    const note = await f.gateway.read("notes/plan.md");
-    vi.spyOn(f.client, "update").mockRejectedValue(new MdbaseError({ code: "collection_invalid", recovery: "repair_collection", message: "the collection configuration does not load" }));
-    const description = await f.client.describe();
-    vi.spyOn(f.client, "describe").mockResolvedValue({ ...description, issues: [
-      { code: "invalid_type", severity: "error", message: "invalid frontmatter", details: new Map([["path", "definitions/broken.md"]]) }
-    ] });
-    await expect(f.gateway.updateProperties(note.path, { title: "Unsaved" }, note.revision)).rejects.toThrow(
-      "The type definition is invalid: definitions/broken.md. Fix it in Types before saving.");
-  });
-
-  it("retains the native save error when catalog diagnostics cannot identify a type", async () => {
-    const f = await fixture({}, seedNotes);
-    const note = await f.gateway.read("notes/plan.md");
-    const problem = new MdbaseError({ code: "collection_invalid", recovery: "repair_collection", message: "invalid configuration" });
-    vi.spyOn(f.client, "update").mockRejectedValue(problem);
-    vi.spyOn(f.client, "describe").mockRejectedValue(new MdbaseError({ code: "unavailable", recovery: "retry", message: "offline" }));
-    await expect(f.gateway.update(note, { body: "Unsaved" })).rejects.toBe(problem);
-  });
-
   it("describes type schemas, versions and contract schemas from the native catalog", async () => {
     const f = await fixture({}, seedNotes);
     const describe = f.client.describe.bind(f.client);

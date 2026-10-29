@@ -104,6 +104,11 @@ export function StructuredPropertiesEditor({
   function removeField(name: string) {
     const next = { ...value };
     delete next[name];
+    setEditorValidity((current) => {
+      const nextValidity = { ...current };
+      delete nextValidity[name];
+      return nextValidity;
+    });
     onChange(next);
   }
 

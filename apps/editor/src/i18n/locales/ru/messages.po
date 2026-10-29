@@ -2278,8 +2278,8 @@ msgid "Enter a folder name without slashes."
 msgstr "Введите имя папки без косых черт."
 
 #: src/SchemaValueEditor.tsx
-msgid "Enter a JSON {type}."
-msgstr "Введите JSON-значение типа {type}."
+msgid "Enter a JSON {expectedType}."
+msgstr "Введите JSON-значение типа {expectedType}."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a list."
@@ -3959,7 +3959,7 @@ msgstr "Быстрый переход"
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
 msgid "Quick open · {0} P"
-msgstr "Быстрое открытие · {0} P"
+msgstr "Быстрый переход · {0} P"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
@@ -5062,10 +5062,9 @@ msgstr "Редактор заменит проверенные файлы и з�
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "Точная прерванная операция с заметкой недоступна. Новая запись данных не предпринималась."
 
-#. placeholder {0}: resolved.type
 #: src/SchemaValueEditor.tsx
-msgid "The existing value doesn't match type {0}. Edit the JSON value to fix it."
-msgstr "Существующее значение не соответствует типу {0}. Измените значение JSON, чтобы исправить его."
+msgid "The existing value doesn't match type {expectedType}. Edit the JSON value to fix it."
+msgstr "Существующее значение не соответствует типу {expectedType}. Измените значение JSON, чтобы исправить его."
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
@@ -5230,10 +5229,6 @@ msgstr "Не удалось открыть встроенную заметку."
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
 msgstr "Тип {name} не определён в этой коллекции."
-
-#: src/native-gateway.ts
-msgid "The type definition is invalid: {types}. Fix it in Types before saving."
-msgstr "Определение типа недопустимо: {types}. Исправьте его в разделе «Типы» перед сохранением."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts

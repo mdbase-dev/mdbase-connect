@@ -3,7 +3,6 @@ import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
-import { MdbaseError } from "@mdbase-dev/sdk";
 import { connectProblem } from "@mdbase-dev/connect-testing";
 import { App } from "./App";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
@@ -788,19 +787,6 @@ describe("mdbase editor", () => {
     gateway.releaseUpdate();
     await waitFor(async () => expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("Still here."));
     expect((screen.getByRole("textbox", { name: "Note body" }) as HTMLTextAreaElement).value).toContain("Still here.");
-  });
-
-  it("names a malformed type when saving a body edit and retains the draft", async () => {
-    const gateway = new DemoCollectionGateway();
-    const user = userEvent.setup();
-    vi.spyOn(gateway, "update").mockRejectedValue(new MdbaseError({ code: "collection_invalid", recovery: "repair_collection",
-      message: "The type definition is invalid: note. Fix it in Types before saving." }));
-    render(<App gateway={gateway} />);
-    const body = await screen.findByRole("textbox", { name: "Note body" });
-    await user.type(body, "\nUnsaved sentence.");
-    expect(await screen.findByText("The type definition is invalid: note. Fix it in Types before saving.")).toBeVisible();
-    expect((body as HTMLTextAreaElement).value).toContain("Unsaved sentence.");
-    expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).not.toContain("Unsaved sentence.");
   });
 
   it("keeps a background save failure attached to its note", async () => {

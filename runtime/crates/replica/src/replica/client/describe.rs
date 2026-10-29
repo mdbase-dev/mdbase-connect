@@ -146,20 +146,7 @@ impl<S: crate::store::Store> super::Replica<S> {
                         _ => mdbn_wire::client::Severity::Warning,
                     },
                     message: i.message.clone(),
-                    details: Some(mdbn_wire::common::Value::Map(
-                        i.location
-                            .iter()
-                            .map(|path| {
-                                ("path".into(), mdbn_wire::common::Value::Text(path.clone()))
-                            })
-                            .chain(i.type_name.iter().map(|name| {
-                                (
-                                    "typeName".into(),
-                                    mdbn_wire::common::Value::Text(name.clone()),
-                                )
-                            }))
-                            .collect(),
-                    )),
+                    details: None,
                 })
                 .collect(),
         })
