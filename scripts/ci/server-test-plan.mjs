@@ -10,6 +10,10 @@ import { systemSuites } from "../../test/system/suites.mjs";
 // release gate.
 const nativePrefixes = [
   "crates/",
+  "runtime/crates/log-",
+  "runtime/deploy/cloudflare-do/",
+  "services/server/src/features/next/policy-outbox",
+  "services/server/src/features/next/log-service-client",
   ".cargo/",
   "rust-toolchain",
   "deploy/docker/",

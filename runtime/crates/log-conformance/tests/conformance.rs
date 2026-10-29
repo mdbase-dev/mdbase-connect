@@ -57,6 +57,10 @@ async fn postgres_backend() {
     let Ok(url) =
         std::env::var("MDBN_TEST_PG_URL").or_else(|_| std::env::var("MDBN_LOGSVC_PG_URL"))
     else {
+        assert!(
+            std::env::var("MDBN_REQUIRE_REAL_BACKENDS").as_deref() != Ok("1"),
+            "MDBN_TEST_PG_URL or MDBN_LOGSVC_PG_URL is required"
+        );
         eprintln!("MDBN_TEST_PG_URL not set: skipping the Postgres run");
         return;
     };
@@ -87,6 +91,10 @@ async fn postgres_backend() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn external_service() {
     let Ok(url) = std::env::var("MDBN_LOGSVC_URL") else {
+        assert!(
+            std::env::var("MDBN_REQUIRE_REAL_BACKENDS").as_deref() != Ok("1"),
+            "MDBN_LOGSVC_URL is required"
+        );
         eprintln!("MDBN_LOGSVC_URL not set: skipping the external run");
         return;
     };

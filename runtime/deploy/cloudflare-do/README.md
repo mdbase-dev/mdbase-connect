@@ -6,15 +6,16 @@ workspace; `Cargo.lock` is checked in.
 
 ## Validation
 
-CI (`.github/workflows/logsvc-do.yml`) pins worker-build 0.8.7 and Wrangler 4.147.0:
+Server CI (`.github/workflows/server-ci.yml`, `log-do-conformance`) pins worker-build
+0.8.7 and Wrangler 4.147.0:
 
 ```sh
 worker-build --release --locked
-# From the repository root:
+# From runtime/:
 cargo build --locked -p mdbn-log-conformance --bin logsvc-bench
 # From this directory:
 npm ci --no-audit --no-fund
-LOGSVC_BENCH=../../target/debug/logsvc-bench npm test
+MDBN_REQUIRE_REAL_BACKENDS=1 LOGSVC_BENCH="$PWD/../../target/debug/logsvc-bench" node tests/runtime.mjs
 ```
 
 On the designated build machine **compilation must use rcargo**, including worker-build's cargo
@@ -36,6 +37,11 @@ cannot be expressed with unchanged HTTP framing). This wrapper is never referenc
 by deployment config or included in the eight-file artifact. Tests also exercise
 real network chunked transfer, error/abort cleanup, concurrent outer/actor reads,
 multiple actors, R2-await lifetime accounting and nonce preservation on rejection.
+
+CI sets `MDBN_REQUIRE_REAL_BACKENDS=1`: missing `LOGSVC_BENCH` or Postgres/external
+URLs fail, and conformance requires every case with debug hooks enabled. Without
+the flag, absent backends print a skip message for local development. The
+`log-postgres-conformance` job runs `postgres_backend` against disposable Postgres.
 
 ### Local dev-proxy disconnect classification (test harness only)
 
