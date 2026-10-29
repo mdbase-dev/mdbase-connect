@@ -612,13 +612,15 @@ impl<S: Store> Replica<S> {
             Err(crate::policy::Rejected::Void(v)) => Some(v.rule),
             Ok(events) => {
                 for e in events {
-                    if matches!(
-                        e,
-                        crate::policy::PolicyEvent::CollectionStateChanged {
-                            from: Some(mdbn_wire::policy::CState::CloudCopy),
-                            to: mdbn_wire::policy::CState::E2e
-                        }
-                    ) {
+                    if settled
+                        && matches!(
+                            e,
+                            crate::policy::PolicyEvent::CollectionStateChanged {
+                                from: Some(mdbn_wire::policy::CState::CloudCopy),
+                                to: mdbn_wire::policy::CState::E2e
+                            }
+                        )
+                    {
                         self.capture_private_switch(p, *chain, switch_eligible);
                     }
                     if settled || !self.private_switch_covers(p) {
@@ -784,18 +786,8 @@ impl<S: Store> Replica<S> {
                 );
             }
             crate::policy::PolicyEvent::CollectionStateChanged { to, .. } => {
-                // A later authenticated owner grant may resolve only this mode
-                // alert. Never overwrite an unrelated integrity failure with it.
-                if self.cfg.chosen_state != Some(to)
-                    && !self.private_switch_waiting()
-                    && !self
-                        .incidents
-                        .contains_key(&IncidentKind::Integrity.value())
-                {
-                    self.incident(
-                        IncidentKind::Integrity,
-                        Some(Value::Text(format!("collection_state_changed: {to:?}"))),
-                    );
+                if self.cfg.chosen_state != Some(to) && !self.private_switch_waiting() {
+                    self.mode_alert(to);
                 }
             }
         }

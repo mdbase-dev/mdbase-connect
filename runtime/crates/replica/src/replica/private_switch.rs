@@ -11,6 +11,9 @@ use mdbn_wire::policy::{CState, DeviceKind, Role};
 use std::collections::BTreeSet;
 
 pub(super) const META: &str = "replica.private-switch.v1";
+// Separate local slot, same wire Integrity kind: a mode alert cannot mask or
+// resolve an unrelated integrity incident.
+const MODE_ALERT: u64 = u64::MAX;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct PrivateSwitch {
     requested: bool,
@@ -613,6 +616,7 @@ impl<S: Store> Replica<S> {
     }
 
     pub(super) fn capture_private_switch(&mut self, p: u64, chain: B32, eligible: bool) {
+        self.private_switch.cloud_read = None;
         if !eligible
             || matches!(
                 self.private_switch.state,
@@ -712,12 +716,7 @@ impl<S: Store> Replica<S> {
                 mdbn_wire::client::IncidentKind::KeyInconsistent,
                 Some(mdbn_wire::common::Value::Text("key_untrusted".into())),
             );
-            self.incident(
-                mdbn_wire::client::IncidentKind::Integrity,
-                Some(mdbn_wire::common::Value::Text(
-                    "collection_state_changed: E2e".into(),
-                )),
-            );
+            self.mode_alert(CState::E2e);
         }
     }
     pub(crate) fn private_switch_waiting(&self) -> bool {
@@ -841,15 +840,28 @@ impl<S: Store> Replica<S> {
         self.private_switch.cloud_read = Some((at, signer));
         // The SAME existing trusted-owner predicate authorizes receiver reading.
         // Resolve only its earlier mode-mismatch alert, never unrelated faults.
-        let kind = mdbn_wire::client::IncidentKind::Integrity;
-        if self.incidents.get(&kind.value()).is_some_and(|incident| {
+        if self.incidents.get(&MODE_ALERT).is_some_and(|incident| {
             matches!(
                 &incident.details, Some(mdbn_wire::common::Value::Text(text))
                     if text == "collection_state_changed: CloudCopy"
             )
         }) {
-            self.clear_incident(kind);
+            self.incidents.remove(&MODE_ALERT);
+            self.status_dirty = true;
         }
+    }
+
+    pub(super) fn mode_alert(&mut self, to: CState) {
+        self.incidents.insert(
+            MODE_ALERT,
+            mdbn_wire::client::Incident {
+                kind: mdbn_wire::client::IncidentKind::Integrity,
+                details: Some(mdbn_wire::common::Value::Text(format!(
+                    "collection_state_changed: {to:?}"
+                ))),
+            },
+        );
+        self.status_dirty = true;
     }
 
     pub(super) fn private_switch_blocks(&self) -> bool {

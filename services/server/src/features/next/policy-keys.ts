@@ -50,6 +50,8 @@ export interface NextControlPlaneConfig {
   cloudCopyBootstrap?: { hosted: { url: string; token: string }; escrow: { url: string; token: string } };
   /** Private collection create and device enrol routes; set only by MDBASE_NEXT_PRIVATE_BOOTSTRAP=1. */
   privateBootstrap?: true;
+  /** Default-off release gate; enabled only by the explicit server setting. */
+  collectionModeExecution?: true;
   /** Trusted direct Noise endpoint origin; discovery is not live admission. */
   hostedClientUrl?: string;
   migrationRouting?: MigrationRouting;
@@ -170,6 +172,8 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
   if (pitrAuthorityToken && [hosted, escrow, migration, cloudCopyBootstrap?.hosted.token, cloudCopyBootstrap?.escrow.token].includes(pitrAuthorityToken)) {
     throw new Error("LAB PITR authority token must differ from existing service tokens.");
   }
+  const collectionModeExecution = env.MDBASE_NEXT_COLLECTION_MODE_EXECUTION?.trim() ?? "";
+  if (!["", "0", "1"].includes(collectionModeExecution)) throw new Error("MDBASE_NEXT_COLLECTION_MODE_EXECUTION must be 0 or 1.");
   const privateBootstrap = env.MDBASE_NEXT_PRIVATE_BOOTSTRAP?.trim() ?? "";
   if (privateBootstrap !== "" && privateBootstrap !== "0" && privateBootstrap !== "1") throw new Error("MDBASE_NEXT_PRIVATE_BOOTSTRAP must be 0 or 1.");
   return {
@@ -183,6 +187,7 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     ...(cloudCopyBootstrap ? { cloudCopyBootstrap } : {}),
     ...(migrationRouting ? { migrationRouting } : {}),
     ...(privateBootstrap === "1" ? { privateBootstrap: true as const } : {}),
+    ...(collectionModeExecution === "1" ? { collectionModeExecution: true as const } : {}),
     ...(env.MDBASE_NEXT_HOSTED_CLIENT_URL?.trim() ? { hostedClientUrl: hostedClientOrigin(env.MDBASE_NEXT_HOSTED_CLIENT_URL.trim()) } : {}),
     ...(labFixtures ? { labFixtures } : {}),
   };

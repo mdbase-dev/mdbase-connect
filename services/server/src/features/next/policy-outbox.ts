@@ -127,8 +127,9 @@ export async function queueNextPolicy(client: DatabaseQueryable, collectionId: s
   if (ops.length === 0) return false;
   if (ops.some((op) => op.op === "genesis")) throw new Error("genesis is only valid when registering a collection");
   if ((await client.query(`SELECT 1 FROM next_collection_mode_changes WHERE collection_id=$1
-    AND target_mode='private' AND policy_outbox_id IS NOT NULL AND rekey_verified_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL`, [collectionId])).rows.length)
-    throw new Error("collection_mode_change_in_progress");
+    AND target_mode='private' AND policy_outbox_id IS NOT NULL AND rekey_verified_at IS NULL
+    AND policy_hold_released_at IS NULL AND abandoned_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL`, [collectionId])).rows.length)
+    throw new CreateError(409, "collection_mode_change_in_progress");
   const collection = await client.query<{ sync: HostedSync }>(
     "SELECT sync FROM next_collections WHERE collection_id = $1 FOR KEY SHARE",
     [collectionId]
@@ -299,7 +300,10 @@ export class PolicyEmitter {
   private async drainPending(): Promise<number> {
     const collections = await this.db.query<{ collection_id: string }>(
       `SELECT collection_id FROM next_policy_outbox WHERE batch_id IS NULL
-       UNION SELECT collection_id FROM next_policy_batches WHERE state = 'sending'`
+       UNION SELECT collection_id FROM next_policy_batches WHERE state = 'sending'
+       UNION SELECT collection_id FROM next_collection_mode_changes WHERE target_mode='private'
+         AND policy_outbox_id IS NOT NULL AND rekey_verified_at IS NULL AND policy_hold_released_at IS NULL
+         AND abandoned_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL`
     );
     let appended = 0;
     for (const { collection_id: collectionId } of collections.rows) {
@@ -336,13 +340,20 @@ export class PolicyEmitter {
   }
 
   private async sendStep(lock: PolicyLock, collectionId: string): Promise<DrainOutcome> {
-    // Keep the owner's excluding rekey immediately adjacent to its policy item.
-    // An appended switch is not a release: only native verified rekey evidence is.
-    const waiting = await lock.query(`SELECT 1 FROM next_collection_mode_changes m
+    // Reserve adjacency only while the next slot is empty. Occupation releases
+    // policy independently of a finish POST; it is NOT native rekey readiness.
+    const waiting = await lock.query<{ request_id: string; seq: string }>(`SELECT m.request_id,b.seq FROM next_collection_mode_changes m
       JOIN next_policy_outbox o ON o.id=m.policy_outbox_id JOIN next_policy_batches b ON b.id=o.batch_id
-      WHERE m.collection_id=$1 AND m.target_mode='private' AND m.rekey_verified_at IS NULL AND m.completed_at IS NULL AND m.cancelled_at IS NULL
+      WHERE m.collection_id=$1 AND m.target_mode='private' AND m.rekey_verified_at IS NULL
+      AND m.policy_hold_released_at IS NULL AND m.abandoned_at IS NULL AND m.completed_at IS NULL AND m.cancelled_at IS NULL
       AND b.state='appended' AND b.lost_at IS NULL`, [collectionId]);
-    if (waiting.rows.length) return "idle";
+    if (waiting.rows[0]) {
+      const held = waiting.rows[0];
+      if (!await this.log.controlItemAt(collectionId, Number(held.seq) + 1)) return "idle";
+      await lock.assertOwned();
+      await lock.query(`UPDATE next_collection_mode_changes SET policy_hold_released_at=now()
+        WHERE collection_id=$1 AND request_id=$2 AND abandoned_at IS NULL`, [collectionId, held.request_id]);
+    }
     const batch = await this.claim(lock, collectionId);
     if (batch === "idle" || batch === "blocked") return batch;
     const seq = Number(batch.seq);

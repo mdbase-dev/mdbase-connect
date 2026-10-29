@@ -165,7 +165,7 @@ export interface CollectionModeChange {
   current_mode: "private" | "cloud_copy";
   source_mode: "private" | "cloud_copy";
   target_mode: "private" | "cloud_copy";
-  phase: "waiting_for_device" | "waiting_for_token_expiry" | "publishing_policy" | "finishing" | "complete" | "cancelled";
+  phase: "waiting_for_device" | "waiting_for_token_expiry" | "publishing_policy" | "finishing" | "complete" | "cancelled" | "abandoned";
   retry_at?: string;
 }
 export interface CollectionModeStatus {

@@ -1,9 +1,9 @@
 {
-  "reason": "Keep the mode executor and HTTP proof verifier separate from owner intent routing. The two modules reuse identity/membership/locks and existing custody/outbox code. Seven internal exports share guards and typed helpers; no second keying engine is added. One additional import mounts the executor in the existing server composition for pre-release acceptance. Managed conversion qualification is still required.",
+  "reason": "Keep the mode executor and HTTP proof verifier separate from owner intent routing. The two modules reuse identity/membership/locks and existing custody/outbox code. Nine internal exports share guards and typed helpers; no second keying engine is added. The composition applies the default-off execution gate and registers owner recovery independently. The existing error handler recognizes typed policy-hold refusals. Managed conversion qualification remains separate from release authorization.",
   "growth": {
     "productionFiles": 2,
-    "relativeImports": 14,
-    "typeScriptExportDeclarations": 7,
+    "relativeImports": 15,
+    "typeScriptExportDeclarations": 9,
     "services/server": 2
   }
 }

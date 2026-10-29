@@ -14,7 +14,7 @@ import { storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.
 import { serializeOps } from "./policy-outbox.js";
 import { migrationDeployments } from "./migration-routing.js";
 import { pitrDeployments } from "./lab-pitr-config.js";
-import { chainHash, type PolicyOp } from "./policy-wire.js";
+import { decodeCbor, chainHash, type PolicyOp } from "./policy-wire.js";
 import { armModeFloor, ModeDevicesNeedUpdate } from "./collection-mode-capability.js";
 
 const uuid = z.uuid().transform(s => s.toLowerCase()).refine(s => s !== SERVICE_ACCOUNT);
@@ -24,13 +24,14 @@ const bodySchema = z.object({ device_id: uuid, challenge: hex32, sig: z.string()
   seq: uint, chain: hex32, members: z.array(uuid).max(1024) }).strict();
 type Body = z.infer<typeof bodySchema>;
 type Change = { target_mode: Mode; source_mode: Mode; source_epoch: string | null; policy_outbox_id: string | null;
-  completed_at: Date | null; cancelled_at: Date | null; rekey_verified_at: Date | null; rekey_seq: string | null; rekey_chain: Buffer | null };
+  completed_at: Date | null; cancelled_at: Date | null; abandoned_at: Date | null; rekey_verified_at: Date | null; rekey_seq: string | null; rekey_chain: Buffer | null };
 type NativeOwner = Owner & { connector: { id: string; user_id: string }; hash: string };
 
 async function change(client: DatabaseConnection, collection: string, request: string): Promise<Change> {
   const row = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2 FOR UPDATE", [collection, request])).rows[0];
   if (!row) throw new CreateError(404, "not_found");
   if (row.cancelled_at) throw new CreateError(409,"mode_cancelled");
+  if (row.abandoned_at) throw new CreateError(409,"mode_abandoned");
   return row;
 }
 async function currentDevice(client: DatabaseConnection, owner: NativeOwner, collection: string, body: Body, device: Device): Promise<void> {
@@ -76,6 +77,63 @@ async function services(options: CloudCopyBootstrapOptions, collection: string, 
     if (!result.success || result.data.collection !== collection || result.data.device !== record.device_id || result.data.epoch !== epoch || result.data.challenge !== challenge)
       throw new CreateError(503, "not_ready");
   }
+}
+
+/** Release gate only, never service readiness: an authenticated invalid request
+ * must reach the existing mode handler before execution is advertised. */
+export async function collectionModeExecutionAvailable(next: CloudCopyBootstrapOptions["next"], fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  if (!next.collectionModeExecution || !next.privateBootstrap || !next.cloudCopyBootstrap) return false;
+  try {
+    for (const deployment of Object.values(next.cloudCopyBootstrap)) for (const operation of ["ready", "retire"]) {
+      const response = await fetchImpl(new URL(`internal/v1/collection-mode/${operation}`, `${deployment.url.replace(/\/+$/u, "")}/`), {
+        method: "POST", redirect: "error", headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
+        body: "{}", signal: AbortSignal.timeout(5000),
+      });
+      if (response.status !== 503 || !response.body) { await response.body?.cancel(); return false; }
+      const reader = response.body.getReader(); let text = "";
+      for (;;) { const part = await reader.read(); if (part.done) break;
+        if (text.length + part.value.length > 128) { await reader.cancel(); return false; }
+        text += Buffer.from(part.value).toString("utf8");
+      }
+      if (JSON.parse(text).error !== "not_ready") return false;
+    }
+    return true;
+  } catch { return false; }
+}
+
+export function registerCollectionModeRecovery(app: FastifyInstance, options: CloudCopyBootstrapOptions): void {
+  // Abandon is not cancellation: the published revocations/Private policy stay
+  // immutable. No epoch is created and no native key readiness is claimed.
+  app.post("/v1/next/collections/:id/mode/:requestId/abandon", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const params = z.object({ id: uuid, requestId: uuid }).safeParse(request.params);
+    if (!params.success) return reply.code(400).send(apiError("invalid_request", "A collection and request are required."));
+    const owner = await authenticateOwner(request, reply, options.db); if (!owner) return reply;
+    const { id: collection, requestId } = params.data;
+    try {
+      const load = (client: DatabaseConnection) => client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2 FOR UPDATE", [collection, requestId]);
+      const row = await inTransaction(options.db, async client => {
+        await ownedMode(client, owner, collection);
+        return (await load(client)).rows[0];
+      });
+      if (!row) throw new CreateError(404, "not_found");
+      if (row.abandoned_at) return { request_id: requestId, phase: "abandoned" };
+      if (row.target_mode !== "private" || row.completed_at || row.cancelled_at || !row.policy_outbox_id) throw new CreateError(409, "mode_not_abandonable");
+      const published = await batch(options, collection, row.policy_outbox_id);
+      const next = await options.log.controlItemAt(collection, Number(published.seq) + 1);
+      if (row.rekey_verified_at || (next && (decodeCbor(next) as Map<number, unknown>).get(1) === 3)) throw new CreateError(409, "mode_rekey_observed");
+      await inTransaction(options.db, async client => {
+        await ownedMode(client, owner, collection);
+        const current = (await load(client)).rows[0];
+        if (current?.abandoned_at) return;
+        if (!current || current.policy_outbox_id !== row.policy_outbox_id || current.completed_at || current.cancelled_at || current.rekey_verified_at) throw new CreateError(409, "mode_changed");
+        await client.query("UPDATE next_collection_mode_changes SET abandoned_at=COALESCE(abandoned_at,now()),policy_hold_released_at=COALESCE(policy_hold_released_at,now()) WHERE collection_id=$1 AND request_id=$2", [collection, requestId]);
+        await client.query("DELETE FROM next_service_devices WHERE collection_id=$1", [collection]);
+        await client.query("UPDATE next_collections SET sync='private' WHERE collection_id=$1", [collection]);
+      });
+      return { request_id: requestId, phase: "abandoned" };
+    } catch (error) { return refuse(reply, error, "The published switch could not be abandoned."); }
+  });
 }
 
 export function registerCollectionModeExecution(app: FastifyInstance, options: CloudCopyBootstrapOptions & { now?: () => number }): void {

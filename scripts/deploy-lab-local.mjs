@@ -104,6 +104,7 @@ export async function deployLocalLab(
           `${component.repository}:${tag}`,
           "--build-arg",
           `MDBASE_CONNECT_REVISION=${head}`,
+          ...(component.name === "connect" ? ["--build-arg", "MDBASE_NEXT_COLLECTION_MODE_EXECUTION=1"] : []),
           "--push",
           "--provenance=false",
           "--metadata-file",

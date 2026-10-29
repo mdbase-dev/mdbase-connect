@@ -13,6 +13,12 @@ fn real_world() -> (FakeLogService, TestControlPlane, Node, Node) {
     real_world_member(false)
 }
 fn real_world_member(viewer: bool) -> (FakeLogService, TestControlPlane, Node, Node) {
+    real_world_store(viewer, false)
+}
+fn real_world_store(
+    viewer: bool,
+    persistent: bool,
+) -> (FakeLogService, TestControlPlane, Node, Node) {
     let svc = FakeLogService::new();
     let mut cp = TestControlPlane::signed(COL);
     cp.genesis_with_keys(&svc, CState::CloudCopy, B16([101; 16]), &SIGN, &KEM);
@@ -55,7 +61,11 @@ fn real_world_member(viewer: bool) -> (FakeLogService, TestControlPlane, Node, N
         let mut node = node_with(
             &svc,
             n,
-            MemStore::new().with_keyring_rebuild(),
+            if persistent {
+                MemStore::new()
+            } else {
+                MemStore::new().with_keyring_rebuild()
+            },
             vec![],
             Some(Box::new(KeyringSealer::new(
                 COL,
@@ -660,16 +670,176 @@ fn receiver_read_selection_never_clears_unrelated_integrity() {
         mdbn_wire::client::IncidentKind::Integrity,
         Some(unrelated.clone()),
     );
-    a.r.choose_cloud_copy(a.s).unwrap();
     receiver_cloud_policy(&mut cp, &svc);
     settle(&mut [&mut a, &mut b]);
+    assert!(
+        b.r.sync_status().incidents.iter().any(|i| i.details
+            == Some(mdbn_wire::common::Value::Text(
+                "collection_state_changed: CloudCopy".into()
+            ))),
+        "mode alert must remain visible alongside an unrelated Integrity incident"
+    );
+    a.r.choose_cloud_copy(a.s).unwrap();
+    settle(&mut [&mut a, &mut b]);
     assert_eq!(b.r.cloud_read_owner(), Some(B16([101; 16])));
+    assert!(!b.r.sync_status().incidents.iter().any(|i| i.details
+        == Some(mdbn_wire::common::Value::Text(
+            "collection_state_changed: CloudCopy".into()
+        ))));
     assert!(
         b.r.sync_status()
             .incidents
             .iter()
             .any(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity
                 && i.details == Some(unrelated.clone()))
+    );
+    assert!(b.r.cloud_copy_source_epoch().is_none());
+}
+
+#[test]
+fn optional_persistent_history_repair_failure_preserves_keys_and_progress() {
+    use crate::log::{LogClient, LogRequest};
+    use mdbn_wire::cbor::{self, Cbor};
+    for failure in ["offline", "genesis", "below_head", "mismatch"] {
+        let (svc, mut cp, mut a, mut b) = real_world_store(false, true);
+        a.r.request_private_switch(a.s).unwrap();
+        switch(&mut cp, &svc);
+        settle(&mut [&mut a, &mut b]);
+        cp.append(
+            &svc,
+            vec![PolicyOp::DeviceRevoke(DeviceRevoke {
+                device: B16([104; 16]),
+            })],
+        );
+        settle(&mut [&mut a]);
+        assert_eq!(a.r.policy.epoch, 3);
+        a.create(90, "retained.md", "still readable");
+        settle(&mut [&mut a]);
+        assert_eq!(
+            a.r.sync_status().pending,
+            0,
+            "baseline {:?}",
+            a.r.sync_status()
+        );
+        // A valid legacy partial keyring: current key, epoch-1 idempotency key
+        // and all commitments, but no middle history key. No store mutation.
+        let full = a.r.sealer.export().unwrap();
+        let n = u64::from_be_bytes(full[..8].try_into().unwrap()) as usize;
+        let Cbor::Array(mut keys) = cbor::decode(&full[8..8 + n]).unwrap() else {
+            panic!("keyring")
+        };
+        keys.retain(|key| matches!(key, Cbor::Array(pair) if pair.first() != Some(&Cbor::Uint(2))));
+        let keys = cbor::encode(&Cbor::Array(keys)).unwrap();
+        let mut partial = (keys.len() as u64).to_be_bytes().to_vec();
+        partial.extend_from_slice(&keys);
+        partial.extend_from_slice(&full[8 + n..]);
+        a.r.sealer.import(&partial).unwrap();
+        a.create(89, "before-repair.md", "working before repair");
+        settle(&mut [&mut a]);
+        assert_eq!(
+            a.r.sync_status().pending,
+            0,
+            "{failure}: originally live {:?}",
+            a.r.sync_status()
+        );
+        let before = a.r.testing_epoch_keys();
+        assert_eq!(before.len(), 2);
+        a.r.refresh_mode_history();
+        assert!(a.r.keyring_rebuilding());
+        let call =
+            a.r.take_log_calls()
+                .into_iter()
+                .find(|c| {
+                    matches!(c.request,
+            LogRequest::Read(ref p) if p.kinds == Some(mdbn_wire::log_service::ReadKinds::Control))
+                })
+                .unwrap();
+        let reply = if failure == "offline" {
+            Err(crate::log::LogError::Offline)
+        } else {
+            let Ok(crate::log::LogResponse::Read(mut result)) = a.log.call(call.request) else {
+                panic!("control replay")
+            };
+            match failure {
+                "genesis" => result.items[0].item.0[0] ^= 1,
+                "below_head" => result.head = 0,
+                "mismatch" => {
+                    result.items.truncate(1);
+                    result.more = false;
+                }
+                _ => unreachable!(),
+            }
+            Ok(crate::log::LogResponse::Read(result))
+        };
+        a.r.on_log_reply(call.id, reply);
+        assert!(
+            !a.r.keyring_rebuilding() && !a.r.keyring_rebuild_failed(),
+            "{failure}"
+        );
+        assert_eq!(
+            a.r.testing_epoch_keys(),
+            before,
+            "{failure}: keys must roll back"
+        );
+        assert_eq!(a.doc(90).as_deref(), Some("still readable"));
+        a.r.refresh_mode_history();
+        assert!(
+            !a.r.keyring_rebuilding(),
+            "same failed optional repair is not repeated"
+        );
+        a.create(91, "continues.md", "no restart needed");
+        settle(&mut [&mut a]);
+        assert_eq!(
+            a.r.sync_status().pending,
+            0,
+            "{failure}: appends remain live {:?}",
+            a.r.sync_status()
+        );
+        assert_eq!(a.doc(91).as_deref(), Some("no restart needed"));
+    }
+}
+
+#[test]
+fn ineligible_receiver_loses_cloud_read_on_applied_private_policy() {
+    let (svc, mut cp, mut a, mut b) = real_world();
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    a.r.choose_cloud_copy(a.s).unwrap();
+    receiver_cloud_policy(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    assert!(b.r.cloud_read_owner().is_some());
+    b.r.cfg.user_enabled_cloud_copy = false; // Not eligible for another local switch.
+    cp.append(
+        &svc,
+        vec![
+            PolicyOp::DeviceRevoke(DeviceRevoke {
+                device: B16([105; 16]),
+            }),
+            PolicyOp::DeviceRevoke(DeviceRevoke {
+                device: B16([106; 16]),
+            }),
+            PolicyOp::CollectionState(CollectionState {
+                state: CState::E2e,
+                compress: None,
+                min_sem_major: None,
+            }),
+        ],
+    );
+    settle(&mut [&mut b]);
+    assert!(b.r.cloud_read_owner().is_none());
+    let meta =
+        b.r.store()
+            .meta("replica.private-switch.v1")
+            .unwrap()
+            .unwrap();
+    let mdbn_wire::cbor::Cbor::Array(fields) = mdbn_wire::cbor::decode(&meta).unwrap() else {
+        panic!("mode metadata")
+    };
+    assert_eq!(
+        fields.len(),
+        3,
+        "no persisted receiver witness after Private, even when ineligible"
     );
     assert!(b.r.cloud_copy_source_epoch().is_none());
 }

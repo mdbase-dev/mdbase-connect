@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { SyncError } from "@mdbase-dev/connect-sync";
+import { CreateError } from "../features/next/bootstrap-common.js";
 import { ZodError } from "zod";
 import {
   AccountDeletionAuthorizationError,
@@ -76,6 +77,7 @@ export function registerErrorHandler(
       if (problem.retryAfterSeconds) reply.header("retry-after", String(problem.retryAfterSeconds));
       return reply.code(problem.status).send(apiError(problem.code, problem.message, problem.details));
     }
+    if (error instanceof CreateError) return reply.code(error.status).send(apiError(error.code, error.code));
     if (error instanceof ApplicationManifestError) {
       return reply.code(400).send(apiError(
         "invalid_application_manifest",

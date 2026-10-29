@@ -1,5 +1,6 @@
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import Fastify from "fastify";
+import cookie from "@fastify/cookie";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
@@ -8,7 +9,7 @@ import { registerErrorHandler } from "../../platform/error-handler.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { MODE_SWITCH_CAPABILITY, advertiseModeCapability, armModeFloor } from "./collection-mode-capability.js";
 import { collectionModeDigest } from "./collection-mode-proof.js";
-import { registerCollectionModeExecution } from "./collection-mode-execution.js";
+import { registerCollectionModeExecution, registerCollectionModeRecovery } from "./collection-mode-execution.js";
 import { registerCollectionModeRoutes } from "./collection-mode-routes.js";
 import { LOG_TOKEN_LIFETIME_MS, LogServiceClient } from "./log-service-client.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
@@ -40,9 +41,10 @@ describePg("collection mode capability floor and token drain", () => {
   let emitter: PolicyEmitter;
   let serviceFetch: typeof fetch = async () => { throw new Error("unexpected service effect"); };
   const server = () => {
-    const app = Fastify(); registerErrorHandler(app);
+    const app = Fastify(); void app.register(cookie); registerErrorHandler(app);
     registerCollectionModeRoutes(app, db);
     const next = { logService: {}, cloudCopyBootstrap: { hosted: { url: "https://hosted.example.test", token: "public-hosted-fixture".repeat(3) }, escrow: { url: "https://escrow.example.test", token: "public-escrow-fixture".repeat(3) } } } as Parameters<typeof registerCollectionModeExecution>[1]["next"];
+    registerCollectionModeRecovery(app, { db, emitter, log, next });
     registerCollectionModeExecution(app, { db, emitter, log, next, fetchImpl: (...args) => serviceFetch(...args), now: () => now });
     return app;
   };
@@ -69,8 +71,8 @@ describePg("collection mode capability floor and token drain", () => {
     await registerDevice(db, { id: connector, user_id: user }, { device_id: a, kind: "desktop", ...Object.fromEntries(Object.entries(keys).map(([k,v]) => [k,hex(v)])),
       capabilities: [MODE_SWITCH_CAPABILITY], challenge: registration.challenge,
       sig: hex(sign(null, deviceRegistrationDigest({ challenge: Buffer.from(registration.challenge,"hex"), connectorId: connector, deviceId:a,signPk:keys.sign_pk,kemPk:keys.kem_pk,noisePk:keys.noise_pk }), key)) }, tokenHash(token));
-    const other = randomUUID();
-    await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'B',$3)", [other, user, tokenHash(randomUUID())]);
+    const other = randomUUID(), otherToken = randomUUID();
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'B',$3)", [other, user, tokenHash(otherToken)]);
     await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk,mode_switch_advertised) VALUES($1,$2,$3,'desktop',$4,$5,$6,$7)", [b,other,user,keys.sign_pk,keys.kem_pk,keys.noise_pk,bAdvertised]);
     const services = (["hosted","escrow"] as const).map((kind,i) => parseServiceDevice({kind,device_id:randomUUID(),sign_pk:Buffer.alloc(32,11+i).toString("hex"),kem_pk:hex(rawX()),noise_pk:hex(rawX()),wrapped_keys:Buffer.from(`synthetic-${kind}`).toString("base64"),kms_key_arn:`arn:aws:kms:eu-west-1:000000000000:key/${kind}`}));
     const enrol = (id: string, account: string, kind: "desktop"|"hosted"|"escrow", k = keys): PolicyOp => ({op:"device-enrol",device:id,account,kind,signPublicKey:k.sign_pk,kemPublicKey:k.kem_pk,noisePublicKey:k.noise_pk});
@@ -81,7 +83,7 @@ describePg("collection mode capability floor and token drain", () => {
     const request = randomUUID(), headers = { authorization: `Bearer ${token}` };
     const intent = await app.inject({method:"POST",url:`/v1/next/collections/${collection}/mode`,headers,payload:{request_id:request,target_mode:"private"}});
     expect(intent.statusCode,intent.body).toBe(202);
-    return {user,collection,connector,a,b,key,keys,request,headers};
+    return {user,collection,connector,a,b,key,keys,request,headers,otherHeaders:{authorization:`Bearer ${otherToken}`}};
   }
   type Fixture = Awaited<ReturnType<typeof fixture>>;
   async function prepare(f: Fixture, head?: Awaited<ReturnType<typeof log.head>>) {
@@ -128,6 +130,51 @@ describePg("collection mode capability floor and token drain", () => {
     const refused=await prepare(f,stale); expect(refused.statusCode,refused.body).toBe(409); expect(refused.json().error.code).toBe("mode_source_changed");
     expect((await log.head(f.collection)).seq).toBe(2);
     const resumed=await prepare(f); expect(resumed.statusCode,resumed.body).toBe(202); expect((await log.head(f.collection)).seq).toBe(3);
+  });
+
+  it.each([3, 4])("releases adjacency after observing control kind %s without an owner finish or readiness claim", async kind => {
+    const f=await fixture();await prepare(f);now+=LOG_TOKEN_LIFETIME_MS;await prepare(f);
+    const policyHead=await log.head(f.collection);
+    const mutation=()=>inTransaction(db,client=>queueNextPolicy(client,f.collection,[{op:"device-revoke",device:f.a}]));
+    const http=Fastify();registerErrorHandler(http);http.post("/policy",mutation);
+    try {
+      const held=await http.inject({method:"POST",url:"/policy"});
+      expect(held.statusCode,held.body).toBe(409);expect(held.json().error.code).toBe("collection_mode_change_in_progress");
+    } finally {await http.close();}
+    wire.logs.get(f.collection.replaceAll("-",""))!.push(Buffer.from(encodeCbor({struct:[[0,1],[1,kind],[2,Buffer.from(f.collection.replaceAll("-",""),"hex")],[3,policyHead.seq+1],[4,policyHead.chain],[5,2],[6,Buffer.from(f.a.replaceAll("-",""),"hex")],[11,Buffer.from("opaque native control fixture")]]})));
+    // The periodic durable producer must discover the hold with NO pending outbox.
+    await emitter.drain();
+    const row=(await db.query("SELECT policy_hold_released_at,rekey_verified_at,completed_at FROM next_collection_mode_changes WHERE collection_id=$1",[f.collection])).rows[0];
+    expect(row.policy_hold_released_at).not.toBeNull();expect(row.rekey_verified_at).toBeNull();expect(row.completed_at).toBeNull();
+    if(kind===3){
+      const denied=await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode/${f.request}/abandon`,headers:f.otherHeaders});
+      expect(denied.statusCode,denied.body).toBe(409);expect(denied.json().error.code).toBe("mode_rekey_observed");
+    }
+    await mutation();await emitter.publishCommitted(f.collection);
+    expect((await log.head(f.collection)).seq).toBe(policyHead.seq+2);
+  });
+
+  it("lets a surviving owner abandon a published unrekeyed switch, retaining publication and old epoch", async()=>{
+    const f=await fixture();await prepare(f);now+=LOG_TOKEN_LIFETIME_MS;await prepare(f);
+    const original=(await db.query("SELECT policy_outbox_id,source_epoch FROM next_collection_mode_changes WHERE collection_id=$1",[f.collection])).rows[0];
+    const head=await log.head(f.collection),url=`/v1/next/collections/${f.collection}/mode/${f.request}/abandon`;
+    expect((await app.inject({method:"POST",url})).statusCode).toBe(401);
+    // A has been lost. B can release the CP hold without A's finish/key proof.
+    const abandoned=await app.inject({method:"POST",url,headers:f.otherHeaders});
+    expect(abandoned.statusCode,abandoned.body).toBe(200);expect(abandoned.json().phase).toBe("abandoned");
+    const row=(await db.query("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1",[f.collection])).rows[0];
+    expect(row.abandoned_at).not.toBeNull();expect(row.policy_hold_released_at).not.toBeNull();
+    expect(row.rekey_verified_at).toBeNull();expect(row.completed_at).toBeNull();expect(row.cancelled_at).toBeNull();
+    expect(row.policy_outbox_id).toBe(original.policy_outbox_id);expect(String(row.source_epoch)).toBe(String(original.source_epoch));
+    expect(await log.head(f.collection)).toEqual(head);
+    expect((await db.query("SELECT sync FROM next_collections WHERE collection_id=$1",[f.collection])).rows[0].sync).toBe("private");
+    expect((await db.query("SELECT count(*)::int AS n FROM next_service_devices WHERE collection_id=$1",[f.collection])).rows[0].n).toBe(0);
+    expect((await app.inject({method:"POST",url,headers:f.otherHeaders})).json().phase).toBe("abandoned");
+    const active=await app.inject({method:"GET",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders});
+    expect(active.json().change).toBeNull();
+    expect((await prepare(f)).json().error.code).toBe("mode_abandoned");
+    await inTransaction(db,client=>queueNextPolicy(client,f.collection,[{op:"device-revoke",device:f.a}]));
+    await emitter.publishCommitted(f.collection);expect((await log.head(f.collection)).seq).toBe(head.seq+1);
   });
 
   it.each(["before-effect", "lost-ack", "wrong-device", "wrong-challenge", "service-unready"])("service %s never completes early; both directions resume exact receipts after restart", async failure => {

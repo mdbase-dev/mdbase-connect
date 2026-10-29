@@ -45,7 +45,9 @@ RUN pnpm --filter @mdbase-dev/i18n build \
 FROM node:24-bookworm-slim AS runtime
 
 ARG MDBASE_CONNECT_REVISION
-ENV NODE_ENV=production \
+ARG MDBASE_NEXT_COLLECTION_MODE_EXECUTION=0
+ENV MDBASE_NEXT_COLLECTION_MODE_EXECUTION=${MDBASE_NEXT_COLLECTION_MODE_EXECUTION} \
+    NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8787 \
     PORTAL_DIST=/app/apps/portal/dist \

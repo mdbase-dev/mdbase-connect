@@ -1,14 +1,21 @@
-# Collection mode controller — qualification pending
+# Collection mode controller
 
 This branch composes switch-set trust and owner handover with native HTTP proofs,
 a step/resume controller, service readiness and rebuildable-cache retirement.
-It is not yet a shippable conversion. This draft mounts execution where both
-existing Private and Cloud bootstrap are configured, for pre-release acceptance.
-The guarded LAB controller is now live. Cloud-to-Private controller completion
-and Private A/B data exchange after receiver cold replay passed. Reverse managed
-readiness and receiver cold replay still fail qualification; do not release this
-as a working switch. Controls follow actual route availability, not a new rollout
-flag. Do not mark this draft ready before the remaining managed acceptance passes.
+Execution is **off by default**, even with both existing bootstraps configured.
+`MDBASE_NEXT_COLLECTION_MODE_EXECUTION=1` explicitly enables it; the LAB-only
+Connect build sets this argument, while ordinary server images default to `0`.
+Before mounting execution, server startup requires both configured normal-role
+Workers to answer an authenticated invalid request through their existing
+`/internal/v1/collection-mode/{ready,retire}` handlers. This checks handler deployment,
+not collection readiness, admission or native key authority.
+
+Deploy the mode-capable hosted and escrow Workers (including any routed targets)
+**before** enabling/restarting the server with execution enabled. Disable the
+server flag before rolling either Worker back. Missing/old/unavailable handlers
+leave execution unadvertised; restart the server after correcting deployment.
+The prior managed LAB round trip passed; this remains an opt-in rollout, not
+release or production-deployment authorization.
 
 ## Capability gate and token drain
 
@@ -53,7 +60,8 @@ methods submit/cancel owner intent or read status only, never produce native pro
 present. Desktop Details and portal Storage & sync share an inline mode control,
 including pending/retry state and missing-device diagnostics. It stays hidden
 unless the owner status reports an actually registered executor route; older
-servers and non-owner responses expose no control. There is no new rollout flag. Only fresh durable native Cloud consent enables
+servers and non-owner responses expose no control. The default-off server gate
+also keeps executor routes absent. Only fresh durable native Cloud consent enables
 owner handover. Existing-epoch grants recover authenticated history; bounded
 existing keyring replay repairs partial history without changing policy/trust.
 Service readiness is not app admission, especially for escrow. Cache retirement
@@ -88,9 +96,40 @@ Local conversion evidence includes real native sockets/SQLite with receiver
 restart, SDK reads/writes in both directions, and actual Worker/WASM/SQLite
 readiness, revocation, retirement retries and cold process restart. The shared
 control has real-browser interruption/cancel/retry coverage with synthetic
-boundary responses. None of these is managed LAB conversion acceptance. That
-matrix (two devices in each direction, including a named older-capability
-blocker) remains outstanding; do not release or mark this implementation ready.
+boundary responses. Managed LAB qualification separately covered an older-device
+blocker, both directions, uninterrupted online Private exchange, a Cloud return,
+and a later cold receiver replay. Local harness evidence is not a substitute
+for that managed evidence or for release authorization.
+
+## Published Private recovery
+
+The existing policy emitter releases its Private adjacency hold when it
+observes a control item in the next log slot. Its ordinary poller also selects held requests with no
+pending outbox. Observing a control item at `p+1` releases the policy hold without
+an owner finish POST. This is only position evidence: it never sets
+`rekey_verified_at`, completes a switch, trusts a signer or authorizes keys.
+While the slot remains held, ordinary policy mutations return typed HTTP 409
+`collection_mode_change_in_progress`, not an internal error.
+
+An owner session or surviving native owner can POST
+`/v1/next/collections/:id/mode/:requestId/abandon` for a published Private request
+with no observed rekey. This records terminal `abandoned`, preserves its exact
+publication, releases the hold, removes service records and leaves Private on
+the existing epoch. It does not publish a rekey, restore revoked services,
+claim new-key protection, or unpublish history. Subsequent device revocation or
+enrolment can proceed. A rekey already observed at the adjacent slot refuses
+abandon; native validity of an independently arriving signed rekey is unchanged.
+Recovery remains available with execution disabled. Pre-publication cancellation
+is still separate and cannot cancel an assigned publication.
+
+Optional history repair on a persistent keyring retains a private checkpoint.
+Transport, pin, truncated-head or policy-mismatch failures restore the existing
+keys/authority without `device_keys_failed`; an identical failed repair is not
+repeated at the same head. Mandatory RAM-only reopen remains strict. Mode-change
+alerts use a separate local incident slot, so unrelated Integrity faults cannot
+hide them and authorized receiver recovery cannot erase unrelated faults.
+Every applied Cloud-to-Private transition clears the receiver reading witness,
+including receivers ineligible for local switch acceptance.
 
 ## Scoped checks
 
@@ -119,7 +158,7 @@ blocker) remains outstanding; do not release or mark this implementation ready.
 - The native socket/SDK harness now keeps B online across the CP policy and rekey
   and requires new Private content without restart, then separately tests cold
   replay. It passes locally, including a short-token renewal stress run; this
-  does not yet explain or qualify the observed managed online catch-up stall.
+  is supplemented by managed no-restart online cutover evidence.
 - Actual workerd/WASM/SQLite restart matrix: ignored readiness acknowledgement,
   retirement failure before deletion and lost physical acknowledgement after
   durable deletion. Cold retries converge; revoked services stay unready and

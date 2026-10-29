@@ -29,8 +29,9 @@ use crate::store::{KeyringPersistence, Store};
 const PAGE: u64 = 64;
 
 /// A device keyring rebuild in progress.
-#[derive(Debug)]
 pub(crate) struct DeviceKeyRebuild {
+    /// Optional history repair is speculative; mandatory reopen stays strict.
+    rollback: Option<Box<super::apply_checkpoint::Checkpoint>>,
     /// Next read starts after this position.
     after: u64,
     /// The store's head at open.
@@ -62,10 +63,13 @@ impl<S: Store> Replica<S> {
             || self.local_only()
             || (!force && self.store.keyring_persistence() != KeyringPersistence::RebuildOnOpen)
             || self.head.seq == 0
+            || (force && self.sealer.export().is_none())
         {
             return false;
         }
+        let rollback = force.then(|| Box::new(super::apply_checkpoint::Checkpoint::capture(self)));
         self.device_keys = Some(DeviceKeyRebuild {
+            rollback,
             after: 0,
             target: self.head.seq,
             shadow: Box::new(PolicyState::new()),
@@ -113,6 +117,16 @@ impl<S: Store> Replica<S> {
     }
 
     fn device_key_rebuild_fail(&mut self, why: &str) {
+        if let Some(checkpoint) = self.device_keys.take().and_then(|k| k.rollback) {
+            // Replay has committed nothing. Restore the existing keyring and local
+            // authority instead of fencing an otherwise healthy persistent store.
+            if checkpoint.restore(self, true).is_ok() {
+                self.status_dirty = true;
+                self.queue_head_fetch();
+                self.pump();
+                return;
+            }
+        }
         self.device_keys = None;
         self.device_keys_failed = true;
         self.sealer.set_epoch(self.policy.epoch);
@@ -132,7 +146,15 @@ impl<S: Store> Replica<S> {
         };
         let r = match reply {
             Ok(LogResponse::Read(r)) => r,
-            // Transport trouble (offline): the next tick asks again.
+            // Optional repair must not turn a transport failure into a read/write
+            // fence. Mandatory RAM-only reopen still retries as before.
+            _ if self
+                .device_keys
+                .as_ref()
+                .is_some_and(|k| k.rollback.is_some()) =>
+            {
+                return self.device_key_rebuild_fail("control read unavailable");
+            }
             _ => return,
         };
         if r.head < target {
@@ -149,6 +171,13 @@ impl<S: Store> Replica<S> {
                 return self.device_key_rebuild_fail("control items out of order");
             }
             if self.check_genesis(it.seq, &it.item.0).is_err() {
+                if self
+                    .device_keys
+                    .as_ref()
+                    .is_some_and(|k| k.rollback.is_some())
+                {
+                    return self.device_key_rebuild_fail("genesis differs from the pin");
+                }
                 self.device_keys = None;
                 self.device_keys_failed = true;
                 self.genesis_fault();
@@ -191,18 +220,19 @@ impl<S: Store> Replica<S> {
         if !done {
             return self.device_key_rebuild_step();
         }
-        let Some(k) = self.device_keys.take() else {
+        let Some(mut k) = self.device_keys.take() else {
             return;
         };
         // Entries (not control items) move a few counters in the policy state;
         // take those from the stored state, then require everything else equal.
-        let mut shadow = *k.shadow;
+        let mut shadow = std::mem::take(&mut *k.shadow);
         shadow.seq = self.policy.seq;
         shadow.sem_ratchet = self.policy.sem_ratchet;
         shadow.log_time = self.policy.log_time;
         shadow.content_seen = self.policy.content_seen;
         shadow.voids = self.policy.voids;
         if self.policy.seq != target || shadow.to_bytes().ok() != self.policy.to_bytes().ok() {
+            self.device_keys = Some(k);
             return self.device_key_rebuild_fail("stored policy differs from the log's");
         }
         self.sealer.set_epoch(self.policy.epoch);
