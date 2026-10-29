@@ -1006,8 +1006,13 @@ async fn limits_and_errors(t: &Target) -> Result<(), String> {
         deletion.to_cbor(),
         Cbor::Uint(epoch),
     ]);
-    let deleted = fx
-        .cpc
+    // Recording the floor can close every collection socket. Subsequent RPCs
+    // need fresh sessions; keep the original subscriber for the closed push.
+    let cpc = Client::connect(&t.ws, &fx.c, Cred::ControlPlane, &fx.cp)
+        .await
+        .map_err(e2s)?;
+    let c = fx.connect(&fx.a).await?;
+    let deleted = cpc
         .call(
             "delete_log",
             map(vec![
