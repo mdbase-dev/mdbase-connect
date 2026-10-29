@@ -84,12 +84,85 @@ test("allowlist build: digest-pinned, cumulative unless a retire list names the 
     assert.match(compiled.outputFiles[0].text, new RegExp(second.sha256));
     const { kmsCollections } = await import(pathToFileURL(output).href);
     const { deploymentKmsAllowlist } = await import(pathToFileURL(join(root, "src/custody/kms-allowlist.ts")).href);
-    const allowlist = deploymentKmsAllowlist(kmsCollections(), second.sha256, undefined);
+    const allowlist = deploymentKmsAllowlist(kmsCollections(), second.sha256, undefined, "staging");
     assert.equal(allowlist.size, 1_200);
     assert.ok(allowlist.has(ids(1, 1_199)[0]));
     assert.equal(allowlist.has(ids(1, 1_200)[0]), false);
-    assert.throws(() => deploymentKmsAllowlist(kmsCollections(), first.sha256, undefined), /kms_allowlist_digest_mismatch/);
+    assert.throws(() => deploymentKmsAllowlist(kmsCollections(), first.sha256, undefined, "staging"), /kms_allowlist_digest_mismatch/);
 
     assert.match(readFileSync(join(root, "wrangler.jsonc"), "utf8"), /"#hosted-kms-collections": "\.\/\.generated\/kms-collections\.ts"/);
+  } finally { rmSync(d, { recursive: true, force: true }); }
+});
+
+test("allow-all build: exact \"*\" text, --role required and recorded, list -> all growth, all -> list refused", async () => {
+  const d = mkdtempSync(join(root, ".kms-allowlist-build-test-"));
+  try {
+    mkdirSync(join(d, "src/custody"), { recursive: true });
+    writeFileSync(join(d, "build-kms-allowlist.mjs"), readFileSync(join(root, "build-kms-allowlist.mjs")));
+    writeFileSync(join(d, "src/custody/kms-allowlist.ts"), readFileSync(join(root, "src/custody/kms-allowlist.ts")));
+    symlinkSync(join(root, "node_modules"), join(d, "node_modules"));
+    const output = join(d, ".generated/kms-collections.ts");
+    const file = (name, text) => { writeFileSync(join(d, name), text); return { file: join(d, name), sha256: sha(text) }; };
+    const run = (...args) => spawnSync(process.execPath, ["--experimental-strip-types", "--no-warnings", join(d, "build-kms-allowlist.mjs"), ...args], { encoding: "utf8" });
+    const refused = (result, code) => {
+      assert.notEqual(result.status, 0);
+      assert.equal(result.stdout, "");
+      if (code) assert.match(result.stderr, new RegExp(code));
+      assert.equal(existsSync(output), false, "a refused build writes nothing");
+    };
+    const all = file("all.txt", "*\n");
+    const list = file("list.txt", canonical(ids(195)));
+    const empty = file("empty.txt", "");
+    const retire = file("retire.txt", canonical(ids(1)));
+
+    // --role is required for allow-all, must be hosted|escrow, and is refused for a list.
+    refused(run("--collections", all.file, "--sha256", all.sha256, "--initial"), "kms_allowlist_role_invalid");
+    for (const role of ["migration", "Hosted", "all", ""]) refused(run("--collections", all.file, "--sha256", all.sha256, "--initial", "--role", role), "kms_allowlist_role_invalid");
+    refused(run("--collections", list.file, "--sha256", list.sha256, "--initial", "--role", "hosted"), "kms_allowlist_role_invalid");
+    // Near-misses of the canonical text and digest mismatch refuse.
+    for (const [name, text] of [["star", "*"], ["crlf", "*\r\n"], ["double", "*\n*\n"], ["mixed", "*\n" + canonical(ids(1))]]) {
+      const bad = file(`${name}.txt`, text);
+      refused(run("--collections", bad.file, "--sha256", bad.sha256, "--initial", "--role", "hosted"), "kms_allowlist_invalid");
+    }
+    refused(run("--collections", all.file, "--sha256", list.sha256, "--initial", "--role", "hosted"), "kms_allowlist_digest_mismatch");
+    // all -> list (or empty) is refused, even with a retire list; a retire list cannot accompany list -> all.
+    for (const next of [list, empty]) {
+      refused(run("--collections", next.file, "--sha256", next.sha256, "--previous", all.file, "--previous-sha256", all.sha256), "kms_allowlist_all_shrinks");
+    }
+    refused(run("--collections", list.file, "--sha256", list.sha256, "--previous", all.file, "--previous-sha256", all.sha256,
+      "--retire", retire.file, "--retire-sha256", retire.sha256), "kms_allowlist_all_shrinks");
+    refused(run("--collections", all.file, "--sha256", all.sha256, "--previous", list.file, "--previous-sha256", list.sha256,
+      "--retire", retire.file, "--retire-sha256", retire.sha256, "--role", "hosted"), "kms_allowlist_retire_still_served");
+
+    // all -> all is a no-op successor.
+    const same = run("--collections", all.file, "--sha256", all.sha256, "--previous", all.file, "--previous-sha256", all.sha256, "--role", "hosted");
+    assert.equal(same.status, 0, same.stderr);
+    assert.deepEqual(JSON.parse(same.stdout), { schema: "mdbn-hosted-kms-collections/1", sha256: all.sha256, count: null, mode: "all", role: "hosted",
+      previous_sha256: all.sha256, retire_sha256: null, added: 0, retired: 0 });
+    rmSync(output);
+    // Initial allow-all.
+    const initial = run("--collections", all.file, "--sha256", all.sha256, "--initial", "--role", "hosted");
+    assert.equal(initial.status, 0, initial.stderr);
+    assert.deepEqual(JSON.parse(initial.stdout), { schema: "mdbn-hosted-kms-collections/1", sha256: all.sha256, count: null, mode: "all", role: "hosted",
+      previous_sha256: null, retire_sha256: null, added: "all", retired: 0 });
+    rmSync(output);
+
+    // The staging rollout step: served exact list (195) -> allow-all, for the escrow role.
+    const grown = run("--collections", all.file, "--sha256", all.sha256, "--previous", list.file, "--previous-sha256", list.sha256, "--role", "escrow");
+    assert.equal(grown.status, 0, grown.stderr);
+    assert.deepEqual(JSON.parse(grown.stdout), { schema: "mdbn-hosted-kms-collections/1", sha256: all.sha256, count: null, mode: "all", role: "escrow",
+      previous_sha256: list.sha256, retire_sha256: null, added: "all", retired: 0 });
+    const { kmsCollections } = await import(pathToFileURL(output).href);
+    assert.deepEqual(kmsCollections(), { schema: "mdbn-hosted-kms-collections/1", sha256: all.sha256, text: "*\n", role: "escrow" });
+    const { deploymentKmsAllowlist } = await import(pathToFileURL(join(root, "src/custody/kms-allowlist.ts")).href);
+    const served = deploymentKmsAllowlist(kmsCollections(), all.sha256, undefined, "production", { role: "escrow", serviceKind: "escrow", migration: false });
+    assert.equal(served.all, true);
+    assert.ok(served.has(ids(1, 9_999)[0]));
+    assert.throws(() => deploymentKmsAllowlist(kmsCollections(), all.sha256, undefined, "production", { role: "hosted", serviceKind: "hosted", migration: false }),
+      /kms_allowlist_all_refused/);
+    assert.throws(() => deploymentKmsAllowlist(kmsCollections(), all.sha256, undefined, "staging", { role: "escrow", serviceKind: "escrow", migration: true }),
+      /kms_allowlist_all_refused/);
+    assert.throws(() => deploymentKmsAllowlist(kmsCollections(), list.sha256, undefined, "staging", { role: "escrow", serviceKind: "escrow", migration: false }),
+      /kms_allowlist_digest_mismatch/);
   } finally { rmSync(d, { recursive: true, force: true }); }
 });

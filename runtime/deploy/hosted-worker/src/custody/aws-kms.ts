@@ -1,5 +1,6 @@
-/** Direct SigV4 KMS for the hosted role. No registry, plaintext persistence,
- * cross-request signing cache, credential fallback or response-selected key.
+/** Direct SigV4 KMS for hosted custody and managed (staging/production) escrow generation.
+ * No registry, plaintext persistence, cross-request signing cache, credential
+ * fallback or response-selected key.
  * The core supplies deployment-scoped Worker secrets; aws4fetch is pinned 1.0.20.
  */
 import { AwsClient } from "aws4fetch";
@@ -24,8 +25,13 @@ export interface HostedKmsConfig {
   keyArn: string;
   region: string;
   environment: "lab" | "staging" | "production";
+  /** Existing hosted envelopes keep next-hosted. Escrow is staging/production
+   * only (never LAB) and always uses its own next-escrow context; never
+   * request-selected. */
+  role?: "hosted" | "escrow";
   /** Exact deployment-owned collections; never inferred from a request. A list
-   * is validated into an allowlist (bounded by MAX_KMS_COLLECTIONS). */
+   * is validated into an allowlist (bounded by MAX_KMS_COLLECTIONS). Allow-all
+   * is only accepted as an already-admitted KmsAllowlist, in staging/production. */
   collections: KmsAllowlist | readonly string[];
 }
 
@@ -94,6 +100,7 @@ export class HostedAwsKms {
   private readonly keyArn: string;
   private readonly region: string;
   private readonly environment: HostedKmsConfig["environment"];
+  private readonly role: "hosted" | "escrow";
   private readonly collections: KmsAllowlist;
   private readonly endpoint: string;
   private readonly credentials: () => AwsCredentials | null;
@@ -115,7 +122,13 @@ export class HostedAwsKms {
     const match = /^arn:aws:kms:([a-z]{2}(?:-[a-z]+)+-\d):\d{12}:key\/([0-9a-f-]+)$/.exec(config.keyArn);
     if (!match || match[1] !== config.region || !validUuid(match[2]) ||
         !["lab", "staging", "production"].includes(config.environment)) fail("kms_invalid_config");
+    const role = config.role === undefined ? "hosted" : config.role;
+    const managed = config.environment === "staging" || config.environment === "production";
+    if ((role !== "hosted" && role !== "escrow") || (role === "escrow" && !managed)) fail("kms_invalid_config");
+    this.role = role;
     this.collections = allowlist(config.collections);
+    // Allow-all is admitted per deployment by deploymentKmsAllowlist; never in LAB.
+    if (this.collections.all && !managed) fail("kms_invalid_config");
     this.keyArn = config.keyArn;
     this.region = config.region;
     this.environment = config.environment;
@@ -125,7 +138,7 @@ export class HostedAwsKms {
   private context(collection: string, device: string): Record<string, string> {
     if (!validUuid(collection) || !validUuid(device) || !this.collections.has(collection)) fail("kms_collection_not_allowed");
     return {
-      "mdbase:service": "next-hosted",
+      "mdbase:service": this.role === "hosted" ? "next-hosted" : "next-escrow",
       "mdbase:environment": this.environment,
       "mdbase:collection-id": collection,
       "mdbase:device-id": device,
