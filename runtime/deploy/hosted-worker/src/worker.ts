@@ -1243,7 +1243,8 @@ export class HostedCollection extends DurableObject<Env> {
       const refuse = (reason: string, facts: Record<string, unknown> = {}) => {
         if (this.env.LAB === "1") console.info(JSON.stringify({ event: "collection_mode_not_ready",
           role: this.escrow ? "escrow" : "hosted", reason, ...facts }));
-        return modeUnavailable();
+        return this.env.LAB === "1" ? Response.json({ error: "not_ready", diagnostic: { reason, ...facts } },
+          { status: 503, headers: { "cache-control": "no-store" } }) : modeUnavailable();
       };
       try {
         const engine = await this.ready(collection, value => { diagnostic = value; });
@@ -1678,9 +1679,11 @@ export default {
       const headers = new Headers(request.headers); headers.delete("content-length");
       const response = await stub.fetch(new Request(`${url.origin}/v1/hosted/collection-mode/${operation}?collection=${input.collection}`,
         {method:"POST",headers,body:JSON.stringify(input)}));
-      if (env.LAB === "1" && response.status === 503) console.info(JSON.stringify({ event: "collection_mode_forward_refused",
-        reason: "actor_503", json: response.headers.get("content-type")?.includes("application/json") ?? false,
-        kind, epoch: input.epoch }));
+      if (env.LAB === "1" && response.status === 503) {
+        let diagnostic: unknown = null;
+        try { diagnostic = (await response.clone().json() as { diagnostic?: unknown }).diagnostic ?? null; } catch { /* Not a diagnostic. */ }
+        console.info(JSON.stringify({ event: "collection_mode_forward_refused", reason: "actor_503", diagnostic, kind, epoch: input.epoch }));
+      }
       return response;
     }
     if (url.pathname === "/internal/v1/migration-admission") {
