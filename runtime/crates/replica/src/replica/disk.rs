@@ -116,6 +116,15 @@ impl<S: Store> Replica<S> {
             self.before.clear();
             return Ok(());
         }
+        if self.before.is_empty() {
+            return Ok(());
+        }
+        let holds = self.store.holds()?;
+        let held_ids: std::collections::BTreeSet<_> = holds.iter().map(|h| h.id).collect();
+        let held_paths: std::collections::BTreeSet<_> = holds
+            .iter()
+            .map(|h| mdbn_core::paths::path_key(&h.path))
+            .collect();
         let before = std::mem::take(&mut self.before);
         let mut deletes = Vec::new();
         let mut moves = Vec::new();
@@ -128,13 +137,14 @@ impl<S: Store> Replica<S> {
                 DiskKey::Resource(_) => None,
             };
             let now = self.local_view_doc(&key);
+            let path = now
+                .as_ref()
+                .map(|(p, _)| p.as_str())
+                .or_else(|| was.as_ref().map(|w| w.path.as_str()));
             if let Some(i) = id
-                && self.file_materialization_fenced(
-                    i,
-                    now.as_ref()
-                        .map(|(p, _)| p.as_str())
-                        .or_else(|| was.as_ref().map(|w| w.path.as_str())),
-                )?
+                && (held_ids.contains(&i)
+                    || path.is_some_and(|p| held_paths.contains(&mdbn_core::paths::path_key(p)))
+                    || self.pending_file_materialization_fenced(i, path)?)
             {
                 settled.push((key, PublishState::NotPublished));
                 continue;
@@ -476,6 +486,12 @@ impl<S: Store> Replica<S> {
 
     // ------------------------------------------------------------ ingest
 
+    /// Whether captured disk observations can be ingested now. A caller that
+    /// owns a queue must retain it while apply recovery or adoption blocks capture.
+    pub fn ingest_ready(&self) -> bool {
+        self.check_apply_store_health().is_ok() && !self.adopt_gates()
+    }
+
     /// Ingest observed file changes as `external` mutations.
     /// While apply is recovering/faulted, nothing is captured or acknowledged:
     /// evidence must remain in the store and be rescanned/reoffered after recovery.
@@ -494,12 +510,9 @@ impl<S: Store> Replica<S> {
     /// No partial catalog/capture is exposed; native ingest uses this SAME path.
     /// Publication uses its existing independent outcome/progress machinery.
     pub async fn ingest_async(&mut self, observations: Vec<Observation>) {
-        if self.check_apply_store_health().is_err() {
-            return;
-        }
-        // Adopt: nothing is captured before the base. Observations handed in
-        // directly stay unacknowledged and eligible for redelivery.
-        if self.adopt_gates() {
+        // Captured observations can outlive the scan's healthy apply state.
+        // Return ownership to the store whenever capture is temporarily blocked.
+        if !self.ingest_ready() {
             let tokens: Vec<_> = observations.iter().map(|o| o.token).collect();
             if let Err(e) = self.store.defer_disk_observations(&tokens) {
                 self.incident(
@@ -509,23 +522,8 @@ impl<S: Store> Replica<S> {
             }
             return;
         }
-        let observations = match self.ingest_resource_set(observations).await {
-            Ok(Some(ready)) => ready,
-            Ok(None) => {
-                self.incident(mdbn_wire::client::IncidentKind::Integrity,
-                    Some(mdbn_wire::common::Value::Text("Resource ingestion deferred: incomplete, unstable, invalid, over-budget or previously refused registry; original observations retained.".into())));
-                self.flush_status();
-                return;
-            }
-            Err(e) => {
-                self.incident(
-                    mdbn_wire::client::IncidentKind::Integrity,
-                    Some(mdbn_wire::common::Value::Text(format!(
-                        "resource ingest: {e}"
-                    ))),
-                );
-                return;
-            }
+        let Some(observations) = self.prepare_ingest(observations).await else {
+            return;
         };
         if self.local_only() {
             self.ingest_local(observations);
@@ -555,6 +553,10 @@ impl<S: Store> Replica<S> {
                 break;
             }
         }
+        self.finish_ingest();
+    }
+
+    pub(super) fn finish_ingest(&mut self) {
         if let Err(e) = self.materialize() {
             self.incident(
                 mdbn_wire::client::IncidentKind::Integrity,
@@ -564,6 +566,30 @@ impl<S: Store> Replica<S> {
         self.pump();
         self.attachment_upload_step();
         self.flush_status();
+    }
+
+    pub(super) async fn prepare_ingest(
+        &mut self,
+        observations: Vec<Observation>,
+    ) -> Option<Vec<Observation>> {
+        match self.ingest_resource_set(observations).await {
+            Ok(Some(ready)) => Some(ready),
+            Ok(None) => {
+                self.incident(mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text("Resource ingestion deferred: incomplete, unstable, invalid, over-budget or previously refused registry; original observations retained.".into())));
+                self.flush_status();
+                None
+            }
+            Err(e) => {
+                self.incident(
+                    mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text(format!(
+                        "resource ingest: {e}"
+                    ))),
+                );
+                None
+            }
+        }
     }
 
     /// Batch distinct new external documents only. Flush before duplicates,
@@ -1363,38 +1389,59 @@ impl<S: Store> Replica<S> {
         id: B16,
         path: Option<&str>,
     ) -> Result<bool, StoreError> {
+        if self.store.hold(&id)?.is_some() {
+            return Ok(true);
+        }
+        if let Some(path) = path
+            && self
+                .store
+                .holds()?
+                .iter()
+                .any(|h| mdbn_core::paths::path_key(&h.path) == mdbn_core::paths::path_key(path))
+        {
+            return Ok(true);
+        }
+        self.pending_file_materialization_fenced(id, path)
+    }
+
+    fn pending_file_materialization_fenced(
+        &self,
+        id: B16,
+        path: Option<&str>,
+    ) -> Result<bool, StoreError> {
         use mdbn_wire::attachment_runtime_v1 as rt;
         let same_path = |p: &str| {
             path.is_some_and(|q| mdbn_core::paths::path_key(p) == mdbn_core::paths::path_key(q))
         };
-        if self.store.hold(&id)?.is_some()
-            || (path.is_some() && self.store.holds()?.iter().any(|h| same_path(&h.path)))
-        {
-            return Ok(true);
+        let mut keys = vec![crate::plan::id_key(&id)];
+        if let Some(path) = path {
+            keys.push(format!("p:{}", mdbn_core::paths::path_key(path)));
         }
-        let mut after = None;
-        loop {
-            let page = self.store.pending(after, 256)?;
-            for row in &page {
-                if row.mutation.origin != self.cfg.replica_id
-                    || row.mutation.source != Source::External
-                {
-                    continue;
-                }
-                if row.mutation.ops.iter().any(|op| match op {
-                    rt::Op::Legacy(Op::FilePut(f)) => f.id == id || same_path(&f.path),
-                    rt::Op::FileAttach(f) => f.id == id || same_path(&f.path),
-                    rt::Op::OrdinaryAttachmentContinuation(f) => f.id == id || same_path(&f.path),
-                    _ => false,
-                }) {
-                    return Ok(true);
-                }
+        for order in self.touch.affected(&keys) {
+            let Some(row) = self
+                .store
+                .pending(order.checked_sub(1), 1)?
+                .into_iter()
+                .next()
+                .filter(|row| row.order == order)
+            else {
+                // Apply deletes confirmed rows before the batch rebuilds the index.
+                continue;
+            };
+            if row.mutation.origin != self.cfg.replica_id || row.mutation.source != Source::External
+            {
+                continue;
             }
-            if page.len() < 256 {
-                return Ok(false);
+            if row.mutation.ops.iter().any(|op| match op {
+                rt::Op::Legacy(Op::FilePut(f)) => f.id == id || same_path(&f.path),
+                rt::Op::FileAttach(f) => f.id == id || same_path(&f.path),
+                rt::Op::OrdinaryAttachmentContinuation(f) => f.id == id || same_path(&f.path),
+                _ => false,
+            }) {
+                return Ok(true);
             }
-            after = page.last().map(|r| r.order);
         }
+        Ok(false)
     }
 
     pub(crate) fn push_holds(&mut self) {

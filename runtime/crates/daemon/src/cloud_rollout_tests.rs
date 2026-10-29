@@ -119,6 +119,26 @@ async fn rollout_does_not_follow_redirects() {
     );
 }
 
+#[tokio::test]
+async fn clock_diagnosis_observes_headers_even_when_authentication_is_refused() {
+    for offset in [-86_400_000_i64, 86_400_000] {
+        let server_ms = crate::fsutil::now_ms() as i64 + offset;
+        let date = time::OffsetDateTime::from_unix_timestamp(server_ms / 1000)
+            .unwrap()
+            .format(&time::format_description::well_known::Rfc2822)
+            .unwrap();
+        let (cloud, task) = response(401, "{}", &format!("Date: {date}\r\n")).await;
+        assert!(
+            cloud
+                .local_takeover_allowed(&tls_config().unwrap(), &|| Ok(()))
+                .await
+                .is_err()
+        );
+        assert!(cloud.clock_skew());
+        task.await.unwrap();
+    }
+}
+
 #[test]
 fn rollout_gate_tells_a_legacy_account_from_no_answer() {
     use crate::takeover::RolloutGate;

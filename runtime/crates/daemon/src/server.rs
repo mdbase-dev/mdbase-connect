@@ -633,6 +633,7 @@ impl Daemon {
             })
             .collect();
         bound_file_notices(&mut collections);
+        let clock_skew = inner.hosts.iter().any(CollectionHost::clock_skew);
         DaemonStatus {
             readiness: self.readiness.borrow().clone(),
             pid: std::process::id(),
@@ -655,10 +656,13 @@ impl Daemon {
                     signed_in: a.signed_in,
                     online: self.online.load(std::sync::atomic::Ordering::Relaxed),
                     pairing: a.pairing.clone(),
-                    last_error: a
-                        .last_error
-                        .clone()
-                        .or_else(|| a.registration_error.clone()),
+                    last_error: if a.signed_in && clock_skew {
+                        Some("system_clock_wrong".into())
+                    } else {
+                        a.last_error
+                            .clone()
+                            .or_else(|| a.registration_error.clone())
+                    },
                     account_id: self
                         .authority
                         .active_account()

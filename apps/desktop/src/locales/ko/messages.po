@@ -25,10 +25,10 @@ msgstr " 이전 폴더 {0}은(는) 그대로 유지됩니다."
 msgid ", and the files already in it become the first synced version"
 msgstr ", 이미 있던 파일은 첫 동기화 버전이 됩니다"
 
-#. placeholder {0}: sync.pending
+#. placeholder {0}: collection.sync.pending
 #: src/renderer/daemon-view.mts
-msgid "{0, plural, one {# change to upload} other {# changes to upload}}"
-msgstr "{0, plural, other {업로드할 변경 사항 #개}}"
+msgid "{0, plural, one {# change to sync} other {# changes to sync}}"
+msgstr "{0, plural, other {동기화할 변경 #개}}"
 
 #. placeholder {0}: app.grants.length
 #. placeholder {0}: collections.length
@@ -1774,6 +1774,10 @@ msgstr "이 컴퓨터에서 로그아웃함"
 #: src/renderer/main.tsx
 msgid "This computer's account, app approval and background behavior."
 msgstr "이 컴퓨터의 계정, 앱 승인 및 백그라운드 동작입니다."
+
+#: src/renderer/daemon-view.mts
+msgid "This computer's system clock looks wrong. Check its date and time to reconnect."
+msgstr "이 컴퓨터의 시스템 시간이 잘못된 것 같습니다. 다시 연결하려면 날짜와 시간을 확인하세요."
 
 #: src/renderer/daemon-view.mts
 msgid "This copy stopped following the collection. Join it again to keep it in sync."

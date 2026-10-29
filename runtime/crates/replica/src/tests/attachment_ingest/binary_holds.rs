@@ -116,6 +116,107 @@ use mdbn_wire::{
     snapshot::TextOrBlob,
 };
 
+#[test]
+fn replanned_file_collision_fences_the_original_operation_path() {
+    use crate::store::{PendingRow, Store, Tx};
+    use mdbn_wire::common::B16;
+    use mdbn_wire::intent::Op;
+    let fixture = mdbn_wire::fixtures::all()
+        .into_iter()
+        .find(|f| f.format == "client" && f.name == "hold-file")
+        .unwrap();
+    let hold = mdbn_wire::client::Hold::from_bytes(&fixture.bytes).unwrap();
+    let TextOrBlob::Blob(blob) = hold.mine else {
+        panic!("legacy blob fixture")
+    };
+    let svc = FakeLogService::new();
+    let (mut n, _) = ingest_node(&svc, 2);
+    let holder = B16([73; 16]);
+    let incoming = B16([74; 16]);
+    let mutation = n.r.capture(
+        vec![Op::FilePut(mdbn_wire::intent::FilePut {
+            id: incoming,
+            path: PATH.into(),
+            blob: blob.clone(),
+            if_revision: None,
+            base: None,
+        })],
+        mdbn_wire::intent::Source::External,
+    );
+    assert!(
+        crate::plan::mutation_keys(&mutation)
+            .contains(&format!("p:{}", mdbn_core::paths::path_key(PATH)))
+    );
+    n.r.store
+        .commit(Tx {
+            files_put: vec![crate::store::FileRow {
+                id: holder,
+                path: PATH.into(),
+                path_key: mdbn_core::paths::path_key(PATH),
+                content: FileContent::Blob(blob),
+                kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
+                local: FileLocal::Remote,
+                media: mdbn_wire::intent::MediaClass::Other,
+                modified_seq: 1,
+                mtime: None,
+                bucket: 0,
+            }],
+            pending_put: vec![PendingRow {
+                order: 1,
+                mutation: mutation.into(),
+                effects: Vec::new(),
+                touches: vec![crate::plan::id_key(&incoming)],
+                grant: None,
+                uploads: Vec::new(),
+                refs: Vec::new(),
+            }],
+            ..Tx::default()
+        })
+        .unwrap();
+    n.r.rebuild_local_view(&std::collections::BTreeSet::from([crate::plan::id_key(
+        &incoming,
+    )]))
+    .unwrap();
+    let replanned = n.r.store.pending(None, 1).unwrap().remove(0);
+    assert!(
+        replanned.effects.iter().any(|e| matches!(e,
+            mdbn_wire::entry::Effect::PutFile(f) if f.id == incoming && f.path != PATH
+        )),
+        "the planner moved the incoming file away from the occupied source path"
+    );
+    // A persisted older row need not already carry its operation-path key.
+    let mut older = replanned;
+    older
+        .touches
+        .retain(|k| k != &format!("p:{}", mdbn_core::paths::path_key(PATH)));
+    n.r.store
+        .commit(Tx {
+            pending_put: vec![older],
+            ..Tx::default()
+        })
+        .unwrap();
+    n.r.rebuild_local_view(&std::collections::BTreeSet::new())
+        .unwrap();
+    assert!(
+        n.r.file_materialization_fenced(holder, Some(PATH)).unwrap(),
+        "a rival ID must not overwrite the original pending bytes after replan or reopen"
+    );
+    // Confirmation commits the deletion before attachment reconciliation and
+    // the end-of-batch touch-index rebuild.
+    let mutation = n.r.store.pending(None, 1).unwrap().remove(0).mutation.id;
+    n.r.store
+        .commit(Tx {
+            pending_del: vec![mutation],
+            ..Tx::default()
+        })
+        .unwrap();
+    assert!(!n.r.file_materialization_fenced(holder, Some(PATH)).unwrap());
+    assert!(
+        !n.r.file_materialization_fenced(incoming, Some(PATH))
+            .unwrap()
+    );
+}
+
 fn capture_offline(n: &mut Node) -> crate::store::PendingRow {
     n.r.observe(None).unwrap();
     for _ in 0..100 {

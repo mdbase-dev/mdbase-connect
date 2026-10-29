@@ -663,6 +663,16 @@ impl CollectionHost {
         self.state = CollectionState::Paused;
     }
 
+    pub(crate) fn clock_skew(&self) -> bool {
+        self.entry.mode != SyncMode::Local
+            && !self.cancel.load(Ordering::SeqCst)
+            && self
+                .ctx
+                .as_ref()
+                .and_then(|c| c.sync.as_ref())
+                .is_some_and(|s| s.cloud.clock_skew())
+    }
+
     /// Read-only live status. Hold the exact opened runtime and captured source
     /// across the actor await; stale/stopped/paused hosts return no counters.
     pub async fn observed_status(&self) -> CollectionStatus {

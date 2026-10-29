@@ -152,6 +152,16 @@ impl<S: Store> Replica<S> {
             .map(|(path, (_, problem))| (path.as_str(), problem))
     }
 
+    pub(super) fn pending_attachment_ingests(&self) -> u64 {
+        let current = self.attachment_ingest.current.as_ref().is_some_and(|c| {
+            self.store
+                .pending_get(&c.mutation)
+                .map(|row| row.is_none())
+                .unwrap_or(true)
+        });
+        self.attachment_ingest.queue.len() as u64 + u64::from(current)
+    }
+
     /// Ingest an attachment observation, or a delete at a path that holds (or
     /// is about to hold) a file. Returns `false` when the observation is not
     /// this module's (a record or resource path).

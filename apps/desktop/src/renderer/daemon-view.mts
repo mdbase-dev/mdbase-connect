@@ -7,6 +7,7 @@ function missingOpenReason() { return t(i18n)`It failed to open.`; }
 export type ConnectionDotState = "connected" | "connecting" | "paused" | "danger" | "idle";
 
 interface StatusLike {
+  collections?: CollectionLike[];
   account: { signed_in: boolean; online: boolean; pairing?: string; last_error?: string };
 }
 
@@ -22,6 +23,7 @@ export interface ConnectionPresentation {
 export function accountProblemText(reason: string | null | undefined): string | undefined {
   if (!reason) return undefined;
   switch (reason) {
+    case "system_clock_wrong": return t(i18n)`This computer's system clock looks wrong. Check its date and time to reconnect.`;
     case "sign_in_failed": return t(i18n)({ message: "Sign-in did not finish. Try again." });
     case "sign_in_expired": return t(i18n)({ message: "The sign-in request expired. Start again." });
     case "sign_in_cancelled": return t(i18n)({ message: "Sign-in was cancelled. Start again." });
@@ -46,7 +48,11 @@ export function presentConnection(status: StatusLike | null, checked: boolean): 
   if (account.pairing) return { label: t(i18n)({ message: "Waiting for sign-in approval" }), settingsLabel: t(i18n)({ message: "Signing in", context: "Local connection status" }), dot: "connecting" };
   if (!account.signed_in) return { label: t(i18n)({ message: "Not signed in", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Not signed in", context: "Local connection status" }), dot: "idle" };
   const detail = accountProblemText(account.last_error);
-  if (account.online) return { label: t(i18n)({ message: "Connected securely", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Connected", context: "Local connection status" }), dot: "connected", ...(detail ? { detail } : {}) };
+  const syncs = status.collections?.filter((c) => c.mode !== "local" && (["ready", "opening", "moving"].includes(c.state) || c.reason === "sync_unreachable")) ?? [];
+  const offline = syncs.some((c) => c.sync?.connection === "offline" || c.reason === "sync_unreachable");
+  const connecting = syncs.some((c) => c.sync?.connection === "connecting");
+  if (offline) return { label: t(i18n)({ message: "Offline", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Offline", context: "Local connection status" }), dot: "danger", ...(detail ? { detail } : {}) };
+  if (account.online && !connecting) return { label: t(i18n)({ message: "Connected securely", context: "Local connection status" }), settingsLabel: t(i18n)({ message: "Connected", context: "Local connection status" }), dot: "connected", ...(detail ? { detail } : {}) };
   return {
     label: detail ? t(i18n)({ message: "Account connection needs attention" }) : t(i18n)({ message: "Connecting securely…", context: "Local connection status" }),
     settingsLabel: detail ? t(i18n)({ message: "Needs attention", context: "Local connection status" }) : t(i18n)({ message: "Connecting", context: "Local connection status" }),
@@ -114,6 +120,7 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
     paused: collection.state === "paused",
     holds
   };
+  const pendingText = collection.sync && collection.sync.pending > 0 ? t(i18n)`${plural(collection.sync.pending, { one: "# change to sync", other: "# changes to sync" })}` : undefined;
   switch (collection.state) {
     case "paused":
       // Taken over from mdbase Connect: an interrupted turn-on of Private sync, retried automatically.
@@ -122,7 +129,7 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
       }
       return { ...base, status: t(i18n)`Paused`, detail: t(i18n)`Apps cannot use it until you resume it.`, dot: "paused" };
     case "opening":
-      return { ...base, status: t(i18n)`Opening…`, detail: reasonText(collection.reason), dot: "connecting" };
+      return { ...base, status: t(i18n)`Opening…`, detail: pendingText ?? reasonText(collection.reason), dot: "connecting" };
     case "moving":
       return { ...base, status: t(i18n)`Changing sync…`, detail: t(i18n)`Apps keep working while the change finishes.`, dot: "connecting" };
     case "unavailable":
@@ -137,7 +144,7 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
     return { ...base, status: t(i18n)({ message: "Ready", context: "Local connection status" }), detail: holds > 0 ? t(i18n)`${plural(holds, { one: "# file is waiting for you", other: "# files are waiting for you" })}` : undefined, dot: holds > 0 ? "paused" : "connected" };
   }
   const waiting: string[] = [];
-  if (sync.pending > 0) waiting.push(t(i18n)`${plural(sync.pending, { one: "# change to upload", other: "# changes to upload" })}`);
+  if (pendingText) waiting.push(pendingText);
   if (holds > 0) waiting.push(t(i18n)`${plural(holds, { one: "# file waiting for you", other: "# files waiting for you" })}`);
   if (sync.unresolved > 0) waiting.push(t(i18n)`${plural(sync.unresolved, { one: "# unresolved conflict", other: "# unresolved conflicts" })}`);
   if (sync.last_error) waiting.push(t(i18n)`sync problem: ${sync.last_error.replaceAll("_", " ")}`);

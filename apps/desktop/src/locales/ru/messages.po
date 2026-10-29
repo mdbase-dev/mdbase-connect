@@ -25,10 +25,10 @@ msgstr " Старая папка {0} сохранена без изменени�
 msgid ", and the files already in it become the first synced version"
 msgstr ", а уже находящиеся в ней файлы станут первой синхронизированной версией"
 
-#. placeholder {0}: sync.pending
+#. placeholder {0}: collection.sync.pending
 #: src/renderer/daemon-view.mts
-msgid "{0, plural, one {# change to upload} other {# changes to upload}}"
-msgstr "{0, plural, one {# изменение для отправки} few {# изменения для отправки} many {# изменений для отправки} other {# изменения для отправки}}"
+msgid "{0, plural, one {# change to sync} other {# changes to sync}}"
+msgstr "{0, plural, one {# изменение для синхронизации} few {# изменения для синхронизации} many {# изменений для синхронизации} other {# изменения для синхронизации}}"
 
 #. placeholder {0}: app.grants.length
 #. placeholder {0}: collections.length
@@ -1774,6 +1774,10 @@ msgstr "На этом компьютере выполнен выход"
 #: src/renderer/main.tsx
 msgid "This computer's account, app approval and background behavior."
 msgstr "Учётная запись, одобрение приложений и фоновая работа этого компьютера."
+
+#: src/renderer/daemon-view.mts
+msgid "This computer's system clock looks wrong. Check its date and time to reconnect."
+msgstr "Похоже, системные часы этого компьютера настроены неверно. Проверьте дату и время, чтобы восстановить подключение."
 
 #: src/renderer/daemon-view.mts
 msgid "This copy stopped following the collection. Join it again to keep it in sync."

@@ -1455,16 +1455,56 @@ fn print_status(s: &DaemonStatus) {
     }
 }
 
+fn collection_state_text(
+    state: crate::control::CollectionState,
+    sync: Option<&crate::control::SyncCounters>,
+) -> String {
+    if state == crate::control::CollectionState::Ready
+        && sync.is_some_and(|s| s.pending > 0 || s.resyncing)
+    {
+        return "syncing".into();
+    }
+    serde_json::to_value(state)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod progress_tests {
+    #[test]
+    fn unfinished_sync_is_displayed_without_changing_serving_readiness() {
+        use crate::control::{CollectionState, SyncCounters};
+        let mut sync: SyncCounters = serde_json::from_value(serde_json::json!({
+            "confirmed_through":1,"head_known":1,"pending":1,"holds":0,
+            "unresolved":0,"connection":"online"
+        }))
+        .unwrap();
+        assert_eq!(
+            super::collection_state_text(CollectionState::Ready, Some(&sync)),
+            "syncing"
+        );
+        sync.pending = 0;
+        assert_eq!(
+            super::collection_state_text(CollectionState::Ready, Some(&sync)),
+            "ready"
+        );
+        sync.connection = "offline".into();
+        sync.pending = 1;
+        assert_eq!(
+            super::collection_state_text(CollectionState::Ready, Some(&sync)),
+            "syncing"
+        );
+    }
+}
+
 fn print_collection(c: &CollectionStatus) {
     let mode = match c.mode {
         SyncMode::Local => "local only",
         SyncMode::Synced => "synced",
         SyncMode::SyncedE2e => "synced, end-to-end encrypted",
     };
-    let state = serde_json::to_value(c.state)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_string))
-        .unwrap_or_default();
+    let state = collection_state_text(c.state, c.sync.as_ref());
     let reason = c
         .reason
         .as_deref()
@@ -1798,6 +1838,9 @@ fn print_private_collections(v: &Value) {
 /// The daemon reports account problems as reason codes; say them in plain words.
 fn account_problem(reason: &str) -> &'static str {
     match reason {
+        "system_clock_wrong" => {
+            "this computer's system clock looks wrong; check its date and time to reconnect"
+        }
         "sign_in_failed" => "sign-in did not finish; try again",
         "sign_in_expired" => "the sign-in request expired; start again",
         "sign_in_cancelled" => "sign-in was cancelled; start again",

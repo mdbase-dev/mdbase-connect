@@ -33,6 +33,7 @@ struct Disk {
     /// What the store last knew was at each path.
     known: BTreeMap<String, Hash>,
     queued: Vec<Observation>,
+    outstanding: BTreeMap<ObservationId, Observation>,
     next: u64,
     /// Simulate a crash after the inner commit: drop this many publish batches.
     drop_publishes: u32,
@@ -46,6 +47,7 @@ struct Disk {
     publish_attempts: u64,
     max_pending: u64,
     pending_rows_read: u64,
+    holds_reads: u64,
     source_paused: bool,
     current_paused: bool,
     complete_paused: bool,
@@ -331,6 +333,7 @@ impl Store for DiskStore {
         self.inner.local_receipt(m)
     }
     fn holds(&self) -> StoreResult<Vec<Hold>> {
+        self.disk.borrow_mut().holds_reads += 1;
         self.inner.holds()
     }
     fn hold(&self, id: &Uuid) -> StoreResult<Option<Hold>> {
@@ -374,7 +377,7 @@ impl Store for DiskStore {
         d.publish_attempts += publish.len() as u64;
         // Acknowledged observations: their bytes are now known.
         for a in acks {
-            let _ = a;
+            d.outstanding.remove(&a);
         }
         let paths: Vec<String> = d.files.keys().cloned().collect();
         for p in paths {
@@ -422,7 +425,23 @@ impl Store for DiskStore {
     fn observe(&mut self, _paths: Option<&[String]>) -> StoreResult<Vec<Observation>> {
         let mut d = self.disk.borrow_mut();
         d.observe_calls += 1;
-        Ok(std::mem::take(&mut d.queued))
+        let observations = std::mem::take(&mut d.queued);
+        for o in &observations {
+            d.outstanding.insert(o.token, o.clone());
+        }
+        Ok(observations)
+    }
+
+    fn defer_disk_observations(&mut self, tokens: &[ObservationId]) -> StoreResult<()> {
+        let mut d = self.disk.borrow_mut();
+        for token in tokens {
+            if let Some(o) = d.outstanding.get(token).cloned()
+                && !d.queued.iter().any(|queued| queued.token == *token)
+            {
+                d.queued.push(o);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1291,6 +1310,103 @@ fn local_only_commits_to_files() {
     a.disk.borrow_mut().user_write("c.md", Some("outside"));
     a.r.observe(None).unwrap();
     assert!(a.file("c.md").is_some());
+}
+
+#[test]
+fn synced_batched_ingest_reads_only_matching_pending_rows() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    const RECORDS: u64 = 4000;
+    for i in 0..RECORDS {
+        a.disk
+            .borrow_mut()
+            .user_write(&format!("bulk-{i}.md"), Some("bulk"));
+    }
+    let mut queued = std::collections::VecDeque::from(a.r.observe_changes().unwrap());
+    let holds_before = a.disk.borrow().holds_reads;
+    while !queued.is_empty() {
+        let batch = queued.drain(..queued.len().min(32)).collect();
+        a.r.ingest(batch);
+    }
+    assert_eq!(a.r.sync_status().pending, RECORDS);
+    assert!(
+        a.disk.borrow().pending_rows_read <= RECORDS * 8,
+        "batched publication must not repeatedly scan the growing pending queue"
+    );
+    assert_eq!(a.disk.borrow().acknowledged, RECORDS);
+    let holds_reads = a.disk.borrow().holds_reads - holds_before;
+    assert!(
+        holds_reads <= RECORDS.div_ceil(32) + 1,
+        "publication reads holds once per batch plus the final status read: {holds_reads}"
+    );
+}
+
+#[test]
+fn captured_queue_stays_owned_until_apply_recovery_allows_ingest() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    for i in 0..4000 {
+        a.disk
+            .borrow_mut()
+            .user_write(&format!("retained/{i}.md"), Some("user edit"));
+    }
+    let mut captured: std::collections::VecDeque<_> = a.r.observe_changes().unwrap().into();
+    assert_eq!(captured.len(), 4000);
+    a.r.apply_blocked = Some(a.r.head.seq + 1);
+    assert!(!a.r.ingest_ready());
+    assert_eq!(a.disk.borrow().acknowledged, 0);
+    a.r.apply_blocked = None;
+    assert!(a.r.ingest_ready());
+    while !captured.is_empty() {
+        a.r.ingest(captured.drain(..captured.len().min(64)).collect());
+    }
+    assert_eq!(a.disk.borrow().acknowledged, 4000);
+    assert_eq!(a.r.sync_status().pending, 4000);
+}
+
+#[test]
+fn captured_observations_are_reoffered_after_apply_recovery() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    a.disk
+        .borrow_mut()
+        .user_write("retained.md", Some("user edit"));
+    let captured = a.r.observe_changes().unwrap();
+    assert_eq!(captured.len(), 1);
+    a.r.apply_blocked = Some(a.r.head.seq + 1);
+    a.r.ingest(captured.clone());
+    assert_eq!(a.disk.borrow().acknowledged, 0);
+    a.r.apply_blocked = None;
+    let reoffered = a.r.observe_changes().unwrap();
+    assert_eq!(
+        reoffered, captured,
+        "recovery retains the original observation token"
+    );
+    a.r.ingest(reoffered);
+    assert_eq!(a.disk.borrow().acknowledged, 1);
+    assert_eq!(a.r.sync_status().pending, 1);
+}
+
+#[test]
+fn captured_scan_can_be_ingested_between_status_observations() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    for i in 0..4000 {
+        a.disk
+            .borrow_mut()
+            .user_write(&format!("bulk-{i}.md"), Some("bulk"));
+    }
+    let mut observations = a.r.observe_changes().unwrap();
+    assert_eq!(observations.len(), 4000);
+    let batch = observations.drain(..32).collect();
+    a.r.ingest(batch);
+    assert_eq!(a.r.sync_status().pending, 32);
+    assert_eq!(observations.len(), 3968);
+    assert_eq!(
+        a.disk.borrow().acknowledged,
+        32,
+        "remaining observations retain original store ownership"
+    );
 }
 
 /// A cold scan must not leave an invisible timer-driven confirmation backlog.

@@ -375,6 +375,16 @@ impl<S: Store> Replica<S> {
         }
     }
 
+    /// Files queued or actively downloading into this replica's folder.
+    pub fn pending_downloads(&self) -> u64 {
+        self.attachment_fetches.pending() + self.unindexed_blob_fetches.pending()
+    }
+
+    /// File transfers not yet represented by unconfirmed mutation rows.
+    pub fn pending_file_transfers(&self) -> u64 {
+        self.pending_downloads() + self.pending_attachment_ingests()
+    }
+
     /// "Confirmed through N, plus pending".
     pub fn sync_status(&self) -> SyncStatus {
         // Resurrected acknowledged writes are re-syncing, not pending (§6).

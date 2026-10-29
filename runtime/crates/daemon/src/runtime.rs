@@ -22,7 +22,7 @@
 //!   no watcher could start).
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -1370,6 +1370,7 @@ fn run(
     mut lock: mdbn_local_host::HostLock,
 ) {
     let GrantSignals { grants, changes } = signals;
+    let mut ingest = VecDeque::new();
     let mut active_log = None;
     let mut last_heartbeat = std::time::Instant::now();
     let mut observe_due: Option<std::time::Instant> = None;
@@ -1398,17 +1399,26 @@ fn run(
             .next_wakeup()
             .map(|t| Duration::from_millis(t.saturating_sub(now).max(0) as u64))
             .unwrap_or(observe_every)
-            .min(observe_every.saturating_sub(last_observe.elapsed()))
-            .min(
-                observe_due
-                    .map(|d| d.saturating_duration_since(std::time::Instant::now()))
-                    .unwrap_or(observe_every),
-            )
             .min(HOST_HEARTBEAT.saturating_sub(last_heartbeat.elapsed()));
+        let wake = if ingest.is_empty() {
+            wake.min(observe_every.saturating_sub(last_observe.elapsed()))
+                .min(
+                    observe_due
+                        .map(|d| d.saturating_duration_since(std::time::Instant::now()))
+                        .unwrap_or(observe_every),
+                )
+        } else {
+            wake
+        };
         // Wake at the lease expiry to close sessions on time.
         let lease = lease_of();
         let wake = if lease > now as u64 {
             wake.min(Duration::from_millis(lease - now as u64))
+        } else {
+            wake
+        };
+        let wake = if !ingest.is_empty() && rep.ingest_ready() {
+            Duration::ZERO
         } else {
             wake
         };
@@ -1524,11 +1534,18 @@ fn run(
                 let _ = reply.send(result);
             }
             Ok(Cmd::Inventory(reply)) => {
+                if rep.ingest_ready() {
+                    rep.ingest(ingest.drain(..).collect());
+                }
                 rep.store_mut().inner_mut().request_rescan();
                 if let Err(e) = rep.observe(None) {
                     tracing::warn!(error = ?e, "observe failed");
                 }
-                let _ = reply.send(inventory(&rep));
+                let _ = reply.send(if ingest.is_empty() {
+                    inventory(&rep)
+                } else {
+                    None
+                });
             }
             Ok(Cmd::Digest(reply)) => {
                 let _ = reply.send(confirmed_digest(&rep));
@@ -1549,6 +1566,7 @@ fn run(
                     .map(|h| crate::secrets::hex(&h.chain.0));
                 let records = confirmed_digest(&rep);
                 let mut counters = sync_counters(&status, rep.caught_up(), head_digest, records);
+                counters.pending += ingest.len() as u64 + rep.pending_file_transfers();
                 counters.unsupported_entries = rep.store().inner().stats.unsupported_entries;
                 let _ = reply.send((counters, file_notices(&rep)));
             }
@@ -1633,6 +1651,9 @@ fn run(
                     frames.close(&mut rep, s);
                 }
                 drop(watcher);
+                if rep.ingest_ready() {
+                    rep.ingest(ingest.drain(..).collect());
+                }
                 rep.store_mut().inner_mut().request_rescan();
                 let frozen = match rep.observe(None) {
                     Ok(_) => {
@@ -1659,7 +1680,7 @@ fn run(
                         // quiescence or holds/completeness fence.
                         let counts = capture_counts(rep.store());
                         match (terminal, counts) {
-                            (false, Some((holds, unresolved))) => {
+                            (false, Some((holds, unresolved))) if ingest.is_empty() => {
                                 inventory(&rep).map(|inventory| Frozen {
                                     inventory,
                                     holds,
@@ -1704,12 +1725,13 @@ fn run(
             Err(std_mpsc::RecvTimeoutError::Timeout) => {}
             Err(std_mpsc::RecvTimeoutError::Disconnected) => return,
         }
-        if observe_due.is_some_and(|d| std::time::Instant::now() >= d) {
+        if ingest.is_empty() && observe_due.is_some_and(|d| std::time::Instant::now() >= d) {
             // Watcher-queued paths whose quiescence window has passed.
             observe_due = None;
             tracing::debug!("watcher observe");
-            if let Err(e) = rep.observe(None) {
-                tracing::warn!(error = ?e, "observe failed");
+            match rep.observe_changes() {
+                Ok(changes) => ingest.extend(changes),
+                Err(e) => tracing::warn!(error = ?e, "observe failed"),
             }
             log_retention_reclaims(&mut rep);
             // Paths still inside their quiescence window: observe again when due.
@@ -1720,25 +1742,34 @@ fn run(
                 );
             }
         }
-        if adopting && rep.adopt_status() != Some(mdbn_replica::AdoptStatus::Pending) {
+        if ingest.is_empty()
+            && adopting
+            && rep.adopt_status() != Some(mdbn_replica::AdoptStatus::Pending)
+        {
             // The base is applied: ingest what changed meanwhile now, not at the
             // next periodic rescan.
             adopting = false;
             rep.store_mut().inner_mut().request_rescan();
-            if let Err(e) = rep.observe(None) {
-                tracing::warn!(error = ?e, "observe failed");
+            match rep.observe_changes() {
+                Ok(changes) => ingest.extend(changes),
+                Err(e) => tracing::warn!(error = ?e, "observe failed"),
             }
             last_observe = std::time::Instant::now();
         }
-        if last_observe.elapsed() >= observe_every {
+        if ingest.is_empty() && last_observe.elapsed() >= observe_every {
             // No watcher yet: `observe(None)` only walks the folder when a rescan is
             // requested; without one, external edits were never seen.
             rep.store_mut().inner_mut().request_rescan();
-            if let Err(e) = rep.observe(None) {
-                tracing::warn!(error = ?e, "observe failed");
+            match rep.observe_changes() {
+                Ok(changes) => ingest.extend(changes),
+                Err(e) => tracing::warn!(error = ?e, "observe failed"),
             }
             log_retention_reclaims(&mut rep);
             last_observe = std::time::Instant::now();
+        }
+        if !ingest.is_empty() && rep.ingest_ready() {
+            let batch = ingest.drain(..ingest.len().min(64)).collect();
+            rep.ingest(batch);
         }
         let now_ms = crate::fsutil::now_ms() as u64;
         if lease_checked != 0 && now_ms >= lease_checked {
@@ -1990,6 +2021,7 @@ mod tests {
             private_dir: state.path().to_path_buf(),
             adopt: None,
             id_hints: vec![],
+            computer_name: None,
             sync: None,
         };
         let (mut rep, _lock) = super::open_replica(
