@@ -41,7 +41,7 @@ import { migrationAdmissionRequest, migrationAdmissionObservation, migrationAdmi
 import { generateDeviceKeys } from "./keygen.js";
 import engineModule from "../hosted.wasm";
 import { labCustody, labAuthorized } from "./lab.js";
-import { labStubUnwrap, labStubWrapper } from "./custody-stub.js";
+import { labStubUnwrap } from "./custody-stub.js";
 import { combinedCustody, cpCustody } from "./cp-custody.js";
 import { ControlClient, type MigrationClaimData } from "./control.js";
 import { IDLE, MigrationExecutor, SettlementRefused, SettlementUnknown, type MigrationHost } from "./migration-executor.ts";
@@ -52,7 +52,7 @@ import { PAUSE_REASON, STEP, atPreCutoverPause, migrationRunRequest, migrationSt
 import { migrationSampleBody, migrationSampleRequest, nativeSampleRequest } from "./migration-sample.ts";
 import { LegacyBindingError, openLegacySource, type LegacySourceEnv, type PgConnect } from "./legacy-source/bindings.ts";
 import { isPermanentCustodyRefusal, withCustodyRetry } from "./custody-retry.ts";
-import { ProductionCustody, deploymentRelease, productionParts, productionWrapper, type FactoryEnv } from "./factory.ts";
+import { ProductionCustody, deploymentRelease, productionParts, serviceDeviceWrapper, type FactoryEnv } from "./factory.ts";
 import { localBuild, localOrigin } from "./local-origin.ts";
 import { devicePublicKeys, verifyHostedGenesis } from "./keygen.js";
 import { runIndex } from "./sql.js";
@@ -1668,8 +1668,7 @@ export default {
     if (factoryRequest) {
       // One canonical real generation/wrapping/wiping pipeline, no DO lookup.
       const role = escrowFactory ? "escrow" : kind;
-      const wrapper = (role === "hosted" || localBuild() ? productionWrapper(productionParts(env as unknown as FactoryEnv)) : null)
-        ?? (env.LAB === "1" ? labStubWrapper(role, e.LAB_CUSTODY_WRAP_KEY) : null) ?? DENY_WRAPPER;
+      const wrapper = serviceDeviceWrapper(env as unknown as FactoryEnv, role) ?? DENY_WRAPPER;
       return generateServiceDevice(request, {
         serviceToken: escrowFactory ? p.PITR_ESCROW_SERVICE_TOKEN : e.HOSTED_SERVICE_TOKEN,
         generate: () => generateDeviceKeys(engineModule), wrapper, kind: role,
