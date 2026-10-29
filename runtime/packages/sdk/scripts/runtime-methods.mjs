@@ -1,12 +1,12 @@
 // Request methods the pinned native runtime serves, read from its replica frame
-// dispatch (crates/replica/src/frames.rs) at the commit in asset-pins.json.
+// dispatch (runtime/crates/replica/src/frames.rs) at the commit in asset-pins.json.
 // `node scripts/runtime-methods.mjs --write` regenerates runtime-methods.json
 // after a native refresh; the contract test fails until it is regenerated.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
 const here = new URL(".", import.meta.url);
-const FRAMES = "crates/replica/src/frames.rs";
+const FRAMES = "runtime/crates/replica/src/frames.rs";
 
 export function servedMethods(source) {
   const arms = source.match(/^\s+"[a-z][a-z0-9_]*"(\s*\|\s*"[a-z][a-z0-9_]*")*\s*=>/gm) ?? [];
