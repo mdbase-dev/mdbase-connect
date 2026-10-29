@@ -233,47 +233,20 @@ fn native_event_labels_never_relabel_original_scope_and_scope_is_one_shot() {
 }
 
 #[test]
-fn idle_head_refresh_uses_the_existing_session_and_gone_is_terminal() {
-    use mdbn_replica::log::LogErrorCode;
+fn deletion_push_on_an_idle_session_is_terminal() {
     let mut rep = fixture_replica();
     let (source, _) = epoch_source();
     let mut active = None;
     let session = up(&mut rep, &mut active, Generation::begin(source));
-    rep.tick();
-    let initial = rep
-        .take_authenticated_log_calls(session.authenticated())
-        .unwrap();
-    for (call, scope) in initial {
-        if call.request.method() == "subscribe" {
-            deliver_log_reply(&mut rep, &session, scope, |_, _| {
-                Ok(LogResponse::Subscribed {
-                    head: 0,
-                    head_chain: B32([0; 32]),
-                })
-            })
-            .unwrap();
-        }
-    }
-    assert!(rep.request_head());
-    assert!(
-        !rep.request_head(),
-        "only one head check may be outstanding"
-    );
-    let check = scope(&mut rep, &session);
-    deliver_log_reply(&mut rep, &session, check, |_, method| {
-        assert_eq!(method, "subscribe");
-        Err(LogError::code(LogErrorCode::Gone))
+    deliver_log_push(&mut rep, &session, |_| {
+        Ok(LogPush::Closed {
+            collection: COL,
+            reason: "gone".into(),
+        })
     })
     .unwrap();
-    let status = rep.sync_status();
-    assert!(
-        status
-            .incidents
-            .iter()
-            .any(|i| i.kind == mdbn_wire::client::IncidentKind::Gone)
-    );
     assert_eq!(
-        synced_ready(&status, false, true),
+        synced_ready(&rep.sync_status(), false, true),
         Err("collection_deleted")
     );
 }

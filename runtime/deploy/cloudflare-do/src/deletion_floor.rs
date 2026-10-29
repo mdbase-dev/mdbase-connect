@@ -53,6 +53,23 @@ pub(super) fn publishes(writes: &[Write]) -> bool {
     })
 }
 impl DoBackend {
+    pub(super) async fn notify_collection_deleted(&self, collection: &Uuid) -> LsResult<()> {
+        let location = self.location.clone().map_err(ls_err)?;
+        let stub =
+            do_location::stub(&self.ns, &collection.to_uuid_string(), location).map_err(ls_err)?;
+        let response = stub
+            .fetch_with_str(&format!(
+                "https://collection/collection-deleted?c={}",
+                collection.to_uuid_string()
+            ))
+            .await
+            .map_err(ls_err)?;
+        if response.status_code() != 200 {
+            return Err(CollectionDeletionRecord::unavailable());
+        }
+        Ok(())
+    }
+
     // Actor IDs are actual State/namespace values, not request role/UUID claims.
     // This ordinary named-object proof is NOT an admitted PITR member/run pin;
     // required profiles still cannot instantiate DoBackend at all.

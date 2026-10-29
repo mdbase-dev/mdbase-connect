@@ -214,6 +214,7 @@ async fn dispatch<B: Backend, O: ObjectStore, H: HubHost>(
             // then read the head: a commit racing the subscription is either in the
             // head read or pushed, never neither.
             svc.authorize_device(&principal, &p.collection).await?;
+            svc.refuse_deleted_floor(&p.collection).await?;
             let dev = sess.device();
             host.with_hub(&p.collection, |hub| {
                 hub.subscribe(sess.id, dev, p.inline_bytes)

@@ -948,7 +948,7 @@ export class MdbaseClient {
       this.setLink("closed", e ?? null);
       return;
     }
-    if (e && (e.reason === "collection_deleted" || e.code === "unauthenticated" || e.code === "upgrade_required" || e.code === "forbidden")) {
+    if (e && (e.code === "unauthenticated" || e.code === "upgrade_required" || e.code === "forbidden")) {
       // Retrying cannot help: the app must reauthorize or upgrade.
       this.setLink("closed", e);
       return;
@@ -982,7 +982,7 @@ export class MdbaseClient {
         await this.restore(s);
         return;
       } catch (e) {
-        if (isMdbaseError(e) && (e.reason === "collection_deleted" || ["unauthenticated", "forbidden", "upgrade_required"].includes(e.code))) {
+        if (isMdbaseError(e) && (["unauthenticated", "forbidden", "upgrade_required"].includes(e.code))) {
           this.setLink("closed", e);
           for (const w of this.reconnectWaiters.splice(0)) w();
           return;

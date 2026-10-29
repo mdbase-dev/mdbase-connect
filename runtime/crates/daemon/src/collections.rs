@@ -345,16 +345,11 @@ impl CollectionHost {
                                 if cancel.load(Ordering::SeqCst) {
                                     return;
                                 }
-                                let Some((mut s, caught_up, adopt)) = rt.readiness().await else {
+                                let Some((s, caught_up, adopt)) = rt.readiness().await else {
                                     return; // stopped
                                 };
-                                if tokens.deleted() {
-                                    s.incidents.push(mdbn_wire::client::Incident {
-                                        kind: mdbn_wire::client::IncidentKind::Gone,
-                                        details: None,
-                                    });
-                                }
-                                let now = if s.incidents.iter().any(|i| i.kind == mdbn_wire::client::IncidentKind::Gone) {
+                                let deleted = tokens.deleted() || s.incidents.iter().any(|i| i.kind == mdbn_wire::client::IncidentKind::Gone);
+                                let now = if deleted {
                                     Readiness::Failed("collection_deleted")
                                 } else {
                                     match &adopt {
@@ -375,8 +370,20 @@ impl CollectionHost {
                                         }
                                     }
                                 };
+                                let failure = if deleted {
+                                    Some(crate::sync_failure::Failure {
+                                        kind: crate::sync_failure::Kind::Gone,
+                                        stage: crate::sync_failure::Stage::SyncedReadiness,
+                                        seq: s.confirmed_through,
+                                        generation: None,
+                                        cause: None,
+                                        persisted: Some(false),
+                                    })
+                                } else {
+                                    crate::sync_failure::Failure::project(&s, &adopt)
+                                };
                                 if let Readiness::Failed(_) = now
-                                    && let Some(failure) = crate::sync_failure::Failure::project(&s, &adopt)
+                                    && let Some(failure) = failure
                                 {
                                     let resource_failure = failure.cause == Some(crate::sync_failure::Cause::ResourceIngestDeferred);
                                     crate::sync_failure::retain_and_stop(

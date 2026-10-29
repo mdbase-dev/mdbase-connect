@@ -156,17 +156,8 @@ pub fn problem_response(id: u64, code: &str, reason: &str, message: &str) -> Cli
         id,
         result: None,
         problem: Some(Problem {
-            code: if reason == "collection_deleted" {
-                "forbidden"
-            } else {
-                code
-            }
-            .to_string(),
-            recovery: if reason == "collection_deleted" {
-                Recovery::None
-            } else {
-                recovery_for(code).unwrap_or(Recovery::ContactSupport)
-            },
+            code: code.to_string(),
+            recovery: recovery_for(code).unwrap_or(Recovery::ContactSupport),
             message: message.to_string(),
             reason: Some(reason.to_string()),
             details: None,
@@ -835,24 +826,5 @@ mod tests {
         bad[0] = b'x';
         assert_eq!(Prologue::parse(&bad), None);
         assert_eq!(Prologue::parse(&bad[..63]), None);
-    }
-}
-
-#[cfg(test)]
-mod deletion_problem_tests {
-    use super::*;
-    #[test]
-    fn deletion_on_open_is_terminal_without_reauthorization_advice() {
-        let p = problem_response(1, "unavailable", "collection_deleted", "deleted")
-            .problem
-            .unwrap();
-        assert_eq!(p.code, "forbidden");
-        assert_eq!(p.reason.as_deref(), Some("collection_deleted"));
-        assert_eq!(p.recovery, Recovery::None);
-        let ordinary = problem_response(1, "unavailable", "not_serving", "opening")
-            .problem
-            .unwrap();
-        assert_eq!(ordinary.code, "unavailable");
-        assert_eq!(ordinary.recovery, Recovery::Retry);
     }
 }

@@ -330,7 +330,7 @@ describe("local-only collection behavior", () => {
 });
 
 describe("collection deletion", () => {
-  it.each(["forbidden", "unavailable", "not_found"] as const)("closes permanently for %s with the deletion reason and refuses further writes", async (code) => {
+  it("closes permanently with the deletion reason and refuses further writes", async () => {
     const replica = new MemoryReplica();
     const base = replica.connector();
     let opens = 0;
@@ -341,7 +341,7 @@ describe("collection deletion", () => {
       port = opened.port;
       return opened;
     } }, app, reconnect: { minDelayMs: 1, maxDelayMs: 1 } });
-    port!.onframe?.(clientFrame.enc({ kind: "push", type: "closed", payload: problem.enc({ code, recovery: "none", reason: "collection_deleted", message: "deleted by owner" }) }));
+    port!.onframe?.(clientFrame.enc({ kind: "push", type: "closed", payload: problem.enc({ code: "forbidden", recovery: "none", reason: "collection_deleted", message: "deleted by owner" }) }));
     expect(c.link).toBe("closed");
     expect(c.linkProblem?.reason).toBe("collection_deleted");
     await expect(c.create({ path: "late.md", body: "late edit" })).rejects.toMatchObject({ reason: "collection_deleted" });

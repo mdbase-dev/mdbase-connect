@@ -143,7 +143,7 @@ fn repeated_floor_reads_charge_the_same_outer_ledger() {
 }
 
 #[test]
-fn head_recheck_refuses_a_deletion_floor_without_marking_the_log_gone() {
+fn subscription_refuses_a_deletion_floor_without_marking_the_log_gone() {
     let c = id16("head-floor/collection");
     let svc = Service::new(MemBackend::default(), MemObjects::default(), config());
     // Use the fixture's pinned control-plane key for the collection genesis.
@@ -165,9 +165,48 @@ fn head_recheck_refuses_a_deletion_floor_without_marking_the_log_gone() {
         lifecycle_epoch: 1,
     };
     svc.backend.record_collection_deletion(record).unwrap();
-    let error = ready(svc.head(&Principal::ControlPlane, &c)).unwrap_err();
-    assert_eq!(error.code, Code::Gone);
+    use mdbn_log_service::hub::{Hub, Push};
+    use mdbn_log_service::model::CommitNotice;
+    use mdbn_log_service::session::{HubHost, Session, handle_request};
+    use mdbn_wire::log_service::{LsFrame, LsRequest};
+    struct Host(std::cell::RefCell<Hub>);
+    impl HubHost for Host {
+        fn with_hub<R>(&self, _: &Uuid, f: impl FnOnce(&mut Hub) -> R) -> R {
+            f(&mut self.0.borrow_mut())
+        }
+        fn deliver(&self, _: Vec<Push>) {}
+        fn committed(&self, _: &CommitNotice, _: &[(u64, Vec<u8>)]) {}
+    }
+    let host = Host(std::cell::RefCell::new(Hub::new(c)));
+    let mut session = Session::new(1, [0; 32]);
+    session.principal = Some(Principal::ControlPlane);
+    let response = ready(handle_request(
+        &svc,
+        &host,
+        &mut session,
+        &LsRequest {
+            id: 1,
+            method: "subscribe".into(),
+            params: Cbor::Map(vec![
+                (Cbor::Uint(0), c.to_cbor()),
+                (Cbor::Uint(1), Cbor::Uint(0)),
+            ]),
+        },
+        1000,
+        [0; 32],
+        &Budget::default(),
+    ))
+    .unwrap();
+    let LsFrame::Response(response) = LsFrame::from_bytes(&response).unwrap() else {
+        panic!("expected subscription response");
+    };
+    let error = response.error.unwrap();
+    assert_eq!(error.code, "gone");
     assert_eq!(error.reason.as_deref(), Some("collection_deletion_floor"));
+    assert!(
+        host.0.borrow_mut().close_gone().is_empty(),
+        "refused before subscribing"
+    );
     let mut tx = ready(svc.backend.begin(&c, Mode::Read)).unwrap();
     let state = ready(tx.load()).unwrap().unwrap();
     assert_eq!(state.meta.status, mdbn_log_service::model::Status::Live);
