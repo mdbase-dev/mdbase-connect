@@ -776,7 +776,7 @@ msgstr "Wird genehmigt…"
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Apps"
-msgstr "Apps"
+msgstr "Anwendungen"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -1065,10 +1065,6 @@ msgid "Collection permissions"
 msgstr "Sammlungsberechtigungen"
 
 #: src/AccountManagement.tsx
-msgctxt "Account management"
-msgid "Collections"
-msgstr "Sammlungen"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"

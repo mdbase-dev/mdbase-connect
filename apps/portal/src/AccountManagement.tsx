@@ -214,7 +214,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     {notice && <div className="connect-account-message success" role="status">{notice}</div>}
 
     {account.backend === "next" && <section>
-      <SectionTitle title={t(i18n)({ message: "Collections", context: "Account management" })} count={account.deletion.owned_collections} note={t(i18n)({ message: "Collections you own. Local files remain on your devices." })} />
+      <SectionTitle title={t(i18n)({ message: "Collections", context: "Connect interface" })} count={account.deletion.owned_collections} note={t(i18n)({ message: "Collections you own. Local files remain on your devices." })} />
       {(overview.native_collections ?? []).filter(collection => collection.access.relationship === "owner").map(collection => <div className="connect-account-row" key={collection.id}>
         <strong>{collection.display_name ?? t(i18n)({ message: "Unnamed collection", context: "Connect interface" })}</strong>
         <span>{collection.sync === "cloud_copy" ? t(i18n)({ message: "Cloud copy", context: "Connect interface" }) : t(i18n)({ message: "Private collection", context: "Connect interface" })}</span>

@@ -1065,10 +1065,6 @@ msgid "Collection permissions"
 msgstr "컬렉션 권한"
 
 #: src/AccountManagement.tsx
-msgctxt "Account management"
-msgid "Collections"
-msgstr "컬렉션"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"

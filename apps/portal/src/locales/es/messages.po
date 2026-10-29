@@ -1065,10 +1065,6 @@ msgid "Collection permissions"
 msgstr "Permisos de la colección"
 
 #: src/AccountManagement.tsx
-msgctxt "Account management"
-msgid "Collections"
-msgstr "Colecciones"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"
