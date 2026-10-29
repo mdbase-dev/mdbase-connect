@@ -772,6 +772,7 @@ button.danger:disabled {
 .connect-account-row > div:first-child,
 .connect-account-row-main > div:first-child {
   min-width: 0;
+  overflow-wrap: anywhere;
   display: grid;
   gap: 2px;
 }

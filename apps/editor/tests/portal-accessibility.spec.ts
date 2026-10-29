@@ -5,7 +5,12 @@ const owner = { relationship: "owner", role: "owner", can_manage_members: true }
 const overview = {
   user: { id: "person", name: "Example Person", email: "person@example.test", login: null },
   authentication: { provider: "session", registration: "open" },
-  subscription: null, collections: [], hosted_collections: [], grants: [], pending_authorizations: [],
+  subscription: {
+    kind: "beta", profiles: ["beta_v1"], permanent: true, usage: null,
+    limits: { hosted_storage_bytes: 1_073_741_824, retained_file_bytes: 2_147_483_648,
+      max_document_bytes: 2_097_152, max_single_file_bytes: 262_144_000,
+      max_mirror_replicas_per_collection: 5, max_application_replicas_per_collection: 10 }
+  }, collections: [], hosted_collections: [], grants: [], pending_authorizations: [],
   connectors: [{ id: "computer", name: "Home computer", last_seen_at: new Date().toISOString() }],
   native_collections: [
     { id: "cloud", display_name: "Cloud notes", sync: "cloud_copy", access: owner, computer_ids: ["computer"] },
@@ -36,7 +41,12 @@ for (const colorScheme of ["light", "dark"] as const) {
       for (const path of ["/collections", "/?collection=cloud", "/storage?collection=cloud", "/storage?collection=private", "/access?collection=cloud", "/applications", "/computers", "/account"]) {
         await page.goto(`${authPortal}${path}`);
         await expect(page.locator(".connect-page > header h1")).toBeVisible();
-        if (path === "/account") await page.getByRole("button", { name: "Delete account…" }).click();
+        if (path === "/account") {
+          await expect(page.getByText("Beta", { exact: true })).toBeVisible();
+          await expect(page.getByText("Usage unavailable", { exact: true })).toBeVisible();
+          await page.getByRole("button", { name: "Delete account…" }).click();
+          await page.locator(".connect-account-list .connect-account-row strong").first().evaluate(element => { element.textContent = "LongCollectionName".repeat(30); });
+        }
         const audit = await new AxeBuilder({ page }).analyze();
         await testInfo.attach(`${encodeURIComponent(path)}-axe`, { body: JSON.stringify(audit), contentType: "application/json" });
         expect(audit.violations.filter(rule => rule.impact === "serious" || rule.impact === "critical"), path).toEqual([]);

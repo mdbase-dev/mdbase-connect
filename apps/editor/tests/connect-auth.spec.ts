@@ -188,6 +188,10 @@ test("signup associates the 257-character password error and brings it into view
   await expect(confirmation).toHaveAccessibleDescription(/Password must contain no more than 256 characters/);
   await expect(password.locator("..").getByRole("alert")).toBeInViewport();
   expect(submitted).toBe(0);
+  const alert = await password.locator("..").getByRole("alert").elementHandle();
+  await password.press("End");
+  await password.press("a");
+  expect(await alert!.evaluate(element => element.isConnected)).toBe(true);
   // Count Unicode characters as the server does, without silently truncating.
   await password.fill("😀".repeat(256));
   await confirmation.fill("😀".repeat(256));

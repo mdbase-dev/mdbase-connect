@@ -537,6 +537,7 @@ msgstr "账户升级已安排"
 msgid "Account: {0}"
 msgstr "账户：{0}"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
 msgstr "添加一个集合以开始使用。"
@@ -1765,6 +1766,10 @@ msgctxt "Account management"
 msgid "Included storage"
 msgstr "包含的存储空间"
 
+#: src/AccountManagement.tsx
+msgid "Includes collections that have left sync and retained data from deleted collections."
+msgstr "包括已停止同步的集合，以及已删除集合的保留数据。"
+
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
@@ -2159,6 +2164,7 @@ msgctxt "Connect interface"
 msgid "No collection access"
 msgstr "无集合访问权限"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"

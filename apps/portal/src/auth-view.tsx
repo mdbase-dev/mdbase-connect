@@ -49,7 +49,7 @@ function AuthInput({ label, matchValue, maxCharacters, onChange, onBlur, ...prop
       aria-labelledby={labelId}
       aria-invalid={error ? true : undefined}
       aria-describedby={[props["aria-describedby"], error ? errorId : ""].filter(Boolean).join(" ") || undefined}
-      onChange={(event) => { setError(""); onChange?.(event); }}
+      onChange={onChange}
       onBlur={(event) => { setError(event.currentTarget.validationMessage); onBlur?.(event); }}
       onInvalid={(event) => {
         event.preventDefault();

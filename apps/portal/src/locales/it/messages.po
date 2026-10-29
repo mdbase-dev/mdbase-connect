@@ -537,6 +537,7 @@ msgstr "Aggiornamento dell'account pianificato"
 msgid "Account: {0}"
 msgstr "Account: {0}"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
 msgstr "Aggiungi una raccolta per iniziare."
@@ -1765,6 +1766,10 @@ msgctxt "Account management"
 msgid "Included storage"
 msgstr "Spazio di archiviazione incluso"
 
+#: src/AccountManagement.tsx
+msgid "Includes collections that have left sync and retained data from deleted collections."
+msgstr "Include le raccolte non più sincronizzate e i dati conservati delle raccolte eliminate."
+
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
@@ -2159,6 +2164,7 @@ msgctxt "Connect interface"
 msgid "No collection access"
 msgstr "Nessun accesso alle raccolte"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"

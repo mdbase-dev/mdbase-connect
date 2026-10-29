@@ -88,16 +88,28 @@ describe("ConnectApp", () => {
     history.replaceState(null, "", "/applications");
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
-    for (const [name, href] of [["Editor", "https://editor.mdbase.dev/"], ["Reader", "https://reader.mdbase.dev/"], ["Writer", "https://writer.mdbase.dev/"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
+    await screen.findByRole("link", { name: "Editor", exact: true });
+    for (const [name, href] of [["Editor", "https://editor.example.test"], ["Reader", "https://reader.mdbase.dev/"], ["Writer", "https://writer.mdbase.dev/"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
       expect(screen.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
     }
     expect(screen.getByText("No connected applications")).toBeInTheDocument();
   });
 
+  it("hides the Editor discovery link when the deployment has no Editor", async () => {
+    const fetchData = vi.mocked(fetch).getMockImplementation()!;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      new URL(String(input)).pathname === "/v1/ui-configuration" ? Response.json({ editor_url: null }) : fetchData(input, init)));
+    history.replaceState(null, "", "/applications");
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Apps" });
+    expect(screen.queryByRole("link", { name: "Editor", exact: true })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reader", exact: true })).toBeInTheDocument();
+  });
+
   it("shows owned cloud-copy and Private collections and the complete deletion count", async () => {
     const account = accountFixture();
     account.backend = "next";
-    account.deletion.owned_collections = 2;
+    account.deletion.owned_collections = 3;
     account.deletion.hosted_collections = 0;
     account.storage.collections = [];
     overview.native_collections = [
@@ -115,9 +127,13 @@ describe("ConnectApp", () => {
     expect(collections.getByText("Private notes")).toBeInTheDocument();
     expect(collections.getByText("Private collection")).toBeInTheDocument();
     expect(collections.queryByText("Someone else's notes")).not.toBeInTheDocument();
+    expect(heading.closest("section")?.querySelector(".connect-section-title")).toHaveTextContent("Collections2");
+    expect(collections.getByText("Beta")).toBeInTheDocument();
+    expect(collections.getByText("Usage unavailable")).toBeInTheDocument();
+    expect(collections.getByText(/Documents up to/)).toBeInTheDocument();
     expect(screen.queryByText("0 hosted collections")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Delete account…" }));
-    expect(screen.getByText("2 collections and their stored data")).toBeInTheDocument();
+    expect(screen.getByText("3 collections and their stored data")).toBeInTheDocument();
   });
 
   it("counts native collections without legacy shadow rows or content authorization", async () => {

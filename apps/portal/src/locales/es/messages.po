@@ -537,6 +537,7 @@ msgstr "Actualización de la cuenta programada"
 msgid "Account: {0}"
 msgstr "Cuenta: {0}"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
 msgstr "Añade una colección para empezar."
@@ -1765,6 +1766,10 @@ msgctxt "Account management"
 msgid "Included storage"
 msgstr "Almacenamiento incluido"
 
+#: src/AccountManagement.tsx
+msgid "Includes collections that have left sync and retained data from deleted collections."
+msgstr "Incluye las colecciones que dejaron de sincronizarse y los datos conservados de colecciones eliminadas."
+
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
@@ -2159,6 +2164,7 @@ msgctxt "Connect interface"
 msgid "No collection access"
 msgstr "Sin acceso a colecciones"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"

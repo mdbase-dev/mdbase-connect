@@ -537,6 +537,7 @@ msgstr "アカウントのアップグレードを予定しました"
 msgid "Account: {0}"
 msgstr "アカウント: {0}"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
 msgstr "まずコレクションを追加してください。"
@@ -1765,6 +1766,10 @@ msgctxt "Account management"
 msgid "Included storage"
 msgstr "含まれるストレージ"
 
+#: src/AccountManagement.tsx
+msgid "Includes collections that have left sync and retained data from deleted collections."
+msgstr "同期を終了したコレクションと、削除済みコレクションの保持データも含まれます。"
+
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
@@ -2159,6 +2164,7 @@ msgctxt "Connect interface"
 msgid "No collection access"
 msgstr "コレクションへのアクセス権なし"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"
