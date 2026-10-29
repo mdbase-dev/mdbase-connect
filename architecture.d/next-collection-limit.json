@@ -1,6 +1,6 @@
 {
-  "reason": "Canonical native collection registration reuses the existing effective entitlement resolver and existing CreateError HTTP contract. These two imports add no quota state, exported abstraction, protocol or package.",
+  "reason": "Canonical native collection registration reuses the existing effective entitlement resolver and existing CreateError HTTP contract, and the LAB fixture route maps that CreateError to its HTTP status. These imports add no quota state, exported abstraction, protocol or package.",
   "growth": {
-    "relativeImports": 2
+    "relativeImports": 3
   }
 }
