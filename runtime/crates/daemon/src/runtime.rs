@@ -2021,6 +2021,7 @@ mod tests {
             private_dir: state.path().to_path_buf(),
             adopt: None,
             id_hints: vec![],
+            computer_name: None,
             sync: None,
         };
         let (mut rep, _lock) = super::open_replica(
