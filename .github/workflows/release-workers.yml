@@ -1,0 +1,272 @@
+name: Release integrated Workers
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Fixed managed tier (publication only, never deployment authority)
+        type: choice
+        options: [staging, production]
+        default: staging
+        required: true
+      source_revision:
+        description: Exact protected main dispatch SHA (must equal github.sha)
+        required: true
+      ci_run_id:
+        description: Successful full main CI push or owner dispatch at this SHA
+        required: true
+      ci_run_attempt:
+        description: Exact full CI attempt
+        required: true
+      log_run_id:
+        description: Successful main Log service DO run at this SHA
+        required: true
+      log_run_attempt:
+        description: Exact Log service DO attempt
+        required: true
+      trust_release:
+        description: Public JSON source_commit,image_run,trust_run,publisher_commit,asset_sha256 (Connect trust only)
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: release-workers-${{ inputs.environment }}
+  cancel-in-progress: false
+env:
+  RELEASE_ENVIRONMENT: ${{ inputs.environment }}
+  SOURCE_REVISION: ${{ inputs.source_revision }}
+  CI_RUN_ID: ${{ inputs.ci_run_id }}
+  CI_RUN_ATTEMPT: ${{ inputs.ci_run_attempt }}
+  LOG_RUN_ID: ${{ inputs.log_run_id }}
+  LOG_RUN_ATTEMPT: ${{ inputs.log_run_attempt }}
+  TRUST_RELEASE: ${{ inputs.trust_release }}
+  WRANGLER_SEND_METRICS: 'false'
+  CARGO_INCREMENTAL: '0'
+  CARGO_NET_RETRY: '10'
+jobs:
+  build:
+    if: github.repository == 'mdbase-dev/mdbase-connect' && github.event.repository.private == false && github.ref == 'refs/heads/main' && github.ref_protected == true && github.sha == inputs.source_revision && github.actor == 'callumalpass' && github.triggering_actor == 'callumalpass'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      manifest_sha256: ${{ steps.pack.outputs.manifest_sha256 }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: mdbn
+          POSTGRES_PASSWORD: mdbn
+          POSTGRES_DB: mdbn_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mdbn" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+      - name: Source and publisher regressions
+        run: node --test scripts/release-workers.test.mjs
+      - name: Qualify exact source before any cross-repository credential use
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-workers.mjs verify
+      # Only these pinned private checkouts use the read token. It is NEVER
+      # present in the OIDC signing job or the compiler's environment.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mdbase-dev/mdbase-cloud-ops
+          ref: 7a1f5603aae7cc1be6410abf0088ea463b4aecd1
+          token: ${{ secrets.WORKER_RELEASE_READ_TOKEN }}
+          path: target/worker-release-deps/assembly
+          persist-credentials: false
+      - name: Resolve the fixed private assembly and existing trust verifier
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node target/worker-release-deps/assembly/bin/lib/release-workers.mjs verify
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mdbase-dev/mdbase-cloud-ops
+          ref: ${{ steps.gate.outputs.ops_commit }}
+          token: ${{ secrets.WORKER_RELEASE_READ_TOKEN }}
+          path: target/worker-release-deps/ops
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mdbase-dev/mdbase-connect
+          ref: ${{ steps.gate.outputs.trust_publisher }}
+          token: ${{ github.token }}
+          path: target/worker-release-deps/connect
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare reference consumer from reviewed publisher main (no read token)
+        working-directory: target/worker-release-deps/connect
+        env:
+          TRUST_PUBLISHER: ${{ steps.gate.outputs.trust_publisher }}
+        run: |
+          # Execution-safety check, NOT trust-asset authentication. Never execute
+          # dependency hooks/build scripts from a caller-selected PR/fork SHA.
+          git merge-base --is-ancestor "$TRUST_PUBLISHER" origin/main
+          node -e 'require("node:assert/strict").equal(JSON.parse(require("node:fs").readFileSync("package.json","utf8")).packageManager,"pnpm@11.15.1")'
+          corepack enable
+          corepack prepare pnpm@11.15.1 --activate
+          # Do not execute unqualified publisher hooks or its chosen package
+          # manager. The canonical verifier qualifies it before reference code.
+          COREPACK_ENABLE_PROJECT_SPEC=0 pnpm install --frozen-lockfile --ignore-scripts \
+            --ignore-pnpmfile --config.manage-package-manager-versions=false --filter @mdbase/connect-server...
+          COREPACK_ENABLE_PROJECT_SPEC=0 pnpm --filter @mdbase-dev/connect-protocol --fail-if-no-match build
+      - name: Install pinned cosign for the existing trust verifier
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+      - name: Authenticate Connect trust using the existing pinned verifier
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CP_ORIGIN: ${{ steps.gate.outputs.cp_origin }}
+          LOG_ORIGIN: ${{ steps.gate.outputs.log_origin }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RELEASE_ENVIRONMENT" in staging|production) ;; *) exit 1 ;; esac
+          install -d -m 700 "runtime/target/$RELEASE_ENVIRONMENT-worker-release" "$HOME/.local/state/mdbase"
+          # Public, closed, prevalidated values only; no caller command or path.
+          source_commit=$(jq -er .source_commit <<< "$TRUST_RELEASE")
+          image_run=$(jq -er .image_run <<< "$TRUST_RELEASE")
+          trust_run=$(jq -er .trust_run <<< "$TRUST_RELEASE")
+          "$GITHUB_WORKSPACE/target/worker-release-deps/ops/bin/release" "$RELEASE_ENVIRONMENT" verify-trust \
+            "$source_commit" "$image_run" "$trust_run" \
+            "$CP_ORIGIN" "$LOG_ORIGIN" \
+            "$GITHUB_WORKSPACE/target/worker-release-deps/connect" \
+            "$GITHUB_WORKSPACE/runtime/target/$RELEASE_ENVIRONMENT-worker-release/verified-trust"
+      - name: Build native inputs from this exact source (GitHub-hosted runner)
+        working-directory: runtime
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+          cargo install worker-build --version 0.8.7 --locked
+          cargo build --locked --release -p mdbn-trust --bin mdbn-trust
+          cargo build --locked --target wasm32-unknown-unknown --profile wasm-release -p mdbn-hosted-worker
+          cp target/wasm32-unknown-unknown/wasm-release/mdbn_hosted_worker.wasm deploy/hosted-worker/hosted.wasm
+          mkdir -p deploy/hosted-worker/.ci
+          cargo run --quiet --locked -p mdbn-hosted-worker --example lab_fixture -- 0e app > deploy/hosted-worker/.ci/fixture.json
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const path='deploy/hosted-worker/.ci/fixture';
+          const sha256=createHash('sha256').update(readFileSync(`${path}.json`)).digest('hex');
+          writeFileSync(`${path}.manifest.json`,JSON.stringify({publicFixedTestValuesOnly:true,managedCompositionQualified:false,sha256}));
+          JS
+          cargo build --locked -p mdbn-log-conformance --bin logsvc-bench
+          (cd deploy/cloudflare-do && worker-build --release --locked)
+      - name: Install pinned Worker dependencies
+        working-directory: runtime
+        run: |
+          npm ci --prefix deploy/hosted-worker --no-audit --no-fund
+          npm ci --prefix deploy/cloudflare-do --no-audit --no-fund
+      - name: Qualify freshly built log bytes locally (no provider I/O)
+        working-directory: runtime/deploy/cloudflare-do
+        env:
+          LOGSVC_BENCH: ../../target/debug/logsvc-bench
+        run: npm test
+      - name: Qualify fresh hosted and staging escrow bytes, real Postgres, zero skips
+        working-directory: runtime/deploy/hosted-worker
+        env:
+          MDBASE_HOSTED_LEGACY_TEST_PG: postgres://mdbn:mdbn@127.0.0.1:5432/mdbn_test
+          LEGACY_HOLD_PG_TEST_URL: postgres://mdbn:mdbn@127.0.0.1:5432/hold_frontend_test
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Separate database, as in hosted-worker.yml: hold composition counts
+          # backends and deletes its rows. Without it the hold test skips.
+          node --input-type=module -e '
+            import { Client } from "pg";
+            const client = new Client({ connectionString: process.env.MDBASE_HOSTED_LEGACY_TEST_PG });
+            await client.connect();
+            try { await client.query("CREATE DATABASE hold_frontend_test"); }
+            finally { await client.end(); }
+          '
+          # This named test is mandatory; publishing predates neither the staging
+          # escrow implementation nor its real native-WASM refusal coverage.
+          node --experimental-transform-types --test test/staging-escrow.test.mjs
+          npm test 2>&1 | tee "../../target/$RELEASE_ENVIRONMENT-worker-release/hosted-test.log"
+          # Node 22 summarises in TAP ("# skipped N"); Node 24 uses the spec reporter ("ℹ skipped N").
+          grep -Eq '^(#|ℹ) skipped 0$' "../../target/$RELEASE_ENVIRONMENT-worker-release/hosted-test.log"
+          ! grep -Eq '^(#|ℹ) skipped [1-9][0-9]*$' "../../target/$RELEASE_ENVIRONMENT-worker-release/hosted-test.log"
+          HOSTED_WASM="$PWD/hosted.wasm" PITR_APP_FIXTURE="$PWD/.ci/fixture.json" \
+            timeout 600s node --experimental-transform-types test/migration-native-workerd.mjs
+      - name: Compile the fixed managed profile and bind public-only inventory
+        id: pack
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node target/worker-release-deps/assembly/bin/lib/release-workers.mjs build
+      - name: Transfer immutable build result (not a deploy artifact)
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsigned-${{ inputs.environment }}-workers-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: runtime/target/${{ inputs.environment }}-worker-release/bundle/
+          if-no-files-found: error
+          retention-days: 3
+  sign:
+    needs: build
+    if: needs.build.result == 'success' && github.repository == 'mdbase-dev/mdbase-connect' && github.event.repository.private == false && github.ref == 'refs/heads/main' && github.ref_protected == true && github.sha == inputs.source_revision && github.actor == 'callumalpass' && github.triggering_actor == 'callumalpass'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+      - name: Download only this run's immutable successful build artifact
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          merge-multiple: true
+          path: runtime/target/${{ inputs.environment }}-worker-release/bundle
+      - name: Bind transfer to the build-job digest; recheck exact source CI attempts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
+        run: node scripts/release-workers.mjs check
+      - name: Install pinned cosign (no cross-repository read token in this job)
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+      - name: Keyless sign and verify exact manifest identity
+        env:
+          CERTIFICATE_IDENTITY: https://github.com/mdbase-dev/mdbase-connect/.github/workflows/release-workers.yml@refs/heads/main
+        run: |
+          set -euo pipefail
+          cd "runtime/target/$RELEASE_ENVIRONMENT-worker-release/bundle"
+          cosign sign-blob --yes --bundle manifest.sigstore.json manifest.json
+          cosign verify-blob --bundle manifest.sigstore.json \
+            --certificate-identity "$CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-github-workflow-repository mdbase-dev/mdbase-connect \
+            --certificate-github-workflow-ref refs/heads/main \
+            --certificate-github-workflow-sha "$SOURCE_REVISION" manifest.json
+      - name: Verify no bytes changed while signing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
+        run: node scripts/release-workers.mjs check
+      - name: Publish signed managed candidate (not deployment or acceptance authority)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ inputs.environment }}-workers-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: runtime/target/${{ inputs.environment }}-worker-release/bundle/
+          if-no-files-found: error
+          retention-days: 14

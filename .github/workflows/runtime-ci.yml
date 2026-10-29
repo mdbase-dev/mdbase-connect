@@ -2,10 +2,10 @@
 name: Runtime CI
 on:
   pull_request:
-    paths: ['runtime/**', '.github/workflows/runtime-ci.yml']
+    paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs']
   push:
     branches: [main]
-    paths: ['runtime/**', '.github/workflows/runtime-ci.yml']
+    paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs']
   workflow_dispatch:
 permissions:
   contents: read
