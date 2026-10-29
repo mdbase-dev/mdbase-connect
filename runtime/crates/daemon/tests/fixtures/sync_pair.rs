@@ -432,6 +432,11 @@ pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
     let t = Instant::now();
     std::fs::write(pa.join("assets/drop.bin"), &bin).unwrap();
     converge_bytes(&pb.join("assets/drop.bin"), &bin, Duration::from_secs(300)).await;
+    assert_ne!(
+        ra.telemetry().await.unwrap().last_error.as_deref(),
+        Some("integrity"),
+        "confirming the uploader's own attachment must tolerate retired touch-index entries"
+    );
     println!(
         "PASS: attachment {} bytes A -> B in {:?} (byte-identical on B)",
         bin.len(),

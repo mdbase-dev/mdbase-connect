@@ -1399,13 +1399,17 @@ fn run(
             .next_wakeup()
             .map(|t| Duration::from_millis(t.saturating_sub(now).max(0) as u64))
             .unwrap_or(observe_every)
-            .min(observe_every.saturating_sub(last_observe.elapsed()))
-            .min(
-                observe_due
-                    .map(|d| d.saturating_duration_since(std::time::Instant::now()))
-                    .unwrap_or(observe_every),
-            )
             .min(HOST_HEARTBEAT.saturating_sub(last_heartbeat.elapsed()));
+        let wake = if ingest.is_empty() {
+            wake.min(observe_every.saturating_sub(last_observe.elapsed()))
+                .min(
+                    observe_due
+                        .map(|d| d.saturating_duration_since(std::time::Instant::now()))
+                        .unwrap_or(observe_every),
+                )
+        } else {
+            wake
+        };
         // Wake at the lease expiry to close sessions on time.
         let lease = lease_of();
         let wake = if lease > now as u64 {
@@ -1413,10 +1417,10 @@ fn run(
         } else {
             wake
         };
-        let wake = if ingest.is_empty() {
-            wake
-        } else {
+        let wake = if !ingest.is_empty() && rep.ingest_ready() {
             Duration::ZERO
+        } else {
+            wake
         };
         let received = rx.recv_timeout(wake);
         // Pure state queries must not wake their own waiters into a busy loop.
@@ -1530,12 +1534,18 @@ fn run(
                 let _ = reply.send(result);
             }
             Ok(Cmd::Inventory(reply)) => {
-                rep.ingest(ingest.drain(..).collect());
+                if rep.ingest_ready() {
+                    rep.ingest(ingest.drain(..).collect());
+                }
                 rep.store_mut().inner_mut().request_rescan();
                 if let Err(e) = rep.observe(None) {
                     tracing::warn!(error = ?e, "observe failed");
                 }
-                let _ = reply.send(inventory(&rep));
+                let _ = reply.send(if ingest.is_empty() {
+                    inventory(&rep)
+                } else {
+                    None
+                });
             }
             Ok(Cmd::Digest(reply)) => {
                 let _ = reply.send(confirmed_digest(&rep));
@@ -1641,7 +1651,9 @@ fn run(
                     frames.close(&mut rep, s);
                 }
                 drop(watcher);
-                rep.ingest(ingest.drain(..).collect());
+                if rep.ingest_ready() {
+                    rep.ingest(ingest.drain(..).collect());
+                }
                 rep.store_mut().inner_mut().request_rescan();
                 let frozen = match rep.observe(None) {
                     Ok(_) => {
@@ -1668,7 +1680,7 @@ fn run(
                         // quiescence or holds/completeness fence.
                         let counts = capture_counts(rep.store());
                         match (terminal, counts) {
-                            (false, Some((holds, unresolved))) => {
+                            (false, Some((holds, unresolved))) if ingest.is_empty() => {
                                 inventory(&rep).map(|inventory| Frozen {
                                     inventory,
                                     holds,
@@ -1755,7 +1767,7 @@ fn run(
             log_retention_reclaims(&mut rep);
             last_observe = std::time::Instant::now();
         }
-        if !ingest.is_empty() {
+        if !ingest.is_empty() && rep.ingest_ready() {
             let batch = ingest.drain(..ingest.len().min(64)).collect();
             rep.ingest(batch);
         }

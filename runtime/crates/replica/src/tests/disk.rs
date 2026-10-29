@@ -1340,6 +1340,29 @@ fn synced_batched_ingest_reads_only_matching_pending_rows() {
 }
 
 #[test]
+fn captured_queue_stays_owned_until_apply_recovery_allows_ingest() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    for i in 0..4000 {
+        a.disk
+            .borrow_mut()
+            .user_write(&format!("retained/{i}.md"), Some("user edit"));
+    }
+    let mut captured: std::collections::VecDeque<_> = a.r.observe_changes().unwrap().into();
+    assert_eq!(captured.len(), 4000);
+    a.r.apply_blocked = Some(a.r.head.seq + 1);
+    assert!(!a.r.ingest_ready());
+    assert_eq!(a.disk.borrow().acknowledged, 0);
+    a.r.apply_blocked = None;
+    assert!(a.r.ingest_ready());
+    while !captured.is_empty() {
+        a.r.ingest(captured.drain(..captured.len().min(64)).collect());
+    }
+    assert_eq!(a.disk.borrow().acknowledged, 4000);
+    assert_eq!(a.r.sync_status().pending, 4000);
+}
+
+#[test]
 fn captured_observations_are_reoffered_after_apply_recovery() {
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);

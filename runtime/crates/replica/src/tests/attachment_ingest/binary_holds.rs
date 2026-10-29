@@ -201,6 +201,20 @@ fn replanned_file_collision_fences_the_original_operation_path() {
         n.r.file_materialization_fenced(holder, Some(PATH)).unwrap(),
         "a rival ID must not overwrite the original pending bytes after replan or reopen"
     );
+    // Confirmation commits the deletion before attachment reconciliation and
+    // the end-of-batch touch-index rebuild.
+    let mutation = n.r.store.pending(None, 1).unwrap().remove(0).mutation.id;
+    n.r.store
+        .commit(Tx {
+            pending_del: vec![mutation],
+            ..Tx::default()
+        })
+        .unwrap();
+    assert!(!n.r.file_materialization_fenced(holder, Some(PATH)).unwrap());
+    assert!(
+        !n.r.file_materialization_fenced(incoming, Some(PATH))
+            .unwrap()
+    );
 }
 
 fn capture_offline(n: &mut Node) -> crate::store::PendingRow {

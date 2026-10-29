@@ -486,6 +486,12 @@ impl<S: Store> Replica<S> {
 
     // ------------------------------------------------------------ ingest
 
+    /// Whether captured disk observations can be ingested now. A caller that
+    /// owns a queue must retain it while apply recovery or adoption blocks capture.
+    pub fn ingest_ready(&self) -> bool {
+        self.check_apply_store_health().is_ok() && !self.adopt_gates()
+    }
+
     /// Ingest observed file changes as `external` mutations.
     /// While apply is recovering/faulted, nothing is captured or acknowledged:
     /// evidence must remain in the store and be rescanned/reoffered after recovery.
@@ -506,7 +512,7 @@ impl<S: Store> Replica<S> {
     pub async fn ingest_async(&mut self, observations: Vec<Observation>) {
         // Captured observations can outlive the scan's healthy apply state.
         // Return ownership to the store whenever capture is temporarily blocked.
-        if self.check_apply_store_health().is_err() || self.adopt_gates() {
+        if !self.ingest_ready() {
             let tokens: Vec<_> = observations.iter().map(|o| o.token).collect();
             if let Err(e) = self.store.defer_disk_observations(&tokens) {
                 self.incident(
@@ -1412,15 +1418,16 @@ impl<S: Store> Replica<S> {
             keys.push(format!("p:{}", mdbn_core::paths::path_key(path)));
         }
         for order in self.touch.affected(&keys) {
-            let row = self
+            let Some(row) = self
                 .store
                 .pending(order.checked_sub(1), 1)?
                 .into_iter()
                 .next()
                 .filter(|row| row.order == order)
-                .ok_or_else(|| {
-                    StoreError::Corrupt("pending touch index differs from store".into())
-                })?;
+            else {
+                // Apply deletes confirmed rows before the batch rebuilds the index.
+                continue;
+            };
             if row.mutation.origin != self.cfg.replica_id || row.mutation.source != Source::External
             {
                 continue;
