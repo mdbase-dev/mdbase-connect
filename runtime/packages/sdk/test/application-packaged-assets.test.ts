@@ -15,13 +15,13 @@ async function selector(moduleUrl:string,trust=true){
 
 describe("SDK packaged application assets",()=>{
   it("unbuilt release refuses rather than inventing LAB trust",()=>{expect(()=>packagedApplicationAssets("lab","https://app.test")).toThrow("LAB trust unavailable");});
-  it("production stays typed unavailable, not a LAB fallback",()=>{try{packagedApplicationAssets("production","https://app.test");throw new Error("accepted");}catch(error){expect(error).toMatchObject({code:"unavailable",reason:"application_production_trust_unavailable"});}});
+  it("managed tiers never fall back to a LAB release",async()=>{const select=await selector("https://app.test/sdk/application/packaged-assets.js");for(const tier of ["staging","production"] as const)expect(()=>select(tier,"https://app.test")).toThrow();});
   it("selects the current native pin at the same-artifact URL without I/O",async()=>{
     const select=await selector("https://app.test/sdk/application/packaged-assets.js");
     const fetch=vi.spyOn(globalThis,"fetch").mockImplementation(()=>{throw new Error("unexpected I/O");});
     try {
       const assets=select("lab","https://app.test");
-      expect(assets.runtime).toEqual({url:"https://app.test/sdk/native/runtime-lab.wasm",sha256:"7d45ae07741b165b51b39d684c28014fcdf178ceeef05b233c78f7b9fa35137a",bytes:3655960,maxBytes:3655960});
+      expect(assets.runtime).toEqual({url:"https://app.test/sdk/native/runtime.wasm",sha256:"7d45ae07741b165b51b39d684c28014fcdf178ceeef05b233c78f7b9fa35137a",bytes:3655960,maxBytes:3655960});
       expect(Object.isFrozen(assets.runtime)).toBe(true); expect(fetch).not.toHaveBeenCalled();
     } finally {fetch.mockRestore();}
   });
@@ -29,7 +29,7 @@ describe("SDK packaged application assets",()=>{
   it("selector uses the canonical packaging pins without exposing build provenance or initializer metadata",async()=>{
     const select=await selector("https://app.test/sdk/application/packaged-assets.js");
     const assets=select("lab","https://app.test");
-    expect(assets.runtime).toEqual({url:"https://app.test/sdk/native/runtime-lab.wasm",sha256:pins.runtime.sha256,bytes:pins.runtime.bytes,maxBytes:pins.runtime.maxBytes});
+    expect(assets.runtime).toEqual({url:"https://app.test/sdk/native/runtime.wasm",sha256:pins.runtime.sha256,bytes:pins.runtime.bytes,maxBytes:pins.runtime.maxBytes});
     expect(assets.sqlite).toEqual({url:"https://app.test/sdk/native/sqlite3.wasm",sha256:pins.sqlite.sha256,bytes:pins.sqlite.bytes,maxBytes:pins.sqlite.maxBytes});
     expect(Object.isFrozen(assets.runtime)).toBe(true);
     expect(Object.isFrozen(assets.sqlite)).toBe(true);

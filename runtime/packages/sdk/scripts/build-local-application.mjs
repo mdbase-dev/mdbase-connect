@@ -56,7 +56,7 @@ export function buildLocalApplication({stackConfig, verifier, runtimeFile, outpu
     fs.writeFileSync(path.join(output, 'src/application/asset-pins.json'), JSON.stringify(pins, null, 2) + '\n');
     const assetPath = path.join(output, 'src/application/packaged-assets.ts');
     const selector = fs.readFileSync(assetPath, 'utf8');
-    const anchor = 'new URL("../native/runtime-lab.wasm",import.meta.url)';
+    const anchor = 'new URL("../native/runtime.wasm",import.meta.url)';
     if (selector.split(anchor).length !== 2) throw refuse();
     fs.writeFileSync(assetPath, selector.replace(anchor, 'new URL("../native/runtime-local.wasm",import.meta.url)'));
     const native = path.join(output, 'src/native');
