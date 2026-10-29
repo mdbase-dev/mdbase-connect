@@ -11,7 +11,6 @@
 import { CreateError } from "./bootstrap-common.js";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { effectiveEntitlement, HostedEntitlementRequiredError } from "../../entitlements.js";
-import { CreateError } from "./bootstrap-common.js";
 import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
 import { recoverLostPolicy, withPolicyLock, type PolicyLock } from "./policy-recovery.js";
