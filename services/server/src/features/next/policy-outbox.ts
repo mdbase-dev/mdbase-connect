@@ -155,6 +155,34 @@ export async function queueNextPolicy(client: DatabaseQueryable, collectionId: s
   return true;
 }
 
+/** Caller holds the collection lock. Member removal deactivates enrolled devices;
+ * member-set never reactivates them. Compare original queue positions (including
+ * op order within a row), not recovery reissues of older policy. */
+export async function nextDeviceNeedsRevoke(client: DatabaseQueryable, collection: string, device: string): Promise<boolean> {
+  const active = await client.query(
+    `WITH enrolment AS (
+       SELECT o.id, e.ordinality, e.value->>'account' AS account
+       FROM next_policy_outbox o
+       CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY e(value, ordinality)
+       WHERE o.collection_id=$1 AND o.reissue_of IS NULL
+         AND e.value->>'op'='device-enrol' AND e.value->>'device'=$2
+       ORDER BY o.id DESC, e.ordinality DESC LIMIT 1
+     )
+     SELECT 1 FROM enrolment e
+     WHERE NOT EXISTS (
+       SELECT 1 FROM next_policy_outbox r WHERE r.collection_id=$1
+         AND r.ops->'ops' @> jsonb_build_array(jsonb_build_object('op','device-revoke','device',$2::text)))
+       AND NOT EXISTS (
+         SELECT 1 FROM next_policy_outbox r
+         CROSS JOIN LATERAL jsonb_array_elements(r.ops->'ops') WITH ORDINALITY m(value, ordinality)
+         WHERE r.collection_id=$1 AND r.reissue_of IS NULL
+           AND (r.id, m.ordinality) > (e.id, e.ordinality)
+           AND m.value->>'op'='member-remove' AND m.value->>'account'=e.account)`,
+    [collection, device]
+  );
+  return active.rows.length > 0;
+}
+
 interface Batch {
   id: string;
   seq: string;

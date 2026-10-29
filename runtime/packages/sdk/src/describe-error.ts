@@ -74,7 +74,7 @@ export const PROBLEM_CODES = [
   "device_offline", "desktop_update_required", "old_connector_running", "sync_required", "no_device_registered",
   "access_removed", "read_only", "capability_missing", "collection_deleted", "collection_unavailable", "moved_to_next_runtime", "device_approval_required",
   // Server outcomes.
-  "collection_migrating", "account_suspended", "update_required",
+  "collection_migrating", "account_suspended", "update_required", "account_collection_quota_exceeded",
   // MdbaseError codes (the 15).
   "invalid_request", "invalid_record", "not_found", "conflict", "unauthenticated", "forbidden", "collection_invalid",
   "unavailable", "rate_limited", "quota_exceeded", "too_large", "outcome_unknown", "internal",
@@ -142,6 +142,7 @@ const COPY = {
   unavailable: OFFLINE,
   rate_limited: ["Too many requests", "Wait a moment, then try again.", "retry", "warning", true],
   quota_exceeded: ["Out of storage", "Your collection has reached its storage limit. Free up space to keep saving.", "free_space", "error"],
+  account_collection_quota_exceeded: ["Synced collection limit reached", "Your account has reached its synced collection limit. Delete a synced collection before creating another.", "free_space", "error", false, "Manage collections"],
   too_large: ["That's too large", "This item is larger than mdbase allows.", "none", "warning"],
   outcome_unknown: ["Not sure that worked", "The connection dropped before mdbase confirmed it. Check whether it went through before trying again.", "resolve_outcome", "warning"],
   internal: GENERIC,

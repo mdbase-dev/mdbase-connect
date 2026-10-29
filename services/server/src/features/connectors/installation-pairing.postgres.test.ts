@@ -2173,6 +2173,25 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await db.query("SELECT id FROM grants WHERE user_id=$1",[p.owner.user])).rows).toEqual([]);
   });
 
+  it.each(["remove-access", "self", "account"] as const)("skips an inactive member's device revoke on %s", async mode => {
+    const p = await prepared(), owner = await account();
+    const collection = await scopeCollection(owner.user, p.owner.user);
+    expect((await approveDevice(p.flow, p.owner, undefined, {collection_ids:[collection],create_collections:false})).statusCode).toBe(200);
+    const token = (await p.flow.exchange()).json().token as string;
+    const device = p.input.installation.device_id, keys = p.proof.payload;
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)", [collection, JSON.stringify({version:1,ops:[
+      {op:"device-enrol",device,account:p.owner.user,kind:p.input.installation.kind,signPublicKey:{$hex:keys.sign_pk},kemPublicKey:{$hex:keys.kem_pk},noisePublicKey:{$hex:keys.noise_pk}},
+      {op:"member-remove",account:p.owner.user}
+    ]})]);
+    const result = mode === "remove-access"
+      ? await app.inject({method:"POST",url:`/v1/account/applications/${p.input.installation.app_id}/remove-installation-access`,headers:p.owner.headers,payload:{collection_id:collection,confirm:true}})
+      : await app.inject({method:"DELETE",url:mode === "self" ? "/v1/next/installation" : `/v1/account/installations/${p.selected.connector_id}`,headers:mode === "self" ? {authorization:`Bearer ${token}`} : p.owner.headers});
+    expect(result.statusCode, result.body).toBe(200);
+    expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb", [collection, JSON.stringify([{op:"device-revoke",device}])])).rows).toEqual([]);
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2", [p.selected.connector_id,collection])).rows).toEqual([]);
+    expect((await db.query("SELECT 1 FROM next_policy_batches WHERE collection_id=$1 AND state='parked'", [collection])).rows).toEqual([]);
+  });
+
   it("account management withdraws creation-only authority without deleting collections or creating grants", async () => {
     const p=await prepared("app-runtime",true), collection=await scopeCollection(p.owner.user);
     expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[],create_collections:true})).statusCode).toBe(200);

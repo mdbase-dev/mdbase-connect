@@ -11,6 +11,27 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[test]
+fn cloud_collection_quota_is_not_retryable() {
+    let error = cloud_refusal(crate::cloud::CloudError::Server(
+        429,
+        "account_collection_quota_exceeded".into(),
+    ));
+    assert_eq!(error.code, "quota_exceeded");
+    assert_eq!(
+        error.reason.as_deref(),
+        Some("account_collection_quota_exceeded")
+    );
+    assert_eq!(
+        mdbn_wire::client::recovery_for(&error.code),
+        Some(mdbn_wire::client::Recovery::FreeSpace)
+    );
+    assert_eq!(
+        error.message,
+        "Your account has reached its synced collection limit. Delete a synced collection before creating another."
+    );
+}
+
+#[test]
 fn cloud_rate_limits_are_retryable_control_errors() {
     for (delay, message) in [
         (Some(17), "rate limited; retry after 17 seconds"),

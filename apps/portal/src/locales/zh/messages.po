@@ -2332,7 +2332,6 @@ msgstr "在 {0} 中打开"
 msgid "Open in editor"
 msgstr "在编辑器中打开"
 
-#: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
@@ -2779,8 +2778,8 @@ msgid "Return to {mirrorName}."
 msgstr "返回 {mirrorName}。"
 
 #: src/authority-workflows.tsx
-msgid "Return to mdbase connect."
-msgstr "返回 mdbase connect。"
+#~ msgid "Return to mdbase connect."
+#~ msgstr "返回 mdbase connect。"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3128,6 +3127,10 @@ msgstr "登录已取消。你可以重试或选择其他方式。"
 msgid "Signed in <0>{0}</0> · ID {1}"
 msgstr "已登录 <0>{0}</0> · ID {1}"
 
+#: src/authority-workflows.tsx
+msgid "Signing in finishes on that computer."
+msgstr "登录将在那台计算机上完成。"
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
@@ -3270,8 +3273,8 @@ msgid "the computer holding this collection"
 msgstr "存有此集合的电脑"
 
 #: src/authority-workflows.tsx
-msgid "The desktop app will finish securely. No connector token was displayed or copied."
-msgstr "桌面应用将安全地完成后续操作。连接器令牌未被显示或复制。"
+#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
+#~ msgstr "桌面应用将安全地完成后续操作。连接器令牌未被显示或复制。"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
@@ -3740,6 +3743,10 @@ msgstr "验证期间写入会暂停，之后托管访问将停止。"
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."
 msgstr "你已允许所选集合发送提醒。"
+
+#: src/authority-workflows.tsx
+msgid "You can close this tab."
+msgstr "你可以关闭此标签页。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

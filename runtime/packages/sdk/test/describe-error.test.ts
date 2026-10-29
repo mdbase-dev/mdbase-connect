@@ -4,6 +4,11 @@ import { describeError } from "../src/describe-error.js";
 import { MdbaseError } from "../src/errors.js";
 
 describe("describeError", () => {
+  it("distinguishes the account collection quota from collection storage", () => {
+    expect(describeError(new MdbaseError({ code: "quota_exceeded", recovery: "free_space", message: "diagnostic", reason: "account_collection_quota_exceeded" })))
+      .toMatchObject({ key: "account_collection_quota_exceeded", message: "Your account has reached its synced collection limit. Delete a synced collection before creating another.", action: "free_space", transient: false });
+    expect(describeError("quota_exceeded")?.title).toBe("Out of storage");
+  });
   it("explains Viewer write refusals without suggesting app approval", () => {
     expect(describeError(new MdbaseError({ code: "forbidden", recovery: "none", message: "raw diagnostic", reason: "read_only" })))
       .toMatchObject({ key: "read_only", title: "View access only", message: "You have view access, so changes can't be saved. Ask the collection's owner for edit access.", action: "none", severity: "warning" });

@@ -17,7 +17,7 @@ import { ed25519PublicKeyObject } from "../next/policy-keys.js";
 import { currentMember, currentSession, inTransaction, lock, refuseRevoked } from "../next/bootstrap-common.js";
 import type { ConnectorIdentity, User } from "../../platform/request-authentication.js";
 import { installationCollections, requireInstallationScope } from "../next/installation-scope.js";
-import { queueNextPolicy } from "../next/policy-outbox.js";
+import { nextDeviceNeedsRevoke, queueNextPolicy } from "../next/policy-outbox.js";
 import { findInstallationApplication } from "../applications/store.js";
 import { installationTimerDeclaration, readInstallationTimerDeclaration, type InstallationTimerBinding, type InstallationTimerDeclaration } from "../next/timers/installation-declaration.js";
 import { InstallationPairingError } from "./installation-pairing-error.js";
@@ -769,9 +769,7 @@ export async function removeInstallationAccess(db:DatabasePool,source:string|{ap
        JOIN applications a ON a.id::text=k.app_id
        WHERE c.user_id=$1 AND a.family_identity=$2 ORDER BY k.connector_id FOR UPDATE OF k`,[user,app.family_identity]);
     for (const k of installations.rows) {
-      const enrolled=await c.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1",[collection,JSON.stringify([{op:"device-enrol",device:k.device_id}])]);
-      const revoked=await c.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1",[collection,JSON.stringify([{op:"device-revoke",device:k.device_id}])]);
-      if (enrolled.rows.length && !revoked.rows.length) {
+      if (await nextDeviceNeedsRevoke(c,collection,k.device_id)) {
         if (!await queueNextPolicy(c,collection,[{op:"device-revoke",device:k.device_id}])) return fail("installation_collection_unavailable",409);
       }
       await c.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[k.connector_id,collection]);

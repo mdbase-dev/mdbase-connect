@@ -228,8 +228,8 @@ fn http(tls: &Arc<rustls::ClientConfig>) -> Result<reqwest::Client, CloudError> 
         .map_err(|e| CloudError::Network(e.to_string()))
 }
 
-async fn json_response(r: reqwest::Response) -> Result<(u16, Value), CloudError> {
-    check_rate_limit(&r)?;
+async fn json_response(mut r: reqwest::Response) -> Result<(u16, Value), CloudError> {
+    check_rate_limit(&mut r).await?;
     let status = r.status().as_u16();
     let v: Value = r.json().await.unwrap_or(Value::Null);
     if status == 401 || status == 403 {
@@ -246,13 +246,29 @@ async fn json_response(r: reqwest::Response) -> Result<(u16, Value), CloudError>
     Ok((status, v))
 }
 
-fn check_rate_limit(response: &reqwest::Response) -> Result<(), CloudError> {
+async fn check_rate_limit(response: &mut reqwest::Response) -> Result<(), CloudError> {
     if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
         let retry_after = response
             .headers()
             .get(reqwest::header::RETRY_AFTER)
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.parse().ok());
+        let mut bytes = Vec::new();
+        while let Ok(Some(chunk)) = response.chunk().await {
+            if bytes.len().saturating_add(chunk.len()) > 256 * 1024 {
+                return Err(CloudError::RateLimited(retry_after));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        if value.pointer("/error/code").and_then(Value::as_str)
+            == Some("account_collection_quota_exceeded")
+        {
+            return Err(CloudError::Server(
+                429,
+                "account_collection_quota_exceeded".into(),
+            ));
+        }
         return Err(CloudError::RateLimited(retry_after));
     }
     Ok(())
@@ -657,7 +673,9 @@ impl Cloud {
                 .and_then(|v| v.to_str().ok()),
             fsutil::now_ms() as u64,
         );
-        check_rate_limit(&response)?;
+        let rate_limit = check_rate_limit(&mut response).await;
+        current().map_err(CloudError::Local)?;
+        rate_limit?;
         let status = response.status().as_u16();
         if expected_status.is_some_and(|expected| status != expected) {
             return Err(CloudError::Server(status, "unexpected_status".into()));
@@ -1764,15 +1782,24 @@ mod tests {
             (
                 "Retry-After: 17\r\n",
                 r#"{"error":{"code":"rate_limited"}}"#,
-                Some(17),
+                CloudError::RateLimited(Some(17)),
             ),
             (
                 "Retry-After: 0\r\n",
                 r#"{"error":{"code":"invalid_request"}}"#,
-                Some(0),
+                CloudError::RateLimited(Some(0)),
             ),
-            ("", "not json", None),
-            ("Retry-After: invalid\r\n", "", None),
+            ("", "not json", CloudError::RateLimited(None)),
+            (
+                "Retry-After: invalid\r\n",
+                "",
+                CloudError::RateLimited(None),
+            ),
+            (
+                "Retry-After: 17\r\n",
+                r#"{"error":{"code":"account_collection_quota_exceeded"}}"#,
+                CloudError::Server(429, "account_collection_quota_exceeded".into()),
+            ),
         ] {
             for guarded in [false, true] {
                 let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1805,7 +1832,7 @@ mod tests {
                         .await
                         .unwrap_err()
                 };
-                assert_eq!(error, CloudError::RateLimited(expected));
+                assert_eq!(error, expected);
                 if guarded {
                     assert!(
                         cloud.clock_skew(),

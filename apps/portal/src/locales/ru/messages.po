@@ -2332,7 +2332,6 @@ msgstr "Открыть в {0}"
 msgid "Open in editor"
 msgstr "Открыть в редакторе"
 
-#: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
@@ -2779,8 +2778,8 @@ msgid "Return to {mirrorName}."
 msgstr "Вернитесь к {mirrorName}."
 
 #: src/authority-workflows.tsx
-msgid "Return to mdbase connect."
-msgstr "Вернитесь в mdbase connect."
+#~ msgid "Return to mdbase connect."
+#~ msgstr "Вернитесь в mdbase connect."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3128,6 +3127,10 @@ msgstr "Вход отменён. Попробуйте снова или выбе
 msgid "Signed in <0>{0}</0> · ID {1}"
 msgstr "Выполнен вход: <0>{0}</0> · ID {1}"
 
+#: src/authority-workflows.tsx
+msgid "Signing in finishes on that computer."
+msgstr "Вход завершится на том компьютере."
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
@@ -3270,8 +3273,8 @@ msgid "the computer holding this collection"
 msgstr "компьютер, на котором хранится эта коллекция"
 
 #: src/authority-workflows.tsx
-msgid "The desktop app will finish securely. No connector token was displayed or copied."
-msgstr "Настольное приложение безопасно завершит процесс. Токен подключения не показывался и не копировался."
+#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
+#~ msgstr "Настольное приложение безопасно завершит процесс. Токен подключения не показывался и не копировался."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
@@ -3740,6 +3743,10 @@ msgstr "Запись приостановится на время проверк
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."
 msgstr "Вы разрешили напоминания для выбранных коллекций."
+
+#: src/authority-workflows.tsx
+msgid "You can close this tab."
+msgstr "Эту вкладку можно закрыть."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
