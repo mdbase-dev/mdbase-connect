@@ -91,8 +91,9 @@ SHA256 `a57387f8…` from source `6ec021f6`, not from the SDK's source commit.
 Neither archive is rewritten. SDK sign-out attempts whole-store grant cleanup;
 SDK results report incomplete cleanup, and account-bound routing must still
 hide another account's surviving grants. The editor and workspace UI development
-dependency use the same SDK archive. Editor imports the packed UI, not workspace
-UI source; its style-token gate checks the installed UI CSS. The shared UI owns
+dependency use the same SDK archive. Editor imports the exact npm UI version
+pinned in `config/native-publish/*.json`, not workspace UI source; its
+style-token gate checks the installed UI CSS. The shared UI owns
 opening progress, slow warnings, focus, storage warnings and Private entry; no
 app-side progress or warning shim is provided. `pnpm build:lab` generates the canonical
 `https://editor-lab.mdbase.dev/` declaration and selects the SDK's LAB environment.

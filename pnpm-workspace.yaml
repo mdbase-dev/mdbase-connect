@@ -71,6 +71,8 @@ auditConfig:
 
 minimumReleaseAgeExclude:
   - hono@4.13.7
+  # Editor's pinned native-publication UI; remove once beta.147 is past the release-age window.
+  - '@mdbase-dev/ui@0.1.0-beta.147'
 
 patchedDependencies:
   electron-installer-common@0.10.4: patches/electron-installer-common@0.10.4.patch

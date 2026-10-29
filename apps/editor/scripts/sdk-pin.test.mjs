@@ -11,6 +11,22 @@ const app = new URL('../', import.meta.url);
 const json = async url => JSON.parse(await readFile(url, 'utf8'));
 const digest = (bytes, algorithm = 'sha256', encoding = 'hex') => createHash(algorithm).update(bytes).digest(encoding);
 
+it('pins the Editor npm UI version and registry integrity in both target configs and the frozen lock', async () => {
+  const pkg = await json(new URL('package.json', app));
+  const version = pkg.dependencies['@mdbase-dev/ui'];
+  assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+  const lock = parse(await readFile(new URL('../../pnpm-lock.yaml', app), 'utf8'));
+  const dependency = lock.importers['apps/editor'].dependencies['@mdbase-dev/ui'];
+  assert.equal(dependency.specifier, version);
+  assert.equal(dependency.version.split('(')[0], version);
+  for (const target of ['staging', 'production']) {
+    const config = await json(new URL(`../../config/native-publish/${target}.json`, app));
+    assert.equal(config.ui.version, version);
+    assert.match(config.ui.integrity, /^sha512-[A-Za-z0-9+/]{86}==$/);
+    assert.deepEqual(lock.packages[`@mdbase-dev/ui@${version}`].resolution, { integrity: config.ui.integrity });
+  }
+});
+
 it('pins the ordinary Editor to the original production SDK with beta.141 trust', async () => {
   const pkg = await json(new URL('package.json', app));
   const metadata = await json(new URL('vendor/mdbase-next-sdk.json', app));

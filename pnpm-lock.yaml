@@ -206,8 +206,8 @@ importers:
         specifier: file:vendor/sdk-eaa4e697-production-beta141.tgz
         version: file:apps/editor/vendor/sdk-eaa4e697-production-beta141.tgz
       '@mdbase-dev/ui':
-        specifier: workspace:*
-        version: link:../../packages/app-ui
+        specifier: 0.1.0-beta.147
+        version: 0.1.0-beta.147(@codemirror/view@6.43.12)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-eaa4e697-production-beta141.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2311,6 +2311,25 @@ packages:
     engines: {node: '>=20'}
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
+
+  '@mdbase-dev/ui@0.1.0-beta.147':
+    resolution: {integrity: sha512-BslLGNFzNSzQX8Uvhoj7NvtvG0Y1ea/jLhXU+NQlqTb/58CX4m3xeV+ambV7acuzD7zcKr54USEd10SU4ncyQA==}
+    version: 0.1.0-beta.147
+    peerDependencies:
+      '@codemirror/view': ^6.0.0
+      '@lingui/core': 6.9.0
+      '@lingui/react': 6.9.0
+      '@mdbase-dev/i18n': '*'
+      '@mdbase-dev/sdk': '*'
+      react: ^19.2.0
+      react-dom: ^19.2.0
+    peerDependenciesMeta:
+      '@codemirror/view':
+        optional: true
+      '@mdbase-dev/sdk':
+        optional: true
+      react-dom:
+        optional: true
 
   '@messageformat/date-skeleton@1.1.0':
     resolution: {integrity: sha512-rmGAfB1tIPER+gh3p/RgA+PVeRE/gxuQ2w4snFWPF5xtb5mbWR7Cbw7wCOftcUypbD6HVoxrVdyyghPm3WzP5A==}
@@ -8124,6 +8143,19 @@ snapshots:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
+
+  '@mdbase-dev/ui@0.1.0-beta.147(@codemirror/view@6.43.12)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-eaa4e697-production-beta141.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@fontsource-variable/atkinson-hyperlegible-next': 5.3.0
+      '@fontsource/azeret-mono': 5.3.0
+      '@lingui/core': 6.9.0(@babel/core@7.29.7(supports-color@10.2.2))
+      '@lingui/react': 6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0)
+      '@mdbase-dev/i18n': link:packages/i18n
+      react: 19.3.0
+    optionalDependencies:
+      '@codemirror/view': 6.43.12
+      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-eaa4e697-production-beta141.tgz
+      react-dom: 19.3.0(react@19.3.0)
 
   '@messageformat/date-skeleton@1.1.0': {}
 
