@@ -1216,7 +1216,11 @@ export class HostedCollection extends DurableObject<Env> {
     if (!UUID.test(collection)) return new Response("bad collection", { status: 400 });
     if (url.pathname === "/v1/hosted/collection-mode/ready" || url.pathname === "/v1/hosted/collection-mode/retire") {
       const input = await modeServiceRequest(request, (this.env as Env & { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN);
-      if (input instanceof Response) return input;
+      if (input instanceof Response) {
+        if (this.env.LAB === "1" && input.status === 503) console.info(JSON.stringify({ event: "collection_mode_not_ready", reason: "invalid_actor_request",
+          token_configured: !!(this.env as Env & { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN }));
+        return input;
+      }
       if (input.collection !== collection) {
         if (this.env.LAB === "1") console.info(JSON.stringify({ event: "collection_mode_not_ready", reason: "actor_collection_mismatch" }));
         return modeUnavailable();
