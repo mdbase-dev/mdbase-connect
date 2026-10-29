@@ -16,6 +16,8 @@ trust boundary.
   `test/upgrade/`, Windows diagnostics, every registered system-suite command,
   and the Server CI workflows. The list only adds pull-request coverage; a
   missing input delays feedback but never skips a merge-queue gate.
+  `pnpm ci:local` applies the same plan to the local branch's committed,
+  uncommitted and untracked changes since `origin/main`.
 - Pull requests labelled `ci:full` run the complete cross-platform, Rust,
   browser, container, upgrade, and system qualification. Isolated staging
   publication requires this label and verifies the full artifact.
