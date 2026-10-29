@@ -612,13 +612,15 @@ impl<S: Store> Replica<S> {
             Err(crate::policy::Rejected::Void(v)) => Some(v.rule),
             Ok(events) => {
                 for e in events {
-                    if matches!(
-                        e,
-                        crate::policy::PolicyEvent::CollectionStateChanged {
-                            from: Some(mdbn_wire::policy::CState::CloudCopy),
-                            to: mdbn_wire::policy::CState::E2e
-                        }
-                    ) {
+                    if settled
+                        && matches!(
+                            e,
+                            crate::policy::PolicyEvent::CollectionStateChanged {
+                                from: Some(mdbn_wire::policy::CState::CloudCopy),
+                                to: mdbn_wire::policy::CState::E2e
+                            }
+                        )
+                    {
                         self.capture_private_switch(p, *chain, switch_eligible);
                     }
                     if settled || !self.private_switch_covers(p) {
@@ -642,6 +644,16 @@ impl<S: Store> Replica<S> {
                         if let Ok(kg) =
                             mdbn_wire::envelope::KeyGrantPayload::from_bytes(&item.body.0)
                         {
+                            if settled {
+                                self.observe_cloud_read_grant(
+                                    Head {
+                                        seq: p,
+                                        chain: *chain,
+                                    },
+                                    item,
+                                    &kg,
+                                );
+                            }
                             let ev = self.sealer.accept_key_grant(&kg);
                             self.note_hosted_key_delivery(p, item, ev);
                             self.on_key_event(ev);
@@ -774,12 +786,8 @@ impl<S: Store> Replica<S> {
                 );
             }
             crate::policy::PolicyEvent::CollectionStateChanged { to, .. } => {
-                // Every device alerts unless its own user requested the change.
                 if self.cfg.chosen_state != Some(to) && !self.private_switch_waiting() {
-                    self.incident(
-                        IncidentKind::Integrity,
-                        Some(Value::Text(format!("collection_state_changed: {to:?}"))),
-                    );
+                    self.mode_alert(to);
                 }
             }
         }

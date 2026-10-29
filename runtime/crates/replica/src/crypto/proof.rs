@@ -164,6 +164,49 @@ pub fn collection_proof_digest(
     Some(cbor_digest(kind.domain(), fields))
 }
 
+/// An authenticated HTTP mode operation, not a collection-log trust statement.
+pub struct ModeProof {
+    /// Durable request identity.
+    pub request: Uuid,
+    /// Private rather than Cloud copy.
+    pub private: bool,
+    /// Completion rather than preparation.
+    pub finish: bool,
+    /// Actual held epoch, or the verified private cutover epoch.
+    pub epoch: u64,
+    /// Applied prefix for preparation; accepted receipt for completion.
+    pub seq: u64,
+    /// Applied prefix chain hash.
+    pub chain: B32,
+    /// Active keyed user devices at that prefix (preparation only).
+    pub members: Vec<Uuid>,
+}
+/// Collection/request/direction/phase and actual native epoch/prefix bound proof.
+pub fn collection_mode_digest(
+    challenge: &[u8; 32],
+    connector: &Uuid,
+    device: &Uuid,
+    collection: &Uuid,
+    mode: &ModeProof,
+) -> B32 {
+    cbor_digest(
+        "mdbase/v1/collection-mode",
+        vec![
+            bytes(challenge),
+            bytes(&connector.0),
+            bytes(&device.0),
+            bytes(&collection.0),
+            bytes(&mode.request.0),
+            Cbor::Uint(if mode.private { 0 } else { 1 }),
+            Cbor::Bool(mode.finish),
+            Cbor::Uint(mode.epoch),
+            Cbor::Uint(mode.seq),
+            bytes(&mode.chain.0),
+            Cbor::Array(mode.members.iter().map(|id| bytes(&id.0)).collect()),
+        ],
+    )
+}
+
 /// The account-key (AK1) request proofs (Connect #635 `accountKey*Digest`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountProof {
@@ -318,6 +361,32 @@ mod tests {
             out[i] = u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap();
         }
         B16(out)
+    }
+
+    #[test]
+    fn mode_preflight_matches_cp_and_binds_members_to_the_prefix() {
+        let mut mode = ModeProof {
+            request: B16([4; 16]),
+            private: true,
+            finish: false,
+            epoch: 5,
+            seq: 6,
+            chain: B32([9; 32]),
+            members: vec![B16([5; 16]), B16([6; 16])],
+        };
+        let digest = |mode: &ModeProof| {
+            collection_mode_digest(&[7; 32], &B16([1; 16]), &B16([2; 16]), &B16([3; 16]), mode)
+        };
+        assert_eq!(
+            hex(digest(&mode)),
+            "1a43921d3da15d48921e70194727a6153d3f4b9d9195c9a8feeb5a092beeb45b"
+        );
+        let original = digest(&mode);
+        mode.members.pop();
+        assert_ne!(digest(&mode), original);
+        mode.members.push(B16([6; 16]));
+        mode.seq += 1;
+        assert_ne!(digest(&mode), original);
     }
 
     fn ids() -> (Uuid, Uuid, Uuid) {

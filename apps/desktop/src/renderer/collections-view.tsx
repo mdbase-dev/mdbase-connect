@@ -3,6 +3,7 @@ import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useState } from "react";
 import { Dialog } from "@mdbase-dev/ui/dialog";
+import { CollectionModeControl } from "@mdbase-dev/ui/collection-mode";
 import { presentCollection } from "./daemon-view.mjs";
 import { Empty, SectionHeading, StatusDot } from "./ui-components";
 import { message, relativeTime, syncEnableMessage } from "./view-model";
@@ -119,6 +120,7 @@ function Details({ collection, onDone }: { collection: DaemonCollection; onDone(
       <label><span><Trans>Name</Trans></span><input value={name} maxLength={100} disabled={saving} onChange={(event) => setName(event.target.value)} /></label>
       <label><span><Trans>Description</Trans></span><textarea value={description} maxLength={500} disabled={saving} onChange={(event) => setDescription(event.target.value)} placeholder={t(i18n)({ message: "What this collection is for" })} /></label>
       <small><Trans>The folder is not renamed. The description stays on this computer.</Trans></small>
+      {["synced", "synced_e2e"].includes(collection.mode) && <CollectionModeControl collectionId={collection.id} native load={() => window.mdbaseConnect.collectionModeStatus(collection.id)} change={(target) => window.mdbaseConnect.changeCollectionMode(collection.id, target, false)} cancel={(target) => window.mdbaseConnect.changeCollectionMode(collection.id, target, false, true)} />}
       <div className="row-actions">
         <button className="button secondary" disabled={saving} onClick={() => onDone(null)}><Trans>Cancel</Trans></button>
         <button className="button primary" disabled={saving || !name.trim()} onClick={() => void save()}>{saving ? t(i18n)({ message: "Saving…", context: "Local collection management" }) : t(i18n)({ message: "Save details", context: "Local collection management" })}</button>

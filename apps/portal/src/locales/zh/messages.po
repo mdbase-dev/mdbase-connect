@@ -411,10 +411,6 @@ msgid "<0>Application origin unverified.</0> Continue only if you started this c
 msgstr "<0>无法验证应用来源。</0>只有在你主动发起此连接时才继续{1}。{3}"
 
 #: src/ConnectApp.tsx
-msgid "A cloud copy helps your replicas sync. This page does not report their connection status."
-msgstr "云端副本有助于同步你的各个副本。此页面不显示它们的连接状态。"
-
-#: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "有人与你共享了一个集合"
 
@@ -1039,10 +1035,6 @@ msgstr "集合"
 msgid "Collection changes"
 msgstr "集合更改"
 
-#: src/ConnectApp.tsx
-msgid "Collection content remains in your replicas; no cloud copy is configured."
-msgstr "集合内容仍在你的副本中；尚未配置云端副本。"
-
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
 msgstr "集合 ID"
@@ -1064,6 +1056,10 @@ msgstr "集合所有者"
 msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "集合权限"
+
+#: src/ConnectApp.tsx
+msgid "Collection replicas"
+msgstr "集合副本"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
@@ -2681,6 +2677,10 @@ msgstr "替换现有文件"
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
 msgstr "更换密码会让连接此账户的所有其他浏览器会话退出登录。"
+
+#: src/ConnectApp.tsx
+msgid "Replicas sync between your devices. Application access is managed separately."
+msgstr "副本在你的设备之间同步。应用的访问权限单独管理。"
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx

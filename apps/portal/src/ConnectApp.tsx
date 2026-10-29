@@ -19,6 +19,7 @@ import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation
 import { Brand, ThemeMenu } from "./portal-ui";
 import { readRememberedCollection, rememberCollection } from "./portal-model";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
+import { CollectionModeControl } from "@mdbase-dev/ui/collection-mode";
 
 import {
   ConfirmAction,
@@ -512,7 +513,9 @@ function Storage({ collection, busy, perform, editorOrigin }: {
   useLocaleRevision();
   if (collection.kind === "native") {
     return <Page title={t(i18n)({ message: "Storage & sync", context: "Connect interface" })} intro={t(i18n)`${collection.name} is stored in mdbase replicas on your devices.`}>
-      <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong>{collection.source.sync === "cloud_copy" ? t(i18n)({ message: "Cloud copy configured", context: "Connect interface" }) : t(i18n)({ message: "Private collection", context: "Connect interface" })}</strong><small>{collection.source.sync === "cloud_copy" ? t(i18n)({ message: "A cloud copy helps your replicas sync. This page does not report their connection status." }) : t(i18n)({ message: "Collection content remains in your replicas; no cloud copy is configured." })}</small></div></div></section>
+      <p>{collection.detail}</p>
+      <CollectionModeControl key={collection.id} collectionId={collection.id} load={() => management.collectionModeStatus(collection.id)} change={(targetMode, requestId) => management.requestCollectionMode(collection.id, {targetMode, requestId})} cancel={(_target, requestId) => management.cancelCollectionMode(collection.id, requestId)} />
+      <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection replicas</Trans></strong><small><Trans>Replicas sync between your devices. Application access is managed separately.</Trans></small></div></div></section>
     </Page>;
   }
   if (collection.kind === "hosted") {

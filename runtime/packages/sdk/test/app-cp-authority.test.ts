@@ -21,7 +21,7 @@ describe("app CP log-token authority", () => {
     expect(await f.authority.accessToken({ signal: signal() })).toBe("ls-device-token"); expect(f.authority.isCurrent()).toBe(true); expect(f.authority.logTransport().isCurrent()).toBe(true);
     const first = f.fetch.mock.calls[0]!, second = f.fetch.mock.calls[1]!; expect(first[0]).toBe("https://cp.example/v1/next/devices/challenge"); expect(second[0]).toBe(`https://cp.example/v1/next/collections/${C}/log-token`);
     expect(first[1]).toMatchObject({ method: "POST", credentials: "omit", redirect: "error", cache: "default", referrerPolicy: "no-referrer", headers: { authorization: "Bearer private-connector-bearer" } });
-    expect(JSON.parse(second[1]!.body as string)).toEqual({ device_id: D, challenge: "11".repeat(32), sig: "77".repeat(64) });
+    expect(JSON.parse(second[1]!.body as string)).toEqual({ device_id: D, challenge: "11".repeat(32), sig: "77".repeat(64), capabilities: ["collection_mode_switch_v1"] });
     expect(f.runtime.signCpLogToken).toHaveBeenCalledTimes(1); expect(f.signature.every(b => b === 0)).toBe(true);
     expect(await f.authority.accessToken({ signal: signal() })).toBe("ls-device-token"); expect(f.fetch).toHaveBeenCalledTimes(2);
   });

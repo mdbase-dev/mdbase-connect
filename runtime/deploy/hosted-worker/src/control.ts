@@ -486,7 +486,7 @@ export class ControlClient {
     const cached = this.tokens.get(key);
     if (cached && cached.expiresAt - REFRESH_MARGIN_MS > now) return cached;
     this.tokens.delete(key);
-    const r = (await this.call(`/internal/v1/next/service-devices/${device}/log-token`, { method: "POST", body: { collection } }, MAX_TOKEN_BYTES, signal)) as Record<string, unknown>;
+    const r = (await this.call(`/internal/v1/next/service-devices/${device}/log-token`, { method: "POST", body: { collection, capabilities: ["collection_mode_switch_v1"] } }, MAX_TOKEN_BYTES, signal)) as Record<string, unknown>;
     const ok = r && typeof r === "object" && typeof r.token === "string" && /^[0-9a-f]+\.[0-9a-f]{128}$/.test(r.token)
       && typeof r.expires_at === "number" && Number.isSafeInteger(r.expires_at)
       && r.expires_at > now + REFRESH_MARGIN_MS && r.expires_at <= now + TOKEN_LIFETIME_MS + REFRESH_MARGIN_MS;

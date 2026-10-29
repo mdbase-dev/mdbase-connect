@@ -123,7 +123,7 @@ export class AppCpLogAuthority implements AppLogHttpAuthority {
       challenge = Uint8Array.from(issued.challenge.match(/../g)!.map(v => parseInt(v, 16)));
       signature = this.runtime.signCpLogToken(challenge); this.check(options.signal);
       if (!(signature instanceof Uint8Array) || signature.length !== 64) throw fail("response");
-      const body = JSON.stringify({ device_id: this.deviceId, challenge: issued.challenge, sig: hex(signature) });
+      const body = JSON.stringify({ device_id: this.deviceId, challenge: issued.challenge, sig: hex(signature), capabilities: ["collection_mode_switch_v1"] });
       const minted = await this.json(`/v1/next/collections/${this.collection}/log-token`, bearer, body, options.signal); this.check(options.signal);
       if (typeof minted.token !== "string" || !minted.token || minted.token.length > 16 * 1024 || /[^\x21-\x7e]/.test(minted.token) || typeof minted.expires_at !== "number" || !Number.isSafeInteger(minted.expires_at) || minted.expires_at - this.now() <= 5_000 || minted.expires_at - this.now() > 16 * 60_000) throw fail("response");
       this.token = { value: minted.token, expires: minted.expires_at }; this.authenticated = true;

@@ -21,6 +21,8 @@ import { domainHash, uuidBytes } from "./policy-wire.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { audit } from "../../platform/audit-events.js";
 
+import { advertiseModeCapability, switchAware } from "./collection-mode-capability.js";
+
 export const NEXT_DEVICE_CAPABILITY = "next_device_v1";
 
 /** Stored consenting identity, not collection/device owner or client metadata. */
@@ -178,11 +180,13 @@ export async function registerDevice(
       throw new DeviceRegistrationError("device_already_bound", "This connector or device is already registered to another.");
     }
     const row = existing.rows[0];
+    // Any subsequent identity refusal rolls this advertisement back too.
+    if (row) await advertiseModeCapability(client, deviceId, body.capabilities);
     if (!row) {
       await client.query(
-        `INSERT INTO next_devices (id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [deviceId, connector.id, connector.user_id, kind, signPk, kemPk, noisePk]
+        `INSERT INTO next_devices (id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk, mode_switch_advertised)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [deviceId, connector.id, connector.user_id, kind, signPk, kemPk, noisePk, switchAware(body.capabilities)]
       );
       return { device_id: deviceId };
     }
@@ -303,7 +307,7 @@ export function deviceBindDigest(connectorId: string, sessionId: string, nonce: 
  * did not offer `next_device_v1`.
  */
 export class NextRelayDevices {
-  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; pipes: boolean; deviceId?: string; oldConnectorRunning: boolean }>();
+  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; pipes: boolean; deviceId?: string; oldConnectorRunning: boolean; capabilities: readonly string[] }>();
 
   constructor(private readonly db: DatabasePool, private readonly pipes?: NoisePipes) {}
 
@@ -331,7 +335,7 @@ export class NextRelayDevices {
   welcome(socket: WebSocket, capabilities: readonly string[], oldConnectorRunning = false): { device_nonce?: string } {
     if (!this.negotiated(capabilities)) return {};
     const nonce = randomBytes(32);
-    this.sockets.set(socket, { nonce, pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY), oldConnectorRunning });
+    this.sockets.set(socket, { nonce, pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY), oldConnectorRunning, capabilities: [...capabilities] });
     return { device_nonce: nonce.toString("hex") };
   }
 
@@ -353,6 +357,7 @@ export class NextRelayDevices {
     if (!row || !verifies(row.sign_pk, deviceBindDigest(connectorId, sessionId, state.nonce), sig)) {
       return reply({ type: "device_bind_failed", reason: "unknown_device_or_signature" });
     }
+    await advertiseModeCapability(this.db, deviceId, state.capabilities);
     state.deviceId = deviceId;
     if (state.pipes) await this.pipes!.attach(socket, connectorId, sessionId, deviceId);
     reply({ type: "device_bound", device_id: deviceId, noise_pipes: state.pipes });

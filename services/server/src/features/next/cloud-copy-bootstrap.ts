@@ -16,6 +16,7 @@
 // The control plane never holds a collection key. Each deployment generates its own
 // service device; the first committed record wins, and nothing is ever deleted on a
 // failure path.
+import { advertiseModeCapability, modeCapabilitySchema, requireModeMintCapability } from "./collection-mode-capability.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
@@ -80,7 +81,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
   registerCollectionNameRoutes(app, options.db, options.deletionFloor);
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
-  const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" } };
+  const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" }, capabilities: modeCapabilitySchema };
   const limited = { bodyLimit: 4096, config: { rateLimit: { max: 6, timeWindow: "1 minute" } } };
   const generateFor = generateCloudCopyServices.bind(null, options);
   const appendedBatch = appendedCloudCopyBatch.bind(null, options);
@@ -93,7 +94,9 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     if (pitrCollection(pitr, collection) && (owner !== pitr!.owner || name !== pitrLabel(pitr!, collection))) throw new CreateError(403, "lab_pitr_fixture_required");
   };
 
-  const mint = (device: string, signPk: Buffer, collection: string) => {
+  const mint = async (client: DatabaseConnection, device: string, signPk: Buffer, collection: string, capabilities?: string[]) => {
+    await requireModeMintCapability(client, collection, capabilities);
+    await advertiseModeCapability(client, device, capabilities);
     const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
     return { device_id: device, token: options.log.mintToken({ device, signPublicKey: signPk, collection, expiresAt }), expires_at: expiresAt };
   };
@@ -232,7 +235,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
           // Public identities enrolled by the genesis; advisory. Consumers compute the
           // legal recipient set from the verified log.
           rekey_recipients: [body.device_id, ...records.map((record) => record.device_id)],
-          device: mint(body.device_id, device.sign_pk, collection)
+          device: await mint(client, body.device_id, device.sign_pk, collection, body.capabilities)
         };
       });
     } catch (error) {
@@ -297,7 +300,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
         return {
           collection_id: collection, enrolled_at: batch.seq, log_url: pitrLogUrl(options.next.logService.url, pitr, collection),
           genesis: { seq: 1, item: genesis.item.toString("hex") },
-          device: mint(body.device_id, device.sign_pk, collection)
+          device: await mint(client, body.device_id, device.sign_pk, collection, body.capabilities)
         };
       });
     } catch (error) {

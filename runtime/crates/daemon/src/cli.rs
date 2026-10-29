@@ -240,6 +240,26 @@ enum SyncCmd {
         #[arg(long)]
         accept_takeover_holds: bool,
     },
+    /// Switch an already synced collection; explicit source consent is required.
+    Mode {
+        /// Collection ID, ID prefix or name.
+        collection: String,
+        #[arg(value_enum)]
+        mode: SyncKind,
+        /// Advance existing local consent without asking to create new consent.
+        #[arg(long)]
+        resume: bool,
+        /// Cancel only if no switch policy can have been published.
+        #[arg(long, conflicts_with = "resume")]
+        cancel: bool,
+    },
+    /// Current collection-mode request and progress.
+    ModeStatus { collection: String },
+    /// Move the log back to this device (local only).
+    Disable {
+        /// Collection ID, ID prefix or name.
+        collection: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -896,6 +916,38 @@ async fn run_command(
                 });
             }
             simple(profile, out, Method::SYNC_ENABLE, &collection, params).await
+        }
+        Command::Sync(SyncCmd::Mode {
+            collection,
+            mode,
+            resume,
+            cancel,
+        }) => {
+            let target = match mode {
+                SyncKind::Private => "private",
+                SyncKind::CloudCopy => "cloud_copy",
+            };
+            simple(
+                profile,
+                out,
+                Method::COLLECTION_MODE,
+                &collection,
+                json!({"target_mode":target,"resume":resume,"cancel":cancel}),
+            )
+            .await
+        }
+        Command::Sync(SyncCmd::ModeStatus { collection }) => {
+            simple(
+                profile,
+                out,
+                Method::COLLECTION_MODE_STATUS,
+                &collection,
+                json!({}),
+            )
+            .await
+        }
+        Command::Sync(SyncCmd::Disable { collection }) => {
+            simple(profile, out, Method::SYNC_DISABLE, &collection, json!({})).await
         }
         Command::Device(DeviceCmd::Pending { collection }) => {
             let id = resolve(profile, &collection).await?;
@@ -1858,6 +1910,43 @@ fn account_problem(reason: &str) -> &'static str {
         "account_state" => "the account settings could not be saved; check free disk space",
         "account_cleanup_failed" => "signing out did not finish; sign out again",
         _ => "this computer could not connect to the account; mdbase keeps trying while running",
+    }
+}
+
+#[cfg(test)]
+mod mode_cli_tests {
+    use super::*;
+    #[test]
+    fn mode_commands_preserve_explicit_target_and_resume() {
+        let cli = Cli::try_parse_from([
+            "mdbase",
+            "sync",
+            "mode",
+            "collection",
+            "private",
+            "--resume",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncCmd::Mode {
+                mode: SyncKind::Private,
+                resume: true,
+                ..
+            })
+        ));
+        let cli =
+            Cli::try_parse_from(["mdbase", "sync", "mode", "collection", "cloud-copy"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncCmd::Mode {
+                mode: SyncKind::CloudCopy,
+                resume: false,
+                ..
+            })
+        ));
+        assert!(Cli::try_parse_from(["mdbase", "sync", "mode", "collection", "public"]).is_err());
+        assert!(Cli::try_parse_from(["mdbase", "sync", "mode-status", "collection"]).is_ok());
     }
 }
 

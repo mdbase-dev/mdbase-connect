@@ -13,7 +13,7 @@ import type { PolicyOp, RegisteredDeviceKind } from "./policy-wire.js";
 export const SERVICE_ACCOUNT = "00000000-0000-0000-0000-000000000000";
 export const NIL = SERVICE_ACCOUNT;
 
-export interface Proof { device_id: string; challenge: string; sig: string }
+export interface Proof { device_id: string; challenge: string; sig: string; capabilities?: string[] }
 export interface Device { sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer; kind: RegisteredDeviceKind }
 export type Connector = { id: string; user_id: string; installation_device_id?: string };
 /** PostgreSQL lock_timeout or statement_timeout: answer busy (fail closed), never the driver error. */

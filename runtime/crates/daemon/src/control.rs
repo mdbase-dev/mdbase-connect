@@ -211,6 +211,10 @@ impl Method {
     /// Files and other devices are untouched; a local collection's new name reaches
     /// the account with the next inventory.
     pub const COLLECTION_UPDATE: &'static str = "collection.update";
+    /// `{collection,target_mode}`: one resumable native mode-switch step.
+    pub const COLLECTION_MODE: &'static str = "collection.mode";
+    /// `{collection}`: authoritative server progress, never conversion authority.
+    pub const COLLECTION_MODE_STATUS: &'static str = "collection.mode_status";
     /// `{collection}` → [`CollectionStatus`].
     pub const COLLECTION_PAUSE: &'static str = "collection.pause";
     /// `{collection}` → [`CollectionStatus`].
@@ -721,6 +725,7 @@ pub const PRIVILEGED: &[&str] = &[
     Method::PRIVATE_PASSWORD,
     Method::PRIVATE_STRICT,
     Method::SYNC_ENABLE,
+    Method::COLLECTION_MODE,
     Method::COLLECTION_JOIN,
     Method::COLLECTION_DELETE,
     Method::ACCOUNT_SIGN_IN,
@@ -777,6 +782,11 @@ mod tests {
 
     #[test]
     fn frames_serialize_compactly() {
+        assert!(
+            PRIVILEGED.contains(&Method::COLLECTION_MODE),
+            "mode changes need owner control authentication"
+        );
+        assert!(!PRIVILEGED.contains(&Method::COLLECTION_MODE_STATUS));
         let ok = serde_json::to_string(&Response::ok(3, serde_json::json!({"a":1}))).unwrap();
         assert_eq!(ok, r#"{"v":1,"id":3,"result":{"a":1}}"#);
         let push = serde_json::to_string(&Response::push("status", Value::Null)).unwrap();

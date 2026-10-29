@@ -411,10 +411,6 @@ msgid "<0>Application origin unverified.</0> Continue only if you started this c
 msgstr "<0>アプリケーションの出所は未確認です。</0> ご自身で意図して接続を開始した場合にのみ続行してください{1}。{3}"
 
 #: src/ConnectApp.tsx
-msgid "A cloud copy helps your replicas sync. This page does not report their connection status."
-msgstr "クラウド上のコピーはレプリカの同期に役立ちます。このページにはレプリカの接続状態は表示されません。"
-
-#: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "コレクションが共有されました"
 
@@ -1039,10 +1035,6 @@ msgstr "コレクション"
 msgid "Collection changes"
 msgstr "コレクションの変更"
 
-#: src/ConnectApp.tsx
-msgid "Collection content remains in your replicas; no cloud copy is configured."
-msgstr "コレクションの内容はレプリカに残ります。クラウド上のコピーは設定されていません。"
-
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
 msgstr "コレクション ID"
@@ -1064,6 +1056,10 @@ msgstr "コレクションの所有者"
 msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "コレクションの権限"
+
+#: src/ConnectApp.tsx
+msgid "Collection replicas"
+msgstr "コレクションのレプリカ"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
@@ -2681,6 +2677,10 @@ msgstr "既存のファイルを置換"
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
 msgstr "パスワードを変更すると、このアカウントのほかのブラウザーセッションはすべてログアウトします。"
+
+#: src/ConnectApp.tsx
+msgid "Replicas sync between your devices. Application access is managed separately."
+msgstr "レプリカはデバイス間で同期されます。アプリケーションのアクセス権は個別に管理されます。"
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx

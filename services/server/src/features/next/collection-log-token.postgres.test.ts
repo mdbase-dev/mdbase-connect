@@ -8,6 +8,7 @@ import { tokenHash } from "../../security.js";
 import { collectionLogTokenDigest, registerCollectionLogTokenRoute } from "./collection-log-token.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { LOG_TOKEN_LIFETIME_MS, LogServiceClient } from "./log-service-client.js";
+import { MODE_SWITCH_CAPABILITY } from "./collection-mode-capability.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { decodeCbor, type Decoded, type RegisteredDeviceKind } from "./policy-wire.js";
@@ -131,6 +132,24 @@ describePg("collection log-token refresh", () => {
       expect(Buffer.from(field(d, 2) as Uint8Array)).toEqual(who.signPk);
       expect(hex(field(d, 5) as Uint8Array)).toBe(c.replaceAll("-", ""));
     }
+  });
+
+  it("refuses a below-floor session, even when this device durably advertised on an earlier session", async () => {
+    const who = await identity(), c = await collection(who, "cloud_copy", [who]);
+    await db.query("UPDATE next_collections SET mode_floor_raised_at=$2 WHERE collection_id=$1", [c, new Date(NOW)]);
+    const before = mintCalls;
+    const refused = await refresh(who, c, await proof(who, c));
+    expect(refused.statusCode, refused.body).toBe(409); expect(refused.json().error.code).toBe("mode_update_required");
+    expect(mintCalls).toBe(before);
+    const supported = await refresh(who, c, { ...await proof(who, c), capabilities: [MODE_SWITCH_CAPABILITY] });
+    expect(supported.statusCode, supported.body).toBe(200);
+    expect((await db.query("SELECT mode_switch_advertised FROM next_devices WHERE id=$1", [who.device])).rows[0].mode_switch_advertised).toBe(true);
+    const after = mintCalls;
+    const olderSession = await refresh(who, c, await proof(who, c));
+    expect(olderSession.statusCode, olderSession.body).toBe(409);
+    expect(mintCalls).toBe(after);
+    const other = await collection(who, "private", [who]);
+    expect((await refresh(who, other, await proof(who, other))).statusCode).toBe(200);
   });
 
   it.each(["mobile", "app-runtime"] as const)("requires acknowledged exact %s enrolment before token refresh", async kind => {

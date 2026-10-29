@@ -40,6 +40,10 @@ describe("private bootstrap configuration", () => {
     expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_PRIVATE_BOOTSTRAP: "0" })?.privateBootstrap).toBeUndefined();
     expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_PRIVATE_BOOTSTRAP: "1" })?.privateBootstrap).toBe(true);
     expect(() => parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_PRIVATE_BOOTSTRAP: "yes" })).toThrow(/0 or 1/);
+    expect(parseNextControlPlaneEnv(base)?.collectionModeExecution).toBeUndefined();
+    expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_COLLECTION_MODE_EXECUTION: "0" })?.collectionModeExecution).toBeUndefined();
+    expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_COLLECTION_MODE_EXECUTION: "1" })?.collectionModeExecution).toBe(true);
+    expect(() => parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_COLLECTION_MODE_EXECUTION: "yes" })).toThrow(/0 or 1/);
   });
 });
 

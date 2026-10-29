@@ -31,7 +31,7 @@ function fixture(fault, error = new Error("private sentinel"), cleanupError) {
   const hit = stage => { events.push(stage); if (stage === fault) throw error; };
   const storage = { fixture: { hit },
     get: async key => { hit(key === "service-open-failures" ? "open_retry_read" : "pin_marker_read"); return key === "service-open-failures" ? 1 : undefined; },
-    put: async key => { hit(key === "service-collection" ? "service_collection_persist" : key === "service-open-failures" ? "failure_bookkeeping" : "run_save"); },
+    put: async key => { hit(key === "service-collection" ? "service_collection_persist" : key === "service-open-failures" ? "failure_bookkeeping" : key === "collection-mode-device" ? "mode_device_persist" : "run_save"); },
     delete: async () => hit("open_failure_clear"), sync: async () => hit("run_sync"),
     sql: { exec: () => ({ toArray: () => [] }) } };
   const keys = { replicaId: collection, deviceId: collection, roots: [new Uint8Array(32)], signers: [],
@@ -48,13 +48,13 @@ function fixture(fault, error = new Error("private sentinel"), cleanupError) {
 
 test("actual ready/RUN labels synthetic substep failures, cleanup and retained bookkeeping without run save", async () => {
   for (const stage of ["background_guard", "physical_collection_guard", "service_collection_persist", "open_retry_read", "open_retry_schedule",
-    "custody_open_sealer", "engine_construct", "engine_cpp_open", "engine_noise_key", "pin_marker_read", "live_admission", "sync", "timing_snapshot", "engine_reset", "open_failure_clear"]) {
+    "custody_open_sealer", "mode_device_persist", "engine_construct", "engine_cpp_open", "engine_noise_key", "pin_marker_read", "live_admission", "sync", "timing_snapshot", "engine_reset", "open_failure_clear"]) {
     const { o, events } = fixture(stage);
     const response = await o.fetch(request());
     assert.equal(response.status, 500, stage);
     assert.deepEqual(await response.json(), { error: "migration_run_ready_failed", stage, error_name: "Error", error_class: "error", error_code: "unknown" }, stage);
     assert.ok(!events.includes("run_save"), stage);
-    if (["engine_construct", "engine_cpp_open", "engine_noise_key"].includes(stage)) assert.ok(events.includes("custody_zeroize"), stage);
+    if (["mode_device_persist", "engine_construct", "engine_cpp_open", "engine_noise_key"].includes(stage)) assert.ok(events.includes("custody_zeroize"), stage);
   }
   const { o } = fixture("engine_cpp_open", new Error("private open failure"), new TypeError("private cleanup"));
   const response = await o.fetch(request());
@@ -65,7 +65,7 @@ test("successful ready keeps the existing side-effect order and cached-engine fa
   const { o, events } = fixture();
   const engine = await o.ready(collection);
   assert.deepEqual(events, ["background_guard", "physical_collection_guard", "service_collection_persist", "open_retry_read",
-    "open_retry_schedule", "custody_open_sealer", "background_guard", "physical_collection_guard", "engine_construct",
+    "open_retry_schedule", "custody_open_sealer", "background_guard", "physical_collection_guard", "mode_device_persist", "background_guard", "physical_collection_guard", "engine_construct",
     "engine_cpp_open", "engine_noise_key", "custody_zeroize", "pin_marker_read", "live_admission", "background_guard",
     "sync", "timing_snapshot", "engine_reset", "open_failure_clear"]);
   assert.equal(await o.ready(collection), engine);
@@ -104,7 +104,7 @@ test("PinParked remains its original class and primitive failures still have a s
 });
 
 test("finite wire never exposes hostile names, codes, tails, getters, stack or cause", () => {
-  assert.equal(READY_STAGES.length, 24); assert.equal(READY_ERROR_NAMES.length, 6); assert.equal(READY_ERROR_CODES.length, 24);
+  assert.equal(READY_STAGES.length, 25); assert.equal(READY_ERROR_NAMES.length, 6); assert.equal(READY_ERROR_CODES.length, 24);
   for (const error of [new Error("postgres://private:secret@host"), Object.assign(new Error("custody_unavailable private tail"), { name: "private name", code: "private_code" }), new Error("__proto__"), "private value"]) {
     const result = readyDiagnostic("private stage", error), text = JSON.stringify(result);
     assert.equal(result.stage, "unknown"); assert.equal(result.error_code, "unknown"); assert.ok(!/private|secret|postgres/.test(text));

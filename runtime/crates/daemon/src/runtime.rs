@@ -175,6 +175,16 @@ enum Cmd {
         oneshot::Sender<Result<Option<B16>, String>>,
     ),
     PrivateSigners(AccountKeyGuard, oneshot::Sender<Vec<B16>>),
+    ModeGeneration(
+        AccountKeyGuard,
+        oneshot::Sender<Option<mdbn_wire::common::B32>>,
+    ),
+    ModeSource {
+        private: bool,
+        receipt: bool,
+        current: AccountKeyGuard,
+        reply: oneshot::Sender<Option<(u64, mdbn_replica::store::Head, Vec<B16>)>>,
+    },
     Readiness(oneshot::Sender<ReadinessView>),
     /// Rescan, then list the confirmed records and resources.
     Inventory(oneshot::Sender<Option<Inventory>>),
@@ -269,8 +279,18 @@ pub enum PrivateSwitchOp {
     Request,
     /// Cancel only before the switch policy has committed.
     Cancel,
-    /// Persist the user's explicit Cloud copy choice before the server request.
+    /// Read owner eligibility before persisting the host's Cloud choice.
+    CloudCandidate,
+    /// Persist the user's explicit Cloud copy choice before publication.
     ChooseCloud,
+    /// Resume explicit source choice only in its original Private generation.
+    ChooseCloudAt(mdbn_wire::common::B32),
+    /// Cancel source permission only while native policy still proves Private.
+    CancelCloud,
+    /// Read a committed receiver-only Cloud selection; never source consent.
+    CloudRead,
+    /// Read-only current selection, never source consent.
+    CloudSelected,
     /// Read a verified, durably applied private-mode choice.
     Accepted,
     /// Host link and registration durably contain the verified choice.
@@ -602,6 +622,33 @@ impl Runtime {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::PrivateSwitch(op, current, tx)).ok()?;
         rx.await.ok()
+    }
+
+    /// Read the actor's local privacy generation for durable consent binding.
+    pub async fn mode_generation(
+        &self,
+        current: AccountKeyGuard,
+    ) -> Option<mdbn_wire::common::B32> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Cmd::ModeGeneration(current, tx)).ok()?;
+        rx.await.ok().flatten()
+    }
+    pub(crate) async fn mode_source(
+        &self,
+        private: bool,
+        receipt: bool,
+        current: AccountKeyGuard,
+    ) -> Option<(u64, mdbn_replica::store::Head, Vec<B16>)> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::ModeSource {
+                private,
+                receipt,
+                current,
+                reply,
+            })
+            .ok()?;
+        rx.await.ok().flatten()
     }
 
     /// Locally accepted, still-active switch-set signers under current authority.
@@ -1463,6 +1510,42 @@ fn run(
             Ok(Cmd::Status(reply)) => {
                 let _ = reply.send(rep.sync_status());
             }
+            Ok(Cmd::ModeGeneration(current, reply)) => {
+                let _ = reply.send(if current() {
+                    rep.mode_generation()
+                } else {
+                    None
+                });
+            }
+            Ok(Cmd::ModeSource {
+                private,
+                receipt,
+                current,
+                reply,
+            }) => {
+                if current() {
+                    rep.refresh_mode_history();
+                }
+                let material = if !current() {
+                    None
+                } else if receipt {
+                    rep.mode_switch_receipt(private)
+                        .map(|(epoch, head)| (epoch, head, Vec::new()))
+                } else {
+                    rep.mode_switch_source(private).map(|epoch| {
+                        (
+                            epoch,
+                            rep.head(),
+                            if private {
+                                rep.mode_switch_members()
+                            } else {
+                                Vec::new()
+                            },
+                        )
+                    })
+                };
+                let _ = reply.send(material);
+            }
             Ok(Cmd::PrivateSigners(current, reply)) => {
                 let _ = reply.send(if current() {
                     rep.private_switch_trusted_signers()
@@ -1474,6 +1557,12 @@ fn run(
                 use mdbn_replica::api::ClientApi;
                 let result = if !current() {
                     Err("account_changed".into())
+                } else if matches!(op, PrivateSwitchOp::CloudCandidate) {
+                    Ok(rep.cloud_copy_candidate())
+                } else if matches!(op, PrivateSwitchOp::CloudSelected) {
+                    Ok(rep.cloud_copy_selected())
+                } else if matches!(op, PrivateSwitchOp::CloudRead) {
+                    Ok(rep.cloud_read_owner())
                 } else if matches!(op, PrivateSwitchOp::Accepted) {
                     Ok(rep.accepted_private_switch())
                 } else {
@@ -1493,8 +1582,17 @@ fn run(
                             PrivateSwitchOp::Request => rep.request_private_switch(session),
                             PrivateSwitchOp::Cancel => rep.cancel_private_switch(session),
                             PrivateSwitchOp::ChooseCloud => rep.choose_cloud_copy(session),
+                            PrivateSwitchOp::ChooseCloudAt(generation) => {
+                                rep.choose_cloud_copy_at(session, generation)
+                            }
+                            PrivateSwitchOp::CancelCloud => rep.cancel_cloud_copy(session),
                             PrivateSwitchOp::Acknowledge => rep.acknowledge_private_switch(session),
-                            PrivateSwitchOp::Accepted => unreachable!(),
+                            PrivateSwitchOp::Accepted
+                            | PrivateSwitchOp::CloudCandidate
+                            | PrivateSwitchOp::CloudRead
+                            | PrivateSwitchOp::CloudSelected => {
+                                unreachable!()
+                            }
                         };
                         rep.close(session);
                         result.map(|()| None).map_err(|e| e.to_string())

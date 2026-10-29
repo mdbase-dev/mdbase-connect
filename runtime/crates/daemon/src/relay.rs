@@ -55,6 +55,7 @@ pub const CAPABILITIES: &[&str] = &[
     "policy-freshness-lease-v1",
     "application-declaration-evidence-v1",
     "next_device_v1",
+    "collection_mode_switch_v1",
     "next_account_v1",
     "noise_pipe_v1",
 ];

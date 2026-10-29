@@ -1,5 +1,5 @@
-//! Device-local, one-shot cloud-copy-off acceptance. No policy/wire validity
-//! changes. The frozen set and intent commit with the applied prefix.
+//! Device-local mode selection. No policy/wire validity changes. Switch-set
+//! acceptance and receiver-only Cloud reading commit with the applied prefix.
 use super::Replica;
 use crate::api::{ErrorCode, SessionId};
 use crate::seal::KeyEvent;
@@ -11,10 +11,17 @@ use mdbn_wire::policy::{CState, DeviceKind, Role};
 use std::collections::BTreeSet;
 
 pub(super) const META: &str = "replica.private-switch.v1";
+// Separate local slot, same wire Integrity kind: a mode alert cannot mask or
+// resolve an unrelated integrity incident.
+const MODE_ALERT: u64 = u64::MAX;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct PrivateSwitch {
     requested: bool,
     cloud_choice: bool,
+    // Read selection is not owner/source consent. Retain the exact applied witness.
+    cloud_read: Option<(Head, Uuid)>,
+    // RAM-only: do not repeat a no-progress legacy history scan at the same head.
+    history_attempt: Option<(Head, usize)>,
     state: State,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -80,18 +87,31 @@ impl PrivateSwitch {
                 Cbor::Array(owners.iter().map(|id| Cbor::Bytes(id.0.to_vec())).collect()),
             ]),
         };
-        cbor::encode(&Cbor::Array(vec![
+        let mut fields = vec![
             Cbor::Bool(self.requested),
             Cbor::Bool(self.cloud_choice),
             state,
-        ]))
-        .expect("private switch encodes")
+        ];
+        // Keep the previous local encoding until a receiver actually selects.
+        if let Some((at, signer)) = self.cloud_read {
+            fields.push(Cbor::Array(vec![
+                Cbor::Uint(at.seq),
+                Cbor::Bytes(at.chain.0.to_vec()),
+                Cbor::Bytes(signer.0.to_vec()),
+            ]));
+        }
+        cbor::encode(&Cbor::Array(fields)).expect("private switch encodes")
     }
     pub(super) fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let Cbor::Array(values) = cbor::decode(bytes).ok()? else {
             return None;
         };
-        let [Cbor::Bool(requested), Cbor::Bool(cloud_choice), state] = values.as_slice() else {
+        let (base, read) = match values.as_slice() {
+            [a, b, c] => ([a, b, c], &Cbor::Null),
+            [a, b, c, read] => ([a, b, c], read),
+            _ => return None,
+        };
+        let [Cbor::Bool(requested), Cbor::Bool(cloud_choice), state] = base else {
             return None;
         };
         let hash = |v: &Cbor| {
@@ -165,9 +185,25 @@ impl PrivateSwitch {
             },
             _ => return None,
         };
+        let cloud_read = match read {
+            Cbor::Null => None,
+            Cbor::Array(v) => match v.as_slice() {
+                [Cbor::Uint(seq), chain, signer] if *seq > 0 => Some((
+                    Head {
+                        seq: *seq,
+                        chain: hash(chain)?,
+                    },
+                    id(signer)?,
+                )),
+                _ => return None,
+            },
+            _ => return None,
+        };
         Some(Self {
+            cloud_read,
             requested: *requested,
             cloud_choice: *cloud_choice,
+            history_attempt: None,
             state,
         })
     }
@@ -220,23 +256,7 @@ impl<S: Store> Replica<S> {
         self.host_only(session)?;
         self.check_apply_store_health()
             .map_err(|_| ErrorCode::Unavailable.err("reopen required"))?;
-        let me = self
-            .policy
-            .devices
-            .get(&self.cfg.device_id)
-            .ok_or_else(|| ErrorCode::Forbidden.err("not enrolled"))?;
-        if self.private_switch.blocked()
-            || !me.active
-            || !me.keyed
-            || !matches!(
-                me.kind,
-                DeviceKind::Desktop | DeviceKind::Mobile | DeviceKind::AppRuntime | DeviceKind::Cli
-            )
-            || self.policy.members.get(&me.account) != Some(&Role::Owner)
-            || self.policy.epoch == 0
-            || self.sealer.current_epoch() != Some(self.policy.epoch)
-            || (self.key_untrusted && !self.accepted_private_key())
-        {
+        if self.cloud_copy_candidate().is_none() {
             return Err(ErrorCode::Forbidden.err("a keyed owner device is required"));
         }
         let mut next = self.private_switch.clone();
@@ -248,9 +268,162 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
+    /// Local privacy generation, unchanged by ordinary rekeys but superseded
+    /// by a later qualifying Private switch. Never inferred from host flags.
+    pub fn mode_generation(&self) -> Option<B32> {
+        if self.check_apply_store_health().is_err() {
+            return None;
+        }
+        match self.private_switch.state {
+            State::Accepted { at, .. } if at.seq <= self.head.seq => Some(at.chain),
+            State::None => self.genesis,
+            _ => None,
+        }
+    }
+    /// Resume only the locally recorded privacy generation, never a later one.
+    pub fn choose_cloud_copy_at(
+        &mut self,
+        session: SessionId,
+        generation: B32,
+    ) -> crate::api::ApiResult<()> {
+        if self.mode_generation() != Some(generation) {
+            return Err(ErrorCode::Conflict
+                .err("Private generation changed; a new explicit choice is required"));
+        }
+        self.choose_cloud_copy(session)
+    }
+
+    /// Read-only owner preflight. A host can persist its explicit choice before
+    /// enabling source consent, closing its configuration-file crash boundary.
+    pub fn cloud_copy_candidate(&self) -> Option<Uuid> {
+        let me = self.policy.devices.get(&self.cfg.device_id)?;
+        (self.check_apply_store_health().is_ok()
+            && !self.device_keys_blocked()
+            && self.install.is_none()
+            && self.stalled.is_none()
+            && !self.private_switch.blocked()
+            && me.active
+            && me.keyed
+            && matches!(
+                me.kind,
+                DeviceKind::Desktop | DeviceKind::Mobile | DeviceKind::AppRuntime | DeviceKind::Cli
+            )
+            && self.policy.members.get(&me.account) == Some(&Role::Owner)
+            && self.policy.epoch > 0
+            && self.sealer.current_epoch() == Some(self.policy.epoch)
+            && self.mode_source_key_trusted())
+        .then_some(self.cfg.device_id)
+    }
+
+    fn mode_source_key_trusted(&self) -> bool {
+        if matches!(self.private_switch.state, State::Accepted { epoch, .. } if self.policy.epoch < epoch)
+        {
+            return false;
+        }
+        let mut trusted = self
+            .cfg
+            .trusted_signers
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        trusted.extend(self.account_key.trusted().iter().copied());
+        if let Some(anchors) = self.private_switch_introducers() {
+            trusted.extend(anchors.iter().copied());
+        }
+        self.accepted_private_key()
+            || matches!(
+                self.policy.key_trust(
+                    &self.cfg.device_id,
+                    &trusted,
+                    (self.private_switch.cloud_choice || self.cloud_read_selected())
+                        && self.cfg.user_enabled_cloud_copy
+                        && self.policy.cstate == Some(CState::CloudCopy)
+                ),
+                crate::policy::KeyTrust::Trusted
+            )
+    }
+
+    /// Reuse the authenticated control replay to repair older partial keyrings.
+    /// Every repeat must have made progress (or reached a new applied head).
+    pub fn refresh_mode_history(&mut self) {
+        if self.check_apply_store_health().is_err()
+            || self.device_keys_blocked()
+            || self.install.is_some()
+            || self.sealer.current_epoch() != Some(self.policy.epoch)
+            || self.sealer.has_epoch_history(self.policy.epoch)
+        {
+            return;
+        }
+        let attempt = (self.head, self.sealer.epoch_history_len());
+        if self.private_switch.history_attempt == Some(attempt) {
+            return;
+        }
+        self.private_switch.history_attempt = Some(attempt);
+        self.start_mode_history_rebuild();
+    }
+
+    /// Owner/native proof material; never accepts a caller-supplied receipt.
+    pub fn mode_switch_receipt(&self, private: bool) -> Option<(u64, Head)> {
+        if self.check_apply_store_health().is_err()
+            || self.device_keys_blocked()
+            || self.install.is_some()
+            || self.stalled.is_some()
+            || !self.sealer.has_epoch_history(self.policy.epoch)
+            || self.sealer.current_epoch() != Some(self.policy.epoch)
+        {
+            return None;
+        }
+        let me = self.policy.devices.get(&self.cfg.device_id)?;
+        if !me.active || !me.keyed || self.policy.members.get(&me.account) != Some(&Role::Owner) {
+            return None;
+        }
+        if private {
+            if self.private_switch.cloud_choice
+                || self.cloud_read_selected()
+                || self.key_untrusted
+                || self.policy.cstate != Some(CState::E2e)
+            {
+                return None;
+            }
+            if let State::Accepted { at, epoch, .. } = self.private_switch.state {
+                return (at.seq <= self.head.seq).then_some((epoch, at));
+            }
+            None
+        } else {
+            self.cloud_copy_source_epoch()
+                .filter(|_| self.policy.cstate == Some(CState::CloudCopy))
+                .map(|epoch| (epoch, self.head))
+        }
+    }
+
+    /// Actual old epoch for native preparation, including a pending owner switch.
+    pub fn mode_switch_source(&self, private: bool) -> Option<u64> {
+        if !private {
+            return self.cloud_copy_source_epoch();
+        }
+        if self.check_apply_store_health().is_err()
+            || self.device_keys_blocked()
+            || self.install.is_some()
+            || self.stalled.is_some()
+            || !self.sealer.has_epoch_history(self.policy.epoch)
+            || !self.private_switch.requested
+            || self.sealer.current_epoch() != Some(self.policy.epoch)
+            || self.policy.epoch == 0
+        {
+            return None;
+        }
+        let me = self.policy.devices.get(&self.cfg.device_id)?;
+        (me.active && me.keyed && self.policy.members.get(&me.account) == Some(&Role::Owner))
+            .then_some(self.policy.epoch)
+    }
+
     /// Current actual epoch held by an explicitly consenting owner source.
     pub fn cloud_copy_source_epoch(&self) -> Option<u64> {
         if !self.private_switch.cloud_choice
+            || self.device_keys_blocked()
+            || self.install.is_some()
+            || self.stalled.is_some()
+            || !self.sealer.has_epoch_history(self.policy.epoch)
             || self.key_untrusted
             || self.check_apply_store_health().is_err()
         {
@@ -263,6 +436,35 @@ impl<S: Store> Replica<S> {
             && self.policy.epoch > 0
             && self.sealer.current_epoch() == Some(self.policy.epoch))
         .then_some(self.policy.epoch)
+    }
+
+    /// Revoke local source permission only while policy still proves Private.
+    /// The host must first confirm that CP cannot publish this operation.
+    pub fn cancel_cloud_copy(&mut self, session: SessionId) -> crate::api::ApiResult<()> {
+        self.host_only(session)?;
+        if !self.private_switch.cloud_choice {
+            return Ok(());
+        }
+        if self.policy.cstate != Some(CState::E2e)
+            || self.private_switch.blocked()
+            || self
+                .policy
+                .devices
+                .values()
+                .any(|d| d.active && matches!(d.kind, DeviceKind::Hosted | DeviceKind::Escrow))
+        {
+            return Err(ErrorCode::Conflict.err("switch already committed"));
+        }
+        let mut next = self.private_switch.clone();
+        next.cloud_choice = false;
+        next.cloud_read = None;
+        self.save_private_switch(next)?;
+        self.cfg.chosen_state = Some(CState::E2e);
+        self.cfg.e2e = true;
+        self.cfg.user_enabled_cloud_copy = false;
+        self.restore_private_choice();
+        self.check_key_trust();
+        Ok(())
     }
 
     /// Clear an intent only before the switch policy has applied. A committed
@@ -322,7 +524,10 @@ impl<S: Store> Replica<S> {
     /// into its link/registration. The replica META remains authoritative across
     /// a crash between those host writes. No remote flag can manufacture this.
     pub fn accepted_private_switch(&self) -> Option<Uuid> {
-        if self.check_apply_store_health().is_err() || self.private_switch.cloud_choice {
+        if self.check_apply_store_health().is_err()
+            || self.private_switch.cloud_choice
+            || self.cloud_read_selected()
+        {
             return None;
         }
         match self.private_switch.state {
@@ -381,7 +586,7 @@ impl<S: Store> Replica<S> {
                 }
             }
         }
-        if self.private_switch.cloud_choice {
+        if self.private_switch.cloud_choice || self.cloud_read_selected() {
             self.cfg.chosen_state = Some(CState::CloudCopy);
             self.cfg.e2e = false;
             self.cfg.user_enabled_cloud_copy = true;
@@ -390,17 +595,9 @@ impl<S: Store> Replica<S> {
     pub(super) fn private_switch_meta(&self) -> (String, Option<Vec<u8>>) {
         (META.into(), Some(self.private_switch.to_bytes()))
     }
-    pub(super) fn capture_private_switch(&mut self, p: u64, chain: B32, eligible: bool) {
-        if !eligible
-            || matches!(
-                self.private_switch.state,
-                State::Pending { .. } | State::Refused
-            )
-        {
-            return;
-        }
-        let members = self
-            .policy
+    /// Active keyed user-device set for capability preflight. No trust changes.
+    pub fn mode_switch_members(&self) -> Vec<Uuid> {
+        self.policy
             .devices
             .iter()
             .filter(|(_, d)| {
@@ -415,6 +612,22 @@ impl<S: Store> Replica<S> {
                     )
             })
             .map(|(id, _)| *id)
+            .collect()
+    }
+
+    pub(super) fn capture_private_switch(&mut self, p: u64, chain: B32, eligible: bool) {
+        self.private_switch.cloud_read = None;
+        if !eligible
+            || matches!(
+                self.private_switch.state,
+                State::Pending { .. } | State::Refused
+            )
+        {
+            return;
+        }
+        let members = self
+            .mode_switch_members()
+            .into_iter()
             .collect::<BTreeSet<_>>();
         if !members.contains(&self.cfg.device_id) {
             return;
@@ -427,6 +640,7 @@ impl<S: Store> Replica<S> {
             .copied()
             .collect();
         self.private_switch.cloud_choice = false;
+        self.private_switch.cloud_read = None;
         self.private_switch.state = State::Pending {
             at: Head { seq: p, chain },
             epoch: self.policy.epoch,
@@ -450,6 +664,7 @@ impl<S: Store> Replica<S> {
             && self.check_apply_store_health().is_ok()
             && self.policy.epoch == *epoch
             && self.sealer.current_epoch() == Some(*epoch)
+            && self.sealer.has_epoch_history(*epoch)
     }
     pub(super) fn accept_private_switch(
         &mut self,
@@ -501,12 +716,7 @@ impl<S: Store> Replica<S> {
                 mdbn_wire::client::IncidentKind::KeyInconsistent,
                 Some(mdbn_wire::common::Value::Text("key_untrusted".into())),
             );
-            self.incident(
-                mdbn_wire::client::IncidentKind::Integrity,
-                Some(mdbn_wire::common::Value::Text(
-                    "collection_state_changed: E2e".into(),
-                )),
-            );
+            self.mode_alert(CState::E2e);
         }
     }
     pub(crate) fn private_switch_waiting(&self) -> bool {
@@ -523,10 +733,140 @@ impl<S: Store> Replica<S> {
         matches!(self.private_switch.state, State::Accepted { at, .. } if position <= at.seq && at.seq <= self.head.seq)
     }
 
+    fn cloud_read_selected(&self) -> bool {
+        self.private_switch
+            .cloud_read
+            .is_some_and(|(at, _)| at.seq <= self.head.seq)
+    }
+
+    /// Read-only local selection, including a collection born Cloud copy.
+    pub fn cloud_copy_selected(&self) -> Option<Uuid> {
+        (self.check_apply_store_health().is_ok()
+            && self.policy.cstate == Some(CState::CloudCopy)
+            && self.cfg.chosen_state == Some(CState::CloudCopy)
+            && self.cfg.user_enabled_cloud_copy
+            && !self.key_untrusted
+            && !self.private_switch_blocks())
+        .then_some(self.cfg.device_id)
+    }
+
+    /// A committed owner grant selects reading only, never source consent.
+    /// A later revocation does not erase an already authorized selection.
+    pub fn cloud_read_owner(&self) -> Option<Uuid> {
+        (self.check_apply_store_health().is_ok() && self.cloud_read_selected())
+            .then(|| self.private_switch.cloud_read.map(|(_, signer)| signer))
+            .flatten()
+    }
+
+    pub(super) fn observe_cloud_read_grant(
+        &mut self,
+        at: Head,
+        item: &Item,
+        grant: &mdbn_wire::envelope::KeyGrantPayload,
+    ) {
+        if self.private_switch.cloud_choice
+            || self.private_switch.cloud_read.is_some()
+            || self.private_switch.blocked()
+            || self.cfg.chosen_state != Some(CState::E2e)
+            || self.policy.cstate != Some(CState::CloudCopy)
+            || grant.epoch != self.policy.epoch
+            || self.sealer.current_epoch() != Some(grant.epoch)
+            || !self.mode_source_key_trusted()
+        {
+            return;
+        }
+        let Some(signer) = item.signer else {
+            return;
+        };
+        let Some(author) = self.policy.devices.get(&signer) else {
+            return;
+        };
+        let Some(recipient) = self.policy.devices.get(&grant.recipient) else {
+            return;
+        };
+        let Some(me) = self.policy.devices.get(&self.cfg.device_id) else {
+            return;
+        };
+        if !me.active
+            || !me.keyed
+            || !matches!(
+                me.kind,
+                DeviceKind::Desktop | DeviceKind::Mobile | DeviceKind::AppRuntime | DeviceKind::Cli
+            )
+            || !author.active
+            || !author.keyed
+            || self.policy.members.get(&author.account) != Some(&Role::Owner)
+            || !matches!(
+                author.kind,
+                DeviceKind::Desktop | DeviceKind::Mobile | DeviceKind::AppRuntime | DeviceKind::Cli
+            )
+            || !recipient.active
+            || !matches!(recipient.kind, DeviceKind::Hosted | DeviceKind::Escrow)
+        {
+            return;
+        }
+        let mut trusted = self
+            .cfg
+            .trusted_signers
+            .iter()
+            .chain(self.account_key.trusted().iter())
+            .copied()
+            .collect::<BTreeSet<_>>();
+        if let Some(anchors) = self.private_switch_introducers() {
+            trusted.extend(anchors.iter().copied());
+        }
+        // The ordinary Private delivery/introduction chain is relative to THIS
+        // receiver. A stranger's self-delivery is not a local trust anchor.
+        trusted.insert(self.cfg.device_id);
+        let mut authorized = trusted.contains(&signer);
+        let mut seen = BTreeSet::new();
+        let mut current = author.delivered_by;
+        while !authorized {
+            let Some(id) = current else {
+                break;
+            };
+            let Some(device) = self.policy.devices.get(&id) else {
+                break;
+            };
+            if matches!(device.kind, DeviceKind::Hosted | DeviceKind::Escrow) || !seen.insert(id) {
+                break;
+            }
+            authorized = trusted.contains(&id);
+            current = device.introduced_by;
+        }
+        if !authorized {
+            return;
+        }
+        self.private_switch.cloud_read = Some((at, signer));
+        // The SAME existing trusted-owner predicate authorizes receiver reading.
+        // Resolve only its earlier mode-mismatch alert, never unrelated faults.
+        if self.incidents.get(&MODE_ALERT).is_some_and(|incident| {
+            matches!(
+                &incident.details, Some(mdbn_wire::common::Value::Text(text))
+                    if text == "collection_state_changed: CloudCopy"
+            )
+        }) {
+            self.incidents.remove(&MODE_ALERT);
+            self.status_dirty = true;
+        }
+    }
+
+    pub(super) fn mode_alert(&mut self, to: CState) {
+        self.incidents.insert(
+            MODE_ALERT,
+            mdbn_wire::client::Incident {
+                kind: mdbn_wire::client::IncidentKind::Integrity,
+                details: Some(mdbn_wire::common::Value::Text(format!(
+                    "collection_state_changed: {to:?}"
+                ))),
+            },
+        );
+        self.status_dirty = true;
+    }
+
     pub(super) fn private_switch_blocks(&self) -> bool {
         self.private_switch.blocked()
-            || (!self.private_switch.cloud_choice
-                && matches!(self.private_switch.state, State::Accepted { epoch, .. }
-                if self.policy.epoch < epoch || self.policy.cstate != Some(CState::E2e)))
+            || matches!(self.private_switch.state, State::Accepted { epoch, .. }
+                if self.policy.epoch < epoch || (!self.private_switch.cloud_choice && !self.cloud_read_selected() && self.policy.cstate != Some(CState::E2e)))
     }
 }

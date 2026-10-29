@@ -484,6 +484,7 @@ test("wraps long titles and gives narrow editor panes a usable writing measure",
       await page.setViewportSize({ width, height: 900 });
       if (width <= 760 && !await title.isVisible()) await page.getByRole("option").first().click();
       await expect(title).toBeVisible();
+      await expect.poll(() => title.evaluate(element => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
       const layout = await title.evaluate((element) => {
         const surface = element.closest(".writing-surface")!.getBoundingClientRect();
         const bounds = element.getBoundingClientRect();

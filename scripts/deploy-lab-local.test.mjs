@@ -195,6 +195,7 @@ test("dirty local checkout builds and pushes three amd64 images and deploys immu
     assert.ok(args.includes("--push"));
     assert.ok(args.includes("--provenance=false"));
     assert.equal(args[args.indexOf("--build-arg") + 1], `MDBASE_CONNECT_REVISION=${head}`);
+    assert.equal(args.includes("MDBASE_NEXT_COLLECTION_MODE_EXECUTION=1"), index === 0);
     assert.equal(args[args.indexOf("--tag") + 1], `${expectedRepositories[index]}:lab-local-0123456789ab-1770000000000-cafebabe`);
   }
 
@@ -225,6 +226,7 @@ test("local image revisions survive Render runtime metadata overrides", async ()
   for (const dockerfile of [serverDockerfile, mcpDockerfile]) {
     assert.match(dockerfile, /MDBASE_CONNECT_REVISION=\$\{MDBASE_CONNECT_REVISION\}/u);
   }
+  assert.match(serverDockerfile, /ARG MDBASE_NEXT_COLLECTION_MODE_EXECUTION=0/u);
   for (const entry of [serverEntry, mcpEntry]) {
     assert.match(entry, /process\.env\.MDBASE_CONNECT_REVISION \?\? process\.env\.RENDER_GIT_COMMIT/u);
   }

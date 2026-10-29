@@ -154,6 +154,19 @@ impl GrantSource for NoGrants {
 
 /// `create_log` with the control plane's own credential, over the transport.
 async fn create_log(log: &str, cp: Arc<ControlPlane>, c: Uuid, genesis: Vec<u8>) {
+    cp_rpc(
+        log,
+        cp,
+        c,
+        "create_log",
+        Cbor::Map(vec![
+            (Cbor::Uint(0), c.to_cbor()),
+            (Cbor::Uint(1), Cbor::Bytes(genesis)),
+        ]),
+    )
+    .await;
+}
+async fn cp_rpc(log: &str, cp: Arc<ControlPlane>, c: Uuid, method: &str, params: Cbor) -> Cbor {
     // Administrative test-control credential is NOT a Replica log-session port.
     // Keep it on its own raw LOOPBACK connection; no forged reply/prefix scope.
     let url = mdbn_daemon::logwire::ws_url(log, &c).unwrap();
@@ -202,13 +215,9 @@ async fn create_log(log: &str, cp: Arc<ControlPlane>, c: Uuid, genesis: Vec<u8>)
             break;
         }
     }
-    let params = Cbor::Map(vec![
-        (Cbor::Uint(0), c.to_cbor()),
-        (Cbor::Uint(1), Cbor::Bytes(genesis)),
-    ]);
     let frame = LsFrame::Request(LsRequest {
         id: 1,
-        method: "create_log".into(),
+        method: method.into(),
         params,
     })
     .to_bytes()
@@ -219,8 +228,8 @@ async fn create_log(log: &str, cp: Arc<ControlPlane>, c: Uuid, genesis: Vec<u8>)
             let Ok(LsFrame::Response(r)) = LsFrame::from_bytes(&bytes) else {
                 panic!("create_log reply")
             };
-            assert!(r.error.is_none(), "create_log: {:?}", r.error);
-            break;
+            assert!(r.error.is_none(), "{method}: {:?}", r.error);
+            return r.result.expect("successful admin result");
         }
     }
 }
@@ -588,4 +597,333 @@ pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
     println!("A files: {:?}", listing(&pa));
     println!("B files: {:?}", listing(&pb));
     ra.stop().await;
+}
+
+/// Both conversions over real LS sockets and real daemon actor/SQLite stores.
+/// CP intent/floor/cancel and host-file projection are separate HTTP/PG tests.
+pub async fn run_modes(log: &str, dir: &Path) {
+    run_modes_sdk(log, dir, None).await;
+}
+pub async fn run_modes_sdk(log: &str, dir: &Path, sdk: Option<(&str, &str)>) {
+    use mdbn_daemon::runtime::PrivateSwitchOp as P;
+    use mdbn_wire::policy::{CollectionState, DeviceRevoke};
+    let cp = Arc::new(ControlPlane::new(CP_LABEL));
+    let c = B16(random());
+    let owner = B16(random());
+    let hosted = Dev::new("mode-hosted", DeviceKind::Hosted, SERVICE_ACCOUNT);
+    let escrow = Dev::new("mode-escrow", DeviceKind::Escrow, SERVICE_ACCOUNT);
+    let sdk_device = Dev::new("mode-sdk", DeviceKind::AppRuntime, owner);
+    let a = Dev::new("mode-a", DeviceKind::Desktop, owner);
+    let b = Dev::new("mode-b", DeviceKind::Desktop, owner);
+    let genesis = cp.policy_item(
+        c,
+        1,
+        B32([0; 32]),
+        vec![
+            PolicyOp::Genesis(Genesis {
+                owner,
+                root: mdbn_log_service::policy::key_id(&cp.root_pk()),
+                state: CState::CloudCopy,
+            }),
+            PolicyOp::MemberSet(MemberSet {
+                account: owner,
+                role: Role::Owner,
+            }),
+            hosted.enrol(),
+            escrow.enrol(),
+            a.enrol(),
+            b.enrol(),
+            sdk_device.enrol(),
+        ],
+        1,
+    );
+    let original = genesis.clone();
+    let pin = mdbn_wire::hash::chain_hash(&genesis).0;
+    create_log(log, cp.clone(), c, genesis).await;
+    let rh = open(dir, log, &cp, c, &hosted, random(), pin);
+    let ra = open(dir, log, &cp, c, &a, random(), pin);
+    let bid = random();
+    let rb = open(dir, log, &cp, c, &b, bid, pin);
+    let pa = dir.join(a.label);
+    let pb = dir.join(b.label);
+    std::fs::write(pa.join("cloud.md"), "initial cloud copy\n").unwrap();
+    converge(
+        &pb.join("cloud.md"),
+        "initial cloud copy\n",
+        Duration::from_secs(60),
+    )
+    .await;
+    let mut sdk_child = if let Some((node, wasm)) = sdk {
+        let pins = mdbn_wire::cbor::encode(&Cbor::Array(vec![
+            Cbor::Array(vec![Cbor::Array(vec![
+                mdbn_replica::policy::key_id(&cp.root_pk().0).to_cbor(),
+                cp.root_pk().to_cbor(),
+            ])]),
+            Cbor::Array(vec![Cbor::Array(vec![
+                mdbn_replica::policy::key_id(&cp.transport_key().verifying_key().to_bytes())
+                    .to_cbor(),
+                B32(cp.transport_key().verifying_key().to_bytes()).to_cbor(),
+                mdbn_replica::policy::key_id(&cp.root_pk().0).to_cbor(),
+            ])]),
+        ]))
+        .unwrap();
+        let fixture = serde_json::json!({"publicConformanceFixture":true,"collection":c.to_uuid_string(),"device":sdk_device.tk.id.to_uuid_string(),"sign":mdbn_daemon::secrets::hex(&sdk_device.secrets().sign_sk),"kem":mdbn_daemon::secrets::hex(&sdk_device.kem_sk),"signPublic":mdbn_daemon::secrets::hex(&sdk_device.tk.pk().0),"token":cp.device_token_for(&sdk_device.tk,now_ms()+15*60_000,Some(c)),"log":log,"genesis":pin,"root":mdbn_daemon::secrets::hex(&cp.root_pk().0),"pins":mdbn_daemon::secrets::hex(&pins),"stage":dir.join("sdk-stage"),"command":dir.join("sdk-command"),"original":mdbn_daemon::secrets::hex(&original)});
+        let path = dir.join("sdk-fixture.json");
+        std::fs::write(&path, serde_json::to_vec(&fixture).unwrap()).unwrap();
+        let executable = std::env::current_exe().unwrap();
+        let script = executable
+            .ancestors()
+            .nth(4)
+            .unwrap()
+            .join("packages/sdk/scripts/app-mode-native-pair.mjs");
+        Some(
+            tokio::process::Command::new(node)
+                .arg(script)
+                .arg(path)
+                .arg(wasm)
+                .kill_on_drop(true)
+                .spawn()
+                .unwrap(),
+        )
+    } else {
+        None
+    };
+    if sdk_child.is_some() {
+        converge(&dir.join("sdk-stage"), "cloud", Duration::from_secs(60)).await;
+        converge(
+            &pa.join("sdk-cloud.md"),
+            "written by SDK in cloud\n",
+            Duration::from_secs(30),
+        )
+        .await;
+    }
+    assert!(matches!(
+        ra.private_switch(P::Request, Arc::new(|| true)).await,
+        Some(Ok(_))
+    ));
+    // Keep B online across the conditional CP policy and owner's rekey.
+    // Read-only acceptance/status checks must not be replaced by a restart.
+    rh.stop().await;
+    drop(rh);
+    append_policy(
+        log,
+        &cp,
+        c,
+        vec![
+            PolicyOp::DeviceRevoke(DeviceRevoke {
+                device: hosted.tk.id,
+            }),
+            PolicyOp::DeviceRevoke(DeviceRevoke {
+                device: escrow.tk.id,
+            }),
+            PolicyOp::CollectionState(CollectionState {
+                state: CState::E2e,
+                compress: None,
+                min_sem_major: None,
+            }),
+        ],
+    )
+    .await;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if matches!(
+            ra.private_switch(P::Accepted, Arc::new(|| true)).await,
+            Some(Ok(Some(_)))
+        ) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "native Private acceptance timed out"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if matches!(
+            rb.private_switch(P::Accepted, Arc::new(|| true)).await,
+            Some(Ok(Some(_)))
+        ) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "online B did not observe Private cutover without restart"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    std::fs::write(
+        pa.join("private-online.md"),
+        "private while B stayed online\n",
+    )
+    .unwrap();
+    converge(
+        &pb.join("private-online.md"),
+        "private while B stayed online\n",
+        Duration::from_secs(30),
+    )
+    .await;
+    println!("PASS: online B accepted Private cutover and new content without restart");
+    rb.stop().await;
+    drop(rb);
+    let rb = open(dir, log, &cp, c, &b, bid, pin);
+    std::fs::write(pa.join("private.md"), "private after restart\n").unwrap();
+    converge(
+        &pb.join("private.md"),
+        "private after restart\n",
+        Duration::from_secs(60),
+    )
+    .await;
+    assert!(matches!(
+        rb.private_switch(P::Accepted, Arc::new(|| true)).await,
+        Some(Ok(Some(_)))
+    ));
+    if sdk_child.is_some() {
+        std::fs::write(dir.join("sdk-command"), "private").unwrap();
+        converge(&dir.join("sdk-stage"), "private", Duration::from_secs(60)).await;
+        converge(
+            &pa.join("sdk-private.md"),
+            "written by SDK in private\n",
+            Duration::from_secs(30),
+        )
+        .await;
+    }
+    let h2 = Dev::new("mode-hosted-new", DeviceKind::Hosted, SERVICE_ACCOUNT);
+    let e2 = Dev::new("mode-escrow-new", DeviceKind::Escrow, SERVICE_ACCOUNT);
+    assert!(matches!(
+        ra.private_switch(P::ChooseCloud, Arc::new(|| true)).await,
+        Some(Ok(_))
+    ));
+    append_policy(
+        log,
+        &cp,
+        c,
+        vec![
+            h2.enrol(),
+            e2.enrol(),
+            PolicyOp::CollectionState(CollectionState {
+                state: CState::CloudCopy,
+                compress: None,
+                min_sem_major: None,
+            }),
+        ],
+    )
+    .await;
+    let rh = open(dir, log, &cp, c, &h2, random(), pin);
+    std::fs::write(pa.join("cloud-again.md"), "cloud after private history\n").unwrap();
+    converge(
+        &dir.join(h2.label).join("cloud-again.md"),
+        "cloud after private history\n",
+        Duration::from_secs(60),
+    )
+    .await;
+    converge(
+        &dir.join(h2.label).join("private.md"),
+        "private after restart\n",
+        Duration::from_secs(60),
+    )
+    .await;
+    converge(
+        &pb.join("cloud-again.md"),
+        "cloud after private history\n",
+        Duration::from_secs(60),
+    )
+    .await;
+    assert!(matches!(
+        rb.private_switch(P::CloudRead, Arc::new(|| true)).await,
+        Some(Ok(Some(_)))
+    ));
+    if sdk_child.is_some() {
+        std::fs::write(dir.join("sdk-command"), "cloud-again").unwrap();
+        converge(
+            &dir.join("sdk-stage"),
+            "cloud-again",
+            Duration::from_secs(60),
+        )
+        .await;
+        converge(
+            &pa.join("sdk-cloud-again.md"),
+            "written by SDK in cloud-again\n",
+            Duration::from_secs(30),
+        )
+        .await;
+    }
+    if let Some(child) = &mut sdk_child {
+        assert!(
+            tokio::time::timeout(Duration::from_secs(10), child.wait())
+                .await
+                .unwrap()
+                .unwrap()
+                .success()
+        );
+    }
+    use mdbn_wire::{
+        envelope::{Item, ItemKind, RekeyPayload},
+        log_service::{ReadParams, ReadResult},
+    };
+    let log_items = ReadResult::from_cbor(
+        &cp_rpc(
+            log,
+            cp.clone(),
+            c,
+            "read",
+            ReadParams {
+                collection: c,
+                after: 0,
+                limit: 1024,
+                kinds: None,
+                max_bytes: None,
+            }
+            .to_cbor(),
+        )
+        .await,
+    )
+    .unwrap();
+    let epochs = log_items
+        .items
+        .iter()
+        .map(|row| Item::from_bytes(&row.item.0).unwrap())
+        .filter(|item| item.kind == ItemKind::Rekey)
+        .map(|item| RekeyPayload::from_bytes(&item.body.0).unwrap().epoch)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        epochs,
+        vec![1, 2],
+        "Cloud handover must not create a replacement epoch"
+    );
+    ra.stop().await;
+    rb.stop().await;
+    rh.stop().await;
+    println!(
+        "PASS: native Cloud -> Private -> Cloud, offline receiver replay, same epoch/history handover, receiver-only read choice"
+    );
+}
+async fn append_policy(log: &str, cp: &Arc<ControlPlane>, collection: Uuid, ops: Vec<PolicyOp>) {
+    use mdbn_wire::log_service::{AppendParams, HeadParams, HeadResult};
+    let head = HeadResult::from_cbor(
+        &cp_rpc(
+            log,
+            cp.clone(),
+            collection,
+            "head",
+            HeadParams { collection }.to_cbor(),
+        )
+        .await,
+    )
+    .unwrap();
+    let item = cp.policy_item(collection, head.head + 1, head.head_chain, ops, now_ms());
+    cp_rpc(
+        log,
+        cp.clone(),
+        collection,
+        "append",
+        AppendParams {
+            collection,
+            expect_seq: head.head + 1,
+            expect_prev: head.head_chain,
+            items: vec![mdbn_wire::common::Bytes(item)],
+        }
+        .to_cbor(),
+    )
+    .await;
 }

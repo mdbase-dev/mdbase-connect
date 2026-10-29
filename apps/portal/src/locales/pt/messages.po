@@ -411,10 +411,6 @@ msgid "<0>Application origin unverified.</0> Continue only if you started this c
 msgstr "<0>Origem do aplicativo não verificada.</0> Continue apenas se você iniciou esta conexão intencionalmente{1}.{3}"
 
 #: src/ConnectApp.tsx
-msgid "A cloud copy helps your replicas sync. This page does not report their connection status."
-msgstr "Uma cópia na nuvem ajuda a sincronizar suas réplicas. Esta página não informa o status da conexão delas."
-
-#: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "Uma coleção foi compartilhada com você"
 
@@ -1039,10 +1035,6 @@ msgstr "Coleção"
 msgid "Collection changes"
 msgstr "Alterações na coleção"
 
-#: src/ConnectApp.tsx
-msgid "Collection content remains in your replicas; no cloud copy is configured."
-msgstr "O conteúdo da coleção permanece nas suas réplicas; nenhuma cópia na nuvem está configurada."
-
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
 msgstr "ID da coleção"
@@ -1064,6 +1056,10 @@ msgstr "Titular da coleção"
 msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "Permissões da coleção"
+
+#: src/ConnectApp.tsx
+msgid "Collection replicas"
+msgstr "Réplicas da coleção"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
@@ -2681,6 +2677,10 @@ msgstr "Substituir arquivos existentes"
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
 msgstr "Substituir sua senha encerra todas as outras sessões do navegador conectadas à conta."
+
+#: src/ConnectApp.tsx
+msgid "Replicas sync between your devices. Application access is managed separately."
+msgstr "As réplicas são sincronizadas entre seus dispositivos. O acesso de aplicativos é gerenciado separadamente."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx

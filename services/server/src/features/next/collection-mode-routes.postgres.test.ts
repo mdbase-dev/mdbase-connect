@@ -19,9 +19,11 @@ const describePg = testUrl && approved ? describe : describe.skip;
 describePg("durable owner mode intent", () => {
   let db: DatabasePool, admin: pg.Pool, schema: string;
   const keys = { sign_pk: Buffer.alloc(32, 1), kem_pk: Buffer.alloc(32, 2), noise_pk: Buffer.alloc(32, 3) };
-  const server = async (pool = db) => {
+  const server = async (pool = db, execution = false) => {
     const app = Fastify(); await app.register(cookie); registerErrorHandler(app);
-    registerCollectionNameRoutes(app, pool); return app;
+    registerCollectionNameRoutes(app, pool);
+    if (execution) app.post("/v1/next/collections/:id/mode/:requestId/prepare", async () => ({phase:"waiting_for_device"}));
+    return app;
   };
   let app: Awaited<ReturnType<typeof server>>;
   beforeAll(async () => {
@@ -60,6 +62,18 @@ describePg("durable owner mode intent", () => {
   const get = (f: Fixture, request: string, instance = app) => instance.inject({ method: "GET", url: `/v1/next/collections/${f.collection}/mode/${request}`, headers: f.headers });
   const changes = async (f: Fixture) => (await db.query("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1", [f.collection])).rows;
 
+  it("exposes controls only when the execution route is actually registered", async () => {
+    const f = await fixture();
+    for (const registered of [false,true]) {
+      const instance=await server(db,registered);
+      try {
+        const response=await instance.inject({method:"GET",url:`/v1/next/collections/${f.collection}/mode`,headers:f.headers});
+        expect(response.statusCode).toBe(200);
+        expect(response.json().execution_available).toBe(registered);
+      } finally { await instance.close(); }
+    }
+  });
+
   it.each(["private", "cloud_copy"] as const)("accepts %s owner intent without prematurely changing policy, keys or catalog", async sync => {
     const f = await fixture(sync), request = randomUUID();
     const before = (await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1", [f.collection])).rows;
@@ -73,6 +87,24 @@ describePg("durable owner mode intent", () => {
     expect(await changes(f)).toHaveLength(1);
     expect((await db.query("SELECT sync FROM next_collections WHERE collection_id=$1", [f.collection])).rows[0].sync).toBe(sync);
     expect((await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1", [f.collection])).rows).toEqual(before);
+  });
+
+  it("cancels only before publication and retains an idempotent terminal request", async()=>{
+    const f=await fixture(),request=randomUUID();await start(f,request);
+    const cancel=()=>app.inject({method:"DELETE",url:`/v1/next/collections/${f.collection}/mode/${request}`,headers:f.headers});
+    expect((await cancel()).json()).toMatchObject({phase:"cancelled",request_id:request});
+    expect((await cancel()).json().phase).toBe("cancelled");
+    expect((await start(f,request)).json().phase).toBe("cancelled");
+    expect((await app.inject({method:"GET",url:`/v1/next/collections/${f.collection}/mode`,headers:f.headers})).json().change).toBeNull();
+    expect((await start(f,randomUUID())).statusCode).toBe(202);
+  });
+  it("never cancels an assigned or uncertain policy batch",async()=>{
+    const f=await fixture(),request=randomUUID();await start(f,request);
+    const outbox=(await db.query<{id:string}>("SELECT id FROM next_policy_outbox WHERE collection_id=$1",[f.collection])).rows[0]!.id;
+    await db.query("UPDATE next_collection_mode_changes SET policy_outbox_id=$3 WHERE collection_id=$1 AND request_id=$2",[f.collection,request,outbox]);
+    const result=await app.inject({method:"DELETE",url:`/v1/next/collections/${f.collection}/mode/${request}`,headers:f.headers});
+    expect(result.statusCode).toBe(409);expect(result.json().error.code).toBe("mode_already_published");
+    expect((await changes(f))[0].cancelled_at).toBeNull();
   });
 
   it("recovers the same request after process restart and a lost success response", async () => {
@@ -198,7 +230,7 @@ describePg("durable owner mode intent", () => {
   it("recovers active status without retaining the request identifier on this client", async () => {
     const f = await fixture();
     const read = () => app.inject({ method: "GET", url: `/v1/next/collections/${f.collection}/mode`, headers: f.browserHeaders });
-    expect((await read()).json()).toEqual({ collection_id: f.collection, current_mode: "cloud_copy", change: null });
+    expect((await read()).json()).toEqual({ collection_id: f.collection, current_mode: "cloud_copy", execution_available: false, change: null });
     const request = randomUUID(); await start(f, request);
     expect((await read()).json().change).toMatchObject({ request_id: request, phase: "waiting_for_device" });
   });

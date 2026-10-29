@@ -37,10 +37,11 @@ export async function openNativeServiceFixture({sdk, wasm, service, collection, 
     const transport = new sdk.AppHttpLogTransport(authority,{allowLoopbackHttp:true});
     pump = rt.bindLogTransport(transport);
     const drive = async () => {
+      rt.requestLogHead();
       for(let turn=0;turn<8;turn++) {rt.tick();await pump.pump();}
       assert.equal(rt.observations().requiresReopen,false);
     };
     await drive();
-    return {drive,observations:()=>rt.observations(),close:async()=>{current=false;await pump.close();rt.close();db.close();}};
+    return {runtime:rt,drive,observations:()=>rt.observations(),close:async()=>{current=false;await pump.close();rt.close();db.close();}};
   } catch(error) {current=false;await pump?.close();rt.close();db.close();throw error;}
 }

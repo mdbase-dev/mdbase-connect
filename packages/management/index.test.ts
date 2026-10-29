@@ -7,6 +7,23 @@ afterEach(() => {
 });
 
 describe("ConnectManagementClient", () => {
+  it("binds durable mode intent/status to the collection and request, with account credentials only", async () => {
+    const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ phase: "waiting_for_device" }));
+    vi.stubGlobal("fetch", fetch);
+    const client = new ConnectManagementClient("https://connect.example");
+    await client.collectionModeStatus("collection");
+    await client.requestCollectionMode("collection", { requestId: "request", targetMode: "private" });
+    await client.collectionModeRequest("collection", "request");
+    await client.cancelCollectionMode("collection", "request");
+    expect(fetch.mock.calls.map(call => String(call[0]))).toEqual([
+      "https://connect.example/v1/next/collections/collection/mode",
+      "https://connect.example/v1/next/collections/collection/mode",
+      "https://connect.example/v1/next/collections/collection/mode/request",
+      "https://connect.example/v1/next/collections/collection/mode/request"
+    ]);
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ credentials: "include", method: "POST", body: JSON.stringify({ request_id: "request", target_mode: "private" }) });
+    expect(fetch.mock.calls[3]?.[1]).toMatchObject({ credentials: "include", method: "DELETE" });
+  });
   it("uses the account origin with explicit browser credentials", async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ user: { id: "person" } }), {
       status: 200,

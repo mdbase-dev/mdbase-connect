@@ -405,6 +405,12 @@ impl<S: Store> Engine<S> {
 
     /// The replica's live verified hosted admission (read-only observation; never
     /// cached by the host as a permit).
+    /// Verified current service-key/history readiness, not app admission.
+    pub fn mode_service_ready(&self) -> Option<(mdbn_wire::common::Uuid, u64)> {
+        self.replica.mode_service_ready()
+    }
+
+    /// Current hosted-only app admission. Escrow never passes this gate.
     pub fn admission(&self) -> mdbn_replica::HostedAdmission {
         self.replica.verified_hosted_admission()
     }
@@ -479,7 +485,8 @@ impl<S: Store> Engine<S> {
         if genesis_item.kind != ItemKind::Policy
             || founding.len() != 1
             || founding[0].root != native.root_id()
-            || founding[0].state != CState::CloudCopy
+        // Original mode is immutable; current hosted readiness already
+        // requires applied Cloud mode and actual owner-delivered keys.
         {
             return Err(refuse());
         }

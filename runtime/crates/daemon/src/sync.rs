@@ -159,6 +159,24 @@ pub fn verify_genesis(
     trust: &Trust,
     chosen: CState,
 ) -> Result<[u8; 32], Invalid> {
+    verify_original_genesis(item_bytes, collection, trust, Some(chosen))
+}
+
+/// Joins pin the immutable signed original, not a fabricated genesis in today's
+/// mode. Current mode/keys are independently enforced by actual replica replay.
+pub fn verify_join_genesis(
+    item_bytes: &[u8],
+    collection: &[u8; 16],
+    trust: &Trust,
+) -> Result<[u8; 32], Invalid> {
+    verify_original_genesis(item_bytes, collection, trust, None)
+}
+fn verify_original_genesis(
+    item_bytes: &[u8],
+    collection: &[u8; 16],
+    trust: &Trust,
+    chosen: Option<CState>,
+) -> Result<[u8; 32], Invalid> {
     use mdbn_wire::envelope::{Item, ItemKind};
     use mdbn_wire::schema::Wire;
     let bad = |m: &str| Err(Invalid(format!("genesis: {m}")));
@@ -176,7 +194,7 @@ pub fn verify_genesis(
     if policy.apply_control(1, &chain, &item, &env).is_err() {
         return bad("not a valid genesis under the pinned roots");
     }
-    if policy.cstate != Some(chosen) {
+    if chosen.is_some_and(|state| policy.cstate != Some(state)) {
         return bad("collection state differs from the chosen state");
     }
     Ok(chain.0)
@@ -483,6 +501,16 @@ mod tests {
             verify_genesis(&genesis(C, CState::E2e, 2), &C, &pinned, CState::E2e).is_err(),
             "not seq 1"
         );
+        for mode in [CState::E2e, CState::CloudCopy] {
+            let original = genesis(C, mode, 1);
+            assert_eq!(
+                verify_join_genesis(&original, &C, &pinned).unwrap(),
+                mdbn_wire::hash::chain_hash(&original).0,
+                "join preserves original mode"
+            );
+            assert!(verify_join_genesis(&original, &[0x44; 16], &pinned).is_err());
+            assert!(verify_join_genesis(&original, &C, &other_key).is_err());
+        }
         let mut flipped = g.clone();
         let last = flipped.len() - 1;
         flipped[last] ^= 1;
