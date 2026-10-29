@@ -102,6 +102,18 @@ blocker) remains outstanding; do not release or mark this implementation ready.
   lost acknowledgement, wrong device, wrong challenge and HTTP 503 never complete early;
   retry preserves the publication, receipt and generated identities. These use
   authenticated native-proof/service-response fixtures, not simulated HPKE.
+- Cold receiver regression: a valid trusted-owner service grant resolves only the
+  stale Cloud mode-change Integrity alert. Other Integrity failures are neither
+  overwritten nor cleared; policy-only selection remains refused and receiver
+  source consent stays absent. Both owner and viewer cold receivers are covered.
+- Actual workerd/WASM/SQLite warm readiness: an actor opened before the owner's
+  grants must refresh the existing log session/pump before observing readiness;
+  a cached open cannot strand it at the pre-grant head. Born-Cloud → Private →
+  Cloud history is exercised with fresh service identities and no signer override.
+- The native socket/SDK harness now keeps B online across the CP policy and rekey
+  and requires new Private content without restart, then separately tests cold
+  replay. It passes locally, including a short-token renewal stress run; this
+  does not yet explain or qualify the observed managed online catch-up stall.
 - Actual workerd/WASM/SQLite restart matrix: ignored readiness acknowledgement,
   retirement failure before deletion and lost physical acknowledgement after
   durable deletion. Cold retries converge; revoked services stay unready and

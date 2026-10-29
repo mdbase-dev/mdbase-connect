@@ -1231,9 +1231,13 @@ export class HostedCollection extends DurableObject<Env> {
         });
       }
       try {
-        await this.ready(collection);
-        const engine = this.engine;
-        if (!engine || this.opening || this.collection !== collection || !modeReady(engine.modeServiceReady(),input)) return modeUnavailable();
+        const engine = await this.ready(collection);
+        const generation = this.logGen;
+        // CP enrolment activation can open this actor before the owner's grants
+        // arrive. A warm cached open is not a fresh readiness observation.
+        engine.refresh();
+        await this.sync(engine);
+        if (this.engine !== engine || this.logGen !== generation || this.opening || this.collection !== collection || !modeReady(engine.modeServiceReady(),input)) return modeUnavailable();
         return modeAck(input);
       } catch { return modeUnavailable(); }
     }

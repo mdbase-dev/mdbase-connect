@@ -784,8 +784,14 @@ impl<S: Store> Replica<S> {
                 );
             }
             crate::policy::PolicyEvent::CollectionStateChanged { to, .. } => {
-                // Every device alerts unless its own user requested the change.
-                if self.cfg.chosen_state != Some(to) && !self.private_switch_waiting() {
+                // A later authenticated owner grant may resolve only this mode
+                // alert. Never overwrite an unrelated integrity failure with it.
+                if self.cfg.chosen_state != Some(to)
+                    && !self.private_switch_waiting()
+                    && !self
+                        .incidents
+                        .contains_key(&IncidentKind::Integrity.value())
+                {
                     self.incident(
                         IncidentKind::Integrity,
                         Some(Value::Text(format!("collection_state_changed: {to:?}"))),

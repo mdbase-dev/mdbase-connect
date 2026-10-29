@@ -605,6 +605,93 @@ fn receiver_cloud_read_is_automatic_but_never_owner_source_consent() {
     );
 }
 
+#[test]
+fn born_cloud_receiver_cold_replay_after_private_return_has_no_fatal_incident() {
+    for viewer in [false, true] {
+        let (svc, mut cp, mut a, mut b) = real_world_member(viewer);
+        a.r.request_private_switch(a.s).unwrap();
+        switch(&mut cp, &svc);
+        settle(&mut [&mut a, &mut b]);
+        a.create(91, "lab-private-a.md", "private epoch two");
+        settle(&mut [&mut a, &mut b]);
+        assert_eq!(b.r.policy.epoch, 2);
+        b.r.acknowledge_private_switch(b.s).unwrap();
+        let data = b.r.store().data();
+        drop(b); // LAB B was offline during A's explicit reverse handover.
+        a.r.choose_cloud_copy(a.s).unwrap();
+        receiver_cloud_policy(&mut cp, &svc);
+        settle(&mut [&mut a]);
+        let mut b = node_with(
+            &svc,
+            4,
+            MemStore::shared(data),
+            vec![],
+            Some(Box::new(KeyringSealer::new(
+                COL,
+                B16([104; 16]),
+                &[104; 32],
+                &[104; 32],
+            ))),
+        );
+        settle(&mut [&mut b]);
+        assert_eq!(b.r.cloud_read_owner(), Some(B16([101; 16])));
+        assert!(b.r.cloud_copy_source_epoch().is_none());
+        assert_eq!(b.doc(91).as_deref(), Some("private epoch two"));
+        assert!(
+            !b.r.sync_status().incidents.iter().any(|i| matches!(
+                i.kind,
+                mdbn_wire::client::IncidentKind::Integrity
+                    | mdbn_wire::client::IncidentKind::KeyInconsistent
+            )),
+            "cold returned-to-Cloud receiver must be usable, not merely selected: {:?}",
+            b.r.sync_status().incidents,
+        );
+    }
+}
+
+#[test]
+fn receiver_read_selection_never_clears_unrelated_integrity() {
+    let (svc, mut cp, mut a, mut b) = real_world();
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    let unrelated = mdbn_wire::common::Value::Text("fixture unrelated integrity".into());
+    b.r.incident(
+        mdbn_wire::client::IncidentKind::Integrity,
+        Some(unrelated.clone()),
+    );
+    a.r.choose_cloud_copy(a.s).unwrap();
+    receiver_cloud_policy(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.r.cloud_read_owner(), Some(B16([101; 16])));
+    assert!(
+        b.r.sync_status()
+            .incidents
+            .iter()
+            .any(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity
+                && i.details == Some(unrelated.clone()))
+    );
+    assert!(b.r.cloud_copy_source_epoch().is_none());
+}
+
+#[test]
+fn receiver_policy_without_owner_service_grant_retains_integrity_alert() {
+    let (svc, mut cp, mut a, mut b) = real_world();
+    a.r.request_private_switch(a.s).unwrap();
+    switch(&mut cp, &svc);
+    settle(&mut [&mut a, &mut b]);
+    receiver_cloud_policy(&mut cp, &svc); // A did NOT choose Cloud/source handover.
+    settle(&mut [&mut a, &mut b]);
+    assert!(b.r.cloud_read_owner().is_none());
+    assert!(
+        b.r.sync_status()
+            .incidents
+            .iter()
+            .any(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity)
+    );
+    assert!(b.r.cloud_copy_source_epoch().is_none());
+}
+
 fn receiver_cloud_policy(cp: &mut TestControlPlane, svc: &FakeLogService) {
     let mut ops = Vec::new();
     for (id, kind) in [(105, DeviceKind::Hosted), (106, DeviceKind::Escrow)] {

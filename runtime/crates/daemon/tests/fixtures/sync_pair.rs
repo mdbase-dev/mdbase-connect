@@ -661,8 +661,8 @@ pub async fn run_modes_sdk(log: &str, dir: &Path, sdk: Option<(&str, &str)>) {
         ra.private_switch(P::Request, Arc::new(|| true)).await,
         Some(Ok(_))
     ));
-    rb.stop().await;
-    drop(rb);
+    // Keep B online across the conditional CP policy and owner's rekey.
+    // Read-only acceptance/status checks must not be replaced by a restart.
     rh.stop().await;
     drop(rh);
     append_policy(
@@ -698,6 +698,34 @@ pub async fn run_modes_sdk(log: &str, dir: &Path, sdk: Option<(&str, &str)>) {
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if matches!(
+            rb.private_switch(P::Accepted, Arc::new(|| true)).await,
+            Some(Ok(Some(_)))
+        ) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "online B did not observe Private cutover without restart"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    std::fs::write(
+        pa.join("private-online.md"),
+        "private while B stayed online\n",
+    )
+    .unwrap();
+    converge(
+        &pb.join("private-online.md"),
+        "private while B stayed online\n",
+        Duration::from_secs(30),
+    )
+    .await;
+    println!("PASS: online B accepted Private cutover and new content without restart");
+    rb.stop().await;
+    drop(rb);
     let rb = open(dir, log, &cp, c, &b, bid, pin);
     std::fs::write(pa.join("private.md"), "private after restart\n").unwrap();
     converge(

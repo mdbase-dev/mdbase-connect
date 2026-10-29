@@ -839,6 +839,17 @@ impl<S: Store> Replica<S> {
             return;
         }
         self.private_switch.cloud_read = Some((at, signer));
+        // The SAME existing trusted-owner predicate authorizes receiver reading.
+        // Resolve only its earlier mode-mismatch alert, never unrelated faults.
+        let kind = mdbn_wire::client::IncidentKind::Integrity;
+        if self.incidents.get(&kind.value()).is_some_and(|incident| {
+            matches!(
+                &incident.details, Some(mdbn_wire::common::Value::Text(text))
+                    if text == "collection_state_changed: CloudCopy"
+            )
+        }) {
+            self.clear_incident(kind);
+        }
     }
 
     pub(super) fn private_switch_blocks(&self) -> bool {
