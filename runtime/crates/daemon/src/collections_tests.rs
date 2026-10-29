@@ -730,6 +730,10 @@ fn synced_readiness_needs_genesis_keys_and_the_head() {
         Err("sync_revoked")
     );
     assert_eq!(
+        r(9, 9, Online, &[K::Gone], true, false),
+        Err("collection_deleted")
+    );
+    assert_eq!(
         r(9, 9, Online, &[K::UpgradeRequired], true, false),
         Err("sync_upgrade_required")
     );
@@ -1223,6 +1227,10 @@ async fn token_renewal_deletion_is_sticky_but_other_refusals_are_not_deletion() 
         );
         assert!(tokens.eligibility().await.is_err());
         assert_eq!(tokens.deleted(), deleted);
+        assert_eq!(
+            crate::logwire::TokenSource::current(&tokens).is_err(),
+            deleted
+        );
         crate::logwire::TokenSource::refused(&tokens);
         assert!(crate::logwire::TokenSource::token(&tokens).await.is_err());
         assert_eq!(
