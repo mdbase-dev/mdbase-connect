@@ -184,6 +184,12 @@ and the golden file holds every operation's result, so a drift shows which
 operation changed. Add operations to `conformance/determinism/core.log` as core
 semantics land.
 
+The simulator's `semantics-retained-native` scenario replays a signed earlier-SEM
+tail containing all four native file-kind operations on Linux, macOS and Windows
+replicas. Its unit test checks convergence against
+`conformance/determinism/retained-native.expected.json`; this replica-level golden
+is separate from the core-operation `.log` fixtures.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on PRs and pushes to `main`. Docs-only changes are

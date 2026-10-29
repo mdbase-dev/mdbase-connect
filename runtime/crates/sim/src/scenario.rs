@@ -45,6 +45,7 @@ pub const NAMES: &[&str] = &[
     "slice-sealed-chaos",
     // Control durability: public reply/tick retry followed by process reopen.
     "control-commit",
+    "semantics-retained-native",
     "control-commit-fault",
     "control-commit-fault-crash",
     // Untrusted-party oracle self-tests: only tap-sealed is clean.
@@ -133,6 +134,7 @@ pub const HOLD_CEILINGS: &[(&str, u64)] = &[
     ("slice-real-lost-tail-fallback", 0),
     ("slice-real-lost-tail-probe-cut", 0),
     ("slice-real-lost-tail-compacted", 0),
+    ("semantics-retained-native", 0),
 ];
 
 /// The pinned ceiling for `name`, if it is gated.
@@ -146,6 +148,7 @@ pub fn hold_ceiling(name: &str) -> Option<u64> {
 /// Scenarios a CI sweep runs: everything that must be clean. Negative controls
 /// and known residuals are excluded here and pinned by tests instead.
 pub const SWEEP: &[&str] = &[
+    "semantics-retained-native",
     "journal",
     "tap-sealed",
     "slice-real",
@@ -228,6 +231,7 @@ pub fn run_seed(name: &str, seed: u64, opts: &Opts) -> Option<Report> {
             scenarios::slice_real::run_lost_tail(&mut w, scenarios::slice_real::LostTail::Overwrite)
         }
         "control-commit" => scenarios::control_commit::run(&mut w, false, false),
+        "semantics-retained-native" => scenarios::semantics::run(&mut w),
         "control-commit-fault" => scenarios::control_commit::run(&mut w, true, false),
         "control-commit-fault-crash" => scenarios::control_commit::run(&mut w, true, true),
         n if n.starts_with("tap-") => {

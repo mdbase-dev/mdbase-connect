@@ -301,6 +301,22 @@ fn inventory_requires_current_descriptor_authentication_before_refs_void() {
         assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
     }
 }
+#[test]
+fn previous_sem_native_effects_still_require_authenticated_source_refs() {
+    let mut node = node();
+    let (content, objects) = contents(&mut node, &vec![b'x'; 1_048_577], true);
+    let mut entry = planned(&node, payload(content));
+    entry.sem = Version { major: 1, minor: 0 };
+    let head = retain(&mut node);
+    let writer = node.r.cfg.device_id;
+    assert!(matches!(
+        apply_body_with_refs(&mut node, head, &entry, &objects, writer, &[]),
+        crate::replica::apply::Outcome::Void("V7: native source refs")
+    ));
+    assert_eq!(node.r.head, head);
+    assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
+}
+
 struct ErrorPlanner;
 impl crate::plan::Planner for ErrorPlanner {
     fn plan(
@@ -758,8 +774,9 @@ fn cached_source_never_replaces_mandatory_full_prior_descriptor_cas() {
     let h = retain(&mut a);
     assert!(matches!(
         apply_body(&mut a, h, &stale, &objects, writer),
-        crate::replica::apply::Outcome::Stall(mdbn_wire::client::IncidentKind::UpgradeRequired, _)
+        crate::replica::apply::Outcome::Void(_)
     ));
+    assert_eq!(a.r.store.head().unwrap(), h);
     assert_eq!(a.r.store.file(&B16([52; 16])).unwrap().unwrap(), before);
 }
 #[test]
