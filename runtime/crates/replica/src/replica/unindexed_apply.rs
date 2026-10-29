@@ -19,6 +19,7 @@ struct Job {
     generation: u64,
     refs: Option<BTreeSet<Hash>>,
     invalid_refs: bool,
+    missing_key: bool,
     queue: VecDeque<FileContent>,
     ordinary: Vec<FileContent>,
     current: Option<(FileContent, UnindexedSourceReader)>,
@@ -132,18 +133,24 @@ impl<S: Store> Replica<S> {
             };
             let mut cache = super::unindexed_cache::Cache::load(raw.as_deref());
             let mut queue = VecDeque::new();
+            let mut missing_key = false;
             for c in descriptors(p) {
+                let verified = cache.hit(&c);
                 let addresses = match &c {
                     FileContent::Blob(b) => match self.sealer.blob_part_addresses(b) {
                         Some(addresses) => Some(addresses),
-                        None => return Check::Failed(StreamError::NoKey),
+                        None => {
+                            missing_key = true;
+                            continue;
+                        }
                     },
-                    FileContent::AttachmentV1(a) => {
+                    FileContent::AttachmentV1(a) if verified => {
                         match self.attachment_inventory(&a.reference.manifest_cipher_hash) {
                             Ok(addresses) => addresses,
                             Err(e) => return Check::StoreFailed(e),
                         }
                     }
+                    FileContent::AttachmentV1(_) => None,
                     _ => return Check::Failed(StreamError::Protocol("native source profile")),
                 };
                 if let Some(addresses) = &addresses
@@ -151,7 +158,7 @@ impl<S: Store> Replica<S> {
                 {
                     return Check::InvalidRefs;
                 }
-                if addresses.is_some() && cache.hit(&c) {
+                if addresses.is_some() && verified {
                     continue;
                 }
                 // An attachment without inventory must authenticate its manifest, even
@@ -164,6 +171,7 @@ impl<S: Store> Replica<S> {
                 generation: self.store_generation,
                 refs,
                 invalid_refs: false,
+                missing_key,
                 queue,
                 ordinary: p
                     .mutation
@@ -221,6 +229,7 @@ impl<S: Store> Replica<S> {
         {
             j.queue = descriptors(p);
             j.current = None;
+            j.missing_key = false;
             j.inventory.clear();
             j.ready = None;
             j.retry_at = Some(retry);
@@ -257,7 +266,7 @@ impl<S: Store> Replica<S> {
             return;
         }
         job.retry_at = None;
-        if job.current.is_none() {
+        while job.current.is_none() && job.ready.is_none() {
             if let Some(content) = job.queue.pop_front() {
                 let reader = if job.ordinary.contains(&content) {
                     UnindexedSourceReader::ordinary(
@@ -270,10 +279,15 @@ impl<S: Store> Replica<S> {
                 };
                 match reader {
                     Ok(r) => job.current = Some((content, r)),
+                    Err(StreamError::NoKey) => job.missing_key = true,
                     Err(e) => job.ready = Some(Err(e)),
                 }
             } else {
-                job.ready = Some(Ok(false));
+                job.ready = Some(if job.missing_key {
+                    Err(StreamError::NoKey)
+                } else {
+                    Ok(false)
+                });
             }
         }
         if let Some((_, r)) = &job.current {
@@ -381,6 +395,10 @@ impl<S: Store> Replica<S> {
             _ => None,
         };
         match result {
+            Some(Err(StreamError::NoKey)) => {
+                job.missing_key = true;
+                job.current = None;
+            }
             Some(Err(e)) => job.ready = Some(Err(e)),
             None => {
                 job.retry_at = Some(
@@ -394,19 +412,22 @@ impl<S: Store> Replica<S> {
                         .current
                         .as_ref()
                         .is_some_and(|(_, r)| r.need().is_none())
+                    && let Some((_, reader)) = job.current.take()
                 {
-                    if let Some((_, reader)) = job.current.take() {
-                        match reader.finish() {
-                            Ok(proof) => job.cache.verified(&proof),
-                            Err(UnindexedSourceError::InvalidUtf8) => job.ready = Some(Ok(true)),
-                            Err(UnindexedSourceError::Read(e)) => job.ready = Some(Err(e)),
-                        }
-                    }
-                    if job.current.is_none() && job.queue.is_empty() && job.ready.is_none() {
-                        job.ready = Some(Ok(false));
+                    match reader.finish() {
+                        Ok(proof) => job.cache.verified(&proof),
+                        Err(UnindexedSourceError::InvalidUtf8) => job.ready = Some(Ok(true)),
+                        Err(UnindexedSourceError::Read(e)) => job.ready = Some(Err(e)),
                     }
                 }
             }
+        }
+        if job.current.is_none() && job.queue.is_empty() && job.ready.is_none() {
+            job.ready = Some(if job.missing_key {
+                Err(StreamError::NoKey)
+            } else {
+                Ok(false)
+            });
         }
         let ready = job.ready.is_some();
         self.unindexed_sources.job = Some(job);

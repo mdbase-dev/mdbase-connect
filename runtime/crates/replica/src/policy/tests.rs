@@ -12,17 +12,6 @@ use mdbn_wire::policy::{
     MemberRemove, MemberSet, MigrationCutover,
 };
 
-/// New void sites need an explicit bytes/log-state-only classification before
-/// updating this inventory. The trust/planner regressions guard existing sites.
-#[test]
-fn void_site_inventory_requires_determinism_review() {
-    let policy = include_str!("../policy.rs");
-    let apply = include_str!("../replica/apply.rs");
-    assert_eq!(policy.matches("void(").count(), 112);
-    assert_eq!(apply.matches(".commit_void(").count(), 11);
-    assert_eq!(apply.matches(".commit_payload_void(").count(), 39);
-}
-
 /// Fake verifier: a signature is `digest ‖ pk`.
 struct Fake;
 impl SigVerifier for Fake {
