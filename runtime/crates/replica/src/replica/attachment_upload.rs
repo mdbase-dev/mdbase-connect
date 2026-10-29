@@ -572,7 +572,10 @@ fn stream_problem(e: &StreamError) -> Problem {
     match e {
         StreamError::TooLarge => ErrorCode::TooLarge.problem_with_reason(
             "attachment_too_large",
-            "the file exceeds the attachment cap",
+            format!(
+                "the file exceeds the attachment limit of {} bytes",
+                AttachmentLimits::default().max_file_bytes
+            ),
         ),
         StreamError::NoKey => ErrorCode::Unavailable.problem_with_reason(
             "waiting_for_key",

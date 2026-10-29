@@ -220,6 +220,7 @@ fn only_requested_resource_dependency_reads_reoffer_attachment_text() {
         "ordinary JSON stays ordinary"
     );
     assert!(s.resource_observation_text(&original, 2).unwrap().is_none());
+    assert_eq!(s.pending_resource_paths(), [original.path.clone()]);
     assert!(
         s.observe(None).unwrap().is_empty(),
         "over-bound read cannot arm resource redelivery"

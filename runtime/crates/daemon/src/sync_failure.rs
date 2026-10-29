@@ -10,7 +10,7 @@ use mdbn_wire::common::Value;
 use serde::{Deserialize, Serialize};
 
 const FILE: &str = "last-sync-failure.json";
-const MAX_BYTES: u64 = 4096;
+const MAX_BYTES: u64 = 8 * 1024 * 1024;
 const RESOURCE_DEFERRED: &str = "Resource ingestion deferred: incomplete, unstable, invalid, over-budget or previously refused registry; original observations retained.";
 
 /// Terminal incident classes understood by the native readiness gate.
@@ -54,7 +54,7 @@ pub enum Cause {
 }
 
 /// Retained failure shown by control status even after the actor stops/reopens.
-/// No strings, IDs, paths, hashes, messages, documents or key material.
+/// Includes only locally observed relative paths, never document content or remote details.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Failure {
@@ -73,6 +73,9 @@ pub struct Failure {
     /// on error. Null on recovered records: presence does not prove that the
     /// original directory fsync completed. Never a physical/currentness proof.
     pub persisted: Option<bool>,
+    /// Local paths awaiting ingestion at a resource refusal; not a claim that each caused it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
 }
 
 pub(crate) type Shared = Arc<Mutex<Option<Failure>>>;
@@ -142,6 +145,7 @@ impl Failure {
             generation,
             cause,
             persisted: Some(false),
+            paths: Vec::new(),
         })
     }
 
@@ -160,6 +164,9 @@ impl Failure {
             failure: durable,
         })
         .map_err(io::Error::other)?;
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err(io::Error::other("failure diagnostic exceeds bound"));
+        }
         write(&dir.join(FILE), &bytes)
     }
 

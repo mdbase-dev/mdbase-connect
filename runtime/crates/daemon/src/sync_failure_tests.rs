@@ -121,7 +121,7 @@ async fn failure_is_durable_before_stop_and_survives_reopen() {
     crate::fsutil::ensure_private_dir(dir.path()).unwrap();
     let shared = Shared::default();
     let closed = std::sync::atomic::AtomicBool::new(false);
-    let f = Failure::project(
+    let mut f = Failure::project(
         &status(
             IncidentKind::Integrity,
             Some(Value::Text(RESOURCE_DEFERRED.into())),
@@ -129,6 +129,7 @@ async fn failure_is_durable_before_stop_and_survives_reopen() {
         &Some(mdbn_replica::AdoptStatus::Done),
     )
     .unwrap();
+    f.paths = vec!["_types/problem.md".into()];
     retain_and_stop(
         &shared,
         dir.path(),
@@ -158,6 +159,7 @@ async fn failure_is_durable_before_stop_and_survives_reopen() {
             );
             assert_eq!(saved.seq, 3);
             assert_eq!(saved.cause, Some(Cause::ResourceIngestDeferred));
+            assert_eq!(saved.paths, ["_types/problem.md"]);
         },
     )
     .await;
@@ -288,7 +290,8 @@ fn malformed_future_or_content_bearing_persistence_is_refused() {
         Failure::load(dir.path()).is_err(),
         "disk cannot assert original fsync success"
     );
-    crate::fsutil::write_atomic(&dir.path().join(FILE), &vec![b' '; 4097]).unwrap();
+    crate::fsutil::write_atomic(&dir.path().join(FILE), &vec![b' '; MAX_BYTES as usize + 1])
+        .unwrap();
     assert!(Failure::load(dir.path()).is_err());
 }
 

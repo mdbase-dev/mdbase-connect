@@ -1493,7 +1493,11 @@ fn print_collection(c: &CollectionStatus) {
         );
     }
     for n in &c.notices {
-        println!("      ! {}", n.message);
+        if let Some(path) = &n.path {
+            println!("      ! {path:?}: {}", n.message);
+        } else {
+            println!("      ! {}", n.message);
+        }
     }
 }
 

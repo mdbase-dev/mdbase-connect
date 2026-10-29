@@ -155,6 +155,7 @@ fn meta_of(st: &rustix::fs::Stat) -> FileMeta {
     let kind = match rustix::fs::FileType::from_raw_mode(st.st_mode as _) {
         rustix::fs::FileType::RegularFile => FileKind::File,
         rustix::fs::FileType::Directory => FileKind::Dir,
+        rustix::fs::FileType::Symlink => FileKind::Symlink,
         _ => FileKind::Other,
     };
     let (mtime, mtime_nsec) = (st.st_mtime as i64, st.st_mtime_nsec as i64);
@@ -216,7 +217,7 @@ pub(crate) fn open_append(root: &Root, p: &RelPath) -> io::Result<fs::File> {
     root.open_file(p, OFlags::WRONLY | OFlags::APPEND)
 }
 
-/// The entries of directory `p`. Symlinks are listed as [`FileKind::Other`].
+/// The entries of directory `p`. Symlinks are listed as [`FileKind::Symlink`].
 pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
     let dir = root.dir(&segs(p)?, false)?;
     let mut out = Vec::new();
@@ -235,6 +236,7 @@ pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
         let kind = match ft {
             rustix::fs::FileType::RegularFile => FileKind::File,
             rustix::fs::FileType::Directory => FileKind::Dir,
+            rustix::fs::FileType::Symlink => FileKind::Symlink,
             _ => FileKind::Other,
         };
         match std::ffi::OsStr::from_bytes(raw).to_str() {
@@ -245,8 +247,12 @@ pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
             // Not UTF-8: cannot be a collection path. Report it as "other" so
             // the store can surface it, never touch it.
             None => out.push(DirEntry {
-                name: String::from_utf8_lossy(raw).into_owned(),
-                kind: FileKind::Other,
+                name: format!(
+                    "{} [filename bytes: {}]",
+                    String::from_utf8_lossy(raw),
+                    raw.iter().map(|b| format!("{b:02x}")).collect::<String>()
+                ),
+                kind: FileKind::InvalidName,
             }),
         }
     }

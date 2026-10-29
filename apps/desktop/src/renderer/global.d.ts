@@ -40,7 +40,7 @@ interface DaemonCollection {
   reason?: string;
   sync?: SyncCounters;
   other_devices_online?: number;
-  notices: Array<{ code: string; message: string }>;
+  notices: Array<{ code: string; message: string; path?: string }>;
 }
 
 /** `collection.holds` entry. */

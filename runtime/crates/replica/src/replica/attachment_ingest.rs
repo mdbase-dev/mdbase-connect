@@ -142,6 +142,14 @@ impl<S: Store> Replica<S> {
         self.attachment_ingest.failed.get(path).cloned()
     }
 
+    /// Per-path upload refusals for local status; excludes document payloads.
+    pub fn attachment_ingest_failures(&self) -> impl Iterator<Item = (&str, &Problem)> {
+        self.attachment_ingest
+            .failed
+            .iter()
+            .map(|(path, problem)| (path.as_str(), problem))
+    }
+
     /// Ingest an attachment observation, or a delete at a path that holds (or
     /// is about to hold) a file. Returns `false` when the observation is not
     /// this module's (a record or resource path).

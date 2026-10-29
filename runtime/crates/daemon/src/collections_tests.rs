@@ -1004,3 +1004,78 @@ fn readiness_follows_every_observation() {
         assert_eq!(readiness_of(synced_ready(&s, caught_up, false)), want);
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn status_lists_skipped_files_and_clears_repaired_notes() {
+    let dir = scratch("skipped-notices");
+    let root = dir.join("folder");
+    std::fs::write(root.join("latin.md"), b"caf\xe9").unwrap();
+    std::fs::write(root.join(".hidden.md"), "hidden").unwrap();
+    std::fs::write(root.join("nul.md"), b"before\0after").unwrap();
+    std::fs::write(root.join("Note.md"), "first").unwrap();
+    std::fs::write(root.join("note.md"), "collision").unwrap();
+    for (name, size) in [("under-two.md", 2_097_024), ("over-two.md", 2_097_280)] {
+        std::fs::write(root.join(name), vec![b'a'; size]).unwrap();
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("nul.md", root.join("linked.md")).unwrap();
+    let context = ctx(&dir, None, None);
+    let mut e = entry(&dir, SyncMode::Local);
+    e.owner_account = Some(ACCOUNT.into());
+    e.device = Some(crate::secrets::uuid_string(&context.identity.device_id));
+    context.authority.publish_registry(&Registry {
+        collections: vec![e.clone()],
+        ..Default::default()
+    });
+    let mut host = CollectionHost::open(e, Some(context));
+    assert_eq!(settled(&host).await.0, CollectionState::Ready);
+    let out = host.observed_status().await;
+    let messages = out
+        .notices
+        .iter()
+        .map(|n| format!("{:?}: {}", n.path, n.message))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        messages.contains("latin.md") && messages.contains("Not valid UTF-8"),
+        "{messages}"
+    );
+    assert!(
+        messages.contains("under-two.md")
+            && messages.contains("over-two.md")
+            && messages.contains("1048576 bytes"),
+        "{messages}"
+    );
+    assert!(
+        !messages.contains("nul.md"),
+        "valid UTF-8 NUL bodies are supported: {messages}"
+    );
+    #[cfg(unix)]
+    assert!(
+        messages.contains("linked.md") && messages.contains("Symlink not followed"),
+        "{messages}"
+    );
+    assert!(
+        messages.contains("note.md") && messages.contains("collision"),
+        "{messages}"
+    );
+    assert!(
+        messages.contains(".hidden.md") && messages.contains("excluded from sync"),
+        "{messages}"
+    );
+    let json = serde_json::to_string(&out).unwrap();
+    assert!(json.contains("latin.md") && json.contains("Not valid UTF-8"));
+    std::fs::write(root.join("latin.md"), "café").unwrap();
+    let runtime = host.runtime().unwrap();
+    let inventory = runtime.inventory().await.unwrap();
+    let repaired = host.observed_status().await;
+    assert!(
+        !repaired
+            .notices
+            .iter()
+            .any(|n| n.path.as_deref() == Some("latin.md"))
+    );
+    assert!(inventory.0.iter().any(|(_, path)| path == "nul.md"));
+    host.close().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}

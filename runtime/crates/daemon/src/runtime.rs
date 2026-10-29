@@ -186,7 +186,8 @@ enum Cmd {
     /// A content-free digest of the confirmed records.
     Digest(oneshot::Sender<Option<(u64, [u8; 32])>>),
     /// Counters and digests from ONE serialized actor observation.
-    Telemetry(oneshot::Sender<crate::control::SyncCounters>),
+    Telemetry(oneshot::Sender<(crate::control::SyncCounters, Vec<crate::control::Notice>)>),
+    PendingIngestPaths(oneshot::Sender<Vec<String>>),
     /// Produce an applied strict witness on the serialized replica actor.
     StrictWitness {
         account: B16,
@@ -623,10 +624,21 @@ impl Runtime {
 
     /// Read-only counters and digests at one actor observation, or None once stopped.
     /// Diagnostic only: this is not a grant, prefix certificate or key-delivery ACK.
-    pub async fn telemetry(&self) -> Option<crate::control::SyncCounters> {
+    pub async fn telemetry(
+        &self,
+    ) -> Option<(crate::control::SyncCounters, Vec<crate::control::Notice>)> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::Telemetry(tx)).ok()?;
         rx.await.ok()
+    }
+
+    /// Locally observed paths awaiting ingestion, for a terminal diagnostic.
+    pub async fn pending_ingest_paths(&self) -> Vec<String> {
+        let (tx, rx) = oneshot::channel();
+        if self.tx.send(Cmd::PendingIngestPaths(tx)).is_err() {
+            return Vec::new();
+        }
+        rx.await.unwrap_or_default()
     }
 
     /// Run an account-key operation; `None` once stopped. `Ok(true)`: keyed (status),
@@ -1516,6 +1528,9 @@ fn run(
             Ok(Cmd::Digest(reply)) => {
                 let _ = reply.send(confirmed_digest(&rep));
             }
+            Ok(Cmd::PendingIngestPaths(reply)) => {
+                let _ = reply.send(rep.store().inner().pending_resource_paths());
+            }
             // The caller stopped waiting (status timed out): skip the record scan.
             Ok(Cmd::Telemetry(reply)) if reply.is_closed() => {}
             Ok(Cmd::Telemetry(reply)) => {
@@ -1530,7 +1545,7 @@ fn run(
                 let records = confirmed_digest(&rep);
                 let mut counters = sync_counters(&status, rep.caught_up(), head_digest, records);
                 counters.unsupported_entries = rep.store().inner().stats.unsupported_entries;
-                let _ = reply.send(counters);
+                let _ = reply.send((counters, file_notices(&rep)));
             }
             Ok(Cmd::StrictWitness {
                 account,
@@ -1763,6 +1778,73 @@ fn run(
             changes.send_modify(|_| {});
         }
     }
+}
+
+/// Local notices reuse the store's scan and the replica's holds/upload failures.
+fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
+    use mdbn_replica::store::Store as _;
+    use mdbn_wire::client::HoldReason;
+    let mut notices = rep
+        .store()
+        .inner()
+        .stats
+        .unsupported_paths
+        .iter()
+        .map(|(path, reason)| crate::control::Notice {
+            path: Some(path.clone()),
+            code: "unsupported_entry".into(),
+            message: reason.clone(),
+        })
+        .collect::<Vec<_>>();
+    for (path, problem) in rep.attachment_ingest_failures() {
+        notices.push(crate::control::Notice {
+            path: Some(path.into()),
+            code: problem
+                .reason
+                .clone()
+                .unwrap_or_else(|| problem.code.clone()),
+            message: problem.message.clone(),
+        });
+    }
+    if let Ok(holds) = rep.store().holds() {
+        for hold in holds {
+            let collision = rep
+                .store()
+                .record(&hold.id)
+                .ok()
+                .flatten()
+                .filter(|record| {
+                    hold.reason == HoldReason::UnknownProvenance
+                        && record.path != hold.path
+                        && mdbn_core::paths::path_key(&record.path)
+                            == mdbn_core::paths::path_key(&hold.path)
+                });
+            let reason = if let Some(record) = collision {
+                format!(
+                    "Case or Unicode name collision with {:?}; file held.",
+                    record.path
+                )
+            } else {
+                match hold.reason {
+                    HoldReason::Conflict => "Changed here and elsewhere; file held.",
+                    HoldReason::UnknownProvenance => {
+                        "Changed by a program mdbase does not recognise; file held."
+                    }
+                    HoldReason::DeletedElsewhere => "Deleted on another device; file held.",
+                    HoldReason::ReadOnly => "Changed while read-only; file held.",
+                    HoldReason::EditorBusy => "Open in an editor; file held.",
+                    HoldReason::SuspectWrite => "Looked like an accidental overwrite; file held.",
+                }
+                .into()
+            };
+            notices.push(crate::control::Notice {
+                path: Some(hold.path.clone()),
+                code: "file_held".into(),
+                message: reason,
+            });
+        }
+    }
+    notices
 }
 
 /// No remote incident details are included in control telemetry.

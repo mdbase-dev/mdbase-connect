@@ -161,7 +161,7 @@ pub(crate) fn abs(root: &Path, p: &RelPath) -> FsResult<PathBuf> {
 
 pub(crate) fn kind_of(ft: fs::FileType) -> FileKind {
     if ft.is_symlink() {
-        FileKind::Other
+        FileKind::Symlink
     } else if ft.is_dir() {
         FileKind::Dir
     } else if ft.is_file() {

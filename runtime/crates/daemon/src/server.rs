@@ -4762,6 +4762,7 @@ fn with_private_sync_pending(
             .into(),
     };
     s.notices.push(Notice {
+        path: None,
         code: "private_sync_pending".into(),
         message,
     });
@@ -5036,6 +5037,7 @@ fn with_takeover_holds(
             sync.holds += held;
         }
         s.notices.push(Notice {
+            path: None,
             code: "takeover_holds".into(),
             message: format!(
                 "{held} file(s) were held when mdbase took over from the old connector: \
@@ -5055,6 +5057,7 @@ fn with_access_notices(mut s: CollectionStatus, access: &AccessList) -> Collecti
             _ => continue,
         };
         s.notices.push(Notice {
+            path: None,
             code: code.into(),
             message: format!(
                 "{} {verb} this collection ({}; key {}). Review with `mdbase access list`.",

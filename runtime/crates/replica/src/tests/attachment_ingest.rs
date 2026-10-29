@@ -273,3 +273,40 @@ fn unavailable_native_source_and_undecodable_text_are_held_not_uploaded() {
     assert!(a.r.store().att_disk().acked.is_empty(), "kept by the store");
     assert!(a.r.store().pending(None, 10).unwrap().is_empty());
 }
+
+#[test]
+fn server_size_refusal_remains_available_with_its_file_path() {
+    let svc = FakeLogService::new();
+    let (mut a, _) = ingest_node(&svc, 1);
+    a.r.store()
+        .att_disk()
+        .user_write(PATH, b"upload refused by server");
+    a.r.observe(None).unwrap();
+    let mut refused = false;
+    for _ in 0..100 {
+        let batch = a.r.take_log_calls();
+        for call in batch {
+            let reply = if matches!(call.request, LogRequest::PutObject { .. }) {
+                refused = true;
+                Err(crate::log::LogError::code(
+                    crate::log::LogErrorCode::TooLarge,
+                ))
+            } else {
+                a.log.call(call.request)
+            };
+            a.r.on_log_reply(call.id, reply);
+        }
+        a.r.tick();
+        if a.r.attachment_ingest_failure(PATH).is_some() {
+            break;
+        }
+    }
+    assert!(refused);
+    let notices = a.r.attachment_ingest_failures().collect::<Vec<_>>();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].0, PATH);
+    assert_eq!(notices[0].1.code, "too_large");
+    assert!(notices[0].1.message.contains("too large"));
+    user(&mut a, |d| d.user_write(PATH, b"fixed"));
+    assert!(a.r.attachment_ingest_failures().next().is_none());
+}

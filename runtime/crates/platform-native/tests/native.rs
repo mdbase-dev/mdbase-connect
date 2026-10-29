@@ -1477,7 +1477,15 @@ fn platform_never_follows_a_symlink_in_any_component() {
     }
     for path in ["shared/secret.md", "alias/real.md", "link.md"] {
         let m = run_ready(&t, p.stat(&rp(path))).unwrap().unwrap();
-        assert_eq!(m.kind, FileKind::Other, "{path}");
+        assert_eq!(
+            m.kind,
+            if path == "link.md" {
+                FileKind::Symlink
+            } else {
+                FileKind::Other
+            },
+            "{path}"
+        );
         assert!(!ok(run_ready(&t, p.read(&rp(path))).unwrap()), "{path}");
         assert!(
             !ok(run_ready(&t, p.read_range(&rp(path), 0, 4)).unwrap()),
@@ -1530,11 +1538,11 @@ fn platform_never_follows_a_symlink_in_any_component() {
         )
         .unwrap()));
     }
-    // The root lists the links as `Other`; nothing outside changed.
+    // The root identifies the links without following them; nothing outside changed.
     let listed = run_ready(&t, p.list(&RelPath::ROOT)).unwrap().unwrap();
     for name in ["shared", "alias", "link.md"] {
         let e = listed.iter().find(|e| e.name == name).unwrap();
-        assert_eq!(e.kind, FileKind::Other, "{name}");
+        assert_eq!(e.kind, FileKind::Symlink, "{name}");
     }
     assert_eq!(
         fs::read(outside.join("secret.md")).unwrap(),
@@ -1582,6 +1590,20 @@ fn file_store_never_ingests_or_publishes_through_a_symlink() {
     let paths: Vec<_> = obs.iter().map(|o| o.path.as_str()).collect();
     assert_eq!(paths, ["inside/real.md"], "{obs:?}");
     assert_eq!(s.stats.unsupported_entries, 3);
+    assert_eq!(
+        s.stats
+            .unsupported_paths
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["alias", "link.md", "shared"]
+    );
+    assert!(
+        s.stats
+            .unsupported_paths
+            .values()
+            .all(|reason| reason == "Symlink not followed.")
+    );
     let events: Vec<String> = ["shared/secret.md", "alias/real.md", "link.md"]
         .map(String::from)
         .to_vec();
@@ -1611,4 +1633,24 @@ fn file_store_never_ingests_or_publishes_through_a_symlink() {
     assert_eq!(reasons, ["symlink_in_path", "symlink_in_path"]);
     assert!(!outside.join("new.md").exists());
     assert!(!root.join("inside/new.md").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn unsupported_filename_notice_preserves_the_original_name_bytes() {
+    use std::os::unix::ffi::OsStrExt;
+    let root = scratch("unsupported-name-notice");
+    let name = std::ffi::OsStr::from_bytes(b"bad-\xff.md");
+    fs::write(root.join(name), b"untouched").unwrap();
+    let p = platform(&root);
+    let entries = run_ready(&Timers::default(), p.list(&RelPath::ROOT))
+        .unwrap()
+        .unwrap();
+    let entry = entries
+        .iter()
+        .find(|entry| entry.kind == FileKind::InvalidName)
+        .unwrap();
+    assert!(entry.name.contains("6261642dff2e6d64"));
+    assert_eq!(fs::read(root.join(name)).unwrap(), b"untouched");
+    fs::remove_dir_all(root).unwrap();
 }

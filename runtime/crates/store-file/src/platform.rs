@@ -152,7 +152,11 @@ pub enum FileKind {
     File,
     /// A directory.
     Dir,
-    /// A symlink, socket, device, ... The store ignores these.
+    /// A symbolic link. Never followed.
+    Symlink,
+    /// An entry whose filename cannot be represented as UTF-8.
+    InvalidName,
+    /// A socket, device, or other special entry. Never read.
     Other,
 }
 
@@ -180,7 +184,7 @@ pub struct FileMeta {
 pub struct DirEntry {
     /// The entry's name (one segment).
     pub name: String,
-    /// What it is. Symlinks are [`FileKind::Other`] and are not followed.
+    /// What it is. Symlinks are [`FileKind::Symlink`] and are not followed.
     pub kind: FileKind,
 }
 
@@ -567,7 +571,7 @@ pub trait FilePlatform {
     }
 
     /// Entries of a directory, in any order (the store sorts). Symlinks are
-    /// listed as [`FileKind::Other`].
+    /// listed as [`FileKind::Symlink`].
     fn list(&self, dir: &RelPath) -> impl Future<Output = FsResult<Vec<DirEntry>>>;
 
     // ---- writing (all strategies) ---------------------------------------
