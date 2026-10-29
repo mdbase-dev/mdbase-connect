@@ -36,7 +36,10 @@ export function GettingStarted() {
       location.replace(result.editor_url ?? "/");
     }).catch((reason) => {
       requestInFlight.current = false;
-      // Use normal collection setup until this account can receive a starter.
+      // The legacy starter endpoint emits onboarding_moved. The other codes
+      // anticipate /v1/next/onboarding/starter-collection (quota support: #1036).
+      // Remove those compatibility cases when the portal calls the native route
+      // and handles its refusals there.
       if (reason instanceof ApiError && (
         (reason.status === 409 && (reason.code === "onboarding_moved" || reason.code === "starter_unavailable"))
         || (reason.status === 503 && reason.code === "starter_content_unavailable")

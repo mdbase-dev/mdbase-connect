@@ -34,11 +34,16 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
-  it("opens normal first-collection setup at home for an empty account", async () => {
+  it("opens Hosted first-collection setup for a newly flipped next account without a computer", async () => {
     history.replaceState(null, "", "/");
     overview.collections = [];
     overview.hosted_collections = [];
     overview.native_collections = [];
+    overview.connectors = [];
+    overview.hosted_collections_available = true;
+    overview.collection_creation_available = true;
+    overview.native_collection_creation_available = false;
+    const user = userEvent.setup();
     render(<ConnectApp />);
 
     expect(await screen.findByText("No collections")).toBeInTheDocument();
@@ -46,6 +51,12 @@ describe("ConnectApp", () => {
     expect(screen.getByRole("button", { name: "Add collection" })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() => expect(location.pathname).toBe("/collections"));
+
+    await user.click(screen.getByRole("button", { name: "Add collection" }));
+    await chooseOption(user, screen.getByRole("combobox", { name: "Location" }), "Hosted");
+    expect(screen.getByRole("textbox", { name: "Collection name" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+    expect(screen.queryByText("Hosted creation is unavailable on this server.")).not.toBeInTheDocument();
   });
 
   it.each([false, true])("offers one Add collection flow with a Native handoff when Hosted enabled=%s", async hosted => {
