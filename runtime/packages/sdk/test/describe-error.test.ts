@@ -4,6 +4,10 @@ import { describeError } from "../src/describe-error.js";
 import { MdbaseError } from "../src/errors.js";
 
 describe("describeError", () => {
+  it("explains Viewer write refusals without suggesting app approval", () => {
+    expect(describeError(new MdbaseError({ code: "forbidden", recovery: "none", message: "raw diagnostic", reason: "read_only" })))
+      .toMatchObject({ key: "read_only", title: "View access only", message: "You have view access, so changes can't be saved. Ask the collection's owner for edit access.", action: "none", severity: "warning" });
+  });
   it("gives the CP outcomes plain copy, retry timing and a safe update link", () => {
     const migrating = describeError({status: "blocked", problem: "collection_migrating", problemDetail: {name: "AppCloudCopyBootstrapError", code: "collection_migrating",
       server: {status: 409, code: "collection_migrating", reason: null, retryAfterMs: 45_000, updateUrl: null}}});

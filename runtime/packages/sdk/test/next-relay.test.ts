@@ -567,21 +567,23 @@ describe("next-relay-only consistency policy", () => {
         : source === "await" ? await c.awaitReceipt(done.mutation)
         : (await c.create({ path: "confirmed.md", body: "seen" }, { mutationId: done.mutation })).receipt;
       expect(observed.state).toBe("confirmed"); expect(observed.seq).toBe(1);
-      // No status subscription or original mutation submitted by this session.
+      // The confirmed receipt and automatic status both establish this floor.
       a.online = false; b.online = true; a.pipes.at(-1)!.end(4000, "pipe_closed");
       await waitFor(() => c.link === "open" && w.opened.includes(b.id));
       expect(c.readFenced).toBe(true);
     } finally { c.close(); writer.close(); }
   });
-  it.each(["receipt"] as const)("late %s reply cannot contribute a retired session's floor", async (method) => {
+  it.each(["receipt", "await"] as const)("late %s reply cannot contribute a retired session's floor", async (method) => {
     const w = world(2), [a, b] = w.devices as [Device, Device]; b.online = false;
     const c = await connect({ app, connector: nextRelayConnector({ next: w.next, collection: w.collection, staticKey: generateKeyPair() }), reconnect: { minDelayMs: 1, maxDelayMs: 5 } });
-    const writer = await connect({ app, connector: a.replica.connector(), reconnect: false });
+    // Keep the receipt source separate: automatic status pushes from the active
+    // replica must not establish the floor before the delayed receipt arrives.
+    const writer = await connect({ app, connector: new MemoryReplica({ collection: w.collection, confirmDelayMs: 0 }).connector(), reconnect: false });
     let release!: () => void, held = false;
     const gate = new Promise<void>(r => { release = r; });
     const session = c.currentSession(), request = session.request.bind(session);
     const mock = vi.spyOn(session, "request").mockImplementation(async (name, p, options) => {
-      const result = await request(name, p, options);
+      const result = await (name === method ? writer.currentSession().request(name, p, options) : request(name, p, options));
       if(name === method) { held = true; await gate; }
       return result;
     });

@@ -72,7 +72,7 @@ const LABELS: Record<MdbaseErrorAction, string | null> = {
 export const PROBLEM_CODES = [
   // Collection availability.
   "device_offline", "desktop_update_required", "old_connector_running", "sync_required", "no_device_registered",
-  "access_removed", "capability_missing", "collection_deleted", "collection_unavailable", "moved_to_next_runtime", "device_approval_required",
+  "access_removed", "read_only", "capability_missing", "collection_deleted", "collection_unavailable", "moved_to_next_runtime", "device_approval_required",
   // Server outcomes.
   "collection_migrating", "account_suspended", "update_required",
   // MdbaseError codes (the 15).
@@ -136,6 +136,7 @@ const COPY = {
   not_found: ["Not found", "This item no longer exists. It may have been deleted on another device.", "none", "info"],
   conflict: ["Changed somewhere else", "This item was changed on another device. Review the latest version and try again.", "retry", "warning"],
   unauthenticated: ["Sign in again", "Your session has ended. Sign in again to continue.", "sign_in", "warning"],
+  read_only: ["View access only", "You have view access, so changes can't be saved. Ask the collection's owner for edit access.", "none", "warning"],
   forbidden: ["Access needed", "This app doesn't have permission to do that. Approve access to continue.", "approve", "warning"],
   collection_invalid: ["Your collection needs repair", "Something in this collection isn't valid. Contact support if this keeps happening.", "contact_support", "error"],
   unavailable: OFFLINE,
