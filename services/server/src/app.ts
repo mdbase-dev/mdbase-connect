@@ -104,7 +104,7 @@ import { registerErrorHandler } from "./platform/error-handler.js";
 import type { ClientUpdatePolicy } from "./features/next/cutover-problems.js";
 import { authorityUrl } from "./platform/authority-url.js";
 import { installationEnvironment } from "./local-deployment.js";
-import { apiError } from "./platform/http-errors.js";
+import { apiError, RateLimitError } from "./platform/http-errors.js";
 import { sessionToken } from "./platform/session-cookies.js";
 import type { AccountBackend } from "./features/next/account-backend-flip.js";
 
@@ -315,6 +315,7 @@ export async function buildApp(options: BuildOptions) {
   });
   await app.register(rateLimit, {
     global: true,
+    errorResponseBuilder: (_request, context) => new RateLimitError(Math.ceil(context.ttl / 1000) * 1000),
     ...globalRateLimitKeying(options.nextControlPlane?.serviceTokens, options.nextControlPlane?.migrationRouting?.inboundToken),
     timeWindow: "1 minute"
   });

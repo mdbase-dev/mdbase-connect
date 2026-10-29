@@ -229,6 +229,7 @@ fn enrol_refusal(e: &crate::cloud::CloudError) -> AkDevice {
         }
     };
     match e {
+        CloudError::RateLimited(_) => AkDevice::Retrying("rate_limited".into()),
         CloudError::Network(_) => AkDevice::Retrying("sync_unreachable".into()),
         CloudError::Server(s, c) if *s >= 500 || c == "not_ready" => AkDevice::Retrying(code(c)),
         CloudError::Server(_, c) => AkDevice::Refused(code(c)),
@@ -2042,6 +2043,10 @@ mod autokey_tests {
 
     #[test]
     fn enrolment_refusals_keep_only_a_safe_code() {
+        assert_eq!(
+            enrol_refusal(&CloudError::RateLimited(Some(17))),
+            AkDevice::Retrying("rate_limited".into())
+        );
         assert_eq!(
             enrol_refusal(&CloudError::Server(503, "not_ready".into())),
             AkDevice::Retrying("not_ready".into())
