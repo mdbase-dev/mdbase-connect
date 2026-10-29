@@ -177,7 +177,6 @@ export async function sendCall(
   stale: StaleAppendStore,
   observeAppend?: (call: LogCallOut, observation: AppendObservation) => void,
   readReplyCap = MAX_REPLY_BYTES,
-  report?: PumpReport,
 ): Promise<SendOutcome> {
   if (!fence()) return "dropped";
   // Everything about the call is captured ONCE, before any await: its ID, method,
@@ -253,13 +252,6 @@ export async function sendCall(
     if (!fence()) return markStale();
     observe(appendObservation(frame, reply));
     if (!fence()) return markStale();
-    if (report && report.rpcErrors.length < 8) {
-      try {
-        const response = decode(reply), error = response instanceof Map ? (response as Map<number, CborValue>).get(3) : null;
-        const code = error instanceof Map ? (error as Map<number, CborValue>).get(0) : null;
-        if (typeof code === "string" && /^[a-z_]{1,40}$/u.test(code)) report.rpcErrors.push({ method, code });
-      } catch { /* Diagnostic DATA cannot affect native reply handling. */ }
-    }
     engine.logReply(id, reply);
     return "sent";
   } catch {
@@ -305,8 +297,6 @@ export class PumpReport {
   work = 0;
   /** Calls that failed or were refused: the engine retries, so not idle. */
   failed = 0;
-  /** Bounded protocol error codes only: no messages, payloads or bearer data. */
-  rpcErrors: { method: string; code: string }[] = [];
   /** True when the pump sent no work and nothing failed. */
   get quiet(): boolean { return this.work === 0 && this.failed === 0; }
 }
@@ -359,7 +349,7 @@ export async function pumpLog(
       try { observeCall?.(c); } catch { /* Telemetry cannot affect transport. */ }
       if (!fence()) { c.frame.fill(0); return; }
       const method = hooks.report || timings ? methodOf(c.frame) : "";
-      const outcome = await sendCall(log, engine, t, c, fence, stale, observeAppend, MAX_REPLY_BYTES, hooks.report);
+      const outcome = await sendCall(log, engine, t, c, fence, stale, observeAppend);
       note(timings, method, started);
       if (hooks.report) {
         if (outcome === "failed" || outcome === "refused") hooks.report.failed++;

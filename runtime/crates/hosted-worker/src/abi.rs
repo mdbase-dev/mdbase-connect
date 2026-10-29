@@ -2100,29 +2100,7 @@ pub extern "C" fn hd_mode_service_ready() -> u64 {
             .map(|(device, epoch)| {
                 Cbor::Array(vec![Cbor::Bytes(device.0.to_vec()), Cbor::Uint(epoch)])
             })
-            .unwrap_or_else(|| {
-                // Failure DATA only: this map never passes the ready tuple gate.
-                // No keys, error text, content or applied-state mutation.
-                let replica = s.engine.replica();
-                Cbor::Map(vec![
-                    (Cbor::Uint(0), Cbor::Uint(replica.head().seq)),
-                    (
-                        Cbor::Uint(1),
-                        Cbor::Text(format!("{:?}", replica.key_wait_reason())),
-                    ),
-                    (
-                        Cbor::Uint(2),
-                        Cbor::Array(
-                            replica
-                                .sync_status()
-                                .incidents
-                                .iter()
-                                .map(|incident| Cbor::Text(format!("{:?}", incident.kind)))
-                                .collect(),
-                        ),
-                    ),
-                ])
-            })
+            .unwrap_or(Cbor::Null)
     })
     .unwrap_or(Cbor::Null);
     give(cbor::encode(&value).unwrap_or_default())

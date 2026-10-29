@@ -24,7 +24,7 @@
  * Note: the engine still rebuilds its local cache in the DO's SQLite (never served).
  */
 import { DurableObject } from "cloudflare:workers";
-import { decode, encode, type CborValue } from "../../../packages/sdk/src/cbor.js";
+import { encode, type CborValue } from "../../../packages/sdk/src/cbor.js";
 import { Engine, type CppClaimTicket, type MigrationPendingTicket, type MigrationPhysicalTicket } from "./engine.js";
 import type { MigrationProviderResult } from "./migration-provider-result.js";
 import type { MigrationSourceResult } from "./migration-source-result.js";
@@ -990,8 +990,6 @@ export class HostedCollection extends DurableObject<Env> {
     } : undefined, tag ? (call, observation) => {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_append_outcome", observation);
     } : undefined, { tokenRefused: () => this.dropLogToken(), report });
-    if (this.env.LAB === "1" && current() && report.rpcErrors.length) console.info(JSON.stringify({
-      event: "collection_mode_log_rpc_error", role: this.escrow ? "escrow" : "hosted", errors: report.rpcErrors }));
     if (!current() || !await this.checkPinRebuild(engine) || !current()) return;
     this.pruneAttachment();
     delivered += this.deliver(engine); // read_file response precedes object/network waits
@@ -1243,8 +1241,7 @@ export class HostedCollection extends DurableObject<Env> {
       const refuse = (reason: string, facts: Record<string, unknown> = {}) => {
         if (this.env.LAB === "1") console.info(JSON.stringify({ event: "collection_mode_not_ready",
           role: this.escrow ? "escrow" : "hosted", reason, ...facts }));
-        return this.env.LAB === "1" ? Response.json({ error: "not_ready", diagnostic: { reason, ...facts } },
-          { status: 503, headers: { "cache-control": "no-store" } }) : modeUnavailable();
+        return modeUnavailable();
       };
       try {
         const engine = await this.ready(collection, value => { diagnostic = value; });
@@ -1257,24 +1254,7 @@ export class HostedCollection extends DurableObject<Env> {
         if (this.logGen !== generation) return refuse("generation_changed");
         if (this.opening) return refuse("opening");
         if (this.collection !== collection) return refuse("collection_changed");
-        const observation = engine.modeServiceReady();
-        if (!modeReady(observation,input)) {
-          let cachedHead: string | null = null;
-          if (this.env.LAB === "1") {
-            try {
-              const row = this.ctx.storage.sql.exec<{ v: ArrayBuffer }>("SELECT v FROM st_kv WHERE k='head'").toArray()[0];
-              const head = row && decode(new Uint8Array(row.v));
-              if (Array.isArray(head) && (typeof head[0] === "number" || typeof head[0] === "bigint")) cachedHead = String(head[0]);
-            } catch { /* Read-only diagnostic, never cache authority. */ }
-          }
-          const admission = engine.admission();
-          const wait = observation instanceof Map ? observation as Map<number, CborValue> : null;
-          return refuse(observation === null || wait ? "native_not_ready" : "native_identity_mismatch",
-            { serving: engine.serving(), reset: engine.needsReset(), pin: engine.pinState(), cached_head: cachedHead,
-              key_wait: wait?.get(1), incident_kinds: wait?.get(2), device_match: this.live?.device === input.device,
-              admission: Array.isArray(admission) && admission[0] === 0 && typeof admission[1] === "string" ? admission[1] : "verified",
-              timing: this.env.LAB === "1" ? this.timings : undefined });
-        }
+        if (!modeReady(engine.modeServiceReady(),input)) return refuse("native_not_ready");
         return modeAck(input);
       } catch (error) { return refuse("exception", { diagnostic: diagnostic ?? readyDiagnostic("unknown", error) }); }
     }
@@ -1692,14 +1672,8 @@ export default {
       const operation = url.pathname.endsWith("/ready") ? "ready" : "retire";
       const stub = namedStub(env.COLLECTIONS,input.collection,hint);
       const headers = new Headers(request.headers); headers.delete("content-length");
-      const response = await stub.fetch(new Request(`${url.origin}/v1/hosted/collection-mode/${operation}?collection=${input.collection}`,
+      return stub.fetch(new Request(`${url.origin}/v1/hosted/collection-mode/${operation}?collection=${input.collection}`,
         {method:"POST",headers,body:JSON.stringify(input)}));
-      if (env.LAB === "1" && response.status === 503) {
-        let diagnostic: unknown = null;
-        try { diagnostic = (await response.clone().json() as { diagnostic?: unknown }).diagnostic ?? null; } catch { /* Not a diagnostic. */ }
-        console.info(JSON.stringify({ event: "collection_mode_forward_refused", reason: "actor_503", diagnostic, kind, epoch: input.epoch }));
-      }
-      return response;
     }
     if (url.pathname === "/internal/v1/migration-admission") {
       if (kind !== "hosted") return new Response("not found", { status: 404 });
