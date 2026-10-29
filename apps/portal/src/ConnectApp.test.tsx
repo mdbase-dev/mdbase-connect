@@ -88,9 +88,9 @@ describe("ConnectApp", () => {
     history.replaceState(null, "", "/applications");
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
-    await screen.findByRole("link", { name: "Editor", exact: true });
+    await screen.findByRole("link", { name: "Editor" });
     for (const [name, href] of [["Editor", "https://editor.example.test"], ["Reader", "https://reader.mdbase.dev/"], ["Writer", "https://writer.mdbase.dev/"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
-      expect(screen.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
     }
     expect(screen.getByText("No connected applications")).toBeInTheDocument();
   });
@@ -102,8 +102,8 @@ describe("ConnectApp", () => {
     history.replaceState(null, "", "/applications");
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
-    expect(screen.queryByRole("link", { name: "Editor", exact: true })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Reader", exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Editor" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reader" })).toBeInTheDocument();
   });
 
   it("shows owned cloud-copy and Private collections and the complete deletion count", async () => {
@@ -120,7 +120,7 @@ describe("ConnectApp", () => {
     const client = new ConnectManagementClient(location.origin);
     vi.spyOn(client, "account").mockResolvedValue(account);
     render(<AccountManagement client={client} overview={overview} onOverviewRefresh={async () => {}} onDeleted={() => {}} />);
-    const heading = await screen.findByRole("heading", { name: "Collections", exact: true });
+    const heading = await screen.findByRole("heading", { name: "Collections" });
     const collections = within(heading.closest("section")!);
     expect(collections.getByText("Cloud notes")).toBeInTheDocument();
     expect(collections.getByText("Cloud copy")).toBeInTheDocument();
