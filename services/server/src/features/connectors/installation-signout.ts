@@ -8,7 +8,7 @@ import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireInstallationDeviceConnector, requireSessionContext } from "../../platform/request-authentication.js";
 import { inTransaction, isLockTimeout, lock } from "../next/bootstrap-common.js";
-import { queueNextPolicy, type PolicyEmitter } from "../next/policy-outbox.js";
+import { nextDeviceNeedsRevoke, queueNextPolicy, type PolicyEmitter } from "../next/policy-outbox.js";
 
 class SignOutError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) { super(message); }
@@ -34,9 +34,7 @@ async function signOutInstallation(db: DatabasePool, connectorId: string, userId
     for (const { collection_id: collection } of scopes.rows) {
       await lock(c, collection);
       await c.query("SELECT 1 FROM next_collections WHERE collection_id=$1 FOR UPDATE", [collection]);
-      const enrolled = await c.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1", [collection, JSON.stringify([{ op: "device-enrol", device: deviceId }])]);
-      const revoked = await c.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1", [collection, JSON.stringify([{ op: "device-revoke", device: deviceId }])]);
-      if (enrolled.rows.length && !revoked.rows.length
+      if (await nextDeviceNeedsRevoke(c, collection, deviceId)
         && !await queueNextPolicy(c, collection, [{ op: "device-revoke", device: deviceId }]))
         throw new SignOutError(409, "installation_collection_unavailable", "A collection's access could not be revoked. Try again.");
       await c.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2", [connectorId, collection]);
