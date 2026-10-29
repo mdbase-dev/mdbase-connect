@@ -214,7 +214,8 @@ export class LogServiceClient {
     }
     const body = limit === undefined ? new Uint8Array(await response.arrayBuffer()) : await readBoundedBytes(response, limit);
     if (!response.ok && !(response.headers.get("content-type") ?? "").includes("cbor")) {
-      throw new LogServiceError(response.status >= 500 ? "unavailable" : "invalid", `http_${response.status}`);
+      // A proxy/transport reply is not a semantic verdict on the signed item.
+      throw new LogServiceError(response.status === 429 ? "rate_limited" : "unavailable", `http_${response.status}`);
     }
     return body;
   }

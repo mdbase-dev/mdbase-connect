@@ -3,6 +3,7 @@ export function usage(): string {
     "Usage:",
     "  auth-admin archive drain-deletions --cohort <name> --expected-revision <sha> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin repairs authority-import-sources --expected-revision <sha> --expected-executable-sha256 <sha256> --expected-migration-sha256 <sha256> --operation-id <uuid> --actor <id> --reason <text>",
+    "  auth-admin policy-outbox unpark --collection <uuid> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin policy show",
     "  auth-admin policy history [--limit <n>] [--before-revision <n>]",
     "  auth-admin policy update --expected-revision <n> --actor <id> --reason <text> [changes]",

@@ -16,7 +16,7 @@ function transcript(method: string, path: string, collection: Uint8Array, token:
 const response = (code: string, reason?: string) => new Response(encodeCbor({ struct: [[0, 1], [1, 0], [3, { struct: [[0, code], [1, reason]] }]] }),
   { headers: { "content-type": "application/vnd.mdbase.v1+cbor" } });
 
-function fixture() {
+function fixture(rpcResponse?: () => Response) {
   const issuer = generateKeyPairSync("ed25519").privateKey;
   const transport = generateKeyPairSync("ed25519").privateKey;
   const nonce = Buffer.alloc(32, 7);
@@ -34,7 +34,7 @@ function fixture() {
     const method = frame.get(2) as string;
     request = { method, path, collection, token, body, signature };
     return verify(null, transcript(method, path, collection, token, body, nonce), transport, signature)
-      ? response("not_found") : response("unauthenticated", "possession");
+      ? (rpcResponse?.() ?? response("not_found")) : response("unauthenticated", "possession");
   };
   const client = new LogServiceClient({ url: "https://log.example.test", tokenIssuerKeyPem: issuer.export({ format: "pem", type: "pkcs8" }).toString(),
     transportKeyPem: transport.export({ format: "pem", type: "pkcs8" }).toString() }, fetcher, () => 1_000_000);
@@ -42,6 +42,17 @@ function fixture() {
 }
 
 describe("log HTTP PoP client interoperability", () => {
+  it.each([
+    { label: "plain-text 429", reply: () => new Response("proxy", { status: 429 }), code: "rate_limited", retryable: true },
+    { label: "plain-text 403", reply: () => new Response("proxy", { status: 403 }), code: "unavailable", retryable: true },
+    { label: "plain-text 413", reply: () => new Response("proxy", { status: 413 }), code: "unavailable", retryable: true },
+    { label: "plain-text 503", reply: () => new Response("proxy", { status: 503 }), code: "unavailable", retryable: true },
+    { label: "CBOR invalid", reply: () => response("invalid"), code: "invalid", retryable: false },
+  ])("classifies $label without treating transport failures as policy verdicts", async ({ reply, code, retryable }) => {
+    const { client } = fixture(reply);
+    await expect(client.createLog("22222222-2222-4222-8222-222222222222", Buffer.of(1)))
+      .rejects.toMatchObject({ code, retryable });
+  });
   it("exposes detached PITR public CP identity without fetch/sign/token work; absent otherwise",()=>{
     const ordinary=fixture();expect(ordinary.client.pitrControlIdentity()).toBeNull();expect(ordinary.client.pitrAdmissionIdentity()).toBeNull();
     const issuer=generateKeyPairSync("ed25519").privateKey,transport=generateKeyPairSync("ed25519").privateKey;
