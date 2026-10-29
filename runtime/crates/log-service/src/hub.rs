@@ -109,31 +109,37 @@ impl Hub {
         self.subs.remove(&s);
     }
 
+    /// End all subscriptions when the collection has been permanently deleted.
+    pub fn close_gone(&mut self) -> Vec<Push> {
+        let mut out = Vec::new();
+        for &s in self.subs.keys() {
+            out.push(Push {
+                to: s,
+                push: push(
+                    "closed",
+                    ClosedPush {
+                        collection: self.collection,
+                        reason: "gone".into(),
+                    },
+                ),
+                class: PushClass::State,
+                fallback: None,
+            });
+        }
+        self.subs.clear();
+        let sessions: Vec<_> = self.joined.keys().copied().collect();
+        for s in sessions {
+            self.disconnect(s);
+        }
+        out
+    }
+
     /// Pushes after a commit. `items` are the new items when the committer has them
     /// (DO); otherwise only `head` pushes are produced unless `items` is given.
     pub fn on_commit(&mut self, n: &CommitNotice, items: &[(u64, Vec<u8>)]) -> Vec<Push> {
         let mut out = Vec::new();
         if n.gone {
-            for &s in self.subs.keys() {
-                out.push(Push {
-                    to: s,
-                    push: push(
-                        "closed",
-                        ClosedPush {
-                            collection: n.collection,
-                            reason: "gone".into(),
-                        },
-                    ),
-                    class: PushClass::State,
-                    fallback: None,
-                });
-            }
-            self.subs.clear();
-            let sessions: Vec<_> = self.joined.keys().copied().collect();
-            for s in sessions {
-                self.disconnect(s);
-            }
-            return out;
+            return self.close_gone();
         }
         out.extend(self.close_devices(&n.revoked, "forbidden"));
         if n.first == 0 {

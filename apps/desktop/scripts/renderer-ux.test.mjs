@@ -469,3 +469,24 @@ test("collection notices list skipped files and reuse the hold review list", asy
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test("deleted collection keeps skipped-file details without repeating the deletion notice", async () => {
+  const { page, errors } = await desktop({ collections: [collection({
+    mode: "synced", log: "hosted", state: "failed", reason: "collection_deleted",
+    notices: [
+      { code: "collection_deleted", message: "This collection was deleted by its owner. Your local files are untouched." },
+      { code: "unsupported_entry", path: "notes/latin.md", message: "Not valid UTF-8; note is not synced." }
+    ]
+  })] });
+  try {
+    await nav(page, "Collections").click();
+    const card = page.locator(".collection-card");
+    await card.getByText("Collection deleted", { exact: false }).waitFor();
+    assert.equal((await card.innerText()).match(/deleted by its owner/g)?.length, 1);
+    const notice = card.locator(".collection-notice");
+    assert.equal(await notice.locator("code").innerText(), "notes/latin.md");
+    assert.ok((await notice.innerText()).includes("Not valid UTF-8"));
+    assert.equal(await card.getByRole("button", { name: "Remove", exact: true }).count(), 1);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

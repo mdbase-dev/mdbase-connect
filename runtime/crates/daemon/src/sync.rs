@@ -14,6 +14,7 @@
 
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use mdbn_wire::policy::CState;
@@ -208,6 +209,7 @@ pub struct ConnectTokens {
     identity: Arc<DeviceIdentity>,
     fence: Fence,
     cached: Mutex<Option<Token>>,
+    deleted: AtomicBool,
 }
 
 /// The current-authority check (account epoch, registration, collection, not
@@ -230,6 +232,7 @@ impl ConnectTokens {
             identity,
             fence,
             cached: Mutex::new(None),
+            deleted: AtomicBool::new(false),
         }
     }
 
@@ -240,7 +243,11 @@ impl ConnectTokens {
     }
 
     fn check(&self) -> Result<(), String> {
-        (self.fence)().inspect_err(|_| self.drop_cache())
+        (self.fence)().inspect_err(|_| self.drop_cache())?;
+        if self.deleted() {
+            return Err("collection_deleted".into());
+        }
+        Ok(())
     }
 }
 
@@ -285,7 +292,13 @@ impl ConnectTokens {
             crate::cloud::CloudError::Server(s, c) if s >= 500 => {
                 Eligibility::Unreachable(format!("{s} {c}"))
             }
-            crate::cloud::CloudError::Server(_, c) => Eligibility::Refused(c),
+            crate::cloud::CloudError::Server(_, c) => {
+                if c == "collection_deleted" {
+                    self.deleted.store(true, Ordering::SeqCst);
+                    self.drop_cache();
+                }
+                Eligibility::Refused(c)
+            }
             crate::cloud::CloudError::Unauthenticated => {
                 Eligibility::Refused("unauthenticated".into())
             }
@@ -299,6 +312,11 @@ impl ConnectTokens {
             *c = Some(t.clone());
         }
         Ok(t)
+    }
+
+    /// A deletion refusal is terminal for this collection, including token renewals.
+    pub fn deleted(&self) -> bool {
+        self.deleted.load(Ordering::SeqCst)
     }
 
     /// Ask Connect for a token now (cached for the runtime's first connect).

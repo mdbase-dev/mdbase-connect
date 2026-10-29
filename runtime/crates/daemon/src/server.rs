@@ -5371,6 +5371,20 @@ impl crate::session::Handler for Daemon {
             };
             let (true, Some(rt)) = (host.is_serving(), host.runtime()) else {
                 let s = host.status();
+                if s.reason.as_deref() == Some("collection_deleted") {
+                    let mut closed = refuse(
+                        "forbidden",
+                        "collection_deleted",
+                        "the collection was deleted by its owner",
+                    );
+                    closed
+                        .response
+                        .problem
+                        .as_mut()
+                        .expect("refusal has a problem")
+                        .recovery = mdbn_wire::client::Recovery::None;
+                    return closed;
+                }
                 return refuse(
                     "unavailable",
                     s.reason.as_deref().unwrap_or("not_serving"),

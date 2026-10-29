@@ -724,6 +724,10 @@ fn synced_readiness_needs_genesis_keys_and_the_head() {
         Err("sync_revoked")
     );
     assert_eq!(
+        r(9, 9, Online, &[K::Gone], true, false),
+        Err("collection_deleted")
+    );
+    assert_eq!(
         r(9, 9, Online, &[K::UpgradeRequired], true, false),
         Err("sync_upgrade_required")
     );
@@ -1110,4 +1114,63 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
     assert!(inventory.0.iter().any(|(_, path)| path == "with-nul.md"));
     host.close().await;
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deletion_at_startup_is_explicit_and_preserves_local_files() {
+    let dir = scratch("deleted-startup");
+    save(&dir, &link("cloud_copy"));
+    std::fs::write(dir.join("folder/keep.md"), "keep these bytes").unwrap();
+    let server = connect(409, "collection_deleted").await;
+    let h = host(
+        &dir,
+        SyncMode::Synced,
+        ctx(&dir, Some(&server), Some(trust_for(&server))),
+    );
+    assert_eq!(
+        settled(&h).await,
+        (CollectionState::Failed, Some("collection_deleted".into()))
+    );
+    let status = h.status();
+    assert!(status.notices.iter().any(|n| n.code == "collection_deleted"
+        && n.message.contains("deleted by its owner")
+        && n.message.contains("collection remove")));
+    assert!(h.runtime().is_none());
+    assert!(untouched(&dir));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("folder/keep.md")).unwrap(),
+        "keep these bytes"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn token_renewal_deletion_is_sticky_but_other_refusals_are_not_deletion() {
+    for (code, deleted) in [("collection_deleted", true), ("not_enrolled", false)] {
+        let dir = scratch(code);
+        let (server, posts) =
+            connect_counted(409, format!(r#"{{"error":{{"code":"{code}"}}}}"#)).await;
+        let context = ctx(&dir, Some(&server), Some(trust_for(&server)));
+        let sync = context.sync.as_ref().unwrap();
+        let tokens = crate::sync::ConnectTokens::new(
+            sync.cloud.clone(),
+            sync.connector_id.clone(),
+            crate::attest::uuid_bytes(COLLECTION).unwrap(),
+            context.identity,
+            Arc::new(|| Ok(())),
+        );
+        assert!(tokens.eligibility().await.is_err());
+        assert_eq!(tokens.deleted(), deleted);
+        assert_eq!(
+            crate::logwire::TokenSource::current(&tokens).is_err(),
+            deleted
+        );
+        crate::logwire::TokenSource::refused(&tokens);
+        assert!(crate::logwire::TokenSource::token(&tokens).await.is_err());
+        assert_eq!(
+            posts.load(std::sync::atomic::Ordering::SeqCst),
+            if deleted { 1 } else { 2 }
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

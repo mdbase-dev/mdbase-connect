@@ -343,3 +343,65 @@ async fn freeze_fences_writers_before_taking_the_inventory() {
     rt.stop().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deletion_closes_open_apps_with_a_reason_and_keeps_files() {
+    let root = scratch("rt-deleted");
+    let folder = root.join("notes");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("keep.md"), "keep these bytes").unwrap();
+    let rt = Runtime::open(
+        RuntimeConfig {
+            collection: [1; 16],
+            replica_id: [2; 16],
+            device_id: [3; 16],
+            root: folder.clone(),
+            private_dir: root.join("state"),
+            adopt: None,
+            id_hints: vec![],
+            computer_name: None,
+            sync: None,
+        },
+        DeviceSecrets {
+            sign_sk: [4; 32],
+            kem_sk: [5; 32],
+        },
+        Box::new(NoAuthority),
+        Default::default(),
+    )
+    .unwrap();
+    let hello = HelloParams {
+        versions: vec![Version { major: 1, minor: 0 }],
+        client_name: "test".into(),
+        client_version: "0".into(),
+        features: None,
+        timezone: None,
+    };
+    let (session, _, mut out) = rt
+        .hello(SessionAuth::Host, req(0, "hello", hello.to_cbor()))
+        .await
+        .unwrap();
+    let session = session.unwrap();
+    rt.stop_deleted().await;
+    let problem = tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(bytes) = out.recv().await {
+            if let ClientFrame::Push(push) = ClientFrame::from_bytes(&bytes).unwrap()
+                && push.kind == "closed"
+            {
+                return mdbn_wire::client::Problem::from_cbor(&push.payload).unwrap();
+            }
+        }
+        panic!("app closed without a deletion reason");
+    })
+    .await
+    .unwrap();
+    assert_eq!(problem.reason.as_deref(), Some("collection_deleted"));
+    assert_eq!(problem.code, "forbidden");
+    assert_eq!(problem.recovery, mdbn_wire::client::Recovery::None);
+    assert!(!rt.frame(session, req(1, "hello", hello.to_cbor())));
+    assert_eq!(
+        std::fs::read_to_string(folder.join("keep.md")).unwrap(),
+        "keep these bytes"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

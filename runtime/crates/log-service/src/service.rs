@@ -2291,7 +2291,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         Ok(floor)
     }
 
-    async fn refuse_deleted_floor(&self, c: &Uuid) -> Result<()> {
+    pub(crate) async fn refuse_deleted_floor(&self, c: &Uuid) -> Result<()> {
         if let Some(record) = self.deletion_floor(c).await? {
             let mut error = ServiceError::reason(Code::Gone, "collection_deletion_floor");
             error.details = Some(record.to_cbor());

@@ -1640,6 +1640,23 @@ impl LogActor {
         }
         self.host.restore(c);
         let path = req.path();
+        if path == "/collection-deleted" {
+            // Namespace-only wakeup. The floor remains the authority, not the caller.
+            let budget = Budget::default();
+            match self.svc.backend.lookup_deletion_floor(&c, &budget).await {
+                Ok(Some(_)) => {
+                    let pushes = self.host.with_hub(&c, |hub| hub.close_gone());
+                    self.host.deliver(pushes);
+                    let ids: Vec<_> = self.host.sessions.borrow().keys().copied().collect();
+                    for id in ids {
+                        self.host.close_socket(id, CLOSE_GONE, "gone");
+                    }
+                    return Response::empty();
+                }
+                Ok(None) => return Response::error("collection is not deleted", 409),
+                Err(_) => return Response::error("deletion floor unavailable", 503),
+            }
+        }
         if path == "/ready" {
             if c != REGISTRY || self.svc.backend.exec("SELECT 1", vec![]).is_err() {
                 return Response::error("not ready", 503);
@@ -1824,6 +1841,18 @@ impl LogActor {
                         .backend
                         .deletion_registry_call(&p, &rq.method, &rq.params)
                         .await?;
+                    if rq.method == "registry_record_collection_deletion" {
+                        let fields = match &rq.params {
+                            mdbn_wire::cbor::Cbor::Map(fields) => fields,
+                            _ => unreachable!("registry validated params"),
+                        };
+                        let collection =
+                            Uuid::from_cbor(&fields[1].1).expect("registry validated collection");
+                        self.svc
+                            .backend
+                            .notify_collection_deleted(&collection)
+                            .await?;
+                    }
                     return Ok((rq.id, result));
                 }
                 let out = self

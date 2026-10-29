@@ -332,6 +332,7 @@ impl CollectionHost {
                     // watched separately and never holds the opener.
                     if synced && let (Ok(rt), Some(handle)) = (&r, &handle) {
                         let (rt, ready, cancel, notify) = (rt.clone(), ready.clone(), cancel.clone(), notify.clone());
+                        let tokens = tokens.clone().expect("synced token source");
                         let (id, journal) = (id.clone(), journal.clone());
                         let (last_sync_failure, failure_dir) = (last_sync_failure.clone(), failure_dir.clone());
                         handle.spawn(async move {
@@ -347,25 +348,44 @@ impl CollectionHost {
                                 let Some((s, caught_up, adopt)) = rt.readiness().await else {
                                     return; // stopped
                                 };
-                                let now = match &adopt {
-                                    Some(mdbn_replica::AdoptStatus::Pending) => Readiness::Adopting,
-                                    Some(mdbn_replica::AdoptStatus::Failed(_)) => {
-                                        tracing::error!(collection = %id, "adopt failed");
-                                        Readiness::Failed("adopt_failed")
-                                    }
-                                    _ => {
-                                        // Applied: later opens are ordinary.
-                                        if let Some(path) = &journal {
-                                            match crate::adopt::Journal::remove(path) {
-                                                Ok(()) => journal = None,
-                                                Err(e) => tracing::warn!(collection = %id, error = %e, "adopt journal not removed"),
-                                            }
+                                let deleted = tokens.deleted() || s.incidents.iter().any(|i| i.kind == mdbn_wire::client::IncidentKind::Gone);
+                                let now = if deleted {
+                                    Readiness::Failed("collection_deleted")
+                                } else {
+                                    match &adopt {
+                                        Some(mdbn_replica::AdoptStatus::Pending) => Readiness::Adopting,
+                                        Some(mdbn_replica::AdoptStatus::Failed(_)) => {
+                                            tracing::error!(collection = %id, "adopt failed");
+                                            Readiness::Failed("adopt_failed")
                                         }
-                                        readiness_of(crate::runtime::synced_ready(&s, caught_up, offline))
+                                        _ => {
+                                            // Applied: later opens are ordinary.
+                                            if let Some(path) = &journal {
+                                                match crate::adopt::Journal::remove(path) {
+                                                    Ok(()) => journal = None,
+                                                    Err(e) => tracing::warn!(collection = %id, error = %e, "adopt journal not removed"),
+                                                }
+                                            }
+                                            readiness_of(crate::runtime::synced_ready(&s, caught_up, offline))
+                                        }
                                     }
                                 };
+                                let failure = if deleted {
+                                    Some(crate::sync_failure::Failure {
+                                        kind: crate::sync_failure::Kind::Gone,
+                                        stage: crate::sync_failure::Stage::SyncedReadiness,
+                                        seq: s.confirmed_through,
+                                        generation: None,
+                                        cause: None,
+                                        persisted: Some(false),
+                                        paths: Vec::new(),
+                                        paths_omitted: None,
+                                    })
+                                } else {
+                                    crate::sync_failure::Failure::project(&s, &adopt)
+                                };
                                 if let Readiness::Failed(_) = now
-                                    && let Some(failure) = crate::sync_failure::Failure::project(&s, &adopt)
+                                    && let Some(failure) = failure
                                 {
                                     let resource_failure = failure.cause == Some(crate::sync_failure::Cause::ResourceIngestDeferred);
                                     crate::sync_failure::retain_and_stop(
@@ -379,7 +399,13 @@ impl CollectionHost {
                                         async {
                                             if resource_failure { rt.pending_ingest_paths().await } else { Vec::new() }
                                         },
-                                        rt.stop(),
+                                        async {
+                                            if deleted {
+                                                rt.stop_deleted().await;
+                                            } else {
+                                                rt.stop().await;
+                                            }
+                                        },
                                     ).await;
                                     notify(); // persisted=true/false is now final
                                     return;
@@ -609,6 +635,11 @@ impl CollectionHost {
                 Ok(Readiness::Adopting) => (CollectionState::Opening, Some("adopting".into())),
                 _ => (CollectionState::Opening, None),
             },
+            (CollectionState::Opening, Some(Some(Err(e))))
+                if e == &format!("{INELIGIBLE}collection_deleted") =>
+            {
+                (CollectionState::Failed, Some("collection_deleted".into()))
+            }
             (CollectionState::Opening, Some(Some(Err(e)))) if e.starts_with(INELIGIBLE) => (
                 CollectionState::Unavailable,
                 Some("sync_not_eligible".into()),
@@ -734,6 +765,13 @@ impl CollectionHost {
             SyncMode::Synced | SyncMode::SyncedE2e => LogLocation::Hosted,
         };
         let mut notices = Vec::new();
+        if self.current().1.as_deref() == Some("collection_deleted") {
+            notices.push(Notice {
+                path: None,
+                code: "collection_deleted".into(),
+                message: "This collection was deleted by its owner. Sync has stopped. Your local files are untouched. Remove the local registration with mdbase collection remove.".into(),
+            });
+        }
         if let Ok(closed) = self.mirror_closed.lock()
             && let Some(diagnostic) = closed.as_ref()
         {

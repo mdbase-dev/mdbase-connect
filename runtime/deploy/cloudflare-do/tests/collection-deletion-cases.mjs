@@ -1,5 +1,7 @@
 // Actual LOCAL workerd/SQLite + nil LOG authority. No serving or erasure proof.
 import assert from 'node:assert/strict';
+import WebSocket from 'ws';
+import { once } from 'node:events';
 import { createPrivateKey, createPublicKey, sign } from 'node:crypto';
 
 export async function collectionDeletionCases({ base, token, transport, encode, decode, map, sha, h, restart }) {
@@ -133,8 +135,41 @@ export async function collectionDeletionCases({ base, token, transport, encode, 
   fail(exhausted.frame, 'unavailable', 'collection_deletion_floor_unavailable');
   assert.deepEqual(await inspect(), beforeFaults, 'no quota/meta publication after floor budget refusal');
   console.log('PASS: actual DoTxn floor decoder preserves forwarded shared work budget before SQL publication');
-  const first = ok(await record());
-  assert.deepEqual([first.get(1), first.get(2), first.get(3)], [c, deletion, epoch]);
+  // An idle subscriber must learn about the floor without sending another call.
+  const hex = c.toString('hex');
+  const collection = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  assert.equal((await fetch(`${base}/collection-deleted?c=${collection}`)).status, 404,
+    'the namespace notification route is not publicly forwarded');
+  const socket = new WebSocket(`${base.replace('http:', 'ws:')}/v1/ws?c=${collection}`);
+  const upgrade = once(socket, 'upgrade');
+  await once(socket, 'open');
+  const [handshake] = await upgrade;
+  const wsNonce = Buffer.from(handshake.headers['x-mdbase-nonce'], 'hex');
+  const wsCall = async (method, params) => {
+    const reply = once(socket, 'message');
+    socket.send(encode(map([[0, 0], [1, 1], [2, method], [3, params]])));
+    const [bytes] = await reply;
+    return ok(decode(Buffer.from(bytes)));
+  };
+  try {
+    await wsCall('hello', map([[0, [1, 0]], [1, token], [3,
+      sign(null, h('mdbase/v1/ls-hello', Buffer.concat([wsNonce, Buffer.from(token)])), transport)]]));
+    await wsCall('subscribe', map([[0, c], [1, 0]]));
+    const closed = once(socket, 'message', { signal: AbortSignal.timeout(5000) });
+    const disconnected = once(socket, 'close', { signal: AbortSignal.timeout(5000) });
+    const first = ok(await record());
+    assert.deepEqual([first.get(1), first.get(2), first.get(3)], [c, deletion, epoch]);
+    const [bytes] = await closed;
+    const push = decode(Buffer.from(bytes));
+    assert.equal(push.get(0), 2);
+    assert.equal(push.get(1), 'closed');
+    assert.deepEqual(push.get(2).get(0), c);
+    assert.equal(push.get(2).get(1), 'gone');
+    const [closeCode] = await disconnected;
+    assert.equal(closeCode, 4410);
+  } finally {
+    socket.terminate();
+  }
   // Independent floor alone must stop positive writes while collection stays Live.
   await assertStatus(1);
   fail(await call('create_log', map([[0, c], [1, genesis]])), 'gone', 'collection_deletion_floor');

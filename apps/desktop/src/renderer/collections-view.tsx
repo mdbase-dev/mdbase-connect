@@ -73,7 +73,7 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
           {collection.description && <small className="collection-description">{collection.description}</small>}
           <code>{collection.root}</code>
           <small>{view.mode} · {view.status}{view.detail ? ` · ${view.detail}` : ""}</small>
-          {collection.notices.filter((notice) => notice.code !== "file_held").map((notice, index) => <small key={`${notice.code}:${notice.path ?? index}`} className="collection-notice">{notice.path && <><code>{notice.path}</code>{": "}</>}{notice.message}</small>)}
+          {collection.notices.filter((notice) => notice.code !== "file_held" && notice.code !== "collection_deleted").map((notice, index) => <small key={`${notice.code}:${notice.path ?? index}`} className="collection-notice">{notice.path && <><code>{notice.path}</code>{": "}</>}{notice.message}</small>)}
         </div>
       </div>
       <div className="collection-config-actions">

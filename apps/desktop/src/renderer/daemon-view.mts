@@ -120,6 +120,9 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
     paused: collection.state === "paused",
     holds
   };
+  if (collection.reason === "collection_deleted") {
+    return { ...base, mode: t(i18n)`Sync stopped`, status: t(i18n)`Collection deleted`, detail: t(i18n)`This collection was deleted by its owner. Your local files are untouched. Choose Remove to remove its local registration.`, dot: "danger", canEnableSync: false };
+  }
   const pendingText = collection.sync && collection.sync.pending > 0 ? t(i18n)`${plural(collection.sync.pending, { one: "# change to sync", other: "# changes to sync" })}` : undefined;
   switch (collection.state) {
     case "paused":

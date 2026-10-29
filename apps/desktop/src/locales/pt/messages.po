@@ -561,6 +561,10 @@ msgstr "Fechar navegação"
 msgid "Cloud copy"
 msgstr "Cópia na nuvem"
 
+#: src/renderer/daemon-view.mts
+msgid "Collection deleted"
+msgstr "Coleção excluída"
+
 #: src/renderer/main.tsx
 msgid "Collection name"
 msgstr "Nome da coleção"
@@ -1558,6 +1562,10 @@ msgid "sync problem: {0}"
 msgstr "problema de sincronização: {0}"
 
 #: src/renderer/daemon-view.mts
+msgid "Sync stopped"
+msgstr "Sincronização interrompida"
+
+#: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "Sincronizado"
@@ -1718,6 +1726,10 @@ msgstr "Esta versão do mdbase ainda não consegue sincronizar. Atualize o mdbas
 #: src/renderer/daemon-view.mts
 msgid "This collection belongs to a different mdbase account."
 msgstr "Esta coleção pertence a outra conta mdbase."
+
+#: src/renderer/daemon-view.mts
+msgid "This collection was deleted by its owner. Your local files are untouched. Choose Remove to remove its local registration."
+msgstr "Esta coleção foi excluída pelo proprietário. Seus arquivos locais permanecem intactos. Escolha Remover para remover o registro local."
 
 #: src/renderer/daemon-view.mts
 msgid "This collection's sync settings could not be verified. Turn sync off and on again, or contact support."

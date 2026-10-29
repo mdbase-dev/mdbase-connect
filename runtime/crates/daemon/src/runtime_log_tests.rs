@@ -231,3 +231,22 @@ fn native_event_labels_never_relabel_original_scope_and_scope_is_one_shot() {
     );
     assert_eq!(decoded.get(), 1);
 }
+
+#[test]
+fn deletion_push_on_an_idle_session_is_terminal() {
+    let mut rep = fixture_replica();
+    let (source, _) = epoch_source();
+    let mut active = None;
+    let session = up(&mut rep, &mut active, Generation::begin(source));
+    deliver_log_push(&mut rep, &session, |_| {
+        Ok(LogPush::Closed {
+            collection: COL,
+            reason: "gone".into(),
+        })
+    })
+    .unwrap();
+    assert_eq!(
+        synced_ready(&rep.sync_status(), false, true),
+        Err("collection_deleted")
+    );
+}
