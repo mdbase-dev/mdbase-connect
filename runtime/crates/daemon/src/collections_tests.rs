@@ -612,7 +612,15 @@ async fn reconstructed_host_reports_last_fatal_incident_after_actor_stop() {
         &[mdbn_wire::client::IncidentKind::VerificationMismatch],
     );
     let failure = crate::sync_failure::Failure::project(&observed, &None).unwrap();
-    crate::sync_failure::retain_and_stop(&shared, &private_dir, failure, || {}, async {}).await;
+    crate::sync_failure::retain_and_stop(
+        &shared,
+        &private_dir,
+        failure,
+        || {},
+        async { Vec::new() },
+        async {},
+    )
+    .await;
     drop(shared); // like the failed actor/process: no in-memory incidents left
     let mut reopened = host(dir.path(), SyncMode::SyncedE2e, context);
     let reported = reopened.status();

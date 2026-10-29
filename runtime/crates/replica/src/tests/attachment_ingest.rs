@@ -319,6 +319,22 @@ fn server_size_refusal_remains_available_with_its_file_path() {
         a.r.store().att_disk().acked.is_empty(),
         "refusal is not an acknowledgement"
     );
+    let uploads = a.r.attachment_ingest.uploads_started;
+    for _ in 0..3 {
+        a.r.store().att_disk().rescan(PATH);
+        a.r.observe(None).unwrap();
+        assert!(
+            a.r.attachment_ingest_failure(PATH).is_some(),
+            "scan keeps the refusal visible while other uploads wait"
+        );
+        sync(&mut a);
+        assert!(a.r.attachment_ingest_failure(PATH).is_some());
+        assert_eq!(
+            a.r.attachment_ingest.uploads_started, uploads,
+            "unchanged refusals do not re-upload on periodic scans"
+        );
+        assert!(a.r.store().att_disk().outstanding.is_empty());
+    }
     drop(a);
     {
         let mut data = data_rc.borrow_mut();

@@ -70,21 +70,35 @@ impl World {
 #[test]
 fn watcher_events_refresh_unsupported_name_notices() {
     let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
-    let mut s = w.open();
+    let mut s = w.open_with(Config {
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    let event = |path: &str, kind| FileEvent {
+        path: RelPath::new(path).unwrap(),
+        kind,
+        id: None,
+        cookie: None,
+    };
     assert!(s.observe(None).unwrap().is_empty());
     w.p.fs.write_replace("nul.md", b"reserved").unwrap();
-    assert!(s.observe(Some(&["nul.md".into()])).unwrap().is_empty());
+    s.on_events(&[event("nul.md", FileEventKind::Created)]);
+    assert!(s.observe(None).unwrap().is_empty());
     assert!(s.stats.unsupported_paths["nul.md"].contains("reserved name"));
     w.p.fs.rename_over("nul.md", "null.md");
-    let observations = s
-        .observe(Some(&["nul.md".into(), "null.md".into()]))
-        .unwrap();
+    s.on_events(&[
+        event("nul.md", FileEventKind::Removed),
+        event("null.md", FileEventKind::Created),
+    ]);
+    let observations = s.observe(None).unwrap();
     assert!(!s.stats.unsupported_paths.contains_key("nul.md"));
     assert!(observations.iter().any(|o| o.path == "null.md"));
     w.p.fs.write_replace("nul.md", b"reserved again").unwrap();
-    s.observe(Some(&["nul.md".into()])).unwrap();
+    s.on_events(&[event("nul.md", FileEventKind::Created)]);
+    s.observe(None).unwrap();
     w.p.fs.unlink("nul.md");
-    s.observe(Some(&["nul.md".into()])).unwrap();
+    s.on_events(&[event("nul.md", FileEventKind::Removed)]);
+    s.observe(None).unwrap();
     assert!(!s.stats.unsupported_paths.contains_key("nul.md"));
 }
 
@@ -1482,10 +1496,13 @@ fn private_and_hidden_paths_are_ignored() {
     let mut s = w.open();
     w.p.fs.write_in_place(".obsidian/app.json", b"{}").unwrap();
     w.p.fs.write_in_place(".mdbase/tmp/99", b"x").unwrap();
+    w.p.fs.write_in_place(".hidden:metadata", b"x").unwrap();
+    w.p.fs.write_in_place("Icon\r", b"folder icon").unwrap();
     w.p.fs.write_in_place("n.md", b"note").unwrap();
     let obs = s.observe(None).unwrap();
     assert_eq!(obs.len(), 1);
     assert_eq!(obs[0].path, "n.md");
+    assert!(s.stats.unsupported_paths.is_empty());
 }
 
 #[test]

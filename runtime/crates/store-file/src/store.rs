@@ -510,20 +510,6 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         changes: &mut Vec<Change>,
         out: &mut Vec<Observation>,
     ) -> StoreResult<()> {
-        // Unsupported names cannot all be passed to stat. Refresh them through
-        // the same directory scan that classifies names at startup.
-        let paths = if paths.is_some_and(|paths| {
-            paths.iter().any(|path| {
-                RelPath::new(path.clone()).is_err()
-                    || matches!(crate::platform::portable_violation(path),
-                    Some(reason) if !matches!(reason, "hidden_path" | "dependency_path"))
-            })
-        }) {
-            self.rescan = true;
-            None
-        } else {
-            paths
-        };
         let now_ms = self.now();
         self.settle_retained(changes).await?;
         self.deliver_evidence(out).await?;
@@ -759,7 +745,18 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 self.rescan = true;
                 continue;
             }
-            if self.is_private(&e.path) {
+            if self.is_private(&e.path)
+                || e.path
+                    .as_str()
+                    .split('/')
+                    .any(|part| part.starts_with('.') || part == "Icon\r")
+            {
+                continue;
+            }
+            if matches!(crate::platform::portable_violation(e.path.as_str()),
+                Some(reason) if !matches!(reason, "hidden_path" | "dependency_path"))
+            {
+                self.rescan = true;
                 continue;
             }
             self.dirty
@@ -1503,7 +1500,10 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         // Hidden files and folders (.git, .obsidian, .trash, .stfolder, ...)
         // and anything else the portable-path policy rejects are never
         // collection content: ingest ignores them, it never holds them.
-        if path.as_str().split('/').any(|seg| seg.starts_with('.'))
+        if path
+            .as_str()
+            .split('/')
+            .any(|seg| seg.starts_with('.') || seg == "Icon\r")
             || crate::platform::portable_violation(path.as_str()).is_some()
         {
             return false;
@@ -1535,6 +1535,9 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 Err(e) => return Err(fs_err(e)),
             };
             for e in entries {
+                if e.name.starts_with('.') || e.name == "Icon\r" {
+                    continue;
+                }
                 let display_path = if dir.is_root() {
                     e.name.clone()
                 } else {
@@ -1589,7 +1592,9 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
     fn unsupported_kind(kind: FileKind) -> Option<&'static str> {
         match kind {
             FileKind::Symlink => Some("Symlink not followed."),
-            FileKind::ReparsePoint => Some("Windows reparse point not followed."),
+            FileKind::ReparsePoint => Some(
+                "Windows redirected or online-only file is not followed; use a regular local file.",
+            ),
             FileKind::Other => Some("Special file or path through a linked folder; not synced."),
             FileKind::File | FileKind::Dir | FileKind::InvalidName => None,
         }

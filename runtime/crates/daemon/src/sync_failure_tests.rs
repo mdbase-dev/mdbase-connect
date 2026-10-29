@@ -146,6 +146,15 @@ async fn failure_is_durable_before_stop_and_survives_reopen() {
             closed.store(true, std::sync::atomic::Ordering::SeqCst);
         },
         async {
+            assert!(
+                closed.load(std::sync::atomic::Ordering::SeqCst),
+                "close the serving gate before querying the actor"
+            );
+            tokio::task::yield_now().await;
+            assert!(closed.load(std::sync::atomic::Ordering::SeqCst));
+            f.paths.clone()
+        },
+        async {
             assert!(closed.load(std::sync::atomic::Ordering::SeqCst));
             let saved = Failure::load(dir.path()).unwrap().unwrap();
             assert_eq!(
@@ -194,6 +203,7 @@ async fn persistence_failure_still_closes_and_stops_without_claiming_durability(
         &not_dir,
         f,
         || closed.store(true, std::sync::atomic::Ordering::SeqCst),
+        async { Vec::new() },
         async {
             assert!(closed.load(std::sync::atomic::Ordering::SeqCst));
             assert_eq!(
@@ -222,6 +232,7 @@ async fn rename_then_directory_fsync_failure_never_claims_original_durability_on
         dir.path(),
         f,
         || closed.store(true, std::sync::atomic::Ordering::SeqCst),
+        async { Vec::new() },
         async {
             assert!(closed.load(std::sync::atomic::Ordering::SeqCst));
             assert_eq!(

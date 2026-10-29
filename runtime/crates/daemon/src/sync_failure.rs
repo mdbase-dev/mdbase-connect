@@ -240,7 +240,7 @@ impl Failure {
     }
 }
 
-/// Publish a local in-memory failure, close the serving gate, persist,
+/// Publish a local failure, close the serving gate, collect paths, persist,
 /// THEN poll stop. Persistence failure never permits serving or prevents stop:
 /// status retains persisted=Some(false), while any recovered receipt is null.
 pub(crate) async fn retain_and_stop(
@@ -248,6 +248,7 @@ pub(crate) async fn retain_and_stop(
     dir: &Path,
     failure: Failure,
     fail_closed: impl FnOnce(),
+    paths: impl std::future::Future<Output = Vec<String>>,
     stop: impl std::future::Future<Output = ()>,
 ) {
     retain_and_stop_using(
@@ -255,6 +256,7 @@ pub(crate) async fn retain_and_stop(
         dir,
         failure,
         fail_closed,
+        paths,
         stop,
         crate::fsutil::write_atomic,
     )
@@ -267,12 +269,14 @@ async fn retain_and_stop_using(
     dir: &Path,
     mut failure: Failure,
     fail_closed: impl FnOnce(),
+    paths: impl std::future::Future<Output = Vec<String>>,
     stop: impl std::future::Future<Output = ()>,
     write: impl FnOnce(&Path, &[u8]) -> io::Result<()>,
 ) {
     failure.persisted = Some(false);
     *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some(failure.clone());
     fail_closed();
+    failure.set_paths(paths.await);
     failure.persisted = Some(failure.persist_using(dir, write).is_ok());
     *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some(failure);
     stop.await;

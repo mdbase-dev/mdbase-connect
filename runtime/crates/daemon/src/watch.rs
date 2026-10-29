@@ -130,11 +130,17 @@ impl Watcher {
                         };
                         for p in paths {
                             let Some(rel) = bases.iter().find_map(|b| relative(b, p)) else {
-                                if bases.iter().any(|base| p.starts_with(base)) {
+                                if bases.iter().any(|base| p != base && p.starts_with(base)) {
                                     q.overflow = true;
                                 }
                                 continue;
                             };
+                            if rel
+                                .split('/')
+                                .any(|part| part.starts_with('.') || part == "Icon\r")
+                            {
+                                continue;
+                            }
                             if RelPath::new(rel.clone()).is_err() {
                                 q.overflow = true;
                                 continue;

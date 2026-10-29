@@ -362,11 +362,9 @@ impl CollectionHost {
                                     }
                                 };
                                 if let Readiness::Failed(_) = now
-                                    && let Some(mut failure) = crate::sync_failure::Failure::project(&s, &adopt)
+                                    && let Some(failure) = crate::sync_failure::Failure::project(&s, &adopt)
                                 {
-                                    if failure.cause == Some(crate::sync_failure::Cause::ResourceIngestDeferred) {
-                                        failure.set_paths(rt.pending_ingest_paths().await);
-                                    }
+                                    let resource_failure = failure.cause == Some(crate::sync_failure::Cause::ResourceIngestDeferred);
                                     crate::sync_failure::retain_and_stop(
                                         &last_sync_failure,
                                         &failure_dir,
@@ -374,6 +372,9 @@ impl CollectionHost {
                                         || {
                                             *ready.lock().unwrap_or_else(|e| e.into_inner()) = now;
                                             notify();
+                                        },
+                                        async {
+                                            if resource_failure { rt.pending_ingest_paths().await } else { Vec::new() }
                                         },
                                         rt.stop(),
                                     ).await;

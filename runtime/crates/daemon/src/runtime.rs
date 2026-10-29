@@ -1786,8 +1786,19 @@ fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
     use mdbn_wire::client::HoldReason;
     let unsupported = &rep.store().inner().stats.unsupported_paths;
     let failures = rep.attachment_ingest_failures();
-    let holds = rep.store().holds().unwrap_or_default();
-    let total = unsupported.len() + failures.len() + holds.len();
+    let (mut holds, error) = match rep.store().holds() {
+        Ok(holds) => (holds, None),
+        Err(_) => (
+            Vec::new(),
+            Some(crate::control::Notice {
+                path: None,
+                code: "file_status_unavailable".into(),
+                message: "Could not read held files; file notices may be incomplete.".into(),
+            }),
+        ),
+    };
+    holds.sort_by_key(|hold| hold.reason != HoldReason::UnknownProvenance);
+    let total = unsupported.len() + failures.len() + holds.len() + usize::from(error.is_some());
     let skipped = unsupported
         .iter()
         .map(|(path, reason)| crate::control::Notice {
@@ -1844,7 +1855,10 @@ fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
             message: format!("{reason} Resolve it in mdbase."),
         }
     });
-    limited_file_notices(skipped.chain(refused).chain(held), total)
+    limited_file_notices(
+        error.into_iter().chain(held).chain(skipped).chain(refused),
+        total,
+    )
 }
 
 fn limited_file_notices(

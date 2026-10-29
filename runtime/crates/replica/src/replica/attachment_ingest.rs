@@ -94,6 +94,7 @@ struct Current {
     mutation: Uuid,
     path: String,
     token: ObservationId,
+    digest: Hash,
     persisted: Option<usize>,
     kind: CaptureKind,
 }
@@ -104,7 +105,7 @@ pub(crate) struct Ingests {
     queue: VecDeque<Item>,
     current: Option<Current>,
     busy: bool,
-    failed: BTreeMap<String, Problem>,
+    failed: BTreeMap<String, (Option<Hash>, Problem)>,
     /// Oversized Markdown observations held after a source/capture refusal.
     pub(crate) oversized_markdown_held: u64,
     /// Uploads started (fresh or resumed) and moves captured, for tests.
@@ -134,10 +135,13 @@ fn same_path(a: &str, b: &str) -> bool {
 }
 
 impl<S: Store> Replica<S> {
-    /// Why the last ingest upload of `path` failed, if it did (a newer
-    /// observation of the path clears it).
+    /// Why the last ingest upload of `path` failed, if it did. Changed bytes,
+    /// moves and deletion clear it; scans of unchanged refused bytes retain it.
     pub fn attachment_ingest_failure(&self, path: &str) -> Option<Problem> {
-        self.attachment_ingest.failed.get(path).cloned()
+        self.attachment_ingest
+            .failed
+            .get(path)
+            .map(|(_, problem)| problem.clone())
     }
 
     /// Per-path upload refusals for local status; excludes document payloads.
@@ -145,13 +149,35 @@ impl<S: Store> Replica<S> {
         self.attachment_ingest
             .failed
             .iter()
-            .map(|(path, problem)| (path.as_str(), problem))
+            .map(|(path, (_, problem))| (path.as_str(), problem))
     }
 
     /// Ingest an attachment observation, or a delete at a path that holds (or
     /// is about to hold) a file. Returns `false` when the observation is not
     /// this module's (a record or resource path).
     pub(crate) fn ingest_attachment(&mut self, o: &Observation) -> Result<bool, StoreError> {
+        if let Some(Observed::Attachment {
+            digest,
+            class: AttachmentClass::Ordinary,
+            ..
+        }) = &o.now
+            && self
+                .attachment_ingest
+                .failed
+                .get(&o.path)
+                .is_some_and(|(failed, _)| *failed == Some(*digest))
+            && o.moved_from.is_none()
+            && !self.apply_fault
+        {
+            let held = match self.file_id_at(&o.path)? {
+                Some(id) => self.store.hold(&id)?.is_some(),
+                None => false,
+            };
+            if !held {
+                self.store.release_disk_observation(o.token)?;
+                return Ok(true);
+            }
+        }
         self.attachment_ingest.failed.remove(&o.path);
         if let Some(from) = &o.moved_from {
             self.attachment_ingest.failed.remove(from);
@@ -361,7 +387,7 @@ impl<S: Store> Replica<S> {
         let Some(c) = self.attachment_ingest.current.as_ref() else {
             return Ok(true);
         };
-        let (m, path, token) = (c.mutation, c.path.clone(), c.token);
+        let (m, path, token, digest) = (c.mutation, c.path.clone(), c.token, c.digest);
         match c.kind {
             CaptureKind::Native => return self.finish_native_ingest(m, path, token),
             CaptureKind::Reverse => return self.finish_reverse_ingest(m, path, token),
@@ -388,7 +414,7 @@ impl<S: Store> Replica<S> {
             Some(AttachmentUploadStatus::Failed(p)) => {
                 self.close_attachment_upload(&m);
                 self.attachment_ingest.current = None;
-                self.ingest_failed(&path, token, p)?;
+                self.ingest_failed(&path, token, digest, p)?;
                 Ok(true)
             }
             None => {
@@ -404,6 +430,7 @@ impl<S: Store> Replica<S> {
         &mut self,
         path: &str,
         token: ObservationId,
+        digest: Hash,
         p: Problem,
     ) -> Result<(), StoreError> {
         self.store.commit(Tx {
@@ -421,7 +448,10 @@ impl<S: Store> Replica<S> {
         if p.code == ErrorCode::QuotaExceeded.as_str() {
             self.incident(mdbn_wire::client::IncidentKind::QuotaExceeded, None);
         }
-        self.attachment_ingest.failed.insert(path.to_owned(), p);
+        self.attachment_ingest.failed.insert(
+            path.to_owned(),
+            ((!held && !self.apply_fault).then_some(digest), p),
+        );
         Ok(())
     }
 
@@ -429,7 +459,9 @@ impl<S: Store> Replica<S> {
     /// restart. An uploader status is not durable capture/admission authority.
     fn native_ingest_failed(&mut self, path: &str, problem: Problem) {
         self.attachment_ingest.oversized_markdown_held += 1;
-        self.attachment_ingest.failed.insert(path.into(), problem);
+        self.attachment_ingest
+            .failed
+            .insert(path.into(), (None, problem));
     }
 
     fn finish_native_ingest(
@@ -560,6 +592,7 @@ impl<S: Store> Replica<S> {
                     mutation,
                     path: item.path,
                     token: item.token,
+                    digest,
                     persisted: None,
                     kind: CaptureKind::Reverse,
                 })
@@ -656,6 +689,7 @@ impl<S: Store> Replica<S> {
                     mutation,
                     path: item.path,
                     token: item.token,
+                    digest,
                     persisted: None,
                     kind: CaptureKind::Native,
                 })
@@ -944,6 +978,7 @@ impl<S: Store> Replica<S> {
                     mutation,
                     path: item.path,
                     token: item.token,
+                    digest,
                     persisted: None,
                     kind: CaptureKind::Ordinary,
                 });
@@ -962,7 +997,7 @@ impl<S: Store> Replica<S> {
                     });
                     return Ok(());
                 }
-                self.ingest_failed(&item.path, item.token, p)
+                self.ingest_failed(&item.path, item.token, digest, p)
             }
         }
     }
