@@ -141,6 +141,12 @@ impl<S: Store> Replica<S> {
                 .as_ref()
                 .map(|(p, _)| p.as_str())
                 .or_else(|| was.as_ref().map(|w| w.path.as_str()));
+            if id.is_none()
+                && path.is_some_and(|p| held_paths.contains(&mdbn_core::paths::path_key(p)))
+            {
+                settled.push((key, PublishState::NotPublished));
+                continue;
+            }
             if let Some(i) = id
                 && (held_ids.contains(&i)
                     || path.is_some_and(|p| held_paths.contains(&mdbn_core::paths::path_key(p)))
@@ -522,6 +528,39 @@ impl<S: Store> Replica<S> {
             }
             return;
         }
+        // Refused definitions must never enter the candidate catalog. Existing
+        // view-only holds also collect later saves after a role upgrade.
+        let held_paths = match self.store.holds() {
+            Ok(holds) => holds
+                .into_iter()
+                .filter(|h| h.reason == HoldReason::ReadOnly)
+                .map(|h| h.path)
+                .collect::<std::collections::BTreeSet<_>>(),
+            Err(e) => {
+                self.incident(
+                    mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text(format!("holds: {e}"))),
+                );
+                return;
+            }
+        };
+        let viewer = self.host_is_viewer();
+        let (protected, observations): (Vec<_>, Vec<_>) = observations.into_iter().partition(|o| {
+            viewer
+                || held_paths.contains(&o.path)
+                || o.moved_from
+                    .as_ref()
+                    .is_some_and(|p| held_paths.contains(p))
+        });
+        for observation in protected {
+            if let Err(e) = self.ingest_one(observation, None) {
+                self.incident(
+                    mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text(format!("ingest: {e}"))),
+                );
+                return;
+            }
+        }
         let Some(observations) = self.prepare_ingest(observations).await else {
             return;
         };
@@ -817,6 +856,72 @@ impl<S: Store> Replica<S> {
                 .is_some_and(|p| mdbn_core::paths::check_path(p).is_err())
         {
             return self.ack(o.token);
+        }
+        let existing_hold = self.store.holds()?.into_iter().find(|h| {
+            h.reason == HoldReason::ReadOnly
+                && (h.path == o.path || o.moved_from.as_ref() == Some(&h.path))
+        });
+        if let Some(mut hold) = existing_hold {
+            if let Some(Observed::Text(text)) = &o.now {
+                hold.mine = TextOrBlob::Text(text.clone());
+            } else if o.now.is_none() {
+                hold.mine = TextOrBlob::Text(String::new());
+            } else {
+                return Ok(());
+            }
+            hold.path = o.path.clone();
+            hold.saves += 1;
+            self.store.commit(Tx {
+                holds_put: vec![hold],
+                ack_observations: vec![o.token],
+                ..Tx::default()
+            })?;
+            self.push_holds();
+            return Ok(());
+        }
+        if self.host_is_viewer() && !matches!(o.now, Some(Observed::Attachment { .. })) {
+            let from = o.moved_from.as_deref().unwrap_or(&o.path);
+            let id = self.holder_at(from).or_else(|| self.holder_at(&o.path));
+            let key = if self.catalog.is_resource_path(from) {
+                DiskKey::Resource(from.to_string())
+            } else if let Some(id) = id {
+                DiskKey::Record(id)
+            } else {
+                if !self.catalog.is_record_path(&o.path) || o.now.is_none() {
+                    return self.ack(o.token);
+                }
+                DiskKey::Record(self.mint_v7())
+            };
+            let shown = self.local_view_doc(&key);
+            let text = match &o.now {
+                Some(Observed::Text(text)) => Some(text.as_str()),
+                _ => None,
+            };
+            if o.moved_from.is_none() && shown.as_ref().map(|(_, text)| text.as_str()) == text {
+                return self.ack(o.token);
+            }
+            let hold_id = match key {
+                DiskKey::Record(id) => id,
+                DiskKey::Resource(_) => self.mint_v7(),
+            };
+            let hold = Hold {
+                id: hold_id,
+                path: o.path.clone(),
+                reason: HoldReason::ReadOnly,
+                since: self.now(),
+                base: None,
+                mine: TextOrBlob::Text(text.unwrap_or_default().to_string()),
+                theirs: shown.map(|(_, text)| TextOrBlob::Text(text)),
+                saves: 1,
+            };
+            self.store.commit(Tx {
+                holds_put: vec![hold],
+                ack_observations: vec![o.token],
+                ..Tx::default()
+            })?;
+            self.status_dirty = true;
+            self.push_holds();
+            return Ok(());
         }
         // Attachment files (and deletes of files) go to attachment ingest (T6).
         if self.ingest_attachment(&o)? {
@@ -1474,6 +1579,9 @@ impl<S: Store> Replica<S> {
             .hold(&id)
             .map_err(store_err)?
             .ok_or_else(|| ErrorCode::NotFound.err("no such hold"))?;
+        if hold.reason == HoldReason::ReadOnly {
+            return self.resolve_read_only_hold(session, hold, how);
+        }
         let mine = match &hold.mine {
             TextOrBlob::Text(s) => s.clone(),
             TextOrBlob::Blob(_) | TextOrBlob::Attachment(_) => {
@@ -1589,6 +1697,104 @@ impl<S: Store> Replica<S> {
         self.materialize().map_err(store_err)?;
         self.pump();
         Ok(r)
+    }
+
+    fn resolve_read_only_hold(
+        &mut self,
+        session: SessionId,
+        hold: Hold,
+        how: HoldResolution,
+    ) -> ApiResult<Receipt> {
+        use super::submit::store_err;
+        self.host_only(session)?;
+        let key = if self.catalog.is_resource_path(&hold.path) {
+            DiskKey::Resource(hold.path.clone())
+        } else {
+            DiskKey::Record(hold.id)
+        };
+        let shown = self
+            .store
+            .disk_revision(&hold.path)
+            .map_err(store_err)?
+            .map(|rev| Shown {
+                path: hold.path.clone(),
+                rev,
+            });
+        let receipt = match how {
+            HoldResolution::TakeTheirs => Receipt {
+                relocated_from: None,
+                mutation: hold.id,
+                state: ReceiptState::Confirmed,
+                seq: None,
+                status: None,
+                conflicts: None,
+                records: None,
+                problem: None,
+                published: None,
+            },
+            HoldResolution::KeepMine => {
+                let TextOrBlob::Text(mine) = &hold.mine else {
+                    return Err(
+                        ErrorCode::InvalidRequest.err("binary holds are resolved by upload")
+                    );
+                };
+                let op = match &key {
+                    DiskKey::Resource(path) => {
+                        self.require(session, crate::policy::capability::DEFINITIONS)?;
+                        if shown.is_some() {
+                            Op::ResourcePut(ResourcePut {
+                                path: path.clone(),
+                                doc: Text::Inline(mine.clone()),
+                                base_revision: None,
+                                must_not_exist: None,
+                            })
+                        } else {
+                            Op::ResourceDelete(mdbn_wire::intent::ResourceDelete {
+                                path: path.clone(),
+                                base_revision: None,
+                            })
+                        }
+                    }
+                    DiskKey::Record(id) => Op::Document(Document {
+                        id: *id,
+                        base: self.local_view_doc(&key).map(|(path, doc)| DocVersion {
+                            path,
+                            doc: Text::Inline(doc),
+                        }),
+                        new: shown.as_ref().map(|_| DocVersion {
+                            path: hold.path.clone(),
+                            doc: Text::Inline(mine.clone()),
+                        }),
+                        if_revision: None,
+                    }),
+                };
+                let mutation = self.capture(vec![op], Source::Api);
+                let receipt = self
+                    .queue_mutation(mutation, Vec::new(), Some(session))
+                    .map_err(store_err)?;
+                if receipt.state == ReceiptState::Rejected {
+                    return Ok(receipt);
+                }
+                receipt
+            }
+            _ => {
+                return Err(ErrorCode::InvalidRequest.err(
+                    "choose keep mine to submit this held change, or take theirs to discard it",
+                ));
+            }
+        };
+        self.store
+            .commit(Tx {
+                holds_del: vec![hold.id],
+                ..Tx::default()
+            })
+            .map_err(store_err)?;
+        self.before.insert(key, shown);
+        self.materialize().map_err(store_err)?;
+        self.status_dirty = true;
+        self.push_holds();
+        self.pump();
+        Ok(receipt)
     }
 
     /// The map of keys awaiting publish (for tests).

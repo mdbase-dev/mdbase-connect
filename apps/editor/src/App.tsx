@@ -1965,6 +1965,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
             ]} />
           </header>
+          {connectionSummary?.role === "viewer" && <p role="status"><Trans>You have view access, so changes can't be saved.</Trans></p>}
           {noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
           {noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label={t`Unsaved draft found`}>
             <strong><Trans>Unsaved edits from an earlier session are available.</Trans></strong>

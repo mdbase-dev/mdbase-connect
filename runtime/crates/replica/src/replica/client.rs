@@ -219,11 +219,29 @@ impl<S: Store> Replica<S> {
         self.cancel_stale_approvals();
     }
 
+    /// Preserve Host capture before bootstrap; a confirmed Viewer role narrows it.
+    pub(crate) fn host_is_viewer(&self) -> bool {
+        if self.local_only() || self.is_hosted() {
+            return false;
+        }
+        self.policy
+            .devices
+            .get(&self.cfg.device_id)
+            .filter(|device| device.active)
+            .is_some_and(|device| self.policy.members.get(&device.account) == Some(&Role::Viewer))
+    }
+
     /// The session, checked for `cap` against its grant in the current confirmed
-    /// policy (`policy.md` §7). The hosting app may do everything.
+    /// policy (`policy.md` §7). A synced host also follows its member role.
     pub(crate) fn require(&self, s: SessionId, cap: &str) -> ApiResult<()> {
         let sess = self.session(s)?;
         let SessionAuth::Grant { grant, client_pk } = &sess.auth else {
+            if cap != crate::policy::capability::READ && self.host_is_viewer() {
+                return Err(ErrorCode::Forbidden.err_with_reason(
+                    "read_only",
+                    "You have view access, so changes cannot be saved.",
+                ));
+            }
             return Ok(());
         };
         let g = self
@@ -1012,6 +1030,15 @@ impl<S: Store> ClientApi for Replica<S> {
         how: HoldResolution,
     ) -> ApiResult<Receipt> {
         let cap = match how {
+            HoldResolution::TakeTheirs
+                if self
+                    .store
+                    .hold(&id)
+                    .map_err(store_err)?
+                    .is_some_and(|hold| hold.reason == mdbn_wire::client::HoldReason::ReadOnly) =>
+            {
+                crate::policy::capability::READ
+            }
             HoldResolution::Delete => crate::policy::capability::DELETE,
             _ => crate::policy::capability::EDIT,
         };

@@ -60,6 +60,59 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(upload).not.toHaveBeenCalled();
   });
 
+  it("uses live SDK membership and refuses mutations before local capture", async () => {
+    const f = await fixture({}, seedNotes);
+    const snapshot = f.application.getSnapshot();
+    const setRole = (role: "viewer" | "editor") => f.controls.publishSnapshot({
+      ...snapshot, collections: snapshot.collections.map((entry) => ({ ...entry, role }))
+    });
+    const changed = vi.fn();
+    const stop = f.gateway.onSessionChange(changed);
+    // The pinned SDK's Host hello reports Owner; membership is exposed separately.
+    expect(f.client.hello.grant.role).not.toBe("viewer");
+    setRole("viewer");
+    const current = f.gateway.sessionSnapshot();
+    expect(current.status === "ready" && current.connection.role).toBe("viewer");
+    expect(editorPermissions(current.status === "ready" ? current.connection : null)).toMatchObject({
+      canCreateNotes: false, canEditNotes: false, canRenameNotes: false,
+      canDeleteNotes: false, canManageTypes: false, canInstallTypes: false, canAttachFiles: false
+    });
+    expect(changed).toHaveBeenLastCalledWith(current);
+    const base = await f.gateway.read("notes/plan.md");
+    const type = { name: "note", path: "_types/note.md", revision: "sha256:test", document: "source" };
+    for (const write of [
+      () => f.gateway.create({ path: "new.md", title: "New", body: "viewer", properties: {} }),
+      () => f.gateway.restore(base),
+      () => f.gateway.update(base, { body: "viewer" }),
+      () => f.gateway.updateDocument(base.path, "viewer", base.revision),
+      () => f.gateway.updateProperties(base.path, { title: "viewer" }, base.revision),
+      () => f.gateway.rename(base.path, "renamed.md", base.revision),
+      () => f.gateway.delete(base.path, base.revision),
+      () => f.gateway.createType("invalid type"),
+      () => f.gateway.updateType(type, "invalid type"),
+      () => f.gateway.uploadFile("attachments/viewer.txt", new Blob(["viewer"]))
+    ]) await expect(write()).rejects.toMatchObject({ code: "forbidden", reason: "read_only", message: "You have view access, so changes can't be saved." });
+    expect(f.client.ledger.getSnapshot()).toMatchObject({ pending: [], rejected: [] });
+    expect((await f.gateway.read(base.path)).body).toBe(base.body);
+    setRole("editor");
+    const upgraded = f.gateway.sessionSnapshot();
+    expect(editorPermissions(upgraded.status === "ready" ? upgraded.connection : null).canCreateNotes).toBe(true);
+    await expect(f.gateway.create({ path: "after-upgrade.md", title: "Allowed", body: "authorized", properties: {} })).resolves.toMatchObject({ path: "after-upgrade.md" });
+    stop();
+  });
+
+  it("refreshes membership before saving to apply a downgrade immediately", async () => {
+    const f = await fixture({}, seedNotes);
+    const base = await f.gateway.read("notes/plan.md");
+    const snapshot = f.application.getSnapshot();
+    f.controls.setHandler("refreshCollectionList", () => ({
+      ...snapshot, collections: snapshot.collections.map((entry) => ({ ...entry, role: "viewer" as const }))
+    }));
+    await expect(f.gateway.updateDocument(base.path, "downgraded", base.revision)).rejects.toMatchObject({ reason: "read_only" });
+    expect((await f.gateway.read(base.path)).body).toBe(base.body);
+    expect(f.client.ledger.getSnapshot()).toMatchObject({ pending: [], rejected: [] });
+  });
+
   it("forwards authorize, choose and forget to the original application with the caller signal", async () => {
     const f = await fixture();
     const signal = new AbortController().signal;

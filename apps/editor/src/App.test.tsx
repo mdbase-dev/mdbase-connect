@@ -36,7 +36,7 @@ describe("mdbase editor", () => {
   it("opens a v2 viewer grant for reading without writable controls", async () => {
     class ViewerGateway extends DemoCollectionGateway {
       protected currentConnection(): ConnectionSummary {
-        return { collectionId: "demo", operations: ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"],
+        return { collectionId: "demo", role: "viewer", operations: ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"],
           fileActions: ["list", "read"], missingCapabilities: ["records.create", "records.edit", "records.delete", "definitions.manage", "files.add"] };
       }
     }
@@ -48,6 +48,7 @@ describe("mdbase editor", () => {
     const body = await screen.findByRole("textbox", { name: "Note body" });
     expect(body).toHaveAttribute("readonly");
     expect(screen.getByText("Read only")).toBeInTheDocument();
+    expect(screen.getByText("You have view access, so changes can't be saved.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New note" })).not.toBeInTheDocument();
     expect(screen.getByTitle("Rename Markdown path")).toBeDisabled();
     await user.keyboard("{Control>}n{/Control}");

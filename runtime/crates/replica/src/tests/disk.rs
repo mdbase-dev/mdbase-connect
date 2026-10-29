@@ -380,6 +380,7 @@ impl Store for DiskStore {
             d.outstanding.remove(&a);
         }
         let paths: Vec<String> = d.files.keys().cloned().collect();
+        d.known.retain(|path, _| paths.contains(path));
         for p in paths {
             let r = h(&d.files[&p]);
             d.known.insert(p, r);
@@ -883,6 +884,164 @@ fn external_edits_sync() {
     for n in [&a, &b] {
         assert_eq!(n.r.store().inner.data().borrow().windows, (0, 0));
     }
+}
+
+fn set_member_role(svc: &FakeLogService, nodes: &mut [&mut Node], role: mdbn_wire::policy::Role) {
+    use mdbn_wire::policy::{MemberSet, PolicyOp, Role};
+    let mut cp = crate::testkit::TestControlPlane::new(COL);
+    cp.append(
+        svc,
+        vec![
+            PolicyOp::MemberSet(MemberSet {
+                account: B16([0xab; 16]),
+                role: Role::Owner,
+            }),
+            PolicyOp::MemberSet(MemberSet {
+                account: crate::testkit::TEST_OWNER,
+                role,
+            }),
+        ],
+    );
+    settle(nodes);
+}
+
+#[test]
+fn viewer_disk_changes_wait_for_explicit_choice_after_upgrade_and_restart() {
+    use mdbn_wire::{client::HoldReason, policy::Role};
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "edit.md", "owner");
+    create(&mut a, 2, "delete.md", "keep");
+    create(&mut a, 3, "rename.md", "rename me");
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Viewer);
+    b.disk.borrow_mut().user_write("edit.md", Some("viewer"));
+    b.disk.borrow_mut().user_write("delete.md", None);
+    b.disk
+        .borrow_mut()
+        .user_write("new.md", Some("new viewer file"));
+    b.disk
+        .borrow_mut()
+        .user_write("_types/viewer.md", Some("invalid type source"));
+    {
+        let mut disk = b.disk.borrow_mut();
+        let base = disk.known.get("rename.md").copied();
+        disk.files.remove("rename.md");
+        disk.user_write("renamed.md", Some("rename me"));
+        let observation = disk.queued.last_mut().unwrap();
+        observation.moved_from = Some("rename.md".into());
+        observation.base = base;
+    }
+    settle(&mut [&mut a, &mut b]);
+    let holds = b.r.store().holds().unwrap();
+    assert_eq!(holds.len(), 5);
+    assert!(holds.iter().all(|h| h.reason == HoldReason::ReadOnly));
+    assert_eq!(b.r.sync_status().pending, 0);
+    assert_eq!(a.file("edit.md").as_deref(), Some("owner"));
+    assert_eq!(a.file("delete.md").as_deref(), Some("keep"));
+    assert!(a.file("new.md").is_none());
+    assert!(b.r.store().resource("_types/viewer.md").unwrap().is_none());
+    assert!(
+        b.r.sync_status().incidents.is_empty(),
+        "a refused type must not invalidate readiness"
+    );
+    let edit = holds.iter().find(|h| h.path == "edit.md").unwrap().id;
+    assert!(
+        b.r.resolve_hold(b.s, edit, HoldResolution::KeepMine)
+            .is_err()
+    );
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Editor);
+    let store = b.r.into_store();
+    let mut b = reopen(&svc, 2, store, b.log, b.disk);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.r.store().holds().unwrap().len(), 5);
+    assert_eq!(b.r.sync_status().pending, 0);
+    assert_eq!(a.file("edit.md").as_deref(), Some("owner"));
+    assert_eq!(a.file("delete.md").as_deref(), Some("keep"));
+    assert!(a.file("new.md").is_none());
+    assert_eq!(a.file("rename.md").as_deref(), Some("rename me"));
+    assert!(a.file("renamed.md").is_none());
+    for hold in holds {
+        let choice = if hold.path.starts_with("_types/") {
+            HoldResolution::TakeTheirs
+        } else {
+            HoldResolution::KeepMine
+        };
+        b.r.resolve_hold(b.s, hold.id, choice).unwrap();
+        settle(&mut [&mut a, &mut b]);
+    }
+    assert_eq!(a.file("edit.md").as_deref(), Some("viewer"));
+    assert!(a.file("delete.md").is_none());
+    assert_eq!(a.file("new.md").as_deref(), Some("new viewer file"));
+    assert!(a.file("rename.md").is_none());
+    assert_eq!(a.file("renamed.md").as_deref(), Some("rename me"));
+    assert!(b.file("_types/viewer.md").is_none());
+    assert!(b.r.store().holds().unwrap().is_empty());
+}
+
+#[test]
+fn viewer_can_discard_a_held_edit_and_new_file_without_write_access() {
+    use mdbn_wire::policy::Role;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "a.md", "original");
+    settle(&mut [&mut a, &mut b]);
+    set_member_role(&svc, &mut [&mut a, &mut b], Role::Viewer);
+    b.disk.borrow_mut().user_write("a.md", None);
+    b.disk.borrow_mut().user_write("new.md", Some("local"));
+    settle(&mut [&mut a, &mut b]);
+    for hold in b.r.store().holds().unwrap() {
+        b.r.resolve_hold(b.s, hold.id, HoldResolution::TakeTheirs)
+            .unwrap();
+    }
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.file("a.md").as_deref(), Some("original"));
+    assert!(b.file("new.md").is_none());
+    assert_eq!(b.r.sync_status().pending, 0);
+    assert!(b.r.store().holds().unwrap().is_empty());
+}
+
+#[test]
+fn host_writes_recheck_current_role_and_leave_no_viewer_pending() {
+    use mdbn_wire::policy::Role;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    set_member_role(&svc, &mut [&mut a], Role::Viewer);
+    let mut request = SubmitParams {
+        ops: vec![Op::Create(Create {
+            id: B16([44; 16]),
+            path: Some("refused.md".into()),
+            type_name: None,
+            frontmatter: None,
+            body: None,
+            document: Some(Text::Inline("viewer".into())),
+        })],
+        mutation_id: None,
+        conflict_mode: None,
+        timezone: None,
+        allow_partial: None,
+        mutation_ids: None,
+        dry_run: None,
+        include: None,
+        wait: None,
+    };
+    let error = a.r.submit(a.s, request.clone()).unwrap_err();
+    assert_eq!(error.problem().reason.as_deref(), Some("read_only"));
+    assert_eq!(a.r.sync_status().pending, 0);
+    set_member_role(&svc, &mut [&mut a], Role::Editor);
+    request.ops[0] = Op::Create(Create {
+        id: B16([45; 16]),
+        path: Some("allowed.md".into()),
+        type_name: None,
+        frontmatter: None,
+        body: None,
+        document: Some(Text::Inline("editor".into())),
+    });
+    a.r.submit(a.s, request).unwrap();
+    settle(&mut [&mut a]);
+    assert_eq!(a.file("allowed.md").as_deref(), Some("editor"));
 }
 
 #[test]
