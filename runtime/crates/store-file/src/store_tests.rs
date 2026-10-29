@@ -81,6 +81,7 @@ fn watcher_events_refresh_unsupported_name_notices() {
         cookie: None,
     };
     assert!(s.observe(None).unwrap().is_empty());
+    let scanned = w.p.fs.log().len();
     w.p.fs.write_replace("nul.md", b"reserved").unwrap();
     s.on_events(&[event("nul.md", FileEventKind::Created)]);
     assert!(s.observe(None).unwrap().is_empty());
@@ -100,6 +101,20 @@ fn watcher_events_refresh_unsupported_name_notices() {
     s.on_events(&[event("nul.md", FileEventKind::Removed)]);
     s.observe(None).unwrap();
     assert!(!s.stats.unsupported_paths.contains_key("nul.md"));
+    for _ in 0..3 {
+        w.p.fs
+            .write_in_place("cache?/autosave.bin", b"cache")
+            .unwrap();
+        s.on_events(&[event("cache?/autosave.bin", FileEventKind::Changed)]);
+        assert!(s.observe(None).unwrap().is_empty());
+        assert!(s.stats.unsupported_paths["cache?/autosave.bin"].contains("'?'"));
+    }
+    assert!(
+        w.p.fs.log()[scanned..]
+            .iter()
+            .all(|line| line.split_whitespace().nth(1) != Some("list")),
+        "portable-name notices must not walk the collection on every autosave"
+    );
 }
 
 #[test]

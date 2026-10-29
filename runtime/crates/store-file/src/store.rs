@@ -562,7 +562,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 let Ok(rp) = RelPath::new(p.clone()) else {
                     continue;
                 };
-                if !self.included(&rp, &settings) {
+                if self.excluded(&rp, &settings) {
                     continue;
                 }
             }
@@ -745,18 +745,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 self.rescan = true;
                 continue;
             }
-            if self.is_private(&e.path)
-                || e.path
-                    .as_str()
-                    .split('/')
-                    .any(|part| part.starts_with('.') || part == "Icon\r")
-            {
-                continue;
-            }
-            if matches!(crate::platform::portable_violation(e.path.as_str()),
-                Some(reason) if !matches!(reason, "hidden_path" | "dependency_path"))
-            {
-                self.rescan = true;
+            if self.is_private(&e.path) {
                 continue;
             }
             self.dirty
@@ -1493,31 +1482,42 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         ext.is_some_and(|e| self.cfg.text_extensions.contains(&e))
     }
 
-    fn included(&self, path: &RelPath, settings: &Option<FileInclusion>) -> bool {
-        if self.is_private(path) {
-            return false;
-        }
-        // Hidden files and folders (.git, .obsidian, .trash, .stfolder, ...)
-        // and anything else the portable-path policy rejects are never
-        // collection content: ingest ignores them, it never holds them.
-        if path
-            .as_str()
-            .split('/')
-            .any(|seg| seg.starts_with('.') || seg == "Icon\r")
-            || crate::platform::portable_violation(path.as_str()).is_some()
-        {
-            return false;
-        }
-        if let Some(s) = settings
-            && let Some(ex) = &s.exclude
-            && ex.iter().any(|e| {
-                let e = e.trim_end_matches('/');
-                path.as_str() == e || path.as_str().starts_with(&format!("{e}/"))
-            })
-        {
-            return false;
-        }
-        true
+    fn excluded(&self, path: &RelPath, settings: &Option<FileInclusion>) -> bool {
+        self.is_private(path)
+            || path.as_str().split('/').any(|seg| seg.starts_with('.'))
+            || matches!(
+                crate::platform::portable_violation(path.as_str()),
+                Some("hidden_path" | "dependency_path")
+            )
+            || settings
+                .as_ref()
+                .and_then(|s| s.exclude.as_ref())
+                .is_some_and(|excluded| {
+                    excluded.iter().any(|e| {
+                        let e = e.trim_end_matches('/');
+                        path.as_str() == e || path.as_str().starts_with(&format!("{e}/"))
+                    })
+                })
+    }
+
+    fn unsupported_name(path: &str) -> Option<String> {
+        use mdbn_core::paths::{PathViolation, check_path};
+        let violation = check_path(path).err()?;
+        Some(match violation {
+            PathViolation::Hidden | PathViolation::Private | PathViolation::Dependency => {
+                return None;
+            }
+            PathViolation::ReservedName => {
+                "Filename uses a Windows reserved name; rename this file to sync it.".into()
+            }
+            PathViolation::ForbiddenCharacter(c) => {
+                format!("Filename contains {c:?}; rename this file to sync it.")
+            }
+            other => format!(
+                "Filename is not supported for sync: {}.",
+                other.reason().replace('_', " ")
+            ),
+        })
     }
 
     async fn walk(
@@ -1551,30 +1551,17 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                     continue;
                 }
                 let Ok(p) = dir.join(&e.name) else {
-                    unsupported.insert(
-                        display_path,
-                        "Filename contains unsupported separators or control characters.".into(),
-                    );
+                    let reason = Self::unsupported_name(&display_path).unwrap_or_else(|| {
+                        "Filename contains unsupported separators or control characters.".into()
+                    });
+                    unsupported.insert(display_path, reason);
                     continue;
                 };
-                if !self.included(&p, settings) {
-                    if !self.is_private(&p) {
-                        match crate::platform::portable_violation(p.as_str()) {
-                            Some("hidden_path" | "dependency_path") | None => {}
-                            Some("reserved_name") => {
-                                unsupported.insert(p.as_str().into(), "Filename uses a Windows reserved name; rename this file to sync it.".into());
-                            }
-                            Some(reason) => {
-                                unsupported.insert(
-                                    p.as_str().into(),
-                                    format!(
-                                        "Filename is not supported for sync: {}.",
-                                        reason.replace('_', " ")
-                                    ),
-                                );
-                            }
-                        }
-                    }
+                if self.excluded(&p, settings) {
+                    continue;
+                }
+                if let Some(reason) = Self::unsupported_name(p.as_str()) {
+                    unsupported.insert(p.as_str().into(), reason);
                     continue;
                 }
                 if let Some(reason) = Self::unsupported_kind(e.kind) {
@@ -1872,7 +1859,14 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         quiet_recheck: bool,
     ) -> StoreResult<()> {
         let rp = Self::rel(path)?;
-        let meta = match self.observe_io(|| self.p.stat(&rp)).await? {
+        let stat = self.observe_io(|| self.p.stat(&rp)).await?;
+        if stat.is_ok()
+            && let Some(reason) = Self::unsupported_name(path)
+        {
+            self.stats.unsupported_paths.insert(path.into(), reason);
+            return Ok(());
+        }
+        let meta = match stat {
             Ok(m) if m.kind == FileKind::File => Some(m),
             Ok(m) => {
                 self.stats.unsupported_paths.remove(path);
@@ -1923,8 +1917,13 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             self.stats.unsupported_paths.remove(path);
         }
         if Self::has_ext(path, &self.cfg.markdown_extensions) && meta.size > RECORD_CAP_BYTES {
-            self.stats.unsupported_paths.insert(path.into(), format!(
-                "Too large to index as a note: {} bytes; limit is {RECORD_CAP_BYTES} bytes (1 MiB).", meta.size));
+            self.stats.unsupported_paths.insert(
+                path.into(),
+                format!(
+                    "Too large to index as a note: {} bytes; limit is {RECORD_CAP_BYTES} bytes.",
+                    meta.size
+                ),
+            );
         }
         // It exists: not missing (any more).
         if self.missing.remove(path).is_some() {

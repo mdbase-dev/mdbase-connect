@@ -1856,7 +1856,7 @@ fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
         }
     });
     limited_file_notices(
-        error.into_iter().chain(held).chain(skipped).chain(refused),
+        error.into_iter().chain(skipped).chain(refused).chain(held),
         total,
     )
 }
@@ -1956,6 +1956,77 @@ mod log_tests;
 
 #[cfg(test)]
 mod tests {
+    struct NoGrants;
+    impl mdbn_replica::policy::GrantSource for NoGrants {
+        fn grant(
+            &self,
+            _: &mdbn_wire::common::Uuid,
+        ) -> Option<mdbn_replica::policy::EffectiveGrant> {
+            None
+        }
+    }
+
+    #[test]
+    fn skipped_file_notices_remain_visible_when_holds_fill_the_budget() {
+        use mdbn_replica::store::{Store as _, Tx};
+        use mdbn_wire::{
+            client::{Hold, HoldReason},
+            common::B16,
+            snapshot::TextOrBlob,
+        };
+        let dir = crate::testutil::TestDir::new("skip-with-holds");
+        let state = crate::testutil::TestDir::new("skip-with-holds-state");
+        std::fs::write(dir.path().join("latin.md"), b"caf\xe9").unwrap();
+        let cfg = super::RuntimeConfig {
+            collection: [1; 16],
+            replica_id: [2; 16],
+            device_id: [3; 16],
+            root: dir.path().to_path_buf(),
+            private_dir: state.path().to_path_buf(),
+            adopt: None,
+            id_hints: vec![],
+            sync: None,
+        };
+        let (mut rep, _lock) = super::open_replica(
+            &cfg,
+            mdbn_replica::DeviceSecrets {
+                sign_sk: [10; 32],
+                kem_sk: [11; 32],
+            },
+            Box::new(NoGrants),
+        )
+        .unwrap();
+        rep.store_mut()
+            .commit(Tx {
+                holds_put: (0..50)
+                    .map(|id| Hold {
+                        id: B16([id; 16]),
+                        path: format!("held/{id}.md"),
+                        reason: HoldReason::ReadOnly,
+                        since: 0,
+                        base: None,
+                        mine: TextOrBlob::Text("held".into()),
+                        theirs: None,
+                        saves: 0,
+                    })
+                    .collect(),
+                ..Tx::default()
+            })
+            .unwrap();
+        let notices = super::file_notices(&rep);
+        assert!(
+            notices
+                .iter()
+                .any(|notice| notice.path.as_deref() == Some("latin.md")
+                    && notice.code == "unsupported_entry")
+        );
+        assert!(
+            notices
+                .iter()
+                .any(|notice| notice.code == "file_notices_omitted")
+        );
+    }
+
     #[test]
     fn file_notices_bound_work_and_bytes_without_hiding_the_omitted_count() {
         let mapped = std::cell::Cell::new(0);
@@ -2070,15 +2141,6 @@ mod tests {
 
     #[test]
     fn native_open_explicitly_selects_desktop_query_profile() {
-        struct NoGrants;
-        impl mdbn_replica::policy::GrantSource for NoGrants {
-            fn grant(
-                &self,
-                _: &mdbn_wire::common::Uuid,
-            ) -> Option<mdbn_replica::policy::EffectiveGrant> {
-                None
-            }
-        }
         let dir = crate::testutil::TestDir::new("desktop-query-profile");
         let state = crate::testutil::TestDir::new("desktop-query-state");
         let cfg = super::RuntimeConfig {
