@@ -1268,8 +1268,10 @@ export class HostedCollection extends DurableObject<Env> {
             } catch { /* Read-only diagnostic, never cache authority. */ }
           }
           const admission = engine.admission();
-          return refuse(observation === null ? "native_not_ready" : "native_identity_mismatch",
+          const wait = observation instanceof Map ? observation as Map<number, CborValue> : null;
+          return refuse(observation === null || wait ? "native_not_ready" : "native_identity_mismatch",
             { serving: engine.serving(), reset: engine.needsReset(), pin: engine.pinState(), cached_head: cachedHead,
+              key_wait: wait?.get(1), incident_kinds: wait?.get(2), device_match: this.live?.device === input.device,
               admission: Array.isArray(admission) && admission[0] === 0 && typeof admission[1] === "string" ? admission[1] : "verified",
               timing: this.env.LAB === "1" ? this.timings : undefined });
         }
