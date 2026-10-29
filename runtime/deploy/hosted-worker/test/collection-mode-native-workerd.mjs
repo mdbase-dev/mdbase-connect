@@ -37,6 +37,12 @@ export class ModeProbe extends HostedCollection {
   if(op==='ledger'){await this.ctx.storage.put('migration-run',{id:'public-preserved-ledger'});return Response.json({ok:true});}
   if(op==='inspect'){return Response.json({ledger:await this.ctx.storage.get('migration-run'),marker:await this.ctx.storage.get('collection-mode-device'),live:!!this.engine});}
   if(op==='evict'){if(this.engine)this.engine.close();this.engine=null;return Response.json({ok:true});}
+  const fault=new URL(request.url).searchParams.get('fault');
+  if(fault==='before-delete'||fault==='after-delete'){
+   const storage=this.ctx.storage,original=storage.delete.bind(storage);let once=true;
+   storage.delete=async(...args)=>{if(once){once=false;if(fault==='before-delete')throw Error('fixture pre-effect crash');await original(...args);await storage.sync();throw Error('fixture lost physical acknowledgement');}return original(...args);};
+   try{return await super.fetch(request);}finally{storage.delete=original;}
+  }
   return super.fetch(request);
  }
 }
@@ -46,11 +52,15 @@ const compiled=await build({stdin:{contents:source,resolveDir:fileURLToPath(new 
 const wasm=await readFile(wasmPath);
 const options=()=>convertV4MiniflareOptions({name:'mode-native',modules:[{type:'ESModule',path:'worker.js',contents:compiled.outputFiles[0].text},{type:'CompiledWasm',path:'hosted.wasm',contents:wasm}],compatibilityDate:'2026-10-05',port:0,bindings:{HOSTED_SERVICE_TOKEN:'public-mode-fixture'.repeat(4)},durableObjects:{COLLECTIONS:{className:'ModeProbe',useSQLite:true}},resourcePersistencePath:scratch+'/persist',resourceTmpPath:scratch+'/tmp',outboundService:()=>new Response('no fixture network',{status:503})});let mf=new Miniflare(options());
 const token='public-mode-fixture'.repeat(4),input={collection:f.collection,device:f.device,epoch:'1',challenge:'aa'.repeat(32)};
-const call=(path,body=input,auth=token)=>mf.dispatchFetch('http://fixture.test/v1/hosted/collection-mode/'+path+'?collection='+f.collection,{method:'POST',headers:{authorization:'Bearer '+auth,'content-type':'application/json'},body:JSON.stringify(body)});
+const call=(path,body=input,auth=token,fault='')=>mf.dispatchFetch('http://fixture.test/v1/hosted/collection-mode/'+path+'?collection='+f.collection+(fault?'&fault='+fault:''),{method:'POST',headers:{authorization:'Bearer '+auth,'content-type':'application/json'},body:JSON.stringify(body)});
 const op=name=>mf.dispatchFetch('http://fixture.test/?op='+name);
 try{
  assert.equal((await call('ready',input,'wrong')).status,401);
  assert.equal((await call('ready')).status,200,'actual signed owner grant and native history make ready');
+ // Discard one readiness acknowledgement, then restart the actual runtime.
+ // Retry must re-observe native custody, not a persisted host ready flag.
+ await call('ready');await mf.dispose();mf=new Miniflare(options());
+ const observed=await call('ready',{...input,challenge:'bb'.repeat(32)});assert.equal(observed.status,200);assert.equal((await observed.json()).challenge,'bb'.repeat(32));
  assert.equal((await call('ready',{...input,epoch:'2'})).status,503,'wrong epoch is not readiness');
  await op('ledger');
  assert.equal((await call('retire',{...input,device:'11111111-1111-4111-8111-111111111111'})).status,503,'stale identity cannot erase fresh cache');
@@ -61,5 +71,13 @@ try{
  assert.equal((await call('retire',{...input,epoch:'2'})).status,200,'lost retirement reply retry is idempotent');
  await mf.dispose();mf=new Miniflare(options());assert.equal((await call('retire',{...input,epoch:'2'})).status,200,'actual cold workerd restart retains identity evidence');
  state=await(await op('inspect')).json();assert.deepEqual(state.ledger,{id:'public-preserved-ledger'});
- console.log('PASS: real Worker/Engine/SQLite readiness, revocation, stale-identity refusal, warm/cold retirement retry and ledger retention');
+ for(const fault of ['before-delete','after-delete']){
+  await op('private');
+  assert.equal((await call('retire',{...input,epoch:'2'},token,fault)).status,503,`${fault}: no completion acknowledgement on uncertainty`);
+  await mf.dispose();mf=new Miniflare(options());
+  assert.equal((await call('retire',{...input,epoch:'2'})).status,200,`${fault}: cold retry settles idempotently`);
+  state=await(await op('inspect')).json();assert.equal(state.live,false);assert.deepEqual(state.ledger,{id:'public-preserved-ledger'});
+  assert.equal((await call('ready')).status,503,`${fault}: old service cannot revive readiness`);
+ }
+ console.log('PASS: real Worker/Engine/SQLite readiness, revocation, stale-identity refusal, warm/cold retries, physical-effect crash/lost-ack matrix and ledger retention');
 }finally{await mf.dispose();await rm(scratch,{recursive:true,force:true});}

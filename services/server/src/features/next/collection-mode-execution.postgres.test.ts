@@ -13,7 +13,7 @@ import { registerCollectionModeRoutes } from "./collection-mode-routes.js";
 import { LOG_TOKEN_LIFETIME_MS, LogServiceClient } from "./log-service-client.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
 import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
-import { decodeCbor, type PolicyOp } from "./policy-wire.js";
+import { decodeCbor, encodeCbor, type PolicyOp } from "./policy-wire.js";
 import { parseServiceDevice, storeServiceDevice } from "./service-devices.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { certify, FakeLogService, field } from "../../../test/policy-log.js";
@@ -38,10 +38,12 @@ describePg("collection mode capability floor and token drain", () => {
   const log = new LogServiceClient({ url: "https://log.example.test", tokenIssuerKeyPem: issuer.privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
     transportKeyPem: generateKeyPairSync("ed25519").privateKey.export({ format: "pem", type: "pkcs8" }).toString() }, wire.fetch, () => now);
   let emitter: PolicyEmitter;
+  let serviceFetch: typeof fetch = async () => { throw new Error("unexpected service effect"); };
   const server = () => {
     const app = Fastify(); registerErrorHandler(app);
     registerCollectionModeRoutes(app, db);
-    registerCollectionModeExecution(app, { db, emitter, log, next: {} as Parameters<typeof registerCollectionModeExecution>[1]["next"], now: () => now });
+    const next = { logService: {}, cloudCopyBootstrap: { hosted: { url: "https://hosted.example.test", token: "public-hosted-fixture".repeat(3) }, escrow: { url: "https://escrow.example.test", token: "public-escrow-fixture".repeat(3) } } } as Parameters<typeof registerCollectionModeExecution>[1]["next"];
+    registerCollectionModeExecution(app, { db, emitter, log, next, fetchImpl: (...args) => serviceFetch(...args), now: () => now });
     return app;
   };
   let app: ReturnType<typeof server>;
@@ -126,6 +128,75 @@ describePg("collection mode capability floor and token drain", () => {
     const refused=await prepare(f,stale); expect(refused.statusCode,refused.body).toBe(409); expect(refused.json().error.code).toBe("mode_source_changed");
     expect((await log.head(f.collection)).seq).toBe(2);
     const resumed=await prepare(f); expect(resumed.statusCode,resumed.body).toBe(202); expect((await log.head(f.collection)).seq).toBe(3);
+  });
+
+  it.each(["before-effect", "lost-ack", "wrong-device", "wrong-challenge"])("service %s never completes early; both directions resume exact receipts after restart", async failure => {
+    const f=await fixture();await prepare(f);now+=LOG_TOKEN_LIFETIME_MS;
+    expect((await prepare(f)).json().phase).toBe("finishing");
+    const policyHead=await log.head(f.collection);
+    // Native acceptance is an authenticated proof fixture here, not a second
+    // key/HPKE implementation. Real native receipt validity has Rust coverage.
+    const receipt=Buffer.from(encodeCbor({struct:[[0,1],[1,3],[2,Buffer.from(f.collection.replaceAll("-",""),"hex")],[3,policyHead.seq+1],[4,policyHead.chain],[5,2],[6,Buffer.from(f.a.replaceAll("-",""),"hex")],[11,Buffer.from("native committed receipt fixture")]]}));
+    wire.logs.get(f.collection.replaceAll("-",""))!.push(receipt);
+    const head=await log.head(f.collection),retired=new Set<string>();let calls=0,uncertain=true;
+    serviceFetch=async(input,init)=>{
+      calls++;const body=JSON.parse(init!.body as string) as {collection:string;device:string;epoch:string;challenge:string};
+      expect(new URL(String(input)).pathname).toBe("/internal/v1/collection-mode/retire");
+      expect(body.collection).toBe(f.collection);expect(body.epoch).toBe("2");
+      const escrow=new URL(String(input)).hostname.startsWith("escrow");
+      if(uncertain&&escrow&&failure==="before-effect")throw new TypeError("synthetic pre-effect failure");
+      retired.add(body.device);
+      if(uncertain&&escrow&&failure==="lost-ack")throw new TypeError("synthetic lost retirement acknowledgement");
+      return Response.json({...body,ready:true,...(uncertain&&escrow&&failure==="wrong-device"?{device:randomUUID()}:{}),...(uncertain&&escrow&&failure==="wrong-challenge"?{challenge:"ff".repeat(32)}:{})});
+    };
+    let target:"private"|"cloud_copy"="private",request=f.request,proofHead=head;
+    const finish=async()=>{
+      const issued=await issueDeviceChallenge(db,f.connector);
+      const digest=collectionModeDigest({challenge:Buffer.from(issued.challenge,"hex"),connector:f.connector,device:f.a,collection:f.collection,request,target,finish:true,epoch:2n,seq:BigInt(proofHead.seq),chain:proofHead.chain,members:[]});
+      return app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode/${request}/finish`,headers:f.headers,payload:{device_id:f.a,challenge:issued.challenge,sig:hex(sign(null,digest,f.key)),epoch:"2",seq:String(proofHead.seq),chain:hex(proofHead.chain),members:[]}});
+    };
+    const failed=await finish();expect(failed.statusCode,failed.body).toBeGreaterThanOrEqual(500);
+    const persisted=(await db.query("SELECT completed_at,rekey_verified_at,rekey_seq,policy_outbox_id FROM next_collection_mode_changes WHERE collection_id=$1",[f.collection])).rows[0];
+    expect(persisted.completed_at).toBeNull();expect(persisted.rekey_verified_at).not.toBeNull();expect(String(persisted.rekey_seq)).toBe(String(head.seq));
+    expect((await db.query("SELECT sync FROM next_collections WHERE collection_id=$1",[f.collection])).rows[0].sync).toBe("cloud_copy");
+    expect((await db.query("SELECT count(*)::int AS n FROM next_service_devices WHERE collection_id=$1",[f.collection])).rows[0].n).toBe(2);
+    await app.close();app=server();uncertain=false;
+    const completed=await finish();expect(completed.statusCode,completed.body).toBe(200);expect(completed.json().phase).toBe("complete");expect(retired.size).toBe(2);
+    expect((await log.head(f.collection)).seq).toBe(head.seq);
+    expect((await db.query("SELECT sync FROM next_collections WHERE collection_id=$1",[f.collection])).rows[0].sync).toBe("private");
+    expect((await db.query("SELECT policy_outbox_id FROM next_collection_mode_changes WHERE collection_id=$1",[f.collection])).rows[0].policy_outbox_id).toBe(persisted.policy_outbox_id);
+    const settledCalls=calls;expect((await finish()).json().phase).toBe("complete");expect(calls).toBe(settledCalls);
+
+    // Reverse direction: lost readiness must retain the exact generated service
+    // identities and publication, not remint replacements on controller restart.
+    target="cloud_copy";request=randomUUID();uncertain=true;let factories=0;
+    const ready=new Set<string>();
+    serviceFetch=async(input,init)=>{
+      const url=new URL(String(input)),kind=url.hostname.startsWith("escrow")?"escrow":"hosted";
+      const body=JSON.parse(init!.body as string) as {collection:string;device:string;epoch:string;challenge:string};
+      expect(body.collection).toBe(f.collection);
+      if(url.pathname==="/internal/v1/service-devices"){
+        factories++;return Response.json({kind,device_id:randomUUID(),sign_pk:Buffer.alloc(32,23).toString("hex"),kem_pk:hex(rawX()),noise_pk:hex(rawX()),wrapped_keys:Buffer.from("public generated fixture").toString("base64"),kms_key_arn:`arn:aws:kms:eu-west-1:000000000000:key/${kind}`});
+      }
+      calls++;expect(url.pathname).toBe("/internal/v1/collection-mode/ready");expect(body.epoch).toBe("2");
+      if(uncertain&&kind==="escrow"&&failure==="before-effect")throw new TypeError("synthetic pre-observation failure");
+      ready.add(body.device);
+      if(uncertain&&kind==="escrow"&&failure==="lost-ack")throw new TypeError("synthetic lost readiness acknowledgement");
+      return Response.json({...body,ready:true,...(uncertain&&kind==="escrow"&&failure==="wrong-device"?{device:randomUUID()}:{}),...(uncertain&&kind==="escrow"&&failure==="wrong-challenge"?{challenge:"ff".repeat(32)}:{})});
+    };
+    expect((await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode`,headers:f.headers,payload:{request_id:request,target_mode:target}})).statusCode).toBe(202);
+    const issued=await issueDeviceChallenge(db,f.connector);
+    const digest=collectionModeDigest({challenge:Buffer.from(issued.challenge,"hex"),connector:f.connector,device:f.a,collection:f.collection,request,target,finish:false,epoch:2n,seq:BigInt(proofHead.seq),chain:proofHead.chain,members:[]});
+    const published=await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode/${request}/prepare`,headers:f.headers,payload:{device_id:f.a,challenge:issued.challenge,sig:hex(sign(null,digest,f.key)),epoch:"2",seq:String(proofHead.seq),chain:hex(proofHead.chain),members:[]}});
+    expect(published.statusCode,published.body).toBe(202);proofHead=await log.head(f.collection);
+    const identities=(await db.query("SELECT device_id FROM next_service_devices WHERE collection_id=$1 ORDER BY device_id",[f.collection])).rows;
+    expect(factories).toBe(2);const unready=await finish();expect(unready.statusCode,unready.body).toBeGreaterThanOrEqual(500);
+    expect((await db.query("SELECT completed_at FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2",[f.collection,request])).rows[0].completed_at).toBeNull();
+    await app.close();app=server();uncertain=false;
+    const cloud=await finish();expect(cloud.statusCode,cloud.body).toBe(200);expect(cloud.json().phase).toBe("complete");expect(ready.size).toBe(2);
+    expect(factories).toBe(2);expect((await log.head(f.collection)).seq).toBe(proofHead.seq);
+    expect((await db.query("SELECT device_id FROM next_service_devices WHERE collection_id=$1 ORDER BY device_id",[f.collection])).rows).toEqual(identities);
+    const readyCalls=calls;expect((await finish()).json().phase).toBe("complete");expect(calls).toBe(readyCalls);
   });
 
   it("a later advertisement unblocks the same request without resetting the floor", async () => {

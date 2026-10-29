@@ -2,10 +2,12 @@
 
 This branch composes switch-set trust and owner handover with native HTTP proofs,
 a step/resume controller, service readiness and rebuildable-cache retirement.
-It is not yet a shippable conversion. Execution remains unregistered and controls
-remain hidden pending complete controller and managed LAB qualification. Controls
+It is not yet a shippable conversion. This draft mounts execution where both
+existing Private and Cloud bootstrap are configured, for pre-release acceptance.
+The guarded LAB candidate failed before becoming live on an unrelated migration
+naming collision, so current LAB still exposes no executor/controls. Controls
 follow actual route availability, not a new rollout flag. Do not mark this draft
-implementation ready for release before the outstanding acceptance matrix passes.
+ready for release before managed acceptance passes.
 
 ## Capability gate and token drain
 
@@ -95,6 +97,14 @@ blocker) remains outstanding; do not release or mark this implementation ready.
   mode API, mint, bootstrap, device, service and outbox regressions.
 - Replica/daemon Rust libraries and all-targets clippy; real default runtime WASM
   for SDK integration tests; Worker types and Node tests.
+- Controller PG restart matrix in both directions: pre-effect service failure,
+  lost acknowledgement, wrong device and wrong challenge never complete early;
+  retry preserves the publication, receipt and generated identities. These use
+  authenticated native-proof/service-response fixtures, not simulated HPKE.
+- Actual workerd/WASM/SQLite restart matrix: ignored readiness acknowledgement,
+  retirement failure before deletion and lost physical acknowledgement after
+  durable deletion. Cold retries converge; revoked services stay unready and
+  migration KV state survives. This is not managed LAB acceptance.
 - `rpnpm --node 24.15.0 --class test test:mode-sdk` and `test:mode-worker` dispatch
   the existing locked npm subprojects; scratch stays under the worktree. Build
   their real WASM inputs using `rcargo` first. No deployment is performed.

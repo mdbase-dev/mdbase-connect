@@ -1,8 +1,8 @@
 {
-  "reason": "Keep the unregistered mode executor and its HTTP proof verifier separate from owner intent routing. The two server modules reuse current identity/membership/locks and existing service custody/outbox code. Seven internal exports share route guards and typed operation/proof helpers; no SDK surface or second keying engine is added. Mixed-version publication remains unqualified and the controller is deliberately not registered.",
+  "reason": "Keep the mode executor and HTTP proof verifier separate from owner intent routing. The two modules reuse identity/membership/locks and existing custody/outbox code. Seven internal exports share guards and typed helpers; no second keying engine is added. One additional import mounts the executor in the existing server composition for pre-release acceptance. Managed conversion qualification is still required.",
   "growth": {
     "productionFiles": 2,
-    "relativeImports": 13,
+    "relativeImports": 14,
     "typeScriptExportDeclarations": 7,
     "services/server": 2
   }
