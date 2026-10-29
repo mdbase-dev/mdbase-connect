@@ -1717,6 +1717,11 @@ test("has no automatically detectable accessibility violations across editor sur
   await page.goto("?demo=80");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  for (const width of [1280, 768]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect((await new AxeBuilder({ page }).withRules(["label-content-name-mismatch"]).analyze()).violations).toEqual([]);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   await page.getByRole("button", { name: "New note" }).click();
   await expect(page.getByRole("main", { name: "Create note" })).toBeVisible();

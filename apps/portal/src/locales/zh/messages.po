@@ -120,7 +120,7 @@ msgstr "{0} · 推荐"
 msgid "{0} and {1}"
 msgstr "{0} 和 {1}"
 
-#. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
+#. placeholder {0}: countLabel(account.deletion.owned_collections, "collection")
 #: src/AccountManagement.tsx
 msgid "{0} and their stored data"
 msgstr "{0} 及其存储的数据"
@@ -533,6 +533,7 @@ msgstr "账户升级已安排"
 msgid "Account: {0}"
 msgstr "账户：{0}"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
 msgstr "添加一个集合以开始使用。"
@@ -769,6 +770,11 @@ msgctxt "Collection connection"
 msgid "Approving…"
 msgstr "正在批准…"
 
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "应用"
+
 #: src/AccountManagement.tsx
 msgid "Authentication"
 msgstr "身份验证"
@@ -1001,6 +1007,12 @@ msgstr "已关闭注册"
 msgid "Cloud collection required"
 msgstr "需要云端集合"
 
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Cloud copy"
+msgstr "云端副本"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy configured"
@@ -1045,6 +1057,7 @@ msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "集合权限"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
 msgstr "集合副本"
@@ -1053,6 +1066,10 @@ msgstr "集合副本"
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "集合"
+
+#: src/AccountManagement.tsx
+msgid "Collections you own. Local files remain on your devices."
+msgstr "您拥有的集合。本地文件会保留在您的设备上。"
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
@@ -1745,6 +1762,10 @@ msgctxt "Account management"
 msgid "Included storage"
 msgstr "包含的存储空间"
 
+#: src/AccountManagement.tsx
+msgid "Includes collections that have left sync and retained data from deleted collections."
+msgstr "包括已停止同步的集合，以及已删除集合的保留数据。"
+
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
@@ -1912,6 +1933,10 @@ msgctxt "Application access approval"
 msgid "Manage and delete files"
 msgstr "管理和删除文件"
 
+#: src/AccountManagement.tsx
+msgid "Manage collections, sign-in methods, and browser sessions."
+msgstr "管理集合、登录方式和浏览器会话。"
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
@@ -1920,10 +1945,6 @@ msgstr "管理定义"
 #: src/auth-view.tsx
 msgid "Manage email preferences"
 msgstr "管理电子邮件偏好"
-
-#: src/AccountManagement.tsx
-msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr "管理托管存储空间、登录方式和浏览器会话。"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
@@ -2139,6 +2160,7 @@ msgctxt "Connect interface"
 msgid "No collection access"
 msgstr "无集合访问权限"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"
@@ -2285,9 +2307,9 @@ msgstr "使用 {selectedName} 打开 {0}"
 msgid "Open a collection in the editor or manage where its main copy lives."
 msgstr "在编辑器中打开集合，或管理其主副本的存储位置。"
 
-#: src/ConnectApp.tsx
-msgid "Open account and sessions"
-msgstr "打开账户与会话"
+#: src/ApplicationAccess.tsx
+msgid "Open an app, then choose which collections it can access."
+msgstr "打开应用，然后选择它可以访问的集合。"
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
@@ -2430,6 +2452,10 @@ msgid "Password changed. Other browser sessions were signed out."
 msgstr "密码已更改。其他浏览器会话已退出登录。"
 
 #: src/auth-view.tsx
+msgid "Password must contain no more than {maxCharacters} characters."
+msgstr "密码不能超过 {maxCharacters} 个字符。"
+
+#: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
 msgstr "密码恢复功能暂不可用。你仍可返回登录页面。"
 
@@ -2513,6 +2539,12 @@ msgstr "隐私"
 #: src/CollectionPicker.tsx
 msgid "Private"
 msgstr "私有"
+
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Private collection"
+msgstr "私有集合"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3498,6 +3530,7 @@ msgctxt "Account management"
 msgid "Unavailable"
 msgstr "不可用"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Unnamed collection"

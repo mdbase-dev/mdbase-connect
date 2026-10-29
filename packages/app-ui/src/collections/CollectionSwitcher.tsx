@@ -10,27 +10,60 @@ import { useCollectionUi, type CollectionSection, type CollectionUi, type Collec
 const FILTER_THRESHOLD = 7;
 const NARROW = "(max-width: 639.98px)";
 
-export interface CollectionSwitcherProps extends CollectionUiOptions {
-  /** "full": name and role; "compact": name only; "icon": a glyph for toolbars. */
-  readonly variant?: "full" | "compact" | "icon";
+export type CollectionSwitcherProps = CollectionUiOptions & {
   readonly className?: string;
   /**
    * Leading content in the trigger: the app's icon, or "mark" for the open
    * collection's initials. In the "icon" variant it replaces the folder glyph.
    */
   readonly icon?: ReactNode | "mark";
-}
+  /**
+   * Whether the switcher is open. Leave it out and the switcher keeps its own
+   * state; pass it and the switcher only asks through `onOpenChange`.
+   */
+  readonly open?: boolean;
+  /** Called whenever the switcher opens or closes itself, controlled or not. */
+  readonly onOpenChange?: (open: boolean) => void;
+} & ({
+  /** "full": name and role; "compact": name only; "icon": a glyph for toolbars; "none": no trigger. */
+  readonly variant?: "full" | "compact" | "icon";
+  readonly anchorRef?: never;
+} | {
+  /**
+   * No trigger of its own: the app opens the switcher with `open` and
+   * `onOpenChange`, for instance from an item in its own menu.
+   */
+  readonly variant: "none";
+  /**
+   * The app's element the switcher belongs to, such as the button of the menu
+   * that offered it. The wide-screen popover is placed against it and focus
+   * returns to it on close. It must stay mounted while the switcher is open.
+   */
+  readonly anchorRef: RefObject<HTMLElement | null>;
+});
 
 /**
  * The in-app collection switcher: a trigger that opens the approved collections
  * (one click switches, no Connect window), "Add a collection…", "Manage access"
  * and the account. A popover on wide screens, a bottom sheet on narrow ones.
+ *
+ * Pass `open` and `onOpenChange` to control it. With `variant="none"` it has no
+ * trigger, so an app can open it from its own control and pass that control's
+ * element (or the menu button that held it) as `anchorRef`.
  */
-export function CollectionSwitcher({ variant = "full", className, icon, ...options }: CollectionSwitcherProps): JSX.Element {
+export function CollectionSwitcher({ variant = "full", className, icon, open: openProp, onOpenChange, anchorRef, ...options }: CollectionSwitcherProps): JSX.Element {
   const ui = useCollectionUi(options);
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openProp ?? ownOpen;
+  const setOpen = (next: boolean): void => {
+    if (next === open) return;
+    if (openProp === undefined) setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   const [dialog, setDialog] = useState<RowDialog>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  // The element the panel is placed against and hands focus back to.
+  const anchor = anchorRef ?? trigger;
   const panelId = useId();
   const narrow = useNarrow();
   const { view, copy, say, busy } = ui;
@@ -42,20 +75,20 @@ export function CollectionSwitcher({ variant = "full", className, icon, ...optio
   const leading = icon === "mark" ? (markOf ? <CollectionMark row={markOf} /> : <CollectionsGlyph />) : icon;
   const close = (refocus: boolean): void => {
     setOpen(false);
-    if (refocus) trigger.current?.focus();
+    if (refocus) anchor.current?.focus();
   };
   const toDialog = (next: NonNullable<RowDialog>): void => { setOpen(false); setDialog(next); };
-  // The popover that held the row is gone: a closed row dialog hands focus to the trigger.
+  // The popover that held the row is gone: a closed row dialog hands focus to the anchor.
   const returnFocus = useRef(false);
   useEffect(() => {
     if (dialog || !returnFocus.current) return;
     returnFocus.current = false;
     const active = document.activeElement;
-    if (!active || active === document.body) trigger.current?.focus();
-  }, [dialog]);
+    if (!active || active === document.body) anchor.current?.focus();
+  }, [dialog, anchor]);
   const content = <SwitcherContent ui={ui} onDone={() => close(false)} onDialog={toDialog} />;
   return <span className={["mdbase-collections", "mdbase-collections-switcher", className].filter(Boolean).join(" ")} data-variant={variant}>
-    <button
+    {variant !== "none" && <button
       ref={trigger}
       type="button"
       className="mdbase-collections-trigger"
@@ -64,7 +97,7 @@ export function CollectionSwitcher({ variant = "full", className, icon, ...optio
       aria-controls={open ? panelId : undefined}
       aria-label={currentName ? say("switchCollection", { collection: currentName }) : copy.switchCollectionNone}
       title={name}
-      onClick={() => setOpen((value) => !value)}
+      onClick={() => setOpen(!open)}
     >
       {busy === "select" || busy === "add" || view.kind === "opening"
         ? <span className="mdbase-collections-spinner" aria-hidden="true" />
@@ -74,10 +107,10 @@ export function CollectionSwitcher({ variant = "full", className, icon, ...optio
       {variant !== "icon" && <span className="mdbase-collections-trigger-name">{name}</span>}
       {variant === "full" && current && <span className="mdbase-collections-trigger-role">{current.roleLabel}</span>}
       <svg className="mdbase-collections-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
-    </button>
+    </button>}
     {open && (narrow
       ? <SwitcherSheet id={panelId} ui={ui} onClose={close}>{content}</SwitcherSheet>
-      : <SwitcherPopover id={panelId} ui={ui} triggerRef={trigger} onClose={close}>{content}</SwitcherPopover>)}
+      : <SwitcherPopover id={panelId} ui={ui} anchorRef={anchor} onClose={close}>{content}</SwitcherPopover>)}
     <RowDialogs ui={ui} dialog={dialog} onClose={() => { returnFocus.current = true; setDialog(null); }} />
     <SignOutDialog ui={ui} />
   </span>;
@@ -279,11 +312,15 @@ function CheckGlyph(): JSX.Element {
   return <svg className="mdbase-collections-check" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>;
 }
 
-/** Wide screens: a non-modal dialog anchored to the trigger, in the top layer where supported. */
-function SwitcherPopover({ id, ui, triggerRef, onClose, children }: {
+/**
+ * Wide screens: a non-modal dialog anchored to the trigger (or the app's
+ * anchor), in the top layer where supported. Pointer presses and focus on the
+ * anchor count as inside, so the trigger can toggle it.
+ */
+function SwitcherPopover({ id, ui, anchorRef, onClose, children }: {
   id: string;
   ui: CollectionUi;
-  triggerRef: RefObject<HTMLButtonElement | null>;
+  anchorRef: RefObject<HTMLElement | null>;
   onClose: (refocus: boolean) => void;
   children: ReactNode;
 }): JSX.Element {
@@ -292,10 +329,10 @@ function SwitcherPopover({ id, ui, triggerRef, onClose, children }: {
   closeRef.current = onClose;
   useLayoutEffect(() => {
     const panel = ref.current;
-    const trigger = triggerRef.current;
-    if (!panel || !trigger) return undefined;
+    const anchor = anchorRef.current;
+    if (!panel || !anchor) return undefined;
     if (typeof panel.showPopover === "function") panel.showPopover();
-    const box = trigger.getBoundingClientRect();
+    const box = anchor.getBoundingClientRect();
     const width = Math.min(340, window.innerWidth - 16);
     panel.style.width = `${width}px`;
     const place = anchoredPlacement(box, { width, height: panel.scrollHeight }, { width: window.innerWidth, height: window.innerHeight }, { gap: 6 });
@@ -306,11 +343,11 @@ function SwitcherPopover({ id, ui, triggerRef, onClose, children }: {
     return () => {
       if (typeof panel.hidePopover === "function" && panel.matches(":popover-open")) panel.hidePopover();
     };
-  }, [triggerRef]);
+  }, [anchorRef]);
   useEffect(() => {
     const outside = (event: PointerEvent): void => {
       const target = event.target as Node | null;
-      if (target && !ref.current?.contains(target) && !triggerRef.current?.contains(target)) closeRef.current(false);
+      if (target && !ref.current?.contains(target) && !anchorRef.current?.contains(target)) closeRef.current(false);
     };
     const resize = (): void => closeRef.current(false);
     document.addEventListener("pointerdown", outside, true);
@@ -319,7 +356,7 @@ function SwitcherPopover({ id, ui, triggerRef, onClose, children }: {
       document.removeEventListener("pointerdown", outside, true);
       window.removeEventListener("resize", resize);
     };
-  }, [triggerRef]);
+  }, [anchorRef]);
   return <div
     ref={ref}
     id={id}
@@ -336,7 +373,7 @@ function SwitcherPopover({ id, ui, triggerRef, onClose, children }: {
     }}
     onBlur={(event) => {
       const next = event.relatedTarget as Node | null;
-      if (next && !ref.current?.contains(next) && !triggerRef.current?.contains(next)) onClose(false);
+      if (next && !ref.current?.contains(next) && !anchorRef.current?.contains(next)) onClose(false);
     }}
   >{children}</div>;
 }

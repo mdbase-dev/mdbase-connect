@@ -15,6 +15,101 @@ vi.mock("./CodeEditor", () => ({
 afterEach(() => vi.useRealTimers());
 
 describe("typed note properties", () => {
+  it("shows retyped values and saves only after explicit valid replacements", async () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const note = { ...eventNote, frontmatter: { rating: 49, tags: "original", title: "Before" } };
+    const type = { ...eventType, schema: { type: "object", properties: {
+      rating: { type: "string" }, tags: { type: "array", items: { type: "string" } }, title: { type: "string" }
+    } } };
+    const view = render(<PropertiesPanel note={note} types={[type]} onClose={vi.fn()} onSave={onSave} />);
+    const rating = screen.getByRole("textbox", { name: "rating value JSON value" });
+    const tags = screen.getByRole("textbox", { name: "tags value JSON value" });
+    expect(rating).toHaveValue("49");
+    expect(tags).toHaveValue('"original"');
+    expect(screen.getByText(/doesn't match type string/)).toBeVisible();
+    expect(screen.getByText(/doesn't match type array/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("title value"), { target: { value: "After" } });
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.change(rating, { target: { value: '"49"' } });
+    fireEvent.blur(rating);
+    expect(screen.getByLabelText("rating value JSON value")).toBe(rating);
+    expect(rating).toHaveValue('"49"');
+    fireEvent.change(tags, { target: { value: "[" } });
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.change(tags, { target: { value: '["original"]' } });
+    fireEvent.blur(tags);
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { rating: "49", tags: ["original"], title: "After" });
+    view.unmount();
+  });
+
+  it("keeps correction focused and never autosaves a transient empty JSON string", async () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const note = { ...eventNote, frontmatter: { rating: 49 } };
+    render(<PropertiesPanel note={note}
+      types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: "string" } } } }]}
+      onClose={vi.fn()} onSave={onSave} />);
+    const rating = screen.getByRole("textbox", { name: "rating value JSON value" });
+    rating.focus();
+    fireEvent.change(rating, { target: { value: '""' } });
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(rating).toHaveFocus();
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.change(rating, { target: { value: '"49 stars"' } });
+    expect(rating).toHaveFocus();
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.blur(rating);
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { rating: "49 stars" });
+  });
+
+  it("shows and corrects a mismatched nullable scalar", async () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const note = { ...eventNote, frontmatter: { rating: 49 } };
+    render(<PropertiesPanel note={note}
+      types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: ["string", "null"] } } } }]}
+      onClose={vi.fn()} onSave={onSave} />);
+    const rating = screen.getByRole("textbox", { name: "rating value JSON value" });
+    expect(rating).toHaveValue("49");
+    expect(screen.getByText(/doesn't match type string \| null/)).toBeVisible();
+    fireEvent.change(rating, { target: { value: '"49"' } });
+    fireEvent.blur(rating);
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { rating: "49" });
+  });
+
+  it("clears invalid JSON validation when the property is removed", async () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const note = { ...eventNote, frontmatter: { rating: 49, title: "Before" } };
+    render(<PropertiesPanel note={note}
+      types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: "string" }, title: { type: "string" } } } }]}
+      onClose={vi.fn()} onSave={onSave} />);
+    fireEvent.change(screen.getByLabelText("rating value JSON value"), { target: { value: '"' } });
+    fireEvent.click(screen.getByRole("button", { name: "Remove rating property" }));
+    fireEvent.change(screen.getByLabelText("title value"), { target: { value: "After" } });
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { title: "After" });
+  });
+
+  it("never flushes a hidden empty replacement when retyped properties are closed", async () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn();
+    const view = render(<PropertiesPanel note={{ ...eventNote, frontmatter: { rating: 49, title: "Before" } }}
+      types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: "string" }, title: { type: "string" } } } }]}
+      onClose={vi.fn()} onSave={onSave} />);
+    fireEvent.change(screen.getByLabelText("title value"), { target: { value: "After" } });
+    view.unmount();
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it("omits unavailable filesystem facts without treating frontmatter as file metadata", () => {
     const { container } = render(<PropertiesPanel note={{ ...eventNote, file: {},
       frontmatter: { dateModified: "2026-10-13T16:00:00Z" } }} types={[]} onClose={vi.fn()} onSave={vi.fn()} />);

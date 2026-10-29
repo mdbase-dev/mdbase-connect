@@ -659,7 +659,7 @@ describe("mdbase editor", () => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
     const body = await screen.findByRole("textbox", { name: "Note body" });
     const search = screen.getByRole("combobox", { name: "Search notes and files" });
-    expect(screen.getByRole("button", { name: "Quick open" }).title).not.toContain("K");
+    expect(screen.getByRole("button", { name: /^Quick open · / }).title).not.toContain("K");
     for (const target of [search, body, screen.getByRole("button", { name: "Note properties" })]) {
       target.focus();
       const unhandled = fireEvent.keyDown(target, { key: "k", [modifier]: true });

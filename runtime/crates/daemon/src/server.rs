@@ -85,6 +85,8 @@ pub struct Daemon {
     identity: ActiveIdentity,
     /// Bumped on every status change; subscribers re-read status.
     changes: watch::Sender<u64>,
+    /// The status after the latest change, built once for every subscriber.
+    status_feed: watch::Sender<Option<Arc<serde_json::Value>>>,
     shutdown: watch::Sender<bool>,
     inner: Mutex<Inner>,
     /// The account link (relay task, pairing in progress).
@@ -195,6 +197,7 @@ pub async fn run_with(
         secrets,
         readiness: watch::channel(readiness(false, Some(NotReady::Starting))).0,
         changes: watch::channel(0).0,
+        status_feed: watch::channel(None).0,
         access_events: tokio::sync::broadcast::channel(64).0,
         activity: crate::activity::ActivityLog::open(profile.activity_file()),
         control_key: std::sync::OnceLock::new(),
@@ -235,6 +238,7 @@ pub async fn run_with(
     let strict_reports = tokio::spawn(daemon.clone().strict_witness_reports());
     let account_keys = tokio::spawn(daemon.clone().account_key_reconcile());
     let old_connector = tokio::spawn(daemon.clone().watch_old_connector());
+    let status_feed = tokio::spawn(daemon.clone().publish_status());
 
     let mut stop = daemon.shutdown.subscribe();
     loop {
@@ -287,6 +291,7 @@ pub async fn run_with(
     strict_reports.abort();
     account_keys.abort();
     old_connector.abort();
+    status_feed.abort();
     let close = async {
         let mut inner = daemon.inner.lock().await;
         for h in &mut inner.hosts {
@@ -594,6 +599,19 @@ impl Daemon {
         self.changes.send_modify(|n| *n += 1);
     }
 
+    /// Rebuild status once per change for all `status.subscribe` connections,
+    /// rather than once per connection.
+    async fn publish_status(self: Arc<Self>) {
+        let mut changes = self.changes.subscribe();
+        while changes.changed().await.is_ok() {
+            if self.status_feed.receiver_count() == 0 {
+                continue;
+            }
+            let status = serde_json::to_value(self.status().await).unwrap_or_default();
+            self.status_feed.send_replace(Some(Arc::new(status)));
+        }
+    }
+
     fn is_ready(&self) -> bool {
         self.readiness.borrow().ready
     }
@@ -602,17 +620,18 @@ impl Daemon {
         self.reconcile_private_choices().await;
         let inner = self.inner.lock().await;
         let taken = self.takeover_record();
-        let mut collections = Vec::with_capacity(inner.hosts.len());
-        for host in &inner.hosts {
-            collections.push(with_private_sync_pending(
-                with_takeover_holds(
-                    with_access_notices(host.observed_status().await, &inner.access),
-                    taken.as_ref(),
-                ),
-                &self.auto_private,
-                &self.profile.state_dir.join("collections"),
-            ));
-        }
+        let observed =
+            futures_util::future::join_all(inner.hosts.iter().map(|h| h.observed_status())).await;
+        let collections = observed
+            .into_iter()
+            .map(|status| {
+                with_private_sync_pending(
+                    with_takeover_holds(with_access_notices(status, &inner.access), taken.as_ref()),
+                    &self.auto_private,
+                    &self.profile.state_dir.join("collections"),
+                )
+            })
+            .collect();
         DaemonStatus {
             readiness: self.readiness.borrow().clone(),
             pid: std::process::id(),
@@ -4979,15 +4998,15 @@ async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()>
             let d2 = d.clone();
             let tx2 = tx.clone();
             subscription = Some(tokio::spawn(async move {
-                let mut changes = d2.changes.subscribe();
+                let mut feed = d2.status_feed.subscribe();
                 let mut access = d2.access_events.subscribe();
-                changes.mark_unchanged();
+                feed.mark_unchanged();
                 loop {
                     let push = tokio::select! {
-                        c = changes.changed() => {
+                        c = feed.changed() => {
                             if c.is_err() { break; }
-                            let status = d2.status().await;
-                            Response::push("status", serde_json::to_value(&status).unwrap_or_default())
+                            let Some(status) = feed.borrow_and_update().clone() else { continue };
+                            Response::push("status", (*status).clone())
                         }
                         e = access.recv() => match e {
                             Ok(ev) => Response::push("access", serde_json::to_value(&ev).unwrap_or_default()),
@@ -6450,6 +6469,10 @@ impl Daemon {
                 Arc::new(move || changes.send_modify(|n| *n += 1))
             },
             sync: self.sync_ctx(),
+            computer_name: crate::cloud::CloudConfig::load(&self.profile.cloud_file())
+                .ok()
+                .flatten()
+                .and_then(|c| c.computer_name),
             old_connector_running: self.takeover.old_running.clone(),
         })
     }

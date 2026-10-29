@@ -1,5 +1,12 @@
 # CLI and daemon architecture
 
+> **Scope (October 2026):** The engine/dependency and daemon design below is the **legacy beta.126
+> daemon** design, retained for maintenance and recovery. New desktop packaging
+> builds `mdbn-daemon` (`mdbase`) from
+> [`runtime/crates/daemon`](../runtime/crates/daemon), not the root legacy agent or
+> a sibling `mdbase-rs` engine. See [`runtime/README.md`](../runtime/README.md).
+> A build workflow is not evidence that the new desktop daemon has been released.
+
 ## Decision
 
 `mdbase` is the user-facing command and contains the durable local Connect

@@ -9,6 +9,7 @@ export interface AccountSession {
 }
 
 export interface AccountData {
+  backend: "legacy" | "next";
   user: { id: string; name: string; email: string | null; login: string | null };
   authentication: {
     managed: boolean;
@@ -66,6 +67,7 @@ export interface AccountData {
   deletion: {
     available: boolean;
     unavailable_reason: "managed_identity" | "temporarily_disabled" | null;
+    owned_collections: number;
     hosted_collections: number;
     local_collections: number;
     computers: number;

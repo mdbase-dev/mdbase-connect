@@ -1464,8 +1464,30 @@ impl<S: Store> Replica<S> {
                 if_revision: None,
             })
         };
-        let ops = match how {
-            HoldResolution::TakeTheirs => {
+        // The decision settles the conflicts recorded for this record (the one
+        // that made the hold, and any other): dismiss them in the same logged
+        // mutation, so no replica lists them again (§8.2). Dismissing needs
+        // `records.edit`; a delete-only session leaves them listed.
+        let dismiss: Vec<Op> = if self
+            .require(session, crate::policy::capability::EDIT)
+            .is_ok()
+        {
+            self.store
+                .conflicts(Some(&id))
+                .map_err(store_err)?
+                .into_iter()
+                .map(|c| {
+                    Op::ConflictDismiss(mdbn_wire::intent::ConflictDismiss {
+                        mutation: c.mutation,
+                        record: c.conflict.id,
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut ops = match how {
+            HoldResolution::TakeTheirs if dismiss.is_empty() => {
                 release(self)?;
                 self.before.insert(DiskKey::Record(id), disk_shown);
                 self.materialize().map_err(store_err)?;
@@ -1481,6 +1503,8 @@ impl<S: Store> Replica<S> {
                     published: None,
                 });
             }
+            // Theirs stays; only the dismissals are submitted.
+            HoldResolution::TakeTheirs => Vec::new(),
             HoldResolution::KeepMine => vec![doc_op(Some((hold.path.clone(), mine.clone())))],
             HoldResolution::Use(doc) => vec![doc_op(Some((hold.path.clone(), doc)))],
             HoldResolution::Delete => vec![Op::Delete(mdbn_wire::intent::Delete {
@@ -1490,11 +1514,11 @@ impl<S: Store> Replica<S> {
             })],
             HoldResolution::KeepBoth => {
                 let new_id = self.mint_v7();
-                let path = conflict_path(
-                    &hold.path,
-                    &self.cfg.device_id,
-                    &super::utc_date(self.now()),
-                );
+                let label = self
+                    .conflict_label
+                    .clone()
+                    .unwrap_or_else(|| self.cfg.device_id.to_hex()[..8].to_string());
+                let path = conflict_path(&hold.path, &label, &super::utc_date(self.now()));
                 vec![Op::Create(mdbn_wire::intent::Create {
                     id: new_id,
                     path: Some(path),
@@ -1508,6 +1532,7 @@ impl<S: Store> Replica<S> {
                 return Err(ErrorCode::InvalidRequest.err("uploads resolve file holds"));
             }
         };
+        ops.extend(dismiss);
         release(self)?;
         self.before.insert(DiskKey::Record(id), disk_shown);
         let m = self.capture(ops, Source::Api);
@@ -1551,9 +1576,26 @@ fn rejected_receipt(id: B16, problem: mdbn_wire::client::Problem) -> Receipt {
     }
 }
 
+/// A host-supplied computer name made safe for a file name, at most 40
+/// characters; `None` when nothing is left.
+pub(crate) fn conflict_label(label: &str) -> Option<String> {
+    let safe: String = label
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '\'') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .take(40)
+        .collect();
+    let safe = safe.trim_matches([' ', '-']);
+    (!safe.is_empty()).then(|| safe.to_string())
+}
+
 /// `name (conflict <device> <date>).ext` (`replica-client-api.md` §8.1).
-pub(crate) fn conflict_path(path: &str, device: &B16, date: &str) -> String {
-    let dev = &device.to_hex()[..8];
+pub(crate) fn conflict_path(path: &str, dev: &str, date: &str) -> String {
     match path.rsplit_once('.') {
         Some((stem, ext)) if !stem.is_empty() && !ext.contains('/') => {
             format!("{stem} (conflict {dev} {date}).{ext}")
@@ -1732,4 +1774,22 @@ fn split_config(observations: Vec<Observation>) -> (Vec<Observation>, Vec<Observ
     observations
         .into_iter()
         .partition(|o| is_config(&o.path) || o.moved_from.as_deref().is_some_and(is_config))
+}
+
+#[cfg(test)]
+mod conflict_label_tests {
+    use super::{conflict_label, conflict_path};
+
+    #[test]
+    fn labels_are_file_name_safe() {
+        assert_eq!(conflict_label("Work PC").as_deref(), Some("Work PC"));
+        assert_eq!(conflict_label(" a:b\\c ").as_deref(), Some("a-b-c"));
+        assert_eq!(conflict_label(".."), None);
+        assert_eq!(conflict_label("   "), None);
+        assert_eq!(conflict_label(&"x".repeat(80)).map(|l| l.len()), Some(40));
+        assert_eq!(
+            conflict_path("n/a.md", "Work PC", "2026-10-24"),
+            "n/a (conflict Work PC 2026-10-24).md"
+        );
+    }
 }

@@ -87,6 +87,7 @@ fn cfg(root: &Path) -> RuntimeConfig {
         private_dir: root.join("state/collections").join(HOSTED),
         adopt: None,
         id_hints: vec![],
+        computer_name: None,
         sync: None,
     }
 }

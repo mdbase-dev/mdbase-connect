@@ -120,7 +120,7 @@ msgstr "{0} · sugerido"
 msgid "{0} and {1}"
 msgstr "{0} y {1}"
 
-#. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
+#. placeholder {0}: countLabel(account.deletion.owned_collections, "collection")
 #: src/AccountManagement.tsx
 msgid "{0} and their stored data"
 msgstr "{0} y sus datos almacenados"
@@ -533,6 +533,7 @@ msgstr "Actualización de la cuenta programada"
 msgid "Account: {0}"
 msgstr "Cuenta: {0}"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
 msgstr "Añade una colección para empezar."
@@ -769,6 +770,11 @@ msgctxt "Collection connection"
 msgid "Approving…"
 msgstr "Aprobando…"
 
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "Aplicaciones"
+
 #: src/AccountManagement.tsx
 msgid "Authentication"
 msgstr "Autenticación"
@@ -1001,6 +1007,12 @@ msgstr "Registro cerrado"
 msgid "Cloud collection required"
 msgstr "Se requiere una colección en la nube"
 
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Cloud copy"
+msgstr "Copia en la nube"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy configured"
@@ -1045,6 +1057,7 @@ msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "Permisos de la colección"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
 msgstr "Réplicas de la colección"
@@ -1053,6 +1066,10 @@ msgstr "Réplicas de la colección"
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "Colecciones"
+
+#: src/AccountManagement.tsx
+msgid "Collections you own. Local files remain on your devices."
+msgstr "Colecciones de tu propiedad. Los archivos locales permanecen en tus dispositivos."
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
@@ -1745,6 +1762,10 @@ msgctxt "Account management"
 msgid "Included storage"
 msgstr "Almacenamiento incluido"
 
+#: src/AccountManagement.tsx
+msgid "Includes collections that have left sync and retained data from deleted collections."
+msgstr "Incluye las colecciones que dejaron de sincronizarse y los datos conservados de colecciones eliminadas."
+
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
@@ -1912,6 +1933,10 @@ msgctxt "Application access approval"
 msgid "Manage and delete files"
 msgstr "Administrar y eliminar archivos"
 
+#: src/AccountManagement.tsx
+msgid "Manage collections, sign-in methods, and browser sessions."
+msgstr "Gestiona colecciones, métodos de inicio de sesión y sesiones del navegador."
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
@@ -1920,10 +1945,6 @@ msgstr "Administrar definiciones"
 #: src/auth-view.tsx
 msgid "Manage email preferences"
 msgstr "Administrar preferencias de correo"
-
-#: src/AccountManagement.tsx
-msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr "Administra el almacenamiento alojado, los métodos de inicio de sesión y las sesiones del navegador."
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
@@ -2139,6 +2160,7 @@ msgctxt "Connect interface"
 msgid "No collection access"
 msgstr "Sin acceso a colecciones"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"
@@ -2285,9 +2307,9 @@ msgstr "Abrir {0} con {selectedName}"
 msgid "Open a collection in the editor or manage where its main copy lives."
 msgstr "Abre una colección en el editor o administra dónde reside su copia principal."
 
-#: src/ConnectApp.tsx
-msgid "Open account and sessions"
-msgstr "Abrir cuenta y sesiones"
+#: src/ApplicationAccess.tsx
+msgid "Open an app, then choose which collections it can access."
+msgstr "Abre una aplicación y elige a qué colecciones puede acceder."
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
@@ -2430,6 +2452,10 @@ msgid "Password changed. Other browser sessions were signed out."
 msgstr "Contraseña cambiada. Se cerraron las demás sesiones del navegador."
 
 #: src/auth-view.tsx
+msgid "Password must contain no more than {maxCharacters} characters."
+msgstr "La contraseña no puede tener más de {maxCharacters} caracteres."
+
+#: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
 msgstr "La recuperación de la contraseña no está disponible temporalmente. Aún puedes volver al inicio de sesión."
 
@@ -2513,6 +2539,12 @@ msgstr "Privacidad"
 #: src/CollectionPicker.tsx
 msgid "Private"
 msgstr "Privada"
+
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Private collection"
+msgstr "Colección privada"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3498,6 +3530,7 @@ msgctxt "Account management"
 msgid "Unavailable"
 msgstr "No disponible"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Unnamed collection"

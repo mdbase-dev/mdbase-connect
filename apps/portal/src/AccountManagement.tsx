@@ -195,7 +195,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   }, []);
 
   if (!account) {
-    return <Page title={t(i18n)({ message: "Account", context: "Account management" })} intro={t(i18n)({ message: "Manage hosted storage, sign-in methods, and browser sessions." })}>
+    return <Page title={t(i18n)({ message: "Account", context: "Account management" })} intro={t(i18n)({ message: "Manage collections, sign-in methods, and browser sessions." })}>
       <p className="connect-muted" role="status">{error || t(i18n)({ message: "Loading account details…", context: "Account management" })}</p>
     </Page>;
   }
@@ -203,19 +203,29 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   const linkedByProvider = new Map(account.authentication.identities.map((identity) => [identity.provider, identity]));
   const providers = (["github", "google"] as const).filter((provider) =>
     account.authentication.available_providers[provider] || linkedByProvider.has(provider));
+  const ownedCollections = (overview.native_collections ?? []).filter(collection => collection.access.relationship === "owner");
   const otherSessions = sessions?.filter((session) => !session.current) ?? [];
   const canPasswordDelete = account.authentication.password.configured;
   const canExternalDelete = account.authentication.identities.length > 0;
   const deletionAuthorized = account.deletion.development_confirmation
     || Boolean(reauthenticationToken)
     || Boolean(deletionPassword);
-  return <Page title={t(i18n)({ message: "Account", context: "Account management" })} intro={t(i18n)({ message: "Manage hosted storage, sign-in methods, and browser sessions." })}>
+  return <Page title={t(i18n)({ message: "Account", context: "Account management" })} intro={t(i18n)({ message: "Manage collections, sign-in methods, and browser sessions." })}>
     {error && <div className="connect-account-message error" role="alert">{error}</div>}
     {notice && <div className="connect-account-message success" role="status">{notice}</div>}
 
-    <section>
+    {account.backend === "next" && <section>
+      <SectionTitle title={t(i18n)({ message: "Collections", context: "Connect interface" })} count={ownedCollections.length} note={t(i18n)({ message: "Collections you own. Local files remain on your devices." })} />
+      {overview.subscription && <SubscriptionStorage subscription={{ ...overview.subscription, usage: null }} fallbackStorage={null} />}
+      <div className="connect-account-list">{ownedCollections.map(collection => <div className="connect-account-row" key={collection.id}>
+        <div><strong>{collection.display_name ?? t(i18n)({ message: "Unnamed collection", context: "Connect interface" })}</strong></div>
+        <span>{collection.sync === "cloud_copy" ? t(i18n)({ message: "Cloud copy", context: "Connect interface" }) : t(i18n)({ message: "Private collection", context: "Connect interface" })}</span>
+      </div>)}</div>
+      {ownedCollections.length === 0 && <Empty title={t(i18n)({ message: "No collections", context: "Connect interface" })} body={t(i18n)({ message: "Add a collection to get started." })} />}
+    </section>}
+    {(account.backend === "legacy" || account.storage.collections.length > 0) && <section>
       <SectionTitle title={t(i18n)({ message: "Hosted storage", context: "Account management" })} note={t(i18n)({ message: "Local collection files stay on your computers and are not measured here." })} />
-      {overview.subscription && <SubscriptionStorage subscription={overview.subscription} fallbackStorage={account.storage} />}
+      {account.backend === "legacy" && overview.subscription && <SubscriptionStorage subscription={overview.subscription} fallbackStorage={account.storage} />}
       <div className="connect-account-list">
         <div className="connect-account-row">
           <div><strong><Trans>Used by hosted collections</Trans></strong><small>{storageDetail(account)}</small></div>
@@ -223,7 +233,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         </div>
         {account.storage.collections.map((collection) => <StorageRow key={collection.id} collection={collection} />)}
       </div>
-    </section>
+    </section>}
 
     <section>
       <SectionTitle title={t(i18n)({ message: "Sign-in methods", context: "Account management" })} note={t(i18n)({ message: "Connect more than one method so you always have a way back into your account." })} />
@@ -312,7 +322,8 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         : t(i18n)({ message: "This account is managed by your tailnet and cannot be deleted here." })}</p> : !deletionOpen ? <button className="connect-account-danger" onClick={() => setDeletionOpen(true)}><Trans>Delete account…</Trans></button> : <form className="connect-account-form" onSubmit={(event) => void deleteAccount(event)}>
         <div className="connect-deletion-effects">
           <p><strong><Trans>This permanently deletes:</Trans></strong></p>
-          <ul><li><Trans>{countLabel(account.deletion.hosted_collections, "hosted-collection")} and their stored data</Trans></li><li><Trans>Application access and {countLabel(account.deletion.computers, "computer")}</Trans></li><li><Trans>Every browser session and sign-in method</Trans></li></ul>
+          <ul><li><Trans>{countLabel(account.deletion.owned_collections, "collection")} and their stored data</Trans></li><li><Trans>Application access and {countLabel(account.deletion.computers, "computer")}</Trans></li><li><Trans>Every browser session and sign-in method</Trans></li></ul>
+          <p><Trans>Includes collections that have left sync and retained data from deleted collections.</Trans></p>
           <p><strong><Trans>Local collection and mirror files remain on your computers.</Trans></strong></p>
         </div>
         {!account.deletion.development_confirmation && !reauthenticationToken && <div className="connect-account-reauthentication">
@@ -369,12 +380,12 @@ function StorageRow({ collection }: { collection: AccountData["storage"]["collec
 
 function SubscriptionStorage({ subscription, fallbackStorage }: {
   subscription: NonNullable<ManagementOverview["subscription"]>;
-  fallbackStorage: AccountData["storage"];
+  fallbackStorage: AccountData["storage"] | null;
 }) {
   useLocaleRevision();
-  const liveStorageBytes = subscription.usage?.live_storage_bytes ?? fallbackStorage.total_storage_bytes;
-  const liveContentBytes = subscription.usage?.live_content_bytes ?? fallbackStorage.total_content_bytes;
-  const liveFileBytes = subscription.usage?.live_file_bytes ?? fallbackStorage.total_file_bytes;
+  const liveStorageBytes = subscription.usage?.live_storage_bytes ?? fallbackStorage?.total_storage_bytes ?? null;
+  const liveContentBytes = subscription.usage?.live_content_bytes ?? fallbackStorage?.total_content_bytes ?? null;
+  const liveFileBytes = subscription.usage?.live_file_bytes ?? fallbackStorage?.total_file_bytes ?? null;
   const limit = subscription.limits.hosted_storage_bytes;
   const percentage = liveStorageBytes !== null && limit > 0
     ? Math.min(100, liveStorageBytes / limit * 100)

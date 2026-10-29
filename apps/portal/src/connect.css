@@ -48,7 +48,7 @@
 }
 
 .connect-nav-footer > a strong { font-weight: var(--font-weight-semibold); }
-.connect-nav-footer > a small { color: var(--faint); font-size: var(--font-size-caption); }
+.connect-nav-footer > a small { color: var(--muted); font-size: var(--font-size-caption); }
 
 .connect-installation-details { margin-top: var(--space-2); }
 .connect-installation-details > summary { cursor: pointer; font-size: var(--font-size-ui); }
@@ -181,7 +181,7 @@
 }
 
 .connect-rail-account strong { font-size: var(--font-size-ui); }
-.connect-rail-account small { color: var(--faint); font-size: var(--font-size-caption); }
+.connect-rail-account small { color: var(--muted); font-size: var(--font-size-caption); }
 
 .connect-rail-feedback {
   padding: 3px;
@@ -293,6 +293,12 @@
   color: var(--muted);
   font-size: var(--font-size-caption);
   text-align: right;
+}
+
+.connect-section-title button:not(.mdbase-button),
+.connect-row-actions button:not(.mdbase-button) {
+  background: transparent;
+  border: 0;
 }
 
 .connect-section-title button,
@@ -766,6 +772,7 @@ button.danger:disabled {
 .connect-account-row > div:first-child,
 .connect-account-row-main > div:first-child {
   min-width: 0;
+  overflow-wrap: anywhere;
   display: grid;
   gap: 2px;
 }
@@ -1090,6 +1097,8 @@ button.danger:disabled {
   }
 
   .connect-mobile-nav-toggle {
+    background: transparent;
+    border: 0;
     min-width: 0;
     min-height: 44px;
     display: grid;
@@ -1109,7 +1118,7 @@ button.danger:disabled {
   }
 
   .connect-mobile-nav-toggle small {
-    color: var(--faint);
+    color: var(--muted);
     font-size: var(--font-size-caption);
   }
 

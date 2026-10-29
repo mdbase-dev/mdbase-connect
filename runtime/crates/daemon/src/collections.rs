@@ -116,6 +116,8 @@ pub struct HostCtx {
     pub notify: Arc<dyn Fn() + Send + Sync>,
     /// What synced collections need; `None` until the daemon is signed in.
     pub sync: Option<SyncCtx>,
+    /// This computer's name in the account (signed in only).
+    pub computer_name: Option<String>,
     /// An old mdbase Connect daemon is running on this device (it holds its
     /// `daemon.lock`). Old daemons before the takeover marker check write to the
     /// folders they served, and they take no folder host lock, so a taken-over
@@ -141,6 +143,9 @@ pub const OLD_CONNECTOR_RUNNING: &str = "old_connector_running";
 
 /// A failed background open that never touched user files: Connect refused.
 const INELIGIBLE: &str = "ineligible: ";
+/// How long status waits for a collection's live counters before reporting
+/// it without them, so one busy collection cannot stall status for all.
+const TELEMETRY_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 /// A failed background open of a never-opened collection while Connect was unreachable.
 const UNREACHABLE: &str = "unreachable: ";
 
@@ -240,6 +245,7 @@ impl CollectionHost {
             sync,
             adopt,
             id_hints,
+            computer_name: ctx.computer_name.clone(),
         };
         let secrets = mdbn_replica::DeviceSecrets {
             sign_sk: *ctx.identity.sign_seed(),
@@ -800,7 +806,10 @@ async fn current_telemetry(
     if !current() {
         return None;
     }
-    let observed = observation.await;
+    let observed = tokio::time::timeout(TELEMETRY_WAIT, observation)
+        .await
+        .ok()
+        .flatten();
     if !current() {
         return None;
     }

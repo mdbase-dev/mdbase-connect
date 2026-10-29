@@ -1,5 +1,8 @@
 // Fenced local rollback preparation only. No backend change, connector unrevoke,
 // grant activation or permission authority is implied by these binding tuples.
+// A grant carried over to the Private collection returns to the legacy target and
+// relay binding it left, and its native policy grant is withdrawn.
+import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -8,9 +11,11 @@ import { RELAY_ENCRYPTION_SUITE } from "@mdbase-dev/connect-protocol";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { bearerToken, requireConnector } from "../../platform/request-authentication.js";
 import { apiError } from "../../platform/http-errors.js";
+import { audit } from "../../platform/audit-events.js";
 import { tokenHash } from "../../security.js";
 import { rotateGrantEncryption } from "../grants/policy.js";
 import { CreateError, inTransaction, refuse } from "./bootstrap-common.js";
+import { queueNextPolicy } from "./policy-outbox.js";
 
 const uuid = z.uuid().transform(v => v.toLowerCase()).refine(v => v !== "00000000-0000-0000-0000-000000000000");
 const inputSchema = z.object({
@@ -30,7 +35,7 @@ const resultSchema = z.object({
 type Input = z.infer<typeof inputSchema>;
 type Result = z.infer<typeof resultSchema>;
 type Actor = { id: string; user_id: string; hash: string };
-type Grant = { id: string; encryption: GrantEncryption | null };
+type Grant = { id: string; encryption: GrantEncryption | null; carried: boolean };
 type Receipt = { user_id: string; legacy_connector_id: string; legacy_collection_ids: string[]; response: unknown };
 
 /** No newly supplied permission/public-key values; preserve the existing exact binding. */
@@ -47,15 +52,69 @@ function bindings(grants: Grant[], input: Input): Result["bindings"] {
   });
 }
 
+/** Grants on the legacy collection, and grants carried over from it to the Private collection. */
 async function activeGrants(client: DatabaseConnection, input: Input, user: string): Promise<Grant[]> {
   return (await client.query<Grant>(
-    `SELECT g.id, g.encryption FROM grants g JOIN collections col ON col.id = g.collection_id
+    `SELECT g.id, COALESCE(g.encryption, g.legacy_encryption) AS encryption, g.collection_id IS NULL AS carried
+     FROM grants g JOIN collections col ON (col.id = g.collection_id OR col.id = g.legacy_collection_id)
      WHERE col.connector_id = $1 AND col.user_id = $2 AND col.local_id = $3
        AND col.present = true AND col.removed_at IS NULL
+       AND (g.collection_id IS NOT NULL OR g.next_collection_id = $3)
        AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
      ORDER BY g.id LIMIT 1001 FOR UPDATE OF g`,
     [input.legacy_connector_id, user, input.collection_id],
   )).rows;
+}
+
+/**
+ * A grant carried over before carry-over kept the legacy binding has none stored.
+ * Rebuild it from what remains: the carry-over audit record names the legacy row,
+ * the grant's signed authorization holds the app's agreement key and the old
+ * connector its own. The key ID is new and rotation replaces it before any use,
+ * so no earlier binding or replay window is reused; the epoch restarts at 1
+ * (epochs are compared only for equality). Only live grants are considered.
+ */
+async function recoverCarriedBindings(client: DatabaseConnection, input: Input, user: string): Promise<void> {
+  const found = await client.query<{ id: string; legacy_row: string; connector_key: string; app_key: string }>(
+    `SELECT g.id, col.id AS legacy_row, con.relay_public_key AS connector_key,
+            g.application_authorization->'binding'->>'grant_agreement_public_key' AS app_key
+     FROM grants g
+     JOIN collections col ON col.connector_id = $1 AND col.user_id = $2 AND col.local_id = $3
+       AND col.present = true AND col.removed_at IS NULL
+     JOIN connectors con ON con.id = col.connector_id AND con.user_id = $2
+     WHERE g.next_collection_id = $3 AND g.user_id = $2 AND g.legacy_collection_id IS NULL
+       AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+       AND con.relay_public_key IS NOT NULL
+       AND g.application_authorization->'binding'->>'grant_agreement_public_key' IS NOT NULL
+       AND EXISTS (SELECT 1 FROM audit_events e WHERE e.event_type = 'grant.carried_over'
+         AND e.subject_id = g.id::text AND e.user_id = $2
+         AND e.metadata->>'legacy_collection_row' = col.id::text AND e.metadata->>'next_collection_id' = $3::text)
+     ORDER BY g.id LIMIT 1001 FOR UPDATE OF g`,
+    [input.legacy_connector_id, user, input.collection_id],
+  );
+  for (const grant of found.rows) {
+    const encryption: GrantEncryption = {
+      protocol_version: 1, suite: RELAY_ENCRYPTION_SUITE, key_id: `enc_${randomUUID()}`, scope_epoch: 1,
+      connector_id: input.legacy_connector_id, collection_id: input.collection_id,
+      application_agreement_public_key: grant.app_key, connector_agreement_public_key: grant.connector_key,
+    };
+    await client.query("UPDATE grants SET legacy_collection_id = $2, legacy_encryption = $3::jsonb WHERE id = $1",
+      [grant.id, grant.legacy_row, JSON.stringify(encryption)]);
+    await audit(client, user, "grant.legacy_binding_recovered", grant.id,
+      { legacy_collection_row: grant.legacy_row, rollback_id: input.rollback_id });
+  }
+}
+
+/** Put a carried-over grant back on its legacy target and binding, and withdraw its native policy grant. */
+async function restoreCarriedGrant(client: DatabaseConnection, grant: string): Promise<void> {
+  await client.query(
+    `UPDATE grants SET collection_id = legacy_collection_id, encryption = legacy_encryption, next_collection_id = NULL,
+       legacy_collection_id = NULL, legacy_encryption = NULL
+     WHERE id = $1`, [grant]);
+  const native = (await client.query<{ collection_id: string; log_grant_id: string }>(
+    `UPDATE next_grant_bindings SET active = false WHERE grant_id = $1 AND active
+     RETURNING collection_id::text, log_grant_id::text`, [grant])).rows[0];
+  if (native) await queueNextPolicy(client, native.collection_id, [{ op: "grant-revoke", grant: native.log_grant_id }]);
 }
 
 async function rotate(client: DatabaseConnection, input: Input, actor: Actor): Promise<Result> {
@@ -98,6 +157,9 @@ async function rotate(client: DatabaseConnection, input: Input, actor: Actor): P
       || !isDeepStrictEqual(prior.legacy_collection_ids, input.legacy_collection_ids))) {
     throw new CreateError(409, "rollback_id_conflict");
   }
+  // The Private collection's policy lock before grant locks, the order carry-over uses.
+  await client.query("SELECT 1 FROM next_collections WHERE collection_id = $1 FOR KEY SHARE", [input.collection_id]);
+  if (!prior) await recoverCarriedBindings(client, input, actor.user_id);
   const grants = await activeGrants(client, input, actor.user_id);
   const now = bindings(grants, input);
   if (prior) {
@@ -111,7 +173,10 @@ async function rotate(client: DatabaseConnection, input: Input, actor: Actor): P
     return parsed.data;
   }
   if (now.some(b => b.scope_epoch >= Number.MAX_SAFE_INTEGER)) throw new CreateError(409, "legacy_epoch_exhausted");
-  for (const grant of grants) await rotateGrantEncryption(client, grant.id);
+  for (const grant of grants) {
+    if (grant.carried) await restoreCarriedGrant(client, grant.id);
+    await rotateGrantEncryption(client, grant.id);
+  }
   const response: Result = { collection_id: input.collection_id, rollback_id: input.rollback_id,
     bindings: bindings(await activeGrants(client, input, actor.user_id), input) };
   await client.query(

@@ -56,6 +56,7 @@ async fn local_only_write_is_confirmed_once_published() {
         private_dir: root.join("state"),
         adopt: None,
         id_hints: vec![],
+        computer_name: None,
         sync: None,
     };
     let secrets = DeviceSecrets {
@@ -187,6 +188,7 @@ async fn local_only_external_edit_is_ingested() {
         private_dir: root.join("state"),
         adopt: None,
         id_hints: vec![],
+        computer_name: None,
         sync: None,
     };
     let secrets = DeviceSecrets {
@@ -227,6 +229,7 @@ async fn a_watched_external_edit_is_ingested_promptly() {
         private_dir: root.join("state"),
         adopt: None,
         id_hints: vec![],
+        computer_name: None,
         sync: None,
     };
     let secrets = DeviceSecrets {
@@ -271,6 +274,7 @@ async fn freeze_fences_writers_before_taking_the_inventory() {
         private_dir: root.join("state"),
         adopt: None,
         id_hints: vec![],
+        computer_name: None,
         sync: None,
     };
     let secrets = DeviceSecrets {

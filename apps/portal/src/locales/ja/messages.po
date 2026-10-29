@@ -120,7 +120,7 @@ msgstr "{0} · 推奨"
 msgid "{0} and {1}"
 msgstr "{0} と {1}"
 
-#. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
+#. placeholder {0}: countLabel(account.deletion.owned_collections, "collection")
 #: src/AccountManagement.tsx
 msgid "{0} and their stored data"
 msgstr "{0} と保存されているデータ"
@@ -533,6 +533,7 @@ msgstr "アカウントのアップグレードを予定しました"
 msgid "Account: {0}"
 msgstr "アカウント: {0}"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
 msgstr "まずコレクションを追加してください。"
@@ -769,6 +770,11 @@ msgctxt "Collection connection"
 msgid "Approving…"
 msgstr "承認中…"
 
+#: src/ApplicationAccess.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "アプリ"
+
 #: src/AccountManagement.tsx
 msgid "Authentication"
 msgstr "認証"
@@ -1001,6 +1007,12 @@ msgstr "新規登録を停止中"
 msgid "Cloud collection required"
 msgstr "クラウドコレクションが必要です"
 
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Cloud copy"
+msgstr "クラウドコピー"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy configured"
@@ -1045,6 +1057,7 @@ msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "コレクションの権限"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "Collection replicas"
 msgstr "コレクションのレプリカ"
@@ -1053,6 +1066,10 @@ msgstr "コレクションのレプリカ"
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "コレクション"
+
+#: src/AccountManagement.tsx
+msgid "Collections you own. Local files remain on your devices."
+msgstr "所有しているコレクションです。ローカルファイルはデバイス上に残ります。"
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
@@ -1745,6 +1762,10 @@ msgctxt "Account management"
 msgid "Included storage"
 msgstr "含まれるストレージ"
 
+#: src/AccountManagement.tsx
+msgid "Includes collections that have left sync and retained data from deleted collections."
+msgstr "同期を終了したコレクションと、削除済みコレクションの保持データも含まれます。"
+
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
@@ -1912,6 +1933,10 @@ msgctxt "Application access approval"
 msgid "Manage and delete files"
 msgstr "ファイルの管理と削除"
 
+#: src/AccountManagement.tsx
+msgid "Manage collections, sign-in methods, and browser sessions."
+msgstr "コレクション、ログイン方法、ブラウザーセッションを管理します。"
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
@@ -1920,10 +1945,6 @@ msgstr "定義を管理"
 #: src/auth-view.tsx
 msgid "Manage email preferences"
 msgstr "メールの受信設定を管理"
-
-#: src/AccountManagement.tsx
-msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr "ホスト型ストレージ、ログイン方法、ブラウザーセッションを管理します。"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
@@ -2139,6 +2160,7 @@ msgctxt "Connect interface"
 msgid "No collection access"
 msgstr "コレクションへのアクセス権なし"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"
@@ -2285,9 +2307,9 @@ msgstr "{selectedName} で {0} を開く"
 msgid "Open a collection in the editor or manage where its main copy lives."
 msgstr "エディターでコレクションを開くか、正本の場所を管理します。"
 
-#: src/ConnectApp.tsx
-msgid "Open account and sessions"
-msgstr "アカウントとセッションを開く"
+#: src/ApplicationAccess.tsx
+msgid "Open an app, then choose which collections it can access."
+msgstr "アプリを開き、アクセスを許可するコレクションを選択します。"
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
@@ -2430,6 +2452,10 @@ msgid "Password changed. Other browser sessions were signed out."
 msgstr "パスワードを変更しました。ほかのブラウザーセッションはログアウトしました。"
 
 #: src/auth-view.tsx
+msgid "Password must contain no more than {maxCharacters} characters."
+msgstr "パスワードは{maxCharacters}文字以下にしてください。"
+
+#: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
 msgstr "パスワードの復元は一時的に利用できません。ログイン画面には戻れます。"
 
@@ -2513,6 +2539,12 @@ msgstr "プライバシー"
 #: src/CollectionPicker.tsx
 msgid "Private"
 msgstr "プライベート"
+
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Private collection"
+msgstr "プライベートコレクション"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3498,6 +3530,7 @@ msgctxt "Account management"
 msgid "Unavailable"
 msgstr "利用できません"
 
+#: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Unnamed collection"

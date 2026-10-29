@@ -376,6 +376,7 @@ async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step(
                 private_dir: elsewhere.path().join("hosted-state"),
                 adopt: None,
                 id_hints: vec![],
+                computer_name: None,
                 sync: Some(crate::runtime::Synced {
                     log_url: log.clone(),
                     chosen_state: CState::CloudCopy,

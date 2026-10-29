@@ -11,6 +11,12 @@ function SearchHarness() {
 }
 
 describe("Search filters", () => {
+  it("includes the visible shortcut in the quick-open accessible name", () => {
+    render(<SearchHarness />);
+    const button = screen.getByRole("button", { name: /Quick open/ });
+    expect(button).toHaveAccessibleName(expect.stringContaining(button.textContent ?? ""));
+  });
+
   it("suggests #tags and type:types, preserving text and removing the filter token", () => {
     render(<SearchHarness />);
     const input = screen.getByRole("combobox", { name: "Search notes and files" });

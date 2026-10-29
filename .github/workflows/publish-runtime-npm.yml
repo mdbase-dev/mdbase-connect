@@ -1,0 +1,54 @@
+name: Publish runtime npm package
+
+# Runtime packages have independent versions from the legacy Connect packages.
+# Publish an already-built, reviewed archive unchanged; do not rebuild SDK trust
+# assets in the publishing job. See docs/runtime-npm-publication.md.
+on:
+  workflow_dispatch:
+    inputs:
+      tarball:
+        description: Repository-relative path to the reviewed runtime package .tgz
+        type: string
+        required: true
+      tag:
+        type: choice
+        default: next
+        options: [next, latest]
+      dry_run:
+        description: Validate only (disable only for an owner-approved publication)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-npm-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: npm-runtime
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TARBALL: ${{ inputs.tarball }}
+      DIST_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Use npm with trusted publishing support
+        run: npm install --global npm@11
+      - name: Inspect archive without running package scripts
+        run: npm pack --dry-run --ignore-scripts --json "$GITHUB_WORKSPACE/$TARBALL"
+      - name: Publish reviewed archive unchanged using OIDC
+        if: ${{ !inputs.dry_run }}
+        run: npm publish "$GITHUB_WORKSPACE/$TARBALL" --ignore-scripts --access public --tag "$DIST_TAG" --provenance

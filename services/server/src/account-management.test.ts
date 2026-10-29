@@ -89,7 +89,7 @@ describe("account management", () => {
           usage: expect.objectContaining({ max_content_bytes: 1_073_741_824 })
         })]
       },
-      deletion: expect.objectContaining({ hosted_collections: 1 })
+      deletion: expect.objectContaining({ hosted_collections: 1, owned_collections: 1 })
     }));
     expect(usage).toHaveBeenCalledTimes(1);
   });

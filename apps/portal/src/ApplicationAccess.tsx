@@ -1,3 +1,4 @@
+import { withAppUrls } from "@mdbase-dev/ui/apps";
 import { formatters } from "@mdbase-dev/i18n";
 import { countLabel } from "./count-label";
 import { t, plural } from "@lingui/core/macro";
@@ -46,12 +47,13 @@ function installationScopes(installations: Installation[]) {
   return [...scopes].map(([collectionId, entries]) => ({ collectionId, entries }));
 }
 
-export function AppAccess({ groups, client, busy, perform, collectionName }: {
+export function AppAccess({ groups, client, busy, perform, collectionName, editorOrigin }: {
   groups: ReturnType<typeof applicationGroups>;
   client: ConnectManagementClient;
   busy: BusyOperations;
   perform: PerformOperation;
   collectionName?: string;
+  editorOrigin?: string;
 }) {
   useLocaleRevision();
   return <Page title={collectionName ? t(i18n)({ message: "Application access", context: "Connect interface" }) : t(i18n)({ message: "Applications", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each application has to ${collectionName}.` : t(i18n)({ message: "Review applications connected to your account. Your browser sign-in is never shared with them." })}>
@@ -90,6 +92,14 @@ export function AppAccess({ groups, client, busy, perform, collectionName }: {
       </details>)}
       {groups.length === 0 && <Empty title={t(i18n)({ message: "No connected applications" })} body={t(i18n)({ message: "Applications appear here after you approve access." })} />}
     </section>
+    {!collectionName && <section>
+      <SectionTitle title={t(i18n)({ message: "Apps", context: "Connect interface" })} note={t(i18n)({ message: "Open an app, then choose which collections it can access." })} />
+      <div className="connect-row-actions">
+        {withAppUrls({ editor: editorOrigin }).filter(app => app.id !== "editor" || editorOrigin).map(app => <a key={app.id} href={app.url}>{app.name}</a>)}
+        <a href="https://journal.mdbase.dev">Journal</a>
+        <a href="https://app.tasknotes.dev">TaskNotes</a>
+      </div>
+    </section>}
   </Page>;
 }
 

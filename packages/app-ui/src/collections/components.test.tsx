@@ -3,7 +3,7 @@ import type { Mdbase, MdbasePhase, MdbaseSnapshot } from "@mdbase-dev/sdk";
 import { describeError } from "@mdbase-dev/sdk/describe";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { act, StrictMode } from "react";
+import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -376,6 +376,121 @@ describe("switcher keyboard", () => {
     act(() => button(/Gamma/).click());
     expect(mdbase.select).toHaveBeenCalledWith(C, expect.anything());
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+describe("controlled switcher", () => {
+  const ready = () => fakeMdbase({ kind: "ready", collectionId: B, collection: { collectionId: B, displayName: "Beta", role: "editor" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] },
+    { status: "ready", selectedCollectionId: B });
+
+  it("renders the panel while open, and asks to close on Escape and after switching", () => {
+    const { mdbase, entry } = ready();
+    const onOpenChange = vi.fn();
+    render(<CollectionSwitcher mdbase={entry} app={app} open onOpenChange={onOpenChange} />);
+    const trigger = button("Switch collection, current: Beta");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector("[role=dialog]")?.getAttribute("aria-label")).toBe("Collections");
+
+    key(document.activeElement!, "Escape");
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    // Still open: the app owns the state.
+    expect(document.querySelector("[role=dialog]")).not.toBeNull();
+
+    onOpenChange.mockClear();
+    act(() => button(/Gamma/).click());
+    expect(mdbase.select).toHaveBeenCalledWith(C, expect.anything());
+    expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(false);
+
+    render(<CollectionSwitcher mdbase={entry} app={app} open={false} onOpenChange={onOpenChange} />);
+    expect(document.querySelector("[role=dialog]")).toBeNull();
+    onOpenChange.mockClear();
+    act(() => trigger.click());
+    expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(true);
+    expect(document.querySelector("[role=dialog]")).toBeNull();
+  });
+
+  it("keeps its own state when uncontrolled, and reports each change", () => {
+    const { entry } = ready();
+    const onOpenChange = vi.fn();
+    render(<CollectionSwitcher mdbase={entry} app={app} onOpenChange={onOpenChange} />);
+    const trigger = button("Switch collection, current: Beta");
+    act(() => trigger.click());
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    act(() => trigger.click());
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("has no trigger with variant none, and returns focus to the app's anchor", () => {
+    const { entry } = ready();
+    const anchorRef = { current: null as HTMLButtonElement | null };
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return <>
+        <button ref={anchorRef} type="button" onClick={() => setOpen(true)}>More</button>
+        <CollectionSwitcher mdbase={entry} app={app} variant="none" anchorRef={anchorRef} open={open} onOpenChange={setOpen} />
+      </>;
+    }
+    render(<Host />);
+    expect(container.querySelector(".mdbase-collections-trigger")).toBeNull();
+
+    act(() => anchorRef.current!.click());
+    expect(document.querySelector("[role=dialog]")).not.toBeNull();
+    expect(document.activeElement?.getAttribute("role")).toBe("radio");
+    // The anchor counts as inside the popover, so the app's own focus handling doesn't close it.
+    act(() => { anchorRef.current!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+    expect(document.querySelector("[role=dialog]")).not.toBeNull();
+
+    key(document.activeElement!, "Escape");
+    expect(document.querySelector("[role=dialog]")).toBeNull();
+    expect(document.activeElement).toBe(anchorRef.current);
+  });
+
+  it("opens the bottom sheet on narrow screens with variant none, and closes back to the anchor", () => {
+    const { entry } = ready();
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    try {
+      const anchor = document.createElement("button");
+      document.body.append(anchor);
+      const onOpenChange = vi.fn();
+      render(<CollectionSwitcher mdbase={entry} app={app} variant="none" anchorRef={{ current: anchor }} open onOpenChange={onOpenChange} />);
+      const sheet = document.querySelector("dialog.mdbase-collections-sheet");
+      expect(sheet).not.toBeNull();
+      expect(document.activeElement?.getAttribute("aria-checked")).toBe("true");
+      act(() => button("Close").click());
+      expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(false);
+      expect(document.activeElement).toBe(anchor);
+      anchor.remove();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("returns focus to the anchor after a row dialog opened from a trigger-less switcher", () => {
+    const { entry } = ready();
+    const anchor = document.createElement("button");
+    document.body.append(anchor);
+    const anchorRef = { current: anchor };
+    const section: CollectionSection = {
+      id: "private", title: "Private collections", onSelect: vi.fn(),
+      items: [{ id: "p1", name: "Journal", actions: [
+        { id: "delete", label: "Delete collection…", danger: true, onSelect: (_item, { confirmDelete }) => confirmDelete() },
+      ] }],
+    };
+    const onOpenChange = vi.fn();
+    render(<CollectionSwitcher mdbase={entry} app={app} variant="none" anchorRef={anchorRef} open onOpenChange={onOpenChange} sections={[section]} />);
+    act(() => button("More for Journal").click());
+    act(() => button("Delete collection…").click());
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    render(<CollectionSwitcher mdbase={entry} app={app} variant="none" anchorRef={anchorRef} open={false} onOpenChange={onOpenChange} sections={[section]} />);
+    const dialog = document.querySelector("dialog")!;
+    expect(dialog.textContent).toContain("Delete Journal?");
+    act(() => button("Cancel").click());
+    expect(document.querySelector("dialog")).toBeNull();
+    expect(document.activeElement).toBe(anchor);
+    anchor.remove();
   });
 });
 

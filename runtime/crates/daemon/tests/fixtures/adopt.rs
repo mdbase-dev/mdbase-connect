@@ -358,6 +358,7 @@ pub fn open(
         private_dir: state.to_path_buf(),
         adopt: adopt.then(|| plan.adopt()),
         id_hints: vec![],
+        computer_name: None,
         sync: Some(Synced {
             log_url: plan.log.clone(),
             chosen_state: plan.state(),

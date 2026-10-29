@@ -83,6 +83,8 @@ pub struct RuntimeConfig {
     pub adopt: Option<mdbn_replica::AdoptRecords>,
     /// Record IDs a path's first ingest takes (the takeover's imported ID map).
     pub id_hints: Vec<([u8; 16], String)>,
+    /// This computer's name, for `keep_both` copies; `None` keeps the device ID.
+    pub computer_name: Option<String>,
 }
 
 /// One readiness observation: status, caught up, and the adopt state (if adopting).
@@ -1017,6 +1019,9 @@ fn open_replica(
     // The desktop composition point explicitly selects its query fallback policy;
     // portable/hosted/mobile defaults remain constrained.
     rep.set_query_execution_profile(mdbn_replica::QueryExecutionProfile::Desktop);
+    if let Some(name) = &cfg.computer_name {
+        rep.set_conflict_label(name.strip_prefix("mdbase on ").unwrap_or(name));
+    }
     // Before the first scan: a path's first ingest takes its hinted ID, and an
     // adopting replica ingests nothing until its base is applied.
     if !cfg.id_hints.is_empty() {
@@ -1614,6 +1619,8 @@ fn run(
             Ok(Cmd::Digest(reply)) => {
                 let _ = reply.send(confirmed_digest(&rep));
             }
+            // The caller stopped waiting (status timed out): skip the record scan.
+            Ok(Cmd::Telemetry(reply)) if reply.is_closed() => {}
             Ok(Cmd::Telemetry(reply)) => {
                 use mdbn_replica::store::Store as _;
                 let status = rep.sync_status();
@@ -2037,6 +2044,7 @@ mod tests {
             private_dir: state.path().to_path_buf(),
             adopt: None,
             id_hints: vec![],
+            computer_name: None,
             sync: None,
         };
         let (rep, _lock) = super::open_replica(
