@@ -388,7 +388,7 @@ pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
     let deadline = Instant::now() + Duration::from_secs(120);
     let mut progress_seen = false;
     loop {
-        let status = tokio::time::timeout(Duration::from_secs(5), ra.telemetry())
+        let (status, _) = tokio::time::timeout(Duration::from_secs(5), ra.telemetry())
             .await
             .expect("synced status blocked behind bulk ingest")
             .unwrap();
@@ -396,7 +396,7 @@ pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
         tokio::time::timeout(Duration::from_secs(5), ra.grants_barrier())
             .await
             .expect("synced control blocked behind bulk ingest");
-        let peer = tokio::time::timeout(Duration::from_secs(5), rb.telemetry())
+        let (peer, _) = tokio::time::timeout(Duration::from_secs(5), rb.telemetry())
             .await
             .expect("peer status blocked behind bulk ingest")
             .unwrap();
@@ -432,8 +432,9 @@ pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
     let t = Instant::now();
     std::fs::write(pa.join("assets/drop.bin"), &bin).unwrap();
     converge_bytes(&pb.join("assets/drop.bin"), &bin, Duration::from_secs(300)).await;
+    let (status, _) = ra.telemetry().await.unwrap();
     assert_ne!(
-        ra.telemetry().await.unwrap().last_error.as_deref(),
+        status.last_error.as_deref(),
         Some("integrity"),
         "confirming the uploader's own attachment must tolerate retired touch-index entries"
     );

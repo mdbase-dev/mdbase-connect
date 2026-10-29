@@ -178,7 +178,7 @@ async fn status_and_control_stay_responsive_during_4000_file_ingest() {
     let mut progress_seen = false;
     let mut inventory_checked = false;
     loop {
-        let status = tokio::time::timeout(std::time::Duration::from_secs(5), rt.telemetry())
+        let (status, _) = tokio::time::timeout(std::time::Duration::from_secs(5), rt.telemetry())
             .await
             .expect("status waited behind bulk ingest")
             .unwrap();
@@ -243,10 +243,11 @@ async fn freeze_drains_captured_changes_before_building_the_sync_base() {
     }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
-        let telemetry = tokio::time::timeout(std::time::Duration::from_secs(5), rt.telemetry())
-            .await
-            .unwrap()
-            .unwrap();
+        let (telemetry, _) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), rt.telemetry())
+                .await
+                .unwrap()
+                .unwrap();
         if telemetry.pending > 0
             && telemetry
                 .confirmed_record_digest
