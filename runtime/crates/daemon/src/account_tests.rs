@@ -116,6 +116,135 @@ use std::sync::Arc;
 const ALICE: &str = "11111111-1111-4111-8111-111111111111";
 const BOB: &str = "22222222-2222-4222-8222-222222222222";
 
+#[tokio::test]
+async fn collection_delete_uses_owner_credential_and_keeps_local_state() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    const COLLECTION: &str = "44444444-4444-4444-8444-444444444444";
+    let dir = crate::testutil::TestDir::new("collection-delete");
+    let mut d = daemon(&dir);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let config = crate::cloud::CloudConfig {
+        schema_version: 1,
+        account_epoch: 1,
+        connector_id: Some("connector".into()),
+        server_url: format!("http://{}", listener.local_addr().unwrap()),
+        ..Default::default()
+    };
+    let mut trust = crate::trust::fixture_trust();
+    trust.cp_origin = config.server_url.clone();
+    Arc::get_mut(&mut d).unwrap().trust = Some(Arc::new(trust));
+    config.save(&d.profile.cloud_file()).unwrap();
+    d.secrets
+        .set(crate::cloud::CONNECTOR_TOKEN, b"con_delete_fixture")
+        .unwrap();
+    d.authority
+        .publish_account(
+            &crate::cloud::AccountRecord {
+                schema_version: 1,
+                epoch: 1,
+                signed_in: true,
+                connector_id: config.connector_id.clone(),
+                account_id: Some(ALICE.into()),
+            },
+            &config,
+            crate::authority::account_id(BOB).unwrap(),
+        )
+        .unwrap();
+    let before = serde_json::to_value(&d.inner.lock().await.registry).unwrap();
+    let fixture = tokio::spawn(async move {
+        for (confirm, status, body) in [
+            (
+                "Wrong name",
+                409,
+                json!({"error":{"code":"collection_name_mismatch"}}),
+            ),
+            (
+                "Shared name",
+                409,
+                json!({"error":{"code":"device_not_enrolled"}}),
+            ),
+            (
+                "Shared name",
+                200,
+                json!({"collection_id":COLLECTION,"deleted":true}),
+            ),
+        ] {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            loop {
+                let n = socket.read(&mut buffer).await.unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&buffer[..n]);
+                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let headers = std::str::from_utf8(&request[..end])
+                        .unwrap()
+                        .to_ascii_lowercase();
+                    let length: usize = headers
+                        .lines()
+                        .find_map(|l| l.strip_prefix("content-length:"))
+                        .unwrap()
+                        .trim()
+                        .parse()
+                        .unwrap();
+                    if request.len() < end + 4 + length {
+                        continue;
+                    }
+                    assert!(
+                        headers.starts_with(&format!("delete /v1/next/collections/{COLLECTION} "))
+                    );
+                    assert!(headers.contains("authorization: bearer con_delete_fixture"));
+                    assert_eq!(
+                        serde_json::from_slice::<Value>(&request[end + 4..]).unwrap(),
+                        json!({"confirm_name":confirm})
+                    );
+                    break;
+                }
+            }
+            let body = body.to_string();
+            socket.write_all(format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        }
+    });
+    for (confirm, reason) in [
+        ("Wrong name", Some("collection_name_mismatch")),
+        ("Shared name", Some("device_not_enrolled")),
+        ("Shared name", None),
+    ] {
+        let result = d
+            .handle(
+                &Request {
+                    v: PROTOCOL,
+                    id: 1,
+                    method: Method::COLLECTION_DELETE.into(),
+                    params: json!({"collection":COLLECTION,"confirm_name":confirm}),
+                },
+                &mut ConnAuth::default(),
+            )
+            .await;
+        match reason {
+            Some(reason) => {
+                let error = result.unwrap_err();
+                assert_eq!(error.reason.as_deref(), Some(reason));
+                if reason == "device_not_enrolled" {
+                    assert_eq!(
+                        error.message,
+                        "Join this collection on this computer first, then try again."
+                    );
+                }
+            }
+            None => assert_eq!(
+                result.unwrap(),
+                json!({"collection_id":COLLECTION,"deleted":true})
+            ),
+        }
+        assert_eq!(
+            serde_json::to_value(&d.inner.lock().await.registry).unwrap(),
+            before
+        );
+    }
+    fixture.await.unwrap();
+}
+
 fn account_config(epoch: u64, connector: &str) -> crate::cloud::CloudConfig {
     crate::cloud::CloudConfig {
         schema_version: 1,

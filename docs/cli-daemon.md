@@ -129,6 +129,27 @@ uninstalling, and reading service-manager logs reject isolated targets; use
 `daemon run` or `daemon start` for those profiles. JSON path, status, and doctor
 results identify the target as `installed_service` or `isolated_profile`.
 
+## Next runtime collection deletion
+
+The next runtime CLI (`runtime/crates/daemon`, distributed with the next desktop)
+uses `mdbase collection` directly. To delete a synced collection from the account:
+
+```sh
+mdbase collection delete Research --confirm 'Research'
+# A full UUID also addresses a collection that is not registered on this computer:
+mdbase collection delete 11111111-1111-4111-8111-111111111111 --confirm 'Research'
+```
+
+The daemon uses its signed-in owner-device credential. This computer must first
+join the collection, with any required device approval. `--confirm` is mandatory
+even with `--yes` and must match the current shared catalog name, which can differ
+from a registered local alias. Duplicate local names require an ID. A mismatch
+refuses deletion. Deletion ends hosted access permanently but retains the local
+files and registration. `mdbase collection remove Research` separately unregisters
+the local folder; it does not delete hosted data or local files. See
+[synced collection deletion](next-collection-names.md#delete) for retention and
+uncertain-response behavior.
+
 ## State and secrets
 
 The daemon state directory contains:

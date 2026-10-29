@@ -77,6 +77,36 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
   const deletionFacts = async (collection: string) => (await db.query("SELECT deletion_id,authority,actor_id FROM next_collection_deletion_facts WHERE collection_id=$1", [collection])).rows;
   const name = async (collection: string) => (await db.query<{display_name:string|null}>("SELECT display_name FROM next_collections WHERE collection_id=$1", [collection])).rows[0].display_name;
 
+  it.each(["missing", "pending", "lost", "keys"] as const)("explains %s device enrollment to the owner for rename and delete", async state => {
+    const f = await fixture();
+    // Keep membership acknowledged while varying only the enrollment.
+    await db.query("UPDATE next_policy_outbox SET ops=jsonb_set(ops,'{ops}',(ops->'ops')-2) WHERE collection_id=$1", [f.collection]);
+    if (state !== "missing") {
+      await queueNextPolicy(db, f.collection, [{ op: "device-enrol", device: f.device, account: f.user, kind: "desktop", signPublicKey: keys.sign_pk, kemPublicKey: keys.kem_pk, noisePublicKey: keys.noise_pk }]);
+      if (state !== "pending") {
+        const batch = (await db.query<{id:string}>("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state,appended_at,lost_at) VALUES($1,2,$2,$3,2,'appended',now(),$4) RETURNING id", [f.collection, Buffer.alloc(32), Buffer.from("enrollment"), state === "lost" ? new Date() : null])).rows[0].id;
+        await db.query("UPDATE next_policy_outbox SET batch_id=$2 WHERE collection_id=$1 AND batch_id IS NULL", [f.collection, batch]);
+      }
+    }
+    if (state === "keys") await db.query("UPDATE next_devices SET noise_pk=$2 WHERE id=$1", [f.device, Buffer.alloc(32, 9)]);
+    for (const reply of [await rename(f), await remove(f)]) {
+      expect(reply.statusCode).toBe(409);
+      expect(reply.json()).toEqual({ error: { code: "device_not_enrolled", message: "Join this collection on this computer first, then try again." } });
+      expect(reply.headers["cache-control"]).toBe("no-store");
+    }
+    expect(await name(f.collection)).toBe("Initial label");
+    expect(await deletionFacts(f.collection)).toEqual([]);
+    const other = await fixture();
+    for (const collection of [f.collection, randomUUID()]) {
+      const hidden = { ...other, collection };
+      const renamed = await rename(hidden), deleted = await remove(hidden);
+      expect(renamed.statusCode).toBe(404);
+      expect(renamed.json()).toEqual({ error: { code: "not_found", message: "The collection name could not be changed." } });
+      expect(deleted.statusCode).toBe(404);
+      expect(deleted.json()).toEqual({ error: { code: "not_found", message: "Collection not found." } });
+    }
+  });
+
   it("backfills exact same-owner legacy labels, including private and suspended rows", async () => {
     const owner = await fixture(), foreign = await fixture();
     const hosted = randomUUID(), local = randomUUID(), fresh = randomUUID(), privateOld = randomUUID(), privateFresh = randomUUID();

@@ -1120,6 +1120,28 @@ impl Cloud {
             .ok_or_else(|| CloudError::Server(200, "malformed".into()))
     }
 
+    /// Permanently delete a synced collection using this owner-device credential.
+    /// The server checks enrollment and the current shared name. Never retries.
+    pub async fn delete_collection(
+        &self,
+        collection: &str,
+        confirm_name: &str,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<(), CloudError> {
+        let request = self
+            .http
+            .delete(format!("{}/v1/next/collections/{collection}", self.server))
+            .bearer_auth(self.token.as_str())
+            .json(&json!({ "confirm_name": confirm_name }));
+        let value = self.send_current(request, current).await?;
+        if value.get("collection_id").and_then(Value::as_str) != Some(collection)
+            || value.get("deleted").and_then(Value::as_bool) != Some(true)
+        {
+            return Err(CloudError::Server(200, "malformed".into()));
+        }
+        Ok(())
+    }
+
     /// Rename this computer in the account (`PATCH /v1/connectors/self`); returns
     /// the name the account stored.
     pub async fn rename_self(&self, name: &str) -> Result<String, CloudError> {

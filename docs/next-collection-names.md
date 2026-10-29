@@ -65,10 +65,31 @@ Refusals use these codes:
 | 403 | `installation_collection_not_approved` | The installation was not approved for this collection. |
 | 403 | `installation_not_current` / `identity_not_current` | The installation or device sign-in is not current. |
 | 409 | `device_revoked` | This device's access to the collection was revoked. |
+| 409 | `device_not_enrolled` | Join this collection on this computer first; acknowledged, nonlost exact enrollment is required. |
 | 409 | `migration_frozen` | The account's upgrade is in progress. |
 | 503 | `busy` | Another change holds the collection; try again. |
 
 Each refusal carries a plain-language `error.message`.
+
+For both rename and delete, a current owner whose device has no acknowledged,
+nonlost exact enrollment receives **409 `device_not_enrolled`**: "Join this
+collection on this computer first, then try again." Enrollment remains required;
+this response never enrolls a device or bypasses approval. Other accounts and
+unknown collections retain their existing responses, including `404 not_found`.
+
+The next runtime CLI exposes this route as
+`mdbase collection delete <name-or-id> --confirm <current-shared-name>` through
+the daemon's existing owner-device credential. A registered name or unique ID
+prefix resolves locally; a full collection UUID also works before local
+registration, so the server can explain missing enrollment. Duplicate local names
+require an ID. Confirmation always uses the **current shared name**, which may
+differ from the local alias. `--yes` does not replace `--confirm`.
+The command does not retry an uncertain response. Refresh the authorized catalog
+before deciding on any further action; a lost response is not proof of failure.
+
+Hosted deletion leaves local registration and files intact. Separately run
+`mdbase collection remove <name-or-id>` to unregister the local folder; `remove`
+does not delete the hosted collection or local files.
 
 ## Validation and privacy
 

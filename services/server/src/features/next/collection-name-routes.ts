@@ -17,6 +17,7 @@ import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 
 const id = z.uuid().transform(value => value.toLowerCase()).refine(value => value !== "00000000-0000-0000-0000-000000000000");
 const notFound = () => new CreateError(404, "not_found");
+const JOIN_FIRST = "Join this collection on this computer first, then try again.";
 
 /** The native registry floor, recorded after the CP denial commits. */
 type DeletionFloorRecorder = { recordCollectionDeletion(fact: CollectionDeletionFact): Promise<unknown> };
@@ -50,12 +51,12 @@ async function ownedCollection(client: DatabaseConnection, connector: ConnectorI
   await currentIdentity(client, connector, device.id, device);
   await currentMember(client, collection, connector.user_id, "owner");
   await refuseRevoked(client, collection, device.id);
+  await requireCollectionNotDeleted(client, collection);
   if (!(await client.query(
     `SELECT 1 FROM next_policy_outbox o JOIN next_policy_batches b ON b.id=o.batch_id
      WHERE o.collection_id=$1 AND b.state='appended' AND b.lost_at IS NULL
        AND o.ops->'ops' @> $2::jsonb LIMIT 1`, [collection, exactEnrolment(device.id, connector.user_id, device)]
-  )).rows.length) throw notFound();
-  await requireCollectionNotDeleted(client, collection);
+  )).rows.length) throw new CreateError(409, "device_not_enrolled");
   return held.display_name;
 }
 
@@ -88,6 +89,7 @@ const DELETE_REFUSALS: Record<string, string> = {
   installation_not_current: "This app's sign-in is no longer current. Sign in again.",
   identity_not_current: "This device's sign-in is no longer current. Sign in again.",
   device_revoked: "This device no longer has access to this collection.",
+  device_not_enrolled: JOIN_FIRST,
   migration_frozen: "Your account is being upgraded. Try again later.",
   busy: "The collection is busy. Try again.",
 };
@@ -122,6 +124,7 @@ export function registerCollectionNameRoutes(app: FastifyInstance, db: DatabaseP
       });
     } catch (error) {
       if (error instanceof Error && error.message === "collection_deleted") return reply.code(404).send(apiError("not_found", "Collection not found."));
+      if (error instanceof CreateError && error.code === "device_not_enrolled") return reply.code(error.status).send(apiError(error.code, JOIN_FIRST));
       return refuse(reply, error, "The collection name could not be changed.");
     }
   });

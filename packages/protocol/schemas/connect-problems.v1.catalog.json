@@ -186,6 +186,7 @@
     "connector_upgrade_required": { "category": "compatibility", "recovery": "upgrade_connector" },
     "cursor_capacity_exhausted": { "category": "availability", "recovery": "retry" },
     "device_authorization_failed": { "category": "authorization", "recovery": "reauthorize" },
+    "device_not_enrolled": { "category": "authorization", "recovery": "reauthorize" },
     "direct_operation_rejected": { "category": "authorization", "recovery": "reauthorize" },
     "discovery_failed": { "category": "availability", "recovery": "retry" },
     "durable_mutation_unsupported": {

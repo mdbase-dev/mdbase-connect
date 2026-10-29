@@ -25,7 +25,7 @@
 //! every failure has one recovery action. Reasons are stable snake_case strings.
 //!
 //! **Methods** (see [`Method`]): `ping`, `status`, `status.subscribe`,
-//! `shutdown`, `collection.list|add|remove|pause|resume|holds|conflicts`,
+//! `shutdown`, `collection.list|add|remove|delete|pause|resume|holds|conflicts`,
 //! `sync.enable|disable`, `device.pending|approve|reject`,
 //! `recovery.status|create|import`, `access.list|revoke|approve|deny|ack`,
 //! `settings.get|set`, `doctor`.
@@ -204,6 +204,9 @@ impl Method {
     pub const COLLECTION_ADD: &'static str = "collection.add";
     /// `{collection}` → `{}`. Unregisters; never deletes files.
     pub const COLLECTION_REMOVE: &'static str = "collection.remove";
+    /// [`DeleteCollection`] → `{collection_id, deleted}`. Deletes the synced
+    /// collection in the account; local registration and files stay here.
+    pub const COLLECTION_DELETE: &'static str = "collection.delete";
     /// [`UpdateCollection`] → [`CollectionStatus`]: rename or describe a collection.
     /// Files and other devices are untouched; a local collection's new name reaches
     /// the account with the next inventory.
@@ -588,6 +591,15 @@ pub struct AddCollection {
     /// Display name (default: the folder name).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub name: Option<String>,
+}
+
+/// `collection.delete` params. The server checks the current shared name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteCollection {
+    /// Collection ID.
+    pub collection: String,
+    /// Explicit confirmation of the current shared name, not a local alias.
+    pub confirm_name: String,
 }
 
 /// `collection.update` params. An omitted field is unchanged; an empty
