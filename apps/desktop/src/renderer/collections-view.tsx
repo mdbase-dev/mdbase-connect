@@ -80,13 +80,6 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
         <button className="quiet-action" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><Trans>Details</Trans></button>
         {view.holds > 0 && <button className="quiet-action" onClick={() => setHoldsOpen((open) => !open)}>{holdsOpen ? t(i18n)`Hide ${plural(view.holds, { one: "# file", other: "# files" })}` : t(i18n)`Review ${plural(view.holds, { one: "# file", other: "# files" })}`}</button>}
         {view.canEnableSync && <button className="quiet-action" disabled={busy} onClick={onTurnOnSync}><Trans>Turn on sync</Trans></button>}
-        {view.canDisableSync && <button className="quiet-action" disabled={busy} onClick={() => {
-          if (!window.confirm(t(i18n)`Stop syncing ${collection.name}? It stays on this computer; your other devices and web apps stop receiving its changes.`)) return;
-          void onAct(async () => {
-            await window.mdbaseConnect.disableSync(collection.id);
-            onNotice(t(i18n)`${collection.name} is on this computer only now.`);
-          });
-        }}><Trans>Turn off sync</Trans></button>}
         <button className="quiet-action" disabled={busy || collection.state === "opening"} onClick={() => void onAct(() => window.mdbaseConnect.setCollectionEnabled(collection.id, view.paused))}>{view.paused ? t(i18n)({ message: "Resume", context: "Local collection management" }) : t(i18n)({ message: "Pause", context: "Local collection management" })}</button>
         <button className="quiet-action danger" disabled={busy} onClick={() => {
           if (!window.confirm(t(i18n)`Remove ${collection.name} from mdbase? Apps stop using it. The folder and its files stay where they are.`)) return;

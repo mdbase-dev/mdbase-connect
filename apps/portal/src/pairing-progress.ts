@@ -40,3 +40,32 @@ export function watchPairingPreparation<T extends { attested?: boolean; approved
   schedule();
   return stop;
 }
+
+/** Keep an open approval chooser current as shares become available. */
+export function watchPairingCollections<T>(options: {
+  read(signal: AbortSignal): Promise<T>;
+  isDispatching(): boolean;
+  onCollections(collections: T): void;
+}): () => void {
+  const lifetime = new AbortController();
+  let refreshing = false;
+  async function refresh() {
+    if (lifetime.signal.aborted || document.visibilityState === "hidden" || refreshing || options.isDispatching()) return;
+    refreshing = true;
+    try {
+      const collections = await options.read(lifetime.signal);
+      if (!lifetime.signal.aborted && !options.isDispatching()) options.onCollections(collections);
+    } catch {
+      // Keep the current choice through transient inventory failures.
+    } finally {
+      refreshing = false;
+    }
+  }
+  window.addEventListener("focus", refresh);
+  document.addEventListener("visibilitychange", refresh);
+  return () => {
+    lifetime.abort();
+    window.removeEventListener("focus", refresh);
+    document.removeEventListener("visibilitychange", refresh);
+  };
+}

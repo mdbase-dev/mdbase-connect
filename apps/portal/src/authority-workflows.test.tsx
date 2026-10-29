@@ -4,13 +4,36 @@ import { Pairing } from "./authority-workflows";
 import { api } from "./api";
 vi.mock("./api", async importOriginal => ({...await importOriginal<typeof import("./api")>(),api:vi.fn()}));
 const collections = [...Array.from({length:160},(_,i)=>({collection_id:`collection-${i}`,display_name:`[test] Notes ${i}`,role:"owner"})),{collection_id:"named-new",display_name:"New collection",role:"owner"},{collection_id:"named-create",display_name:"create collection",role:"owner"}];
-async function show(canCreate=true, selected="", hint=selected) {
+async function show(canCreate=true, selected="", hint=selected, prepared=true) {
   vi.mocked(api).mockClear();
-  vi.mocked(api).mockResolvedValue({pairing:{connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,account_email:"test@example.test",app_origin:"https://reader.example",selected_collection_id:selected,collection_hint:hint,can_create_collection:canCreate,collections}});
+  vi.mocked(api).mockResolvedValue({pairing:{connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",...(prepared ? {account_selection_confirmed:true,attested:true} : {}),account_email:"test@example.test",app_origin:"https://reader.example",selected_collection_id:selected,collection_hint:hint,can_create_collection:canCreate,collections}});
   const view=render(<Pairing pairingId="pairing"/>);
   return {...view,picker:await screen.findByRole("listbox",{name:"Open in Reader"}),input:screen.getByRole("combobox",{name:"Open in Reader"})};
 }
 describe("approval collection chooser",()=>{
+  it("refreshes shared collections on return without losing the person's selection", async () => {
+    await show(true, "collection-5", "collection-5", false);
+    const pairing = (await vi.mocked(api).mock.results[0]!.value).pairing;
+    vi.mocked(api).mockResolvedValue({ pairing: { ...pairing, collections: [...collections, { collection_id: "shared", display_name: "Newly shared notes", role: "editor" }] } });
+    fireEvent(window, new Event("focus"));
+    expect(await screen.findByRole("option", { name: "Newly shared notes" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "[test] Notes 5" })).toHaveAttribute("aria-selected", "true");
+    expect(vi.mocked(api).mock.calls.every(([, options]) => !options?.method)).toBe(true);
+  });
+
+  it("refreshes on visibility change and stops listening after unmount", async () => {
+    const view = await show(true, "", "", false);
+    const pairing = (await vi.mocked(api).mock.results[0]!.value).pairing;
+    vi.mocked(api).mockResolvedValue({ pairing: { ...pairing, collections: [...collections, { collection_id: "shared", display_name: "Newly shared notes", role: "editor" }] } });
+    fireEvent(document, new Event("visibilitychange"));
+    expect(await screen.findByRole("option", { name: "Newly shared notes" })).toBeInTheDocument();
+    view.unmount();
+    const calls = vi.mocked(api).mock.calls.length;
+    fireEvent(window, new Event("focus"));
+    fireEvent(document, new Event("visibilitychange"));
+    expect(vi.mocked(api)).toHaveBeenCalledTimes(calls);
+  });
+
   it("replaces the native select with one combobox/listbox and an explicit creation button",async()=>{
     const f=await show();
     expect(f.picker.parentElement?.querySelector("select")).toBeNull();

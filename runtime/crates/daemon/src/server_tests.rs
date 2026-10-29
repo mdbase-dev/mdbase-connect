@@ -1108,7 +1108,15 @@ async fn update_renames_and_describes_and_persists() {
     let s = d.update_collection(update(None, Some(""))).await.unwrap();
     assert_eq!(s["name"], "Workouts");
     assert!(s.get("description").is_none());
-    for bad in ["", "   ", "Notes\u{202e}gpj", "a\nb", &"x".repeat(101)] {
+    for bad in [
+        "",
+        "   ",
+        "Notes\u{202e}gpj",
+        "a\nb",
+        "a\u{2028}b",
+        "a\u{2029}b",
+        &"x".repeat(101),
+    ] {
         let e = d
             .update_collection(update(Some(bad), None))
             .await

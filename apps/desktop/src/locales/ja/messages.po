@@ -92,8 +92,8 @@ msgstr "{0} は {where} を利用できるようになりました。"
 
 #. placeholder {0}: collection.name
 #: src/renderer/collections-view.tsx
-msgid "{0} is on this computer only now."
-msgstr "{0} は現在このコンピューター上にのみあります。"
+#~ msgid "{0} is on this computer only now."
+#~ msgstr "{0} は現在このコンピューター上にのみあります。"
 
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
@@ -1536,8 +1536,8 @@ msgstr "{0} がこのコンピューター経由で {1} を利用するのを停
 
 #. placeholder {0}: collection.name
 #: src/renderer/collections-view.tsx
-msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
-msgstr "{0} の同期を停止しますか？ このコンピューターには残りますが、ほかのデバイスや Web アプリには変更が届かなくなります。"
+#~ msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
+#~ msgstr "{0} の同期を停止しますか？ このコンピューターには残りますが、ほかのデバイスや Web アプリには変更が届かなくなります。"
 
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
@@ -1816,8 +1816,8 @@ msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "このバージョンの mdbase は古すぎるためサービスを利用できません。mdbase を更新してください。"
 
 #: src/renderer/collections-view.tsx
-msgid "Turn off sync"
-msgstr "同期をオフにする"
+#~ msgid "Turn off sync"
+#~ msgstr "同期をオフにする"
 
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"

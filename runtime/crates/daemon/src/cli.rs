@@ -240,11 +240,6 @@ enum SyncCmd {
         #[arg(long)]
         accept_takeover_holds: bool,
     },
-    /// Move the log back to this device (local only).
-    Disable {
-        /// Collection ID, ID prefix or name.
-        collection: String,
-    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -901,9 +896,6 @@ async fn run_command(
                 });
             }
             simple(profile, out, Method::SYNC_ENABLE, &collection, params).await
-        }
-        Command::Sync(SyncCmd::Disable { collection }) => {
-            simple(profile, out, Method::SYNC_DISABLE, &collection, json!({})).await
         }
         Command::Device(DeviceCmd::Pending { collection }) => {
             let id = resolve(profile, &collection).await?;
@@ -1825,6 +1817,12 @@ fn account_problem(reason: &str) -> &'static str {
 #[cfg(test)]
 mod takeover_cli_tests {
     use super::*;
+
+    #[test]
+    fn sync_only_offers_implemented_commands() {
+        assert!(Cli::try_parse_from(["mdbase", "sync", "enable", "Notes"]).is_ok());
+        assert!(Cli::try_parse_from(["mdbase", "sync", "disable", "Notes"]).is_err());
+    }
 
     #[test]
     fn migrate_start_has_no_rollout_override() {

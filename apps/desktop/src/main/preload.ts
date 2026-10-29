@@ -20,7 +20,6 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     ipcRenderer.invoke("connect:collections:set-enabled", { collectionId, enabled }),
   enableSync: (collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean) =>
     ipcRenderer.invoke("connect:collections:sync-enable", { collectionId, mode, acceptTakeoverHolds }),
-  disableSync: (collectionId: string) => ipcRenderer.invoke("connect:collections:sync-disable", collectionId),
   listHolds: (collectionId: string) => ipcRenderer.invoke("connect:collections:holds", collectionId),
   resolveHold: (collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete") =>
     ipcRenderer.invoke("connect:collections:resolve-hold", { collectionId, id, how }),
