@@ -31,7 +31,20 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
   }, [onChange, required, resolved, root, supplied, value]);
 
   const type = schemaType(resolved, value);
+  const declaredTypes = typeof resolved?.type === "string" ? [resolved.type]
+    : Array.isArray(resolved?.type) ? resolved.type.filter((item): item is string => typeof item === "string") : [];
+  const mismatched = value !== undefined && declaredTypes.length > 0
+    && !declaredTypes.some((item) => matchesType(item === "integer" ? "number" : item, value));
+  const [editingRawValue, setEditingRawValue] = useState(mismatched);
+  useEffect(() => { if (mismatched) setEditingRawValue(true); }, [mismatched]);
   const label = schemaLabel(name, required, hideLabel, resolved);
+  if (mismatched || editingRawValue) {
+    const expectedType = declaredTypes.join(" | ");
+    return <div className="schema-value">
+      {mismatched && <p className="schema-value-error">{t`The existing value doesn't match type ${expectedType}. Edit the JSON value to fix it.`}</p>}
+      <JsonSchemaValueEditor name={name} type={declaredTypes} label={label} value={value} commitOnBlur onChange={onChange} onValidityChange={onValidityChange} />
+    </div>;
+  }
   if (resolved && "const" in resolved) {
     return <div className="schema-value schema-constant">{label}<output>{formatValue(resolved.const)}</output></div>;
   }
@@ -267,31 +280,45 @@ function ObjectMapValueEditor({ name, schema, rootSchema, value, required, hideL
   </fieldset>;
 }
 
-function JsonSchemaValueEditor({ name, type, label, value, onChange, onValidityChange }: {
+function JsonSchemaValueEditor({ name, type, label, value, commitOnBlur = false, onChange, onValidityChange }: {
   name: string;
-  type: "array" | "object";
+  type: string | string[];
+  commitOnBlur?: boolean;
   label: ReactNode;
   value: unknown;
   onChange: (value: unknown) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
   useLingui();
-  const initial = useMemo(() => value ?? (type === "array" ? [] : {}), [type, value, i18n.locale]);
+  const initial = useMemo(() => value === undefined ? (type === "array" ? [] : {}) : value, [type, value, i18n.locale]);
   const [text, setText] = useState(() => JSON.stringify(initial, null, 2));
   const [error, setError] = useState<string>();
-  return <label className="schema-value schema-json-value">{label}<CodeEditor value={text} label={t`${name} JSON value`} language="json" lineWrapping={false} onChange={(next) => {
+  function update(next: string, commit: boolean) {
     setText(next);
     try {
       const parsed = JSON.parse(next) as unknown;
-      if ((type === "array" && !Array.isArray(parsed)) || (type === "object" && !isObject(parsed))) throw new Error(t`Enter a JSON ${type}.`);
-      onChange(parsed);
+      const expectedType = Array.isArray(type) ? type.join(" | ") : type;
+      if (!matchesType(type, parsed)) throw new Error(t`Enter a JSON ${expectedType}.`);
+      onValidityChange?.(commit);
+      if (commit) onChange(parsed);
       setError(undefined);
-      onValidityChange?.(true);
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : t`Invalid JSON.`);
       onValidityChange?.(false);
     }
-  }} />{error && <small className="schema-value-error" role="alert">{error}</small>}</label>;
+  }
+  return <label className="schema-value schema-json-value">{label}<CodeEditor value={text} label={t`${name} JSON value`} language="json" lineWrapping={false}
+    onChange={(next) => update(next, !commitOnBlur)} onBlur={commitOnBlur ? () => update(text, true) : undefined}
+  />{error && <small className="schema-value-error" role="alert">{error}</small>}</label>;
+}
+
+function matchesType(type: string | string[], value: unknown): boolean {
+  if (Array.isArray(type)) return type.some((item) => matchesType(item, value));
+  if (type === "array") return Array.isArray(value);
+  if (type === "object") return isObject(value);
+  if (type === "integer") return Number.isInteger(value);
+  if (type === "null") return value === null;
+  return typeof value === type;
 }
 
 export function schemaInitialValue(schema?: JsonObject, rootSchema: JsonObject | undefined = schema): unknown {

@@ -2278,8 +2278,8 @@ msgid "Enter a folder name without slashes."
 msgstr "Saisissez un nom de dossier sans barre oblique."
 
 #: src/SchemaValueEditor.tsx
-msgid "Enter a JSON {type}."
-msgstr "Saisissez une valeur JSON de type {type}."
+msgid "Enter a JSON {expectedType}."
+msgstr "Saisissez une valeur JSON de type {expectedType}."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a list."
@@ -3952,10 +3952,14 @@ msgid "Provided by the note's type, not stored in this file."
 msgstr "Fournie par le type de la note, non stockée dans ce fichier."
 
 #: src/editor-commands.ts
-#: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "Ouverture rapide"
+
+#. placeholder {0}: shortcutModifier()
+#: src/NoteSearchField.tsx
+msgid "Quick open · {0} P"
+msgstr "Ouverture rapide · {0} P"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
@@ -5057,6 +5061,10 @@ msgstr "L’éditeur remplacera ces fichiers examinés et consignera leur source
 #: src/next-editor-records.ts
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "L’opération interrompue sur la note est introuvable. Aucune nouvelle écriture n’a été tentée."
+
+#: src/SchemaValueEditor.tsx
+msgid "The existing value doesn't match type {expectedType}. Edit the JSON value to fix it."
+msgstr "La valeur existante ne correspond pas au type {expectedType}. Modifiez la valeur JSON pour la corriger."
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."

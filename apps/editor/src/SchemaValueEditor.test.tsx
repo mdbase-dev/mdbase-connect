@@ -7,6 +7,20 @@ import { SchemaValueEditor, schemaInitialValue, schemaValueComplete } from "./Sc
 import { chooseOption } from "./test/select";
 
 describe("recursive schema values", () => {
+  it("keeps a numeric control and focus when entering a decimal for an integer field", () => {
+    function IntegerField() {
+      const [value, setValue] = useState<unknown>(1);
+      return <SchemaValueEditor name="rating" schema={{ type: "integer" }} value={value} onChange={setValue} />;
+    }
+    render(<IntegerField />);
+    const input = screen.getByRole("spinbutton", { name: "rating" });
+    input.focus();
+    fireEvent.change(input, { target: { value: "1.5" } });
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue(1.5);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("uses local-time and date-only pickers for declared temporal unions", () => {
     const schema = { anyOf: [{ type: "string", format: "date" }, { type: "string", format: "date-time" }] };
     const changed = vi.fn();
