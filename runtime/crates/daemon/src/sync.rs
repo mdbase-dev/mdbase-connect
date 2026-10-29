@@ -301,12 +301,6 @@ impl ConnectTokens {
         self.deleted.load(Ordering::SeqCst)
     }
 
-    /// Recheck idle collections without waiting for their log token to expire.
-    pub async fn recheck(&self) -> Result<(), Eligibility> {
-        self.drop_cache();
-        self.eligibility().await
-    }
-
     /// Ask Connect for a token now (cached for the runtime's first connect).
     pub async fn eligibility(&self) -> Result<(), Eligibility> {
         self.fetch().await.map(|_| ())

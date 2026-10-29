@@ -231,3 +231,42 @@ fn native_event_labels_never_relabel_original_scope_and_scope_is_one_shot() {
     );
     assert_eq!(decoded.get(), 1);
 }
+
+#[test]
+fn idle_head_refresh_uses_the_existing_session_and_gone_is_terminal() {
+    use mdbn_replica::log::LogErrorCode;
+    let mut rep = fixture_replica();
+    let (source, _) = epoch_source();
+    let mut active = None;
+    let session = up(&mut rep, &mut active, Generation::begin(source));
+    let initial = scope(&mut rep, &session);
+    deliver_log_reply(&mut rep, &session, initial, |_, _| {
+        Ok(LogResponse::Subscribed {
+            head: 0,
+            head_chain: B32([0; 32]),
+        })
+    })
+    .unwrap();
+    assert!(rep.request_head());
+    assert!(
+        !rep.request_head(),
+        "only one head check may be outstanding"
+    );
+    let check = scope(&mut rep, &session);
+    deliver_log_reply(&mut rep, &session, check, |_, method| {
+        assert_eq!(method, "subscribe");
+        Err(LogError::code(LogErrorCode::Gone))
+    })
+    .unwrap();
+    let status = rep.sync_status();
+    assert!(
+        status
+            .incidents
+            .iter()
+            .any(|i| i.kind == mdbn_wire::client::IncidentKind::Gone)
+    );
+    assert_eq!(
+        synced_ready(&status, false, true),
+        Err("collection_deleted")
+    );
+}

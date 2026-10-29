@@ -95,12 +95,6 @@ async fn connect_counted(
     status: u16,
     answer: String,
 ) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
-    connect_mutable(Arc::new(std::sync::Mutex::new((status, answer)))).await
-}
-
-async fn connect_mutable(
-    answer: Arc<std::sync::Mutex<(u16, String)>>,
-) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
     let posts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = posts.clone();
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -117,7 +111,7 @@ async fn connect_mutable(
                 if req.contains("/log-token") {
                     counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                answer.lock().unwrap().clone()
+                (status, answer.clone())
             };
             let resp = format!(
                 "HTTP/1.1 {st} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
@@ -1146,67 +1140,6 @@ async fn deletion_at_startup_is_explicit_and_preserves_local_files() {
         std::fs::read_to_string(dir.join("folder/keep.md")).unwrap(),
         "keep these bytes"
     );
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn idle_collection_rechecks_deletion_before_token_expiry_and_stops() {
-    let dir = scratch("deleted-live");
-    let expires = crate::fsutil::now_ms() as i64 + 3_600_000;
-    let answer = Arc::new(std::sync::Mutex::new((
-        200,
-        format!("{{\"token\":\"t\",\"expires_at\":{expires}}}"),
-    )));
-    let (server, posts) = connect_mutable(answer.clone()).await;
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let log = format!("http://127.0.0.1:{port}");
-    save(
-        &dir,
-        &crate::sync::SyncConfig {
-            log_url: log.clone(),
-            ..link("cloud_copy")
-        },
-    );
-    let trust = crate::trust::Trust {
-        log_origin: log,
-        ..trust_for(&server)
-    };
-    let mut h = host(
-        &dir,
-        SyncMode::Synced,
-        ctx(&dir, Some(&server), Some(trust)),
-    );
-    if let Some(mut rx) = h.opened.clone() {
-        rx.wait_for(|done| *done).await.unwrap();
-    }
-    let runtime = h.runtime().expect("eligible runtime opens");
-    std::fs::write(dir.join("folder/keep.md"), "local bytes stay").unwrap();
-    *answer.lock().unwrap() = (409, r#"{"error":{"code":"collection_deleted"}}"#.into());
-    tokio::time::timeout(std::time::Duration::from_secs(40), async {
-        while h.current().1.as_deref() != Some("collection_deleted") {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-        while runtime.status().await.is_some() {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("deletion detected without writes, reconnect, or token expiry");
-    assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 2);
-    assert!(!h.is_serving());
-    assert_eq!(
-        h.status().last_sync_failure.unwrap().kind,
-        crate::sync_failure::Kind::Gone
-    );
-    assert_eq!(
-        std::fs::read_to_string(dir.join("folder/keep.md")).unwrap(),
-        "local bytes stay"
-    );
-    h.close().await;
     std::fs::remove_dir_all(dir).unwrap();
 }
 

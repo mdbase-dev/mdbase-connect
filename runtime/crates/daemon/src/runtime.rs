@@ -1399,6 +1399,10 @@ fn run(
     loop {
         if last_heartbeat.elapsed() >= HOST_HEARTBEAT {
             last_heartbeat = std::time::Instant::now();
+            if let Some(link) = &link {
+                rep.request_head();
+                send_log_calls(&mut rep, link, &mut active_log);
+            }
             if let Err(e) = lock.heartbeat(crate::fsutil::now_ms() as u64) {
                 tracing::warn!(error = %e, "folder host descriptor refresh failed");
             }
@@ -1723,6 +1727,7 @@ fn run(
                     let mut problem = mdbn_replica::api::ErrorCode::Forbidden
                         .problem("collection deleted by its owner");
                     problem.reason = Some(reason.into());
+                    problem.recovery = mdbn_wire::client::Recovery::None;
                     let closed = ClientFrame::Push(ClientPush {
                         kind: "closed".into(),
                         payload: problem.to_cbor(),

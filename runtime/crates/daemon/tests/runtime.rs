@@ -396,6 +396,7 @@ async fn deletion_closes_open_apps_with_a_reason_and_keeps_files() {
     .unwrap();
     assert_eq!(problem.reason.as_deref(), Some("collection_deleted"));
     assert_eq!(problem.code, "forbidden");
+    assert_eq!(problem.recovery, mdbn_wire::client::Recovery::None);
     assert!(!rt.frame(session, req(1, "hello", hello.to_cbor())));
     assert_eq!(
         std::fs::read_to_string(folder.join("keep.md")).unwrap(),

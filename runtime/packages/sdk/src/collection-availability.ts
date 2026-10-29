@@ -5,7 +5,7 @@
  * (`/v1/next/collections`, where an absent value means available). Advisory only: the serving replica decides
  * access. `opening` is SDK-side: a session is being established.
  */
-import { mdbaseError, type MdbaseError } from "./errors.js";
+import { mdbaseError, MdbaseError } from "./errors.js";
 
 export const COLLECTION_UNAVAILABLE_REASONS = [
   "device_offline",
@@ -50,13 +50,14 @@ export function parseCollectionAvailability(value: unknown): CollectionAvailabil
  * The error that opening an unavailable collection fails with. `reason` is the
  * availability reason; `describeError` gives the copy. `sync_required` means the app
  * must be given access again and `access_removed` that the account left the
- * collection (both `forbidden`); every other reason clears by itself or by
+ * collection (both `forbidden`). Deletion is terminal (`forbidden`, no recovery).
+ * Every other reason clears by itself or by
  * an action on the serving computer (`unavailable`, retried).
  */
 export function collectionUnavailableError(reason: CollectionUnavailableReason): MdbaseError {
   const details = new Map([["availability", reason]]);
   if (reason === "collection_deleted") {
-    return mdbaseError("not_found", "this collection was deleted", { reason, details });
+    return new MdbaseError({ code: "forbidden", message: "this collection was deleted", reason, recovery: "none", details });
   }
   if (reason === "access_removed") {
     return mdbaseError("forbidden", "this account no longer has access to this collection", { reason, details });

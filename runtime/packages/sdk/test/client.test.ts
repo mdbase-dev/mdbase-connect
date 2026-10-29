@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { connect, isMdbaseError, LiveQuery, MdbaseClient } from "../src/index.js";
+import { connect, isMdbaseError, LiveQuery, MdbaseClient, MdbaseError } from "../src/index.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { clientFrame, problem } from "../src/wire.js";
 import { toPlain } from "../src/values.js";
@@ -330,7 +330,7 @@ describe("local-only collection behavior", () => {
 });
 
 describe("collection deletion", () => {
-  it("closes permanently with the deletion reason and refuses further writes", async () => {
+  it.each(["forbidden", "unavailable", "not_found"] as const)("closes permanently for %s with the deletion reason and refuses further writes", async (code) => {
     const replica = new MemoryReplica();
     const base = replica.connector();
     let opens = 0;
@@ -341,11 +341,23 @@ describe("collection deletion", () => {
       port = opened.port;
       return opened;
     } }, app, reconnect: { minDelayMs: 1, maxDelayMs: 1 } });
-    port!.onframe?.(clientFrame.enc({ kind: "push", type: "closed", payload: problem.enc({ code: "forbidden", recovery: "reauthorize", reason: "collection_deleted", message: "deleted by owner" }) }));
+    port!.onframe?.(clientFrame.enc({ kind: "push", type: "closed", payload: problem.enc({ code, recovery: "none", reason: "collection_deleted", message: "deleted by owner" }) }));
     expect(c.link).toBe("closed");
     expect(c.linkProblem?.reason).toBe("collection_deleted");
     await expect(c.create({ path: "late.md", body: "late edit" })).rejects.toMatchObject({ reason: "collection_deleted" });
     expect(opens).toBe(1);
     c.close();
   });
+});
+
+it("ordinary reconnects keep the reconnecting reason for immediate operations", async () => {
+  const base = new MemoryReplica().connector();
+  let port: Awaited<ReturnType<typeof base.open>>["port"] | undefined;
+  const c = await connect({ connector: { ...base, async open(hello, signal) {
+    const opened = await base.open(hello, signal); port = opened.port; return opened;
+  } }, app });
+  port!.onclose?.(new MdbaseError({ code: "rate_limited", recovery: "retry", message: "temporary" }));
+  expect(c.link).toBe("reconnecting");
+  expect(() => c.currentSession()).toThrowError(expect.objectContaining({ code: "unavailable", reason: "reconnecting" }));
+  c.close();
 });

@@ -1393,6 +1393,8 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         Self::authorize(&state, p)?;
         live(&state.meta)?;
         let snapshot = tx.snapshots().await?.first().map(Self::pointer);
+        drop(tx);
+        self.refuse_deleted_floor(c).await?;
         Ok(HeadResult {
             head: state.meta.head,
             head_chain: state.meta.head_chain,

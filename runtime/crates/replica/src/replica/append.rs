@@ -1741,6 +1741,13 @@ impl<S: Store> Replica<S> {
                     self.status_dirty = true;
                 }
                 Err(LogError::Offline) => self.connection = Connection::Offline,
+                Err(LogError::Service {
+                    code: LogErrorCode::Gone,
+                    ..
+                }) => {
+                    self.incident(IncidentKind::Gone, None);
+                    self.append = AppendState::Stopped;
+                }
                 _ => {}
             },
             Inflight::SnapPut => {

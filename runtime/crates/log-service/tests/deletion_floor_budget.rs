@@ -141,3 +141,38 @@ fn repeated_floor_reads_charge_the_same_outer_ledger() {
     assert!(budget.usage().nodes >= last.nodes);
     assert!(budget.usage().work_bytes >= last.work_bytes);
 }
+
+#[test]
+fn head_recheck_refuses_a_deletion_floor_without_marking_the_log_gone() {
+    let c = id16("head-floor/collection");
+    let svc = Service::new(MemBackend::default(), MemObjects::default(), config());
+    // Use the fixture's pinned control-plane key for the collection genesis.
+    let genesis = ControlPlane::new("floor-budget").genesis(c, id16("head-floor/owner"));
+    ready(svc.call(
+        &Principal::ControlPlane,
+        "create_log",
+        &Cbor::Map(vec![
+            (Cbor::Uint(0), c.to_cbor()),
+            (Cbor::Uint(1), Cbor::Bytes(genesis)),
+        ]),
+        1000,
+    ))
+    .unwrap();
+    assert!(ready(svc.head(&Principal::ControlPlane, &c)).is_ok());
+    let record = CollectionDeletionRecord {
+        collection: c,
+        deletion_id: id16("head-floor/deletion"),
+        lifecycle_epoch: 1,
+    };
+    svc.backend.record_collection_deletion(record).unwrap();
+    let error = ready(svc.head(&Principal::ControlPlane, &c)).unwrap_err();
+    assert_eq!(error.code, Code::Gone);
+    assert_eq!(error.reason.as_deref(), Some("collection_deletion_floor"));
+    let mut tx = ready(svc.backend.begin(&c, Mode::Read)).unwrap();
+    let state = ready(tx.load()).unwrap().unwrap();
+    assert_eq!(state.meta.status, mdbn_log_service::model::Status::Live);
+    assert!(
+        state.meta.deletion.is_none(),
+        "a denial is not a native Gone acknowledgement"
+    );
+}

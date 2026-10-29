@@ -774,7 +774,8 @@ export class MdbaseClient {
   /** The open session, or throw `unavailable` (SDK-internal use). */
   currentSession(): Session {
     if (!this.session || this.session.closed) {
-      throw this.linkError ?? mdbaseError("unavailable", "not connected to the replica", { reason: "reconnecting" });
+      if (this.linkState === "closed" && this.linkError) throw this.linkError;
+      throw mdbaseError("unavailable", "not connected to the replica", { reason: "reconnecting" });
     }
     return this.session;
   }
@@ -947,7 +948,7 @@ export class MdbaseClient {
       this.setLink("closed", e ?? null);
       return;
     }
-    if (e && (e.code === "unauthenticated" || e.code === "upgrade_required" || e.code === "forbidden")) {
+    if (e && (e.reason === "collection_deleted" || e.code === "unauthenticated" || e.code === "upgrade_required" || e.code === "forbidden")) {
       // Retrying cannot help: the app must reauthorize or upgrade.
       this.setLink("closed", e);
       return;
@@ -981,7 +982,7 @@ export class MdbaseClient {
         await this.restore(s);
         return;
       } catch (e) {
-        if (isMdbaseError(e) && ["unauthenticated", "forbidden", "upgrade_required"].includes(e.code)) {
+        if (isMdbaseError(e) && (e.reason === "collection_deleted" || ["unauthenticated", "forbidden", "upgrade_required"].includes(e.code))) {
           this.setLink("closed", e);
           for (const w of this.reconnectWaiters.splice(0)) w();
           return;

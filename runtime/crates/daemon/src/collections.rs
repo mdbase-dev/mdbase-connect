@@ -341,14 +341,9 @@ impl CollectionHost {
                             // opening, a terminal verdict stops it for good.
                             let mut last = Readiness::Pending;
                             let mut journal = journal;
-                            let mut recheck = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
                             loop {
                                 if cancel.load(Ordering::SeqCst) {
                                     return;
-                                }
-                                if tokio::time::Instant::now() >= recheck {
-                                    let _ = tokens.recheck().await;
-                                    recheck = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
                                 }
                                 let Some((mut s, caught_up, adopt)) = rt.readiness().await else {
                                     return; // stopped
