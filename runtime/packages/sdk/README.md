@@ -417,8 +417,12 @@ impact match the original consent. Different changes return `setup_changed`
 (`mdbase.setup.apply` returns `outcome: "changed"`); show a fresh plan and ask
 for consent again. Lost or uncertain mutation outcomes are never retried.
 Refusal codes: `setup_forbidden` (no `definitions.manage`),
-`setup_conflict`, `setup_downgrade` (a newer app version set it up) and
-`setup_records_forbidden`.
+`setup_conflict`, `setup_unresolved`, `installed_newer` (a newer app version
+set it up; `setup_downgrade` is its former name) and `setup_records_forbidden`.
+`setup_unresolved` means the collection still lacks what the app needs but
+setup has nothing it may write: a type the app seeded was edited away from
+every published version, so it can't be upgraded, or was removed. The person
+restores it in the collection; readiness re-checks and the next `plan` reflects it.
 
 `configure()` is plan and apply in one step, for collections with nothing to
 review. A conflict leaves the configuration facet `incompatible`; use

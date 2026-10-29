@@ -93,7 +93,7 @@ export const PROBLEM_CODES = [
   "people_unsupported", "people_permission_declined", "people_access",
   "configuration_conflict", "configuration_unavailable", "configuration_unsupported", "configuration_busy_timeout", "readiness_busy_timeout",
   // Setup review.
-  "setup_forbidden", "setup_conflict", "collection_setup_conflict", "setup_records_forbidden", "setup_changed", "installed_newer",
+  "setup_forbidden", "setup_conflict", "setup_unresolved", "collection_setup_conflict", "setup_records_forbidden", "setup_changed", "installed_newer",
   "type_pack_conflict", "invalid_type_pack",
   // Optional file actions.
   "access_required", "access_declined", "access_undeclared", "files_access_missing", "files_scope_missing", "file_read_failed", "file_read_idle",
@@ -199,6 +199,7 @@ const COPY = {
   configuration_unsupported: ["This app can't set up this collection", "This app's setup isn't supported by this version of mdbase. Contact the app's developer.", "contact_support", "warning"],
   setup_forbidden: ["You can't set up this collection", "Your access to this collection doesn't allow setting it up. Ask its owner to open it in this app first.", "choose_collection", "warning"],
   setup_conflict: ["Setup needs your decision", "Some things in this collection differ from what this app needs. Review them to continue.", "set_up", "warning", false, "Review setup"],
+  setup_unresolved: ["Setup can't finish", "This collection is missing something this app needs, and setup can't add it. A note type this app set up may have been changed or removed. Restore it, then try again.", "retry", "warning"],
   collection_setup_conflict: ["Collection setup conflicts", "This collection's definitions conflict with what this app requires. Ask its owner to review them, or choose a different collection. Setup cannot continue while these conflicts remain.", "choose_collection", "warning"],
   setup_records_forbidden: ["You can't add notes to this collection", "Your access to this collection doesn't allow creating notes, which this app's setup needs. Ask its owner for more access.", "choose_collection", "warning"],
   setup_changed: ["This collection changed", "The collection changed while you were reviewing its setup. Review the setup again; nothing was changed yet.", "set_up", "info", false, "Review again"],

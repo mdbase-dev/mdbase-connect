@@ -321,6 +321,59 @@ describe("setup review", () => {
   });
 });
 
+describe("setup review without a way forward", () => {
+  const needsSetup = { kind: "needs_setup", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" } } as MdbasePhase;
+  const base = { digest: "d", changes: [], conflicts: [], adoptable: {}, packs: [], staged: [], records: [] };
+  const flush = () => act(async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); });
+
+  it("offers Try again when setup has nothing to apply, re-checking and then planning again", async () => {
+    const { mdbase, entry } = fakeMdbase(needsSetup, { status: "setup_required", selectedCollectionId: A });
+    mdbase.setup.plan.mockResolvedValue({ ...base, status: "current", canApply: false, summary: "Everything this app needs is already set up." } as never);
+    mdbase.assess.mockResolvedValue({} as never);
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    await flush();
+    expect(() => button("Set up")).toThrow();
+    expect(() => button("Continue")).toThrow();
+    act(() => button("Try again").click());
+    await flush();
+    expect(mdbase.assess).toHaveBeenCalledTimes(1);
+    expect(mdbase.setup.plan).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers Try again beside a refusal whose own control is setup itself", async () => {
+    const { mdbase, entry } = fakeMdbase(needsSetup, { status: "setup_required", selectedCollectionId: A });
+    mdbase.setup.plan.mockResolvedValue({ ...base, status: "conflict", canApply: false, summary: "Some items can't be set up automatically.",
+      conflicts: [{ target: "_types/task.md", message: "The note type for this app was changed outside this app." }],
+      refusal: { code: "setup_conflict", message: "Some items can't be set up automatically." } } as never);
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    await flush();
+    expect(container.textContent).toContain("The note type for this app was changed outside this app.");
+    expect(button("Try again")).toBeTruthy();
+  });
+
+  it("plans again quietly when readiness settles after a change, keeping the review on screen", async () => {
+    const { mdbase, entry, set } = fakeMdbase(needsSetup, { status: "setup_required", selectedCollectionId: A });
+    const stuck = { ...base, status: "current", canApply: false, summary: "Everything this app needs is already set up." };
+    const upgrade = { ...base, status: "setup", canApply: true, summary: "This app will make 1 change to this collection.",
+      changes: [{ kind: "update", target: "_types/task.md", message: "Update the note type for this app." }] };
+    let resolve: (plan: unknown) => void = () => {};
+    mdbase.setup.plan.mockResolvedValueOnce(stuck as never).mockImplementationOnce(() => new Promise((r) => { resolve = r; }) as never);
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    await flush();
+    const readiness = mdbase.getSnapshot().readiness;
+    act(() => set({ readiness: { ...readiness, checking: true } }));
+    act(() => set({ readiness: { ...readiness, checking: false } }));
+    await flush();
+    expect(mdbase.setup.plan).toHaveBeenCalledTimes(2);
+    // The earlier review stays while the new plan is read.
+    expect(container.querySelector(".mdbase-collections-spinner")).toBeNull();
+    expect(button("Try again")).toBeTruthy();
+    await act(async () => { resolve(upgrade); await Promise.resolve(); });
+    expect(container.textContent).toContain("Update the note type for this app.");
+    expect(button("Set up")).toBeTruthy();
+  });
+});
+
 describe("blocked screen", () => {
   it("shows the problem with its fix inside, collections never as actions, and navigation in the footer", () => {
     const { mdbase, entry } = fakeMdbase({

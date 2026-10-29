@@ -1,7 +1,7 @@
 /** Reviewable collection setup: one plan for one review screen, then one
  * guarded all-or-nothing apply. Native Core plans; the SDK only words it. */
 import type { AppResourceAssessment, AppResourceReview } from "../app-host/collection-control.js";
-import type { MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot } from "./entry.js";
+import type { MdbaseApplicationReadinessSnapshot, MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot } from "./entry.js";
 import { versionRelation, type MdbaseVersionRelation } from "../semver.js";
 import type { NewerPacks } from "./configuration.js";
 
@@ -35,8 +35,11 @@ export interface MdbaseSetupConflict {
 }
 /** Why setup can't run. `installed_newer`: a newer major version of this app's
  * types is installed; ask the person to update the app (describeError action
- * `update_app`). `setup_downgrade` is the former name and is no longer produced. */
-export type MdbaseSetupRefusalCode = "setup_forbidden" | "setup_conflict" | "installed_newer" | "setup_downgrade" | "setup_records_forbidden";
+ * `update_app`). `setup_unresolved`: the collection still lacks what the app
+ * needs and setup has nothing it may write to fix it (a note type it set up
+ * was edited or removed); the person changes the collection, then plans again.
+ * `setup_downgrade` is the former name and is no longer produced. */
+export type MdbaseSetupRefusalCode = "setup_forbidden" | "setup_conflict" | "setup_unresolved" | "installed_newer" | "setup_downgrade" | "setup_records_forbidden";
 /** One type pack in a plan. `relation` compares the installed version with the
  * app's: `installed_newer` packs (same major) are kept as installed and the app
  * reads and writes them, keeping fields it does not know. */
@@ -105,6 +108,17 @@ export function setupRecords(records: unknown): readonly MdbaseSetupRecord[] {
   }));
 }
 
+const UNRESOLVED = "This collection is missing something this app needs, and setup can't add it. A note type this app set up may have been changed or removed. Restore it, then try again.";
+
+/** A plan with nothing to write cannot open a collection whose required
+ * contracts native readiness still finds missing or unimplemented (for example
+ * the app's seeded type was deleted). Say so instead of "nothing to do". */
+export function unresolvedSetup(plan: MdbaseSetupPlan, readiness: MdbaseApplicationReadinessSnapshot): MdbaseSetupPlan {
+  if (plan.status !== "current" || plan.refusal || readiness.facets.contracts.assessment?.status !== "setup_required") return plan;
+  return Object.freeze({ ...plan, status: "conflict" as const, summary: UNRESOLVED,
+    refusal: Object.freeze({ code: "setup_unresolved" as const, message: UNRESOLVED }) });
+}
+
 /** Word native Core's review for a first-run user. No raw codes in messages. */
 export function setupPlan(assessed: AppResourceAssessment, input: {
   readonly canManage: boolean; readonly canCreateRecords: boolean;
@@ -113,8 +127,9 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
   readonly newer?: NewerPacks;
 }): MdbaseSetupPlan {
   const review = assessed.review!;
-  const status = assessed.status === "current" ? "current" as const : assessed.status === "conflict" ? "conflict" as const : "setup" as const;
+  let status = assessed.status === "current" ? "current" as const : assessed.status === "conflict" ? "conflict" as const : "setup" as const;
   const changes: MdbaseSetupChange[] = [], conflicts: MdbaseSetupConflict[] = [], adoptable: Record<string, string> = {};
+  let kept = 0;
   for (const pack of review.packs) for (const r of pack.resources) {
     const thing = definition(r.kind), The = `T${thing.the.slice(1)}`;
     const why = r.kind === "contract" ? ", so other apps can work with them" : "";
@@ -134,6 +149,14 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
               : `${The} can't be set up automatically.` });
         break;
       }
+      // Core keeps a seed whose live bytes descend from no published baseline
+      // (`reason` says so). The app's newer type is then never written, so a
+      // required contract can stay unimplemented while the pack reads current.
+      case "preserve":
+        if (r.reason === undefined) break;
+        kept++;
+        conflicts.push({ target: r.target, message: `${The} was changed outside this app, so it can't be updated to the version this app needs.` });
+        break;
       default: break;
     }
   }
@@ -149,10 +172,13 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
   }
   const records = status === "current" ? [] : input.records.map(r => Object.freeze({ path: r.path, action: r.free ? "create" as const : "skip" as const }));
   for (const r of records) if (r.action === "create") changes.push({ kind: "record", target: r.path, message: `Create the starter note "${name(r.path)}".` });
+  // A kept seed blocks even a pack Core reports current: never "nothing to do".
+  if (status === "current" && conflicts.length) status = "conflict";
   const newerMajor = (input.newer?.major.length ?? 0) > 0 || review.packs.some(p => p.installedVersion && versionRelation(p.installedVersion, p.version) === "installed_newer_major");
   let refusal: MdbaseSetupPlan["refusal"];
   if (status !== "current" && !input.canManage) refusal = { code: "setup_forbidden", message: "This app doesn't have permission to set up this collection." };
   else if (newerMajor) refusal = { code: "installed_newer", message: "A newer version of this app set up this collection. Update the app to continue." };
+  else if (conflicts.length && conflicts.length === kept) refusal = { code: "setup_unresolved", message: UNRESOLVED };
   else if (conflicts.length) refusal = { code: "setup_conflict", message: conflicts.length === Object.keys(adoptable).length
     ? `${conflicts.length === 1 ? "One item differs" : `${conflicts.length} items differ`} from what this app needs. Choose whether to use this app's version to continue.`
     : "Some items can't be set up automatically. Resolve them, then try again." };

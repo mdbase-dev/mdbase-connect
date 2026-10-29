@@ -8,11 +8,13 @@ import type { ListResourcesResult, ResourceView } from "../src/wire.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { AppCollectionSetupJournal } from "../src/app-host/collection-setup-journal.js";
 import { AppCollectionControlError, appCollectionControlClient, attachAppCollectionControl } from "../src/app-host/collection-control.js";
+import type { AppResourceReview } from "../src/app-host/collection-control.js";
 import type { ModelResourcePlan } from "../src/app-host/collection-setup-types.js";
 import { applicationDeclaration } from "../src/application/declaration.js";
 import { compileApplicationManifest } from "../src/application/manifest.js";
 import { createApplicationConfiguration, newerPacks, withoutPacks, type ApplicationConfigurationResources } from "../src/application/configuration.js";
-import { setupPlan } from "../src/application/setup.js";
+import { setupPlan, unresolvedSetup } from "../src/application/setup.js";
+import type { MdbaseApplicationReadinessSnapshot } from "../src/application/entry.js";
 import { describeError } from "../src/describe-error.js";
 
 const digest = `sha256:${"ab".repeat(32)}`;
@@ -186,6 +188,48 @@ describe("scoped application configuration phase", () => {
     const f = await fixture(); f.status("conflict");
     try { expect((await f.helper.configure()).assessment?.status).toBe("incompatible"); expect(f.port.apply).not.toHaveBeenCalled(); }
     finally { await f.close(); }
+  });
+  it("a seed Core kept without an upgrade baseline blocks setup instead of reading as nothing to do", () => {
+    const kept = { target: "_types/task.md", kind: "type", mode: "seed" as const, action: "preserve" as const, installed: true,
+      currentDigest: digest, reason: "_types/task.md: no upgrade baseline applies to this type's origin" };
+    const pack = (status: "current" | "upgrade", resources: readonly unknown[]) => ({ status: status === "current" ? "current" as const : "provision" as const,
+      assessmentDigest: digest, review: { configuration: [], staged: [], packs: [{ id: "tasks", version: "1.1.0", status, installedVersion: "1.1.0",
+        resources: resources as AppResourceReview["packs"][number]["resources"] }] } });
+    const input = { canManage: true, canCreateRecords: true, records: [{ path: "Welcome.md", free: true }] };
+    const current = setupPlan(pack("current", [kept]), input);
+    expect(current).toMatchObject({ status: "conflict", canApply: false, refusal: { code: "setup_unresolved" },
+      conflicts: [{ target: "_types/task.md", message: expect.stringContaining("changed outside this app") }], records: [] });
+    expect(current.summary).not.toMatch(/already set up/);
+    // A pending upgrade is not applied around it either.
+    const contract = { target: "_contracts/tasks/1.1.0.md", kind: "contract", mode: "managed" as const, action: "create" as const, installed: false };
+    expect(setupPlan(pack("upgrade", [contract, kept]), input)).toMatchObject({ canApply: false, refusal: { code: "setup_unresolved" } });
+    // Alongside a conflict the person can decide, the decision comes first.
+    const edited = { target: "_contracts/tasks.md", kind: "contract", mode: "managed" as const, action: "conflict" as const, installed: true };
+    expect(setupPlan(pack("upgrade", [edited, kept]), input)).toMatchObject({ canApply: false, refusal: { code: "setup_conflict" } });
+    expect(describeError(current.refusal)).toMatchObject({ key: "setup_unresolved", action: "retry" });
+    // A seed the person chose to keep (no reason) stays quiet.
+    const { reason: _reason, ...chosen } = kept;
+    expect(setupPlan(pack("current", [chosen]), input)).toMatchObject({ status: "current", conflicts: [] });
+  });
+  it("nothing to apply while readiness still needs setup is unresolved, not nothing to do", () => {
+    const facet = (status: "ready" | "setup_required" | null) => ({ checking: false, problem: null,
+      assessment: status ? { status, problem: status === "ready" ? null : { code: "readiness_implementation_missing" } } : null });
+    const readiness = (contracts: "ready" | "setup_required" | null) => ({ ...facet(contracts), facets: { capabilities: facet(contracts), contracts: facet(contracts),
+      configuration: facet("ready"), files: facet("ready"), people: facet("ready"), notifications: facet("ready") } }) as unknown as MdbaseApplicationReadinessSnapshot;
+    const current = setupPlan({ status: "current", assessmentDigest: digest, review: { configuration: [], staged: [], packs: [] } },
+      { canManage: true, canCreateRecords: true, records: [] });
+    const unresolved = unresolvedSetup(current, readiness("setup_required"));
+    expect(unresolved).toMatchObject({ status: "conflict", canApply: false, refusal: { code: "setup_unresolved" }, digest: current.digest });
+    expect(unresolved.summary).toBe(unresolved.refusal?.message);
+    expect(Object.isFrozen(unresolved) && Object.isFrozen(unresolved.refusal)).toBe(true);
+    // Ready, or not yet assessed: the plan is returned unchanged.
+    expect(unresolvedSetup(current, readiness("ready"))).toBe(current);
+    expect(unresolvedSetup(current, readiness(null))).toBe(current);
+    // A plan with work or its own refusal keeps it.
+    const pending = setupPlan({ status: "provision", assessmentDigest: digest, review: { configuration: [], staged: [], packs: [{ id: "tasks", version: "1.0.0",
+      status: "install", installedVersion: null, resources: [{ target: "_types/task.md", kind: "type", mode: "seed", action: "create", installed: false }] }] } },
+      { canManage: true, canCreateRecords: true, records: [] });
+    expect(unresolvedSetup(pending, readiness("setup_required"))).toBe(pending);
   });
   it("R5.7: a newer same-major pack is kept as installed; a newer major asks for an app update", async () => {
     const row = (id: string, installedVersion: string, action: "update" | "conflict" = "update") => ({ id, version: "1.2.0", status: "conflict" as const, installedVersion,
