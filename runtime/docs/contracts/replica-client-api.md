@@ -735,7 +735,11 @@ hold = {
 | `list_holds` | — | `[* hold]` (pushed as `holds` on change to subscribers via `subscribe_holds`) |
 | `resolve_hold` | `{0: uuid, 1: &(keep_mine: 0, take_theirs: 1, use: 2, delete: 3, keep_both: 4), ? 2: tstr / uuid}` | a `receipt`: resolving submits an ordinary mutation. `keep_mine` for a record is a three-way merge preferring mine; for a file it is a replace. `take_theirs` takes the confirmed version, `use` takes the supplied document (or a completed upload's transfer ID, for a file), `delete` deletes it. `keep_both` (files, and records when wanted) writes mine as a new entry at a distinct path, `name (conflict <device> <date>).ext`, and takes theirs at the original path. **Binary files are never merged.** |
 
-`resolve_hold` requires `records.edit`, or `records.delete` for `delete`.
+`resolve_hold` requires `records.edit`, or `records.delete` for `delete`. With
+`records.edit`, the resolving mutation also dismisses the record's conflicts (§8.2),
+so no replica lists a conflict the hold decision settled. `<device>` in a `keep_both`
+path is the host's computer name when it sets one, else the device ID's first eight
+hex digits.
 
 **`suspect_write`** covers files whose provenance could not be verified: torn writes,
 the first scan after an OS crash, and the rule that one "missing" observation is not

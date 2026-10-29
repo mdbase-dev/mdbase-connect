@@ -614,6 +614,8 @@ impl Planner for TestPlanner {
                         });
                     }
                 }
+                // Applying removes the dismissed row; nothing to plan.
+                COp::ConflictDismiss(_) => {}
                 _ => {
                     return Err(Rejection::new(
                         RejectCode::InvalidRequest,
@@ -908,6 +910,65 @@ fn concurrent_disk_edits_hold_the_loser() {
     assert_eq!(a.file("a.md").as_deref(), Some("mine again"));
     assert_eq!(b.file("a.md").as_deref(), Some("mine again"));
     assert!(a.r.list_holds(a.s).unwrap().is_empty() && b.r.list_holds(b.s).unwrap().is_empty());
+}
+
+/// A hold decision settles the conflict it came from on every replica (the
+/// dismissal is logged with the decision), and a kept copy is named after the
+/// host's computer label.
+#[test]
+fn resolving_a_hold_dismisses_its_conflicts_everywhere() {
+    for how in [
+        HoldResolution::KeepMine,
+        HoldResolution::TakeTheirs,
+        HoldResolution::KeepBoth,
+    ] {
+        let svc = FakeLogService::new();
+        let mut a = node(&svc, 1);
+        let mut b = node(&svc, 2);
+        a.r.set_conflict_label("Callum's laptop/2");
+        b.r.set_conflict_label("Callum's laptop/2");
+        create(&mut a, 1, "a.md", "base");
+        settle(&mut [&mut a, &mut b]);
+        a.disk.borrow_mut().user_write("a.md", Some("mine A"));
+        b.disk.borrow_mut().user_write("a.md", Some("mine B"));
+        a.step();
+        b.step();
+        settle(&mut [&mut a, &mut b]);
+        let loser = if a.r.list_holds(a.s).unwrap().is_empty() {
+            &mut b
+        } else {
+            &mut a
+        };
+        let id = loser.r.list_holds(loser.s).unwrap()[0].id;
+        assert!(
+            !loser.r.list_conflicts(loser.s, None).unwrap().is_empty(),
+            "the held edit recorded a conflict"
+        );
+        loser.r.resolve_hold(loser.s, id, how.clone()).unwrap();
+        settle(&mut [&mut a, &mut b]);
+        for n in [&mut a, &mut b] {
+            assert!(n.r.list_holds(n.s).unwrap().is_empty(), "{how:?}");
+            assert!(
+                n.r.list_conflicts(n.s, None).unwrap().is_empty(),
+                "{how:?}: no replica lists the decided conflict"
+            );
+        }
+        if matches!(how, HoldResolution::KeepBoth) {
+            let copies: Vec<String> = a
+                .disk
+                .borrow()
+                .files
+                .keys()
+                .filter(|p| p.starts_with("a (conflict "))
+                .cloned()
+                .collect();
+            assert_eq!(copies.len(), 1, "{copies:?}");
+            assert!(
+                copies[0].starts_with("a (conflict Callum's laptop-2 "),
+                "{copies:?}"
+            );
+        }
+    }
 }
 
 #[test]

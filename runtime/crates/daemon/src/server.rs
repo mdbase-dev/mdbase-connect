@@ -6452,6 +6452,10 @@ impl Daemon {
                 Arc::new(move || changes.send_modify(|n| *n += 1))
             },
             sync: self.sync_ctx(),
+            computer_name: crate::cloud::CloudConfig::load(&self.profile.cloud_file())
+                .ok()
+                .flatten()
+                .and_then(|c| c.computer_name),
             old_connector_running: self.takeover.old_running.clone(),
         })
     }
