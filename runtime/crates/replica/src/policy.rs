@@ -180,10 +180,10 @@ pub struct Void {
 pub enum Rejected {
     /// Void: a deterministic no-op that still occupies its position.
     Void(Void),
-    /// Stall (`00-overview.md` §6.1–6.2): an unknown format or variant. The replica
-    /// stops **before** this position (`upgrade_required`); nothing is applied, not
-    /// even the position or the control chain. Voiding instead would let replicas
-    /// of different versions disagree on `P`.
+    /// Stall (`00-overview.md` §6.1–6.2): an unknown format/variant or missing
+    /// local trust. The replica stops **before** this position (`upgrade_required`);
+    /// nothing is applied, not even the position or the control chain. Voiding
+    /// instead would let replicas of different builds disagree on `P`.
     Stall(String),
 }
 
@@ -205,6 +205,9 @@ impl Rejected {
 /// The verdict on an item.
 pub type Verdict = Result<(), Rejected>;
 
+/// Only entry bytes and log-authoritative state may determine a void verdict.
+/// Local trust configuration and planner/build limitations must stall instead.
+/// New void sites require classification in the void-site inventory test.
 fn void(rule: &'static str, detail: impl Into<String>) -> Rejected {
     Rejected::Void(Void {
         rule,
@@ -1223,7 +1226,9 @@ impl PolicyState {
                 .trusted_roots
                 .iter()
                 .find(|pk| key_id(pk) == g.root)
-                .ok_or_else(|| void("genesis", "root is not trusted"))?;
+                .ok_or_else(|| {
+                    Rejected::Stall("genesis root is not trusted by this build".into())
+                })?;
             self.root = Some(g.root);
             self.root_pk = Some(B32(*pk));
             self.cp_roots.insert(B32(*pk));
@@ -1297,10 +1302,14 @@ impl PolicyState {
             && !self.local_root_in_force()
         {
             if !pins.root(&root, &root_pk) {
-                return Err(void("cp-cert", "root is not a published pin"));
+                return Err(Rejected::Stall(
+                    "root is not a published pin in this build".into(),
+                ));
             }
             if !pins.policy_key(&c.key_id(), &c.policy_pk, &root) {
-                return Err(void("cp-cert", "policy key is not a published pin"));
+                return Err(Rejected::Stall(
+                    "policy key is not a published pin in this build".into(),
+                ));
             }
         }
         let digest = c
@@ -1557,7 +1566,9 @@ impl PolicyState {
                 let to_cp = env.trusted_roots.contains(&rh.new_root.0);
                 let to_local = od.local_root == Some(rh.new_root);
                 if !(to_cp || to_local) {
-                    return Err(void("root-handover", "target root not allowed"));
+                    return Err(Rejected::Stall(
+                        "root-handover target is not trusted by this build".into(),
+                    ));
                 }
                 // In a cloud copy the control plane
                 // (enrolling an owner-account device with its own sign key and

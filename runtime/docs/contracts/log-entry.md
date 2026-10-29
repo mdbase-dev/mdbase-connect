@@ -426,7 +426,11 @@ Each of these stops the replica at `p − 1` until it can proceed, with status
   starts at the stall and is extended only by the bounded key-wait probe, never by a
   head hint;
 - an unknown payload `fmt`, or an unknown variant anywhere in the payload
-  (`00-overview.md` §6.2).
+  (`00-overview.md` §6.2);
+- a root or policy key missing from this build's trust configuration, or native
+  results this build's planner cannot verify (including planner errors). These
+  report `upgrade_required`, never a persisted void: retry the same bytes after
+  updating the configuration or build. Only bytes and log state may justify void.
 
 Reads keep serving at `p − 1`. Local writes stay pending.
 

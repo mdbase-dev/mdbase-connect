@@ -239,6 +239,67 @@ fn apply_body(
     panic!("bounded source did not finish");
 }
 #[test]
+fn native_planner_drift_stalls_before_head_advance() {
+    use crate::plan::Planner;
+    use mdbn_core::intent::Mutation;
+    use mdbn_core::plan::{PlanOptions, Planned, RejectCode, Rejection};
+    use mdbn_core::state::StateView;
+
+    struct DriftPlanner(bool);
+    impl Planner for DriftPlanner {
+        fn plan(
+            &self,
+            mutation: &Mutation,
+            state: &dyn StateView,
+            options: &PlanOptions,
+        ) -> Result<Planned, Rejection> {
+            if self.0 {
+                return Err(Rejection::new(
+                    RejectCode::InvalidRequest,
+                    None,
+                    "planner drift",
+                ));
+            }
+            let mut result = crate::plan::CorePlanner.plan(mutation, state, options)?;
+            result.effects.clear();
+            Ok(result)
+        }
+    }
+
+    for planner_error in [false, true] {
+        let mut node = node();
+        let writer = node.r.cfg.device_id;
+        let (content, objects) = contents(&mut node, &vec![b'x'; 1048577], true);
+        let payload = planned(&node, payload(content));
+        assert!(!payload.effects.is_empty());
+        let before_head = node.r.head;
+        let before_policy = node.r.policy.clone();
+        let before_meta = node.r.policy_meta();
+        let head = retain(&mut node);
+        node.r.planner = Box::new(DriftPlanner(planner_error));
+        assert!(matches!(
+            apply_body(&mut node, head, &payload, &objects, writer),
+            crate::replica::apply::Outcome::Stall(
+                mdbn_wire::client::IncidentKind::UpgradeRequired,
+                _
+            )
+        ));
+        assert_eq!(node.r.head, before_head);
+        assert_eq!(node.r.store.head().unwrap(), before_head);
+        assert_eq!(node.r.policy, before_policy);
+        assert_eq!(node.r.store.meta(&before_meta.0).unwrap(), before_meta.1);
+        assert!(node.r.store.file(&B16([52; 16])).unwrap().is_none());
+        node.r.planner = Box::new(crate::plan::CorePlanner);
+        assert!(matches!(
+            apply_body(&mut node, head, &payload, &objects, writer),
+            crate::replica::apply::Outcome::Applied
+        ));
+        assert_eq!(node.r.head, head);
+        assert_eq!(node.r.policy.voids, before_policy.voids);
+    }
+}
+
+#[test]
 fn atomic_native_create_and_both_kind_transitions_preserve_identity_without_tombs() {
     let mut a = node();
     let id = B16([52; 16]);
@@ -330,7 +391,7 @@ fn cached_source_never_replaces_mandatory_full_prior_descriptor_cas() {
     let h = retain(&mut a);
     assert!(matches!(
         apply_body(&mut a, h, &stale, &objects, writer),
-        crate::replica::apply::Outcome::Void("V7: unindexed result or prior CAS mismatch")
+        crate::replica::apply::Outcome::Stall(mdbn_wire::client::IncidentKind::UpgradeRequired, _)
     ));
     assert_eq!(a.r.store.file(&B16([52; 16])).unwrap().unwrap(), before);
 }

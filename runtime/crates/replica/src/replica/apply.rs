@@ -314,7 +314,8 @@ impl<S: Store> Replica<S> {
         Ok(Outcome::SourcePending)
     }
 
-    /// Commit the head advance of a void item.
+    /// Commit the head advance of a bytes/log-state-only void verdict.
+    /// Local trust configuration and planner/build limitations must stall instead.
     fn commit_void(&mut self, head: Head, reason: &'static str) -> Result<Outcome, StoreError> {
         self.policy.note_void(head.seq, None);
         self.commit_retained(
@@ -1309,11 +1310,10 @@ impl<S: Store> Replica<S> {
                     }
                 } else {
                     if native {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: unindexed result or prior CAS mismatch",
-                        );
+                        return Ok(Outcome::Stall(
+                            IncidentKind::UpgradeRequired,
+                            "native results cannot be verified by this build's planner".into(),
+                        ));
                     }
                     self.stats.verify_mismatch += 1;
                     self.incident(
