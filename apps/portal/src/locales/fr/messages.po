@@ -2332,7 +2332,6 @@ msgstr "Ouvrir dans {0}"
 msgid "Open in editor"
 msgstr "Ouvrir dans l’éditeur"
 
-#: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
@@ -2779,8 +2778,8 @@ msgid "Return to {mirrorName}."
 msgstr "Retourner à {mirrorName}."
 
 #: src/authority-workflows.tsx
-msgid "Return to mdbase connect."
-msgstr "Retourner à mdbase connect."
+#~ msgid "Return to mdbase connect."
+#~ msgstr "Retourner à mdbase connect."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3128,6 +3127,10 @@ msgstr "La connexion a été annulée. Vous pouvez réessayer ou choisir une aut
 msgid "Signed in <0>{0}</0> · ID {1}"
 msgstr "Connecté <0>{0}</0> · ID {1}"
 
+#: src/authority-workflows.tsx
+msgid "Signing in finishes on that computer."
+msgstr "La connexion se termine sur cet ordinateur."
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
@@ -3270,8 +3273,8 @@ msgid "the computer holding this collection"
 msgstr "l’ordinateur qui héberge cette collection"
 
 #: src/authority-workflows.tsx
-msgid "The desktop app will finish securely. No connector token was displayed or copied."
-msgstr "L’application de bureau terminera l’opération en toute sécurité. Aucun jeton de connexion n’a été affiché ni copié."
+#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
+#~ msgstr "L’application de bureau terminera l’opération en toute sécurité. Aucun jeton de connexion n’a été affiché ni copié."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
@@ -3740,6 +3743,10 @@ msgstr "Les écritures sont suspendues pendant la vérification, puis l’accès
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."
 msgstr "Vous avez autorisé les rappels pour les collections sélectionnées."
+
+#: src/authority-workflows.tsx
+msgid "You can close this tab."
+msgstr "Vous pouvez fermer cet onglet."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

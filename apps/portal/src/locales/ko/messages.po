@@ -2332,7 +2332,6 @@ msgstr "{0}에서 열기"
 msgid "Open in editor"
 msgstr "편집기에서 열기"
 
-#: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
@@ -2779,8 +2778,8 @@ msgid "Return to {mirrorName}."
 msgstr "{mirrorName}(으)로 돌아가세요."
 
 #: src/authority-workflows.tsx
-msgid "Return to mdbase connect."
-msgstr "mdbase connect로 돌아가세요."
+#~ msgid "Return to mdbase connect."
+#~ msgstr "mdbase connect로 돌아가세요."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3128,6 +3127,10 @@ msgstr "로그인이 취소되었습니다. 다시 시도하거나 다른 방법
 msgid "Signed in <0>{0}</0> · ID {1}"
 msgstr "로그인됨 <0>{0}</0> · ID {1}"
 
+#: src/authority-workflows.tsx
+msgid "Signing in finishes on that computer."
+msgstr "해당 컴퓨터에서 로그인이 완료됩니다."
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
@@ -3270,8 +3273,8 @@ msgid "the computer holding this collection"
 msgstr "이 컬렉션이 있는 컴퓨터"
 
 #: src/authority-workflows.tsx
-msgid "The desktop app will finish securely. No connector token was displayed or copied."
-msgstr "데스크톱 앱에서 안전하게 마무리합니다. 커넥터 토큰은 표시되거나 복사되지 않았습니다."
+#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
+#~ msgstr "데스크톱 앱에서 안전하게 마무리합니다. 커넥터 토큰은 표시되거나 복사되지 않았습니다."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
@@ -3740,6 +3743,10 @@ msgstr "확인하는 동안 쓰기가 일시 중지되고 이후 호스팅 액�
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."
 msgstr "선택한 컬렉션의 리마인더를 허용했습니다."
+
+#: src/authority-workflows.tsx
+msgid "You can close this tab."
+msgstr "이 탭을 닫아도 됩니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

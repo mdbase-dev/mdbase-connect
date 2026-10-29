@@ -6430,15 +6430,9 @@ impl Daemon {
                 "another link request is waiting for confirmation",
             ));
         };
-        let fingerprint = mdbn_replica::crypto::proof::client_fingerprint_display(
-            &mdbn_wire::common::B32(*client_pk),
-        );
         self.confirm(
             "Link Obsidian",
-            &format!(
-                "Let Obsidian on this computer use the collection \"{name}\" through mdbase?\n\n\
-                 Key fingerprint: {fingerprint}"
-            ),
+            &format!("Let Obsidian on this computer use \"{name}\"?"),
         )
         .await
         .map_err(|e| {

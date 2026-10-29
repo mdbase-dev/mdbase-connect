@@ -2332,7 +2332,6 @@ msgstr "Open in {0}"
 msgid "Open in editor"
 msgstr "Open in editor"
 
-#: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
@@ -2779,8 +2778,8 @@ msgid "Return to {mirrorName}."
 msgstr "Return to {mirrorName}."
 
 #: src/authority-workflows.tsx
-msgid "Return to mdbase connect."
-msgstr "Return to mdbase connect."
+#~ msgid "Return to mdbase connect."
+#~ msgstr "Return to mdbase connect."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3128,6 +3127,10 @@ msgstr "Sign-in was cancelled. You can try again or choose another method."
 msgid "Signed in <0>{0}</0> · ID {1}"
 msgstr "Signed in <0>{0}</0> · ID {1}"
 
+#: src/authority-workflows.tsx
+msgid "Signing in finishes on that computer."
+msgstr "Signing in finishes on that computer."
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
@@ -3270,8 +3273,8 @@ msgid "the computer holding this collection"
 msgstr "the computer holding this collection"
 
 #: src/authority-workflows.tsx
-msgid "The desktop app will finish securely. No connector token was displayed or copied."
-msgstr "The desktop app will finish securely. No connector token was displayed or copied."
+#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
+#~ msgstr "The desktop app will finish securely. No connector token was displayed or copied."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
@@ -3740,6 +3743,10 @@ msgstr "Writes pause during verification, then hosted access is retired."
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."
 msgstr "You allowed reminders for the selected collections."
+
+#: src/authority-workflows.tsx
+msgid "You can close this tab."
+msgstr "You can close this tab."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
