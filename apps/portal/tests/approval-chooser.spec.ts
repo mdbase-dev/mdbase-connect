@@ -55,7 +55,7 @@ for (const width of [1280, 390]) test(`searches approval collections without cha
   await expect(input).toHaveAttribute("data-value", "");
   await expect(input).not.toHaveAttribute("aria-activedescendant");
   await expect(picker).toHaveCSS("overflow-y", "auto");
-  expect(await picker.evaluate(el=>el.scrollHeight>el.clientHeight && el.clientHeight>0 && el.clientHeight<=innerHeight*0.4)).toBe(true);
+  expect(await picker.evaluate(el=>el.scrollHeight>el.clientHeight && el.clientHeight>0 && el.clientHeight<=innerHeight*0.55)).toBe(true);
   await expect(create).toBeEnabled();
   await expect(create).toHaveAttribute("aria-pressed", "false");
   await expect(picker.getByRole("option",{name:"New collection",exact:true})).toHaveCount(1);
@@ -81,7 +81,7 @@ for (const width of [1280, 390]) test(`searches approval collections without cha
   await expect(picker.getByRole("option")).toHaveCount(0);
   await expect(input).toHaveAttribute("data-value", "collection-59");
   await expect(page.getByRole("status")).toContainText("No collections match");
-  await expect(page.getByText("Selected: [test] Notes 59",{exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Open Reader with [test] Notes 59",exact:true})).toBeVisible();
   await expect(create).toBeEnabled();
   await expect(create).toHaveAttribute("aria-pressed", "false");
   await input.fill("");

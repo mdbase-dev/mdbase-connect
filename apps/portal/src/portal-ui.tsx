@@ -100,7 +100,7 @@ export function ThemeMenu() {
 export function PageBrand({ label, markMotion, busy = false, error = "" }: { label: string; markMotion?: MdbaseMarkMotion; busy?: boolean; error?: string }) {
   useLocaleRevision();
   const signal = useErrorSignal(error);
-  return <div className="page-brand-row"><div className="page-brand"><Brand markMotion={busy ? "bounce" : markMotion} markSignal={signal} /><span>{label}</span></div><ThemeMenu /></div>;
+  return <div className="page-brand-row"><div className="page-brand"><Brand markMotion={busy ? "bounce" : markMotion} markSignal={signal} /><span>{label}</span></div><div className="page-brand-controls"><ThemeMenu /></div></div>;
 }
 export function Brand({ productLabel = false, markMotion, markSignal }: { productLabel?: boolean; markMotion?: MdbaseMarkMotion; markSignal?: MdbaseMarkSignal | null }) {
   useLocaleRevision(); return <div className="product-brand"><MdbaseMark motion={markMotion} signal={markSignal} className="product-brand-mark" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
