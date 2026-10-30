@@ -935,11 +935,6 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "コレクションを選択"
 
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-msgid "Choose a collection to use in {0}."
-msgstr "{0} で使用するコレクションを選んでください。"
-
 #: src/authorization-review.tsx
 msgid "Choose a field"
 msgstr "フィールドを選択"
@@ -2431,7 +2426,6 @@ msgctxt "Connect interface"
 msgid "Overview"
 msgstr "概要"
 
-#: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
 msgstr "所有者"
@@ -2709,8 +2703,8 @@ msgstr "{0} からの要求です。要求元の出所は確認できません�
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
-msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr "{0}{1}{2} からの要求です。このアプリでログインを開始した場合のみ承認してください。"
+msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
+msgstr "<0>{0}</0>{1}{2} からの要求です。このアプリでログインを開始した場合のみ承認してください。"
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
@@ -2776,10 +2770,6 @@ msgstr "{applicationName} に戻ってください。"
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
 msgstr "{mirrorName} に戻ってください。"
-
-#: src/authority-workflows.tsx
-#~ msgid "Return to mdbase connect."
-#~ msgstr "mdbase connect に戻ってください。"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3271,10 +3261,6 @@ msgstr "このアプリケーションが要求したコレクションは利用
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
 msgstr "このコレクションを保持するコンピューター"
-
-#: src/authority-workflows.tsx
-#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
-#~ msgstr "デスクトップアプリで安全に完了します。コネクタートークンは表示もコピーもされていません。"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx

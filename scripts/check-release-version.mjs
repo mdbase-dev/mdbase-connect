@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import { packagePaths, lockPaths, betaVersion, versionedCrateNames } from "./lib/release-version.mjs";
+import { packagePaths, lockPaths, sdkVersionFields, betaVersion, versionedCrateNames } from "./lib/release-version.mjs";
 
 const root = JSON.parse(await readFile("package.json", "utf8"));
 const version = root.version;
@@ -15,6 +15,11 @@ for (const path of packagePaths) {
   if (manifest.version !== version) {
     throw new Error(`${path} has ${manifest.version}; expected ${version}.`);
   }
+}
+for (const [path, keys] of sdkVersionFields) {
+  const json = JSON.parse(await readFile(path, "utf8"));
+  const actual = keys.reduce((value, key) => value[key], json);
+  if (actual !== version) throw new Error(`${path}: SDK version has ${actual}; expected ${version}.`);
 }
 
 const cargoManifest = await readFile("Cargo.toml", "utf8");

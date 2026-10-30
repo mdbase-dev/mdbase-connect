@@ -935,11 +935,6 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "Sammlung auswählen"
 
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-msgid "Choose a collection to use in {0}."
-msgstr "Wählen Sie eine Sammlung für {0} aus."
-
 #: src/authorization-review.tsx
 msgid "Choose a field"
 msgstr "Feld auswählen"
@@ -2431,7 +2426,6 @@ msgctxt "Connect interface"
 msgid "Overview"
 msgstr "Übersicht"
 
-#: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
 msgstr "Eigentümer"
@@ -2709,8 +2703,8 @@ msgstr "Angefordert von {0}. Die Herkunft der Anfrage ist nicht verfügbar."
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
-msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr "Angefordert von {0}{1}{2}. Genehmigen Sie dies nur, wenn Sie die Anmeldung in dieser App gestartet haben."
+msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
+msgstr "Angefordert von <0>{0}</0>{1}{2}. Genehmigen Sie dies nur, wenn Sie die Anmeldung in dieser App gestartet haben."
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
@@ -2776,10 +2770,6 @@ msgstr "Zurück zu {applicationName}."
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
 msgstr "Zurück zu {mirrorName}."
-
-#: src/authority-workflows.tsx
-#~ msgid "Return to mdbase connect."
-#~ msgstr "Zurück zu mdbase connect."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3271,10 +3261,6 @@ msgstr "Die von dieser Anwendung angeforderte Sammlung ist nicht verfügbar."
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
 msgstr "der Computer mit dieser Sammlung"
-
-#: src/authority-workflows.tsx
-#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
-#~ msgstr "Die Desktop-App schließt den Vorgang sicher ab. Es wurde kein Connector-Token angezeigt oder kopiert."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx

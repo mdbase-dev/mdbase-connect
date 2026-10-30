@@ -935,11 +935,6 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "컬렉션 선택"
 
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-msgid "Choose a collection to use in {0}."
-msgstr "{0}에서 사용할 컬렉션을 선택하세요."
-
 #: src/authorization-review.tsx
 msgid "Choose a field"
 msgstr "필드 선택"
@@ -2431,7 +2426,6 @@ msgctxt "Connect interface"
 msgid "Overview"
 msgstr "개요"
 
-#: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
 msgstr "소유자"
@@ -2709,8 +2703,8 @@ msgstr "{0}에서 요청했습니다. 요청 출처 정보가 없습니다."
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
-msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr "{0}{1}{2}에서 요청했습니다. 이 앱에서 로그인을 시작한 경우에만 승인하세요."
+msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
+msgstr "<0>{0}</0>{1}{2}에서 요청했습니다. 이 앱에서 로그인을 시작한 경우에만 승인하세요."
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
@@ -2776,10 +2770,6 @@ msgstr "{applicationName}(으)로 돌아가세요."
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
 msgstr "{mirrorName}(으)로 돌아가세요."
-
-#: src/authority-workflows.tsx
-#~ msgid "Return to mdbase connect."
-#~ msgstr "mdbase connect로 돌아가세요."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3271,10 +3261,6 @@ msgstr "이 애플리케이션에서 요청한 컬렉션을 사용할 수 없습
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
 msgstr "이 컬렉션이 있는 컴퓨터"
-
-#: src/authority-workflows.tsx
-#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
-#~ msgstr "데스크톱 앱에서 안전하게 마무리합니다. 커넥터 토큰은 표시되거나 복사되지 않았습니다."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx

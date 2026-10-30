@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { packagePaths, lockPaths } from './release-version.mjs';
+import { packagePaths, lockPaths, sdkVersionFields } from './release-version.mjs';
 
 const exec = promisify(execFile);
 const checker = fileURLToPath(new URL('../check-release-version.mjs', import.meta.url));
@@ -21,6 +21,12 @@ async function fixture(run) {
   }
   try {
     for (const path of packagePaths) await put(path, JSON.stringify({ version }));
+    const sdkFiles = {};
+    for (const [path, keys] of sdkVersionFields) {
+      const json = sdkFiles[path] ??= {};
+      keys.slice(0, -1).reduce((value, key) => value[key] ??= {}, json)[keys.at(-1)] = version;
+    }
+    for (const [path, json] of Object.entries(sdkFiles)) await put(path, JSON.stringify(json));
     await put('Cargo.toml', `[workspace]\nmembers = ["crates/provider", "crates/adapter"]\n[workspace.package]\nversion = "${version}"\n`);
     await put('crates/provider/Cargo.toml', '[package]\nname = "mdbase-connect-hosted-provider"\nversion.workspace = true\n');
     await put('crates/adapter/Cargo.toml', '[package]\nname = "mdbase-connect-testbed-adapter"\nversion = "0.0.0"\n');
@@ -30,6 +36,18 @@ async function fixture(run) {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+for (const [path, keys] of sdkVersionFields) {
+  test(`release version refuses stale SDK ${keys.join('.')} in ${path}`, async () => {
+    await fixture(async (cwd, put) => {
+      const json = JSON.parse(await readFile(join(cwd, path), 'utf8'));
+      keys.slice(0, -1).reduce((value, key) => value[key], json)[keys.at(-1)] = '0.0.0';
+      await put(path, JSON.stringify(json));
+      await assert.rejects(exec(process.execPath, [checker], { cwd }), error =>
+        error.code === 1 && error.stderr.includes('SDK version'));
+    });
+  });
 }
 
 test('release version validates both locks without changing external dependency versions', async () => {

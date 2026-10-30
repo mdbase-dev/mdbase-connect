@@ -935,11 +935,6 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "选择集合"
 
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-msgid "Choose a collection to use in {0}."
-msgstr "选择要在 {0} 中使用的集合。"
-
 #: src/authorization-review.tsx
 msgid "Choose a field"
 msgstr "选择字段"
@@ -2431,7 +2426,6 @@ msgctxt "Connect interface"
 msgid "Overview"
 msgstr "概览"
 
-#: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
 msgstr "所有者"
@@ -2709,8 +2703,8 @@ msgstr "由 {0} 请求。无法获取请求来源。"
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
-msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr "由 {0}{1}{2} 请求。只有在你主动通过此应用登录时才批准。"
+msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
+msgstr "由 <0>{0}</0>{1}{2} 请求。只有在你主动通过此应用登录时才批准。"
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
@@ -2776,10 +2770,6 @@ msgstr "返回 {applicationName}。"
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
 msgstr "返回 {mirrorName}。"
-
-#: src/authority-workflows.tsx
-#~ msgid "Return to mdbase connect."
-#~ msgstr "返回 mdbase connect。"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3271,10 +3261,6 @@ msgstr "此应用请求的集合不可用。"
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
 msgstr "存有此集合的电脑"
-
-#: src/authority-workflows.tsx
-#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
-#~ msgstr "桌面应用将安全地完成后续操作。连接器令牌未被显示或复制。"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx

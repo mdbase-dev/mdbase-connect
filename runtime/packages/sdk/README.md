@@ -1,5 +1,11 @@
 # @mdbase-dev/sdk
 
+`@mdbase-dev/sdk` on npmjs contains production trust only. Staging/LAB use
+separately attested, version-pinned GitHub prerelease assets, not npm packages
+published to a registry. Publication uses the exact production-verified release
+tag and version; see
+[`docs/sdk-publication.md`](../../../docs/sdk-publication.md).
+
 The TS SDK for mdbase-next replicas. It implements the client side of
 `docs/contracts/replica-client-api.md` and is what web apps, Obsidian plugins and
 scripts use instead of today's `@mdbase-dev/connect`.

@@ -84,7 +84,7 @@ describe("approval collection chooser",()=>{
     vi.mocked(api).mockResolvedValue({pairing:{connector_name:app,approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,account_email:"test@example.test",app_origin:"https://planner.example",can_create_collection:false,collections:[{collection_id:"c",display_name:name,role:"owner"}]}});
     render(<Pairing pairingId="pairing"/>);
     expect(await screen.findByRole("heading",{name:`Open ${app}`})).toBeInTheDocument();
-    expect(screen.getByText(`Choose a collection to use in ${app}.`)).toBeInTheDocument();
+    expect(screen.getByRole("combobox",{name:`Open in ${app}`})).toBeInTheDocument();
     expect(screen.getByText(/^Requested by/)).toHaveTextContent(`Requested by ${app}`);
     expect(screen.getByText(/^Requested by/).querySelector("code")).toHaveTextContent("https://planner.example");
     fireEvent.click(screen.getByRole("option",{name}));

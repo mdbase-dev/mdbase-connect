@@ -935,11 +935,6 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "Choose a collection"
 
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-msgid "Choose a collection to use in {0}."
-msgstr "Choose a collection to use in {0}."
-
 #: src/authorization-review.tsx
 msgid "Choose a field"
 msgstr "Choose a field"
@@ -2431,7 +2426,6 @@ msgctxt "Connect interface"
 msgid "Overview"
 msgstr "Overview"
 
-#: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
 msgstr "Owner"
@@ -2709,8 +2703,8 @@ msgstr "Requested by {0}. No requesting origin is available."
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
-msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
+msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
+msgstr "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
@@ -2776,10 +2770,6 @@ msgstr "Return to {applicationName}."
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
 msgstr "Return to {mirrorName}."
-
-#: src/authority-workflows.tsx
-#~ msgid "Return to mdbase connect."
-#~ msgstr "Return to mdbase connect."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3271,10 +3261,6 @@ msgstr "The collection requested by this application is not available."
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
 msgstr "the computer holding this collection"
-
-#: src/authority-workflows.tsx
-#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
-#~ msgstr "The desktop app will finish securely. No connector token was displayed or copied."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx

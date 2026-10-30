@@ -21,10 +21,19 @@ export const packagePaths = [
   "packages/testing/package.json",
   "packages/ui/package.json",
   "packages/webhooks/package.json",
+  "runtime/packages/sdk/package.json",
   "services/mcp/package.json",
   "services/server/package.json"
 ];
 export const lockPaths = ["Cargo.lock", "deploy/docker/Cargo.lock.hosted-provider"];
+// npm lock and the local Obsidian consumer carry the same SDK version.
+export const sdkVersionFields = [
+  ["runtime/packages/sdk/package-lock.json", ["version"]],
+  ["runtime/packages/sdk/package-lock.json", ["packages", "", "version"]],
+  ["runtime/packages/obsidian-runtime/package.json", ["peerDependencies", "@mdbase-dev/sdk"]],
+  ["runtime/packages/obsidian-runtime/package-lock.json", ["packages", "", "peerDependencies", "@mdbase-dev/sdk"]],
+  ["runtime/packages/obsidian-runtime/package-lock.json", ["packages", "../sdk", "version"]]
+];
 export const betaVersion = /^0\.1\.0-beta\.[1-9][0-9]*$/;
 
 export async function versionedCrateNames(root, cargoManifest) {
@@ -61,6 +70,13 @@ export async function prepareVersion(root, version, { dryRun = false } = {}) {
     const source = await read(file);
     if (JSON.parse(source).version !== current) throw new Error(`${file}: version does not match ${current}.`);
     updates.set(file, replaceOne(source, /^(  "version": ")[^"]+(".*)$/m, `$1${version}$2`, file));
+  }
+  for (const [file, keys] of sdkVersionFields) {
+    const json = JSON.parse(updates.get(file) ?? await read(file));
+    const parent = keys.slice(0, -1).reduce((value, key) => value[key], json);
+    if (parent[keys.at(-1)] !== current) throw new Error(`${file}: SDK version does not match ${current}.`);
+    parent[keys.at(-1)] = version;
+    updates.set(file, `${JSON.stringify(json, null, 2)}\n`);
   }
   const cargo = await read("Cargo.toml");
   if (cargo.match(/\[workspace\.package\][\s\S]*?\nversion = "([^"]+)"/)?.[1] !== current) throw new Error("Cargo.toml workspace version is inconsistent.");
