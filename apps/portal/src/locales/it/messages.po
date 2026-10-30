@@ -935,11 +935,6 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "Scegli una raccolta"
 
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-#~ msgid "Choose a collection to use in {0}."
-#~ msgstr "Scegli una raccolta da usare in {0}."
-
 #: src/authorization-review.tsx
 msgid "Choose a field"
 msgstr "Scegli un campo"
@@ -2708,8 +2703,8 @@ msgstr "Richiesto da {0}. Non è disponibile un'origine della richiesta."
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
-msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr "Richiesto da {0}{1}{2}. Approva solo se hai avviato l'accesso in questa app."
+msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
+msgstr "Richiesto da <0>{0}</0>{1}{2}. Approva solo se hai avviato l'accesso in questa app."
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx

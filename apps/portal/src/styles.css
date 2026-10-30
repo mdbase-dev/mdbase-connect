@@ -36,6 +36,34 @@ body,
   margin: 0;
 }
 
+.page-brand-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+/* The native language picker matches the quiet theme menu beside it. */
+.page-brand-controls .language-setting select {
+  min-height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  color: var(--color-text);
+  background: transparent;
+  font: inherit;
+  font-size: var(--control-font-size);
+  width: auto;
+  field-sizing: content;
+  cursor: pointer;
+}
+
+.page-brand-controls .language-setting select:hover:not(:disabled) {
+  border-color: var(--color-border);
+}
+
 .account-shell {
   min-height: 100vh;
 }
@@ -929,19 +957,46 @@ select {
   min-width: 0;
 }
 
+/* Consent pages are long; start the decision near the header, not mid-screen. */
+.mdbase-connect-screen.installation-approval h1 {
+  margin-top: var(--space-8);
+}
+
+@media (max-width: 760px) {
+  .mdbase-connect-screen.installation-approval section {
+    margin-top: 0;
+  }
+}
+
 /* Consent becoming available must look enabled immediately, not fade from gray.
  * The approve label names the chosen collection, which can be long. */
 .installation-approval .mdbase-button.is-primary {
   transition-property: border-color;
   max-width: 100%;
+  margin: 0 var(--space-2) var(--space-2) 0;
   padding-block: var(--space-2);
   white-space: normal;
   overflow-wrap: anywhere;
 }
 
 .installation-approval .installation-account-label {
-  margin-top: var(--space-4);
+  margin-block: var(--space-1) 0;
   color: var(--color-text-muted);
+}
+
+.installation-approval .installation-requester {
+  margin-top: 0;
+  color: var(--color-text-soft);
+}
+
+.installation-approval .installation-requester strong {
+  color: var(--color-text);
+}
+
+.installation-approval .mdbase-connect-footnote {
+  margin-block: var(--space-4);
+  color: var(--color-text-soft);
+  font-size: var(--font-size-prose);
 }
 
 .installation-approval .installation-account-label code {
@@ -970,7 +1025,7 @@ select {
 
 .installation-approval .decision-actions {
   display: inline-flex;
-  margin: 0 0 0 var(--space-2);
+  margin: 0;
   padding: 0;
   border: 0;
 }
@@ -1011,10 +1066,13 @@ select {
   outline-offset: 2px;
 }
 
-/* The page is the only scroller; search narrows long catalogs. */
+/* Short lists sit in the page; long ones scroll so Create and Open stay near. */
 .collection-picker-list {
+  max-height: min(30rem, 55vh);
   min-width: 0;
-  border-top: 1px solid var(--color-border);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-block: 1px solid var(--color-border);
 }
 
 .collection-picker-option {
@@ -1030,6 +1088,7 @@ select {
   transition: background var(--motion-quick) var(--ease-standard);
 }
 
+.collection-picker-option:last-child { border-bottom: 0; }
 .collection-picker-option strong { font-weight: var(--font-weight-semibold); }
 .collection-picker-option small { color: var(--color-text-muted); font-size: var(--font-size-caption); }
 .collection-picker-option:hover { background: var(--color-surface-subtle); }
@@ -1037,7 +1096,6 @@ select {
 .collection-picker-option.is-selected { background: var(--color-accent-soft); }
 .collection-picker-option[aria-disabled="true"] { cursor: default; }
 .collection-picker-check { position: absolute; right: var(--space-3); top: 50%; translate: 0 -50%; color: var(--color-accent); font-weight: var(--font-weight-semibold); }
-.collection-picker-selection { margin: 0; overflow-wrap: anywhere; }
 .collection-picker-create { justify-self: start; min-height: 44px; margin-left: calc(-1 * var(--space-3) + 1px); }
 .collection-picker-create[aria-pressed="true"] { color: var(--color-text); background: var(--color-accent-soft); }
 

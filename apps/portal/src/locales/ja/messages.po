@@ -935,11 +935,6 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "コレクションを選択"
 
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-#~ msgid "Choose a collection to use in {0}."
-#~ msgstr "{0} で使用するコレクションを選んでください。"
-
 #: src/authorization-review.tsx
 msgid "Choose a field"
 msgstr "フィールドを選択"
@@ -2708,8 +2703,8 @@ msgstr "{0} からの要求です。要求元の出所は確認できません�
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
-msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr "{0}{1}{2} からの要求です。このアプリでログインを開始した場合のみ承認してください。"
+msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
+msgstr "<0>{0}</0>{1}{2} からの要求です。このアプリでログインを開始した場合のみ承認してください。"
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx

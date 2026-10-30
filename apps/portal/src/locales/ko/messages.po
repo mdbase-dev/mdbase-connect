@@ -935,11 +935,6 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "컬렉션 선택"
 
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-#~ msgid "Choose a collection to use in {0}."
-#~ msgstr "{0}에서 사용할 컬렉션을 선택하세요."
-
 #: src/authorization-review.tsx
 msgid "Choose a field"
 msgstr "필드 선택"
@@ -2708,8 +2703,8 @@ msgstr "{0}에서 요청했습니다. 요청 출처 정보가 없습니다."
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
-msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr "{0}{1}{2}에서 요청했습니다. 이 앱에서 로그인을 시작한 경우에만 승인하세요."
+msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
+msgstr "<0>{0}</0>{1}{2}에서 요청했습니다. 이 앱에서 로그인을 시작한 경우에만 승인하세요."
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx

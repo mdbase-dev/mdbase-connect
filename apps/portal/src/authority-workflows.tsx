@@ -361,7 +361,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             ) : (
               <>
                 <h1><Trans>Open {literal(pairing.connector_name)}</Trans></h1>
-                <p className="installation-account-label">{pairing.app_platform === "native" && isNativeLoopbackOrigin(pairing.app_origin) ? <Trans>Requested by an app running on this computer. Application identity unverified. This app calls itself {literal(pairing.connector_name)}. Approve only if you started sign-in in this app.</Trans> : <Trans>Requested by {literal(pairing.connector_name)}{appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""}{pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>}. Approve only if you started sign-in in this app.</Trans>}</p>
+                <p className="installation-account-label installation-requester">{pairing.app_platform === "native" && isNativeLoopbackOrigin(pairing.app_origin) ? <Trans>Requested by an app running on this computer. Application identity unverified. This app calls itself {literal(pairing.connector_name)}. Approve only if you started sign-in in this app.</Trans> : <Trans>Requested by <strong>{literal(pairing.connector_name)}</strong>{appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""}{pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>}. Approve only if you started sign-in in this app.</Trans>}</p>
                 {installationAccountLabel(pairing) ? (
                   <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>
                 ) : (
@@ -387,7 +387,6 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     </div>}
                     {privateChoice && <p className="field-note"><Trans>This collection stays on your computer. It can connect when a computer signed in to this account is available.</Trans></p>}
                     {privateChoice && !pairing.native_authorization_id && <p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>}
-                    <p className="mdbase-connect-footnote"><Trans>Access includes the notes and files in the collection you pick.{literal(createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : "")}{pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""}</Trans></p>
                     {!privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || pairing.retained_collection_ids?.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="installation-advanced">
                       <summary><Trans>Advanced: allow more collections</Trans></summary>
                       <CheckboxGroup legend={t(i18n)({ message: "Additional collection access" })} disabled={busy}>
@@ -417,6 +416,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       <button className="button primary installation-account-action" disabled={busy} onClick={()=>void act("remove-access")}><Trans>Remove access</Trans></button>
                     </div>}
                     {revokingId && <p role="status"><Trans>Removing access to {literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))}…</Trans></p>}
+                    <p className="mdbase-connect-footnote"><Trans>Access includes the notes and files in the collection you pick.{literal(createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : "")}{pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""}</Trans></p>
                     <button className="mdbase-button is-primary"
                       disabled={busy || !installationAccountLabel(pairing) || !selectedCollectionId || (selectedCollectionId===NEW_COLLECTION ? !pairing.can_create_collection || !newCollectionName.trim() : !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId))}
                       onClick={()=>void act("approve")}>

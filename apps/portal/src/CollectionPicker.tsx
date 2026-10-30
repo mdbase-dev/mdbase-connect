@@ -86,6 +86,6 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
     {filtered.length === 0 && <p className="field-note" role="status">{collections.length ? t(i18n)({ message: "No collections match. Try another name." }) : t(i18n)({ message: "No collections are available." })}</p>}
     {onCreate && <button className="mdbase-button is-tertiary collection-picker-create" type="button" disabled={disabled} aria-pressed={creationSelected}
       onClick={() => { setHighlighted(null); onCreate(); }}><Trans>Create a new collection…</Trans></button>}
-    {selected && <p className="field-note collection-picker-selection" aria-live="polite"><Trans>Selected: <strong>{literal(selected.name)}</strong></Trans></p>}
+    {selected && <p className="sr-only" aria-live="polite"><Trans>Selected: <strong>{literal(selected.name)}</strong></Trans></p>}
   </div>;
 }
