@@ -70,6 +70,7 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '24'
+          package-manager-cache: false
       - name: Source and publisher regressions
         run: node --test scripts/release-workers.test.mjs
       - name: Qualify exact source before any cross-repository credential use
@@ -230,6 +231,7 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '24'
+          package-manager-cache: false
       - name: Download only this run's immutable successful build artifact
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
