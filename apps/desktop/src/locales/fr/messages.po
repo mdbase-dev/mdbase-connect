@@ -90,11 +90,6 @@ msgstr "{0} ne peut plus utiliser {1} par cet ordinateur."
 msgid "{0} can now use {where}."
 msgstr "{0} peut maintenant utiliser {where}."
 
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "{0} is on this computer only now."
-#~ msgstr "{0} se trouve désormais uniquement sur cet ordinateur."
-
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
@@ -1547,11 +1542,6 @@ msgstr "Restez en ligne jusqu’à la fin des téléversements, puis réessayez.
 msgid "Stop {0} from using {1} through this computer?"
 msgstr "Empêcher {0} d’utiliser {1} par cet ordinateur ?"
 
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
-#~ msgstr "Arrêter de synchroniser {0} ? La collection reste sur cet ordinateur ; vos autres appareils et applications web cesseront de recevoir ses modifications."
-
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "Arrêté"
@@ -1839,10 +1829,6 @@ msgstr "Cette version de mdbase n’est plus prise en charge. La version vérifi
 #: src/renderer/daemon-view.mts
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "Cette version de mdbase est trop ancienne pour le service. Mettez mdbase à jour."
-
-#: src/renderer/collections-view.tsx
-#~ msgid "Turn off sync"
-#~ msgstr "Désactiver la synchronisation"
 
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"

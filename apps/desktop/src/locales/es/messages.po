@@ -90,11 +90,6 @@ msgstr "{0} ya no puede usar {1} a través de este ordenador."
 msgid "{0} can now use {where}."
 msgstr "{0} ya puede usar {where}."
 
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "{0} is on this computer only now."
-#~ msgstr "{0} ahora está solo en este ordenador."
-
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
@@ -1547,11 +1542,6 @@ msgstr "Mantente en línea hasta que terminen las cargas y vuelve a intentarlo."
 msgid "Stop {0} from using {1} through this computer?"
 msgstr "¿Impedir que {0} use {1} a través de este ordenador?"
 
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
-#~ msgstr "¿Dejar de sincronizar {0}? Permanecerá en este ordenador; tus otros dispositivos y las aplicaciones web dejarán de recibir sus cambios."
-
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "Detenida"
@@ -1839,10 +1829,6 @@ msgstr "Esta versión de mdbase ya no es compatible. La versión {0} está verif
 #: src/renderer/daemon-view.mts
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "Esta versión de mdbase es demasiado antigua para el servicio. Actualiza mdbase."
-
-#: src/renderer/collections-view.tsx
-#~ msgid "Turn off sync"
-#~ msgstr "Desactivar sincronización"
 
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"
