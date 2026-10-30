@@ -10,6 +10,8 @@ if (-not $Child) {
         throw 'Account/lifecycle tests are restricted to disposable GitHub Windows runners.'
     }
     if (Get-ScheduledTask -TaskName 'mdbase connect' -ErrorAction SilentlyContinue) { throw 'Refusing to replace a pre-existing task on the runner.' }
+    & wevtutil.exe sl Microsoft-Windows-TaskScheduler/Operational /e:true
+    if ($LASTEXITCODE -ne 0) { throw 'Could not enable Task Scheduler startup diagnostics.' }
     $Root = Join-Path $env:PUBLIC ('mdbase-428-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $Root | Out-Null
     Copy-Item $PSCommandPath (Join-Path $Root 'diagnostic.ps1')
@@ -103,6 +105,7 @@ public static class TestUserProfile {
 }
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$scenarioStarted = Get-Date
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 $report = [ordered]@{
     scenario = $Scenario
@@ -152,7 +155,35 @@ function Wait-Running([string]$Binary, [bool]$Expected) {
         Start-Sleep -Milliseconds 500
     }
     $info = Get-ScheduledTaskInfo -TaskName 'mdbase connect'
-    $report['taskFailure'] = @{ lastTaskResult = $info.LastTaskResult; state = [string](Get-ScheduledTask -TaskName 'mdbase connect').State }
+    $report['taskFailure'] = @{
+        lastTaskResult = $info.LastTaskResult
+        lastRunTime = $info.LastRunTime
+        state = [string](Get-ScheduledTask -TaskName 'mdbase connect').State
+        expectedRunning = $Expected
+        binary = $Binary
+        sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+    }
+    try {
+        $report['taskXml'] = Export-ScheduledTask -TaskName 'mdbase connect'
+        $report['daemonProcesses'] = @(Get-CimInstance Win32_Process -Filter "Name='mdbase.exe'" |
+            Where-Object { $_.ExecutablePath -like "$Root\*" } |
+            Select-Object ProcessId, ParentProcessId, SessionId, CreationDate, ExecutablePath, CommandLine)
+        $report['stateFiles'] = @(Get-ChildItem -LiteralPath $state -Recurse -File -ErrorAction SilentlyContinue |
+            Select-Object FullName, Length, LastWriteTimeUtc)
+        $report['schedulerEvents'] = @(Get-WinEvent -FilterHashtable @{
+            LogName = 'Microsoft-Windows-TaskScheduler/Operational'
+            StartTime = $scenarioStarted
+        } -ErrorAction SilentlyContinue | Where-Object { $_.ToXml() -match 'mdbase connect' } |
+            Select-Object TimeCreated, Id, LevelDisplayName, Message)
+        $report['applicationErrors'] = @(Get-WinEvent -FilterHashtable @{
+            LogName = 'Application'
+            StartTime = $scenarioStarted
+            Level = 2
+        } -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'mdbase' } |
+            Select-Object TimeCreated, Id, ProviderName, Message)
+    } catch {
+        $report['diagnosticError'] = $_.Exception.Message
+    }
     Save-Report
     throw "Task did not bring daemon running state to $Expected in this logon session."
 }

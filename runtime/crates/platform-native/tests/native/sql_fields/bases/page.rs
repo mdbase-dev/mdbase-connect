@@ -268,9 +268,7 @@ fn unready_versions_and_generation_or_head_drift_refuse() {
 
 #[test]
 fn unavailable_tags_and_unrequested_values_do_not_become_empty_tags() {
-    let mut r = row(1, "priority: 1");
-    r.doc.push_str("```\n#task\n```\n");
-    r.revision = revision(r.doc.as_bytes());
+    let r = row(1, "priority: 1\ntags: [7]");
     let (store, _, _, _, _) = open("raw_tag_availability", vec![r], &["priority"]);
     let mut req = request(&store);
     assert_eq!(

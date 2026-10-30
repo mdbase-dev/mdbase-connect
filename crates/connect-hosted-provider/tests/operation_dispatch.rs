@@ -1963,21 +1963,27 @@ async fn setup_turns_hosted_bases_into_records_that_list_run_and_edit() {
 
     // TaskNotes' Today Base runs over the rebuilt projections of ordinary
     // records and Base records alike.
-    let generation = fixture
-        .provider
-        .start_projection_generation(fixture.collection_id)
-        .await
-        .unwrap();
-    for _ in 0..16 {
-        let batch = fixture
-            .provider
-            .advance_projection_generation(fixture.collection_id, generation.generation_id)
-            .await
-            .unwrap();
-        if batch.generation.status == "complete" {
-            break;
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            fixture
+                .provider
+                .recover_projection_generations(1)
+                .await
+                .unwrap();
+            if fixture
+                .provider
+                .projection_status(fixture.collection_id)
+                .await
+                .unwrap()
+                .ready
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
         }
-    }
+    })
+    .await
+    .expect("setup's projection recovery completes");
     let today = operation(
         "create",
         json!({"path": "views/today.base", "frontmatter": serde_json::from_str::<Value>(TASKNOTES_TODAY_BASE).unwrap()}),
