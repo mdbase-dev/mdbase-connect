@@ -166,6 +166,7 @@ const JOIN_WAIT_REASONS: Record<string, string> = {
   get account_changed() { return t(i18n)({ message: "Sign in to mdbase to continue" }); },
   get sync_unreachable() { return t(i18n)({ message: "mdbase will retry when it can reach the server" }); },
   get sync_refused() { return t(i18n)({ message: "mdbase will retry once this collection has finished moving" }); },
+  get not_found() { return t(i18n)({ message: "mdbase will retry once this collection has finished moving" }); },
   get unexpected_status() { return t(i18n)({ message: "mdbase will retry once this collection has finished moving" }); },
   get folder_not_empty() { return t(i18n)({ message: "mdbase will retry in a new folder" }); }
 };

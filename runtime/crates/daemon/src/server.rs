@@ -2267,7 +2267,7 @@ impl Daemon {
                 .join_cloud_copy(&ctx.connector_id, &collection, &identity, &current)
                 .await
         }
-        .map_err(cloud_refusal)?;
+        .map_err(join_refusal)?;
         let state = if p.private {
             mdbn_wire::policy::CState::E2e
         } else {
@@ -4594,6 +4594,15 @@ async fn host_call(
 }
 
 /// A Connect refusal as a control error (no secrets in messages).
+fn join_refusal(error: crate::cloud::CloudError) -> ControlError {
+    match error {
+        crate::cloud::CloudError::Server(404, code) if code == "not_found" => {
+            ControlError::not_found("No collection with this ID is available to this account")
+        }
+        other => cloud_refusal(other),
+    }
+}
+
 fn cloud_refusal(e: crate::cloud::CloudError) -> ControlError {
     match e {
         crate::cloud::CloudError::Server(429, code)
@@ -4614,9 +4623,6 @@ fn cloud_refusal(e: crate::cloud::CloudError) -> ControlError {
             "sign this computer in again",
         ),
         crate::cloud::CloudError::Network(m) => ControlError::unavailable("sync_unreachable", m),
-        crate::cloud::CloudError::Server(404, code) if code == "not_found" => {
-            ControlError::not_found("the account has no collection with this ID")
-        }
         other => ControlError::unavailable("sync_refused", other.to_string()),
     }
 }
