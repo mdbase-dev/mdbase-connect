@@ -94,6 +94,8 @@ export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: stri
   const route = await migrationRoute(db, migrationRouting, collection);
   // A retired migration route has no hosted app; it never falls back to the default.
   if (route === "retired") return null;
+  // Moving hosting: the grant stands, with no hosted target until the move ends.
+  if (route === "moving") return { grant, target: null };
   const selected = route === "migration" ? migrationRouting!.hosted.url : origin;
   // A scoped destination never supplies a missing default for other accounts.
   if (!selected) return null;
