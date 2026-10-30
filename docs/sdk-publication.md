@@ -154,11 +154,14 @@ the same version. An owner must investigate and prepare a new version if the
 tag was already created. The npm and prerelease jobs are not a transaction; one
 may succeed while the other fails. Neither is silently republished or repaired.
 
-The publisher refuses replacement; repository writers can still change GitHub
-assets or tags outside this workflow while repository immutable releases are
-disabled. Consumers must pin the exact URL and lockfile integrity and verify the
-attached attestation against the reviewed producer SHA. Those checks reject
-substituted bytes; the URL alone provides no immutability guarantee.
+The active repository tag ruleset blocks updates and deletions of `v*` and
+`sdk-v*` tags with no bypass actors, while allowing tag creation. Repository
+immutable releases are enabled: these newly published prereleases lock their
+tags and assets after all four files have been uploaded to the draft. Existing
+published releases are not retroactively locked. See
+[release tag and asset integrity](release-contract.md#release-tag-and-asset-integrity).
+Consumers must still pin the exact URL and lockfile integrity and verify the
+attached attestation against the reviewed producer SHA.
 
 The workflow defaults to `dry_run: true`. PRs and dry-run dispatches build and
 verify all three packages without npm credentials, attestations or publication.
