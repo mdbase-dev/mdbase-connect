@@ -935,11 +935,6 @@ msgctxt "Application access approval"
 msgid "Choose a collection"
 msgstr "Elige una colección"
 
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-msgid "Choose a collection to use in {0}."
-msgstr "Elige una colección para usar en {0}."
-
 #: src/authorization-review.tsx
 msgid "Choose a field"
 msgstr "Elige un campo"
@@ -2431,7 +2426,6 @@ msgctxt "Connect interface"
 msgid "Overview"
 msgstr "Resumen"
 
-#: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
 msgstr "Propietario"
@@ -2709,8 +2703,8 @@ msgstr "Solicitado por {0}. No hay ningún origen disponible para la solicitud."
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
 #: src/authority-workflows.tsx
-msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr "Solicitado por {0}{1}{2}. Apruébalo solo si iniciaste sesión desde esta aplicación."
+msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
+msgstr "Solicitado por <0>{0}</0>{1}{2}. Apruébalo solo si iniciaste sesión desde esta aplicación."
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
@@ -2776,10 +2770,6 @@ msgstr "Vuelve a {applicationName}."
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
 msgstr "Vuelve a {mirrorName}."
-
-#: src/authority-workflows.tsx
-#~ msgid "Return to mdbase connect."
-#~ msgstr "Vuelve a mdbase connect."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3271,10 +3261,6 @@ msgstr "La colección solicitada por esta aplicación no está disponible."
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
 msgstr "el ordenador que contiene esta colección"
-
-#: src/authority-workflows.tsx
-#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
-#~ msgstr "La aplicación de escritorio terminará el proceso de forma segura. No se mostró ni copió ningún token del conector."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx

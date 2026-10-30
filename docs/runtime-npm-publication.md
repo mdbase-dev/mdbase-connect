@@ -1,32 +1,38 @@
 # Runtime npm publication
 
-The runtime packages are independent of the legacy Connect release train:
+The SDK follows the Connect release train; the other runtime packages retain
+their own versions:
 
 | Package | Initial manifest version | Source |
 | --- | --- | --- |
-| `@mdbase-dev/sdk` | `0.0.0` | `runtime/packages/sdk` |
+| `@mdbase-dev/sdk` | Connect release version (first cut `0.1.0-beta.149`) | `runtime/packages/sdk` |
 | `@mdbase-dev/obsidian-runtime` | `0.0.0` | `runtime/packages/obsidian-runtime` |
 | `mdbase` | `0.5.0-rc.1` | `runtime/packages/mdbase` |
 
-The existing `publish-npm.yml` does not publish these packages. Use the separate
+The existing `publish-npm.yml` does not publish these packages. The SDK now uses
+the separate source-build `publish-sdk-npm.yml` workflow from the production-verified
+release tag; see [SDK publication](sdk-publication.md). Only production is
+published to npmjs; staging/LAB use attested GitHub prerelease assets, not a
+registry. **Do not use the archive preparation,
+local-bootstrap or dispatch instructions below for any SDK package.**
+
+For `mdbase` and `@mdbase-dev/obsidian-runtime` only, use the separate
 `publish-runtime-npm.yml` manual workflow. It publishes one reviewed, committed
 archive unchanged, using GitHub-hosted runners and npm OIDC, without a token.
-It does not build runtime assets or replace existing SDK trust packaging.
+It does not build runtime assets and rejects SDK archive identities.
 Provenance identifies the public repository and publishing workflow, **not** a
 claim that this job rebuilt the archive from source.
 
 ## Prepare an archive
 
-Build using the existing package build paths. The SDK application build needs
-its normal authenticated application inputs; a plain TypeScript build is not an
-application release. The `mdbase` package needs both `mdbase-core.wasm` and the
-native addons for the platforms the release supports, not a browser-only pack.
+Build using the existing package build paths. The `mdbase` package needs both
+`mdbase-core.wasm` and the native addons for the platforms the release supports,
+not a browser-only pack.
 Build Rust release assets with `--remap-path-prefix` for the checkout and Cargo
 home so compiler paths do not expose the builder's private directories.
 
 Use the package metadata from this repository. Pack the complete Obsidian
-runtime, not an app-storage-only subset. Keep the SDK's bundled protocol
-dependency and its vendor archive for cold npm consumers. Review `npm pack
+runtime, not an app-storage-only subset. Review `npm pack
 --dry-run --json`, README, LICENSE, exports, declarations and actual archive
 contents (including nested archives and binaries) before committing the `.tgz`
 under `runtime/npm/`. No `.npmrc`, environment files, credentials, private build
@@ -37,9 +43,10 @@ Archive filenames may contain source hashes; npm identity comes from the
 **embedded package.json version**, not that filename. The first full archives
 may keep the versions above to match existing vendored manifests. Do not publish
 multiple different archives at the same name/version: npm versions are immutable.
-Publish the SDK before its runtime peer. For subsequent SDK/runtime releases use
-`0.0.1-next.0`, `0.0.1-next.1`, etc., updating the runtime peer and lockfiles
-together. Keep `mdbase` on its documented `0.5.0-rc.N` line. Publish previews,
+Publish the qualified SDK through its source-build workflow before its runtime
+peer. The SDK version and the Obsidian runtime's SDK peer/lock follow the
+Connect release version through `pnpm version:set`; the Obsidian runtime's own
+version stays independent. Keep `mdbase` on its documented `0.5.0-rc.N` line. Publish previews,
 including the initial `0.0.0` versions, only to `next`. Reserve `latest` for an
 explicitly approved stable release with a stable version; the workflow's tag
 choice is an owner decision, not inferred from the archive filename.

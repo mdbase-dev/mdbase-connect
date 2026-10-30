@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { prepareVersion, packagePaths, lockPaths } from "./release-version.mjs";
+import { prepareVersion, packagePaths, lockPaths, sdkVersionFields } from "./release-version.mjs";
 
 const oldVersion = "0.1.0-beta.123";
 const newVersion = "0.1.0-beta.125";
@@ -12,6 +12,12 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const files = {};
   for (const file of packagePaths) files[file] = JSON.stringify({ name: file, version: oldVersion }, null, 2) + "\n";
+  for (const [file, keys] of sdkVersionFields) {
+    const json = JSON.parse(files[file] ?? "{}");
+    const parent = keys.slice(0, -1).reduce((value, key) => value[key] ??= {}, json);
+    parent[keys.at(-1)] = oldVersion;
+    files[file] = JSON.stringify(json, null, 2) + "\n";
+  }
   files["apps/editor/package.json"] = '{"version":"9.9.9"}\n';
   files["Cargo.toml"] = `[workspace]\nmembers = ["crates/example", "crates/independent"]\n[workspace.package]\nversion = "${oldVersion}"\n`;
   files["crates/example/Cargo.toml"] = '[package]\nname = "example"\nversion.workspace = true\n';
@@ -33,10 +39,10 @@ async function fixture(t) {
   return { root, files };
 }
 
-test("dry run plans exactly the 20 version files plus notes and ceilings, without writes", async (t) => {
+test("dry run plans the release cohort and SDK locks, without writes", async (t) => {
   const { root, files } = await fixture(t);
   const plan = await prepareVersion(root, newVersion, { dryRun: true });
-  assert.equal(plan.updates.size, 22);
+  assert.equal(plan.updates.size, 26);
   // Release cohort including the shared i18n kit: do not accidentally bump
   // independently versioned products or omit a release input.
   assert.deepEqual([...plan.updates.keys()].filter((file) => !["CHANGELOG.md", "config/architecture-budgets.json"].includes(file)).sort(), [
@@ -45,6 +51,8 @@ test("dry run plans exactly the 20 version files plus notes and ceilings, withou
     "packages/client/package.json", "packages/devkit/package.json", "packages/i18n/package.json", "packages/management/package.json",
     "packages/pickle/package.json", "packages/protocol/package.json", "packages/sync/package.json",
     "packages/testing/package.json", "packages/ui/package.json", "packages/webhooks/package.json",
+    "runtime/packages/sdk/package.json", "runtime/packages/sdk/package-lock.json",
+    "runtime/packages/obsidian-runtime/package.json", "runtime/packages/obsidian-runtime/package-lock.json",
     "services/mcp/package.json", "services/mcp/src/mcp.ts", "services/server/package.json"
   ].sort());
   for (const [file, content] of Object.entries(files)) assert.equal(await readFile(path.join(root, file), "utf8"), content);
@@ -59,6 +67,10 @@ test("updates only cohort versions, preserves lock dependencies, consumes notes 
   await writeFile(path.join(root, "config/architecture-budgets.json"), JSON.stringify(previousBudgets));
   await prepareVersion(root, newVersion);
   for (const file of packagePaths) assert.equal(JSON.parse(await readFile(path.join(root, file), "utf8")).version, newVersion);
+  for (const [file, keys] of sdkVersionFields) {
+    const json = JSON.parse(await readFile(path.join(root, file), "utf8"));
+    assert.equal(keys.reduce((value, key) => value[key], json), newVersion);
+  }
   for (const lock of lockPaths) {
     const actual = await readFile(path.join(root, lock), "utf8");
     assert.equal(actual, files[lock].replace(`name = "example"\nversion = "${oldVersion}"`, `name = "example"\nversion = "${newVersion}"`));
@@ -74,6 +86,17 @@ test("updates only cohort versions, preserves lock dependencies, consumes notes 
   assert.equal(budgets.reviewBudgets.productionFiles, 1);
   assert.equal(budgets.productionFileBudgetsByPackage["services/mcp"], 1);
   await assert.rejects(prepareVersion(root, newVersion), /advance/);
+});
+
+test("a stale SDK lock or consumer peer fails before any release files change", async t => {
+  for (const [file, keys] of sdkVersionFields) {
+    const { root, files } = await fixture(t);
+    const json = JSON.parse(files[file]);
+    keys.slice(0, -1).reduce((value, key) => value[key], json)[keys.at(-1)] = "0.0.0";
+    await writeFile(path.join(root, file), JSON.stringify(json));
+    await assert.rejects(prepareVersion(root, newVersion), /SDK version/);
+    assert.equal(await readFile(path.join(root, "package.json"), "utf8"), files["package.json"]);
+  }
 });
 
 test("invalid versions and inconsistent inputs fail before any writes", async (t) => {

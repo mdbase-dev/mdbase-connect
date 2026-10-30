@@ -25,6 +25,32 @@ const MENU_IFACE: &str = "com.canonical.dbusmenu";
 type Layout = (i32, PropMap, Vec<Variant<Box<dyn RefArg>>>);
 type MenuEvent = (i32, String, Variant<Box<dyn RefArg>>, u32);
 
+/// Show a desktop notification through the freedesktop notification service.
+pub(super) fn notify(title: &str, body: &str) -> Result<(), dbus::Error> {
+    let connection = Connection::new_session()?;
+    let proxy = connection.with_proxy(
+        "org.freedesktop.Notifications",
+        "/org/freedesktop/Notifications",
+        Duration::from_secs(5),
+    );
+    let _: (u32,) = proxy.method_call(
+        "org.freedesktop.Notifications",
+        "Notify",
+        // app name, replaces ID, icon, summary, body, actions, hints, timeout.
+        (
+            "mdbase",
+            0u32,
+            "",
+            title,
+            body,
+            Vec::<&str>::new(),
+            PropMap::new(),
+            -1i32,
+        ),
+    )?;
+    Ok(())
+}
+
 struct State {
     menu: Arc<Mutex<Menu>>,
     snapshot: watch::Receiver<Snapshot>,

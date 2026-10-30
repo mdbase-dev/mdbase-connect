@@ -1,5 +1,10 @@
 # Authenticated NEXT trust release extension
 
+Source-built SDK npm packages use the reviewed environment asset pins and the
+same canonical build verifier, not app-supplied trust or an operator-built SDK.
+See [SDK publication](sdk-publication.md) for the separate package identities,
+production beta.141 pin, integrity checks and production-verified release-tag gate.
+
 **Status (October 2026):** [PR #946](https://github.com/mdbase-dev/mdbase-connect/pull/946)
 merged production trust embedding into the production runtime daemon. The
 "prepared" sections below retain immutable asset/publication provenance; they

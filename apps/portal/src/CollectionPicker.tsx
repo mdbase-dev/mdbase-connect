@@ -76,7 +76,7 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
         className={`collection-picker-option${collection.id === value ? " is-selected" : ""}${index === active ? " is-highlighted" : ""}`}
         onMouseDown={event => event.preventDefault()} onClick={() => choose(collection)}
       >
-        <strong>{collection.kind === "private" && <span className="collection-picker-lock" aria-hidden="true">🔒 </span>}{collection.name}</strong>
+        <strong>{collection.name}</strong>
         {(collection.kind === "private" || collection.hint || collection.id === recent) && <small id={`${id}-hint-${index}`}>
           {[collection.id === recent ? t(i18n)`Recently used` : null, collection.kind === "private" ? t(i18n)`Private` : null, collection.hint].filter(Boolean).join(" · ")}
         </small>}
@@ -84,8 +84,8 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
       </div>)}
     </div>
     {filtered.length === 0 && <p className="field-note" role="status">{collections.length ? t(i18n)({ message: "No collections match. Try another name." }) : t(i18n)({ message: "No collections are available." })}</p>}
-    {onCreate && <button className="collection-picker-create" type="button" disabled={disabled} aria-pressed={creationSelected}
+    {onCreate && <button className="mdbase-button is-tertiary collection-picker-create" type="button" disabled={disabled} aria-pressed={creationSelected}
       onClick={() => { setHighlighted(null); onCreate(); }}><Trans>Create a new collection…</Trans></button>}
-    {selected && <p className="field-note collection-picker-selection" aria-live="polite"><Trans>Selected: <strong>{literal(selected.name)}</strong></Trans></p>}
+    {selected && <p className="sr-only" aria-live="polite"><Trans>Selected: <strong>{literal(selected.name)}</strong></Trans></p>}
   </div>;
 }

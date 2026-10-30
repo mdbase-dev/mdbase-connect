@@ -212,13 +212,9 @@ fn notice_copy(notice: Notice) -> (&'static str, &'static str) {
 #[cfg(target_os = "linux")]
 async fn show_notice(notice: Notice) -> bool {
     let (title, body) = notice_copy(notice);
-    notify_rust::Notification::new()
-        .summary(title)
-        .body(body)
-        .appname("mdbase")
-        .show_async()
+    tokio::task::spawn_blocking(move || super::linux::notify(title, body).is_ok())
         .await
-        .is_ok()
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "windows")]
