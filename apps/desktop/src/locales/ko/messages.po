@@ -90,11 +90,6 @@ msgstr "{0}이(가) 이 컴퓨터를 통해 {1}을(를) 더 이상 사용할 수
 msgid "{0} can now use {where}."
 msgstr "{0}이(가) 이제 {where}을(를) 사용할 수 있습니다."
 
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "{0} is on this computer only now."
-#~ msgstr "{0}은(는) 이제 이 컴퓨터에만 있습니다."
-
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
@@ -1547,11 +1542,6 @@ msgstr "업로드가 끝날 때까지 온라인 상태를 유지한 뒤 다시 �
 msgid "Stop {0} from using {1} through this computer?"
 msgstr "{0}이(가) 이 컴퓨터를 통해 {1}을(를) 사용하지 못하게 할까요?"
 
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
-#~ msgstr "{0}의 동기화를 중단할까요? 이 컴퓨터에는 남지만 다른 기기와 웹 앱은 변경 사항을 더 이상 받지 못합니다."
-
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "중단됨"
@@ -1839,10 +1829,6 @@ msgstr "이 버전의 mdbase는 더 이상 지원되지 않습니다. 검증된 
 #: src/renderer/daemon-view.mts
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "이 mdbase 버전은 서비스에 사용하기에 너무 오래되었습니다. mdbase를 업데이트하세요."
-
-#: src/renderer/collections-view.tsx
-#~ msgid "Turn off sync"
-#~ msgstr "동기화 끄기"
 
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"

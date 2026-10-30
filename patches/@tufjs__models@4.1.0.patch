@@ -1,0 +1,16 @@
+diff --git a/dist/utils/verify.js b/dist/utils/verify.js
+index 8232b6f6a97ab1713303f5e3696f4de253b8e22b..ea7fb748886b35a91ca90ec190389afb78e890c7 100644
+--- a/dist/utils/verify.js
++++ b/dist/utils/verify.js
+@@ -8,6 +8,10 @@ const canonical_json_1 = require("@tufjs/canonical-json");
+ const crypto_1 = __importDefault(require("crypto"));
+ const verifySignature = (metaDataSignedData, key, signature) => {
+     const canonicalData = Buffer.from((0, canonical_json_1.canonicalize)(metaDataSignedData));
+-    return crypto_1.default.verify(undefined, canonicalData, key, Buffer.from(signature, 'hex'));
++    // BoringSSL (Electron) has no default digest for EC or RSA keys; name
++    // OpenSSL's default explicitly. EdDSA keys must not specify one.
++    const keyType = (key.key ?? key).asymmetricKeyType;
++    const algorithm = keyType === 'ed25519' || keyType === 'ed448' ? undefined : 'sha256';
++    return crypto_1.default.verify(algorithm, canonicalData, key, Buffer.from(signature, 'hex'));
+ };
+ exports.verifySignature = verifySignature;

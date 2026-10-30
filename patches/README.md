@@ -1,4 +1,6 @@
-# Linux installer patches
+# Dependency patches
+
+## Linux installer patches
 
 `electron-installer-common@0.10.4` and `electron-installer-redhat@3.4.0`
 only support one executable link. The desktop's `additionalBinaries` option
@@ -34,3 +36,22 @@ A separate package owning `/usr/bin/mdbase` must be resolved by the package
 manager: do not use force-overwrite flags or maintainer scripts to replace it.
 An independently installed `/usr/local/bin/mdbase` can still shadow `/usr/bin`;
 `command -v mdbase` identifies which executable the shell selects.
+
+## Sigstore signature digests in Electron
+
+`@tufjs/models@4.1.0` (TUF metadata signatures) and `@sigstore/core@3.2.1`
+(transparency-log and DSSE signatures) call `crypto.verify` without a digest.
+Node's OpenSSL then uses SHA-256 for EC and RSA keys, but Electron's BoringSSL
+throws `NO_DEFAULT_DIGEST`, which the libraries report as an invalid signature.
+The desktop updater therefore rejected every release with "root was signed by
+0/3 keys" (issue #426). Both patches name SHA-256 for non-EdDSA keys, which is
+exactly the digest Node already selects, and leave EdDSA keys without one.
+
+Remove each patch when its upstream package specifies the digest itself. A
+dependency upgrade that changes either version must carry the patch forward
+until then: `pnpm install` fails on a patch for a version that is no longer
+installed.
+
+Verification: `node --test apps/desktop/test/sigstore-electron-crypto.test.mjs`
+runs both helpers in Electron's runtime, with ECDSA, tampered ECDSA, and
+Ed25519 cases.
