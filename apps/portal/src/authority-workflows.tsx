@@ -361,7 +361,6 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             ) : (
               <>
                 <h1><Trans>Open {literal(pairing.connector_name)}</Trans></h1>
-                <p className="mdbase-connect-lead"><Trans>Choose a collection to use in {literal(pairing.connector_name)}.</Trans></p>
                 <p className="installation-account-label">{pairing.app_platform === "native" && isNativeLoopbackOrigin(pairing.app_origin) ? <Trans>Requested by an app running on this computer. Application identity unverified. This app calls itself {literal(pairing.connector_name)}. Approve only if you started sign-in in this app.</Trans> : <Trans>Requested by {literal(pairing.connector_name)}{appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""}{pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>}. Approve only if you started sign-in in this app.</Trans>}</p>
                 {installationAccountLabel(pairing) ? (
                   <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>

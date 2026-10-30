@@ -937,8 +937,8 @@ msgstr "コレクションを選択"
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
-msgid "Choose a collection to use in {0}."
-msgstr "{0} で使用するコレクションを選んでください。"
+#~ msgid "Choose a collection to use in {0}."
+#~ msgstr "{0} で使用するコレクションを選んでください。"
 
 #: src/authorization-review.tsx
 msgid "Choose a field"
