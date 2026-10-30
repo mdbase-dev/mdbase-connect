@@ -59,6 +59,35 @@ Schema versions are monotonic. Readers fail closed on unknown versions and
 unknown, missing, duplicated, mutable, wrong-platform, or wrong-repository
 components.
 
+## Release tag and asset integrity
+
+The active repository tag ruleset **Protect release tags** (ID `26238772`)
+blocks updates and deletions of `v*` and `sdk-v*` tags. Its bypass list is empty.
+It does not restrict tag creation, so the existing release workflows, authorized
+operators and the release automation App can create new tags using their
+existing permissions. They cannot move or delete an existing matching tag.
+
+Repository immutable releases are enabled. Releases published after enablement
+lock their associated tag and release assets; existing published releases are
+not retroactively locked. Check each release's `immutable` API field when
+assessing older evidence. Draft releases and their assets remain editable until
+publication.
+
+Both publishers upload every release asset before publishing the draft:
+
+- `desktop-release.yml` passes all `release-artifacts/*` files to one
+  `gh release create` invocation. With attached assets, GitHub CLI creates a
+  draft, uploads the files, then publishes it. The subsequent website job only
+  dispatches a notification.
+- `publish-sdk-npm.yml` calls `scripts/publish-sdk-prerelease.mjs`, which creates
+  a draft, uploads both staging/LAB tarballs and their two Sigstore bundles,
+  rechecks the tag commit, then publishes the prerelease.
+
+Keep every asset upload before publication. Failed or unknown publication is
+an investigation boundary, never permission to replace assets or move a tag.
+Consumers still verify exact source identity, signatures, attestations and
+lockfile integrity; repository protections supplement those checks.
+
 ## Upgrade predecessor and historical regressions
 
 `.github/previous-release.env` identifies a versioned published upgrade fixture,
