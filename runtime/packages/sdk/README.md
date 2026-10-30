@@ -1,5 +1,12 @@
 # @mdbase-dev/sdk
 
+Registry publication is source-built with one pinned trust environment:
+`@mdbase-dev/sdk` is production; `@mdbase-dev/sdk-staging` and
+`@mdbase-dev/sdk-lab` contain only their respective environment's trust.
+Use exact versions, never runtime trust overrides. The first source-built cut
+is held pending the separate runtime port and release-owner approval; see
+[`docs/sdk-publication.md`](../../../docs/sdk-publication.md).
+
 The TS SDK for mdbase-next replicas. It implements the client side of
 `docs/contracts/replica-client-api.md` and is what web apps, Obsidian plugins and
 scripts use instead of today's `@mdbase-dev/connect`.

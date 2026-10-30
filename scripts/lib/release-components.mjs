@@ -1,5 +1,6 @@
 import { access, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { validateSdkPublication } from "./sdk-publication.mjs";
 
 const SHA = /^[0-9a-f]{40}$/;
 const DIGEST_IMAGE = /^(ghcr\.io\/mdbase-dev\/[a-z0-9-]+)@(sha256:[0-9a-f]{64})$/;
@@ -29,10 +30,15 @@ export async function validateReleaseComponents(contract, { root = process.cwd()
   if (!requireObject(contract, "release contract", failures)) return failures;
   requireExactFields(contract, new Set([
     "$schema", "schemaVersion", "repository", "publication",
-    "sourceDependencies", "components",
+    "sourceDependencies", "components", "sdkPublication",
   ]), "release contract", failures);
 
-  if (contract.schemaVersion !== 1) failures.push("schemaVersion must be 1");
+  if (contract.schemaVersion !== 2) failures.push("schemaVersion must be 2");
+  try {
+    validateSdkPublication(contract.sdkPublication, root);
+  } catch (error) {
+    failures.push(`sdkPublication is invalid: ${error.message}`);
+  }
   if (contract.repository !== "mdbase-dev/mdbase-connect") {
     failures.push("repository must be mdbase-dev/mdbase-connect");
   }

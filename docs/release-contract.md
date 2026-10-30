@@ -1,5 +1,12 @@
 # Product release contract
 
+The source inventory is now schema v2: `sdkPublication` records the separate
+environment-pinned npm SDK workflow and its held readiness gate. See
+[SDK publication](sdk-publication.md). Private contract readers must adopt v2
+before promotion resumes. The OCI component matrix and signed image release
+bundle stay unchanged (bundle schema v1); SDK npm versions are independently
+qualified and attested, not silently added to the image bundle.
+
 `config/release-components.json` is the public, non-secret inventory of every
 product artifact promoted together as an mdbase Connect server release. It owns
 component IDs, GHCR repositories, Dockerfiles, build contexts, runtime

@@ -1,12 +1,45 @@
 {
   "$schema": "./release-components.schema.json",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "repository": "mdbase-dev/mdbase-connect",
   "publication": {
     "workflow": "publish-images.yml",
     "artifactName": "release-bundle",
     "certificateIdentity": "https://github.com/mdbase-dev/mdbase-connect/.github/workflows/publish-images.yml@refs/heads/main",
     "certificateIssuer": "https://token.actions.githubusercontent.com"
+  },
+  "sdkPublication": {
+    "workflow": "publish-sdk-npm.yml",
+    "ready": false,
+    "environments": {
+      "production": {
+        "package": "@mdbase-dev/sdk",
+        "sha256": "7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7",
+        "bytes": 840,
+        "cpOrigin": "https://connect.mdbase.dev",
+        "logOrigin": "https://log.mdbase.dev",
+        "sourceCommit": "36abd4b065be9495a7f5ae0808865a1f2279af04",
+        "sourceVersion": "0.1.0-beta.141"
+      },
+      "staging": {
+        "package": "@mdbase-dev/sdk-staging",
+        "sha256": "18ae86a26f9c8b2442235c537b8d58dcc059c05e4bb0f175607fd0aeacc3f0ad",
+        "bytes": 853,
+        "cpOrigin": "https://connect-staging.mdbase.dev",
+        "logOrigin": "https://log-staging.mdbase.dev",
+        "sourceCommit": "36abd4b065be9495a7f5ae0808865a1f2279af04",
+        "sourceVersion": "0.1.0-beta.141"
+      },
+      "lab": {
+        "package": "@mdbase-dev/sdk-lab",
+        "sha256": "88fe5249be83d7db9999d88d4f62acaca79e8bdcabe2c9f236e2942014de3334",
+        "bytes": 876,
+        "cpOrigin": "https://connect-lab.mdbase.dev",
+        "logOrigin": "https://mdbase-next-log-lab-20261005.callumalpass.workers.dev",
+        "sourceCommit": "8a014fe2abd2d9c6a8b1ed3e77c35cfda3392d3e",
+        "sourceVersion": "0.1.0-beta.129"
+      }
+    }
   },
   "sourceDependencies": [
     {

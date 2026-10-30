@@ -33,6 +33,10 @@ describe("explicit build environment selection (context validation, not authenti
     expect(() => selectAppEnvironment({environment: "production", appOrigin, release: release("production")})).toThrow();
     expect(selectAppEnvironment({environment: "production", appOrigin: "https://notes.example.test", release: release("production")}).allowLoopbackHttp).toBe(false);
   });
+  it.each(["lab", "staging"] as const)("production declarations refuse the %s package's fixed trust", environment => {
+    expect(() => selectAppEnvironment({environment: "production", appOrigin: "https://notes.example.test", release: release(environment)})).toThrow();
+    expect(() => selectAppEnvironment({environment, appOrigin: "https://notes.example.test", release: release("production")})).toThrow();
+  });
   it.each(["lab", "staging", "production"] as const)("takes %s CP/log origins only from explicit build metadata, not deployment inference", environment => {
     // Synthetic structural fixture, not authenticated release provenance. The
     // BUILD verifier must authenticate the external context before selection.

@@ -1,0 +1,124 @@
+name: Publish source-built SDK
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/publish-sdk-npm.yml
+      - .github/workflows/publish-runtime-npm.yml
+      - config/release-components*
+      - config/next-trust/**
+      - scripts/**sdk-publication*
+      - scripts/lib/sdk-publication*
+      - runtime/packages/sdk/**
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [production, staging, lab]
+        default: production
+      dry_run:
+        description: Build, verify and pack only; never publish by default
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-npm-${{ inputs.environment || 'validation' }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: node --test scripts/lib/sdk-publication.test.mjs
+      - run: node scripts/sdk-publication.mjs check
+
+  build:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    env:
+      SDK_ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Refuse a release before the runtime port is qualified
+        if: ${{ !inputs.dry_run }}
+        run: node scripts/sdk-publication.mjs ready
+      - name: Require qualified main before publication
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/ci/verify-qualified-commit "$GITHUB_SHA"
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow runtime-ci.yml --commit "$GITHUB_SHA" \
+            --branch main --event push --status success --json headSha --limit 100 | jq -e 'length > 0'
+      - name: Install pinned build tools
+        run: |
+          (cd runtime && rustup toolchain install && rustup show active-toolchain)
+          npm ci --prefix runtime/tools/wasm --ignore-scripts
+          npm ci --prefix runtime/packages/sdk --ignore-scripts
+      - name: Build verifier and application runtime from this commit
+        working-directory: runtime
+        env:
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/source --remap-path-prefix=/home/runner/.cargo=/cargo
+        run: |
+          cargo test --locked -p mdbn-trust
+          cargo build --locked --release -p mdbn-trust --bin mdbn-trust
+          cargo xtask wasm-app
+      - name: Compile SDK with exactly one authenticated environment
+        run: node scripts/sdk-publication.mjs build "$SDK_ENVIRONMENT"
+      - name: Verify cold npm consumers
+        run: npm run check:npm-consumer --prefix runtime/packages/sdk
+      - name: Pack and verify the actual archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/sdk-package" "$RUNNER_TEMP/sdk-unpacked"
+          (cd runtime/packages/sdk && npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP/sdk-package")
+          tar -xzf "$RUNNER_TEMP"/sdk-package/*.tgz -C "$RUNNER_TEMP/sdk-unpacked"
+          node scripts/sdk-publication.mjs verify "$SDK_ENVIRONMENT" "$RUNNER_TEMP/sdk-unpacked/package" "$GITHUB_SHA"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: source-built-sdk
+          path: ${{ runner.temp }}/sdk-package/*.tgz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.dry_run
+    runs-on: ubuntu-24.04
+    environment: npm-sdk
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: node scripts/sdk-publication.mjs ready
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: source-built-sdk
+          path: ${{ runner.temp }}/sdk-package
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: ${{ runner.temp }}/sdk-package/*.tgz
+      - run: npm install --global npm@11
+      - run: npm publish "$RUNNER_TEMP"/sdk-package/*.tgz --ignore-scripts --access public --tag next --provenance
