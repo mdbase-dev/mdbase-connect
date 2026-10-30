@@ -45,7 +45,7 @@ impl AttachmentRead {
     }
 }
 
-fn stream_error(e: StreamError) -> crate::api::ApiError {
+pub(super) fn stream_error(e: StreamError) -> crate::api::ApiError {
     match e {
         StreamError::TooLarge => ErrorCode::TooLarge.err("attachment exceeds the file limit"),
         StreamError::NoKey => ErrorCode::Unavailable.err_with_reason(
@@ -63,7 +63,11 @@ fn stream_error(e: StreamError) -> crate::api::ApiError {
 }
 
 impl<S: Store> Replica<S> {
-    fn attachment_read_gate(&self, session: SessionId, path: Option<&str>) -> ApiResult<()> {
+    pub(super) fn attachment_read_gate(
+        &self,
+        session: SessionId,
+        path: Option<&str>,
+    ) -> ApiResult<()> {
         self.require(session, crate::policy::capability::READ)?;
         let hosted_identity = self
             .policy
@@ -89,7 +93,7 @@ impl<S: Store> Replica<S> {
 
     // Preserve the old hosted API's mode fence; generic device serving is a
     // distinct caller boundary, never a fake hosted profile or grant.
-    fn hosted_attachment_gate(&self, session: SessionId) -> ApiResult<()> {
+    pub(super) fn hosted_attachment_gate(&self, session: SessionId) -> ApiResult<()> {
         self.require(session, crate::policy::capability::READ)?;
         if !self.is_hosted() || self.cfg.key_grants_only || !self.hosted_serving() {
             return Err(ErrorCode::Unavailable.err_with_reason(

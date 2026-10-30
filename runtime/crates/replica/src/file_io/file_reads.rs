@@ -1,10 +1,14 @@
-//! One ephemeral authenticated attachment stream per host. No file-sized buffers,
-//! no plaintext in SQL: move one verified chunk and drain one app frame per poll.
+//! One ephemeral authenticated file stream per host. Attachments stay in the
+//! fixed region; canonical Blob reads hold one lease-bound zeroizing part only.
+//! No file-sized buffers or SQL plaintext; drain one bounded app frame per poll.
 use super::attachment_region::{AttachmentRegion, RegionLease, RegionOwner};
 use crate::api::{ApiResult, ErrorCode, SessionId, StreamId, Target};
-use crate::attachments::{AuthenticatedReadSpan, MAX_SEALED_CHUNK, MAX_SEALED_MANIFEST, Need};
+use crate::attachments::{
+    AuthenticatedReadChunk, AuthenticatedReadSpan, MAX_SEALED_CHUNK, MAX_SEALED_MANIFEST, Need,
+    PlainSink,
+};
 use crate::frames::file_chunk_push_slice;
-use crate::replica::AttachmentRead;
+use crate::replica::{ClientFileReadNeed, ClientFileReadPin};
 use crate::{Replica, Store};
 use mdbn_wire::client::{FileChunk, FileView};
 use mdbn_wire::common::Hash;
@@ -25,10 +29,58 @@ pub struct ObjectRead {
     pub session: SessionId,
     /// Exact object address from the pinned descriptor/verified manifest.
     pub address: Hash,
-    /// Exact sealed chunk length, or a bounded manifest length checked at reserve.
+    /// Exact sealed attachment chunk length, or None for a whole manifest/Blob
+    /// object whose upper bound is checked at reserve (never an exact range).
     pub expected_bytes: Option<u64>,
 }
 
+// Attachment chunks stay in the unchanged fixed region. Blob parts transfer one
+// authenticated zeroizing allocation from the existing source reader; never a
+// file-sized accumulator. Drop/ACK/cancel retires that one part before the next.
+enum Held {
+    Region(AuthenticatedReadSpan),
+    Blob(AuthenticatedReadChunk),
+}
+impl Held {
+    fn offset(&self) -> u64 {
+        match self {
+            Self::Region(h) => h.offset(),
+            Self::Blob(h) => h.offset(),
+        }
+    }
+    fn len(&self) -> usize {
+        match self {
+            Self::Region(h) => h.range().len(),
+            Self::Blob(h) => h.bytes().len(),
+        }
+    }
+    fn bytes<'a>(&'a self, backing: &'a [u8]) -> &'a [u8] {
+        match self {
+            Self::Region(h) => &backing[h.range()],
+            Self::Blob(h) => h.bytes(),
+        }
+    }
+}
+struct BlobPart {
+    part: Option<AuthenticatedReadChunk>,
+    offset: u64,
+    plain_bytes: u64,
+}
+impl PlainSink for BlobPart {
+    fn write(&mut self, _: u64, _: &[u8]) -> Result<(), String> {
+        Err("expected owned authenticated Blob part".into())
+    }
+    fn write_owned(&mut self, part: AuthenticatedReadChunk) -> Result<(), String> {
+        if self.part.is_some() {
+            return Err("more than one Blob part".into());
+        }
+        if part.offset() != self.offset || part.bytes().len() as u64 != self.plain_bytes {
+            return Err("Blob part range/count".into());
+        }
+        self.part = Some(part);
+        Ok(())
+    }
+}
 struct CipherInput {
     length: usize,
     filled: usize,
@@ -36,15 +88,15 @@ struct CipherInput {
 }
 struct Fetching {
     ticket: u64,
-    need: Need,
+    need: ClientFileReadNeed,
     input: Option<CipherInput>,
 }
 struct Reading {
     id: StreamId,
     session: SessionId,
-    pin: AttachmentRead,
+    pin: ClientFileReadPin,
     lease: RegionLease,
-    held: Option<AuthenticatedReadSpan>,
+    held: Option<Held>,
     cursor: usize,
     sent: u64,
     acked: u64,
@@ -88,6 +140,34 @@ impl FileReads {
             now_ms,
         }
     }
+    /// Blob mutable transport boundaries retire invalid owned-part custody before
+    /// returning. AttachmentV1 retains its existing callback refusal/poll retirement
+    /// behavior. An immutable `allowed` check never authorizes output.
+    pub(crate) fn recheck<S: Store>(
+        &mut self,
+        r: &Replica<S>,
+        region: &mut AttachmentRegion,
+    ) -> ApiResult<()> {
+        let Some(a) = self.active.as_ref() else {
+            return Ok(());
+        };
+        if !matches!(&a.pin, ClientFileReadPin::Unindexed(_)) {
+            return Ok(());
+        }
+        let session = a.session;
+        let result = r.client_file_read_check(&a.pin).and_then(|()| {
+            if region.owns(a.lease) {
+                Ok(())
+            } else {
+                Err(bad("file stream no longer owns its region"))
+            }
+        });
+        if let Err(error) = &result {
+            self.record_failure(session, error);
+            self.close(session, region);
+        }
+        result
+    }
     /// Session owning the current stream, if any.
     pub fn active_session(&self) -> Option<SessionId> {
         self.active.as_ref().map(|a| a.session)
@@ -125,7 +205,7 @@ impl FileReads {
         region: &mut AttachmentRegion,
     ) -> ApiResult<(StreamId, FileView)> {
         // Admission precedes capacity reporting and pin creation uses confirmed metadata.
-        let pin = r.attachment_read(session, target, range, revision)?;
+        let pin = r.client_file_read_pin(session, target, range, revision)?;
         self.start_pinned(r, session, pin, range, region)
     }
     /// Split native pin capture from region allocation; used by Replica ownership.
@@ -133,11 +213,11 @@ impl FileReads {
         &mut self,
         r: &Replica<S>,
         session: SessionId,
-        pin: AttachmentRead,
+        pin: ClientFileReadPin,
         range: Option<(u64, u64)>,
         region: &mut AttachmentRegion,
     ) -> ApiResult<(StreamId, FileView)> {
-        r.attachment_read_check(&pin)?;
+        r.client_file_read_check(&pin)?;
         if self.next_stream > MAX_ID {
             return Err(
                 ErrorCode::TooLarge.err_with_reason("hosted_read_budget", "stream IDs exhausted")
@@ -185,7 +265,7 @@ impl FileReads {
             .as_mut()
             .filter(|a| a.session == session && a.id == id)
             .ok_or_else(|| ErrorCode::NotFound.err("file stream is not active"))?;
-        r.attachment_read_check(&a.pin)?;
+        r.client_file_read_check(&a.pin)?;
         if !region.owns(a.lease) {
             return Err(ErrorCode::NotFound.err("file stream no longer owns its region"));
         }
@@ -224,13 +304,25 @@ impl FileReads {
             region.release(a.lease);
         }
     }
-    /// Drop an outstanding object ticket and scrub its input on transport retirement.
-    pub fn retire_transport(&mut self, region: &mut AttachmentRegion) {
+    /// Retire Blob staging even between objects/while output is held, returning
+    /// the session to fail (Blob reads cannot resume from a provisional prefix).
+    /// Attachment transport retry retains its existing pinned region behavior.
+    pub fn retire_transport(&mut self, region: &mut AttachmentRegion) -> Option<SessionId> {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|a| matches!(&a.pin, ClientFileReadPin::Unindexed(_)))
+        {
+            let a = self.active.take()?;
+            region.release(a.lease);
+            return Some(a.session);
+        }
         if let Some(a) = self.active.as_mut()
             && a.fetching.take().is_some()
         {
             region.scrub(a.lease);
         }
+        None
     }
     /// Request one exact native ciphertext object when the ACK window allows it.
     pub fn object<S: Store>(
@@ -241,7 +333,7 @@ impl FileReads {
         let Some(a) = self.active.as_mut() else {
             return Ok(None);
         };
-        r.attachment_read_check(&a.pin).map_err(|_| a.session)?;
+        r.client_file_read_check(&a.pin).map_err(|_| a.session)?;
         if !region.owns(a.lease) {
             return Err(a.session);
         }
@@ -257,12 +349,13 @@ impl FileReads {
         let ticket = self.next_ticket;
         self.next_ticket += 1;
         let (address, expected_bytes) = match need {
-            Need::Manifest { address } => (address, None),
-            Need::Chunk {
+            ClientFileReadNeed::Blob { address, .. } => (address, None),
+            ClientFileReadNeed::Attachment(Need::Manifest { address }) => (address, None),
+            ClientFileReadNeed::Attachment(Need::Chunk {
                 address,
                 sealed_bytes,
                 ..
-            } => (address, Some(sealed_bytes)),
+            }) => (address, Some(sealed_bytes)),
         };
         a.fetching = Some(Fetching {
             ticket,
@@ -286,7 +379,7 @@ impl FileReads {
         self.active.as_ref().is_some_and(|a| {
             region.owns(a.lease)
                 && a.fetching.as_ref().is_some_and(|f| f.ticket == ticket)
-                && r.attachment_read_check(&a.pin).is_ok()
+                && r.client_file_read_check(&a.pin).is_ok()
         })
     }
     /// Fail only the current ticket's stream, wiping and releasing its backing.
@@ -314,7 +407,7 @@ impl FileReads {
         let Some(a) = self.active.as_mut() else {
             return false;
         };
-        if !region.owns(a.lease) || r.attachment_read_check(&a.pin).is_err() {
+        if !region.owns(a.lease) || r.client_file_read_check(&a.pin).is_err() {
             return false;
         }
         let Some(f) = a
@@ -325,8 +418,14 @@ impl FileReads {
             return false;
         };
         let valid = match f.need {
-            Need::Manifest { .. } => size <= MAX_SEALED_MANIFEST,
-            Need::Chunk { sealed_bytes, .. } => size == sealed_bytes && size <= MAX_SEALED_CHUNK,
+            ClientFileReadNeed::Attachment(Need::Manifest { .. }) => size <= MAX_SEALED_MANIFEST,
+            ClientFileReadNeed::Attachment(Need::Chunk { sealed_bytes, .. }) => {
+                size == sealed_bytes && size <= MAX_SEALED_CHUNK
+            }
+            // LS and the original fixed input region both remain capped at 9MiB.
+            ClientFileReadNeed::Blob {
+                max_sealed_bytes, ..
+            } => size > 0 && size <= max_sealed_bytes && size <= MAX_SEALED_CHUNK,
         };
         if !valid {
             return false;
@@ -358,7 +457,7 @@ impl FileReads {
         region: &mut AttachmentRegion,
     ) -> Option<*mut u8> {
         let a = self.active.as_mut()?;
-        r.attachment_read_check(&a.pin).ok()?;
+        r.client_file_read_check(&a.pin).ok()?;
         let input = a
             .fetching
             .as_mut()
@@ -384,7 +483,7 @@ impl FileReads {
         let Some(a) = self.active.as_mut() else {
             return false;
         };
-        if !region.owns(a.lease) || r.attachment_read_check(&a.pin).is_err() {
+        if !region.owns(a.lease) || r.client_file_read_check(&a.pin).is_err() {
             return false;
         }
         let Some(input) = a
@@ -416,7 +515,7 @@ impl FileReads {
         let Some(a) = self.active.as_mut() else {
             return false;
         };
-        if !region.owns(a.lease) || r.attachment_read_check(&a.pin).is_err() {
+        if !region.owns(a.lease) || r.client_file_read_check(&a.pin).is_err() {
             return false;
         }
         let Some(input) = a
@@ -455,51 +554,101 @@ impl FileReads {
         checksum: Hash,
         region: &mut AttachmentRegion,
     ) -> Result<bool, SessionId> {
-        let Some(a) = self.active.as_mut() else {
-            return Ok(false);
-        };
-        if a.fetching.as_ref().is_none_or(|f| f.ticket != ticket) {
+        // A stale completion cannot touch a successor, even in the same session.
+        if self
+            .active
+            .as_ref()
+            .is_none_or(|a| a.fetching.as_ref().is_none_or(|f| f.ticket != ticket))
+        {
             return Ok(false);
         }
-        r.attachment_read_check(&a.pin).map_err(|_| a.session)?;
-        let bytes = region.borrow(a.lease).ok_or(a.session)?;
-        let f = a.fetching.take().ok_or(a.session)?;
-        let input = f.input.ok_or(a.session)?;
-        if input.pending.is_some()
-            || input.filled != input.length
-            || mdbn_wire::hash::sha256(&bytes[..input.length]) != checksum
-        {
-            region.scrub(a.lease);
+        let mut a = self.active.take().expect("matching current ticket");
+        // Keep the lane outside self until ALL completion checks succeed. Every
+        // failure drops owned plaintext and releases only this exact lease.
+        let result = (|| {
+            r.client_file_read_check(&a.pin)?;
+            let bytes = region
+                .borrow(a.lease)
+                .ok_or_else(|| bad("file stream no longer owns its region"))?;
+            let f = a
+                .fetching
+                .take()
+                .ok_or_else(|| bad("missing object ticket"))?;
+            let input = f.input.ok_or_else(|| bad("missing object input"))?;
+            if input.pending.is_some()
+                || input.filled != input.length
+                || mdbn_wire::hash::sha256(&bytes[..input.length]) != checksum
+            {
+                return Err(ErrorCode::Unavailable.err_with_reason(
+                    "attachment_unavailable",
+                    "file object is incomplete or corrupt",
+                ));
+            }
+            if a.held.is_some() {
+                return Err(bad("file stream already holds plaintext"));
+            }
+            match (&mut a.pin, f.need) {
+                (
+                    ClientFileReadPin::Attachment(pin),
+                    ClientFileReadNeed::Attachment(Need::Manifest { .. }),
+                ) => {
+                    let result = r.attachment_read_manifest(pin, &bytes[..input.length]);
+                    region.scrub(a.lease);
+                    result
+                }
+                (
+                    ClientFileReadPin::Attachment(pin),
+                    ClientFileReadNeed::Attachment(Need::Chunk { index, .. }),
+                ) => r
+                    .attachment_read_chunk_in_place(pin, index, &mut bytes[..input.length])
+                    .map(|span| {
+                        a.held = Some(Held::Region(span));
+                        a.cursor = 0;
+                    }),
+                (
+                    pin @ ClientFileReadPin::Unindexed(_),
+                    ClientFileReadNeed::Blob {
+                        offset,
+                        plain_bytes,
+                        ..
+                    },
+                ) => {
+                    let mut part = BlobPart {
+                        part: None,
+                        offset,
+                        plain_bytes,
+                    };
+                    let result = r.client_file_read_blob(pin, &bytes[..input.length], &mut part);
+                    region.scrub(a.lease);
+                    result.and_then(|_| {
+                        a.held = Some(Held::Blob(
+                            part.part
+                                .ok_or_else(|| bad("missing authenticated Blob part"))?,
+                        ));
+                        a.cursor = 0;
+                        Ok(())
+                    })
+                }
+                _ => Err(bad("file reader/object profile mismatch")),
+            }
+        })();
+        if let Err(error) = result {
+            self.record_failure(a.session, &error);
+            region.release(a.lease);
             return Err(a.session);
         }
-        let result = match f.need {
-            Need::Manifest { .. } => {
-                let result = r.attachment_read_manifest(&mut a.pin, &bytes[..input.length]);
-                region.scrub(a.lease);
-                result
-            }
-            Need::Chunk { index, .. } => r
-                .attachment_read_chunk_in_place(&mut a.pin, index, &mut bytes[..input.length])
-                .map(|span| {
-                    a.held = Some(span);
-                    a.cursor = 0;
-                }),
-        };
-        if result.is_err() {
-            region.scrub(a.lease);
-        }
-        result.map_err(|error| {
-            use mdbn_wire::common::Value;
-            let problem = error.problem();
-            let mut detail = vec![("cause_code".into(), Value::Text(problem.code.clone()))];
-            if let Some(reason) = &problem.reason {
-                detail.push(("cause_reason".into(), Value::Text(reason.clone())));
-            }
-            self.failure = Some((a.session, Value::Map(detail)));
-            a.session
-        })?;
         a.progress_ms = self.now_ms;
+        self.active = Some(a);
         Ok(true)
+    }
+    fn record_failure(&mut self, session: SessionId, error: &crate::api::ApiError) {
+        use mdbn_wire::common::Value;
+        let problem = error.problem();
+        let mut detail = vec![("cause_code".into(), Value::Text(problem.code.clone()))];
+        if let Some(reason) = &problem.reason {
+            detail.push(("cause_reason".into(), Value::Text(reason.clone())));
+        }
+        self.failure = Some((session, Value::Map(detail)));
     }
     /// Build only one <=1MiB frame immediately before the host's synchronous
     /// admission/encryption/send. Keeping at most one frame avoids output copies
@@ -534,9 +683,16 @@ impl FileReads {
         let Some(a) = self.active.as_mut() else {
             return Ok(None);
         };
-        r.attachment_read_check(&a.pin).map_err(|_| a.session)?;
+        if let Err(error) = r.client_file_read_check(&a.pin) {
+            let session = a.session;
+            self.record_failure(session, &error);
+            self.close(session, region);
+            return Err(session);
+        }
         if !region.owns(a.lease) {
-            return Err(a.session);
+            let session = a.session;
+            self.close(session, region);
+            return Err(session);
         }
         if a.fetching.is_some() {
             return Ok(None);
@@ -547,12 +703,11 @@ impl FileReads {
         }
         let (bytes, offset, end) = match a.held.as_ref() {
             Some(h) => {
-                let range = h.range();
-                let count = (range.len() - a.cursor).min(FRAME_BYTES).min(available);
+                let count = (h.len() - a.cursor).min(FRAME_BYTES).min(available);
                 (
-                    range.start + a.cursor..range.start + a.cursor + count,
+                    a.cursor..a.cursor + count,
                     h.offset() + a.cursor as u64,
-                    a.cursor + count == range.len(),
+                    a.cursor + count == h.len(),
                 )
             }
             None if a.pin.need().is_none() => (0..0, a.sent, true),
@@ -564,22 +719,27 @@ impl FileReads {
         let session = a.session;
         let id = a.id;
         let lease = a.lease;
-        if end {
-            a.held = None;
-            a.cursor = 0;
-        }
         if last {
             let a = self.active.take().ok_or(session)?;
-            if r.attachment_read_finish(a.pin).is_err() {
+            if let Err(error) = r.client_file_read_finish(a.pin) {
+                self.record_failure(session, &error);
                 region.release(lease);
                 return Err(session);
             }
+            // Finish consumes the pin, but keeps this last authenticated span
+            // alive until after the whole-source proof and synchronous emission.
+            let backing = region.borrow(lease).ok_or(session)?;
+            let plain = a.held.as_ref().map_or(&[][..], |h| h.bytes(backing));
+            let frame = emit(id.0, offset, &plain[bytes], true);
+            region.release(lease);
+            return Ok(Some((session, frame)));
         }
         let backing = region.borrow(lease).ok_or(session)?;
-        let frame = emit(id.0, offset, &backing[bytes], last);
-        if last {
-            region.release(lease);
-        } else if end {
+        let plain = a.held.as_ref().map_or(&[][..], |h| h.bytes(backing));
+        let frame = emit(id.0, offset, &plain[bytes], false);
+        if end {
+            a.held = None; // zeroizes owned Blob part before the next object
+            a.cursor = 0;
             region.scrub(lease);
         }
         Ok(Some((session, frame)))

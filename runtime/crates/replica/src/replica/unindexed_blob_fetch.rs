@@ -226,15 +226,12 @@ impl<S: Store> Replica<S> {
             }
         }
         match f.reader.need() {
-            Some(UnindexedSourceNeed::Blob {
-                address,
-                max_sealed_bytes,
-                ..
-            }) => {
+            Some(UnindexedSourceNeed::Blob { address, .. }) => {
                 let call = self.queue(LogRequest::GetObject {
                     collection: self.cfg.collection,
                     address,
-                    range: Some((0, max_sealed_bytes)),
+                    // The source reader refuses over-bound responses.
+                    range: None,
                 });
                 self.inflight
                     .insert(call, super::append::Inflight::UnindexedBlob(f.file));

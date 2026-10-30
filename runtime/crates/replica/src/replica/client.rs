@@ -12,9 +12,9 @@ mod validation;
 use mdbn_core::query::{Query, QueryEnv, QueryRecord, Verdict};
 use mdbn_core::state::StateView;
 use mdbn_wire::client::{
-    FileState, FileView, GrantInfo, HelloParams, HelloResult, Hold, Include, Issue,
-    Materialization, MaterializeMode, OpenUploadParams, OpenUploadResult, QueryResult, Receipt,
-    ReceiptState, RecordView, SubmitParams, SyncStatus, UploadChunkParams,
+    FileContentProfile, FileState, FileView, GrantInfo, HelloParams, HelloResult, Hold, Include,
+    Issue, Materialization, MaterializeMode, OpenUploadParams, OpenUploadResult, QueryResult,
+    Receipt, ReceiptState, RecordView, SubmitParams, SyncStatus, UploadChunkParams,
 };
 use mdbn_wire::common::{Hash, Uuid, Value, Version};
 use mdbn_wire::policy::Role;
@@ -702,6 +702,25 @@ impl<S: Store> Replica<S> {
             hold: None,
             mtime: f.mtime,
             media_type: mdbn_core::paths::media_type(&f.path).map(str::to_string),
+            content_profile: match (f.kind, &f.content) {
+                (
+                    mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
+                    mdbn_wire::attachment::FileContent::Blob(_),
+                ) => Some(FileContentProfile::OrdinaryBlob),
+                (
+                    mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
+                    mdbn_wire::attachment::FileContent::AttachmentV1(_),
+                ) => Some(FileContentProfile::OrdinaryAttachmentV1),
+                (
+                    mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown,
+                    mdbn_wire::attachment::FileContent::Blob(_),
+                ) => Some(FileContentProfile::UnindexedMarkdownBlob),
+                (
+                    mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown,
+                    mdbn_wire::attachment::FileContent::AttachmentV1(_),
+                ) => Some(FileContentProfile::UnindexedMarkdownAttachmentV1),
+                _ => None, // future content families are unknown, never guessed
+            },
         }
     }
 }

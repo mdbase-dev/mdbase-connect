@@ -4,7 +4,7 @@
  * Usage: npm ci --prefix packages/sdk; node scripts/app-wasm-smoke.mjs <app.wasm>
  */
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { appPolicyPinsFixture } from "../packages/sdk/scripts/app-policy-pins-fixture.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync, mkdirSync } from "node:fs";
@@ -32,6 +32,8 @@ const db = new DatabaseSync(":memory:");
 const [major, minor, patch] = db.prepare("select sqlite_version() AS v").get().v.split(".").map(Number);
 const version = major * 1_000_000 + minor * 1_000 + patch;
 let sqlCalls = 0;
+const recordPageReads = [];
+const sqlErrorKinds = [];
 class TestIndex {
   needsRecovery = false;
   fence() { this.needsRecovery = true; }
@@ -42,6 +44,7 @@ class TestIndex {
     try {
       let rows = 0;
       const out = batch.stmts.map(({ sql, params }) => {
+        if (sql.startsWith("SELECT") && sql.includes("FROM st_rec") && (sql.includes("LIMIT") || sql.startsWith("SELECT id, row FROM st_rec WHERE id >="))) recordPageReads.push(sql);
         const stmt = db.prepare(sql); stmt.setReadBigInts(true);
         const args = params.map(p => p.kind === "Null" ? null : p.value);
         const names = stmt.columns().map(c => c.name);
@@ -80,6 +83,8 @@ const config = (opened = 0, replica = 2) => encode(new Map([
 async function create() {
   let x;
   const index = new TestIndex(), bridge = new AppBinaryIndexHost(index);
+  const run = bridge.run.bind(bridge);
+  bridge.run = bytes => { const reply = run(bytes); if (reply[8] === 3) sqlErrorKinds.push(reply[9]); return reply; };
   const sql = appSqlHost(bridge, () => x);
   const instance = await WebAssembly.instantiate(module, { env: {
     host_app_sql: sql, host_now_ms: () => 1_800_000_000_000,
@@ -162,6 +167,43 @@ try {
   const b = await create(); assert.equal(b.open(config(1)), "");
   assert.equal(db.prepare("SELECT count(*) AS n FROM st_meta").get().n, meta.length);
   assert.equal(b.x.rt_app_shutdown(), 1);
+  // Exact persisted record_c fixture in an already-owned ephemeral database.
+  // The real AppRuntime/TentativeStore open must backfill its unready index;
+  // this is not merely a direct Store::records(Page16) call.
+  db.exec("BEGIN IMMEDIATE");
+  const insert = db.prepare("INSERT INTO st_rec(id,path_key,bucket,row) VALUES(?,?,?,?)");
+  const doc = "x".repeat(300_000), revision = new Uint8Array(createHash("sha256").update(doc).digest());
+  for (let n = 1; n <= 16; n++) {
+    const id = new Uint8Array(16); id[15] = n;
+    const path = `large-${String(n).padStart(2, "0")}.md`;
+    const row = encode([id, path, path, doc, revision, 0, 0, [[], new Map(), [], [], []]]);
+    insert.run(id, path, 0, row);
+  }
+  db.exec("UPDATE st_qstate SET ready=0; UPDATE st_qraw_state SET ready=0; COMMIT");
+  const originalRows = () => {
+    const hash = createHash("sha256");
+    for (const {row} of db.prepare("SELECT row FROM st_rec ORDER BY id").all()) hash.update(row);
+    return hash.digest("hex");
+  };
+  const originalDigest = originalRows(), pagesBefore = recordPageReads.length;
+  const large = await create();
+  const largeOpen = large.open(config(1));
+  assert(recordPageReads.length > pagesBefore, "must actually reach record-page backfill");
+  if (largeOpen) console.error(JSON.stringify({ backfillOpenFailure: largeOpen, indexErrorKinds: sqlErrorKinds,
+    backfillQueries: recordPageReads.slice(pagesBefore) }));
+  assert.equal(largeOpen, "", "actual app/WASM unready-index open must backfill16x300000 through the real4MiB codec");
+  assert.equal(originalRows(), originalDigest, "backfill must not alter original record bytes");
+  assert.equal(db.prepare("SELECT ready FROM st_qstate WHERE slot=0").get().ready, 1);
+  assert.equal(db.prepare("SELECT ready FROM st_qraw_state WHERE slot=0").get().ready, 1);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM st_qrecord").get().n, 16);
+  assert.equal(large.bridge.needsRecovery, false);
+  assert.equal(large.x.rt_app_shutdown(), 1);
+  const readyPages = recordPageReads.length, ready = await create();
+  assert.equal(ready.open(config(1)), "");
+  assert.equal(recordPageReads.length, readyPages, "a ready reopen must not backfill again");
+  assert.equal(ready.x.rt_app_shutdown(), 1);
+  console.log(JSON.stringify({ actualAppWasmBackfill: true, records: 16, bytesPerRecord: 300000,
+    recordPageReads: readyPages - pagesBefore, unchangedRows: originalDigest, readyReopen: true, physicalDurabilityQualified: false }));
   const wrong = await create(); assert.match(wrong.open(config(1, 7)), /open failed/);
   const malformed = await create(); assert.match(malformed.open(Uint8Array.of(0xa0)), /open failed/);
   const before = sqlCalls; assert.match(malformed.open(config(1)), /module already used/); assert.equal(sqlCalls, before);

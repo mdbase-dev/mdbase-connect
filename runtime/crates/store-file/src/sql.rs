@@ -15,6 +15,8 @@
 
 #[path = "sql_mirror_candidate.rs"]
 mod mirror_candidate;
+#[path = "sql_schema.rs"]
+mod schema;
 #[path = "sql_tail.rs"]
 mod tail;
 
@@ -179,6 +181,22 @@ fn idx_err(e: IndexError) -> StoreError {
 
 fn corrupt(what: &str) -> StoreError {
     StoreError::Corrupt(format!("sql store: bad {what}"))
+}
+
+/// Greedy consecutive SQL payload groups, including IDs/keys and framing.
+/// Never skip an oversized singleton or adapt to a previous Full.
+fn group_len(costs: impl Iterator<Item = u64>) -> usize {
+    const GROUP_BYTES: u64 = 2 << 20;
+    let mut bytes = 0u64;
+    let mut count = 0;
+    for cost in costs {
+        if count > 0 && cost > GROUP_BYTES.saturating_sub(bytes) {
+            break;
+        }
+        bytes = bytes.saturating_add(cost);
+        count += 1;
+    }
+    count
 }
 
 // ------------------------------------------------------------ values
@@ -668,20 +686,7 @@ impl<I: IndexStorage> SqlStore<I> {
         {
             return Err(StoreError::Io("invalid SQL blob memory limits".into()));
         }
-        index
-            .borrow_mut()
-            .run(&Batch {
-                mode: BatchMode::Transaction,
-                stmts: SCHEMA
-                    .iter()
-                    .chain(crate::sql_fields::SCHEMA)
-                    .chain(crate::sql_bases::SCHEMA)
-                    .chain(tail::SCHEMA)
-                    .map(|s| st(s, vec![]))
-                    .chain(staging_schema().iter().map(|s| st(s, vec![])))
-                    .collect(),
-            })
-            .map_err(idx_err)?;
+        schema::migrate(&mut *index.borrow_mut())?;
         Ok(SqlStore { index, limits })
     }
 
@@ -755,6 +760,74 @@ impl<I: IndexStorage> SqlStore<I> {
         f: impl Fn(&[SqlValue]) -> StoreResult<T>,
     ) -> StoreResult<Vec<T>> {
         self.q(sql, params)?.rows().map(f).collect()
+    }
+
+    /// Fixed internal SQL tables only; decode/identity retain each row family's semantics.
+    fn id_page<T>(
+        &self,
+        table: &'static str,
+        p: Page,
+        decode: fn(&SqlValue) -> StoreResult<T>,
+        id: fn(&T) -> Uuid,
+    ) -> StoreResult<Vec<T>> {
+        let mut out = Vec::new();
+        let _ = self.id_page_visit(table, p, decode, id, &mut |row| {
+            out.push(row);
+            std::ops::ControlFlow::<()>::Continue(())
+        })?;
+        Ok(out)
+    }
+
+    /// One encoded byte group and one decoded row at a time. The collecting
+    /// APIs above and the visitor share all inventory/identity validation.
+    fn id_page_visit<T, B>(
+        &self,
+        table: &'static str,
+        p: Page,
+        decode: fn(&SqlValue) -> StoreResult<T>,
+        id: fn(&T) -> Uuid,
+        visitor: &mut dyn FnMut(T) -> std::ops::ControlFlow<B>,
+    ) -> StoreResult<std::ops::ControlFlow<B>> {
+        // Synchronous single-owner exclusion is the same as resources().
+        let mut params = vec![];
+        let sql = Self::page_sql(
+            &format!("SELECT id, length(row) FROM {table}"),
+            "1",
+            p,
+            &mut params,
+        );
+        let metadata: Vec<(Uuid, u64)> = self.all(&sql, params, |r| match r {
+            [id, SqlValue::Integer(n)] if *n >= 0 => Ok((uuid_of(id)?, *n as u64)),
+            _ => Err(corrupt("row inventory")),
+        })?;
+        let mut start = 0;
+        while start < metadata.len() {
+            let end = start + group_len(metadata[start..].iter().map(|r| r.1 + 32));
+            let rows = self.q(
+                &format!("SELECT id, row FROM {table} WHERE id >= ?1 AND id <= ?2 ORDER BY id"),
+                vec![b(&metadata[start].0), b(&metadata[end - 1].0)],
+            )?;
+            if rows.columns != 2 || rows.values.len() != (end - start) * 2 {
+                return Err(corrupt("row inventory changed"));
+            }
+            for ((expected_id, size), values) in metadata[start..end].iter().zip(rows.rows()) {
+                let [stored_id, SqlValue::Blob(blob)] = values else {
+                    return Err(corrupt("row inventory changed"));
+                };
+                if uuid_of(stored_id)? != *expected_id || blob.len() as u64 != *size {
+                    return Err(corrupt("row inventory changed"));
+                }
+                let row = decode(&values[1])?;
+                if id(&row) != *expected_id {
+                    return Err(corrupt("row inventory changed"));
+                }
+                if let std::ops::ControlFlow::Break(value) = visitor(row) {
+                    return Ok(std::ops::ControlFlow::Break(value));
+                }
+            }
+            start = end;
+        }
+        Ok(std::ops::ControlFlow::Continue(()))
     }
 
     fn page_sql(base: &str, where_: &str, p: Page, params: &mut Vec<SqlValue>) -> String {
@@ -929,9 +1002,14 @@ impl<I: IndexStorage> Store for SqlStore<I> {
         )
     }
     fn records(&self, p: Page) -> StoreResult<Vec<RecordRow>> {
-        let mut params = vec![];
-        let sql = Self::page_sql("SELECT row FROM st_rec", "1", p, &mut params);
-        self.all(&sql, params, |r| record_d(row0(r)?))
+        self.id_page("st_rec", p, record_d, |r| r.id)
+    }
+    fn records_visit<B>(
+        &self,
+        p: Page,
+        visitor: &mut dyn FnMut(RecordRow) -> std::ops::ControlFlow<B>,
+    ) -> StoreResult<std::ops::ControlFlow<B>> {
+        self.id_page_visit("st_rec", p, record_d, |r| r.id, visitor)
     }
     fn records_in_buckets(&self, range: Range<u32>, p: Page) -> StoreResult<Vec<RecordRow>> {
         let mut params = vec![int(range.start), int(range.end)];
@@ -1058,14 +1136,54 @@ impl<I: IndexStorage> Store for SqlStore<I> {
             .transpose()
     }
     fn resources(&self) -> StoreResult<Vec<(String, String)>> {
-        self.all(
-            "SELECT path, doc FROM st_res ORDER BY path",
+        // Stable view: IndexStorage is synchronous/single-owner. Native holds
+        // lifetime EXCLUSIVE SQLite; DO batches share one synchronous Wasm call.
+        // AppIndex/appSqlHost share one Worker, scope WebLock and SAH/SQLite
+        // exclusive ownership. No await/reentrant writer between these reads.
+        const GROUP_BYTES: u64 = 2 << 20;
+        let metadata: Vec<(String, u64)> = self.all(
+            "SELECT path, length(CAST(doc AS BLOB)) FROM st_res ORDER BY path",
             vec![],
             |r| match r {
-                [SqlValue::Text(p), SqlValue::Text(d)] => Ok((p.clone(), d.clone())),
-                _ => Err(corrupt("resource")),
+                [SqlValue::Text(p), SqlValue::Integer(n)] if *n >= 0 => Ok((p.clone(), *n as u64)),
+                _ => Err(corrupt("resource metadata")),
             },
-        )
+        )?;
+        let mut out = Vec::with_capacity(metadata.len());
+        let mut start = 0;
+        while start < metadata.len() {
+            let mut end = start;
+            let mut charged = 0;
+            while end < metadata.len() {
+                let (path, bytes) = &metadata[end];
+                let cost = bytes + path.len() as u64 + 16;
+                if end > start && cost > GROUP_BYTES.saturating_sub(charged) {
+                    break;
+                }
+                charged += cost;
+                end += 1;
+            }
+            let group = &metadata[start..end];
+            let rows: Vec<(String, String)> = self.all(
+                "SELECT path, doc FROM st_res WHERE path >= ?1 AND path <= ?2 ORDER BY path",
+                vec![t(&group[0].0), t(&group[group.len() - 1].0)],
+                |r| match r {
+                    [SqlValue::Text(p), SqlValue::Text(d)] => Ok((p.clone(), d.clone())),
+                    _ => Err(corrupt("resource")),
+                },
+            )?;
+            if rows.len() != group.len()
+                || rows
+                    .iter()
+                    .zip(group)
+                    .any(|((p, d), (expected, bytes))| p != expected || d.len() as u64 != *bytes)
+            {
+                return Err(corrupt("resource inventory changed"));
+            }
+            out.extend(rows);
+            start = end;
+        }
+        Ok(out)
     }
     fn settings(&self) -> StoreResult<Option<FileInclusion>> {
         self.one(
@@ -1093,9 +1211,7 @@ impl<I: IndexStorage> Store for SqlStore<I> {
         )
     }
     fn tombstones(&self, p: Page) -> StoreResult<Vec<TombstoneRow>> {
-        let mut params = vec![];
-        let sql = Self::page_sql("SELECT row FROM st_tomb", "1", p, &mut params);
-        self.all(&sql, params, |r| tomb_d(row0(r)?))
+        self.id_page("st_tomb", p, tomb_d, |r| r.id)
     }
     fn alias(&self, path_key: &str) -> StoreResult<Option<Uuid>> {
         Ok(self
@@ -1107,16 +1223,124 @@ impl<I: IndexStorage> Store for SqlStore<I> {
             .map(|a| a.record))
     }
     fn aliases(&self) -> StoreResult<Vec<AliasRow>> {
-        self.all(
-            "SELECT row FROM st_alias ORDER BY path, path_key",
-            vec![],
-            |r| alias_d(row0(r)?),
-        )
+        let mut out = Vec::new();
+        let mut after: Option<(String, String)> = None;
+        loop {
+            // Variable-length paths need bounded metadata too. Preserve the
+            // original (path, path_key) order, including case-fold differences.
+            let (sql, params) = match &after {
+                Some((path, key)) => (
+                    "SELECT path, path_key, length(row) FROM st_alias WHERE (path, path_key) > (?1, ?2) ORDER BY path, path_key LIMIT 256",
+                    vec![t(path), t(key)],
+                ),
+                None => (
+                    "SELECT path, path_key, length(row) FROM st_alias ORDER BY path, path_key LIMIT 256",
+                    vec![],
+                ),
+            };
+            let metadata: Vec<(String, String, u64)> = self.all(sql, params, |r| match r {
+                [
+                    SqlValue::Text(path),
+                    SqlValue::Text(key),
+                    SqlValue::Integer(n),
+                ] if *n >= 0 => Ok((path.clone(), key.clone(), *n as u64)),
+                _ => Err(corrupt("alias inventory")),
+            })?;
+            let Some(last) = metadata.last() else { break };
+            let mut start = 0;
+            while start < metadata.len() {
+                let end =
+                    start
+                        + group_len(metadata[start..].iter().map(|(path, key, size)| {
+                            size + path.len() as u64 + key.len() as u64 + 24
+                        }));
+                let first = &metadata[start];
+                let last = &metadata[end - 1];
+                let rows = self.q(
+                    "SELECT path, path_key, row FROM st_alias WHERE (path, path_key) >= (?1, ?2) AND (path, path_key) <= (?3, ?4) ORDER BY path, path_key",
+                    vec![t(&first.0), t(&first.1), t(&last.0), t(&last.1)],
+                )?;
+                if rows.columns != 3 || rows.values.len() != (end - start) * 3 {
+                    return Err(corrupt("alias inventory changed"));
+                }
+                for ((path, key, size), values) in metadata[start..end].iter().zip(rows.rows()) {
+                    let [
+                        SqlValue::Text(stored_path),
+                        SqlValue::Text(stored_key),
+                        SqlValue::Blob(blob),
+                    ] = values
+                    else {
+                        return Err(corrupt("alias inventory changed"));
+                    };
+                    if stored_path != path || stored_key != key || blob.len() as u64 != *size {
+                        return Err(corrupt("alias inventory changed"));
+                    }
+                    let row = alias_d(&values[2])?;
+                    if row.path != *path || row.path_key != *key {
+                        return Err(corrupt("alias inventory changed"));
+                    }
+                    out.push(row);
+                }
+                start = end;
+            }
+            after = Some((last.0.clone(), last.1.clone()));
+        }
+        Ok(out)
     }
     fn conflicts(&self, of: Option<&Uuid>) -> StoreResult<Vec<ConflictRow>> {
-        let all = self.all("SELECT row FROM st_conflict ORDER BY m, cid", vec![], |r| {
-            conflict_d(row0(r)?)
-        })?;
+        let mut all = Vec::new();
+        let mut after: Option<(Uuid, Uuid)> = None;
+        loop {
+            // Bounded metadata pages, even when the whole inventory is large.
+            let (sql, params) = match after {
+                Some((m, cid)) => (
+                    "SELECT m, cid, length(row) FROM st_conflict WHERE (m, cid) > (?1, ?2) ORDER BY m, cid LIMIT 1024",
+                    vec![b(&m), b(&cid)],
+                ),
+                None => (
+                    "SELECT m, cid, length(row) FROM st_conflict ORDER BY m, cid LIMIT 1024",
+                    vec![],
+                ),
+            };
+            let metadata: Vec<(Uuid, Uuid, u64)> = self.all(sql, params, |r| match r {
+                [m, cid, SqlValue::Integer(n)] if *n >= 0 => {
+                    Ok((uuid_of(m)?, uuid_of(cid)?, *n as u64))
+                }
+                _ => Err(corrupt("conflict inventory")),
+            })?;
+            let Some(last) = metadata.last() else { break };
+            let mut start = 0;
+            while start < metadata.len() {
+                let end = start + group_len(metadata[start..].iter().map(|r| r.2 + 56));
+                let first = &metadata[start];
+                let last = &metadata[end - 1];
+                let rows = self.q(
+                    "SELECT m, cid, row FROM st_conflict WHERE (m, cid) >= (?1, ?2) AND (m, cid) <= (?3, ?4) ORDER BY m, cid",
+                    vec![b(&first.0), b(&first.1), b(&last.0), b(&last.1)],
+                )?;
+                if rows.columns != 3 || rows.values.len() != (end - start) * 3 {
+                    return Err(corrupt("conflict inventory changed"));
+                }
+                for ((m, cid, size), values) in metadata[start..end].iter().zip(rows.rows()) {
+                    let [stored_m, stored_cid, SqlValue::Blob(blob)] = values else {
+                        return Err(corrupt("conflict inventory changed"));
+                    };
+                    if uuid_of(stored_m)? != *m
+                        || uuid_of(stored_cid)? != *cid
+                        || blob.len() as u64 != *size
+                    {
+                        return Err(corrupt("conflict inventory changed"));
+                    }
+                    let row = conflict_d(&values[2])?;
+                    if row.mutation != *m || row.conflict.id != *cid {
+                        return Err(corrupt("conflict inventory changed"));
+                    }
+                    all.push(row);
+                }
+                start = end;
+            }
+            after = Some((last.0, last.1));
+        }
         Ok(all
             .into_iter()
             .filter(|c| of.is_none_or(|id| c.conflict.id == *id))
@@ -1883,7 +2107,21 @@ mod tests {
         }
         fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
             self.0.set(self.0.get() + 1);
-            Ok(vec![StmtResult::default(); batch.stmts.len()])
+            Ok(batch
+                .stmts
+                .iter()
+                .map(|s| {
+                    if s.sql == "PRAGMA user_version" {
+                        StmtResult {
+                            columns: 1,
+                            values: vec![SqlValue::Integer(0)],
+                            ..StmtResult::default()
+                        }
+                    } else {
+                        StmtResult::default()
+                    }
+                })
+                .collect())
         }
         fn reset(&mut self) -> Result<(), IndexError> {
             self.0.set(self.0.get() + 1);
@@ -1927,7 +2165,7 @@ mod tests {
                 SqlStore::open(index)
             };
             assert!(result.is_ok());
-            assert_eq!(calls.get(), 1);
+            assert_eq!(calls.get(), 2);
         }
     }
 

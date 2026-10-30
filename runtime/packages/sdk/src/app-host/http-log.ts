@@ -118,6 +118,13 @@ export class AppHttpLogTransport implements AppLogTransport {
   /** Unused piggybacked nonces (one per reply, a few kept for concurrent RPCs);
    * each is taken (never shared) by exactly one later RPC. */
   private spares: { nonce: Uint8Array; at: number }[] = [];
+  private responseId = 0;
+  private readonly receiving = new Map<number, number>();
+  /** Only active logical sends, with bytes admitted under the existing body /
+   * range caps. Provisional network activity, never authenticated sync progress. */
+  responseProgress(): readonly { id: number; bytes: number }[] {
+    return [...this.receiving].map(([id, bytes]) => ({id, bytes}));
+  }
   constructor(private readonly authority: AppLogHttpAuthority, options: AppLogHttpOptions = {}) {
     try {
       this.endpointId = uint64(authority.endpoint); this.endpoint = this.endpointId;
@@ -170,7 +177,7 @@ export class AppHttpLogTransport implements AppLogTransport {
   private cleanups = new WeakMap<Response, () => void>();
   private withCleanup(r: Response, cleanup: () => void): Response { this.cleanups.set(r, cleanup); return r; }
   private release(r: Response): void { this.cleanups.get(r)?.(); this.cleanups.delete(r); }
-  private async read(r: Response, cap: number, signal: AbortSignal): Promise<Uint8Array> {
+  private async read(r: Response, cap: number, signal: AbortSignal, receive: (bytes: number) => void): Promise<Uint8Array> {
     let buf = new Uint8Array(Math.min(1024, cap)), total = 0, reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     try {
       this.check(signal);
@@ -183,7 +190,7 @@ export class AppHttpLogTransport implements AppLogTransport {
           this.check(signal); if (done) break;
           if (total + value.length > cap) throw error("integrity");
           if (total + value.length > buf.length) { const next = new Uint8Array(Math.min(cap, Math.max(buf.length * 2, total + value.length))); next.set(buf.subarray(0, total)); buf.fill(0); buf = next; }
-          buf.set(value, total); total += value.length;
+          buf.set(value, total); total += value.length; receive(value.length);
         } finally { value?.fill(0); }
       }
       return buf.subarray(0, total);
@@ -191,9 +198,9 @@ export class AppHttpLogTransport implements AppLogTransport {
     finally { reader?.releaseLock(); this.release(r); }
   }
   /** Bounded, sanitized server problem (code/reason/retry only). */
-  private async refusal(r: Response, signal: AbortSignal): Promise<AppHttpLogError> {
+  private async refusal(r: Response, signal: AbortSignal, receive: (bytes: number) => void): Promise<AppHttpLogError> {
     let body: unknown;
-    try { const raw = await this.read(r, 8 * 1024, signal); try { body = appServerBody(raw); } finally { raw.fill(0); } }
+    try { const raw = await this.read(r, 8 * 1024, signal, receive); try { body = appServerBody(raw); } finally { raw.fill(0); } }
     catch (e) { if (e instanceof AppHttpLogError && e.reason === "fenced") return e; body = undefined; }
     const server = appServerProblem(r.status, body, r.headers);
     return new AppHttpLogError(appServerOutcome(server) ?? "unavailable", server);
@@ -213,19 +220,19 @@ export class AppHttpLogTransport implements AppLogTransport {
     this.spares.push({ nonce: next, at: this.now() });
     while (this.spares.length > SPARE_NONCES) this.spares.shift()!.nonce.fill(0);
   }
-  private async freshNonce(signal: AbortSignal): Promise<Uint8Array> {
+  private async freshNonce(signal: AbortSignal, receive: (bytes: number) => void): Promise<Uint8Array> {
     const nr = await this.fetch(`${this.base}/v1/nonce`, {}, signal, 15_000);
-    if (!nr.ok) throw await this.refusal(nr, signal);
-    const raw = await this.read(nr, 128, signal);
+    if (!nr.ok) throw await this.refusal(nr, signal, receive);
+    const raw = await this.read(nr, 128, signal, receive);
     try { this.check(signal); const nonce = nonceBytes(new TextDecoder("utf-8", { fatal: true }).decode(raw).trim()); if (!nonce) throw error("shape"); return nonce; } finally { raw.fill(0); }
   }
-  private async rpc(frame: Uint8Array, method: string, id: bigint, signal: AbortSignal, originalId = id, allowSpare = true): Promise<Uint8Array> {
+  private async rpc(frame: Uint8Array, method: string, id: bigint, signal: AbortSignal, receive: (bytes: number) => void, originalId = id, allowSpare = true): Promise<Uint8Array> {
     this.check(signal); const token = await this.authority.accessToken({ signal }); this.check(signal);
     if (typeof token !== "string" || !token || token.length > 16 * 1024 || /[\r\n]/.test(token)) throw error("shape");
     // Steady state: the previous response's piggybacked nonce, so one request per RPC.
     // Older workers send none; then (and when it is stale) fall back to GET /v1/nonce.
     const spare = allowSpare ? this.takeSpare() : null;
-    const nonce = spare ?? await this.freshNonce(signal);
+    const nonce = spare ?? await this.freshNonce(signal, receive);
     this.check(signal); const p = proof(this.endpoint, originalId, method, this.collection, token, frame, nonce); nonce.fill(0);
     let signature: Uint8Array | null = null;
     try {
@@ -234,11 +241,11 @@ export class AppHttpLogTransport implements AppLogTransport {
       const r = await this.fetch(`${this.base}/v1/rpc`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/cbor", "x-mdbase-nonce": hex(p.nonce), "x-mdbase-sig": hex(signature) }, body: frame as BodyInit }, signal, 15_000);
       this.keepSpare(r);
       if (r.status === 401) this.authority.invalidateToken?.(token);
-      if (!r.ok) throw await this.refusal(r, signal);
-      const reply = await this.read(r, method === "append" ? 64 * 1024 : MAX_FRAME, signal);
+      if (!r.ok) throw await this.refusal(r, signal, receive);
+      const reply = await this.read(r, method === "append" ? 64 * 1024 : MAX_FRAME, signal, receive);
       try { this.check(signal); this.response(reply, id); } catch (e) { reply.fill(0); throw e; }
       // A refused spare (clock skew, or reused) was rejected before dispatch: retry once fresh.
-      if (spare && nonceRefused(reply)) { reply.fill(0); return await this.rpc(frame, method, id, signal, originalId, false); }
+      if (spare && nonceRefused(reply)) { reply.fill(0); return await this.rpc(frame, method, id, signal, receive, originalId, false); }
       return reply;
     } finally { signature?.fill(0); p.frame.fill(0); p.nonce.fill(0); p.bodyHash.fill(0); p.tokenHash.fill(0); p.digest.fill(0); }
   }
@@ -270,7 +277,7 @@ export class AppHttpLogTransport implements AppLogTransport {
       throw error("unavailable");
     } finally { void r.body?.cancel().catch(() => {}); this.release(r); }
   }
-  private async download(d: Direct, size: number, checksum: Uint8Array, signal: AbortSignal): Promise<Uint8Array> {
+  private async download(d: Direct, size: number, checksum: Uint8Array, signal: AbortSignal, receive: (bytes: number) => void): Promise<Uint8Array> {
     const out = new Uint8Array(size); let got = 0, stalled = 0;
     try {
       for (let requests = 0; requests < 32 && stalled < 5; requests++) {
@@ -291,7 +298,7 @@ export class AppHttpLogTransport implements AppLogTransport {
           for (;;) {
             let part: ReadableStreamReadResult<Uint8Array>;
             try { part = await reader.read(); } catch { this.check(signal); break; }
-            try { this.check(signal); if (part.done) break; if (part.value.length > size - got) throw error("integrity"); out.set(part.value, got); got += part.value.length; }
+            try { this.check(signal); if (part.done) break; if (part.value.length > size - got) throw error("integrity"); out.set(part.value, got); got += part.value.length; receive(part.value.length); }
             finally { part.value?.fill(0); }
           }
         } finally { void (reader?.cancel() ?? r.body?.cancel())?.catch(() => {}); reader?.releaseLock(); this.release(r); }
@@ -303,6 +310,9 @@ export class AppHttpLogTransport implements AppLogTransport {
   }
   async send(call: AppLogCall, options: { signal: AbortSignal }): Promise<Uint8Array> {
     let frame: Uint8Array | null = null, sidecar: Uint8Array | null = null, reply: Uint8Array | null = null, object: Uint8Array | null = null, commit: Uint8Array | null = null;
+    const activity = ++this.responseId; let received = 0;
+    this.receiving.set(activity, received);
+    const receive = (bytes: number) => { received += bytes; this.receiving.set(activity, received); };
     try {
       this.check(options.signal);
       if (uint64(call.endpoint) !== this.endpointId || !(call.frame instanceof Uint8Array) || call.frame.length > MAX_FRAME || (call.sidecar !== undefined && (!(call.sidecar instanceof Uint8Array) || call.sidecar.length > MAX_OBJECT))) throw error("shape");
@@ -315,7 +325,7 @@ export class AppHttpLogTransport implements AppLogTransport {
         const body = sidecar ?? bytes(inline);
         if (body.length !== size || !equal(sha256(body), ck)) throw error("integrity");
       }
-      reply = await this.rpc(frame, request.method, request.id, options.signal); this.check(options.signal);
+      reply = await this.rpc(frame, request.method, request.id, options.signal, receive); this.check(options.signal);
       const response = this.response(reply, request.id);
       if (response.has(3)) { const result = reply; reply = null; return result; }
       if (request.method === "put_object") {
@@ -329,7 +339,7 @@ export class AppHttpLogTransport implements AppLogTransport {
         if (this.commitId === request.id || this.commitId === 0n) throw error("unavailable");
         const id = this.commitId--;
         commit = encode(new Map<number, CborValue>([[0, 0], [1, id], [2, "commit_object"], [3, new Map<number, CborValue>([[0, this.collectionBytes], [1, address]])]]));
-        const committed = await this.rpc(commit, "commit_object", id, options.signal, request.id);
+        const committed = await this.rpc(commit, "commit_object", id, options.signal, receive, request.id);
         try {
           this.check(options.signal);
           const c = this.response(committed, id), result = c.get(2);
@@ -346,7 +356,7 @@ export class AppHttpLogTransport implements AppLogTransport {
         let offset = 0, count = size;
         if (range !== undefined) { if (!Array.isArray(range) || range.length !== 2) throw error("shape"); offset = number(range[0], MAX_OBJECT); count = number(range[1], MAX_OBJECT); if (offset > size || count > size - offset) throw error("shape"); }
         if (result.has(0)) { const inline = bytes(result.get(0)); if (inline.length !== count || (count === size && !equal(sha256(inline), ck))) throw error("integrity"); const out = reply; reply = null; return out; }
-        object = await this.download(this.direct(result.get(1), ck), size, ck, options.signal); this.check(options.signal);
+        object = await this.download(this.direct(result.get(1), ck), size, ck, options.signal, receive); this.check(options.signal);
         const normalized = new Map(result); normalized.delete(1); normalized.set(0, object.subarray(offset, offset + count));
         response.set(2, struct(normalized)); return encode(struct(response));
       }
@@ -359,6 +369,6 @@ export class AppHttpLogTransport implements AppLogTransport {
       const outcome = isAppServerProblem(server) ? appServerOutcome(server) : null;
       throw outcome && isAppServerProblem(server) ? new AppHttpLogError(outcome, server) : error("unavailable");
     }
-    finally { frame?.fill(0); sidecar?.fill(0); reply?.fill(0); object?.fill(0); commit?.fill(0); }
+    finally { this.receiving.delete(activity); frame?.fill(0); sidecar?.fill(0); reply?.fill(0); object?.fill(0); commit?.fill(0); }
   }
 }

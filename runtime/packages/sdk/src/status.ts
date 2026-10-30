@@ -11,8 +11,9 @@
 import type { Receipt, SyncStatus } from "./wire.js";
 
 export type StatusKind = "local" | "synced" | "catching_up" | "offline" | "installing"
-  | "collection_migrating" | "update_required" | "account_suspended";
+  | "collection_not_yet_migrated" | "collection_migrating" | "update_required" | "account_suspended";
 const SERVER: Readonly<Record<string, string>> = {
+  collection_not_yet_migrated: "Your collection needs an upgrade on your computer; your changes are safe",
   collection_migrating: "Your collection is being upgraded; changes will sync when it's done",
   update_required: "Update the app to keep syncing",
   account_suspended: "Syncing is paused: your account is suspended",

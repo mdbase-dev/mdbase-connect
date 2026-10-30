@@ -181,13 +181,12 @@ impl<S: Store> Replica<S> {
         }
         if let Some(r) = &j.reader {
             match r.need() {
-                Ok(Some(SourceNeed::BlobPart {
-                    address, max_bytes, ..
-                })) => {
+                Ok(Some(SourceNeed::BlobPart { address, .. })) => {
                     let call = self.queue(LogRequest::GetObject {
                         collection: self.cfg.collection,
                         address,
-                        range: Some((0, max_bytes)),
+                        // Source supply enforces the sealed-size bound.
+                        range: None,
                     });
                     self.inflight
                         .insert(call, super::append::Inflight::UnindexedReverseText(j.head));

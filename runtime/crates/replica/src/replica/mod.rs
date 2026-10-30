@@ -89,6 +89,8 @@ mod approval_runtime;
 pub mod base;
 mod client;
 mod client_files;
+mod client_unindexed_read;
+pub(crate) use client_unindexed_read::{ClientFileReadNeed, ClientFileReadPin};
 mod client_upload_resume;
 mod client_uploads;
 mod disk;
@@ -681,6 +683,21 @@ impl<S: Store> Replica<S> {
             }
             _ => {}
         }
+        let derived_version = match store.meta(meta_keys::DERIVED_VERSION)? {
+            None => 0,
+            Some(bytes) => u64::from_be_bytes(
+                bytes
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| OpenError::Corrupt("invalid derived-data version".into()))?,
+            ),
+        };
+        if derived_version > crate::store::DERIVED_DATA_VERSION {
+            return Err(OpenError::Mismatch(format!(
+                "derived-data version {derived_version} is newer than supported version {}; upgrade the runtime",
+                crate::store::DERIVED_DATA_VERSION
+            )));
+        }
         let head = store.head()?;
         let tail_stats = store.tail_stats()?;
         let catalog = Arc::new(crate::plan::load_catalog(&store)?);
@@ -912,6 +929,18 @@ impl<S: Store> Replica<S> {
         // Reject missing/revoked/mismatched local authority atomically first.
         if r.local_only() {
             r.validate_local_pending_on_open()?;
+        }
+        if derived_version < crate::store::DERIVED_DATA_VERSION {
+            // Reuse the catalog rebuild; never reset authoritative local state.
+            // Stamp only after ALL pages succeed so an interrupted open retries.
+            r.reindex()?;
+            r.store.commit(crate::store::Tx {
+                meta: vec![(
+                    meta_keys::DERIVED_VERSION.into(),
+                    Some(crate::store::DERIVED_DATA_VERSION.to_be_bytes().to_vec()),
+                )],
+                ..crate::store::Tx::default()
+            })?;
         }
         // A crash can follow a committed prefix but precede its local rebase.
         // Replan all cached pending effects against the recovered durable head.

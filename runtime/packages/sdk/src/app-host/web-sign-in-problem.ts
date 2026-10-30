@@ -24,7 +24,7 @@ export interface AppWebSignInProblemDetail {
   /** Bounded socket observation only; never raw close text or admission evidence. */
   readonly relay?: RelayCloseDiagnostic;
 }
-const reasons = new Set(["binding", "fenced", "busy", "open_in_another_tab", "account_confirmation_required", "recovery_account_mismatch", "outcome_unknown", "response", "refused", "expired", "recovery_required", "unavailable", "collection_migrating", "account_suspended", "update_required"]);
+const reasons = new Set(["binding", "fenced", "busy", "open_in_another_tab", "account_confirmation_required", "recovery_account_mismatch", "outcome_unknown", "response", "refused", "expired", "recovery_required", "unavailable", "collection_migrating", "collection_not_yet_migrated", "account_suspended", "update_required"]);
 const domCodes = new Set(["AbortError", "ConstraintError", "DataCloneError", "InvalidStateError", "NotAllowedError", "NotFoundError", "NotReadableError", "OperationError", "QuotaExceededError", "SecurityError", "TimeoutError", "TransactionInactiveError", "UnknownError", "VersionError"]);
 const result = (problem: string, name: string, code: string | null, server?: AppServerProblem) => Object.freeze({problem, detail: Object.freeze({name, code, ...(server ? {server} : {})})});
 
@@ -44,6 +44,9 @@ export function webSignInProblem(error: unknown): Readonly<{problem: string; det
         const code = error.reason;
         // An SDK error class does not prove its server detail: re-validate it.
         const server = ("server" in error ? sanitizeAppServerProblem(error.server) : null) ?? undefined;
+        // A cold catch-up stall is diagnostic detail, not a new app-facing
+        // problem/copy key or permission to retry any other refusal.
+        if (code === "sync_stalled") return result("unavailable", name, code, server);
         return reasons.has(code) ? result(code, name, code, server) : result("open_failed", name, null, server);
       }
     }

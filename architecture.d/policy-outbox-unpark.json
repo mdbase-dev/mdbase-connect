@@ -1,0 +1,6 @@
+{
+  "reason": "The existing instance administrator reuses the policy emitter/recovery collection lock and the canonical audit helper for an exact-replay unpark command. These two imports add no module or state machine; the duplicate local audit implementation is removed.",
+  "growth": {
+    "relativeImports": 2
+  }
+}

@@ -267,10 +267,16 @@ impl FakeLogService {
                     return Err(LogError::code(LogErrorCode::NotFound));
                 };
                 let (off, len) = range.unwrap_or((0, b.len() as u64));
-                let start = usize::try_from(off).unwrap_or(usize::MAX).min(b.len());
-                let end = start
-                    .saturating_add(usize::try_from(len).unwrap_or(usize::MAX))
-                    .min(b.len());
+                if off > b.len() as u64 || len > b.len() as u64 - off {
+                    return Err(LogError::Service {
+                        code: LogErrorCode::Invalid,
+                        reason: Some("range".into()),
+                        retry_after_ms: None,
+                        missing: Vec::new(),
+                    });
+                }
+                let start = off as usize;
+                let end = start + len as usize;
                 Ok(LogResponse::GetObject {
                     bytes: b[start..end].to_vec(),
                     size: b.len() as u64,

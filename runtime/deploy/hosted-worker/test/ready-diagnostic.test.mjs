@@ -20,7 +20,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
       needsReset() { this.storage.fixture.hit('engine_reset'); return false; }
     }` }));
   } }] });
-const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString("base64")}`);
+const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=ready-diagnostic-worker.mjs").toString("base64")}`);
 const collection = "10000000-0000-4000-8000-000000000001", hold = "20000000-0000-4000-8000-000000000002";
 const token = "synthetic-ready-token".repeat(3);
 const request = () => new Request(`https://hosted.test/v1/hosted/migration/run?collection=${collection}`, {
@@ -80,11 +80,14 @@ test("same cached-opening failure labels both waiters and rethrows original, not
   o.custody.openSealer = () => { opened++; return pending; };
   const firstDetails = [], secondDetails = [];
   const first = o.ready(collection, value => firstDetails.push(value));
-  while (!opened) await Promise.resolve();
+  for (let i = 0; i < 100 && !opened; i++) await Promise.resolve();
+  assert.equal(opened, 1);
   const second = o.ready(collection, value => secondDetails.push(value));
-  while (events.filter(value => value === "open_retry_schedule").length < 2) await Promise.resolve();
-  // Allow the second continuation to attach to the exact cached promise.
+  for (let i = 0; i < 100 && events.filter(value => value === "service_collection_persist").length < 2; i++) await Promise.resolve();
+  assert.equal(events.filter(value => value === "service_collection_persist").length, 2);
+  // Both waiters share the reservation as well as the exact cached opener.
   await Promise.resolve(); await Promise.resolve();
+  assert.equal(events.filter(value => value === "open_retry_schedule").length, 1);
   const original = new Error("private opening error"); rejectOpen(original);
   const results = await Promise.allSettled([first, second]);
   assert.equal(opened, 1);

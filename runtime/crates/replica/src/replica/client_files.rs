@@ -40,7 +40,7 @@ impl<S: Store> Replica<S> {
         range: Option<(u64, u64)>,
         revision: Option<Hash>,
     ) -> ApiResult<(StreamId, FileView)> {
-        let pin = self.attachment_read(session, target, range, revision)?;
+        let pin = self.client_file_read_pin(session, target, range, revision)?;
         self.with_client_files(|r, io| {
             if io
                 .upload
@@ -59,11 +59,17 @@ impl<S: Store> Replica<S> {
         stream: StreamId,
         offset: u64,
     ) -> ApiResult<()> {
-        self.require(session, crate::policy::capability::READ)?;
+        let authority = self.require(session, crate::policy::capability::READ);
         let Some(mut io) = self.client_files.take() else {
+            authority?;
             return Err(ErrorCode::NotFound.err("file stream is not active"));
         };
-        let result = io.reads.ack(self, session, stream, offset, &io.region);
+        // Revalidate custody even on an authority refusal, but never reveal the
+        // active lane's failure ahead of the caller's own authority check.
+        let custody = io.reads.recheck(self, &mut io.region);
+        let result = authority
+            .and(custody)
+            .and_then(|()| io.reads.ack(self, session, stream, offset, &io.region));
         self.client_files = Some(io);
         result
     }
@@ -72,12 +78,14 @@ impl<S: Store> Replica<S> {
         session: SessionId,
         stream: StreamId,
     ) -> ApiResult<()> {
-        self.require(session, crate::policy::capability::READ)?;
+        // Even a now-revoked owner may retire its exact stream; perform cleanup
+        // before returning the authority failure, never touching another lane.
+        let authority = self.require(session, crate::policy::capability::READ);
         if let Some(io) = self.client_files.as_mut() {
             io.reads.cancel(session, stream, &mut io.region)?;
         }
         self.prune_client_file_call();
-        Ok(())
+        authority
     }
     pub(crate) fn client_files_close(&mut self, session: SessionId) {
         if self.client_files.is_some() {
@@ -101,12 +109,17 @@ impl<S: Store> Replica<S> {
         let io = self.client_files.as_mut()?;
         io.reads.tick(now, &mut io.region)
     }
-    /// Retire outstanding ciphertext tickets and scrub the held region.
+    /// Retire Blob plaintext custody, or reset AttachmentV1 ciphertext input.
     pub fn attachment_read_retire_transport(&mut self) {
-        if let Some(io) = self.client_files.as_mut() {
-            io.reads.retire_transport(&mut io.region);
-        }
+        let retired = self
+            .client_files
+            .as_mut()
+            .and_then(|io| io.reads.retire_transport(&mut io.region));
         self.prune_client_file_call();
+        if let Some(session) = retired {
+            // Do not strand the SDK waiting for a last chunk on a retired lane.
+            self.client_file_failed(session);
+        }
     }
     /// Trusted host I/O request, not an admission permit or an app-selected address.
     pub fn attachment_read_object(&mut self) -> Result<Option<ObjectRead>, SessionId> {
@@ -131,14 +144,19 @@ impl<S: Store> Replica<S> {
         let Some(mut io) = self.client_files.take() else {
             return false;
         };
-        let result = io.reads.reserve(self, ticket, size, &mut io.region);
+        let result = io.reads.recheck(self, &mut io.region).is_ok()
+            && io.reads.reserve(self, ticket, size, &mut io.region);
         self.client_files = Some(io);
         result
     }
     /// Borrow a synchronous bounded input slice; never retain a view across awaits.
     pub fn attachment_read_region(&mut self, ticket: u64, size: usize) -> Option<*mut u8> {
         let mut io = self.client_files.take()?;
-        let result = io.reads.region(self, ticket, size, &mut io.region);
+        let result = if io.reads.recheck(self, &mut io.region).is_ok() {
+            io.reads.region(self, ticket, size, &mut io.region)
+        } else {
+            None
+        };
         self.client_files = Some(io);
         result
     }
@@ -147,7 +165,8 @@ impl<S: Store> Replica<S> {
         let Some(mut io) = self.client_files.take() else {
             return false;
         };
-        let result = io.reads.written(self, ticket, size, &io.region);
+        let result = io.reads.recheck(self, &mut io.region).is_ok()
+            && io.reads.written(self, ticket, size, &io.region);
         self.client_files = Some(io);
         result
     }
@@ -156,7 +175,8 @@ impl<S: Store> Replica<S> {
         let Some(mut io) = self.client_files.take() else {
             return false;
         };
-        let result = io.reads.append(self, ticket, bytes, &mut io.region);
+        let result = io.reads.recheck(self, &mut io.region).is_ok()
+            && io.reads.append(self, ticket, bytes, &mut io.region);
         self.client_files = Some(io);
         result
     }

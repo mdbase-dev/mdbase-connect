@@ -1107,7 +1107,14 @@ file-view = {
   ? 7: hold-ref,
   ? 8: int,              ; mtime: writing-device commit/capture clock, milliseconds
   ? 9: tstr,             ; IANA media type from the extension (Core paths::media_type); absent when unknown; never sniffed
+  ? 10: file-content-profile,
 }
+file-content-profile = &(
+  ordinary_blob: 0,
+  ordinary_attachment_v1: 1,
+  unindexed_markdown_blob: 2,
+  unindexed_markdown_attachment_v1: 3,
+)
 file-state = &(
   materialized: 0,       ; the bytes are on this device
   remote: 1,             ; included in the collection, not kept on this device; fetched on demand

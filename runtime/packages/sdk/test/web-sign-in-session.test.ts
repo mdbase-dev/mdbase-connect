@@ -80,6 +80,41 @@ async function approvalTick(session: AppWebSignInSession<unknown>): Promise<void
   session.setForeground(false);session.setForeground(true);
   await vi.waitFor(()=>expect((session as unknown as {pending:unknown}).pending).toBeNull());
 }
+describe("opening progress", () => {
+  it("explicitly clears a stale stage when the same slot is already opening", async () => {
+    const f = fixture("paired"), original = f.openCollection.getMockImplementation()!;
+    f.openCollection.mockImplementation(async p => {
+      p.onProgress("replaying");
+      const slot = Reflect.get(f.session, "slots").get(collectionId);
+      const publish = Reflect.get(f.session, "publishSlot").bind(f.session);
+      publish(slot, {status: "opening"});
+      expect(f.session.getSnapshot().openingProgress).toBe("replaying");
+      publish(slot, {status: "opening", openingProgress: null});
+      expect(f.session.getSnapshot().openingProgress).toBeNull();
+      return original(p);
+    });
+    await f.session.start(); await f.session.close();
+  });
+  it("publishes only while the original collection open is pending, then clears and fences late reports", async () => {
+    const f = fixture("paired");
+    const original = f.openCollection.getMockImplementation()!;
+    let report!: (stage: "replaying" | "loading_snapshot") => void;
+    let finish!: () => void;
+    f.openCollection.mockImplementation(async p => {
+      report = p.onProgress; report("loading_snapshot");
+      await new Promise<void>(resolve => {finish = resolve;});
+      return original(p);
+    });
+    const work = f.session.start();
+    await vi.waitFor(() => expect(f.session.getSnapshot().openingProgress).toBe("loading_snapshot"));
+    report("replaying"); expect(f.session.getSnapshot().openingProgress).toBe("replaying");
+    finish(); await work;
+    expect(f.session.getSnapshot().openingProgress).toBeNull();
+    report("loading_snapshot"); expect(f.session.getSnapshot().openingProgress).toBeNull();
+    await f.session.close();
+  });
+});
+
 describe("unified Native choice lifecycle", () => {
   it("keeps ONE original popup through Native completion and ACK without opening a Hosted adapter", async () => {
     const f=fixture("pending","never"), requestId=f.flow.view().requestId, authorizationId="77777777-7777-4777-8777-777777777777";
@@ -338,15 +373,15 @@ describe("shared first-party web sign-in", () => {
     notify(); expect(f.session.snapshot().status).toBe("unselected"); expect(f.session.connection()).toBeNull();
     await f.session.close();
   });
-  it("shows a live migrating/moved collection as that problem, keeps it usable and clears it when it lifts", async () => {
+  it.each(["collection_migrating","collection_not_yet_migrated"])("shows live %s without replacing the connection, and clears it when it lifts", async code => {
     const f = fixture("paired"); let problem: unknown = null, notify: () => void = () => {};
     f.openCollection.mockImplementationOnce(async () => ({state: "ready", get problem() {return problem;}, connection: f.connection, close: f.closeConnection,
       subscribe(listener: () => void) {notify = listener; return () => {};}}));
     await f.session.start(); expect(f.session.snapshot()).toMatchObject({status: "ready", problem: null});
-    const server = appServerProblem(409, {error: {code: "collection_migrating", details: {retry_after_seconds: 30}}});
+    const server = appServerProblem(409, {error: {code, details: {retry_after_seconds: 30}}});
     problem = server; notify();
-    expect(f.session.snapshot()).toMatchObject({status: "ready", problem: "collection_migrating", problemDetail: {server}});
-    expect(f.session.connection()).toBe(f.connection);
+    expect(f.session.snapshot()).toMatchObject({status: "ready", problem: code, problemDetail: {server}});
+    expect(f.session.connection()).toBe(f.connection); expect(f.closeConnection).not.toHaveBeenCalled();
     problem = {...server}; notify(); expect(f.session.snapshot().problem).toBeNull(); // only SDK-parsed problems count
     problem = appServerProblem(409, {error: {code: "collection_unavailable", details: {reason: "moved_to_next_runtime"}}}); notify();
     expect(f.session.snapshot().problem).toBe("update_required");
@@ -513,6 +548,17 @@ describe("shared first-party web sign-in", () => {
     await expect(f.session.select(collectionId)).rejects.toBe(original);
     expect(f.session.snapshot()).toMatchObject({problem: "open_failed", problemDetail: {name: "UnknownError", code: null}});
     await f.session.close();
+  });
+  it("keeps an unmigrated local collection typed and retries only on an explicit selection", async () => {
+    vi.useFakeTimers(); const f=fixture("paired","never"); await f.session.start();
+    const server={status:409,code:"collection_not_yet_migrated",reason:null,retryAfterMs:null,updateUrl:null};
+    f.openCollection.mockRejectedValueOnce(new AppCloudCopyBootstrapError("collection_not_yet_migrated",false,server));
+    await expect(f.session.select(collectionId)).rejects.toMatchObject({reason:"collection_not_yet_migrated"});
+    expect(f.session.snapshot()).toMatchObject({status:"blocked",problem:"collection_not_yet_migrated",problemDetail:{server}});
+    await vi.advanceTimersByTimeAsync(600_000); expect(f.openCollection).toHaveBeenCalledOnce();
+    await f.session.select(collectionId);
+    expect(f.session.snapshot()).toMatchObject({status:"ready",problem:null,selectedCollectionId:collectionId});
+    await f.session.close(); expect(vi.getTimerCount()).toBe(0);
   });
   it("reopens the same collection by itself after the server's migration retry delay", async () => {
     vi.useFakeTimers(); const f=fixture("paired","never"); await f.session.start();

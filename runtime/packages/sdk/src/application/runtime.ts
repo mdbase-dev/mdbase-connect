@@ -122,7 +122,7 @@ export class ApplicationRuntime {
       const diagnostic=`${problem}:${detail??""}`;
       if(status==="blocked"&&problem&&diagnostic!==this.loggedProblem){this.loggedProblem=diagnostic;try{if(detail)console.error("mdbase application blocked:",problem,detail);else console.error("mdbase application blocked:",problem);}catch{/* no console */}}
       else if(status!=="blocked")this.loggedProblem=null;
-      this.snapshot=Object.freeze({...this.raw,status,problem,collections:Object.freeze(this.raw.collections.map(value=>Object.freeze({...value}))),readiness});
+      this.snapshot=Object.freeze({...this.raw,status,problem,openingProgress:status==="opening"?(readiness.checking?"checking_setup":this.raw.openingProgress??null):null,collections:Object.freeze(this.raw.collections.map(value=>Object.freeze({...value}))),readiness});
     }
     for(const listener of [...this.listeners])try{listener();}catch{/* observers do not own lifecycle */}
   }

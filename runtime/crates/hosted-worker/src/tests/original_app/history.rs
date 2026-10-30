@@ -57,7 +57,13 @@ fn native_target_binds_complete_accepted_originals_and_refuses_changed_delivery(
 fn warm_hints_are_not_observations_but_actual_native_replay_can_reestablish_them() {
     let (svc, _, pins, peer) = fixture();
     let mut cold = open(&svc);
+    let empty = cold.e.applied_head();
     cold.pump(false);
+    assert_ne!(
+        cold.e.applied_head(),
+        empty,
+        "new native progress is activity"
+    );
     let before = cold.e.observe_native_target().unwrap();
     let store = cold.e.replica().store().inner().clone();
     assert!(
@@ -73,6 +79,8 @@ fn warm_hints_are_not_observations_but_actual_native_replay_can_reestablish_them
         zones: Box::new(UtcOnly),
     };
     let mut e = Engine::open(config(&svc), store, host, HostedProfile::default()).unwrap();
+    let cached_head = e.applied_head();
+    assert_eq!(cached_head, cold.e.applied_head());
     assert!(e.replica().observed_original_genesis().is_none());
     assert!(e.replica().observed_original_grant(&APP_GRANT).is_none());
     assert!(e.observe_native_target().is_err());
@@ -84,6 +92,11 @@ fn warm_hints_are_not_observations_but_actual_native_replay_can_reestablish_them
         clock,
     };
     warm.pump(false);
+    assert_eq!(
+        warm.e.applied_head(),
+        cached_head,
+        "control replay is not new progress"
+    );
     assert!(
         matches!(
             warm.e.admission(),

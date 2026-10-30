@@ -8,12 +8,12 @@ import {pipeCloseError} from "../src/transport/relay-pipe.js";
 const P="cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const opened:{close:ReturnType<typeof vi.fn>}[]=[];
 /** Holds the grant list read (from local storage) until released. */
-const gate:{wait:Promise<void>|null;error:unknown}={wait:null,error:null};
+const gate:{wait:Promise<void>|null;error:unknown;wipeError:unknown}={wait:null,error:null,wipeError:null};
 vi.mock("../src/app-grant/client.js",()=>({MdbaseAppGrants:class{
   verifiedStoredNativeGrant=async()=>true;
   collections=async(options?:{bindings?:readonly {collection_id:string}[]})=>{await gate.wait;if(options?.bindings && !options.bindings.some(c=>c.collection_id===P))return [];return [{collectionId:P,displayName:"Private notes",operations:[],role:"owner",availability:{state:"available"}}];};
   availability=async()=>({state:"available"});waitForAvailable=async()=>({state:"available"});
-  connector=()=>({});people=()=>({});forget=async()=>{};authorize=async()=>({collectionId:P});
+  connector=()=>({});people=()=>({});forget=async()=>{};forgetAllGrants=async()=>{if(gate.wipeError)throw gate.wipeError;};authorize=async()=>({collectionId:P});
   setup=()=>({assess:async()=>"ready",plan:async()=>({}),apply:async()=>"ready"});
 }}));
 vi.mock("../src/client.js",()=>({connect:async()=>{if(gate.error)throw gate.error;const c={collection:P,files:{},close:vi.fn(),ledger:{subscribe:()=>()=>{},getSnapshot:()=>null},status:{},onStatus:()=>()=>{},onLink:()=>()=>{}};opened.push(c);return c;}}));
@@ -60,7 +60,7 @@ const reload=(options={},href=`${origin}/`)=>{
   return new MdbaseConnect(declaration,options).application();
 };
 beforeEach(()=>{
-  opened.length=0;gate.wait=null;gate.error=null;
+  opened.length=0;gate.wait=null;gate.error=null;gate.wipeError=null;
   FakeWorker.all=[];FakeWorker.snapshot=paired;store.clear();
   vi.stubGlobal("Worker",FakeWorker);vi.stubGlobal("localStorage",localStorage);
   // A browser page also has locks, storage and IndexedDB (entry capability probe).
@@ -135,6 +135,31 @@ describe("Private collections",()=>{
     const C="dddddddd-dddd-4ddd-8ddd-dddddddddddd";
     const app=reload({},`${origin}/?collection=${C}`);await app.start();
     await vi.waitFor(()=>expect(app.getSnapshot()).toMatchObject({selection:{state:"approval_required"},phase:{kind:"needs_approval",collectionId:C}}));
+  });
+  it("legacy Private Add opens the unified chooser without inheriting the current URL target",async()=>{
+    const app=reload({},`${origin}/?collection=${A}`);
+    Object.assign(window,{open:()=>({location:{href:"about:blank"},closed:false,close(){}})});
+    await app.start();
+    await app.addPrivateCollection!({signal:new AbortController().signal});
+    const requests=FakeWorker.all.flatMap(w=>w.requests).filter(r=>r[3]==="authorize");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]![4]).toBeNull();
+    FakeWorker.snapshot={...paired,status:"closed"};await app.close();
+  });
+  it("sign-out still completes when the Private grant wipe fails, and says so in signOutResult",async()=>{
+    const app=reload();await app.start();
+    await vi.waitFor(()=>expect(app.getSnapshot().collections.some(c=>c.collectionId===P)).toBe(true));
+    gate.wipeError=new Error("grant storage could not be cleared");
+    FakeWorker.snapshot={status:"signed_out",signIn:null,collections:[],selectedCollectionId:null,problem:null,timing:null,signOutResult:{server:"revoked",local:"erased",webPush:false}};
+    const out=await app.signOut!();
+    expect(out).toMatchObject({status:"signed_out",signIn:null,collections:[],signOutResult:{server:"revoked",local:"incomplete",grants:"incomplete"}});
+  });
+  it("a clean sign-out reports the Private grant wipe as erased",async()=>{
+    const app=reload();await app.start();
+    await vi.waitFor(()=>expect(app.getSnapshot().collections.some(c=>c.collectionId===P)).toBe(true));
+    FakeWorker.snapshot={status:"signed_out",signIn:null,collections:[],selectedCollectionId:null,problem:null,timing:null,signOutResult:{server:"revoked",local:"erased",webPush:false}};
+    const out=await app.signOut!();
+    expect(out).toMatchObject({status:"signed_out",signOutResult:{server:"revoked",local:"erased",grants:"erased"}});
   });
   it("an app that lists them itself opts out",async()=>{
     const app=reload({privateCollections:false});await app.start();

@@ -86,6 +86,7 @@ ExecuteViewOptions -> ExecuteViewOptions@saved-views.ts
 FcmChannelOptions -> FcmChannelOptions@timers.ts
 FenceHandler -> FenceHandler@client.ts
 FileAction -> FileAction@files.ts
+FileContentProfile -> FileContentProfile@wire.ts
 fileGrant -> fileGrant@files.ts
 FileGrant -> FileGrant@files.ts
 FileRef -> FileRef@files.ts
@@ -441,6 +442,7 @@ ErrorCode -> ErrorCode@errors.ts
 ExecuteViewOptions -> ExecuteViewOptions@saved-views.ts
 FenceHandler -> FenceHandler@client.ts
 FileAction -> FileAction@files.ts
+FileContentProfile -> FileContentProfile@wire.ts
 fileGrant -> fileGrant@files.ts
 FileGrant -> FileGrant@files.ts
 FileRef -> FileRef@files.ts
@@ -708,6 +710,7 @@ ExecuteViewOptions -> ExecuteViewOptions@saved-views.ts
 FcmChannelOptions -> FcmChannelOptions@timers.ts
 FenceHandler -> FenceHandler@client.ts
 FileAction -> FileAction@files.ts
+FileContentProfile -> FileContentProfile@wire.ts
 fileGrant -> fileGrant@files.ts
 FileGrant -> FileGrant@files.ts
 FileRef -> FileRef@files.ts
@@ -1691,6 +1694,7 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export ConflictEntry
   export conflictEntry
   export FileState
+  export FileContentProfile
   export FileView
   export fileView
   export ListFilesResult
@@ -2000,9 +2004,9 @@ AppCloudCopyHostError@app-host/cloud-copy-host.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'recovery_required' | 'binding' | 'fenced'
+  readonly reason: 'unavailable' | 'recovery_required' | 'binding' | 'fenced' | 'sync_stalled'
   stack?: string | undefined
-  static new (reason: 'binding' | 'fenced' | 'recovery_required' | 'unavailable'): AppCloudCopyHostError
+  static new (reason: 'binding' | 'fenced' | 'recovery_required' | 'unavailable' | 'sync_stalled'): AppCloudCopyHostError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
   static prepareStackTrace: (err: Error, stackTraces: NodeJS.CallSite[]) => any
   static stackTraceLimit: number
@@ -2363,6 +2367,7 @@ AppGrantPopup@app-grant/client.ts
   navigate: (url: string) => void
 
 AppGrantStore@app-grant/grant-store.ts
+  clearGrants: () => Promise<void>
   deleteGrant: (collection: string) => Promise<void>
   deleteSetupAttempt?: ((collection: string, expected: Uint8Array) => Promise<void>) | undefined
   getGrant: (collection: string) => Promise<StoredAppGrant | undefined>
@@ -2402,6 +2407,7 @@ AppHttpLogTransport@app-host/http-log.ts
   readonly collection: string
   readonly endpoint: number | bigint
   isCurrent: () => boolean
+  responseProgress: () => readonly { id: number; bytes: number; }[]
   send: (call: AppLogCall, options: { signal: AbortSignal; }) => Promise<Uint8Array>
   static new (authority: AppLogHttpAuthority, options?: AppLogHttpOptions): AppHttpLogTransport
 
@@ -2647,7 +2653,10 @@ AppLogPump@app-host/log-pump.ts
   drainForAuthenticatedReconnect: () => Promise<void>
   readonly fenced: boolean
   pump: () => Promise<{ quiet: boolean; }>
+  readonly readProgress: number
+  responseProgress: () => readonly { id: number; bytes: number; }[]
   readonly serverProblem: AppServerProblem | null
+  readonly terminalProblem: AppServerProblem | null
   readonly transportHealth: AppLogHealth | null
   static new (runtime: AppLogRuntime, transport: AppLogTransport, binding: { endpoint: number | bigint; collection: string; maxRounds?: number; }): AppLogPump
 
@@ -2705,6 +2714,7 @@ AppLogTransport@app-host/log-pump.ts
   readonly collection: string
   readonly endpoint: number | bigint
   isCurrent: () => boolean
+  responseProgress?: (() => readonly { id: number; bytes: number; }[]) | undefined
   send: (call: AppLogCall, options: { signal: AbortSignal; }) => Promise<Uint8Array>
 
 AppNativeAuthorizationContext@app-host/native-sign-in.ts
@@ -2750,6 +2760,9 @@ AppOpenedCollectionSql@app-storage/collection-sql.ts
   readonly opened: 'fresh' | 'existing' | 'unclean'
   readonly sql: AppSqlLifetime
   readonly sqliteVersion: number
+
+AppOpeningProgress@app-host/opening-progress.ts
+  = 'waiting_for_key' | 'joining' | 'opening_store' | 'connecting_log' | 'syncing' | 'loading_snapshot' | 'replaying' | 'verifying_read' | 'checking_setup'
 
 AppOwnedWorker@app-host/owner.ts
   stop: () => Promise<void>
@@ -3024,7 +3037,7 @@ AppWebCloudCopyHost@app-host/cloud-copy-host.ts
   serverProblem: () => AppServerProblem | null
   startCollectionLog: (options: { signal: AbortSignal; fetch?: typeof fetch; allowLoopbackHttp?: boolean; }) => Promise<void>
   transportHealth: () => AppLogHealth | null
-  waitForVerifiedRead: (options: { signal: AbortSignal; timeoutMs?: number; }) => Promise<void>
+  waitForVerifiedRead: (options: { signal: AbortSignal; timeoutMs?: number; onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void; cold?: boolean; }) => Promise<void>
   wakeCollectionLog: (options: { signal: AbortSignal; }) => Promise<void>
   static new (source: AppCloudCopyHostSession, installation: AppInstallationCustodyAuthority, originalRelease: AppCloudCopyHostRelease, origin: string, lifetime: AbortSignal): AppWebCloudCopyHost
   static openInstallationDevice: (options: { signIn: AppProtectedInstallationSignIn; installation: AppInstallationCustodyAuthority; release: AppCloudCopyHostRelease; origin: string; signal: AbortSignal; loadRuntime(options: { signal: AbortSignal; }): Promise<Uint8Array>; allowLoopbackHttp?: boolean; }) => Promise<AppWebCloudCopyHost>
@@ -3086,6 +3099,7 @@ AppWebCollectionHandoff@app-host/web-collection.ts
 
 AppWebCollectionView@app-host/web-sign-in-session.ts
   readonly live: boolean | null
+  readonly openingProgress?: import("src/app-host/opening-progress").AppOpeningProgress | null | undefined
   readonly problem: string | null
   readonly problemDetail?: AppWebSignInProblemDetail | undefined
   readonly status: 'opening' | 'setup_required' | 'ready' | 'blocked' | 'unselected'
@@ -3173,7 +3187,7 @@ AppWebSignInSessionOptions@app-host/web-sign-in-session.ts
   loadRuntime: (options: { signal: AbortSignal; }) => Promise<Uint8Array>
   readonly localDatabases?: readonly string[] | undefined
   readonly locks: AppLockPort | undefined
-  openCollection: (options: { host: AppWebCloudCopyHost; installation: AppInstallationCustodyAuthority; scope: Readonly<AppReplicaScope>; collection: AppInstallationCollection; setupPolicy: 'approved-new-collection' | 'explicit'; signal: AbortSignal; }) => Promise<AppWebCollectionConnection<Connection>>
+  openCollection: (options: { host: AppWebCloudCopyHost; installation: AppInstallationCustodyAuthority; scope: Readonly<AppReplicaScope>; collection: AppInstallationCollection; setupPolicy: 'approved-new-collection' | 'explicit'; onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void; signal: AbortSignal; }) => Promise<AppWebCollectionConnection<Connection>>
   openPortal: () => AppWebSignInPortal
   readonly origin: string
   readonly owner?: string | undefined
@@ -3188,6 +3202,7 @@ AppWebSignInSnapshot@app-host/web-sign-in-session.ts
   readonly collections: readonly AppInstallationCollection[]
   readonly fileAccess?: Readonly<{ requestId: string; collectionId: string; actions: readonly AppFileAction[]; state: 'pending' | 'granted' | 'declined' | 'expired'; }> | undefined
   readonly live?: boolean | null | undefined
+  readonly openingProgress?: import("src/app-host/opening-progress").AppOpeningProgress | null | undefined
   readonly problem: string | null
   readonly problemDetail?: AppWebSignInProblemDetail | undefined
   readonly recoveryAccountLabel?: string | undefined
@@ -3200,6 +3215,7 @@ AppWebSignInSnapshot@app-host/web-sign-in-session.ts
   readonly transport?: AppLogHealth | null | undefined
 
 AppWebSignOutResult@app-host/web-sign-in-session.ts
+  readonly grants?: 'erased' | 'incomplete' | undefined
   readonly local: 'erased' | 'incomplete'
   readonly server: 'revoked' | 'already_signed_out' | 'incomplete' | 'not_paired'
   readonly webPush: boolean
@@ -3369,7 +3385,7 @@ ByteStream@transport/noise-session.ts
   write: (b: Uint8Array) => void
 
 COLLECTION_UNAVAILABLE_REASONS@collection-availability.ts
-  : readonly ['device_offline', 'desktop_update_required', 'old_connector_running', 'approval_required', 'sync_required', 'no_device_registered', 'access_removed', 'collection_migrating', 'collection_deleted']
+  : readonly ['device_offline', 'desktop_update_required', 'old_connector_running', 'approval_required', 'sync_required', 'no_device_registered', 'access_removed', 'collection_migrating', 'collection_not_yet_migrated', 'collection_deleted']
 
 CborError@cbor.ts
   cause?: unknown
@@ -3455,7 +3471,7 @@ CollectionMemberProfile@people.ts
   subject: string
 
 CollectionUnavailableReason@collection-availability.ts
-  = 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_deleted'
+  = 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted'
 
 ConfirmedHead@wire.ts
   catalogGeneration: string
@@ -3616,7 +3632,7 @@ DaemonIdentity@node.ts
 
 DescribeErrorOptions@describe-error.ts
   readonly cpOrigin?: string | undefined
-  readonly messages?: Readonly<Partial<Record<'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'unknown', MdbaseProblemMessages>>> | undefined
+  readonly messages?: Readonly<Partial<Record<'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'unknown', MdbaseProblemMessages>>> | undefined
   readonly recoveryAccountLabel?: string | undefined
 
 DescribeHoldOptions@holds.ts
@@ -3699,6 +3715,9 @@ FenceReportEntry@wire.ts
 FileAction@files.ts
   = 'delete' | 'list' | 'read' | 'add' | 'replace' | 'move'
 
+FileContentProfile@wire.ts
+  = 'ordinary_blob' | 'ordinary_attachment_v1' | 'unindexed_markdown_blob' | 'unindexed_markdown_attachment_v1'
+
 FileGrant@files.ts
   readonly actions: readonly FileAction[]
   readonly scope: FileScope
@@ -3719,6 +3738,7 @@ FileState@wire.ts
 
 FileView@wire.ts
   confirmedSeq: number
+  contentProfile?: FileContentProfile | undefined
   digest: string
   hold?: HoldRef | undefined
   id: string
@@ -4134,6 +4154,7 @@ MdbaseAppGrants@app-grant/client.ts
   collections: (options?: { signal?: AbortSignal; bindings?: readonly NativeCompletion[]; }) => Promise<MdbasePrivateCollection[]>
   connector: (collection: string) => Connector & { readonly target: string | null; }
   forget: (collection: string, options?: { readonly expectedNoisePublicKey?: string; }) => Promise<void>
+  forgetAllGrants: () => Promise<void>
   people: (collection: string, client: Pick<MdbaseClient, 'queryContract' | 'readyForRead' | 'currentSession'>) => MdbasePeopleClient
   prepareAuthorization: (o?: MdbasePrepareAuthorizationOptions) => Promise<MdbasePreparedAuthorization>
   setup: (client: MdbaseClient) => MdbasePrivateSetup
@@ -4241,6 +4262,7 @@ MdbaseApplicationSnapshot@application/entry.ts
   readonly fileAccess?: Readonly<{ requestId: string; collectionId: string; actions: readonly AppFileAction[]; state: 'pending' | 'granted' | 'declined' | 'expired'; }> | undefined
   readonly links?: MdbaseLinks | null | undefined
   readonly live?: boolean | null | undefined
+  readonly openingProgress?: import("src/app-host/opening-progress").AppOpeningProgress | null | undefined
   readonly phase?: MdbasePhase | undefined
   readonly problem: string | null
   readonly problemDetail?: AppWebSignInProblemDetail | undefined
@@ -4472,7 +4494,7 @@ MdbasePeopleClient@people.ts
   static new (client: PeopleRecords, authority: PeopleAuthority): MdbasePeopleClient
 
 MdbasePhase@application/phase.ts
-  = { readonly kind: 'starting'; } | { readonly kind: 'signed_out'; readonly notice: MdbaseProblem | null; } | { readonly kind: 'authorizing'; readonly purpose: 'sign_in' | 'add' | 'approve'; readonly collectionId: string | null; } | { readonly kind: 'choosing'; readonly lastApproval: MdbaseApprovalOutcome | null; } | { readonly kind: 'opening'; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; } | { readonly kind: 'needs_approval'; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean; } | { readonly kind: 'needs_setup'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; } | { readonly kind: 'ready'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; readonly problem: MdbaseProblem | null; readonly unavailableTypes: readonly MdbaseUnavailableType[]; } | { readonly kind: 'problem'; readonly collectionId: string | null; readonly problem: MdbaseProblem; } | { readonly kind: 'unavailable'; readonly problem: MdbaseProblem; } | { readonly kind: 'closed'; }
+  = { readonly kind: 'starting'; } | { readonly kind: 'signed_out'; readonly notice: MdbaseProblem | null; } | { readonly kind: 'authorizing'; readonly purpose: 'sign_in' | 'add' | 'approve'; readonly collectionId: string | null; } | { readonly kind: 'choosing'; readonly lastApproval: MdbaseApprovalOutcome | null; } | { readonly kind: 'opening'; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; readonly progress?: import("../app-host/opening-progress.js").AppOpeningProgress | null; } | { readonly kind: 'needs_approval'; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean; } | { readonly kind: 'needs_setup'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; } | { readonly kind: 'ready'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; readonly problem: MdbaseProblem | null; readonly unavailableTypes: readonly MdbaseUnavailableType[]; } | { readonly kind: 'problem'; readonly collectionId: string | null; readonly problem: MdbaseProblem; } | { readonly kind: 'unavailable'; readonly problem: MdbaseProblem; } | { readonly kind: 'closed'; }
 
 MdbasePhaseKind@application/phase.ts
   = 'problem' | 'starting' | 'closed' | 'opening' | 'unavailable' | 'ready' | 'signed_out' | 'authorizing' | 'choosing' | 'needs_approval' | 'needs_setup'
@@ -4583,6 +4605,7 @@ MdbaseSnapshot@application/front-door.ts
   readonly fileAccess?: Readonly<{ requestId: string; collectionId: string; actions: readonly AppFileAction[]; state: 'pending' | 'granted' | 'declined' | 'expired'; }> | undefined
   readonly links: MdbaseLinks | null
   readonly live?: boolean | null | undefined
+  readonly openingProgress?: import("src/app-host/opening-progress").AppOpeningProgress | null | undefined
   readonly phase: MdbasePhase
   readonly problem: string | null
   readonly problemDetail?: AppWebSignInProblemDetail | undefined
@@ -4864,7 +4887,7 @@ PERSON_CONTRACT@people.ts
   : Readonly<{ id: 'mdbase.person'; version: '2.0.0'; }>
 
 PROBLEM_CODES@describe-error.ts
-  : readonly ['device_offline', 'desktop_update_required', 'old_connector_running', 'sync_required', 'no_device_registered', 'access_removed', 'read_only', 'capability_missing', 'collection_deleted', 'collection_unavailable', 'moved_to_next_runtime', 'device_approval_required', 'collection_migrating', 'account_suspended', 'update_required', 'account_collection_quota_exceeded', 'invalid_request', 'invalid_record', 'not_found', 'conflict', 'unauthenticated', 'forbidden', 'collection_invalid', 'unavailable', 'rate_limited', 'quota_exceeded', 'too_large', 'outcome_unknown', 'internal', 'refused', 'expired', 'approval_window_closed', 'account_confirmation_required', 'recovery_required', 'open_failed', 'busy', 'open_in_another_tab', 'not_authorized', 'sign_out_pending_writes', 'sign_out_failed', 'application_popup_blocked', 'sign_in_window', 'application_not_yet_available', 'application_failed', 'application_worker_unavailable', 'browser_unsupported', 'application_storage_unavailable', 'storage_may_be_evicted', 'application_registration_unsupported', 'application_registration_refused', 'application_selection_not_approved', 'application_selection_invalid', 'installation_scope_removed', 'recovery_account_mismatch', 'assets', 'setup_required', 'incompatible', 'approval_required', 'contract_mismatch', 'contract_missing', 'implementation_missing', 'catalog_invalid', 'catalog_response', 'type_invalid', 'readiness_budget', 'readiness_unsupported', 'notifications_consent_required', 'timer_channel_reapproval_required', 'notifications_unsupported', 'people_unsupported', 'people_permission_declined', 'people_access', 'configuration_conflict', 'configuration_unavailable', 'configuration_unsupported', 'configuration_busy_timeout', 'readiness_busy_timeout', 'setup_forbidden', 'setup_conflict', 'setup_unresolved', 'collection_setup_conflict', 'setup_records_forbidden', 'setup_changed', 'installed_newer', 'type_pack_conflict', 'invalid_type_pack', 'access_required', 'access_declined', 'access_undeclared', 'files_access_missing', 'files_scope_missing', 'file_read_failed', 'file_read_idle', 'collection_delete_name_mismatch', 'collection_delete_not_owner', 'collection_delete_not_found', 'collection_delete_frozen', 'collection_delete_busy', 'collection_delete_not_approved', 'collection_delete_sign_in', 'collection_delete_invalid', 'collection_delete_outcome_unknown', 'collection_delete_failed', 'wrong_secret', 'locked', 'weak_password', 'already_set_up', 'no_account_key']
+  : readonly ['device_offline', 'desktop_update_required', 'old_connector_running', 'sync_required', 'no_device_registered', 'access_removed', 'read_only', 'capability_missing', 'collection_deleted', 'collection_unavailable', 'moved_to_next_runtime', 'device_approval_required', 'collection_migrating', 'collection_not_yet_migrated', 'account_suspended', 'update_required', 'account_collection_quota_exceeded', 'invalid_request', 'invalid_record', 'not_found', 'conflict', 'unauthenticated', 'forbidden', 'collection_invalid', 'unavailable', 'rate_limited', 'quota_exceeded', 'too_large', 'outcome_unknown', 'internal', 'refused', 'expired', 'approval_window_closed', 'account_confirmation_required', 'recovery_required', 'open_failed', 'busy', 'open_in_another_tab', 'not_authorized', 'sign_out_pending_writes', 'sign_out_failed', 'application_popup_blocked', 'sign_in_window', 'application_not_yet_available', 'application_failed', 'application_worker_unavailable', 'browser_unsupported', 'application_storage_unavailable', 'storage_may_be_evicted', 'application_registration_unsupported', 'application_registration_refused', 'application_selection_not_approved', 'application_selection_invalid', 'installation_scope_removed', 'recovery_account_mismatch', 'assets', 'setup_required', 'incompatible', 'approval_required', 'contract_mismatch', 'contract_missing', 'implementation_missing', 'catalog_invalid', 'catalog_response', 'type_invalid', 'readiness_budget', 'readiness_unsupported', 'notifications_consent_required', 'timer_channel_reapproval_required', 'notifications_unsupported', 'people_unsupported', 'people_permission_declined', 'people_access', 'configuration_conflict', 'configuration_unavailable', 'configuration_unsupported', 'configuration_busy_timeout', 'readiness_busy_timeout', 'setup_forbidden', 'setup_conflict', 'setup_unresolved', 'collection_setup_conflict', 'setup_records_forbidden', 'setup_changed', 'installed_newer', 'type_pack_conflict', 'invalid_type_pack', 'access_required', 'access_declined', 'access_undeclared', 'files_access_missing', 'files_scope_missing', 'file_read_failed', 'file_read_idle', 'collection_delete_name_mismatch', 'collection_delete_not_owner', 'collection_delete_not_found', 'collection_delete_frozen', 'collection_delete_busy', 'collection_delete_not_approved', 'collection_delete_sign_in', 'collection_delete_invalid', 'collection_delete_outcome_unknown', 'collection_delete_failed', 'wrong_secret', 'locked', 'weak_password', 'already_set_up', 'no_account_key']
 
 PagesOptions@client.ts
   onReset?: ((reset: PagesReset) => void | Promise<void>) | undefined
@@ -5007,7 +5030,7 @@ Problem@wire.ts
   traceId?: string | undefined
 
 ProblemCode@describe-error.ts
-  = 'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key'
+  = 'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key'
 
 Progress@wire.ts
   done: number
@@ -5332,7 +5355,7 @@ SetupResult@private-account.ts
   recoveryKey: string
 
 Snapshot@application/phase.ts
-  = Pick<MdbaseApplicationSnapshot, 'status' | 'signIn' | 'collections' | 'selectedCollectionId' | 'problem' | 'readiness' | 'selection'> & Partial<Pick<MdbaseApplicationSnapshot, 'problemDetail' | 'removedScopeIds' | 'recoveryAccountLabel'>>
+  = Pick<MdbaseApplicationSnapshot, 'status' | 'signIn' | 'collections' | 'selectedCollectionId' | 'problem' | 'readiness' | 'selection'> & Partial<Pick<MdbaseApplicationSnapshot, 'problemDetail' | 'removedScopeIds' | 'recoveryAccountLabel' | 'openingProgress'>>
 
 SqlBinding@app-host/wasm-runtime.ts
   exports: (() => AppSqlMemory) | null
@@ -5386,7 +5409,7 @@ StaticKey@transport/noise.ts
   publicKey: Uint8Array<ArrayBufferLike>
 
 StatusKind@status.ts
-  = 'collection_migrating' | 'account_suspended' | 'update_required' | 'local' | 'offline' | 'synced' | 'catching_up' | 'installing'
+  = 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'local' | 'offline' | 'synced' | 'catching_up' | 'installing'
 
 StatusSummary@status.ts
   confirmedThrough: number | null

@@ -183,6 +183,30 @@ describe("bounded verified ranged download", () => {
     });
     await expect(f.send(get())).rejects.toMatchObject({ reason: "integrity" });
   });
+  it("exposes only capped in-flight response bytes through a long direct GET, then clears them", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+    const f = fixture((url, init) => {
+      if (!url.startsWith(OBJECT_ORIGIN)) return binary(response(body(init).get(1)!, directResult()));
+      return new Response(new ReadableStream<Uint8Array>({start(controller) {
+        const timers = [0, 5_000, 10_000, 20_000].map((delay, i) => setTimeout(() => {
+          controller.enqueue(object.slice(i * 512, (i + 1) * 512));
+          if (i === 3) {init!.signal!.removeEventListener("abort", abort); controller.close();}
+        }, delay));
+        const abort = () => {timers.forEach(clearTimeout); controller.error(Error("download deadline"));};
+        init!.signal!.addEventListener("abort", abort, {once: true});
+      }}));
+    });
+    const work = f.send(get());
+    try {
+      await vi.advanceTimersByTimeAsync(15_500);
+      expect(f.transport.responseProgress()).toHaveLength(1);
+      expect(f.transport.responseProgress()[0]!.bytes).toBeGreaterThan(1536);
+      await vi.advanceTimersByTimeAsync(4_500);
+      expect(((decode(await work) as M).get(2) as M).get(0)).toEqual(object);
+      expect(f.transport.responseProgress()).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {vi.useRealTimers();}
+  });
   it("rejects short-body resume served as 200 or wrong Content-Range", async () => {
     for (const wrongStatus of [true, false]) {
       let gets = 0;

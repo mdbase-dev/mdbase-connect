@@ -2,6 +2,10 @@
 
 Status: draft for review, 2026-10-04.
 
+For the measured launch-only memory exception during canonical oversized Markdown
+bootstrap, see [oversized-markdown-bootstrap-memory.md](oversized-markdown-bootstrap-memory.md).
+It changes no snapshot formats, source authentication or transport limits.
+
 A snapshot is the confirmed state of a collection at one log position, stored as
 sealed, content-addressed objects in the log service's object store. Snapshots exist
 for four things:

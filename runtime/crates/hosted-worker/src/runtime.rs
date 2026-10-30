@@ -22,7 +22,7 @@ mod cpp_claim;
 pub(crate) use cpp_claim::{ConfiguredCppAudience, CppClaimSignRefused};
 
 use mdbn_replica::ClientApi;
-use mdbn_replica::api::{ApiError, ErrorCode, SessionAuth, SessionId};
+use mdbn_replica::api::{ApiError, ErrorCode, SessionAuth, SessionId, Target};
 #[cfg(test)]
 use mdbn_replica::file_io::AttachmentRegion;
 use mdbn_replica::frames::{FileReadRequest, Frames, file_read_request};
@@ -32,8 +32,8 @@ use mdbn_replica::{
     DeviceSecrets, Host, HostedCache, HostedProfile, Replica, ReplicaConfig, Store, SubmitTicket,
 };
 use mdbn_wire::cbor::{self, Cbor};
-use mdbn_wire::client::{ClientFrame, ClientResponse, SubmitParams};
-use mdbn_wire::common::{B16, B32, Uuid};
+use mdbn_wire::client::{ClientFrame, ClientResponse, FileContentProfile, Recovery, SubmitParams};
+use mdbn_wire::common::{B16, B32, Hash, Uuid};
 use mdbn_wire::policy::CState;
 use mdbn_wire::schema::Wire;
 
@@ -812,8 +812,33 @@ impl<S: Store> Engine<S> {
         (out.session.map_or(0, |s| s.0), out.response)
     }
 
+    /// Hosted-only refusal after native authorization, range/revision and health
+    /// checks. Classification comes from the native view, never app metadata.
+    /// This does not acquire a read lane or change the shared native reader.
+    fn hosted_file_read_preflight(
+        &mut self,
+        session: SessionId,
+        target: Target,
+        range: Option<(u64, u64)>,
+        revision: Option<Hash>,
+    ) -> Result<(), ApiError> {
+        self.replica
+            .hosted_client_file_read_preflight(session, target.clone(), range, revision)?;
+        let view = self.replica.get_file(session, target)?;
+        if view.content_profile == Some(FileContentProfile::UnindexedMarkdownBlob) {
+            let mut problem = ErrorCode::Unavailable.problem_with_reason(
+                "unindexed_read_unavailable_hosted",
+                "unindexed Blob Markdown reads are unavailable on Hosted",
+            );
+            // This profile is unsupported here, not a transient resource refusal.
+            problem.recovery = Recovery::None;
+            return Err(problem.into());
+        }
+        Ok(())
+    }
+
     /// Resource preflight only, not a durable permit: verified current READ,
-    /// folder, descriptor/revision/range and hosted health precede queueing.
+    /// folder, descriptor/revision/range, hosted health and profile precede queueing.
     /// The ordinary frame handler repeats every gate after the host's await.
     pub fn attachment_call_requires_slot(&mut self, session: u64, frame: &[u8]) -> bool {
         if self.replica.attachment_read_session().is_some() {
@@ -828,8 +853,7 @@ impl<S: Store> Engine<S> {
                     revision,
                 }),
             )) => self
-                .replica
-                .hosted_attachment_read(SessionId(session), target, range, revision)
+                .hosted_file_read_preflight(SessionId(session), target, range, revision)
                 .is_ok(),
             _ => false,
         }
@@ -847,8 +871,7 @@ impl<S: Store> Engine<S> {
                 }),
             )) => {
                 let result = self
-                    .replica
-                    .hosted_attachment_read(SessionId(session), target, range, revision)
+                    .hosted_file_read_preflight(SessionId(session), target, range, revision)
                     .and_then(|_| Err(mdbn_replica::file_io::busy()));
                 self.out.push(Out::Frame(session, response(id, result)));
             }
@@ -870,8 +893,8 @@ impl<S: Store> Engine<S> {
                     range,
                     revision,
                 } => self
-                    .replica
-                    .read_file(session, target, range, revision)
+                    .hosted_file_read_preflight(session, target.clone(), range, revision)
+                    .and_then(|()| self.replica.read_file(session, target, range, revision))
                     .map(mdbn_replica::frames::file_read_result),
                 FileReadRequest::Ack { stream, offset } => self
                     .replica
@@ -920,6 +943,13 @@ impl<S: Store> Engine<S> {
         self.replica.tick();
         self.frames.tick(&mut self.replica, now_ms);
         self.drain_acks();
+    }
+
+    /// Applied log progress for idle scheduling only. Not a serving, admission,
+    /// CP-currentness or effect permit; replaying cached control data leaves it unchanged.
+    pub fn applied_head(&self) -> (u64, [u8; 32]) {
+        let head = self.replica.head();
+        (head.seq, head.chain.0)
     }
 
     /// When to call [`Engine::tick`] next (host ms), if at all.

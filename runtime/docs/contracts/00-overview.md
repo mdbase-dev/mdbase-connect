@@ -14,6 +14,8 @@ them, and the golden fixtures in `conformance/wire/` are checked against them.
 | `log-entry.md` | What is appended: payload, results, apply and verify, conditional append, idempotency, limits, text deltas |
 | `sealed-envelope.md` | The item envelope, sealing, compression and padding, key epochs and rotation, signatures, escrow, metadata leakage |
 | `snapshot.md` | Manifest, chunks, side tables, progressive install, compaction, receipts horizon, join from existing files |
+| `oversized-markdown-bootstrap-memory.md` | Measured launch-only canonical oversized Markdown bootstrap memory exception, scaling condition and JS accounting |
+| `unindexed-blob-read-custody.md` | Blob-only lease-bound one-part plaintext staging for full-source read-only client downloads; separate read qualification |
 | `policy.md` | Control-plane-signed policy: devices, members, grants, revocation, deterministic evaluation, migration cutover |
 | `log-service-api.md` | The blind log service: append, read, push, objects, snapshots, ephemeral streams, auth, quotas, errors |
 | `replica-client-api.md` | What apps and plugins call on a replica: queries, subscriptions, submit, status, holds, conflicts, presence, errors, transports |

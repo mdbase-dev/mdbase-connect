@@ -42,7 +42,7 @@ else:
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_each_denied_root_feature(self):
-        for feature in ["lab", "testing", "testkit", "test-secret", "test_secret", "debug-hooks", "debug_hooks", "insecure-test-file"]:
+        for feature in ["lab", "staging", "local-rehearsal", "testing", "testkit", "test-secret", "test_secret", "debug-hooks", "debug_hooks", "insecure-test-file"]:
             with self.subTest(feature=feature):
                 result, _ = self.run_check(f"shipped v0.0.0 (/owned/shipped)|{feature}", "shipped")
                 self.assertNotEqual(result.returncode, 0)

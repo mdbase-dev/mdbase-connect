@@ -26,7 +26,8 @@ function fakeGrants(initial: CollectionAvailability) {
     connector: vi.fn(),
     people: vi.fn(() => ({})),
     setup: vi.fn(() => ({ assess: vi.fn(async () => "ready" as const), plan: vi.fn(), apply: vi.fn() })),
-    forget: vi.fn(async () => {}),
+    forget: vi.fn(async (_id: string) => {}),
+    forgetAllGrants: vi.fn(async () => {}),
     authorize: vi.fn(async () => ({ collectionId: P })),
   };
   return { grants: grants as unknown as ApplicationPrivateGrants & typeof grants, online: (a: CollectionAvailability) => { availability = a; waiters.splice(0).forEach(w => w(a)); } };
@@ -94,7 +95,7 @@ describe("SDK-10 Private collections", () => {
     await pending;
     expect(privates.state()).toBeNull();
     expect(privates.entries()).toEqual([]);
-    expect(grants.forget).toHaveBeenCalledWith(P);
+    expect(grants.forgetAllGrants).toHaveBeenCalledOnce();
 
     const { grants: g2 } = fakeGrants({ state: "available" });
     const c = client();
@@ -234,6 +235,32 @@ describe("SDK-10 Private collections", () => {
     expect(recovered.problem).toBeNull();
     expect(recovered).not.toHaveProperty("problemDetail");
     privates.close();
+  });
+
+  it("sign-out wipes grants the list never knew about (persisted before its completion was recorded)", async () => {
+    const Y = "33333333-3333-4333-8333-333333333333";
+    const { grants } = fakeGrants({ state: "available" });
+    // The backing store holds X (=P, listed) and Y (in the store only).
+    const backing = new Set([P, Y]);
+    grants.forget.mockImplementation(async (id: string) => { backing.delete(id); });
+    grants.forgetAllGrants.mockImplementation(async () => { backing.clear(); });
+    const privates = new ApplicationPrivateCollections({ declaration, grants: async () => grants, connect: async () => client(), onChange: () => {} });
+    await privates.refresh("acct");
+    expect(privates.entries().map(c => c.collectionId)).toEqual([P]);
+    await privates.forgetAll();
+    expect(grants.forgetAllGrants).toHaveBeenCalledOnce();
+    expect(backing.size).toBe(0);
+    expect(privates.entries()).toEqual([]);
+  });
+
+  it("sign-out wipe failure is not swallowed: forgetAll rejects and the list still clears", async () => {
+    const { grants } = fakeGrants({ state: "available" });
+    grants.forgetAllGrants.mockRejectedValue(new Error("grant storage could not be cleared"));
+    const privates = new ApplicationPrivateCollections({ declaration, grants: async () => grants, connect: async () => client(), onChange: () => {} });
+    await privates.refresh("acct");
+    await expect(privates.forgetAll()).rejects.toThrow("grant storage could not be cleared");
+    expect(privates.entries()).toEqual([]);
+    expect(privates.state()).toBeNull();
   });
 
   it("access removed blocks without waiting", async () => {

@@ -63,6 +63,19 @@ export interface AppGrantStore {
   listGrants(): Promise<StoredAppGrant[]>;
   putGrant(grant: StoredAppGrant): Promise<void>;
   deleteGrant(collection: string): Promise<void>;
+  /**
+   * Remove EVERY grant and Native setup attempt (sign-out). Grants carry no
+   * account, so a per-collection list can miss one (e.g. persisted a moment
+   * before a reload, before its completion was recorded); only a whole-store
+   * wipe leaves none behind for the next account on a shared browser. Setup
+   * attempts are encrypted under a grant's own key and bound to its Noise
+   * key, so without their grant they are inert — but they would block a
+   * future grant for the same collection from setting up, so they go too.
+   * Never touches the identity: that is the app's registration, not account
+   * authority. Never deletes a record another owner wrote: throws instead
+   * (the caller's own records are still removed first).
+   */
+  clearGrants(): Promise<void>;
   /** Protected opaque Native setup attempts; never mutation bodies or replay queues. */
   getSetupAttempt?(collection: string): Promise<Uint8Array | undefined>;
   putSetupAttemptIfAbsent?(collection: string, bytes: Uint8Array): Promise<Uint8Array>;
@@ -81,6 +94,7 @@ export function memoryAppGrantStore(): AppGrantStore {
     listGrants: async () => [...grants.values()],
     putGrant: async (grant) => void grants.set(grant.collection, grant),
     deleteGrant: async (collection) => void grants.delete(collection),
+    clearGrants: async () => { grants.clear(); attempts.clear(); },
     getSetupAttempt: async c => attempts.get(c)?.slice(),
     putSetupAttemptIfAbsent: async (c,b) => { if(!attempts.has(c)) attempts.set(c,b.slice()); return attempts.get(c)!.slice(); },
     deleteSetupAttempt: async (c,b) => { const a=attempts.get(c); if(a && a.length===b.length && a.every((v,i)=>v===b[i])) attempts.delete(c); },
@@ -140,17 +154,19 @@ export function indexedDbAppGrantStore(cpOrigin: string, applicationId: string, 
     };
     req.onerror = () => { opening = null; reject(mdbaseError("unavailable", "grant storage could not be opened", "grant_storage")); };
   }));
-  const run = async <T>(store: string, mode: IDBTransactionMode, work: (s: IDBObjectStore, done: (v: T) => void) => void): Promise<T> => {
+  const transact = async <T>(stores: readonly string[], mode: IDBTransactionMode, work: (tx: IDBTransaction, done: (v: T) => void) => void): Promise<T> => {
     const db = await open();
     return new Promise<T>((resolve, reject) => {
-      const tx = db.transaction(store, mode, { durability: "strict" });
+      const tx = db.transaction([...stores], mode, { durability: "strict" });
       let result: T, captured = false;
       tx.oncomplete = () => captured ? resolve(result) : reject(mdbaseError("unavailable", "grant storage returned no result", "grant_storage"));
       tx.onabort = tx.onerror = () => reject(mdbaseError("unavailable", "grant storage transaction failed", "grant_storage"));
-      try { work(tx.objectStore(store), (v) => { result = v; captured = true; }); }
+      try { work(tx, (v) => { result = v; captured = true; }); }
       catch { try { tx.abort(); } catch { /* already finished */ } }
     });
   };
+  const run = <T>(store: string, mode: IDBTransactionMode, work: (s: IDBObjectStore, done: (v: T) => void) => void): Promise<T> =>
+    transact([store], mode, (tx, done) => work(tx.objectStore(store), done));
   const get = <T>(store: string, key: string) => run<T | undefined>(store, "readonly", (s, done) => {
     const r = s.get(key); r.onsuccess = () => done(r.result as T | undefined);
   });
@@ -196,6 +212,26 @@ export function indexedDbAppGrantStore(cpOrigin: string, applicationId: string, 
           if (!ownedOrAbsent(r.result)) return done("refused");
           s.delete(collection).onsuccess = () => done("done");
         };
+      });
+      if (outcome === "refused") refused();
+    },
+    // One transaction over grants + setup attempts. Another owner's records
+    // stay (as deleteGrant refuses them) but ours are removed and we report.
+    clearGrants: async () => {
+      const outcome = await transact<"done" | "refused">([GRANTS, SETUP_ATTEMPTS], "readwrite", (tx, done) => {
+        let other = false, pending = 2;
+        const finish = () => { if (--pending === 0) done(other ? "refused" : "done"); };
+        for (const store of [GRANTS, SETUP_ATTEMPTS]) {
+          const s = tx.objectStore(store);
+          if (owner === undefined) { s.clear().onsuccess = finish; continue; }
+          const r = s.openCursor();
+          r.onsuccess = () => {
+            const cursor = r.result;
+            if (!cursor) return finish();
+            if (ownedOrAbsent(cursor.value)) cursor.delete(); else other = true;
+            cursor.continue();
+          };
+        }
       });
       if (outcome === "refused") refused();
     },

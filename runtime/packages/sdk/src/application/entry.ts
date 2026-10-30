@@ -9,7 +9,7 @@ import {appReleaseTrust} from "./packaged-trust.js";
 import {applicationLoopbackAllowed} from "./local-build.js";
 import {selectAppEnvironment} from "../app-host/app-environment.js";
 import {ApplicationRuntime,type MdbaseApplicationSnapshot as RuntimeSnapshot} from "./runtime.js";
-import {ApplicationBrowserSelection,browserApplicationSelectionPort} from "./browser-selection.js";
+import {ApplicationBrowserSelection,ApplicationSelectionError,browserApplicationSelectionPort} from "./browser-selection.js";
 import {ApplicationCollectionSelection,type ApplicationCollectionSelectionSnapshot,type ApplicationSelectionMemory,type ApplicationSelectionSession} from "./collection-selection.js";
 import {APPLICATION_WORKER_PROTOCOL} from "./worker-protocol.js";
 import {browserApplicationPortalHost,openerApplicationPortalHost,reserveApplicationPortal,type ApplicationPortalHost} from "./portal-reservation.js";
@@ -203,9 +203,8 @@ export interface MdbaseApplication {
    * that could not complete (offline) still signs this device out; it shows
    * in `signOutResult`. Optional for other implementations of this interface. */
   signOut?(options?:MdbaseSignOutOptions):Promise<MdbaseApplicationSnapshot>;
-  /** SDK-10. Call from the user gesture (reserves the popup synchronously):
-   * give this app one of the person's Private collections (kept on their
-   * computers), then open it. It joins `collections` with `kind: "private"`.
+  /** @deprecated Use `createMdbase(...).addCollection(options)` or
+   * `approve(null, options)`: the same unified chooser, without a current hint.
    * Optional for other implementations of this interface. */
   addPrivateCollection?(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
 }
@@ -296,6 +295,8 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   private composed:{base:RuntimeSnapshot;selection:ApplicationCollectionSelectionSnapshot;revision:number;hint:ApplicationSessionHint|null;value:MdbaseApplicationSnapshot}|null=null;
   private readonly hint:ApplicationSessionHintStore|null=null;private readonly forgotten:ApplicationForgottenStore|null=null;
   private handledApproval:unknown=null;private refreshing:Promise<unknown>|null=null;private refreshedAt=0;
+  /** Non-owning UI handle: the original Worker request still owns its lifetime. */
+  private approvalPortal:ReturnType<typeof reserveApplicationPortal>|null=null;
   /** Bumped by state outside base/selection: the slow-opening timer and sync. */
   private revision=0;
   private readonly links:MdbaseLinks|null=null;private readonly cpOrigin:string|null=null;
@@ -332,13 +333,14 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
         if((error as {code?:unknown})?.code==="open_in_another_tab"&&native?.status==="blocked"&&native.problem==="open_in_another_tab")return;
         throw error;
       })),
-      authorize:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.choose().approve(undefined,options)),
-      approve:(id?:string|null,options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.choose().approve(id,options)),
-      reauthorize:(options?:MdbaseApplicationRequestOptions)=>{
-        const id=this.privates?.state()?.collectionId??null;
-        return id?this.track(()=>this.choose().approve(id,options)):this.track(()=>this.choose().reauthorize(options));
-      },
-      addPrivateCollection:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.choose().approve(undefined,options)),
+      authorize:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(undefined,options)),
+      approve:(id?:string|null,options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(id,options)),
+      reauthorize:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>{
+        const selection=this.choose(),snapshot=selection.getSnapshot();
+        const id=this.privates?.state()?.collectionId??snapshot.usable?.collectionId??snapshot.requested.collectionId;
+        return id?this.approve(id,options):selection.reauthorize(options);
+      }),
+      addPrivateCollection:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(null,options)),
       refreshCollectionList:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>Promise.all([this.call(runtime=>runtime.queue(()=>runtime.refreshCollections(options))),this.privates?.refresh(this.account()).catch(()=>{})])),
       requestAccess:(request:MdbaseAccessRequest,options:MdbaseAccessRequestOptions)=>this.requestAccess(request,options),
       // The person switching collections: a pushed history entry, so Back
@@ -630,8 +632,22 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
         poll:requestId=>runtime.queue(()=>runtime.pollFileAccess(requestId))},portal,signal);
     }catch(error){return Promise.reject(error);}
   }
+  /** Repeating the SAME approval is a window gesture, not another Worker
+   * request (which would close the original portal before reporting busy). */
+  private approve(id:string|null|undefined,options:MdbaseApplicationRequestOptions={}):Promise<unknown>{
+    const selection=this.choose(),snapshot=selection.getSnapshot(),portal=this.approvalPortal;
+    if(portal&&snapshot.approval){
+      if((id===undefined?snapshot.requested.collectionId:id)!==snapshot.approval.collectionId)return Promise.reject(new ApplicationSelectionError("application_selection_busy"));
+      if(options.signal?.aborted)throw mdbaseError("cancelled","Application entry fenced","application_entry_fenced");
+      // A closed window is not a cancellation receipt. The original Worker
+      // observes closure, reads its receipt and ends approval before any restart.
+      if(!portal.closed)portal.focus();
+      return Promise.resolve();
+    }
+    return selection.approve(id,options);
+  }
   private authorize(options:MdbaseApplicationRequestOptions={},collectionHint:string|null=null):Promise<unknown>{
-    let portal:AppWebSignInPortal;try{portal=this.reservePortal(options).portal;}catch(error){return Promise.reject(error);}
+    let portal:AppWebSignInPortal;try{portal=this.approvalPortal=this.reservePortal(options).portal;}catch(error){return Promise.reject(error);}
     return this.call(async runtime=>{await this.started(runtime,options);return runtime.queue(()=>runtime.authorizeReserved(portal,options,collectionHint));})
       .catch(error=>{try{portal.close();}catch{/* original stop failure retained by the portal */}throw error;});
   }
@@ -646,7 +662,8 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     try{await runtime.queue(()=>runtime.signOut(options));}finally{this.signingOut=false;}
     const result=runtime.getNativeSnapshot().signOutResult??null;
     await this.signedOut(runtime,result);
-    if(result)await signOutDiagnostics(result);
+    const final=this.snapshot.signOutResult??result;
+    if(final)await signOutDiagnostics(final);
     return this.getSnapshot();
   }
   /** Drop the signed-out runtime the way the back/forward-cache path does
@@ -657,10 +674,15 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     if(!leaderGone)this.tabs?.signedOut();
     this.clearPendingSave();
     ++this.incarnation;if(this.runtime===runtime)this.runtime=null;this.initialization=null;
-    this.snapshot=Object.freeze({status:"signed_out",signIn:null,collections:Object.freeze([]),selectedCollectionId:null,problem:null,timing:null,readiness:emptyReadiness,...(result?{signOutResult:result}:{})});
     this.hint?.clear();this.forgotten?.clear();this.handledApproval=null;
-    // SDK-10: this browser's Private grants belong to the signed-out account too.
-    await this.privates?.forgetAll().catch(()=>{});
+    // SDK-10: this browser's Private grants belong to the signed-out account
+    // too. The session is already gone, so a failed wipe never blocks
+    // sign-out — but it is never silent either: it lands in signOutResult
+    // (`grants`/`local: incomplete`), or as problem when there is no result.
+    let grants:"erased"|"incomplete"|null=null;
+    if(this.privates){try{await this.privates.forgetAll();grants="erased";}catch{grants="incomplete";}}
+    const final=result&&grants?Object.freeze({...result,grants,...(grants==="incomplete"?{local:"incomplete" as const}:{})}):result;
+    this.snapshot=Object.freeze({status:"signed_out",signIn:null,collections:Object.freeze([]),selectedCollectionId:null,problem:!final&&grants==="incomplete"?"sign_out_failed":null,timing:null,readiness:emptyReadiness,...(final?{signOutResult:final}:{})});
     try{this.memory?.write(null);}catch{/* optional hint storage */}
     if(this.selection&&!this.closed){this.selection.resync();await this.selection.select(null,{history:"replace"}).catch(()=>{});}
     this.revision++;this.notify();

@@ -17,12 +17,12 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
         constructor() { this.logBound = true; globalThis.pinTest.opened++; }
         open() { if (globalThis.pinTest.open) throw new Error(globalThis.pinTest.open); }
         pinState() { return [null, "inconsistent", "rebuilding", "rebuilt"][globalThis.pinTest.state]; }
-        serving() { return false; } needsReset() { return false; }
+        appliedHead() { return "cached"; } serving() { return false; } needsReset() { return false; }
         logCalls() { return []; } poll() { return []; } nextWakeup() { return null; } attachmentObject() { return null; }
       }` }));
   },
 }] });
-const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString("base64")}`);
+const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=pin-reset-worker.mjs").toString("base64")}`);
 
 const collection = "0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e";
 const pinBytes = Uint8Array.of(0x81, 1, 2, 3);

@@ -19,7 +19,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
     b.onLoad({ filter: /hosted\.wasm$/ }, () => ({ contents: "export default new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));" }));
   },
 }] });
-const { HostedCollection, default: worker } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString("base64")}`);
+const { HostedCollection, default: worker } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=activation-worker.mjs").toString("base64")}`);
 function object(escrow = false) {
   const data = new Map(); let alarm;
   const storage = { get: async (k) => Array.isArray(k) ? new Map(k.filter(key => data.has(key)).map(key => [key, data.get(key)])) : data.get(k), put: async (k, v) => data.set(k, v), getAlarm: async () => alarm ?? null, setAlarm: async (at) => { alarm = at; } };
@@ -105,7 +105,7 @@ test("socket-free hosted and escrow alarms reopen, refresh and reschedule", asyn
 test("real sync schedules polling for both roles with zero client sockets", async () => {
   for (const escrow of [false, true]) {
     const { o, alarm } = object(escrow);
-    const engine = { logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null };
+    const engine = { appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null };
     o.engine = engine; o.log = () => ({});
     const before = Date.now();
     await o.sync(engine);
@@ -115,7 +115,7 @@ test("real sync schedules polling for both roles with zero client sockets", asyn
 test("traffic does not slide the existing socket-free polling deadline", async () => {
   for (const escrow of [false, true]) {
     const { o, alarm } = object(escrow);
-    const engine = { logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null };
+    const engine = { appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null };
     o.engine = engine; o.log = () => ({});
     const early = Date.now() + 5_000;
     await o.ctx.storage.setAlarm(early);
@@ -125,7 +125,7 @@ test("traffic does not slide the existing socket-free polling deadline", async (
 });
 test("stale engine cannot reschedule after awaiting the persisted alarm", async () => {
   const { o, alarm } = object();
-  const engine = { logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null };
+  const engine = { appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null };
   o.engine = engine; o.log = () => ({});
   o.ctx.storage.getAlarm = async () => { o.logGen++; return null; };
   await o.sync(engine);

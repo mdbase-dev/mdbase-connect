@@ -27,6 +27,8 @@ mod missing_contract;
 mod pending_inventory;
 #[path = "tentative_discovery/raw_inventory.rs"]
 mod raw_inventory;
+#[path = "tentative_discovery/shared_files.rs"]
+mod shared_files;
 #[path = "tentative_discovery/task_policy.rs"]
 mod task_policy;
 
@@ -86,6 +88,18 @@ impl IndexStorage for AppSql {
                 "injected app SQL read failure",
             ));
         }
+        // Match the actual app's binary envelope, rather than permitting a
+        // native-only unbounded SQL reply in this disposable-store fixture.
+        use mdbn_store_file::index_codec::{
+            CodecLimits, IndexReply, IndexRequest, decode_reply, encode_reply, encode_request,
+        };
+        let limits = CodecLimits {
+            max_rows: 4096,
+            ..CodecLimits::HOSTED
+        };
+        encode_request(&IndexRequest::Run(batch.clone()), limits).map_err(|_| {
+            IndexError::new(IndexErrorKind::Other, "app index request envelope exceeded")
+        })?;
         let result = self.inner.run(batch)?;
         if batch.mode == BatchMode::Transaction && self.probe.uncertain_commit.replace(false) {
             return Err(IndexError::new(
@@ -93,7 +107,13 @@ impl IndexStorage for AppSql {
                 "commit outcome unknown",
             ));
         }
-        Ok(result)
+        let reply = encode_reply(&IndexReply::Results(result), limits).map_err(|_| {
+            IndexError::new(IndexErrorKind::Full, "app index reply envelope exceeded")
+        })?;
+        match decode_reply(&reply, limits, Some(batch.stmts.len())).unwrap() {
+            IndexReply::Results(results) => Ok(results),
+            _ => unreachable!("fixture encoded a results reply"),
+        }
     }
 }
 type App = Replica<TentativeStore<AppSql>>;
@@ -101,6 +121,16 @@ type Index = Rc<RefCell<AppSql>>;
 type Identity = (B16, String, B32, u32, Option<String>);
 
 fn open(path: &std::path::Path, probe: Rc<Probe>) -> (App, SessionId, Index) {
+    open_device(path, probe, DEVICE, SIGN, KEM, false)
+}
+fn open_device(
+    path: &std::path::Path,
+    probe: Rc<Probe>,
+    device: B16,
+    sign: [u8; 32],
+    kem: [u8; 32],
+    cloud_copy: bool,
+) -> (App, SessionId, Index) {
     let index = Rc::new(RefCell::new(AppSql {
         inner: SqliteIndex::open(path, IndexDurability::Disposable).unwrap(),
         probe,
@@ -109,7 +139,7 @@ fn open(path: &std::path::Path, probe: Rc<Probe>) -> (App, SessionId, Index) {
     let mut app = Replica::open(
         ReplicaConfig {
             collection: COLLECTION,
-            device_id: DEVICE,
+            device_id: device,
             replica_id: B16([1; 16]),
             mode: SyncMode::Synced,
             log_endpoint: r::log::EndpointId(1),
@@ -118,7 +148,7 @@ fn open(path: &std::path::Path, probe: Rc<Probe>) -> (App, SessionId, Index) {
             trusted_roots: vec![r::testkit::signed_root()],
             trusted_signers: vec![],
             e2e: false,
-            user_enabled_cloud_copy: false,
+            user_enabled_cloud_copy: cloud_copy,
             chosen_state: None,
             expected_genesis: None,
             key_grants_only: false,
@@ -126,15 +156,15 @@ fn open(path: &std::path::Path, probe: Rc<Probe>) -> (App, SessionId, Index) {
         },
         store,
         Box::new(r::plan::CorePlanner),
-        Box::new(r::seal::KeyringSealer::new(COLLECTION, DEVICE, &SIGN, &KEM)),
+        Box::new(r::seal::KeyringSealer::new(COLLECTION, device, &sign, &kem)),
         Host {
             clock: Box::new(mdbn_core::host::FixedClock(1_700_000_000_000)),
             entropy: Box::new(r::crypto::TestEntropy::new(1)),
             zones: Box::new(UtcOnly),
         },
         DeviceSecrets {
-            sign_sk: SIGN,
-            kem_sk: KEM,
+            sign_sk: sign,
+            kem_sk: kem,
         },
     )
     .unwrap();

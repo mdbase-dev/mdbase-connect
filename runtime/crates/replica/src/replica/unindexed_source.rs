@@ -2,7 +2,9 @@
 //! published file: only the opaque final proof permits a later atomic commit.
 use super::unindexed_capture::Utf8;
 use crate::{
-    attachments::{AttachmentReader, Need, PlainSink, StreamError, WholeFileHasher},
+    attachments::{
+        AttachmentReader, AuthenticatedReadChunk, Need, PlainSink, StreamError, WholeFileHasher,
+    },
     crypto::{
         blob,
         chunked_blob::{
@@ -233,7 +235,10 @@ impl UnindexedSourceReader {
                 } else {
                     let plain = open_blob_part(sealer, descriptor, index, raw)?;
                     checked
-                        .write(index.saturating_mul(descriptor.part_size), &plain)
+                        .write_owned(AuthenticatedReadChunk::verified_blob_part(
+                            index.saturating_mul(descriptor.part_size),
+                            plain,
+                        ))
                         .map_err(StreamError::Sink)?;
                     *next += 1;
                     Ok(())
@@ -275,8 +280,8 @@ struct CheckedSink<'a> {
     invalid_utf8: &'a mut bool,
     total: u64,
 }
-impl PlainSink for CheckedSink<'_> {
-    fn write(&mut self, offset: u64, plain: &[u8]) -> Result<(), String> {
+impl CheckedSink<'_> {
+    fn observe(&mut self, offset: u64, plain: &[u8]) -> Result<(), String> {
         if offset != *self.count
             || offset
                 .checked_add(plain.len() as u64)
@@ -289,10 +294,19 @@ impl PlainSink for CheckedSink<'_> {
         if !*self.invalid_utf8 && self.utf8.push(plain).is_err() {
             *self.invalid_utf8 = true;
         }
-        self.sink.write(offset, plain)?;
         self.hash.update(plain);
         *self.count += plain.len() as u64;
         Ok(())
+    }
+}
+impl PlainSink for CheckedSink<'_> {
+    fn write(&mut self, offset: u64, plain: &[u8]) -> Result<(), String> {
+        self.observe(offset, plain)?;
+        self.sink.write(offset, plain)
+    }
+    fn write_owned(&mut self, chunk: AuthenticatedReadChunk) -> Result<(), String> {
+        self.observe(chunk.offset(), chunk.bytes())?;
+        self.sink.write_owned(chunk)
     }
 }
 // Views-owned low-level primitive, merged9f2bfc79. No cached Store-byte authority.

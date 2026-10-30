@@ -38,6 +38,9 @@ export interface AppLogTransport {
   readonly collection: string;
   /** Host-authenticated account/installation/device generation is still current. */
   isCurrent(): boolean;
+  /** HTTP exposes capped bytes for active logical sends; whole-frame ports have
+   * no partial response activity. Disappears when send settles (valid or not). */
+  responseProgress?(): readonly { id: number; bytes: number }[];
   /** Sends the EXACT sealed frame. For direct objects, verify ranges/checksums and
    * finish PUT+commit/GET before returning a normalized inline result to Rust.
    * Returns owned mutable bytes (never a borrowed WASM view). Bodies must be
@@ -58,7 +61,7 @@ function uint(v: unknown): bigint {
   return n;
 }
 function equal(a: Uint8Array, b: Uint8Array): boolean { return a.length === b.length && a.every((x, i) => x === b[i]); }
-interface Captured { id: bigint; method: string; call: AppLogCall }
+interface Captured { id: bigint; method: string; call: AppLogCall; read?: { after: bigint; control: boolean } }
 /** Calls whose effects do not depend on the order they reach the log: a round
  * sends each maximal run of them together (each RPC with its own nonce). Every
  * other method is a barrier, sent alone after everything before it answered.
@@ -103,8 +106,11 @@ export class AppLogPump {
   private failed = false;
   private retired = false;
   private problem: AppServerProblem | null = null;
+  private terminal: AppServerProblem | null = null;
   private health: AppLogHealth | null = null;
   private sent = 0;
+  private readonly readAfter = [-1n, -1n];
+  private readAdvances = 0;
   constructor(
     private readonly runtime: AppLogRuntime,
     private readonly transport: AppLogTransport,
@@ -122,9 +128,17 @@ export class AppLogPump {
   /** Calls this pump has sent so far; a host compares it across a turn to
    * learn whether the turn did log work. */
   get callsSent(): number { return this.sent; }
+  /** Native-accepted advancing READ cursors (data/control separately). Unlike
+   * sent/accepted call counts, retries at the same cursor and head heartbeats
+   * cannot extend initial-sync inactivity. No remote result is decoded in JS. */
+  get readProgress(): number { return this.readAdvances; }
+  responseProgress(): readonly { id: number; bytes: number }[] { return this.transport.responseProgress?.() ?? []; }
   /** The server's latest specific refusal (migrating, moved, suspended) for
    * this live collection; null once a reply is accepted again. Display only. */
   get serverProblem(): AppServerProblem | null { return this.problem; }
+  /** Initial admission must not lose a genuine non-retryable refusal when a
+   * concurrent call succeeds. Bound to this pump generation; never a retry key. */
+  get terminalProblem(): AppServerProblem | null { return this.terminal; }
   /** Typed transport health from the latest failed call; null once a reply is accepted. */
   get transportHealth(): AppLogHealth | null { return this.health; }
   private current(): boolean {
@@ -174,7 +188,8 @@ export class AppLogPump {
         }
         // Capture all calls before the first await; later queue mutation cannot
         // alter the bytes, sidecar, endpoint or correlation this turn sends.
-        captured.push({ id, method: frame.get(2) as string, call: { endpoint: this.endpoint, frame: call.frame.slice(), ...(call.sidecar ? { sidecar: call.sidecar.slice() } : {}) } });
+        const read = frame.get(2) === "read" ? {after: uint((params as Map<number, CborValue>).get(1)), control: (params as Map<number, CborValue>).get(3) === 1} : undefined;
+        captured.push({ id, method: frame.get(2) as string, ...(read ? {read} : {}), call: { endpoint: this.endpoint, frame: call.frame.slice(), ...(call.sidecar ? { sidecar: call.sidecar.slice() } : {}) } });
       }
       return captured;
     } catch {
@@ -219,7 +234,16 @@ export class AppLogPump {
               if (reply === null) {
                 if (!this.current()) return { quiet: true };
                 const server = serverOf(error);
-                if (isAppServerProblem(server) && appServerOutcome(server)) this.problem = server;
+                if (isAppServerProblem(server)) {
+                  const outcome = appServerOutcome(server);
+                  if (outcome) this.problem = server;
+                  // An HTTP status alone is not final: 401 invalidates a stale
+                  // token; Core can then request again with fresh token/proof.
+                  // Preserve NoResponse recovery for opaque/routing/timeouts.
+                  // Only explicit authority outcomes or typed permission denial
+                  // prevent admission. Native Query auth errors still fail there.
+                  if (outcome || (server.status === 403 && server.code === "forbidden")) this.terminal ??= server;
+                }
                 const health = appLogHealth(error);
                 if (health) this.health = health;
                 this.runtime.logNoResponse(c.id);
@@ -234,7 +258,13 @@ export class AppLogPump {
                 // No JS decode/materialization of the remote result; Rust remains
                 // the policy/schema/correlation authority. It borrows these bytes.
                 if (this.runtime.acceptLogReply(c.id, reply) !== true) this.runtime.logNoResponse(c.id);
-                else { this.problem = null; this.health = null; }
+                else {
+                  this.problem = null; this.health = null;
+                  if (c.read) {
+                    const lane = c.read.control ? 1 : 0;
+                    if (c.read.after > this.readAfter[lane]!) { this.readAfter[lane] = c.read.after; this.readAdvances++; }
+                  }
+                }
               } finally { if (reply instanceof Uint8Array) reply.fill(0); }
             }
           }

@@ -1,6 +1,7 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {connect, MdbasePeopleClient, TimersApi, type MdbaseClient, type MdbaseApplicationConnection, type MdbaseApplicationSnapshot} from "../src/index.js";
 import {createApplicationFixture, MemoryReplica} from "../src/testing/index.js";
+import {mdbaseFront} from "../src/application/front-door.js";
 
 const declaration = {id: "fixture.application", name: "Fixture", origin: "https://fixture.example", environment: "lab" as const, manifest: {id: "dev.fixture"}};
 function snapshot(patch: Partial<MdbaseApplicationSnapshot> = {}): MdbaseApplicationSnapshot {
@@ -35,6 +36,22 @@ function deferred<T>() {
 }
 
 describe("public application fixture (metadata stand-in, not runtime evidence)", () => {
+  it.each([true, false])("Private Add is the same null-hint Add, even without an optional legacy port (%s)", async legacyPort => {
+    const fixture = createApplicationFixture({declaration, connections: [], initialSnapshot: snapshot()});
+    const approve = vi.fn(async () => snapshot());
+    const legacy = vi.fn(async () => snapshot());
+    const app = {...fixture.entry.application(), approve, addPrivateCollection: legacyPort ? legacy : undefined};
+    const mdbase = mdbaseFront({...fixture.entry, application: () => app});
+    const options = {signal: new AbortController().signal};
+    expect(mdbase.addPrivateCollection).toBe(mdbase.addCollection);
+    const adding = mdbase.addPrivateCollection(options);
+    expect(approve).toHaveBeenCalledExactlyOnceWith(null, options); // synchronous popup reservation
+    await adding;
+    expect(legacy).not.toHaveBeenCalled();
+    approve.mockRejectedValueOnce(new Error("cancelled"));
+    await expect(mdbase.addCollection(options)).rejects.toThrow("cancelled");
+    await app.close();
+  });
   it("retains the same full borrowed native client, files and people without freezing/closing them", async () => {
     const h = await native();
     const close = vi.spyOn(h.records, "close");

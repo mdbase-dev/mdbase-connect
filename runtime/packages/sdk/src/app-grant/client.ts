@@ -303,6 +303,9 @@ export class MdbaseAppGrants {
   private readonly tokens = new Map<string, Tokens>();
   private readonly refreshing = new Map<string, { grant: StoredAppGrant; work: Promise<string> }>();
   private readonly forgotten = new Set<string>();
+  /** Bumped by every whole-store wipe: work prepared under an older epoch
+   * (an authorization or token commit racing sign-out) must not re-save. */
+  private epoch = 0;
 
   constructor(private readonly options: MdbaseAppGrantsOptions) {
     this.declaration = applicationDeclaration(options.declaration);
@@ -394,7 +397,8 @@ export class MdbaseAppGrants {
       if (o.authorizationNonce !== undefined && (!/^[A-Za-z0-9_-]{43}$/.test(o.authorizationNonce) || !canonicalChallengeNonce(o.authorizationNonce))) throw mdbaseError("invalid_request", "invalid original challenge", "authorization_binding");
       const life = new AbortController();
       const signal = o.signal ? AbortSignal.any([o.signal, life.signal]) : life.signal;
-      const check = () => { if (signal.aborted) throw mdbaseError("cancelled", "authorization fenced", "authorization_cancelled"); };
+      const epoch = this.epoch;
+      const check = () => { if (signal.aborted) throw mdbaseError("cancelled", "authorization fenced", "authorization_cancelled"); if (epoch !== this.epoch) throw grantChanged(); };
       check();
       const registration = await this.register();
       const compiled = compileApplicationManifest(this.declaration);
@@ -560,8 +564,10 @@ export class MdbaseAppGrants {
       ...(signing ? { signingPrivateKey: signing } : {}),
       ...(from.previous?.owner ? { owner: from.previous.owner } : {}),
     };
+    const epoch = this.epoch;
     await this.withLock(id, "commit", async () => {
       const store = await this.store();
+      if (epoch !== this.epoch) throw grantChanged();
       if (from.previous && !sameRevision(from.previous, await store.getGrant(id))) throw grantChanged();
       from.check?.();
       await store.putGrant(next);
@@ -884,5 +890,39 @@ export class MdbaseAppGrants {
       this.forgotten.add(id);
       this.tokens.delete(id);
     });
+  }
+
+  /**
+   * Sign-out: wipe EVERY grant this browser holds (and their Native setup
+   * attempts), not just ones a caller listed. Grants carry no account, so
+   * anything left behind could be used while a different account is signed
+   * in on a shared browser. The app identity stays (it is the app's
+   * registration, not account authority). Idempotent and safe to run from
+   * several tabs at once; throws when the wipe could not complete, so the
+   * caller can tell the person some local data remains.
+   *
+   * Race safety: the epoch bump fences authorizations and token commits
+   * prepared before the wipe; the wipe then clears the store while holding
+   * every known grant's commit lock (sorted, the same order in every tab),
+   * so a refresh committing at that moment either lands first and is wiped,
+   * or runs after and fails its revision/epoch check instead of re-saving.
+   */
+  async forgetAllGrants(): Promise<void> {
+    this.epoch++;
+    const store = await this.store();
+    let ids: string[] = [];
+    // The list only picks the locks; clearGrants below is the authority.
+    try { ids = (await store.listGrants()).map(g => g.collection).sort(); } catch { /* clearGrants reports */ }
+    for (const id of ids) this.forgotten.add(id);
+    const locked = async (rest: readonly string[], work: () => Promise<void>): Promise<void> =>
+      rest.length ? this.withLock(rest[0]!, "commit", () => locked(rest.slice(1), work)) : work();
+    await locked(ids, async () => {
+      this.tokens.clear();
+      if (typeof store.clearGrants === "function") { await store.clearGrants(); return; }
+      // A store built before clearGrants existed: enumerate, delete, prove empty.
+      for (const grant of await store.listGrants()) { await store.deleteGrant(grant.collection); this.forgotten.add(grant.collection); }
+      if ((await store.listGrants()).length) throw mdbaseError("unavailable", "grant storage could not be cleared", "grant_storage");
+    });
+    this.tokens.clear();
   }
 }

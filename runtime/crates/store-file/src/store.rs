@@ -2764,6 +2764,13 @@ impl<P: FilePlatform + 'static, M: Store, D: DiskDb> Store for FileStore<P, M, D
     fn records(&self, page: Page) -> StoreResult<Vec<RecordRow>> {
         self.inner.records(page)
     }
+    fn records_visit<B>(
+        &self,
+        page: Page,
+        visitor: &mut dyn FnMut(RecordRow) -> std::ops::ControlFlow<B>,
+    ) -> StoreResult<std::ops::ControlFlow<B>> {
+        self.inner.records_visit(page, visitor)
+    }
     fn records_in_buckets(
         &self,
         range: std::ops::Range<u32>,

@@ -875,6 +875,16 @@ reports progress.
 
 ### 10.1 File views
 
+`content_profile` (SDK `contentProfile`) is optional metadata derived from the
+actual persisted FileRow kind and content representation, never from the path,
+media class or extension. It distinguishes ordinary file blobs and attachment-v1
+content from unindexed Markdown in either representation. An absent value means
+unknown (including older replicas); clients must not infer a default. Older SDKs
+ignore this optional field. The SDK also treats an unknown future key10 enum
+variant as absent without losing the FileView; malformed profile values and
+invalid/unknown required fields still fail decoding. This fallback is specific
+to this optional profile, not a change to general codec compatibility.
+
 `mtime` is optional persisted producer metadata from native upload commit's
 writing-device capture clock. Old/absent values remain absent, not inferred from
 sequence or local filesystem stat. Replay, snapshots and captured upload recovery
@@ -893,7 +903,14 @@ file-view = {
   ? 7: hold-ref,
   ? 8: int,              ; mtime: writing-device commit/capture clock, milliseconds
   ? 9: tstr,             ; IANA media type from the extension (Core paths::media_type); absent when unknown; never sniffed
+  ? 10: file-content-profile,
 }
+file-content-profile = &(
+  ordinary_blob: 0,
+  ordinary_attachment_v1: 1,
+  unindexed_markdown_blob: 2,
+  unindexed_markdown_attachment_v1: 3,
+)
 file-state = &(
   materialized: 0,       ; the bytes are on this device
   remote: 1,             ; included in the collection, not kept on this device; fetched on demand
@@ -1009,6 +1026,20 @@ transfer-progress = {
   checked before the chunk marked `last` is sent. A consumer that must not act on
   unverified bytes waits for `last`. A digest failure ends the stream with `internal`
   and records an incident (`sealed-envelope.md` §4.2).
+- **Unindexed Blob Markdown.** `read_file` (SDK `download`/`downloadStream`)
+  also reads `unindexed_markdown_blob` as its exact full Markdown source. Only
+  authenticated file kind plus content profile selects this path; extension,
+  media, size and app input do not. No range, or exactly `[0, size]`, is accepted;
+  other ranges fail with `invalid_request`, reason `unindexed_full_read_required`.
+  `last` additionally requires the native source reader's complete count, whole
+  hash and UTF-8 validation. Invalid UTF-8 ends without `last`.
+  Chunks preceding `last` are provisional.
+  Both AttachmentV1 profiles retain the existing attachment reader and ranges;
+  ordinary Blob support and direct attachment-only APIs are unchanged. Metadata
+  lookup/listing does not fetch or accumulate source bytes. The narrow Blob-only
+  lease-bound plaintext-part staging and its qualification gates are specified in
+  [unindexed-blob-read-custody.md](unindexed-blob-read-custody.md); this adds no
+  edit/save semantics and does not change AttachmentV1 region ownership.
 - **Convenience reads.** Clients cap `bytes`-returning helpers at 64 MiB, as today's
   SDK does. Larger files use streams.
 - **Thin clients never write to object storage directly.** Sealing needs the collection

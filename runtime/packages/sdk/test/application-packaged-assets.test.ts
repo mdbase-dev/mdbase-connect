@@ -1,5 +1,7 @@
 import {build} from "esbuild";
 import {describe,expect,it,vi} from "vitest";
+import {currentAppOrigin} from "../src/app-host/app-origin.js";
+import {describeError} from "../src/describe-error.js";
 import {packagedApplicationAssets} from "../src/application/packaged-assets.js";
 import pins from "../src/application/asset-pins.json" with {type:"json"};
 
@@ -14,8 +16,19 @@ async function selector(moduleUrl:string,trust=true){
 }
 
 describe("SDK packaged application assets",()=>{
-  it("unbuilt release refuses rather than inventing LAB trust",()=>{expect(()=>packagedApplicationAssets("lab","https://app.test")).toThrow("LAB trust unavailable");});
   it("managed tiers never fall back to a LAB release",async()=>{const select=await selector("https://app.test/sdk/application/packaged-assets.js");for(const tier of ["staging","production"] as const)expect(()=>select(tier,"https://app.test")).toThrow();});
+  it("unbuilt release refuses rather than inventing LAB trust",()=>{expect(()=>packagedApplicationAssets("lab","https://app.test")).toThrow("SDK release trust unavailable");});
+  it.each([
+    ["staging","https://app.tasknotes.dev"],["staging","capacitor://app.tasknotes.dev"],
+    ["production","https://app.tasknotes.dev"],["production","capacitor://app.tasknotes.dev"]
+  ] as const)("%s %s refuses missing trust with ordinary app-start copy",(environment,origin)=>{
+    try {packagedApplicationAssets(environment,origin);throw new Error("accepted");}
+    catch(error){
+      expect(error).toMatchObject({code:"unavailable",reason:"application_release_trust_unavailable"});
+      const copy=describeError(error)!;expect(copy.key).toBe("assets");
+      expect(copy.title+" "+copy.message).not.toMatch(/trust|signature|root|policy/i);
+    }
+  });
   it("selects the current native pin at the same-artifact URL without I/O",async()=>{
     const select=await selector("https://app.test/sdk/application/packaged-assets.js");
     const fetch=vi.spyOn(globalThis,"fetch").mockImplementation(()=>{throw new Error("unexpected I/O");});
@@ -24,6 +37,15 @@ describe("SDK packaged application assets",()=>{
       expect(assets.runtime).toEqual({url:"https://app.test/sdk/native/runtime.wasm",sha256:"872878c05c44110252ea094d3a62a00b4753ecbb949f3ff0ae83747ae91f5a2a",bytes:3680813,maxBytes:3680813});
       expect(Object.isFrozen(assets.runtime)).toBe(true); expect(fetch).not.toHaveBeenCalled();
     } finally {fetch.mockRestore();}
+  });
+  it("reconstructs WebKit's opaque iOS origin without admitting the opaque string",async()=>{
+    vi.stubGlobal("location",{origin:"null",href:"capacitor://app.tasknotes.dev/index.html"});
+    try {
+      expect(currentAppOrigin()).toBe("capacitor://app.tasknotes.dev");
+      const select=await selector("capacitor://app.tasknotes.dev/sdk/application/packaged-assets.js");
+      expect(select("lab",currentAppOrigin()!).runtime.url).toBe("capacitor://app.tasknotes.dev/sdk/native/runtime.wasm");
+      expect(()=>select("lab","null")).toThrow();
+    } finally {vi.unstubAllGlobals();}
   });
   it("refuses a foreign module anchor",async()=>{const select=await selector("https://foreign.test/sdk/application/a.js");expect(()=>select("lab","https://app.test")).toThrow();});
   it("selector uses the canonical packaging pins without exposing build provenance or initializer metadata",async()=>{

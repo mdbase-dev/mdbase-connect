@@ -16,6 +16,16 @@ afterEach(()=>{for(const close of cleanup.splice(0))close();});
 // Genuine MessageChannel. Explicit SDK lifecycle/HELLO stand-ins, not native
 // shutdown qualification. Termination callback is observed, never invoked early.
 describe("SDK original UI Worker request ownership",()=>{
+  it.each([["future_stage",null],["replaying","replaying"],[null,null],[undefined,null]])("normalizes display-only progress %s without failing the original operation",async(progress,expected)=>{
+    const f=fixture(),pending=f.client.request("start",null,f.caller.signal);await f.arrived.promise;
+    f.send("reply",1,{ok:true,snapshot:{...snapshot,openingProgress:progress}});
+    await expect(pending).resolves.toMatchObject({status:"unselected",openingProgress:expected});
+    expect(f.release).not.toHaveBeenCalled();
+  });
+  it.each([123,{},[]])("still rejects malformed progress types without exposing their contents",async(progress)=>{
+    const f=fixture(),pending=f.client.request("start",null,f.caller.signal),rejected=expect(pending).rejects.toMatchObject({code:"application_worker_binding"});await f.arrived.promise;
+    f.send("reply",1,{ok:true,snapshot:{...snapshot,openingProgress:progress}});await rejected;
+  });
   it("routes Native preparation on the original portal after its authorize reply, with no second operation slot",async()=>{
     const app="11111111-1111-4111-8111-111111111111",nativeAuthorization=vi.fn(async()=>({applicationId:app,authorizationId:app,manifestDigest:"cc".repeat(32)}));
     const f=fixture(undefined,nativeAuthorization),portal={navigate:vi.fn(),close:vi.fn()},pending=f.client.request("authorize",null,f.caller.signal,portal);

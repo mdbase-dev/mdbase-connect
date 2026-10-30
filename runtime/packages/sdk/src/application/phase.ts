@@ -34,7 +34,7 @@ export type MdbasePhase =
   /** Signed in, nothing open: choose from `snapshot.collections` or add one. */
   | { readonly kind: "choosing"; readonly lastApproval: MdbaseApprovalOutcome | null }
   /** SDK-9: `slow` turns on when opening takes longer than usual. */
-  | { readonly kind: "opening"; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean }
+  | { readonly kind: "opening"; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; readonly progress?: import("../app-host/opening-progress.js").AppOpeningProgress | null }
   /** The requested collection is not approved for this app (yet). */
   | { readonly kind: "needs_approval"; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean }
   /** Open, but needs a one-time setup: `setup.plan()` then `setup.apply(plan)`. */
@@ -62,7 +62,7 @@ export interface ApplicationPhaseOptions {
   readonly cpOrigin?: string;
 }
 
-type Snapshot = Pick<MdbaseApplicationSnapshot, "status" | "signIn" | "collections" | "selectedCollectionId" | "problem" | "readiness" | "selection"> & Partial<Pick<MdbaseApplicationSnapshot, "problemDetail" | "removedScopeIds" | "recoveryAccountLabel">>;
+type Snapshot = Pick<MdbaseApplicationSnapshot, "status" | "signIn" | "collections" | "selectedCollectionId" | "problem" | "readiness" | "selection"> & Partial<Pick<MdbaseApplicationSnapshot, "problemDetail" | "removedScopeIds" | "recoveryAccountLabel" | "openingProgress">>;
 
 const current = (c: MdbaseApplicationConnection | null | undefined, id: string): c is MdbaseApplicationConnection => {
   try { return !!c && c.id === id && c.isCurrent(); } catch { return false; }
@@ -73,7 +73,9 @@ const fallback = (code: string, cpOrigin?: string): MdbaseProblem => describe(co
 /** Derive the phase of a public application snapshot. */
 export function applicationPhase(s: Snapshot, options: ApplicationPhaseOptions = {}): MdbasePhase {
   const next = derive(s, options);
-  return hold(next, s, options);
+  const phase = hold(next, s, options);
+  return phase.kind === "opening" && s.status === "opening" && s.selectedCollectionId === phase.collectionId && s.openingProgress
+    ? { ...phase, progress: s.openingProgress } : phase;
 }
 
 function derive(s: Snapshot, o: ApplicationPhaseOptions): MdbasePhase {

@@ -158,6 +158,27 @@ pub trait Sealer {
             "bounded record source unsupported".into(),
         ))
     }
+    /// Deterministic current-epoch Blob descriptor for hosted migration's
+    /// oversized Markdown. No key leaves custody. Callers must bind the expected
+    /// source hash/size and verify the complete stream before installing a row.
+    fn migration_markdown_descriptor(
+        &self,
+        _hash: B32,
+        _size: u64,
+    ) -> Result<mdbn_wire::intent::BlobRef, SealError> {
+        Err(SealError::Failed("migration Markdown unsupported".into()))
+    }
+    /// One exact 8 MiB-profile Blob part under that SAME current descriptor.
+    /// Unsupported custody refuses; this never widens bounded record sources.
+    fn seal_migration_markdown_part(
+        &self,
+        _descriptor: &mdbn_wire::intent::BlobRef,
+        _index: u64,
+        _plain: &[u8],
+        _entropy: &mut dyn CsprngEntropy,
+    ) -> Result<crate::crypto::blob::SealedPart, SealError> {
+        Err(SealError::Failed("migration Markdown unsupported".into()))
+    }
     /// Explicit attachment-v1 writer; unsupported sealers fail closed.
     fn seal_attachment_chunk(
         &self,
@@ -558,6 +579,60 @@ impl Sealer for KeyringSealer {
             plain,
             crate::crypto::blob::PART_SIZE,
             false,
+            entropy,
+        )
+        .map_err(SealError::from)
+    }
+
+    fn migration_markdown_descriptor(
+        &self,
+        hash: B32,
+        size: u64,
+    ) -> Result<mdbn_wire::intent::BlobRef, SealError> {
+        // Same bounded file policy as hosted Gen0, before keys or allocation.
+        if size <= mdbn_wire::unindexed_markdown::RECORD_SOURCE_CAP_BYTES
+            || size > crate::replica::gen0::HOSTED_FILE_TOTAL_BYTES
+        {
+            return Err(SealError::Failed("migration Markdown size".into()));
+        }
+        let epoch = self.current_epoch().ok_or(SealError::NotKeyed)?;
+        let key = self.key(epoch).ok_or(SealError::NotKeyed)?;
+        let cid = crate::crypto::blob::content_key(key, &self.collection);
+        Ok(mdbn_wire::intent::BlobRef {
+            plain_hash: hash,
+            size,
+            blob_id: B32(crate::crypto::blob::blob_id(&cid, &hash.0, size)),
+            id_epoch: epoch,
+            part_size: crate::crypto::blob::PART_SIZE,
+        })
+    }
+
+    fn seal_migration_markdown_part(
+        &self,
+        descriptor: &mdbn_wire::intent::BlobRef,
+        index: u64,
+        plain: &[u8],
+        entropy: &mut dyn CsprngEntropy,
+    ) -> Result<crate::crypto::blob::SealedPart, SealError> {
+        use crate::crypto::blob;
+        let expected =
+            self.migration_markdown_descriptor(descriptor.plain_hash, descriptor.size)?;
+        if *descriptor != expected
+            || blob::expected_part_len(descriptor, index) != Some(plain.len() as u64)
+        {
+            return Err(SealError::Failed("migration Markdown part".into()));
+        }
+        let key = self.key(expected.id_epoch).ok_or(SealError::NotKeyed)?;
+        let cid = blob::content_key(key, &self.collection);
+        let address = B32(blob::part_address(&cid, &expected.blob_id.0, index as u32));
+        // Generic reseal's canonical Blob profile, without a whole-note buffer.
+        blob::seal_part(
+            key,
+            expected.id_epoch,
+            &self.collection,
+            address,
+            plain,
+            true,
             entropy,
         )
         .map_err(SealError::from)

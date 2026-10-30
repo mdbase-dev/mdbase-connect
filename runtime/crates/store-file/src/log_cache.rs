@@ -61,6 +61,13 @@ impl<I: IndexStorage> Store for LogCache<I> {
     fn records(&self, p: Page) -> StoreResult<Vec<RecordRow>> {
         self.0.records(p)
     }
+    fn records_visit<B>(
+        &self,
+        p: Page,
+        visitor: &mut dyn FnMut(RecordRow) -> std::ops::ControlFlow<B>,
+    ) -> StoreResult<std::ops::ControlFlow<B>> {
+        self.0.records_visit(p, visitor)
+    }
     fn records_in_buckets(&self, range: Range<u32>, p: Page) -> StoreResult<Vec<RecordRow>> {
         self.0.records_in_buckets(range, p)
     }
@@ -204,7 +211,21 @@ mod tests {
         }
         fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
             self.0.set(self.0.get() + 1);
-            Ok(vec![StmtResult::default(); batch.stmts.len()])
+            Ok(batch
+                .stmts
+                .iter()
+                .map(|s| {
+                    if s.sql == "PRAGMA user_version" {
+                        StmtResult {
+                            columns: 1,
+                            values: vec![crate::index::SqlValue::Integer(0)],
+                            ..StmtResult::default()
+                        }
+                    } else {
+                        StmtResult::default()
+                    }
+                })
+                .collect())
         }
         fn reset(&mut self) -> Result<(), IndexError> {
             Ok(())
@@ -236,7 +257,11 @@ mod tests {
         assert_eq!(calls.get(), 0, "refused before any SQL");
         let cache = LogCache::open(disposable(), SqlStoreLimits::default());
         assert!(cache.is_ok());
-        assert_eq!(calls.get(), 1, "schema created once");
+        assert_eq!(
+            calls.get(),
+            2,
+            "version read followed by one schema migration"
+        );
         let bad = SqlStoreLimits {
             max_blob_bytes: 0,
             ..SqlStoreLimits::default()

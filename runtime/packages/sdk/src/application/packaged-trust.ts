@@ -5,5 +5,5 @@ import {mdbaseError} from "../errors.js";
  * build replaces this refusal module ONLY with canonical BUILD-verifier output.
  * No roots, environment context or runtime-discovery fallback lives here. */
 export function appReleaseTrust(): AppBundledReleaseTrust {
-  throw mdbaseError("unavailable", "LAB trust unavailable", "application_lab_trust_unavailable");
+  throw mdbaseError("unavailable", "SDK release trust unavailable: package authenticated LAB or production inputs", "application_release_trust_unavailable");
 }

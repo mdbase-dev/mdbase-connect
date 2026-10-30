@@ -11,7 +11,7 @@ export interface AppServerProblem {
   readonly updateUrl: string | null;
 }
 /** Outcomes apps must be able to tell apart. */
-export type AppServerOutcome = "collection_migrating" | "account_suspended" | "update_required" | "account_collection_quota_exceeded";
+export type AppServerOutcome = "collection_not_yet_migrated" | "collection_migrating" | "account_suspended" | "update_required" | "account_collection_quota_exceeded";
 
 const NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const genuine = new WeakSet<object>();
@@ -92,6 +92,7 @@ export function appServerOutcome(problem: AppServerProblem | null | undefined): 
   if (!problem) return null;
   const names = [problem.reason, problem.code];
   if (problem.status === 429 && problem.code === "account_collection_quota_exceeded") return "account_collection_quota_exceeded";
+  if (names.includes("collection_not_yet_migrated")) return "collection_not_yet_migrated";
   if (names.includes("collection_migrating")) return "collection_migrating";
   if (names.includes("account_suspended")) return "account_suspended";
   // CP: 409 collection_unavailable {reason: moved_to_next_runtime, update_url}.

@@ -119,10 +119,12 @@ test("legacy absence preserves the earlier polling deadline", async () => {
 
 test("a late absent read cannot overwrite concurrent local inhibition", async () => {
   const { s, calls } = storage(); const ordinaryGet = s.get;
-  let resolve;
-  s.get = () => { s.get = ordinaryGet; return new Promise(r => { resolve = r; }); };
+  let resolve, reading;
+  const started = new Promise(r => { reading = r; });
+  s.get = () => { s.get = ordinaryGet; reading(); return new Promise(r => { resolve = r; }); };
   const gate = new AlarmLifecycle(s);
   const pending = gate.schedule(Date.now() + 60_000, () => true);
+  await started;
   await gate.inhibit(); resolve(new Map()); await pending;
   assert.equal(gate.current, false);
   assert.equal(calls.includes("setAlarm"), false);
@@ -139,6 +141,44 @@ test("inhibition or engine replacement during getAlarm cannot install an alarm",
     assert.equal(alarm(), null);
     assert.equal(calls.includes("setAlarm"), false);
   }
+});
+
+test("only an installed open retry may be superseded; distinct earlier wakes survive", async () => {
+  const at = Date.now() + 60_000;
+  for (const existing of [null, at, at - 10_000]) {
+    const { s, alarm } = storage(); const gate = new AlarmLifecycle(s);
+    if (existing !== null) await s.setAlarm(existing);
+    const reservation = await gate.schedule(at, () => true);
+    assert.equal(reservation, existing === null ? at : null);
+    await gate.schedule(at + 600_000, () => true, reservation ?? undefined);
+    assert.equal(alarm(), existing ?? at + 600_000);
+  }
+  const { s, alarm } = storage(); const gate = new AlarmLifecycle(s);
+  const reservation = await gate.schedule(at, () => true);
+  await gate.schedule(at - 5_000, () => true);
+  await gate.schedule(at + 600_000, () => true, reservation);
+  assert.equal(alarm(), at - 5_000);
+});
+
+test("interleaved scheduling cannot lose the earlier wake, and failed writes do not poison the queue", async () => {
+  const { s, alarm } = storage(); const gate = new AlarmLifecycle(s);
+  const get = s.getAlarm; let resume, reading;
+  const started = new Promise(r => { reading = r; });
+  s.getAlarm = async () => {
+    s.getAlarm = get; const old = await get(); reading();
+    await new Promise(r => { resume = r; }); return old;
+  };
+  const at = Date.now() + 60_000;
+  const first = gate.schedule(at, () => true); await started;
+  const earlier = gate.schedule(at - 5_000, () => true);
+  resume(); await Promise.all([first, earlier]);
+  assert.equal(alarm(), at - 5_000);
+  const set = s.setAlarm;
+  s.setAlarm = async () => { throw new Error("lost write"); };
+  await assert.rejects(gate.schedule(at - 10_000, () => true), /lost write/);
+  s.setAlarm = set;
+  await gate.schedule(at - 15_000, () => true);
+  assert.equal(alarm(), at - 15_000);
 });
 
 test("invalid deadlines have no storage effects", async () => {
@@ -159,7 +199,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
     b.onLoad({ filter: /.*/, namespace: "fake-wasm" }, () => ({ contents: "export default new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));" }));
   },
 }] });
-const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString("base64")}`);
+const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=alarm-lifecycle-worker.mjs").toString("base64")}`);
 const collection = "0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e";
 function object(escrow) {
   const stored = storage(); const o = Object.create(HostedCollection.prototype);
@@ -226,7 +266,7 @@ test("inhibition during custody open wipes returned keys before engine construct
 test("real sync cannot reschedule after inhibition during alarm storage await", async () => {
   for (const escrow of [false, true]) {
     const { o, s, alarm } = object(escrow);
-    const engine = { logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null };
+    const engine = { appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null };
     o.engine = engine; o.log = () => ({});
     s.getAlarm = async () => { await o.alarms.inhibit(); return null; };
     await o.sync(engine);

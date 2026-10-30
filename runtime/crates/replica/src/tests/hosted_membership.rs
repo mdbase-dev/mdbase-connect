@@ -108,6 +108,7 @@ fn invited_member_reads_history_with_original_offline_and_removal_stops_grants()
     assert_eq!(member.head(), hosted.r.head());
     assert_eq!(member.stats.voided, 0);
 
+    let prior_epoch = hosted.r.policy.epoch;
     let removed = cp.append(
         &svc,
         vec![PolicyOp::MemberRemove(MemberRemove { account: MEMBER })],
@@ -116,6 +117,41 @@ fn invited_member_reads_history_with_original_offline_and_removal_stops_grants()
     assert!(!hosted.r.policy.members.contains_key(&MEMBER));
     assert!(!hosted.r.policy.devices[&DEVICE].active);
     assert!(hosted.r.verified_hosted_key_recipient(DEVICE).is_err());
+    assert!(
+        hosted.r.policy.epoch > prior_epoch,
+        "removal automatically rekeys"
+    );
+
+    // Keep the removed member's real old keyring alive. Even if the transport
+    // delivered a later item, it cannot decrypt the next owner's content.
+    let mut owner = open_app(OWNER_DEV, OWNER_SIGN, OWNER_KEM);
+    let mut owner_log = svc.client(OWNER_DEV);
+    drive(&mut owner, &mut owner_log);
+    let session = owner.hello(SessionAuth::Host, hello()).unwrap().0;
+    owner
+        .submit(session, create(2, "after-removal.md", None))
+        .unwrap();
+    drive(&mut owner, &mut owner_log);
+    assert!(owner.store().record(&mid(2)).unwrap().is_some());
+    let mut future_entries = 0;
+    for bytes in svc.items(&COL).into_iter().skip(removed as usize) {
+        let item = Item::from_bytes(&bytes).unwrap();
+        if item.kind == ItemKind::Entry {
+            future_entries += 1;
+            assert!(item.epoch.unwrap() > prior_epoch);
+            assert_eq!(
+                member.sealer.open(&item, &bytes),
+                Err(crate::seal::OpenError::NoKey)
+            );
+        }
+    }
+    assert!(
+        future_entries > 0,
+        "a post-removal write must actually be committed"
+    );
+    drive(&mut member, &mut member_log);
+    assert!(member.store().record(&mid(2)).unwrap().is_none());
+
     for bytes in svc.items(&COL).into_iter().skip(removed as usize) {
         let item = Item::from_bytes(&bytes).unwrap();
         if item.kind == ItemKind::KeyGrant {

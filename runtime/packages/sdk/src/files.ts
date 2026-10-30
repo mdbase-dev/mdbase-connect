@@ -375,7 +375,13 @@ export class FilesApi {
 
   /**
    * Stream a file's bytes, pinned to one revision. Chunks arrive in order; the stream
-   * closes only after the replica verified the whole-file digest.
+   * closes only after the replica verified the whole-file digest. For canonical
+   * unindexed Markdown Blob sources, only a full read is supported: partial ranges
+   * refuse `unindexed_full_read_required`, and successful close additionally gates
+   * exact source count and UTF-8. Earlier chunks are provisional; `.file` resolves
+   * metadata, not final source verification. Cancellation rejects pending metadata
+   * and requests cleanup of the original pending request or returned stream, even
+   * when it wins before the stream ID is installed. AttachmentV1 ranges stay unchanged.
    */
   downloadStream(
     f: FileRef,
@@ -393,10 +399,44 @@ export class FilesApi {
     const file = new Promise<FileView>((res, rej) => ((fileResolve = res), (fileReject = rej)));
     file.catch(() => {});
     const self = this;
+    const pending = new AbortController();
+    const cancelledError = mdbaseError("cancelled", "file download cancelled");
+    let cancelled = false;
+    let finished = false;
+    let cancelSent = false;
+    let detachAbort = () => {};
+    const cancelRemote = () => {
+      if (streamId === null) return;
+      self.streams.delete(streamId);
+      self.early.delete(streamId);
+      if (!cancelSent) {
+        cancelSent = true;
+        void session?.request("cancel_stream", m([[0, streamId]])).catch(() => {});
+      }
+    };
+    const cancel = () => {
+      if (finished) return;
+      cancelled = true;
+      detachAbort();
+      fileReject(cancelledError);
+      // Stop session acquisition or an unsettled read_file request. If its
+      // response already settled, start must still cancel the late stream ID.
+      pending.abort();
+      cancelRemote();
+    };
     const stream = new ReadableStream<Uint8Array>({
       async start(ctrl) {
+        const onAbort = () => {
+          if (finished || cancelled) return;
+          cancel();
+          ctrl.error(cancelledError);
+        };
+        detachAbort = () => o.signal?.removeEventListener("abort", onAbort);
+        o.signal?.addEventListener("abort", onAbort, { once: true });
+        if (o.signal?.aborted) { onAbort(); return; }
         try {
-          session = await self.session(o.signal, true);
+          session = await self.session(pending.signal, true);
+          if (cancelled) return;
           const p = m([[0, fileRef(f)]]);
           if (o.range) p.set(1, [o.range[0], o.range[1]]);
           if (o.revision) p.set(2, hashCodec.enc(o.revision));
@@ -406,7 +446,7 @@ export class FilesApi {
           self.opening++;
           let r: Map<number, CborValue>;
           try {
-            r = (await session.request("read_file", p, o.signal ? { signal: o.signal } : {})) as Map<number, CborValue>;
+            r = (await session.request("read_file", p, { signal: pending.signal })) as Map<number, CborValue>;
           } finally {
             self.opening--;
           }
@@ -414,41 +454,57 @@ export class FilesApi {
           const early = self.early.get(streamId) ?? [];
           self.early.delete(streamId);
           if (self.opening === 0) self.early.clear();
+          if (cancelled) {
+            // reader.cancel on the already-closed local stream cannot run its
+            // underlying cancel twice. Own this late cleanup inside the SDK.
+            cancelRemote();
+            finished = true;
+            return;
+          }
           const view = fileView.dec(r.get(1) ?? null);
           fileResolve(view);
           total = o.range ? o.range[1] : view.size;
           const deliver = (c: FileChunk) => {
+            if (cancelled || finished) return;
             ctrl.enqueue(c.bytes);
             received += c.bytes.length;
             o.onProgress?.({ id: streamId!, phase: "streaming", done: received, total });
+            // Progress callbacks can synchronously abort/cancel this reader.
+            if (cancelled || finished) return;
             void session!.request("ack_chunks", m([[0, streamId!], [1, c.offset + c.bytes.length]])).catch(() => {});
-            if (c.last) {
+            if (c.last && !cancelled && !finished) {
+              finished = true;
+              detachAbort();
               self.streams.delete(streamId!);
               ctrl.close();
             }
           };
           self.streams.set(streamId, {
             onChunk: deliver,
-            onEnd: (e) => ctrl.error(e ?? mdbaseError("unavailable", "stream ended")),
+            onEnd: (e) => {
+              finished = true;
+              detachAbort();
+              ctrl.error(e ?? mdbaseError("unavailable", "stream ended"));
+            },
           });
           for (const c of early) deliver(c);
         } catch (e) {
+          finished = true;
+          detachAbort();
+          if (self.opening === 0) self.early.clear();
+          cancelRemote();
           fileReject(e);
           ctrl.error(e);
         }
       },
-      cancel() {
-        if (streamId !== null) {
-          self.streams.delete(streamId);
-          // Cancelling read_file's stream: tell the replica to stop.
-          void session?.request("cancel_stream", m([[0, streamId]])).catch(() => {});
-        }
-      },
+      cancel,
     });
     return Object.assign(stream, { file });
   }
 
-  /** The whole file as bytes (at most 64 MiB; larger files use `downloadStream`). */
+  /** The fully verified source as bytes (at most 64 MiB; larger files use
+   * `downloadStream`). Includes canonical unindexed Markdown Blob sources;
+   * ordinary Blob support and AttachmentV1 behavior are unchanged. */
   async download(f: FileRef, o: { signal?: AbortSignal; onProgress?: (p: TransferProgress) => void } = {}): Promise<Uint8Array> {
     const view = typeof f === "object" && "size" in f ? f : await this.get(f, o.signal);
     if (view.size > MAX_CONVENIENCE_BYTES) {

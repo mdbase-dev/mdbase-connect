@@ -72,6 +72,13 @@ macro_rules! reads {
 }
 
 impl<S: Store> Store for FaultStore<S> {
+    fn records_visit<B>(
+        &self,
+        page: Page,
+        visitor: &mut dyn FnMut(RecordRow) -> std::ops::ControlFlow<B>,
+    ) -> StoreResult<std::ops::ControlFlow<B>> {
+        self.inner.records_visit(page, visitor)
+    }
     reads! {
         fn head(&self) -> StoreResult<Head>;
         fn record(&self, id: &Uuid) -> StoreResult<Option<RecordRow>>;

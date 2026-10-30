@@ -1,0 +1,6 @@
+{
+  "reason": "Fenced local rollback now returns carried-over grants to their legacy binding. It records rebuilt bindings in the existing audit log (audit import) and withdraws the grant's native policy grant through the existing policy outbox (queueNextPolicy import). No new module or abstraction is introduced.",
+  "growth": {
+    "relativeImports": 2
+  }
+}

@@ -70,6 +70,7 @@ export interface AppWebSignInSessionOptions<Connection> extends Omit<AppInstalla
     /** Only a freshly consumed CP receipt can permit automatic new setup.
      * Restored or merely discovered collections always need explicit setup. */
     setupPolicy: "approved-new-collection" | "explicit";
+    onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void;
     signal: AbortSignal;
   }): Promise<AppWebCollectionConnection<Connection>>;
   /** "only" (default) opens a sole approved collection and a fresh portal pick.
@@ -92,11 +93,18 @@ export interface AppWebSignOutResult {
   readonly server: "revoked" | "already_signed_out" | "not_paired" | "incomplete";
   /** `incomplete`: some local store could not be removed (in use, refused). */
   readonly local: "erased" | "incomplete";
+  /** Page-side Private grants, wiped by the application entry on sign-out:
+   * `incomplete` means a grant (its keys and refresh token) may still be in
+   * this browser — tell the person some local data could not be removed.
+   * Absent when no entry ran the wipe. Also reflected in `local`. */
+  readonly grants?: "erased" | "incomplete";
   /** The installation had a Web Push channel: the app's push subscription
    * should be removed by the page (Workers cannot reach it reliably). */
   readonly webPush: boolean;
 }
 export interface AppWebSignInSnapshot {
+  /** Content-free display only; never a readiness or retry certificate. */
+  readonly openingProgress?: import("./opening-progress.js").AppOpeningProgress | null;
   readonly status: "not_started" | "starting" | "signed_out" | "authorizing" | "unselected" | "opening" | "setup_required" | "ready" | "blocked" | "closed";
   readonly signIn: AppInstallationSignInView | null;
   readonly collections: readonly AppInstallationCollection[];
@@ -131,6 +139,7 @@ export interface AppWebSignInSnapshot {
 /** One collection the session holds open (or tried to open): what a page
  * showing that collection shows while the sign-in itself is settled. */
 export interface AppWebCollectionView {
+  readonly openingProgress?: import("./opening-progress.js").AppOpeningProgress | null;
   readonly status: "unselected" | "opening" | "setup_required" | "ready" | "blocked";
   readonly problem: string | null;
   readonly problemDetail?: AppWebSignInProblemDetail;
@@ -154,7 +163,7 @@ interface CollectionSlot<Connection> {
 }
 const closedView: AppWebCollectionView = Object.freeze({status: "unselected", problem: null, transport: null, live: null});
 const failure = (reason: AppInstallationSignInError["reason"]) => new AppInstallationSignInError(reason);
-const liveOutcomes = new Set(["collection_migrating", "account_suspended", "update_required"]);
+const liveOutcomes = new Set(["collection_not_yet_migrated", "collection_migrating", "account_suspended", "update_required"]);
 // Private one-shot READ intent, never a queue for mutations or another flow.
 type ReceiptRead = Readonly<{
   flow: AppProtectedInstallationSignIn;
@@ -284,7 +293,8 @@ export class AppWebSignInSession<Connection> {
     this.setBase({timing});
     const {problemDetail: previousDetail, ...previous} = slot.view;
     const detail = update.problem === null ? undefined : update.problemDetail ?? previousDetail;
-    slot.view = Object.freeze({...previous, ...update, ...(detail ? {problemDetail: detail} : {})});
+    const openingProgress = (update.status ?? previous.status) === "opening" ? ("openingProgress" in update ? update.openingProgress ?? null : previous.openingProgress ?? null) : null;
+    slot.view = Object.freeze({...previous, ...update, openingProgress, ...(detail ? {problemDetail: detail} : {})});
     this.changed();
   }
   private changed(): void {
@@ -744,7 +754,7 @@ export class AppWebSignInSession<Connection> {
     const slot: CollectionSlot<Connection> = existing ?? {id: collectionId, host: null, lease: null, leaseScope: null, selected: null, scope: null, lifetime: null, usable: false, stopAssessment: null, timer: null, view: closedView};
     slot.usable = false; slot.lifetime?.abort();
     this.slots.set(collectionId, slot); this.focus = collectionId; this.openingSlot = slot; this.settleBase();
-    this.publishSlot(slot, {status: "opening", problem: null});
+    this.publishSlot(slot, {status: "opening", problem: null, openingProgress: null});
     for (const other of others) { await this.closeSlot(other); this.check(); this.deleteSlot(other); this.changed(); }
     if (slot.lease || slot.selected || slot.host) await this.closeSlot(slot);
     this.check(); await this.openDevice(true); this.check();
@@ -755,8 +765,13 @@ export class AppWebSignInSession<Connection> {
     slot.lease = await acquireAppReplicaLease(this.options.locks, scope, this.lifetime.signal); slot.leaseScope = scope; this.check();
     slot.lifetime = new AbortController();
     const newlyCreated = this.freshApproval && this.flow!.view().collectionSelection?.createdCollectionIds.includes(collectionId) === true;
+    const lifetime = slot.lifetime;
     const selected = await this.options.openCollection({host: slot.host, installation: this.installation, scope, collection,
-      setupPolicy: newlyCreated ? "approved-new-collection" : "explicit", signal: slot.lifetime.signal});
+      setupPolicy: newlyCreated ? "approved-new-collection" : "explicit", signal: lifetime.signal,
+      onProgress: progress => {
+        if (this.closing || this.slots.get(slot.id) !== slot || slot.lifetime !== lifetime || lifetime.signal.aborted || slot.view.status !== "opening") return;
+        if (slot.view.openingProgress !== progress) this.publishSlot(slot, {openingProgress: progress});
+      }});
     slot.selected = selected; slot.scope = scope; this.check();
     if (selected.state !== "ready" && selected.state !== "setup_required") throw failure("response");
     slot.usable = true; if (this.openingSlot === slot) this.openingSlot = null;
@@ -767,7 +782,7 @@ export class AppWebSignInSession<Connection> {
       if (ended) { this.accessEnded(slot, selected, ended); return; }
       if (selected.state === "ready" || selected.state === "setup_required") this.publishSlot(slot, {status: selected.state, ...this.liveProblem(slot, selected)});
     }) ?? null;
-    this.publishSlot(slot, {status: selected.state, transport: null, live: null});
+    this.publishSlot(slot, {status: selected.state, transport: null, live: null, openingProgress: null});
   }
   /** Opening a collection settles a blocked sign-in view; it never ends an
    * approval in progress (a page adding a collection keeps waiting for it). */

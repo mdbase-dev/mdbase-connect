@@ -272,6 +272,8 @@ impl PgStore {
     pub fn open(conn: SharedConn, collection: Uuid) -> StoreResult<PgStore> {
         let (c, epoch) = {
             let mut g = conn.borrow_mut();
+            let version = schema::current(&mut g.client).map_err(io)?.unwrap_or(0);
+            schema::check_version(version)?;
             let row = g
                 .query_opt(
                     "INSERT INTO rs_collections (id, epoch) VALUES ($1, 1) \

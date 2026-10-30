@@ -423,6 +423,13 @@ impl<S: Store> Store for HostedCache<S> {
     fn records(&self, page: Page) -> StoreResult<Vec<RecordRow>> {
         self.inner.records(page)
     }
+    fn records_visit<B>(
+        &self,
+        page: Page,
+        visitor: &mut dyn FnMut(RecordRow) -> std::ops::ControlFlow<B>,
+    ) -> StoreResult<std::ops::ControlFlow<B>> {
+        self.inner.records_visit(page, visitor)
+    }
     fn records_in_buckets(&self, range: Range<u32>, page: Page) -> StoreResult<Vec<RecordRow>> {
         self.inner.records_in_buckets(range, page)
     }

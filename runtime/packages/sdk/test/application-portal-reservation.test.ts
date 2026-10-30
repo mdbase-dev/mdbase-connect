@@ -1,13 +1,18 @@
 import {afterEach,describe,expect,it,vi} from "vitest";
 import {reserveApplicationPortal,browserApplicationPortalHost,openerApplicationPortalHost,ApplicationPortalError,type ApplicationPortalHost} from "../src/application/portal-reservation.js";
 const cpOrigin="https://cp.test",uri=`${cpOrigin}/pair/11111111-1111-4111-8111-111111111111`;
-function fixture(){const caller=new AbortController(),popup={navigate:vi.fn(),close:vi.fn()},open=vi.fn(()=>popup),current=vi.fn(()=>true);const host:ApplicationPortalHost={cpOrigin,signal:caller.signal,open,isCurrent:current};return{host,caller,popup,open,current};}
+function fixture(){const caller=new AbortController(),popup={navigate:vi.fn(),close:vi.fn(),focus:vi.fn()},open=vi.fn(()=>popup),current=vi.fn(()=>true);const host:ApplicationPortalHost={cpOrigin,signal:caller.signal,open,isCurrent:current};return{host,caller,popup,open,current};}
 afterEach(()=>vi.unstubAllGlobals());
 describe("SDK-private original gesture popup reservation",()=>{
   it("reserves synchronously before startup can run and navigates only the same authenticated CP origin",()=>{
     const f=fixture(),trace:string[]=[];f.open.mockImplementation(()=>{trace.push("open");return f.popup;});
     const portal=reserveApplicationPortal(f.host);trace.push("startup");expect(trace).toEqual(["open","startup"]);expect(f.open).toHaveBeenCalledOnce();
     portal.navigate(uri);expect(f.popup.navigate).toHaveBeenCalledExactlyOnceWith(uri);portal.close();portal.close();expect(f.popup.close).toHaveBeenCalledOnce();
+  });
+  it("focus preserves the original reservation and caller fencing without navigation or replacement",()=>{
+    const f=fixture(),portal=reserveApplicationPortal(f.host);portal.navigate(uri);portal.focus();
+    expect(f.popup.focus).toHaveBeenCalledOnce();expect(f.open).toHaveBeenCalledOnce();expect(f.popup.navigate).toHaveBeenCalledOnce();expect(f.popup.close).not.toHaveBeenCalled();
+    f.caller.abort();expect(()=>portal.focus()).toThrow(ApplicationPortalError);expect(f.popup.focus).toHaveBeenCalledOnce();
   });
   it("blocked popup is a typed reason, not raw message matching or startup work",()=>{
     const f=fixture(),startup=vi.fn();const host={...f.host,open:()=>null};

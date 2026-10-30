@@ -17,7 +17,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
     b.onLoad({ filter: /hosted\.wasm$/ }, () => ({ contents: "export default new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));" }));
   },
 }] });
-const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString("base64")}`);
+const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=idle-backoff-worker.mjs").toString("base64")}`);
 
 
 function object(escrow = false, data = new Map()) {
@@ -41,11 +41,11 @@ function object(escrow = false, data = new Map()) {
 const frame = (method) => encode(new Map([[2, method], [3, new Map()]]));
 /** A bound engine that queues `methods` once per sync (refresh() re-arms it). */
 function engine(methods = [], outputs = []) {
-  let queued = [];
-  const e = { logBound: true, nextWakeup: () => null, attachmentObject: () => null, signRpc: () => new Uint8Array(64),
+  let queued = [], applied = 0, sent = [];
+  const e = { appliedHead: () => String(applied), logBound: true, nextWakeup: () => null, attachmentObject: () => null, signRpc: () => new Uint8Array(64),
     logCalls: () => { const q = queued; queued = []; return q; }, logBind: () => true,
-    logReply() {}, logFailed() {}, poll: () => { const out = outputs; outputs = []; return out; },
-    arm(next = methods) { queued = next.map((m, id) => ({ id, frame: frame(m) })); } };
+    logReply(id) { if (sent[id] === "read") applied++; }, logFailed() {}, poll: () => { const out = outputs; outputs = []; return out; },
+    arm(next = methods) { sent = next; queued = next.map((m, id) => ({ id, frame: frame(m) })); } };
   e.arm();
   return e;
 }

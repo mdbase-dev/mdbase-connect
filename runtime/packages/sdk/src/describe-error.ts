@@ -74,7 +74,7 @@ export const PROBLEM_CODES = [
   "device_offline", "desktop_update_required", "old_connector_running", "sync_required", "no_device_registered",
   "access_removed", "read_only", "capability_missing", "collection_deleted", "collection_unavailable", "moved_to_next_runtime", "device_approval_required",
   // Server outcomes.
-  "collection_migrating", "account_suspended", "update_required", "account_collection_quota_exceeded",
+  "collection_migrating", "collection_not_yet_migrated", "account_suspended", "update_required", "account_collection_quota_exceeded",
   // MdbaseError codes (the 15).
   "invalid_request", "invalid_record", "not_found", "conflict", "unauthenticated", "forbidden", "collection_invalid",
   "unavailable", "rate_limited", "quota_exceeded", "too_large", "outcome_unknown", "internal",
@@ -128,6 +128,7 @@ const COPY = {
   moved_to_next_runtime: ["mdbase was upgraded", "This collection now uses the new version of mdbase. Update the app to keep using it; for a web app, reloading the page is enough. If the collection still doesn't appear, open the mdbase desktop app and turn on sync for it so web apps can reach it.", "update_app", "warning"],
   // `approval_required` (readiness) means approval in the portal; this one means on a computer.
   device_approval_required: ["Waiting for your computer", "Keep a computer with this collection running mdbase and signed in. This app connects when it is ready.", "wait", "info", true],
+  collection_not_yet_migrated: ["Your collection needs an upgrade", "Your data is safe. Open the latest mdbase desktop app on the computer that keeps this collection to finish upgrading it, then try again.", "retry", "info"],
   collection_migrating: ["Your collection is being upgraded", "Your data is safe. This usually takes a few minutes, and the app reconnects by itself when it's done.", "wait", "info", true],
   account_suspended: ["Your account is suspended", "Your mdbase account has been suspended, so this app can't open your collections. Contact mdbase support for help.", "contact_support", "error"],
   update_required: UPDATE,
@@ -269,6 +270,7 @@ const ALIASES: Readonly<Record<string, ProblemCode>> = Object.assign(Object.crea
   application_selection_empty: "application_selection_invalid", application_selection_duplicate: "application_selection_invalid",
   application_selection_metadata: "application_selection_invalid",
   application_lab_trust_unavailable: "assets", application_production_trust_unavailable: "assets",
+  application_release_trust_unavailable: "assets",
   application_packaged_assets_unavailable: "assets", application_asset_fetch: "assets",
   grant_required: "approval_required",
   readiness_capability_version: "readiness_unsupported", readiness_type_invalid: "type_invalid",

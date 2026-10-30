@@ -19,6 +19,13 @@ describe("generic application declaration custody (not registration/trust/manife
     expect(copy.manifest.requirements).toEqual({access:"full_collection",contracts:[]});expect("capabilities" in (copy.manifest.requirements as object)).toBe(false);
   });
   it.each(["http://tasknotes.dev","https://tasknotes.dev/path"])("refuses unsafe/nonexact production origin %s without normalization",origin=>{expect(()=>applicationDeclaration({...declaration(),origin})).toThrow("application declaration");});
+  it("admits explicit staging without production relabelling or loopback HTTP",()=>{
+    expect(applicationDeclaration({...declaration(),environment:"staging",origin:"https://notes-staging.example.test"}).environment).toBe("staging");
+    for(const origin of ["http://127.0.0.1:32111","http://localhost:32111","https://notes-staging.example.test/path"])
+      expect(()=>applicationDeclaration({...declaration(),environment:"staging",origin})).toThrow("application declaration");
+    for(const environment of ["unknown","STAGING",""])
+      expect(()=>applicationDeclaration({...declaration(),environment:environment as never})).toThrow("application declaration");
+  });
   it("explicit lab only permits loopback HTTP, not arbitrary insecure origin",()=>{
     expect(applicationDeclaration({...declaration(),environment:"lab",origin:"http://127.0.0.1:32111"}).origin).toBe("http://127.0.0.1:32111");
     expect(()=>applicationDeclaration({...declaration(),environment:"lab",origin:"http://foreign.test"})).toThrow("application declaration");

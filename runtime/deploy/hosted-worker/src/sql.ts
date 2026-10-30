@@ -131,6 +131,28 @@ function error(e: unknown): Uint8Array {
   return w.done();
 }
 
+/** DO SQLite rejects file-header PRAGMA user_version (SQLITE_AUTH). Map the
+ * store's canonical version statements to its own SQL namespace, not a guessed
+ * zero after an error. The setter shares the caller's migration transaction.
+ * A read of an unversioned cache does no DDL; an existing bad row stays bad. */
+function execIndexStatement(storage: DurableObjectStorage, stmt: { sql: string; params: Val[] }, transactional: boolean) {
+  if (stmt.params.length === 0 && stmt.sql === "PRAGMA user_version") {
+    const exists = storage.sql.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='st_schema'").toArray().length === 1;
+    return storage.sql.exec(exists ? "SELECT v AS user_version FROM st_schema WHERE k=0" : "SELECT 0 AS user_version");
+  }
+  const version = stmt.params.length === 0 ? /^PRAGMA user_version=(0|[1-9][0-9]*)$/.exec(stmt.sql) : null;
+  if (version) {
+    const value = Number(version[1]);
+    if (!Number.isSafeInteger(value) || value > 0x7fff_ffff) throw new Fail(SQL, "invalid schema version");
+    const stamp = () => {
+      storage.sql.exec("CREATE TABLE IF NOT EXISTS st_schema(k INTEGER PRIMARY KEY CHECK(k=0), v INTEGER NOT NULL)");
+      return storage.sql.exec("INSERT INTO st_schema(k,v) VALUES(0,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", value);
+    };
+    return transactional ? stamp() : storage.transactionSync(stamp);
+  }
+  return storage.sql.exec(stmt.sql, ...stmt.params);
+}
+
 export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Uint8Array {
   try {
     if (request.length > MAX_BYTES) throw new Fail(FULL, "request over budget");
@@ -177,7 +199,7 @@ export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Ui
       stmts.forEach((s, i) => {
         let cursor: SqlStorageCursor<Record<string, SqlStorageValue>>;
         try {
-          cursor = storage.sql.exec(s.sql, ...s.params);
+          cursor = execIndexStatement(storage, s, mode === 0);
         } catch (e) {
           throw new Fail(SQL, String(e), i);
         }

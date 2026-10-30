@@ -3,6 +3,7 @@
  * registration. No fixture/memory custody or default roots. Collection SQL opens
  * only after ownership + protected completion; native reads gate the data facade. */
 import { idbLogTokenCache } from "./log-token-cache.js";
+import { waitForOpenRetry } from "./open-wait.js";
 import { currentAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import { collectionDisplayName } from "./collection-display-name.js";
@@ -15,7 +16,8 @@ import { AppCpPeopleAuthority } from "./cp-people.js";
 import { attachAppTimerReceiver } from "./timer-port.js";
 import type { PeopleAuthority } from "../people.js";
 import type { AppLogHealth, AppLogPump } from "./log-pump.js";
-import type { AppServerProblem } from "./cp-problem.js";
+import { appServerOutcome, isAppServerProblem, type AppServerProblem } from "./cp-problem.js";
+import { AppHttpLogError } from "./http-log.js";
 import { initialSyncWait, keyWaitDetail, type AppInitialSyncWait } from "./initial-sync.js";
 import { attachAppLocalFacade } from "./local-facade.js";
 import {
@@ -67,7 +69,7 @@ export type AppCloudCopyHostRelease = AppBundledReleaseTrust;
 export class AppCloudCopyHostError extends Error {
     constructor(
         readonly reason:
-            "binding" | "fenced" | "recovery_required" | "unavailable",
+            "binding" | "fenced" | "recovery_required" | "unavailable" | "sync_stalled",
     ) {
         super(`app cloud copy host: ${reason}`);
         this.name = "AppCloudCopyHostError";
@@ -855,14 +857,18 @@ export class AppWebCloudCopyHost {
         this.checkCollection(signal);
         this.native.tick();
     }
-    /** Bounded READ-only probe through the actual typed native Query gate.
-     * No status inference, write retry, key override or private grant. A warm
-     * native replica may pass offline; an unreadable one remains unavailable. */
+    /** READ-only admission through the actual typed native Query gate. Warm
+     * probes have a fixed budget; cold first sync bounds inactivity instead.
+     * No status-based admission, write retry, key override or private grant. */
     waitForVerifiedRead(options: {
         signal: AbortSignal;
         timeoutMs?: number;
+        onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void;
+        /** SDK join ledger has never completed this local replica's first sync.
+         * The budget then bounds inactivity, not total collection catch-up. */
+        cold?: boolean;
     }): Promise<void> {
-        const { timeoutMs = 15000 } = options;
+        const { timeoutMs = 15000, cold = false } = options;
         const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (
@@ -871,14 +877,16 @@ export class AppWebCloudCopyHost {
             this.adoptedEndpoint === null ||
             !Number.isSafeInteger(timeoutMs) ||
             timeoutMs < 1 ||
-            timeoutMs > 15000
+            timeoutMs > 15000 ||
+            typeof cold !== "boolean" ||
+            (cold && !this.pump)
         )
             throw fail("binding");
         if (this.readWork)
             return this.readWork.then(() => {
                 this.checkCollection(signal);
             });
-        const work = this.verifyRead(signal, timeoutMs);
+        const work = this.verifyRead(signal, timeoutMs, cold, options.onProgress);
         this.readWork = work;
         void work
             .finally(() => {
@@ -890,45 +898,120 @@ export class AppWebCloudCopyHost {
     private async verifyRead(
         signal: AbortSignal,
         timeoutMs: number,
+        cold: boolean,
+        onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void,
     ): Promise<void> {
         const ctrl = new AbortController(),
             abort = () => ctrl.abort();
         this.readAbort = ctrl;
         signal.addEventListener("abort", abort, { once: true });
-        const timer = setTimeout(abort, timeoutMs);
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        let stopError: unknown = fail(cold ? "sync_stalled" : "unavailable");
         let rejectAbort!: () => void;
         const aborted = new Promise<never>((_resolve, reject) => {
-            rejectAbort = () => reject(fail("unavailable"));
+            rejectAbort = () => reject(stopError);
             ctrl.signal.addEventListener("abort", rejectAbort, { once: true });
         });
         void aborted.catch(() => {});
+        let shown: import("./opening-progress.js").AppOpeningProgress | null = null;
+        const report = (stage: import("./opening-progress.js").AppOpeningProgress) => {
+            if (stage === shown) return;
+            shown = stage;
+            try { onProgress?.(stage); } catch { /* display observers do not own READ admission */ }
+        };
+        const observe = () => {
+            this.checkCollection(signal);
+            const refusal = cold ? this.pump!.terminalProblem : null;
+            if (isAppServerProblem(refusal))
+                throw new AppHttpLogError(appServerOutcome(refusal) ?? "unavailable", refusal);
+            const observation = this.native!.observations();
+            if (observation.requiresReopen || observation.keyringRebuildFailed) throw fail("recovery_required");
+            const wait = initialSyncWait(observation.status);
+            report(wait === "installing" ? "loading_snapshot" : wait === "waiting_for_key" ? "waiting_for_key" : wait === "behind" ? "replaying" : wait === null ? "verifying_read" : "syncing");
+            return observation;
+        };
         this.readVerified = false;
         try {
-            this.readClient = await MdbaseClient.connect({
-                app: { name: "app-local-read-gate", version: "1" },
-                connector: inProcessConnector(this.native!, {
-                    collection: this.collectionScope!.collection,
+            if (cold) {
+                // Only native accepted prefix/READ-cursor/snapshot positions count.
+                // Requests sent, accepted heartbeats, head growth and status
+                // flicker cannot keep a stuck replica alive. Observe DURING a
+                // multi-RPC pump, not only after all its rounds have returned.
+                const progress = () => {
+                    const observation = observe();
+                    return [observation.status.confirmedThrough, observation.status.installing?.done ?? 0,
+                        observation.status.installing?.total ?? 0, this.pump!.readProgress];
+                };
+                let high = progress(), lastProgress = Date.now();
+                const bodies = new Map<number, {bytes: number; at: number}>();
+                let deferred: Set<number> | null = null;
+                const watch = () => {
+                    try {
+                        const now = Date.now(), next = progress();
+                        if (next.some((value, i) => value > high[i]!)) { lastProgress = now; deferred = null; }
+                        high = next.map((value, i) => Math.max(value, high[i]!));
+                        const active = this.pump!.responseProgress();
+                        const ids = new Set(active.map(body => body.id));
+                        for (const id of bodies.keys()) if (!ids.has(id)) bodies.delete(id);
+                        for (const body of active) {
+                            const prior = bodies.get(body.id);
+                            if (body.bytes > (prior?.bytes ?? 0)) bodies.set(body.id, {bytes: body.bytes, at: now});
+                        }
+                        let left = timeoutMs - (now - lastProgress);
+                        if (left <= 0) {
+                            // An HTTP body can start later than the sync clock,
+                            // or use a longer bounded object-transfer deadline.
+                            // Let CURRENT streaming calls finish, not successive
+                            // retries/invalid replies. Only native progress can
+                            // authorize another cohort. Bytes never grant READ.
+                            deferred ??= new Set(bodies.keys());
+                            left = Math.max(0, ...[...deferred].map(id => {
+                                const body = bodies.get(id);
+                                return body ? timeoutMs - (now - body.at) : 0;
+                            }));
+                        }
+                        if (left <= 0) abort();
+                        else timer = setTimeout(watch, Math.min(250, left));
+                    } catch (error) { stopError = error; abort(); }
+                };
+                timer = setTimeout(watch, Math.min(250, timeoutMs));
+            } else timer = setTimeout(abort, timeoutMs);
+            this.readClient = await Promise.race([
+                MdbaseClient.connect({
+                    app: { name: "app-local-read-gate", version: "1" },
+                    connector: inProcessConnector(this.native!, {
+                        collection: this.collectionScope!.collection,
+                    }),
+                    reconnect: false,
+                    signal: ctrl.signal,
+                }).then(client => {
+                    // A connect that ignored cancellation still belongs to this
+                    // probe, never to a later open or a data facade.
+                    if (ctrl.signal.aborted) { client.close(); throw fail("unavailable"); }
+                    return client;
                 }),
-                reconnect: false,
-                signal: ctrl.signal,
-            });
+                aborted,
+            ]);
             this.checkCollection(signal);
-            for (let round = 0; round < 32 && !ctrl.signal.aborted; round++) {
+            let delay = 250;
+            while (!ctrl.signal.aborted) {
                 this.native!.tick();
                 if (this.pump) await Promise.race([this.pump.pump(), aborted]);
                 this.checkCollection(signal);
-                const observation = this.native!.observations();
-                if (
-                    observation.requiresReopen ||
-                    observation.keyringRebuildFailed
-                )
-                    throw fail("recovery_required");
+                const observation = observe();
+                // Cold catch-up owns its progress clock until the complete
+                // known prefix is applied. Still require the actual native Query
+                // before any data facade; sync metadata never grants READ.
+                if (cold && initialSyncWait(observation.status) !== null) {
+                    await waitForOpenRetry(delay, ctrl.signal);
+                    delay = Math.min(1_000, delay * 2);
+                    continue;
+                }
                 try {
-                    await this.readClient.query(
-                        { limit: 1 },
-                        undefined,
-                        ctrl.signal,
-                    );
+                    await Promise.race([
+                        this.readClient.query({ limit: 1 }, undefined, ctrl.signal),
+                        aborted,
+                    ]);
                     this.checkCollection(signal);
                     if (ctrl.signal.aborted) throw fail("unavailable");
                     this.readVerified = true;
@@ -943,10 +1026,20 @@ export class AppWebCloudCopyHost {
                     )
                         throw error;
                 }
+                // Only a genuine typed READ-unavailable can reach this wait.
+                // Quiet native turns do not imply the remote key/prefix can
+                // arrive synchronously. Keep ONE client and the warm deadline
+                // or cold inactivity budget; never replay bootstrap/setup/write.
+                await waitForOpenRetry(delay, ctrl.signal);
+                delay = Math.min(1_000, delay * 2);
             }
             throw fail("unavailable");
+        } catch (error) {
+            this.checkCollection(signal);
+            if (ctrl.signal.aborted) throw stopError;
+            throw error;
         } finally {
-            clearTimeout(timer);
+            if (timer !== null) clearTimeout(timer);
             signal.removeEventListener("abort", abort);
             ctrl.signal.removeEventListener("abort", rejectAbort);
             this.readClient?.close();

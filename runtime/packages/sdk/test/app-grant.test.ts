@@ -9,6 +9,7 @@ import { applicationDeclaration, rebindApplicationDeclaration, type MdbaseApplic
 import { resolveApplicationRegistration } from "../src/application/registration.js";
 import * as trust from "../src/application/packaged-trust.js";
 import { describeError } from "../src/describe-error.js";
+import { ApplicationPrivateCollections } from "../src/application/private-collections.js";
 
 const APP = "5cdfa020-c201-4da8-845a-f2cc9969eade";
 const COLLECTION = "0b4c1a52-58f1-4a9e-9f43-6a7f8d2f3e10";
@@ -359,6 +360,62 @@ it("a registration id that points at another app's grant store never opens it; t
   const again = fixture({ manifestId: "dev.example.notes", store: "default" });
   expect((await indexedDbAppGrantStore(CP, APP, { owner: "bundle:dev.example.notes" }).getIdentity())!.publicKey).toBe(identity.publicKey);
   await expect((again.grants as unknown as { accessToken(c: string): Promise<string> }).accessToken(COLLECTION)).resolves.toBe("a1");
+});
+
+const OTHER = "1b4c1a52-58f1-4a9e-9f43-6a7f8d2f3e11";
+async function seededGrant(collection: string): Promise<StoredAppGrant> {
+  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  const noise = await crypto.subtle.generateKey({ name: "X25519" }, false, ["deriveBits"]) as CryptoKeyPair;
+  return { version: 1, collection, noisePrivateKey: noise.privateKey, noisePublicKey: new Uint8Array(32), refreshKey: key, refresh: new Uint8Array(28), refreshExpiresAt: Date.now() + 60_000 };
+}
+
+it("forgetAllGrants wipes every stored grant and setup attempt, listed or not, and keeps the app identity", async () => {
+  const f = await authorized();
+  // OTHER simulates a grant persisted just before a reload, never listed since.
+  await f.store.putGrant(await seededGrant(OTHER));
+  await f.store.putSetupAttemptIfAbsent!(COLLECTION, new Uint8Array([1, 2, 3]));
+  await f.store.putSetupAttemptIfAbsent!(OTHER, new Uint8Array([4, 5]));
+  const identity = await f.store.getIdentity();
+  await f.grants.forgetAllGrants();
+  expect(await f.store.listGrants()).toEqual([]);
+  expect(await f.store.getSetupAttempt!(COLLECTION)).toBeUndefined();
+  expect(await f.store.getSetupAttempt!(OTHER)).toBeUndefined();
+  expect(await f.store.getIdentity()).toEqual(identity);
+  // Idempotent (a follower tab wiping again), and people stay fenced.
+  await f.grants.forgetAllGrants();
+  expect(await f.store.listGrants()).toEqual([]);
+});
+
+it("IndexedDB clearGrants removes grants and setup attempts in one wipe and keeps the identity", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const store = indexedDbAppGrantStore(CP, APP, { owner: "bundle:dev.example.notes" });
+  const p256 = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]) as CryptoKeyPair;
+  const identity = await store.putIdentityIfAbsent({ version: 1, privateKey: p256.privateKey, publicKey: "pk" });
+  await store.putGrant(await seededGrant(COLLECTION));
+  await store.putGrant(await seededGrant(OTHER));
+  await store.putSetupAttemptIfAbsent!(COLLECTION, new Uint8Array([9]));
+  await store.clearGrants();
+  expect(await store.listGrants()).toEqual([]);
+  expect(await store.getSetupAttempt!(COLLECTION)).toBeUndefined();
+  expect((await store.getIdentity())!.publicKey).toBe(identity.publicKey);
+  await store.clearGrants(); // empty again: no error
+});
+
+it("a refresh in flight for an unlisted grant cannot resurrect it after the sign-out wipe", async () => {
+  const f = await authorized();
+  let release!: (r: Response) => void;
+  const held = new Promise<Response>(r => { release = r; });
+  f.setRefreshReply(() => held as unknown as Response);
+  const racing = f.grants.availability(COLLECTION).then(() => "resolved", () => "rejected");
+  await vi.waitFor(() => expect(f.requests.some(r => r.path === "/oauth/token" && r.body!.get("grant_type") === "refresh_token")).toBe(true));
+  // Private collections never listed/refreshed in this page: the old sign-out
+  // forgot only IDs it knew, so this grant (and its refresh) survived.
+  const privates = new ApplicationPrivateCollections({ declaration: f.declaration, grants: async () => f.grants as never, onChange: () => {} });
+  const wiping = privates.forgetAll();
+  release(Response.json({ access_token: "a9", refresh_token: "r9", collection_id: COLLECTION, expires_in: 30, refresh_expires_in: 3600 }));
+  await wiping;
+  await racing;
+  expect(await f.store.listGrants()).toEqual([]);
 });
 
 it("refuses records labelled for another owner and never adopts an unlabelled store", async () => {

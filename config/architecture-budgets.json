@@ -17,7 +17,7 @@
     "crates/connect-protocol": 19,
     "crates/connect-runtime": 3,
     "crates/connect-testbed-adapter": 1,
-    "packages/app-ui": 42,
+    "packages/app-ui": 41,
     "packages/client": 83,
     "packages/devkit": 3,
     "packages/i18n": 23,
@@ -30,7 +30,7 @@
     "packages/webhooks": 1,
     "services/feedback": 1,
     "services/mcp": 15,
-    "services/server": 262
+    "services/server": 257
   },
   "deadCodeReferencesByFile": {
     "crates/connect-hosted-provider/src/workspace.rs": 1,
@@ -45,11 +45,11 @@
     "semanticProjectionFormatVersion": 9
   },
   "reviewBudgets": {
-    "productionFiles": 968,
-    "relativeImports": 2646,
+    "productionFiles": 962,
+    "relativeImports": 2595,
     "workspacePackages": 26,
     "rustPublicDeclarations": 3458,
-    "typeScriptExportDeclarations": 3678,
+    "typeScriptExportDeclarations": 3649,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }

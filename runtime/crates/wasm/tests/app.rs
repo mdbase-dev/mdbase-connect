@@ -96,7 +96,13 @@ impl AppSqlHost for Schema {
                     .stmts
                     .iter()
                     .map(|stmt| {
-                        if stmt.sql.contains("n,bytes FROM st_retained_stats") {
+                        if stmt.sql == "PRAGMA user_version" {
+                            StmtResult {
+                                columns: 1,
+                                values: vec![mdbn_store_file::index::SqlValue::Integer(0)],
+                                ..StmtResult::default()
+                            }
+                        } else if stmt.sql.contains("n,bytes FROM st_retained_stats") {
                             StmtResult {
                                 columns: 4,
                                 values: vec![

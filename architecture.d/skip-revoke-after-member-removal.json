@@ -1,0 +1,6 @@
+{
+  "reason": "One internal server helper replaces duplicated installation enrolment/revocation checks so access removal and sign-out share the same ordered member-removal rule. It adds no protocol, persisted state, or package API.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}

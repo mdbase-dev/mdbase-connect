@@ -17,7 +17,7 @@ use mdbn_wire::{
     },
 };
 use sha2::{Digest, Sha256};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Exact source holder captured before reading or uploading any object.
 #[derive(Debug, Clone, PartialEq)]
@@ -127,7 +127,9 @@ impl AttachmentSource for VerifiedSource {
 /// range boundary; no normalization, BOM stripping or source rewriting.
 #[derive(Default)]
 pub(super) struct Utf8 {
-    suffix: Vec<u8>,
+    // This tiny cross-part plaintext suffix has the same drop/wipe obligation
+    // as the owned source part, including cancellation and failed final proof.
+    suffix: Zeroizing<Vec<u8>>,
 }
 impl Utf8 {
     pub(super) fn push(&mut self, mut bytes: &[u8]) -> Result<(), ()> {
@@ -140,7 +142,7 @@ impl Utf8 {
                 bytes = rest;
                 match std::str::from_utf8(&self.suffix) {
                     Ok(_) => {
-                        self.suffix.clear();
+                        self.suffix.zeroize();
                         break;
                     }
                     Err(e) if e.error_len().is_some() || self.suffix.len() >= 4 => return Err(()),

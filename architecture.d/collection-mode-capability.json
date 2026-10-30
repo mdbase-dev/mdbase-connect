@@ -1,0 +1,9 @@
+{
+  "reason": "One internal module owns the historical device advertisement, the current-session capability check at all existing role-0 token mints, and the permanent collection floor/token-expiry deadline. It reuses existing registration/relay capabilities and the shared token TTL. The native preflight's member list is bound to its applied prefix and the existing conditional append; no second policy reducer, per-write fence or collection-log wire type is introduced.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 11,
+    "typeScriptExportDeclarations": 7,
+    "services/server": 1
+  }
+}

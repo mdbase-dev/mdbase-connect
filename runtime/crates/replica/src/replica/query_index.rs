@@ -111,9 +111,9 @@ impl<S: Store> Replica<S> {
     }
 }
 
-/// Records per backfill transaction; `Store::records` copies whole rows.
-/// The page bounds row count; records must also satisfy separate size admission.
-/// This count-only request does not enforce pre-copy byte admission.
+/// Records per backfill transaction; `Store::records` returns whole rows.
+/// SqlStore transports them in byte-bounded groups, but this requested page is
+/// still retained in memory. Record admission and heap bounds remain separate.
 const BACKFILL_PAGE: u32 = 16;
 
 impl<S: Store> Replica<S> {
