@@ -82,6 +82,8 @@
 - Remove the unavailable sync-disable controls from the CLI and desktop and explain that `sync enable` cannot change an existing sync mode.
 - Publish share membership before completing acceptance, and refresh the app approval collection chooser when returning to it.
 
+- The daemon recovers when it starts before the OS credential store is unlocked, for example at boot. It retries the store when mdbase connect or the CLI next authenticates, so signing in no longer fails with "the control key is not loaded" until the daemon is restarted.
+
 - Notify joined computers when a collection is deleted through the collection deletion API, stop syncing while preserving local files, and explain deletion in the desktop app, CLI, and open application sessions. Prompt notification requires the updated Cloudflare log-service Worker; reconnects and token refusals also detect deletion.
 - Report deleted collections consistently in the runtime SDK as `forbidden` with reason `collection_deleted` and recovery `none`, and preserve that error on later operations. `collectionUnavailableError("collection_deleted")` previously returned `not_found`.
 
@@ -175,6 +177,8 @@
 - Refuse Viewer type updates before they change the local collection, keeping the collection readable.
 
 ### Security
+
+- Protect `v*` and `sdk-v*` tags from updates and deletions with no bypass actors, and enable immutable GitHub releases after verifying that desktop and SDK publishers upload all assets before publishing their drafts. Existing published releases are not retroactively locked.
 
 - Updated rustls-webpki to 0.103.16 (RUSTSEC-2026-0382), so TLS connections reject certificate chains through the distrusted emSign intermediates whose private keys are public.
 
