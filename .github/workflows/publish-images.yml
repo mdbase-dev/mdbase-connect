@@ -58,7 +58,6 @@ jobs:
       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
     outputs:
-      publish: 'true'
       component_matrix: ${{ steps.release.outputs.component_matrix }}
       qualification_run_id: ${{ steps.release.outputs.qualification_run_id }}
       qualification_run_attempt: ${{ steps.release.outputs.qualification_run_attempt }}
@@ -75,12 +74,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
-            scripts/ci/verify-qualified-commit "$SOURCE_COMMIT" "$UPSTREAM_RUN_ID"
-          else
-            scripts/ci/verify-qualified-commit "$SOURCE_COMMIT"
-          fi
+        run: scripts/ci/verify-qualified-commit "$SOURCE_COMMIT" "$UPSTREAM_RUN_ID"
 
       - id: release
         name: Load the canonical release contract
@@ -97,10 +91,8 @@ jobs:
             echo "qualification_run_attempt=$attempt"
           } >>"$GITHUB_OUTPUT"
 
-
   publish:
     needs: changes
-    if: needs.changes.outputs.publish == 'true'
     name: Publish ${{ matrix.component }}
     runs-on: ubuntu-24.04
     permissions:
@@ -241,7 +233,6 @@ jobs:
 
   release-bundle:
     needs: [changes, publish]
-    if: needs.changes.outputs.publish == 'true'
     name: Sign immutable release bundle
     runs-on: ubuntu-24.04
     permissions:

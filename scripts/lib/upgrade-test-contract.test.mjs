@@ -22,7 +22,7 @@ test("upgrade workflows delegate scenario behavior to versioned test programs", 
 
 test("previous-release fixture and its qualification tests trigger normal signed publication", async () => {
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/publish-images.yml"), "utf8");
-  assert.match(workflow, /publish: 'true'/);
+  assert.doesNotMatch(workflow, /needs\.changes\.outputs\.publish/);
   assert.doesNotMatch(workflow, /git diff --quiet/);
   assert.match(workflow, /github\.event\.workflow_run\.event == 'push'/);
   assert.doesNotMatch(workflow, /options: \[images,/);

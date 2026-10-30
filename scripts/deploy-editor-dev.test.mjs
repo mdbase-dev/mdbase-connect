@@ -105,7 +105,7 @@ test("CLI dispatch runs only after report filesystem initialization", async () =
 
 test("Editor release source changes trigger signed image-bundle publication", async () => {
   const workflow = await readFile(resolve(root, ".github/workflows/publish-images.yml"), "utf8");
-  assert.match(workflow, /publish: 'true'/u);
+  assert.doesNotMatch(workflow, /needs\.changes\.outputs\.publish/u);
   assert.doesNotMatch(workflow, /git diff --quiet/u);
   assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/u);
 });

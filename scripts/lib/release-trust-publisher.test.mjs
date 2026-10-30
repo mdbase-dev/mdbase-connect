@@ -15,6 +15,9 @@ test('fixed LAB/staging/production selector does not schedule image publication'
  const guard=workflow.jobs.changes.if;
  assert.ok(guard.includes("github.event_name == 'workflow_run'"));
  assert.ok(!guard.includes("github.event_name == 'workflow_dispatch'"));
+ assert.equal(workflow.jobs.changes.outputs.publish,undefined);
+ assert.equal(workflow.jobs.publish.if,undefined);
+ assert.equal(workflow.jobs['release-bundle'].if,undefined);
  assert.ok(!guard.includes("inputs.operation != 'lab-trust'"));
  const job=workflow.jobs['trust-bundle'];
  assert.ok(job.if.includes("inputs.operation == 'lab-trust'"));
