@@ -4,6 +4,184 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.149
+
+### Added
+
+- `mdbase conflicts dismiss <id> [collection]` accepts a record/file ID or unique prefix and dismisses its recorded merge conflicts using the replica's existing synced mutation. With multiple registered collections, specify the collection name or ID. Files stay unchanged; dismissal accepts the values already kept by the merge, not a local/remote side selection.
+
+- Add owner-only durable collection mode requests and status reads as the foundation for switching between Private and Cloud copy. Key handover, rekeying and interface controls are not implemented in this phase.
+
+- Add one-shot device-local trust for an adjacent owner-signed Cloud copy to Private rekey, with durable intent, local ongoing trust for the active switch set, and native mode-choice recovery. This is the trust/runtime foundation; conversion orchestration and interface controls are not connected yet.
+
+- `@mdbase-dev/ui/collections`: `CollectionSwitcher` takes `open` and
+  `onOpenChange` so an app can control it, and `variant="none"` with a
+  required `anchorRef` renders no trigger, so an app can open the switcher
+  from its own control, such as an item in its overflow menu. The
+  wide-screen popover is placed against `anchorRef`, and closing the
+  switcher, or a row dialog opened from it, returns focus there.
+  `mountCollectionUi` does not accept `variant="none"`.
+
+- Add owner-device key handover for an explicitly chosen Cloud copy, preserving the existing Private epoch and history. This is the runtime primitive; server conversion orchestration and controls are not connected yet.
+
+- Prepare the three runtime npm packages for public publication with repository metadata, declaration entry points, and public `next` defaults. Add a separate manual GitHub OIDC workflow for reviewed runtime archives; no package is published automatically.
+
+### Changed
+
+- Default collection-mode execution off; opt LAB in only after mode-capable service handlers deploy. Release policy holds from observed log position independently of owner finish, and provide owner abandonment of an unrekeyed published Private request without replacing its publication. Keep mode alerts separate from unrelated integrity faults, roll back failed optional persistent-keyring history repairs, and clear receiver reading witnesses on every applied return to Private.
+- Prepare internal collection-mode controller and service-readiness bindings. Before Private publication, require durable switch support from every keyed device, enforce current support at log-token mint, and drain the maximum pre-floor token lifetime. Execution remains opt-in for pre-release qualification; managed conversion acceptance remains required before release. Preserve service-not-ready HTTP 503 responses without cancelling an already locked response stream. Resolve only the stale mode-change alert after an already-authorized receiver grant, preserving unrelated integrity faults and source-consent boundaries. Refresh warm service readiness after owner grants arrive. Reuse bounded, commitment-checked join-ahead for service replicas enrolled after encrypted history, without advancing applied policy or installing a read-ahead epoch key.
+- Recover authenticated historical epoch keys when a later recipient receives the current epoch through a key grant.
+- Persist the owner's Cloud choice in both native host files before enabling key handover, and resume interrupted projection without replacing the collection or genesis. Add internal CLI, management and desktop IPC bindings; interface controls stay hidden until the executor is registered.
+- Add pre-publication cancellation and durable request recovery, bind resumed source consent to the native Private generation, and verify immutable genesis independently of the current join mode.
+- Automatically select Cloud reading on other devices after a trusted Private owner's ordinary service grant, without a prompt or source consent. Add a passive owner-device notice and shared inline desktop/portal progress controls.
+
+- Make the app sign-in collection picker quieter: no lock emoji or repeated "Owner" labels, a text-style create action, the requesting app named in bold, the access note at reading size beside the approve button, and a single-row language and theme header.
+- Wrap long collection names in the approve button instead of overflowing narrow screens.
+
+- The "Link Obsidian" confirmation names only the collection, with Allow and Deny buttons; it no longer shows a key fingerprint. Confirmation dialogs label their decline button Deny.
+- After a computer is approved in the browser, the page says "You can close this tab." instead of asking to return to the desktop app, so it reads correctly when sign-in started from another app.
+
+- Build future managed Worker bundles from the runtime source with exact main-branch qualification and immutable publication custody.
+
+- Publish the source-built SDK at the Connect release version after exact tagged production verification: production-only npmjs with provenance, plus individually attested, integrity-pinned staging/LAB tarballs on never-Latest GitHub prereleases from the same build. Preserve beta.141 production trust, refresh the application WASM from the ported runtime, and keep dry runs nonpublishing. Existing app pins are unchanged and SDKs cannot use the off-CI archive publisher.
+
+### Fixed
+
+- Defer build-dependent replay stalls until deterministic validation finishes, and keep stalled native promotions from changing record, head, or disk state.
+- Keep missing source keys from masking provable refs violations, and require authentication of the exact attachment descriptor before cached inventory can establish a refs violation.
+
+- Bound Bases SQL projection pages by the existing index parameter limit so large collections and visible windows do not fence the app database.
+- Include a secret-free condition or facet detail when application readiness is fenced, preserving typed native session errors.
+
+- Bases tag membership can be decided from frontmatter even when body tags are unavailable; code spans, fenced code and numeric-only references no longer make ordinary task views unavailable.
+- Bases list-valued properties group by the complete ordered list, matching Obsidian's whole-list grouping shape. TaskNotes' stock Projects view now loads with one or multiple projects per task, with deterministic group order and shared native, indexed and SDK codec support. Unsupported object, duration and error keys still visibly refuse.
+
+- Apps whose access moved to a Private collection when it was taken over from the previous connector get their previous access back if that collection is rolled back to the previous connector. Before, they lost access and had to be approved again. Apps the user removed in the meantime stay removed.
+
+- Explain when an owner must join a synced collection on this computer before
+  deleting or renaming it, while preserving the device enrollment requirement.
+- Preserve the SDK's collection approval outcome for an unjoined installation device.
+- Add next runtime `mdbase collection delete <name-or-id> --confirm <shared-name>`
+  through the signed-in daemon with control-key authentication. Local files and
+  registration are retained; the success message points to `collection remove`
+  to unregister the local folder. Network failures and malformed deletion replies
+  report an unknown outcome, and acknowledged deletion appears in local activity.
+
+- Send `Access-Control-Allow-Credentials` only for the account and management origins, the only origins allowed to use the account session cookie. Other origins, including first-party, native and third-party SDK apps that authenticate with bearer tokens, keep origin reflection without credentials.
+
+- Return a retryable, specific error when the migration cutover log head is unavailable, and retry queued cutover policy delivery on repeated requests while logging delivery failures.
+
+- On Linux, the daemon's control socket is now always `~/.local/state/mdbase/run/control.sock`, so apps and terminals started without `XDG_RUNTIME_DIR` (or with a different one) still find a running daemon. A daemon still running from an earlier version is reachable again once it restarts.
+- A keychain failure while authenticating a command is reported as `credential_store_unavailable` instead of `daemon_unreachable`.
+- A second link request while another is waiting for confirmation is refused with `link_prompt_busy`, distinct from a declined link (`link_not_approved`).
+- `mdbase collection join` accepts a folder that holds only hidden entries such as `.obsidian`; they are left as they are. A folder with an `.mdbase` directory is still refused.
+- `mdbase conflicts` lists a collection's unresolved conflicts (record, path, kind and field) instead of reporting "not implemented".
+- `mdbase sync enable` right after `mdbase collection add` waits briefly for the collection to finish opening instead of failing with `not_serving`.
+
+- Preserve the local collection name when enabling a cloud copy.
+- Remove the unavailable sync-disable controls from the CLI and desktop and explain that `sync enable` cannot change an existing sync mode.
+- Publish share membership before completing acceptance, and refresh the app approval collection chooser when returning to it.
+
+- The daemon recovers when it starts before the OS credential store is unlocked, for example at boot. It retries the store when mdbase connect or the CLI next authenticates, so signing in no longer fails with "the control key is not loaded" until the daemon is restarted.
+
+- Notify joined computers when a collection is deleted through the collection deletion API, stop syncing while preserving local files, and explain deletion in the desktop app, CLI, and open application sessions. Prompt notification requires the updated Cloudflare log-service Worker; reconnects and token refusals also detect deletion.
+- Report deleted collections consistently in the runtime SDK as `forbidden` with reason `collection_deleted` and recovery `none`, and preserve that error on later operations. `collectionUnavailableError("collection_deleted")` previously returned `not_found`.
+
+- The desktop app keeps a single connection to the mdbase daemon. It previously opened a new status subscription before every daemon request, and on every failed attempt, without closing the old one, so an open window exhausted the daemon's file descriptors within about an hour and the daemon stopped answering.
+- The daemon builds its status once per change and shares it with every connected app, instead of rebuilding it, including a scan of every synced record, once per connection. A collection that is slow to report no longer holds up status for the others: after 2 seconds it is reported without its live sync counters.
+
+- A second mdbase account can now sign in on a computer that another account already used. Each account gets its own device on that computer, and new devices still need the usual approval for Private collections. One account can never use another account's device.
+- A computer that was removed from an account can sign in again. The removed device stays removed: the computer registers as a new device, keeps its collections that live only on this computer, and Private collections need approval again as for any new device.
+- When mdbase cannot register a computer, the app and `mdbase status` now say so, and mdbase keeps trying while it runs instead of giving up until a restart.
+- A sign-in left over from an interrupted sign-out no longer stops mdbase from connecting after signing in again.
+
+- Signing out of mdbase on a computer and signing in again with the same account no longer breaks sync on that computer. The computer's device moves to its new connection and the previous connection is retired. A different account still cannot use another account's device, and a computer that was removed from the account stays removed.
+
+- After signing out of mdbase on a computer and signing in again with the same account, apps you had approved for that computer's collections keep working without approving them again. Connections left behind by earlier sign-ins on the same computer that never completed setup are retired.
+
+- Load the shared feedback stylesheet so the Editor's feedback form uses its intended layout and controls.
+
+- Allow native Editor publication with an exact published npm UI version and committed SHA512 integrity, retaining frozen-lock and complete installed-member verification. SDK and protocol remain vendored archives.
+
+- Show existing values that no longer match a note's field type, and let users correct them without silently replacing them with empty values.
+- Allow the Editor's existing Cloudflare analytics beacon and include the visible quick-open shortcut in its accessible name.
+
+- Restore the shared feedback form in native Editor deployments by passing the matching public feedback endpoint and Turnstile site key into the build.
+
+- Resolving a held edit now also dismisses the conflict it came from, on this computer and on the collection's other computers, so a decided change is no longer listed as one to check.
+- "Keep both" copies are named after this computer (for example `note (conflict Work laptop 2026-10-24).md`) instead of a device ID prefix.
+
+- Joining a collection on another computer now names it as the account does, instead of after the local folder. A name given with `--name` still wins, and the folder name is used when the account only has the default name.
+- Joining with an ID that matches no collection now reports `not_found`, instead of a sync refusal saying the collection is not a current cloud copy or private collection.
+- Both join routes report the same `not_found` response for unknown collection IDs and collections without current membership, consistent with other collection routes.
+
+- Preserve managed legacy collection-key unwrapping in the integrated hosted Worker, including dedicated AWS KMS custody, strict envelope validation and transient-failure retries.
+
+- Allow log transport from every browser origin with credentialless wildcard CORS, ignoring `LOGSVC_CORS_ORIGINS` and removing Origin-based WebSocket rejection. Bearer tokens, nonce signatures and replay checks are unchanged.
+
+- The hosted MCP gateway can be approved for collections on the updated mdbase
+  again: it now requests the file access that read and write approval requires.
+  Read-only connections request only listing and reading files. Collections
+  whose MCP approval predates the update now return `reconnect_required` with
+  a re-approval link, instead of a message asking the user to reload a page.
+
+- Run native runtime workspace tests in CI, correct stale unknown-tag test fixtures, and coordinate hosted setup's projection test with background recovery. Capture Windows scheduled-task startup evidence on lifecycle failures.
+
+- Enforce the account's effective synced-collection allowance for next-runtime creation, including cloud copies, Private sync and starter collections. Concurrent creates cannot exceed the limit; deleting a collection frees a slot. Existing collections remain accessible even if an account is already over its allowance.
+
+- Signup onboarding opens normal collection setup when a starter collection is unavailable for the account, instead of leaving the user on an error step. Unexpected failures still offer retry, and successful legacy starter setup is unchanged.
+
+- Use Cloud copy and Private labels for next-runtime collections, show owned collections in Account, and include all owned collections and retained data in account-deletion counts while keeping plan limits visible.
+- Add Editor, Reader, Writer, Journal and TaskNotes links to Applications.
+- Improve portal sidebar contrast and accessible names, and show signup password-length errors beside the invalid field with keyboard focus.
+
+- Replay retained native Markdown and file-to-record entries from supported earlier semantics versions using structural checks instead of requiring an upgrade. Newer semantics still stall, and same-version entries still verify against the planner.
+
+- A Private collection can now be opened on a second computer. The computer that already has it shows "<computer> wants to open <collection>" with Allow and Deny in the desktop app, and `mdbase device pending`, `mdbase device approve <id>` and `mdbase device deny <id>` do the same from the command line. After a visual check that the six-digit code shown on both computers matches, one Allow completes the approval; nothing is typed. Deny dismisses only the current waiting request and cancels an unsent Allow. The dismissal survives a restart, but the prompt can return when the waiting computer automatically renews its request (normally after five minutes). Deny is not device revocation. Approval is still never possible from a third-party app.
+
+- Report collection join throttling as retryable `rate_limited` errors instead of `invalid_request` / `sync_refused`, preserving the server's retry delay. Fastify rate limits now use the same canonical problem shape across routes.
+
+- Show per-file sync notices in status and the desktop collection view for unsupported entries, invalid UTF-8, oversized notes, held files and upload refusals. Retain locally known paths when resource ingestion fails, and show omitted counts when long notice lists exceed status limits.
+
+- Deliver fresh policy before routine history verification, then rotate collection probes within a 500 ms / 32-probe poll budget so loss detection keeps progressing without delaying fresh revocations by a full scan. Retain full ordered recovery when policy loss is detected.
+- Publish account-key strict-mode revocations through the direct post-commit policy emitter wake.
+
+- Stop syncing revoked computers with a clear collection recovery message, including after a member is removed and re-invited. Preserve local files and held edits for manual recovery into a new empty folder with a fresh device identity.
+
+- Prevent Linux RPM installation conflicts with Filen and other Electron apps
+  caused by shared build-ID links. Embedded binary build IDs are unchanged.
+
+- Bring the runtime up to the code serving migrated hosted collections: projected queries admit each record once, writes no longer stall after a device is keyed by a later-epoch grant, native sync no longer stalls at the first periodic snapshot, repair budgets count confirmed own intents, and file reads wait for the attachment region. The SDK serializes uploads, exposes record IDs, isolates storage per vault and separates native loopback storage from LAB permissions.
+
+- Restore role-bound hosted and escrow KMS admission and managed escrow service-device generation in the bundled runtime.
+
+- Bring the runtime up to the production hosted runtime: byte-bounded SQL reads, full-source reads for unindexed Blob Markdown, hosted idle backoff after cold opens, a versioned store schema, and SDK fixes for paced open retries, bounded cold first sync, opening progress, stream cancellation and clearing every grant on sign-out.
+
+- Refresh the SDK application's pinned native runtime from Connect's own runtime sources, including the current collection, query, and write fixes. Keep the existing per-environment trust handoffs unchanged.
+
+- Explain collection setup blocked by changed or removed note types and let users check again instead of leaving a review with no action.
+
+- Avoid redundant installation device revocations after collection membership removal has already deactivated the device.
+- Keep parked policy batches for permanently deleted collections from failing server readiness, while preserving the batches.
+
+- Count unfinished file transfers and ingest work in daemon status, and show syncing progress while collections remain available to apps.
+- Show collection connection outages in the desktop connection indicator and explain when the server's time disagrees with the system clock.
+- Keep status and control commands responsive during bulk ingest and avoid scanning the pending queue for every published record.
+
+- Report the account's synced collection limit instead of temporary rate limiting when turning on sync, with guidance to delete a synced collection before creating another.
+
+- Retire legacy TaskNotes reminders for the exact account, TaskNotes application family and collection across versioned registrations after a successful native reminder reconciliation. Fence legacy `task.reminder` delivery across namespaces independently of event retention. Preserve matching fired and overdue state without duplicate legacy delivery or historical backfill; current reminder membership still controls cancellation. Native grants remain independently scheduled.
+
+- Make Editor controls read-only for Viewers, apply membership changes during a session, and explain why changes cannot be saved.
+- Protect Viewer edits to local Markdown and definition files as named, view-only holds that require an explicit choice after access changes.
+- Refuse Viewer type updates before they change the local collection, keeping the collection readable.
+
+### Security
+
+- Protect `v*` and `sdk-v*` tags from updates and deletions with no bypass actors, and enable immutable GitHub releases after verifying that desktop and SDK publishers upload all assets before publishing their drafts. Existing published releases are not retroactively locked.
+
+- Updated rustls-webpki to 0.103.16 (RUSTSEC-2026-0382), so TLS connections reject certificate chains through the distrusted emSign intermediates whose private keys are public.
+
 ## 0.1.0-beta.147
 
 ### Added

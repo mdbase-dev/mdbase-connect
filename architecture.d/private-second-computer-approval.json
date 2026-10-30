@@ -1,7 +1,0 @@
-{
-  "reason": "One shared six-digit display formatter is exported to the existing approving and waiting desktop views so both preserve leading zeroes and group the same SAS consistently. The approving view adds one relative import for that formatter. No new module or protocol is added.",
-  "growth": {
-    "typeScriptExportDeclarations": 1,
-    "relativeImports": 1
-  }
-}
