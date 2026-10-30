@@ -151,7 +151,9 @@ jobs:
           if-no-files-found: error
 
   publish-internal:
-    needs: attest-internal
+    # Only after the approved production publish, so an unapproved or failed
+    # run never consumes an immutable prerelease tag.
+    needs: [attest-internal, publish]
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.dry_run
     runs-on: ubuntu-24.04
     timeout-minutes: 10

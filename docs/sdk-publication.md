@@ -118,7 +118,9 @@ attests each internal tarball individually. It has only `contents: read`,
 attestations. It stages the exact tarballs and their Sigstore verification bundles
 as one run-local transfer artifact. It has no npm setup or credentials.
 
-`publish-internal` downloads those four fixed files. Its only granted permission
+`publish-internal` runs only after the approved `npm-sdk` production publish
+succeeds, so an unapproved, rejected or failed run never consumes an immutable
+`sdk-v<version>` tag. It downloads those four fixed files. Its only granted permission
 is `contents: write`: no OIDC, attestation-write, packages permission or npm
 credentials. GitHub's contents permission is repository-scoped, not per-release;
 the script limits its writes to one newly created `sdk-v<version>` tag/release

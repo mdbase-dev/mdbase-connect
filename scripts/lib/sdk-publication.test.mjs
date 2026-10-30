@@ -169,6 +169,7 @@ test("workflow builds all variants once, isolates both publisher credentials and
     assert.match(attest, new RegExp(`subject-path: .*sdk-${environment}\\.tgz`));
     assert(attest.includes(`sdk-${environment}.tgz.sigstore.json`));
   }
+  assert.match(release, /needs: \[attest-internal, publish\]/);
   assert.match(release, /contents: write/);
   assert(!release.includes("id-token:"));
   assert(!release.includes("attestations:"));
