@@ -258,7 +258,7 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .request-identity small, .grant-identity small { color: var(--muted); font-size: var(--type-supporting); }
 .approval-check { display: grid; gap: 4px; margin-top: 6px; font-size: var(--type-supporting); }
 .approval-check code { color: var(--ink); font-size: var(--type-body); letter-spacing: 0.04em; }
-.approval-check .device-code { width: 13ch; font-family: var(--mono); letter-spacing: 0.2em; }
+.approval-check .approval-code { display: block; color: var(--ink); font-size: var(--font-size-heading); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .approval-check [role="alert"] { color: var(--danger); }
 .request-identity .portable-request-warning { margin-top: 5px; color: var(--ink); line-height: 1.45; }
 .request-decision { min-width: 0; border-top: 1px solid var(--line-strong); }

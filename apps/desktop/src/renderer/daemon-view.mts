@@ -242,6 +242,11 @@ export function deviceLabel(kind: string): string {
   return kind === "desktop" ? "computer" : kind === "mobile" ? "phone" : "device";
 }
 
+/** A six-digit approval code in two groups, preserving leading zeros. */
+export function groupedApprovalCode(code: string): string {
+  return `${code.slice(0, 3)} ${code.slice(3)}`;
+}
+
 /** A key fingerprint in groups of four, for comparing by eye. */
 export function groupedFingerprint(fingerprint: string): string {
   return fingerprint.replace(/(.{4})(?=.)/gu, "$1 ");

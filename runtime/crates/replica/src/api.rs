@@ -550,9 +550,11 @@ pub struct PendingDevice {
     /// Kind.
     pub kind: DeviceKind,
     /// The current challenge/reveal exchange is ready for USER input.
-    /// This is not approval or key delivery. An approver's expected SAS is never
-    /// exposed by this DTO (legacy wire slot 3 is decode-only/deprecated).
+    /// This is not approval or key delivery.
     pub exchange_ready: bool,
+    /// Six-digit code for visual comparison on both devices; host sessions only.
+    /// Present only for a current, verified reveal.
+    pub sas: Option<String>,
 }
 
 /// One app grant waiting for a device approval (`policy.md` §5.1).

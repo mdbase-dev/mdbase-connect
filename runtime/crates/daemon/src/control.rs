@@ -236,11 +236,13 @@ impl Method {
     /// `{collection}` → [`CollectionStatus`]: stop syncing; the folder stays here
     /// as a local collection.
     pub const SYNC_DISABLE: &'static str = "sync.disable";
-    /// `{collection}` → `[PendingDevice]` (end-to-end synced collections).
+    /// [`DevicePending`] → `[PendingDevice]`: other computers waiting to open a
+    /// private collection here.
     pub const DEVICE_PENDING: &'static str = "device.pending";
-    /// [`ApproveDevice`] → `{}`.
+    /// [`ApproveDevice`] → `{approved: [collection]}`: give that computer the
+    /// collection key. Answers once it is keyed (or the exchange fails).
     pub const DEVICE_APPROVE: &'static str = "device.approve";
-    /// `{collection, device}` → `{}`.
+    /// [`ApproveDevice`] → `{}`: durably decline an unsent grant.
     pub const DEVICE_REJECT: &'static str = "device.reject";
     /// `{collection}` → `{configured, device?}`.
     pub const RECOVERY_STATUS: &'static str = "recovery.status";
@@ -530,6 +532,9 @@ pub struct CollectionStatus {
     /// replica is online.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub other_devices_online: Option<u32>,
+    /// Code to compare visually on the approving computer; never typed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_code: Option<String>,
     /// Notices.
     #[serde(default)]
     pub notices: Vec<Notice>,
@@ -717,28 +722,46 @@ pub struct EnableSync {
     pub accept_takeover_holds: bool,
 }
 
-/// A device waiting for approval (end-to-end synced collections; `replica-client-api.md` §8.3).
+/// Another computer waiting to open a private collection here
+/// (`replica-client-api.md` §8.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingDevice {
-    /// Device ID.
-    pub device: String,
-    /// Account ID.
-    pub account: String,
-    /// `desktop`, `mobile`, ...
-    pub kind: String,
-    /// The six-digit code to compare with the new device's screen.
-    pub code: String,
-}
-
-/// `device.approve` params.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ApproveDevice {
     /// Collection ID.
     pub collection: String,
+    /// Collection name.
+    pub collection_name: String,
     /// Device ID.
     pub device: String,
-    /// The six digits the user confirmed.
-    pub code: String,
+    /// The computer's name, when it is one of this account's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// `desktop`, `mobile`, ...
+    pub kind: String,
+    /// Existing six-digit SAS, available after the reveal and before Allow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sas: Option<String>,
+}
+
+/// `device.pending` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DevicePending {
+    /// One collection; absent: every private collection here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection: Option<String>,
+}
+
+/// `device.approve` and `device.reject` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApproveDevice {
+    /// Code shown at the final Allow decision; carried by the host, never typed.
+    /// Required for approval, ignored for rejection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sas: Option<String>,
+    /// One collection; absent: every private collection here it waits for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection: Option<String>,
+    /// Device ID.
+    pub device: String,
 }
 
 /// Methods that need a privileged connection: they widen access, reveal secrets,

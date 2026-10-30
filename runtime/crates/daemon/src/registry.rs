@@ -31,7 +31,7 @@ pub enum SyncMode {
     /// collection key.
     Synced,
     /// Synced, end-to-end encrypted: the hosted blind log only. mdbase cannot read
-    /// it; new devices join by a six-digit code.
+    /// it; a new computer opens it once one that has it allows it.
     SyncedE2e,
 }
 
