@@ -32,6 +32,7 @@ export interface AppIndexedDbCloudCopyOutcomeOptions {
     readonly mode: "fresh" | "existing";
     readonly signal: AbortSignal;
     readonly allowLoopbackHttp?: boolean;
+    readonly allowNativeLoopbackHttp?: boolean;
 }
 export class AppIndexedDbCloudCopyOutcomeStore implements AppCloudCopyOutcomeStore {
     private db: IDBDatabase | null = null;
@@ -111,7 +112,7 @@ export class AppIndexedDbCloudCopyOutcomeStore implements AppCloudCopyOutcomeSto
                 return id.toLowerCase();
             });
             if (
-                !isAppOrigin(origin, allowLoopbackHttp === true) ||
+                !isAppOrigin(origin, allowLoopbackHttp === true, options.allowNativeLoopbackHttp === true ? "native" : undefined) ||
                 !["fresh", "existing"].includes(mode) ||
                 !["create", "join"].includes(out.fields.purpose) ||
                 !/^[0-9a-f]{64}$/.test(out.fields.assetSha256) ||

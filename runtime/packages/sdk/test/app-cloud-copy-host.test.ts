@@ -748,7 +748,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         await c.host.close();
         expect(c.facade.close).toHaveBeenCalledTimes(1);
     });
-    it("cold first sync permits a forty-second multi-RPC pump making accepted prefix progress", async () => {
+    it.each([true, false])("first sync (cold: %s) permits a forty-second multi-RPC pump making accepted prefix progress", async cold => {
         const c = await readableFixture();
         let confirmed = 0, issued = 0, outcome = "opening";
         const observation = c.f.runtime.observations();
@@ -772,7 +772,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         c.f.runtime.bindLogTransport.mockReturnValue(pump);
         await c.host.startCollectionLog({signal: c.options.signal});
         vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
-        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold: true}).then(
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold}).then(
             () => {outcome = "readable";}, error => {outcome = error.reason ?? "failed";});
         try {
             await vi.advanceTimersByTimeAsync(20_000);
@@ -790,7 +790,8 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
     it.each([
         {cold: true, duration: 14_000, expected: "readable"},
         {cold: true, duration: 16_000, expected: "sync_stalled"},
-        {cold: false, duration: 14_000, expected: "unavailable"},
+        {cold: false, duration: 14_000, expected: "readable"},
+        {cold: false, duration: 16_000, expected: "readable"},
     ])("streamed RPC keeps its own body deadline, not the earlier sync clock: $cold / $duration", async ({cold, duration, expected}) => {
         const c = await readableFixture(), observation = c.f.runtime.observations();
         let confirmed = 0, issued = false, outcome = "opening", rpcAborted = false;
@@ -829,12 +830,12 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
             () => {outcome = "readable";}, error => {outcome = error.reason;});
         try {
             await vi.advanceTimersByTimeAsync(15_500);
-            expect(outcome).toBe(cold ? "opening" : "unavailable");
+            expect(outcome).toBe("opening");
             expect(confirmed).toBe(0);
             expect(() => c.host.attachDataFacade(c.channel)).toThrow();
             await vi.advanceTimersByTimeAsync(5_000); await work;
             expect(outcome).toBe(expected);
-            if (cold && duration > 15_000) expect(rpcAborted).toBe(true);
+            if (duration > 15_000) expect(rpcAborted).toBe(true);
             expect(c.reader.query).toHaveBeenCalledTimes(expected === "readable" ? 1 : 0);
             if (expected !== "readable") expect(() => c.host.attachDataFacade(c.channel)).toThrow();
             expect(transport.responseProgress()).toEqual([]);

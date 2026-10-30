@@ -22,6 +22,7 @@ export interface ApplicationTabsScope {
   readonly appId: string;
   /** Build identity (the Worker module URL): tabs on different builds never share a Worker. */
   readonly build: string;
+  readonly storageNamespace?: string;
 }
 export interface ApplicationTabLocks {
   request(name: string, options: {ifAvailable: true; signal?: undefined}, callback: (lock: unknown) => Promise<void> | void): Promise<unknown>;
@@ -133,7 +134,8 @@ export class ApplicationTabs {
   private joining: {readonly resolve: (link: {readonly binding: string; readonly leader: string}) => void; readonly reject: (error: unknown) => void} | null = null;
   constructor(scope: ApplicationTabsScope, private readonly env: ApplicationTabsEnvironment, private readonly lost: (signedOut: boolean) => void,
     private readonly signedInElsewhere: () => void = () => {}) {
-    this.base = `${PROTOCOL}/${scope.cpOrigin}/${scope.appId}/${scope.build}`;
+    this.base = scope.storageNamespace===undefined?`${PROTOCOL}/${scope.cpOrigin}/${scope.appId}/${scope.build}`
+      : `${PROTOCOL}/namespace/${JSON.stringify([scope.cpOrigin,scope.appId,scope.build,scope.storageNamespace])}`;
   }
   /** True while this tab runs the Worker for every tab. */
   get leader(): boolean { return this.leading !== null; }

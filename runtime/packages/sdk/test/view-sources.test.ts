@@ -18,7 +18,7 @@ describe("shared source helpers use genuine SDK writes and exact caller identiti
     expect(seen.document).toBe(DOC); expect(seen.state.state).toBe("pending");
   });
   it("rejects missing identity/full-document/hash witnesses before any write", () => {
-    const create = vi.fn(async () => pending()), replaceDocument = vi.fn(async () => pending());
+    const create = vi.fn(async () => Object.assign(pending(), {recordId:ID})), replaceDocument = vi.fn(async () => pending());
     for (const input of [{id: "", path: "source", document: DOC}, {id: ID, path: "", document: DOC}]) {
       expect(() => createViewSource({create}, input, {mutationId: MID})).toThrow();
     }

@@ -2989,6 +2989,9 @@ impl<P: FilePlatform + 'static, M: Store, D: DiskDb> Store for FileStore<P, M, D
     fn tail_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
         self.inner.tail_stats()
     }
+    fn own_retained_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
+        self.inner.own_retained_stats()
+    }
     fn own_retained(&self, after: u64, limit: u32) -> StoreResult<Vec<(u64, PendingRow)>> {
         self.inner.own_retained(after, limit)
     }

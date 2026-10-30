@@ -65,6 +65,25 @@ for (const [index, label] of ["unminified", "minified"].entries()) {
   });
 }
 
+test("ESM root defers session runtime and collection setup until activation", async () => {
+  const { metafile } = await build({
+    absWorkingDir: directory, entryPoints: ["src/index.ts"], bundle: true, platform: "browser",
+    format: "esm", splitting: true, outdir: "bundle-test-out", write: false, metafile: true,
+  });
+  const outputs = metafile.outputs;
+  const initial = new Set(Object.keys(outputs).filter(path => outputs[path].entryPoint === "src/index.ts"));
+  assert.equal(initial.size, 1);
+  for (const path of initial) {
+    for (const imported of outputs[path].imports) {
+      if (imported.kind === "import-statement" && outputs[imported.path]) initial.add(imported.path);
+    }
+  }
+  for (const input of ["src/application/runtime.ts", "src/application/configuration.ts"]) {
+    assert.ok(Object.values(outputs).some(output => input in output.inputs), `${input} remains available`);
+    assert.ok(![...initial].some(path => input in outputs[path].inputs), `${input} must load lazily`);
+  }
+});
+
 test("browser build is reproducible from unchanged inputs", async () => {
   const repeat = await buildBrowserBundles({ write: false });
   for (let i = 0; i < bundles.length; i++) {

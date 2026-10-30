@@ -269,19 +269,18 @@ fn a_large_inventory_goes_through_ref_indices_and_an_oversized_one_is_refused_ty
     inject(&mut a, 4, 1024);
     a.r.build_snapshot_now().unwrap();
     assert_eq!(a.r.snapshot_blocked(), None);
-    let calls = a.r.take_log_calls();
-    let index_puts = calls
-        .iter()
-        .filter(|c| {
-            matches!(
-                c.request,
-                LogRequest::PutObject {
-                    kind: ItemKind::RefIndex,
-                    ..
-                }
-            )
-        })
-        .count();
+    // Uploads are paced: count those sent and those still queued.
+    let sent = a.r.take_log_calls().into_iter().filter(|c| {
+        matches!(
+            c.request,
+            LogRequest::PutObject {
+                kind: ItemKind::RefIndex,
+                ..
+            }
+        )
+    });
+    let queued = a.r.build.as_ref().unwrap().uploads.iter();
+    let index_puts = sent.count() + queued.filter(|u| u.kind == ItemKind::RefIndex).count();
     assert_eq!(index_puts, (4 * 1024usize).div_ceil(8192).max(1));
     a.r.build = None;
 

@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {IDBFactory} from "fake-indexeddb";
 import {eraseAppInstallationData, eraseAppCollectionAccess} from "../src/app-host/sign-out-erase.js";
-import {LOG_TOKEN_DATABASE} from "../src/app-host/log-token-cache.js";
+import {idbLogTokenCache, LOG_TOKEN_DATABASE} from "../src/app-host/log-token-cache.js";
 
 const account = "11111111-1111-4111-8111-111111111111", connector = "22222222-2222-4222-8222-222222222222";
 const device = "33333333-3333-4333-8333-333333333333", installation = "44444444-4444-4444-8444-444444444444";
@@ -15,6 +15,18 @@ async function database(name: string): Promise<void> {
 }
 
 describe("isolated single-collection recovery actor erasure", () => {
+  it("default (non-namespaced) sign-out keeps legacy whole-cache erasure",async()=>{
+    vi.stubGlobal("indexedDB",new IDBFactory());vi.stubGlobal("navigator",{});
+    const cache=idbLogTokenCache()!,now=Date.now(),otherDevice="77777777-7777-4777-8777-777777777777";
+    const ownKey=[cpOrigin,"https://log.example.test",connector,device,collection].join(" ");
+    const otherKey=[cpOrigin,"https://log.example.test",connector,otherDevice,collection].join(" ");
+    await cache.write(ownKey,{value:"own-test-token",expires:now+120_000});
+    await cache.write(otherKey,{value:"other-test-token",expires:now+120_000});
+    expect(await cache.read(otherKey,now)).not.toBeNull();
+    expect(await eraseAppInstallationData({cpOrigin,appId:app,owner,accountId:account,connectorId:connector,deviceId:device,installationId:installation,collectionIds:[collection],databases:[]})).toEqual({ledger:true,complete:true});
+    expect(await cache.read(otherKey,now)).toBeNull();
+  });
+
   it("retiring an original scope preserves its installation custody, token cache, journals and another collection", async () => {
     vi.stubGlobal("indexedDB", new IDBFactory());
     const key = `mdbase.app.device-keys.v1.${[account, connector, device, installation].map(value => value.replaceAll("-", "")).join(".")}`;

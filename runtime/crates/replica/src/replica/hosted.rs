@@ -604,6 +604,9 @@ impl<S: Store> Store for HostedCache<S> {
     fn tail_stats(&self) -> StoreResult<TailStats> {
         self.inner.tail_stats()
     }
+    fn own_retained_stats(&self) -> StoreResult<TailStats> {
+        self.inner.own_retained_stats()
+    }
     fn own_retained(&self, after: Seq, limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
         self.inner.own_retained(after, limit)
     }

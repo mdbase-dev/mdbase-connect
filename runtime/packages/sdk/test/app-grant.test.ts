@@ -26,7 +26,7 @@ function canonicalJson(value: unknown): string {
   return `{${Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
 }
 
-function fixture(o: { manifestId?: string; registeredId?: string; store?: AppGrantStore | "default"; nativeAccount?: string; nativeRequest?: string } = {}) {
+function fixture(o: { manifestId?: string; namespace?: string; registeredId?: string; store?: AppGrantStore | "default"; nativeAccount?: string; nativeRequest?: string } = {}) {
   const manifestId = o.manifestId ?? "dev.example.web";
   const registeredId = o.registeredId ?? APP;
   vi.spyOn(trust, "appReleaseTrust").mockReturnValue({
@@ -38,7 +38,7 @@ function fixture(o: { manifestId?: string; registeredId?: string; store?: AppGra
     manifest_version: 1 as const, id: manifestId, name: "Example", homepage: ORIGIN, redirect_uris: [`${ORIGIN}/callback`],
     requirements: { access: "full_collection" as const, contracts: [], capabilities: { contract_version: 2 as const, required: ["collection.read"], optional: [] } },
   };
-  const declaration: MdbaseApplicationDeclaration = { id: APP, name: "Example", origin: ORIGIN, environment: "lab", manifest };
+  const declaration: MdbaseApplicationDeclaration = { id: APP, name: "Example", origin: ORIGIN, environment: "lab", manifest, ...(o.namespace?{storage:{applicationNamespace:o.namespace}}:{}) };
   const canonical = parseVersionedAppManifest(manifest, { allowLocal: true }).manifest;
   const digest = registeredId === APP ? "cc".repeat(32) : createHash("sha256").update(canonicalJson(canonical)).digest("hex");
 
@@ -450,4 +450,28 @@ it("refuses records labelled for another owner and never adopts an unlabelled st
     r.onsuccess = () => { const g = r.result.transaction("grants").objectStore("grants").get(COLLECTION); g.onsuccess = () => { resolve(g.result); r.result.close(); }; };
   });
   expect(raw).toMatchObject({ owner: "bundle:dev.example.reader" });
+});
+
+it("two vaults of one app keep separate grant identities, refresh tokens and setup attempts on sign-out",async()=>{
+  vi.stubGlobal("indexedDB",new IDBFactory());
+  const a=fixture({store:"default",namespace:"vault-a"}),b=fixture({store:"default",namespace:"vault-b"});
+  await a.grants.authorize({popup:a.popup});
+  expect(await b.grants.collections()).toEqual([]);
+  await b.grants.authorize({popup:b.popup});
+  const identityA=await Reflect.get(a.grants,"identity").call(a.grants),identityB=await Reflect.get(b.grants,"identity").call(b.grants);
+  expect(identityA.owner).not.toBe(identityB.owner);expect(identityA.publicKey).not.toEqual(identityB.publicKey);
+  const storeA=await Reflect.get(a.grants,"store").call(a.grants),storeB=await Reflect.get(b.grants,"store").call(b.grants);
+  await storeA.putSetupAttemptIfAbsent(COLLECTION,new Uint8Array([1]));
+  expect(await storeB.getSetupAttempt(COLLECTION)).toBeUndefined();
+  await storeB.putSetupAttemptIfAbsent(COLLECTION,new Uint8Array([2]));
+  await a.grants.forgetAllGrants();
+  expect(await a.grants.collections()).toEqual([]);
+  expect(await storeB.listGrants()).toHaveLength(1);
+  expect(await storeB.getSetupAttempt(COLLECTION)).toEqual(new Uint8Array([2]));
+  expect(await Reflect.get(b.grants,"identity").call(b.grants)).toEqual(identityB);
+  // Reload the signed-in sibling: its protected refresh token still works.
+  const restored=fixture({store:"default",namespace:"vault-b"});
+  expect(await Reflect.get(restored.grants,"store").call(restored.grants).then((s:AppGrantStore)=>s.listGrants())).toHaveLength(1);
+  expect(await restored.grants.availability(COLLECTION)).toEqual({state:"unavailable",reason:"device_offline"});
+  expect(restored.requests.some(r=>r.path==="/oauth/token")).toBe(true);
 });

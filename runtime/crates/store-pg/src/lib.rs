@@ -1016,6 +1016,10 @@ fn put_records(
 }
 
 impl Store for PgStore {
+    // Retains no own history (the trait's `own_retained` default).
+    fn own_retained_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
+        Ok(mdbn_replica::store::TailStats::default())
+    }
     fn head(&self) -> StoreResult<Head> {
         let r = self
             .q1(

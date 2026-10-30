@@ -17,7 +17,7 @@ const refusal=()=>new Error("SDK application packaging refused");
 function checked(path,sha256,bytes){const value=readFileSync(path);if(value.length!==bytes&&bytes!==undefined||createHash("sha256").update(value).digest("hex")!==sha256)throw refusal();return value;}
 
 /** BUILD-only intake: package metadata does not authenticate installed bytes.
- * Verify browser initializer and WASM; never return an unchecked path for
+ * Verify browser initializer, WASM and async proxy; never return an unchecked path for
  * a later copy. Pins are from the same source-qualified official locked package,
  * not a second signer or a claim of independently signed authentication. */
 export function readPackagedSqlite(sdkDirectory=directory) {
@@ -29,7 +29,8 @@ export function readPackagedSqlite(sdkDirectory=directory) {
     if(sqlitePackage.version!=="3.53.4-build2"||lock.packages["node_modules/@sqlite.org/sqlite-wasm"]?.integrity!=="sha512-kQVArGJA4z7s56Dm8t+eTBXad4LiohuVj9pfgDNOcxa+Ic5xMrWlLPTq6cT0hw5S4MIvtpsraW+B0wD+IPvC7A==")throw refusal();
     return Object.freeze({
       wasm:checked(join(sqliteDirectory,"sqlite3.wasm"),pins.sqlite.sha256,pins.sqlite.bytes),
-      initializer:checked(join(sqliteDirectory,"index.mjs"),pins.sqlite.initializer.sha256,pins.sqlite.initializer.bytes)
+      initializer:checked(join(sqliteDirectory,"index.mjs"),pins.sqlite.initializer.sha256,pins.sqlite.initializer.bytes),
+      asyncProxy:checked(join(sqliteDirectory,"sqlite3-opfs-async-proxy.js"),pins.sqlite.asyncProxy.sha256,pins.sqlite.asyncProxy.bytes)
     });
   } catch {throw refusal();}
 }
@@ -62,6 +63,7 @@ export function buildApplicationAssets(inputFile,{sdkDirectory=directory}={}) {
     writeFileSync(join(stage,"runtime.wasm"),runtimeBytes,{flag:"wx"});
     writeFileSync(join(stage,"sqlite3.wasm"),sqlite.wasm,{flag:"wx"});
     writeFileSync(join(stage,"sqlite3.js"),sqlite.initializer,{flag:"wx"});
+    writeFileSync(join(stage,"sqlite3-opfs-async-proxy.js"),sqlite.asyncProxy,{flag:"wx"});
     writeFileSync(join(stage,"provenance.json"),JSON.stringify({
       schema:"mdbn-sdk/application-assets/1",environment:context.environment,
       trust:{environment:context.environment,cpOrigin:context.cpOrigin,logOrigin:context.logOrigin,
@@ -73,7 +75,7 @@ export function buildApplicationAssets(inputFile,{sdkDirectory=directory}={}) {
     },null,2)+"\n",{flag:"wx"});
     // Install trust last: failed input/authentication never replaces old output.
     mkdirSync(join(dist,"native"),{recursive:true});mkdirSync(join(dist,"application"),{recursive:true});
-    for(const name of ["runtime.wasm","sqlite3.wasm","sqlite3.js","provenance.json"])copyFileSync(join(stage,name),join(dist,"native",name));
+    for(const name of ["runtime.wasm","sqlite3.wasm","sqlite3.js","sqlite3-opfs-async-proxy.js","provenance.json"])copyFileSync(join(stage,name),join(dist,"native",name));
     renameSync(generated,join(dist,"application","packaged-trust.js"));
     return Object.freeze({environment:context.environment,runtime:runtimePins,sqlite:pins.sqlite});
   } catch { throw refusal(); }

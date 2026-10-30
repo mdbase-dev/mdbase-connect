@@ -1748,9 +1748,9 @@ impl LogActor {
             }
             // Already preflighted/charged: decode once for metrics/proof/dispatch.
             let decoded = LsFrame::from_bytes(body);
-            let method = match &decoded {
-                Ok(LsFrame::Request(r)) => r.method.as_str(),
-                _ => "other",
+            let (method, id) = match &decoded {
+                Ok(LsFrame::Request(r)) => (r.method.as_str(), r.id),
+                _ => ("other", 0),
             };
             let h = req.headers();
             let get = |k: &str| h.get(k).ok().flatten().unwrap_or_default();
@@ -1878,8 +1878,10 @@ impl LogActor {
                     result: Some(v),
                     error: None,
                 },
+                // A refusal answers the request it refuses, as on the native
+                // server: clients match replies by ID, and drop any other.
                 Err(e) => LsResponse {
-                    id: 0,
+                    id,
                     result: None,
                     error: Some(e.to_wire()),
                 },

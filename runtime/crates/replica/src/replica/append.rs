@@ -1786,9 +1786,7 @@ impl<S: Store> Replica<S> {
                 self.on_snap_put(matches!(reply, Ok(LogResponse::PutObject { .. })))
             }
             Inflight::AdoptPut => self.on_adopt_put(&reply),
-            Inflight::SnapRegister => {
-                self.on_snap_registered(matches!(reply, Ok(LogResponse::PutSnapshot(true))))
-            }
+            Inflight::SnapRegister => self.on_snap_registered(&reply),
             Inflight::Install => self.on_install_reply(reply),
             Inflight::InstallNative => self.on_native_install_reply(id, reply),
             Inflight::InstallText => self.on_snapshot_text_reply(id, reply),

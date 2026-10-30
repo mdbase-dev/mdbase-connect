@@ -19,6 +19,7 @@ export interface AppIndexedDbPrivateBootstrapOptions {
   readonly mode: "fresh" | "existing";
   readonly signal: AbortSignal;
   readonly allowLoopbackHttp?: boolean;
+  readonly allowNativeLoopbackHttp?: boolean;
 }
 export class AppIndexedDbPrivateBootstrapStore implements AppPrivateBootstrapProtectedStore {
   private closed = false;
@@ -36,7 +37,7 @@ export class AppIndexedDbPrivateBootstrapStore implements AppPrivateBootstrapPro
     for (const id of ids) if (uuidToBytes(id).every(v => v === 0)) throw bad();
     if (!(source.rootPublicKey instanceof Uint8Array) || source.rootPublicKey.length !== 32 || source.rootPublicKey.every(v => v === 0)) throw bad();
     const root = new Uint8Array(source.rootPublicKey);
-    if (!isAppOrigin(options.origin, options.allowLoopbackHttp === true) ||
+    if (!isAppOrigin(options.origin, options.allowLoopbackHttp === true, options.allowNativeLoopbackHttp === true ? "native" : undefined) ||
       currentAppOrigin() !== options.origin || !["fresh", "existing"].includes(options.mode) || !["create", "enrol"].includes(pins.purpose) || !globalThis.indexedDB) throw bad();
     const current = () => { try { return !signal.aborted && source.isCurrent() === true && source.approvalMode === "password-ak1" &&
       source.rootPublicKey instanceof Uint8Array && same(source.rootPublicKey, root) && Object.entries(pins).every(([k, v]) => source[k as keyof AppCpPrivateSession] === v); } catch { return false; } };

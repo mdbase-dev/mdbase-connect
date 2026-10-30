@@ -115,6 +115,10 @@ export class ApplicationCollectionSelection {
     this.browser.select(collectionId,options.history?{history:options.history}:{});
     this.declined=null;this.refresh();
     if(collectionId===null)this.remember(null);
+    // A server-directed reopen already owns this request. Keep its operation
+    // and eventual outcome; another select must not start a second open/retry.
+    const current=this.session.getSnapshot();
+    if(collectionId!==null&&current.selectedCollectionId===collectionId&&current.status==="opening"){this.attempted=collectionId;return Promise.resolve(this.value);}
     return this.whenIdle(async()=>{
       const s=this.session.getSnapshot();
       if(this.requested().requestedCollectionId!==collectionId)return; // superseded by newer intent
@@ -261,7 +265,8 @@ export class ApplicationCollectionSelection {
     const r=this.requested(),id=r.requestedCollectionId;
     if(r.problem)return;
     if(id===null){if(this.attempted!==null&&s.selectedCollectionId!==null&&isOpen(s))void this.run(null);return;}
-    if((s.selectedCollectionId===id&&isOpen(s))||!approved(s,id)||this.attempted===id)return;
+    if(s.selectedCollectionId===id&&(isOpen(s)||s.status==="opening")){this.attempted=id;return;}
+    if(!approved(s,id)||this.attempted===id)return;
     void this.run(id);
   }
   private finishApproval(s:AppWebSignInSnapshot):void {

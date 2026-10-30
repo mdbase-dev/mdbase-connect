@@ -19,12 +19,22 @@ fn byte_account_denial_precedes_target_blob_copy_and_does_not_fence_original_sto
             create(
                 B16([21; 16]),
                 "Tasks/First.md",
-                "---\nassignee: '[[People/Alex]]'\n---\n",
+                "---\nassignees: ['[[People/Alex]]', '[[People/Sam]]', '[[People/Kim]]']\n---\n",
             ),
             create(B16([22; 16]), "People/Alex.md", &target),
         ],
         43,
     );
+    // One large target per mutation, within the per-entry bound.
+    for (n, name) in [(23, "Sam"), (24, "Kim")] {
+        let id = B16([n; 16]);
+        submit(
+            &mut app,
+            session,
+            vec![create(id, &format!("People/{name}.md"), &target)],
+            n,
+        );
+    }
     settle(&mut app, &service);
     let before = probe.record_blob_reads.get();
     let result = app.query(
@@ -38,7 +48,7 @@ fn byte_account_denial_precedes_target_blob_copy_and_does_not_fence_original_sto
                 "select".into(),
                 Value::List(vec![selection(
                     "target",
-                    "raw.assignee.asFile() == null ? null : raw.assignee.asFile().file.path",
+                    "raw.assignees.map(l, l.asFile() == null ? null : l.asFile().file.path)",
                 )]),
             ),
         ]),
@@ -49,11 +59,16 @@ fn byte_account_denial_precedes_target_blob_copy_and_does_not_fence_original_sto
         error.problem().reason.as_deref(),
         Some("query_budget_exceeded")
     );
-    // One task, two admitted target copies (~800 KiB). The next 400 KiB target
-    // reread is denied by metadata size BEFORE its BLOB SELECT reaches SQLite.
+    // One task, two admitted target copies (~800 KiB). The third 400 KiB target
+    // is denied by metadata size BEFORE its BLOB SELECT reaches SQLite.
     assert_eq!(probe.record_blob_reads.get() - before, 3);
     assert_eq!(app.store().pending_count().unwrap(), 0);
-    assert!(app.query(session, Value::Map(vec![]), include()).is_ok());
+    // The targets now exceed the whole account; a narrowed read still works.
+    let tasks = Value::Map(vec![(
+        "where".into(),
+        Value::Text("file.inFolder('Tasks')".into()),
+    )]);
+    assert!(app.query(session, tasks, include()).is_ok());
 }
 
 #[test]

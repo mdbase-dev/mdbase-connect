@@ -70,6 +70,7 @@ export interface AppWebCollectionAdapterOptions {
   handoff(value: AppWebCollectionHandoff): void;
   readonly fetch?: typeof fetch;
   readonly allowLoopbackHttp?: boolean;
+  readonly allowNativeLoopbackHttp?: boolean;
 }
 export class AppWebCollectionError extends Error {
   constructor(readonly reason: "binding" | "fenced" | "unavailable") {
@@ -284,7 +285,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       report("joining");
       await host.bootstrapCloudCopy({scope, collectionCurrent: current, purpose: "join", outcomeMode: attempt.outcomeMode,
         signal: life.signal, ...(attempt.outcomeMode === "existing" ? {reconcile: "explicit-unknown-outcome" as const} : {}),
-        fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp}); check();
+        fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp, allowNativeLoopbackHttp: options.allowNativeLoopbackHttp}); check();
       await ledger.complete({signal: life.signal}); check();
       const receipt = host.registeredReceipt();
       if (receipt.installationId !== scope.installation) throw fail("binding");

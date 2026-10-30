@@ -35,6 +35,7 @@ export interface AppIndexedDbNoiseOptions {
   signal: AbortSignal;
   /** Isolated loopback fixtures only; never enables an arbitrary HTTP origin. */
   allowLoopbackHttp?: boolean;
+  readonly allowNativeLoopbackHttp?: boolean;
 }
 
 export class AppIndexedDbNoiseProtectedStore implements AppNoiseProtectedStore {
@@ -52,7 +53,7 @@ export class AppIndexedDbNoiseProtectedStore implements AppNoiseProtectedStore {
   private static async openChecked(options: AppIndexedDbNoiseOptions): Promise<AppIndexedDbNoiseProtectedStore> {
     const { source, signal } = options;
     const pins = [source.connectorId, source.deviceId, source.installationId] as const;
-    if (!isAppOrigin(options.origin, options.allowLoopbackHttp === true) || currentAppOrigin() !== options.origin ||
+    if (!isAppOrigin(options.origin, options.allowLoopbackHttp === true, options.allowNativeLoopbackHttp === true ? "native" : undefined) || currentAppOrigin() !== options.origin ||
         !["fresh", "existing"].includes(options.mode) || signal.aborted || !current(source, pins) ||
         typeof globalThis.indexedDB === "undefined") throw fail();
     const name = `mdbase.app.noise.v1.${id(pins[2])}.${id(pins[0])}.${id(pins[1])}`;

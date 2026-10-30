@@ -353,6 +353,9 @@ impl<I: IndexStorage> Store for TentativeStore<I> {
     fn tail_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
         read!(self.tail_stats())
     }
+    fn own_retained_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
+        read!(self.own_retained_stats())
+    }
     fn own_retained(&self, after: u64, limit: u32) -> StoreResult<Vec<(u64, PendingRow)>> {
         read!(self.own_retained(after, limit))
     }

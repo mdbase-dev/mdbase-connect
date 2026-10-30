@@ -538,12 +538,19 @@ pub(crate) struct Upload {
     pub(crate) bytes: Vec<u8>,
 }
 
+/// Snapshot object uploads in flight at once. A large state has hundreds of
+/// chunks; a native app host takes at most 64 log calls in one turn.
+const PUTS_IN_FLIGHT: usize = 8;
+
 /// A snapshot build in flight.
 #[derive(Debug, Clone)]
 pub(crate) struct Build {
     pub(crate) seq: u64,
     pub(crate) manifest: B32,
     pub(crate) refs: Vec<B32>,
+    /// Objects not yet sent, the manifest last.
+    pub(crate) uploads: std::collections::VecDeque<Upload>,
+    /// Uploads sent and not yet answered.
     pub(crate) outstanding: usize,
     pub(crate) failed: bool,
     pub(crate) payload: ManifestPayload,
@@ -1129,16 +1136,29 @@ impl<S: Store> Replica<S> {
             kind: ItemKind::Manifest,
             bytes,
         });
-        let outstanding = uploads.len();
         self.build = Some(Build {
             seq: self.head.seq,
             manifest,
             refs,
-            outstanding,
+            uploads: uploads.into(),
+            outstanding: 0,
             failed: false,
             payload,
         });
-        for u in uploads {
+        self.snap_put_next();
+        Ok(())
+    }
+
+    /// Send the build's next uploads, up to [`PUTS_IN_FLIGHT`].
+    fn snap_put_next(&mut self) {
+        while let Some(b) = self.build.as_mut() {
+            if b.failed || b.outstanding >= PUTS_IN_FLIGHT {
+                return;
+            }
+            let Some(u) = b.uploads.pop_front() else {
+                return;
+            };
+            b.outstanding += 1;
             let id = self.queue(LogRequest::PutObject {
                 collection: self.cfg.collection,
                 address: u.address,
@@ -1147,7 +1167,6 @@ impl<S: Store> Replica<S> {
             });
             self.inflight.insert(id, Inflight::SnapPut);
         }
-        Ok(())
     }
 
     pub(crate) fn on_snap_put(&mut self, ok: bool) {
@@ -1156,6 +1175,10 @@ impl<S: Store> Replica<S> {
         };
         b.outstanding = b.outstanding.saturating_sub(1);
         b.failed |= !ok;
+        self.snap_put_next();
+        let Some(b) = self.build.as_mut() else {
+            return;
+        };
         if b.outstanding > 0 {
             return;
         }
@@ -1177,23 +1200,31 @@ impl<S: Store> Replica<S> {
         self.inflight.insert(id, Inflight::SnapRegister);
     }
 
-    pub(crate) fn on_snap_registered(&mut self, accepted: bool) {
+    pub(crate) fn on_snap_registered(&mut self, reply: &crate::log::LogReply) {
         let Some(b) = self.build.take() else {
             return;
         };
-        if accepted {
-            let _ = self.store.commit(Tx {
-                meta: vec![
-                    (LAST_MANIFEST.into(), b.payload.to_bytes().ok()),
-                    (
-                        format!("{LAST_MANIFEST}.address"),
-                        Some(b.manifest.0.to_vec()),
-                    ),
-                ],
-                ..Tx::default()
-            });
-            self.stats.snapshots_built += 1;
+        match reply {
+            Ok(LogResponse::PutSnapshot(true)) => {}
+            // The log already holds a snapshot at or past this one (another
+            // replica registered it first): do not rebuild until the next period.
+            Ok(LogResponse::PutSnapshot(false)) => {
+                self.snapshot_declined = self.snapshot_declined.max(b.seq);
+                return;
+            }
+            _ => return,
         }
+        let _ = self.store.commit(Tx {
+            meta: vec![
+                (LAST_MANIFEST.into(), b.payload.to_bytes().ok()),
+                (
+                    format!("{LAST_MANIFEST}.address"),
+                    Some(b.manifest.0.to_vec()),
+                ),
+            ],
+            ..Tx::default()
+        });
+        self.stats.snapshots_built += 1;
     }
 
     // ------------------------------------------------------------ install
@@ -2451,7 +2482,8 @@ impl<S: Store> Replica<S> {
             .flatten()
             .and_then(|b| ManifestPayload::from_bytes(&b).ok())
             .map(|m| m.seq)
-            .unwrap_or(0);
+            .unwrap_or(0)
+            .max(self.snapshot_declined);
         if self.head.seq >= last + self.snapshot_every {
             let _ = self.build_snapshot_now();
         }

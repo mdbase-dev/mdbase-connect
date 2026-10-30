@@ -75,6 +75,7 @@ export type {
   ChangesWatch,
   ChangesWatchState,
   RecordRef,
+  RecordWrite,
   UpdateInput,
   WriteOptions,
 } from "./client.js";

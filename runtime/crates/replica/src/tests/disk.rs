@@ -153,6 +153,10 @@ struct DiskStore {
 }
 
 impl Store for DiskStore {
+    // Retains no lost-tail or own history (the trait's `own_retained` default).
+    fn own_retained_stats(&self) -> StoreResult<TailStats> {
+        Ok(TailStats::default())
+    }
     fn head(&self) -> StoreResult<Head> {
         self.inner.head()
     }

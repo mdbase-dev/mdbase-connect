@@ -20,9 +20,11 @@ async function initialize(event:MessageEvent<unknown>):Promise<void> {
   const port=event.ports[0],value=event.data;
   let binding:string|null=null;
   try{
-    if(!port||event.ports.length!==1||!Array.isArray(value)||value.length!==3||value[0]!==APPLICATION_WORKER_PROTOCOL||!applicationWorkerBinding(value[1]))throw new ApplicationWorkerError("application_worker_binding");
+    if(!port||event.ports.length!==1||!Array.isArray(value)||(value.length!==3&&value.length!==4)||value[0]!==APPLICATION_WORKER_PROTOCOL||!applicationWorkerBinding(value[1]))throw new ApplicationWorkerError("application_worker_binding");
     binding=value[1];
     const declaration=applicationDeclaration(value[2]);
+    const storageNamespace=value.length===4?value[3]:null;
+    if(storageNamespace!==null&&(typeof storageNamespace!=="string"||storageNamespace!==declaration.storage.applicationNamespace))throw new ApplicationWorkerError("application_worker_binding");
     if(declaration.origin!==currentAppOrigin())throw new ApplicationWorkerError("application_worker_binding");
     const packaged=packagedApplicationAssets(declaration.environment,declaration.origin,declaration.manifest.platform === "native" ? "native" : undefined);
     // All startup requests remain queued on the SAME unstarted MessagePort.
@@ -30,7 +32,7 @@ async function initialize(event:MessageEvent<unknown>):Promise<void> {
     // bootstrap has validated its immutable declaration and asset selection.
     // The host is imported statically: apps re-bundle this Worker, and a
     // default Vite consumer (iife workers) cannot code-split it.
-    owner=new ApplicationWorkerHost(port,binding,declaration,packaged,globalThis.navigator.locks);
+    owner=new ApplicationWorkerHost(port,binding,declaration,packaged,globalThis.navigator.locks,storageNamespace);
     const primary=binding;
     // The leader page attaches follower tabs (each on its own port) and detaches
     // them when they leave. Only the page that created this Worker can post here.

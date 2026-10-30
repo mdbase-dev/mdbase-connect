@@ -1,15 +1,17 @@
 //! Ordinary native selection on the original Store/layer, not a second engine.
 //! Canonical CEL link reads share ONE bounded source account with candidate reads.
-//! No source cache, all-record hydration shortcut, SQL or compiler changes.
+//! Candidates are the Store's index-entry superset, as on the per-record path.
+//! A record is hydrated and charged at most once per invocation; there is no
+//! cross-query source cache, all-record hydration shortcut, SQL or compiler change.
 use super::*;
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use mdbn_core::ids::{FileId, Hash as CoreHash, RecordId};
 use mdbn_core::intent::FileInclusion;
 use mdbn_core::links::{CelLinks, LinkKey};
-use mdbn_core::query::QueryPlan;
+use mdbn_core::query::{Candidate, QueryPlan};
 use mdbn_core::state::{PathHolder, StoredFile, StoredRecord, Tombstone};
 use mdbn_core::types::Catalog;
 use mdbn_core::value::Value as CoreValue;
@@ -60,6 +62,9 @@ struct QueryState<'a> {
     head: Head,
     budget: RefCell<QueryBudget>,
     error: RefCell<Option<ApiError>>,
+    /// Records already admitted by THIS invocation at its captured head, so a
+    /// target reached by many links is charged once. Holds only charged source.
+    hydrated: RefCell<BTreeMap<RecordId, Option<(StoredRecord, u64)>>>,
 }
 
 impl QueryState<'_> {
@@ -144,7 +149,10 @@ impl QueryState<'_> {
     }
 
     fn read(&self, id: &RecordId) -> Option<(StoredRecord, u64)> {
-        self.attempt(|| {
+        if let Some(hit) = self.hydrated.borrow().get(id) {
+            return hit.clone();
+        }
+        let read = self.attempt(|| {
             if let Some(change) = self.view.layer.record_change(id) {
                 let Some(record) = change else {
                     return Ok(None);
@@ -164,38 +172,56 @@ impl QueryState<'_> {
                     row.modified_seq,
                 )
             }))
-        })
-        .flatten()
+        })?;
+        self.hydrated.borrow_mut().insert(*id, read.clone());
+        read
     }
 
-    fn ids(&self) -> ApiResult<Vec<RecordId>> {
+    /// Confirmed candidates the layer does not override, plus layered records.
+    /// MAX_IDS bounds these candidates, not the whole collection.
+    fn ids(&self, candidate: &Candidate) -> ApiResult<Vec<RecordId>> {
         if self.view.layer.touched_count() > MAX_IDS {
             return Err(exhausted());
         }
         let mut ids = BTreeSet::new();
         let mut after = None;
+        let all = *candidate == Candidate::All;
+        let limit = if all { 128 } else { 32 };
         loop {
-            // Metadata only, before any source BLOB is fetched or decoded.
-            let page = self
-                .store
-                .query_record_sizes_at(Page { after, limit: 128 }, self.head)
-                .map_err(store_err)?;
-            if page.len() > 128 {
+            let page: Vec<_> = if all {
+                // Metadata only, before any source BLOB is fetched or decoded.
+                self.store
+                    .query_record_sizes_at(Page { after, limit }, self.head)
+                    .map_err(store_err)?
+                    .into_iter()
+                    .map(|meta| meta.id)
+                    .collect()
+            } else {
+                // The per-record path's index-entry superset, in small pages.
+                // Only IDs are kept; each source is admitted later by `read`.
+                self.store
+                    .candidates(candidate, Page { after, limit })
+                    .map_err(store_err)?
+                    .into_iter()
+                    .map(|row| row.id)
+                    .collect()
+            };
+            if page.len() > limit as usize {
                 return Err(ErrorCode::Internal.err("invalid query size page"));
             }
             if page.is_empty() {
                 break;
             }
-            for meta in page {
-                if after.is_some_and(|id| meta.id <= id) {
+            for id in page {
+                if after.is_some_and(|after| id <= after) {
                     return Err(ErrorCode::Internal.err("invalid query size frontier"));
                 }
-                after = Some(meta.id);
-                if !self.view.layer.touches(&convert::uuid(&meta.id)) {
+                after = Some(id);
+                if !self.view.layer.touches(&convert::uuid(&id)) {
                     if ids.len() == MAX_IDS {
                         return Err(exhausted());
                     }
-                    ids.insert(convert::uuid(&meta.id));
+                    ids.insert(convert::uuid(&id));
                 }
             }
         }
@@ -280,7 +306,8 @@ impl StateView for QueryState<'_> {
         self.index_ids(|| self.view.with_value(field, value))
     }
     fn record_ids(&self) -> Vec<RecordId> {
-        self.attempt(|| self.ids()).unwrap_or_default()
+        self.attempt(|| self.ids(&Candidate::All))
+            .unwrap_or_default()
     }
 }
 
@@ -301,13 +328,27 @@ impl<S: Store> Replica<S> {
             head: self.head,
             budget: RefCell::new(self.fallback_budget().unwrap_or(QueryBudget::HOSTED)),
             error: RefCell::new(None),
+            hydrated: RefCell::new(BTreeMap::new()),
         };
         let catalog = state.catalog();
+        // Stored index entries follow the confirmed, clock-free catalogue. A
+        // layered catalogue or a time-dependent `match.expr` can change this
+        // query's membership, so those keep the complete scan.
+        let candidate = if self.layer.catalog_ref().is_some()
+            || catalog
+                .issues()
+                .iter()
+                .any(|issue| issue.code == "nondeterministic_match")
+        {
+            &Candidate::All
+        } else {
+            &plan.candidate
+        };
         let links = CelLinks::new(&state);
         let mut rows = Vec::new();
         let mut diagnostics = Vec::new();
         let mut retained_left = 1 << 20;
-        for id in state.ids()? {
+        for id in state.ids(candidate)? {
             let Some((record, seq)) = state.read(&id) else {
                 continue;
             };

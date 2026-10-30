@@ -118,6 +118,7 @@ impl<S: Store> Store for FaultStore<S> {
         fn blob_read(&self, digest: &Hash, offset: u64, len: u64) -> StoreResult<Vec<u8>>;
         fn tail(&self, after: Seq, limit: u32) -> StoreResult<Vec<TailRow>>;
         fn tail_stats(&self) -> StoreResult<TailStats>;
+        fn own_retained_stats(&self) -> StoreResult<TailStats>;
         fn own_retained(&self, after: Seq, limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>>;
         fn has_files(&self) -> bool;
         fn disk_revision(&self, path: &str) -> StoreResult<Option<Hash>>;

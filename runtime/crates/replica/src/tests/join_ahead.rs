@@ -524,3 +524,42 @@ fn a_grant_after_a_base_is_found_while_waiting_at_the_base() {
     assert_eq!(b.r.head(), a.r.head());
     assert_eq!(b.r.stats.voided, 0);
 }
+
+/// A device keyed only by a `key_grant` of a later epoch, with no older content
+/// to wait for (as after signing in again over a store that already applied it,
+/// where the keyring rebuild replays control items only). The grant's key opens
+/// the history box of the rekey that created its epoch (`sealed-envelope.md`
+/// §5.3), so the device holds `K_1` and its entries carry the idempotency token
+/// the log service requires. Without it every append was refused as invalid and
+/// the write stayed pending.
+#[test]
+fn a_device_granted_after_a_revocation_rekey_holds_epoch_one_and_can_write() {
+    let svc = FakeLogService::new();
+    let mut cp = TestControlPlane::signed(COL);
+    cp.genesis_with_keys(&svc, CState::E2e, A, &A_KEYS.0, &A_KEYS.1);
+    let mut a = open(&svc, 1, A_KEYS);
+    settle(&mut [&mut a]);
+    cp.append(
+        &svc,
+        vec![enrol(C, TEST_OWNER, DeviceKind::Desktop, C_KEYS)],
+    );
+    cp.revoke(&svc, C);
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.policy.epoch, 2);
+    enrol_b(&svc, &mut cp);
+    member_grant(&mut a, B, B_KEYS.1);
+    let mut b = open(&svc, 2, B_KEYS);
+    settle(&mut [&mut b]);
+    assert!(
+        b.r.stalled.is_none(),
+        "nothing sealed under epoch 1 to wait for"
+    );
+    b.create(1, "from-b.md", "written after the grant");
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.r.sync_status().pending, 0, "B's write was accepted");
+    assert_eq!(a.doc(1).as_deref(), Some("written after the grant"));
+    let held: Vec<u64> = b.r.testing_epoch_keys().iter().map(|(e, _)| *e).collect();
+    assert_eq!(held, vec![1, 2], "epoch 1 from the grant's rekey history");
+    let m = B16([0x77; 16]);
+    assert_eq!(b.r.sealer.idem_token(&m), a.r.sealer.idem_token(&m));
+}

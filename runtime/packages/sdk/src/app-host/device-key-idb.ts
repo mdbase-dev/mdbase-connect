@@ -15,6 +15,7 @@ export interface AppIndexedDbDeviceKeyOptions {
   readonly source: AppDeviceKeyCustodyPin;
   readonly signal: AbortSignal;
   readonly allowLoopbackHttp?: boolean;
+  readonly allowNativeLoopbackHttp?: boolean;
 }
 export class AppIndexedDbDeviceKeyProtectedStore implements AppDeviceKeyProtectedStore {
   private closed=false;
@@ -36,7 +37,7 @@ export class AppIndexedDbDeviceKeyProtectedStore implements AppDeviceKeyProtecte
     const current=source.isCurrent,owned=source.installationOwned;
     const isCurrent=()=>{try{return !signal.aborted && source.isCurrent===current && source.installationOwned===owned && current.call(source)===true && owned.call(source)===true && (Object.keys(scope) as (keyof typeof scope)[]).every(k=>source[k]===scope[k]);}catch{return false;}};
     const ids=[scope.accountId,scope.connectorId,scope.deviceId,scope.installationId].map(v=>{const b=uuidToBytes(v);if(b.every(v=>v===0))throw fail();return Array.from(b,v=>v.toString(16).padStart(2,"0")).join("");});
-    if (!isAppOrigin(origin, options.allowLoopbackHttp===true) || currentAppOrigin()!==origin || !["fresh","existing"].includes(mode) || !isCurrent() || !globalThis.indexedDB) throw fail();
+    if (!isAppOrigin(origin, options.allowLoopbackHttp===true, options.allowNativeLoopbackHttp === true ? "native" : undefined) || currentAppOrigin()!==origin || !["fresh","existing"].includes(mode) || !isCurrent() || !globalThis.indexedDB) throw fail();
     const namespace=`mdbase.app-device-keys.v1:${ids.join(":")}`,name=`mdbase.app.device-keys.v1.${ids.join(".")}`;
     const db=await new Promise<IDBDatabase>((resolve,reject)=>{
       const request=indexedDB.open(name,1);let abandoned=false;

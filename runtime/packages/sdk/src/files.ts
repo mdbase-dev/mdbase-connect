@@ -8,19 +8,26 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import type { CborValue } from "./cbor.js";
 import { hash as hashCodec, hashFromBytes, list, uint, uuid as uuidCodec } from "./codec.js";
 import type { ChangesWatch, MdbaseClient, Write, WriteOptions } from "./client.js";
-import { isMdbaseError, mdbaseError } from "./errors.js";
+import { isMdbaseError, mdbaseError, type MdbaseError } from "./errors.js";
 import { withMutation, type Session } from "./session.js";
 import { uuidv7 } from "./values.js";
 
-/** How long an upload waits for the replica's attachment region (a file read
- * holds it at most a minute without progress) before reporting it busy. */
-const UPLOAD_BUSY_WAIT_MS = 90_000;
-function uploadPause(ms: number, signal?: AbortSignal): Promise<void> {
+/** How long an upload or read waits for the replica's one attachment region (a
+ * transfer holds it at most a minute without progress) before reporting it busy. */
+const REGION_BUSY_WAIT_MS = 90_000;
+/** Whether `e` refused to open a transfer because the attachment region is in use:
+ * nothing was opened, so opening again is safe. */
+function regionBusy(e: unknown, until: number): e is MdbaseError {
+  return isMdbaseError(e, "unavailable") && e.reason === "hosted_chunk_busy" && Date.now() < until;
+}
+/** Wait as the replica asked (bounded) before opening a transfer again. */
+function regionPause(e: MdbaseError, what: string, signal?: AbortSignal): Promise<void> {
+  const ms = Math.min(Math.max(e.retryAfterMs ?? 1000, 250), 5000);
   return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(mdbaseError("cancelled", "upload aborted"));
+    if (signal?.aborted) return reject(mdbaseError("cancelled", `${what} aborted`));
     const done = () => { signal?.removeEventListener("abort", stop); resolve(); };
     const timer = setTimeout(done, ms);
-    const stop = () => { clearTimeout(timer); reject(mdbaseError("cancelled", "upload aborted")); };
+    const stop = () => { clearTimeout(timer); reject(mdbaseError("cancelled", `${what} aborted`)); };
     signal?.addEventListener("abort", stop, { once: true });
   });
 }
@@ -153,6 +160,7 @@ function sizeOf(src: UploadSource): number {
 }
 
 export class FilesApi {
+  private uploading: Promise<void> = Promise.resolve();
   private progress = new Map<Uuid | number, (p: TransferProgress) => void>();
   private streams = new Map<number, { onChunk(c: FileChunk): void; onEnd(e?: Error): void }>();
   private wired = new WeakSet<Session>();
@@ -278,10 +286,19 @@ export class FilesApi {
   /**
    * Upload a file. Resumable: on a dropped link it reconnects and sends only the chunks
    * the replica lacks. Returns the `file_put` write: `confirmed` means the bytes are
-   * durable in the collection.
+   * durable in the collection. Concurrent calls run in FIFO order on the
+   * session's single upload lane; confirmation does not hold up the next upload.
    */
   async upload(path: string, source: UploadSource, o: UploadOptions = {}): Promise<FileWrite> {
+    const options = { ...o };
+    const upload = this.uploading.then(() => this.uploadQueued(path, source, options));
+    this.uploading = upload.then(() => {}, () => {});
+    return upload;
+  }
+
+  private async uploadQueued(path: string, source: UploadSource, o: UploadOptions): Promise<FileWrite> {
     gates.get(this)?.check(o.fileId ? "replace" : "add");
+    if (o.signal?.aborted) throw mdbaseError("cancelled", "upload aborted");
     const size = sizeOf(source);
     // The client's digest commitment, checked by the replica at commit.
     const h = sha256.create();
@@ -293,7 +310,7 @@ export class FilesApi {
     if (o.fileId) open.fileId = o.fileId;
     if (o.ifRevision) open.ifRevision = o.ifRevision;
     if (o.onProgress) this.progress.set(transfer, o.onProgress);
-    const busyUntil = Date.now() + UPLOAD_BUSY_WAIT_MS;
+    const busyUntil = Date.now() + REGION_BUSY_WAIT_MS;
     for (;;) {
       const phase = { committing: false };
       try {
@@ -303,8 +320,8 @@ export class FilesApi {
         if (isMdbaseError(e, "unavailable") && this.client.link === "reconnecting") continue;
         // The replica's one attachment region is in use (often a file being read):
         // nothing was opened, so wait as asked and open again, within a bound.
-        if (isMdbaseError(e, "unavailable") && e.reason === "hosted_chunk_busy" && Date.now() < busyUntil) {
-          await uploadPause(Math.min(Math.max(e.retryAfterMs ?? 1000, 250), 5000), o.signal);
+        if (regionBusy(e, busyUntil)) {
+          await regionPause(e, "upload", o.signal);
           continue;
         }
         this.progress.delete(transfer);
@@ -446,7 +463,17 @@ export class FilesApi {
           self.opening++;
           let r: Map<number, CborValue>;
           try {
-            r = (await session.request("read_file", p, { signal: pending.signal })) as Map<number, CborValue>;
+            const busyUntil = Date.now() + REGION_BUSY_WAIT_MS;
+            for (;;) {
+              try {
+                r = (await session.request("read_file", p, { signal: pending.signal })) as Map<number, CborValue>;
+                break;
+              } catch (e) {
+                // Another transfer holds the replica's one attachment region.
+                if (!regionBusy(e, busyUntil)) throw e;
+                await regionPause(e, "download", pending.signal);
+              }
+            }
           } finally {
             self.opening--;
           }

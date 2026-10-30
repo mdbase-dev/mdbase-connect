@@ -8,7 +8,7 @@ import {packagedApplicationAssets} from "./packaged-assets.js";
 import {appReleaseTrust} from "./packaged-trust.js";
 import {applicationLoopbackAllowed} from "./local-build.js";
 import {selectAppEnvironment} from "../app-host/app-environment.js";
-import {ApplicationRuntime,type MdbaseApplicationSnapshot as RuntimeSnapshot} from "./runtime.js";
+import type {ApplicationRuntime,MdbaseApplicationSnapshot as RuntimeSnapshot} from "./runtime.js";
 import {ApplicationBrowserSelection,ApplicationSelectionError,browserApplicationSelectionPort} from "./browser-selection.js";
 import {ApplicationCollectionSelection,type ApplicationCollectionSelectionSnapshot,type ApplicationSelectionMemory,type ApplicationSelectionSession} from "./collection-selection.js";
 import {APPLICATION_WORKER_PROTOCOL} from "./worker-protocol.js";
@@ -22,6 +22,7 @@ import type {MdbasePeopleClient} from "../people.js";
 import type {TimersApi} from "../timers.js";
 import type {AppWebSignInPortal,AppWebSignInSnapshot} from "../app-host/web-sign-in-session.js";
 import {waitForAppSignInRelease,type AppLockWaitPort,type AppReplicaScope} from "../app-host/owner.js";
+import {applicationStorageNamespace} from "./storage-scope.js";
 import {ApplicationTabs,type ApplicationTabLocks} from "./tabs.js";
 import {probeBrowserCapabilities} from "./browser-capabilities.js";
 import {appSaveState,appStoragePolicy,type AppStoragePolicy} from "../app-host/status.js";
@@ -560,11 +561,14 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       if(!capabilities.ok)throw mdbaseError("unavailable","This browser can't run mdbase",{reason:capabilities.problem,details:new Map([["missing",capabilities.missing.join(",")]])});
       // Registration resolves BEFORE any Worker, key, profile or DB allocation.
       const registered=await resolveApplicationRegistration({declaration:this.declaration,signal:this.lifetime.signal,isCurrent:()=>!this.closed});this.check();
-      // A pagehide during registration superseded this start: no Worker for it.
+      // UI runtime/collection setup is only needed when activating a session.
+      const {ApplicationRuntime}=await import("./runtime.js");this.check();
+      // A pagehide during registration or loading superseded this start: no Worker for it.
       if(incarnation!==this.incarnation)throw mdbaseError("cancelled","Application entry fenced","application_entry_fenced");
       const declaration=rebindApplicationDeclaration(this.declaration,registered);
       if(registered.supersededDeclaredId)console.info(`mdbase: ${describeDiagnostic("application_registration_id_superseded")}`);
-      const signInScope=Object.freeze({cpOrigin:environment.cpOrigin,appId:declaration.id});
+      const storageNamespace=applicationStorageNamespace(this.declaration);
+      const signInScope=Object.freeze({cpOrigin:environment.cpOrigin,appId:declaration.id,...(storageNamespace===null?{}:{storageNamespace})});
       const install=(runtime:ApplicationRuntime)=>{
         this.runtime=runtime;runtime.subscribe(()=>{this.hint?.observe(runtime.getNativeSnapshot());this.observeSignOut(runtime);if(runtime.getNativeSnapshot().signIn?.state==="paired")this.tabs?.signedIn();this.notify();this.awaitOtherTab(runtime,signInScope);});runtime.setForeground(this.foreground);this.notify();return runtime;
       };
@@ -581,7 +585,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       try{worker=new Worker(new URL("./worker.js",import.meta.url),{type:"module"});}catch{tabs?.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application Worker construction unavailable","application_worker_unavailable");}
       const failed=(event:Event)=>{event.preventDefault();channel.port1.dispatchEvent(new MessageEvent("messageerror"));tabs?.fault();};worker.addEventListener("error",failed);
       const runtime=new ApplicationRuntime({declaration,compiledManifest:this.compiled,typeIssues:this.typeIssues,cpOrigin:environment.cpOrigin,port:channel.port1,binding,releaseWorker:()=>{worker.removeEventListener("error",failed);worker.terminate();tabs?.resign();},nativeAuthorization:(call,portal,signal)=>this.nativeAuthorization(call,portal,signal)});
-      try{worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,declaration],[channel.port2]);}catch{
+      try{worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,declaration,...(storageNamespace===null?[]:[storageNamespace])],[channel.port2]);}catch{
         // No startup request was accepted; the original bootstrap transfer failed.
         worker.removeEventListener("error",failed);worker.terminate();tabs?.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application bootstrap unavailable","application_worker_binding");
       }
@@ -697,7 +701,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     if(!result||this.signingOut||this.closed||this.runtime!==runtime)return;
     void this.signedOut(runtime,result);
   }
-  private tabsFor(scope:Readonly<{cpOrigin:string;appId:string}>):ApplicationTabs|null{
+  private tabsFor(scope:Readonly<{cpOrigin:string;appId:string;storageNamespace?:string}>):ApplicationTabs|null{
     if(this.tabs)return this.tabs;
     const locks=globalThis.navigator?.locks as ApplicationTabLocks|undefined,Channel=globalThis.BroadcastChannel;
     if(!locks||typeof locks.request!=="function"||typeof Channel!=="function")return null;
@@ -791,7 +795,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
    * path. A hidden tab waits until it is shown, so it never takes over from a
    * tab the user is reloading. Only Web Lock waits: no timers, no network. */
   private awaitingOtherTab=false;
-  private awaitOtherTab(runtime:ApplicationRuntime,scope:Readonly<{cpOrigin:string;appId:string}>):void{
+  private awaitOtherTab(runtime:ApplicationRuntime,scope:Readonly<{cpOrigin:string;appId:string;storageNamespace?:string}>):void{
     const native=runtime.getNativeSnapshot(),locks=globalThis.navigator?.locks as AppLockWaitPort|undefined;
     if(this.awaitingOtherTab||this.closed||native.status!=="blocked"||native.problem!=="open_in_another_tab"||!locks)return;
     this.awaitingOtherTab=true;const incarnation=this.incarnation,signal=this.lifetime.signal;

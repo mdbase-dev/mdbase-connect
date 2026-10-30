@@ -76,6 +76,7 @@ pub struct MemData {
     tail: BTreeMap<u64, TailRow>,
     tail_bytes: u64,
     own_retained: BTreeMap<u64, PendingRow>,
+    own_retained_bytes: u64,
     /// Number of successful commits.
     pub commits: u64,
     /// Fail this many upcoming commits with strongly guaranteed `CommitAborted`.
@@ -155,6 +156,7 @@ impl Default for MemData {
             tail: BTreeMap::new(),
             tail_bytes: 0,
             own_retained: BTreeMap::new(),
+            own_retained_bytes: 0,
             commits: 0,
             fail_next: 0,
             fail_unknown_commits: 0,
@@ -501,17 +503,31 @@ impl MemData {
             }
         }
         if let Some(n) = tx.own_retained_drop_below {
-            self.own_retained = self.own_retained.split_off(&n);
+            let keep = self.own_retained.split_off(&n);
+            self.own_retained_bytes -= self
+                .own_retained
+                .values()
+                .map(|r| r.to_bytes().len() as u64)
+                .sum::<u64>();
+            self.own_retained = keep;
         }
         if let Some(n) = tx.own_retained_drop_above {
             if n == 0 {
                 self.own_retained.clear();
+                self.own_retained_bytes = 0;
             } else if let Some(first_dropped) = n.checked_add(1) {
-                self.own_retained.split_off(&first_dropped);
+                let dropped = self.own_retained.split_off(&first_dropped);
+                self.own_retained_bytes -= dropped
+                    .values()
+                    .map(|r| r.to_bytes().len() as u64)
+                    .sum::<u64>();
             }
         }
         for (seq, row) in tx.own_retained_put {
-            self.own_retained.insert(seq, row);
+            self.own_retained_bytes += row.to_bytes().len() as u64;
+            if let Some(old) = self.own_retained.insert(seq, row) {
+                self.own_retained_bytes -= old.to_bytes().len() as u64;
+            }
         }
         self.commits += 1;
     }
@@ -1353,6 +1369,15 @@ impl Store for MemStore {
             last: d.tail.keys().next_back().copied().unwrap_or(0),
             count: d.tail.len() as u64,
             bytes: d.tail_bytes,
+        })
+    }
+    fn own_retained_stats(&self) -> StoreResult<TailStats> {
+        let d = self.data.borrow();
+        Ok(TailStats {
+            first: d.own_retained.keys().next().copied().unwrap_or(0),
+            last: d.own_retained.keys().next_back().copied().unwrap_or(0),
+            count: d.own_retained.len() as u64,
+            bytes: d.own_retained_bytes,
         })
     }
     fn own_retained(&self, after: Seq, limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {

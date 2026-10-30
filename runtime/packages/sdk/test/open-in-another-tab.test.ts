@@ -64,7 +64,7 @@ describe("open in another tab", () => {
     const restored=await open(true);expect(restored.plaintext).toEqual(Uint8Array.of(1));
     await restored.store.close();await guard.close();
   });
-  it("root and scoped protected stores own separate leases while same-owner tabs wait on the exact child lease", async () => {
+  it("root and scoped protected stores own separate leases while tabs wait for the root guard", async () => {
     const key=await webcrypto.subtle.generateKey({name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
     vi.stubGlobal("crypto", webcrypto); vi.stubGlobal("CryptoKey", key.constructor);
     vi.stubGlobal("location", { origin }); vi.stubGlobal("indexedDB", new IDBFactory());
@@ -74,18 +74,18 @@ describe("open in another tab", () => {
     const childScope={...rootScope,owner:`${rootScope.owner}:scope:original-reference`};
     const root=await AppInstallationStore.open(rootScope,()=>Uint8Array.of(1));
     let child:Awaited<ReturnType<typeof AppInstallationStore.open>>|undefined;
+    let released=false,wait:Promise<void>|undefined;
     try {
       child=await AppInstallationStore.open(childScope,()=>Uint8Array.of(2));
       expect(root.store.isCurrent()).toBe(true); expect(child.store.isCurrent()).toBe(true);
       await expect(AppInstallationStore.open({...rootScope,mode:"existing"},()=>Uint8Array.of(9))).rejects.toMatchObject({reason:"busy"});
       await expect(AppInstallationStore.open({...childScope,mode:"existing"},()=>Uint8Array.of(9))).rejects.toMatchObject({reason:"busy"});
-      const childName=names.find(n=>n.includes(childScope.owner))!.slice("exclusive:".length);
-      let released=false;
-      const wait=waitForAppSignInRelease(port,childScope,signal).then(()=>{released=true;});
+      const rootName=`mdbase-app-sign-in-v1-${appId}-${cpOrigin}`;
+      wait=waitForAppSignInRelease(port,{cpOrigin,appId},signal).then(()=>{released=true;});
       await Promise.resolve();await Promise.resolve();
-      expect(released).toBe(false);expect(waiting.has(childName)).toBe(true);
-      await child.store.close();await wait;
-      expect(released).toBe(true);expect(root.store.isCurrent()).toBe(true);
+      expect(released).toBe(false);expect(waiting.has(rootName)).toBe(true);
+      await child.store.close();
+      expect(released).toBe(false);expect(root.store.isCurrent()).toBe(true);
       await expect(AppInstallationStore.open({...rootScope,mode:"existing"},()=>Uint8Array.of(9))).rejects.toMatchObject({reason:"busy"});
       const restored=await AppInstallationStore.open({...childScope,mode:"existing"},()=>Uint8Array.of(9));
       expect(restored.plaintext).toEqual(Uint8Array.of(2));await restored.store.close();
@@ -93,6 +93,7 @@ describe("open in another tab", () => {
       await root.store.close();
       await expect(acquireAppSignInLease(port,{cpOrigin,appId})).rejects.toMatchObject({reason:"busy"});
     } finally {await child?.store.close();await root.store.close();await guard.close();}
+    await wait;expect(released).toBe(true);
     const legacy=await acquireAppSignInLease(port,{cpOrigin,appId});
     expect(names.at(-1)).toBe(`exclusive:mdbase-app-sign-in-v1-${appId}-${cpOrigin}`);
     await legacy.release();

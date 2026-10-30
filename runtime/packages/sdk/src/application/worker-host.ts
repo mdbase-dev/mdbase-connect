@@ -65,9 +65,9 @@ export class ApplicationWorkerHost {
   /** The latest proxy portal's person-closed report (page `approvalClosed`). */
   private approval:{reported:boolean;readonly client:HostClient}|null=null;
   private unsubscribe:(()=>void)|null=null;
-  constructor(port:MessagePort,binding:string,declaration:Readonly<ApplicationDeclarationSnapshot>,packaged:PackagedApplicationNativeAssets,locks:AppLockPort|undefined,fetcher?:typeof fetch){
+  constructor(port:MessagePort,binding:string,declaration:Readonly<ApplicationDeclarationSnapshot>,packaged:PackagedApplicationNativeAssets,locks:AppLockPort|undefined,storageNamespace:string|null,fetcher?:typeof fetch){
     if(!applicationWorkerBinding(binding))throw new ApplicationWorkerError("application_worker_binding");
-    const composed=applicationWorkerSession(declaration,packaged,{signal:this.lifetime.signal,locks,
+    const composed=applicationWorkerSession(declaration,packaged,{signal:this.lifetime.signal,locks,storageNamespace,
       openPortal:()=>this.portal(),handoff:value=>this.handoff(value),...(fetcher?{fetch:fetcher}:{})});
     this.session=composed.session;
     this.primary=this.client(port,binding,true);

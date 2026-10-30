@@ -68,6 +68,7 @@ impl Store for ReadFaultStore {
         tail(after:Seq,limit:u32)->StoreResult<Vec<TailRow>>;
         tail_stats()->StoreResult<TailStats>;
         own_retained(after:Seq,limit:u32)->StoreResult<Vec<(Seq,PendingRow)>>;
+        own_retained_stats()->StoreResult<TailStats>;
     }
     fn meta(&self, key: &str) -> StoreResult<Option<Vec<u8>>> {
         let seam = if key.starts_with("replica.attachment_inventory.") {

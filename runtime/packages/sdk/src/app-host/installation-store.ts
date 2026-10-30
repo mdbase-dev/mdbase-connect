@@ -32,12 +32,17 @@ export interface AppInstallationStoreOptions {
    * appId that points at another app's slot opens an absent database instead.
    * Unlabelled slots are never opened for an owner: that caller pairs afresh. */
   readonly owner?: string;
+  /** SDK declaration namespace: separate root/child locks from legacy apps.
+   * Requires the namespace-derived owner, never an unowned or default bundle slot. */
+  readonly storageNamespace?: string;
   /** open creates only an absent database in its atomic upgrade; an occupied,
    * partial or corrupt database is restored or refused, never replaced. */
   readonly mode: "fresh" | "existing" | "open";
   readonly signal: AbortSignal;
   readonly locks: AppLockPort | undefined;
   readonly allowLoopbackHttp?: boolean;
+  /** Native IPv4 app origin only; does not relax the CP origin. */
+  readonly allowNativeLoopbackHttp?: boolean;
 }
 /** Deliberately NOT exported from the package entrypoint. Only the fixed sign-in
  * lifecycle uses its bounded ciphertext CAS; no secrets/handle loan API. */
@@ -54,10 +59,10 @@ export class AppInstallationStore {
   }
   static async open(options: AppInstallationStoreOptions, initial: () => Uint8Array): Promise<{store: AppInstallationStore; plaintext: Uint8Array}> {
     // Snapshot before any ownership/platform wait. No account ID is invented.
-    const p = Object.freeze({ origin: options.origin, cpOrigin: options.cpOrigin, appId: options.appId, ...(options.owner === undefined ? {} : {owner: options.owner}), mode: options.mode, signal: options.signal, locks: options.locks, allowLoopbackHttp: options.allowLoopbackHttp === true });
+    const p = Object.freeze({ origin: options.origin, cpOrigin: options.cpOrigin, appId: options.appId, ...(options.owner === undefined ? {} : {owner: options.owner}), ...(options.storageNamespace === undefined ? {} : {storageNamespace: options.storageNamespace}), mode: options.mode, signal: options.signal, locks: options.locks, allowLoopbackHttp: options.allowLoopbackHttp === true, allowNativeLoopbackHttp: options.allowNativeLoopbackHttp === true });
     let out: AppInstallationStore | null = null, plain: Uint8Array | null = null, fresh: Stored | null = null;
     try {
-      if (!isAppOrigin(p.origin, p.allowLoopbackHttp === true)) throw fail();
+      if (!isAppOrigin(p.origin, p.allowLoopbackHttp === true, p.allowNativeLoopbackHttp ? "native" : undefined)) throw fail();
       {
         const origin = p.cpOrigin, u = new URL(origin), loopback = p.allowLoopbackHttp && u.protocol === "http:" && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(origin) : ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname));
         if (u.origin !== origin || u.username || u.password || (u.protocol !== "https:" && !loopback)) throw fail();

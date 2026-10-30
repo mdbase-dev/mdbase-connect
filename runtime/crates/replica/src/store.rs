@@ -415,7 +415,7 @@ pub struct TailRow {
     pub applied_at: TimeMs,
 }
 
-/// Size of the retained tail, kept by stores without scanning.
+/// Size of a retained set (raw tail or confirmed own history).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TailStats {
     /// Lowest retained position (0 when empty).
@@ -424,7 +424,7 @@ pub struct TailStats {
     pub last: Seq,
     /// Rows retained.
     pub count: u64,
-    /// Sum of `item` lengths.
+    /// Sum of item lengths (tail) or canonical encoded row lengths (own).
     pub bytes: u64,
 }
 
@@ -437,7 +437,8 @@ pub struct TailRetention {
     pub min_positions: u64,
     /// Keep everything applied within this long.
     pub min_age_ms: i64,
-    /// Never keep more than this many item bytes.
+    /// Hard aggregate budget for exact item bytes plus encoded own-intent rows.
+    /// Pending (unconfirmed) writes are not part of this evictable history.
     pub max_bytes: u64,
 }
 
@@ -1206,6 +1207,11 @@ pub trait Store {
     fn own_retained(&self, _after: Seq, _limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
         Ok(Vec::new())
     }
+
+    /// Size of confirmed own history, counting canonical `PendingRow::to_bytes`.
+    /// Required, with no scanning default: the repair budget reads it on every
+    /// apply, so a forwarding store that forgot it would turn quadratic.
+    fn own_retained_stats(&self) -> StoreResult<TailStats>;
 
     // ---- writes ----
 

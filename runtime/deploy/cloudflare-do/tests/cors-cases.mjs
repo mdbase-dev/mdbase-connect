@@ -49,11 +49,13 @@ export async function corsCases({base,token,transport,encode,decode,map,sha,h,fe
   const digest=h('mdbase/v1/ls-http',Buffer.concat([Buffer.from('head\0/v1/rpc\0'),c,sha(Buffer.from(token)),sha(body),n]));
   const headers={origin:origins[0],authorization:`Bearer ${token}`,'x-mdbase-nonce':n.toString('hex'),'x-mdbase-sig':'00'.repeat(64)};
   let r=await fetch(`${base}/v1/rpc`,{method:'POST',headers,body});assert.equal(r.status,200);cors(r);
-  let error=decode(Buffer.from(await r.arrayBuffer())).get(3);assert.equal(error.get(0),'unauthenticated');assert.equal(error.get(1),'possession');
+  // Every refusal answers the request's own ID: clients drop replies to any other.
+  const refusal=async r=>{const reply=decode(Buffer.from(await r.arrayBuffer()));assert.equal(reply.get(1),71,'a refusal answers the original RPC');return reply.get(3);};
+  let error=await refusal(r);assert.equal(error.get(0),'unauthenticated');assert.equal(error.get(1),'possession');
   headers['x-mdbase-sig']=sign(null,digest,transport).toString('hex');
   r=await fetch(`${base}/v1/rpc`,{method:'POST',headers,body});assert.equal(r.status,200);cors(r);
-  error=decode(Buffer.from(await r.arrayBuffer())).get(3);assert.equal(error.get(0),'not_found','good possession reaches authenticated dispatch; bad proof did not consume nonce');
+  error=await refusal(r);assert.equal(error.get(0),'not_found','good possession reaches authenticated dispatch; bad proof did not consume nonce');
   r=await fetch(`${base}/v1/rpc`,{method:'POST',headers,body});assert.equal(r.status,200);cors(r);
-  error=decode(Buffer.from(await r.arrayBuffer())).get(3);assert.equal(error.get(0),'unauthenticated');assert.equal(error.get(1),'replay');
+  error=await refusal(r);assert.equal(error.get(0),'unauthenticated');assert.equal(error.get(1),'replay');
   console.log('PASS CORS: any origin, preflight/zero effects, nonce/401/actor responses/WebSocket upgrade, possession and nonce replay unchanged');
 }

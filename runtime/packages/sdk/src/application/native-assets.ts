@@ -41,7 +41,7 @@ export function applicationNativeAssets(
     joinDatabaseName:declaration.storage.joinDatabaseName,
     setupJournal:Object.freeze({databaseName:declaration.storage.setupDatabaseName,applicationNamespace:declaration.storage.applicationNamespace,
       appOrigin:declaration.origin,cpOrigin:environment.cpOrigin}),
-    sql,handoff,...(fetcher?{fetch:fetcher}:{}),allowLoopbackHttp:environment.allowLoopbackHttp,
+    sql,handoff,...(fetcher?{fetch:fetcher}:{}),allowLoopbackHttp:environment.allowLoopbackHttp,allowNativeLoopbackHttp:environment.allowNativeLoopbackHttp,
   });
   return Object.freeze({release,environment,loadRuntime,collection});
 }

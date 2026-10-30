@@ -14,6 +14,7 @@ export interface AppIndexedDbDeviceKeyProviderOptions {
   readonly signal: AbortSignal;
   /** Owned isolated loopback fixtures only, never arbitrary HTTP. */
   readonly allowLoopbackHttp?: boolean;
+  readonly allowNativeLoopbackHttp?: boolean;
 }
 function key(value: unknown): CryptoKey {
   // Genuine platform key handle, not metadata alone; IDB clones into this realm.
@@ -43,7 +44,7 @@ export class AppIndexedDbDeviceKeyProvider {
       const {source,origin,mode,signal}=options;
       out=new AppIndexedDbDeviceKeyProvider(source,origin,signal);
       const ids=Object.values(out.scope).map(v=>{const bytes=uuidToBytes(v);if(bytes.every(b=>b===0))throw fail();return Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");});
-      if(!isAppOrigin(origin,options.allowLoopbackHttp===true)||!["fresh","existing"].includes(mode)||!globalThis.indexedDB||!globalThis.crypto?.subtle||typeof globalThis.CryptoKey!=="function")throw fail();
+      if(!isAppOrigin(origin,options.allowLoopbackHttp===true, options.allowNativeLoopbackHttp === true ? "native" : undefined)||!["fresh","existing"].includes(mode)||!globalThis.indexedDB||!globalThis.crypto?.subtle||typeof globalThis.CryptoKey!=="function")throw fail();
       out.check(signal);
       const generate=crypto.subtle.generateKey.bind(crypto.subtle);
       const name=`mdbase.app.device-key-kek.v1.${ids.join(".")}`;

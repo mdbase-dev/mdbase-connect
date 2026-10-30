@@ -175,6 +175,10 @@ macro_rules! forward_mem_reads {
     };
 }
 impl Store for ResourceProbe {
+    // Retains no own history (the trait's `own_retained` default).
+    fn own_retained_stats(&self) -> StoreResult<TailStats> {
+        Ok(TailStats::default())
+    }
     forward_mem_reads! {
         fn head() -> StoreResult<Head>;
         fn record(id: &Uuid) -> StoreResult<Option<RecordRow>>;
