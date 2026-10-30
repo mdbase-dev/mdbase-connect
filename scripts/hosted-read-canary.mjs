@@ -307,11 +307,22 @@ export async function runCanary(
     // Poll the daemon until `evaluate` is done or terminal. At the deadline the
     // last waiting reason is the failure code.
     const awaitStatus = async (stage, evaluate) => {
+      let waiting;
       for (;;) {
-        const current = await status(stage);
+        let current;
+        try {
+          current = await status(stage);
+        } catch (error) {
+          // The deadline can also run out during a poll.
+          if (waiting && error instanceof CanaryError && error.code === "timeout") {
+            throw new CanaryError(stage, waiting);
+          }
+          throw error;
+        }
         const state = evaluate(current);
         if (state.done) return current;
         if (state.terminal) throw new CanaryError(stage, state.terminal);
+        waiting = state.waiting;
         if (deadline - performance.now() <= POLL_INTERVAL_MS) {
           throw new CanaryError(stage, state.waiting);
         }
