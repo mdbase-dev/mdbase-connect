@@ -278,6 +278,7 @@ export class AppWebCloudCopyHost {
         loadRuntime(options: { signal: AbortSignal }): Promise<Uint8Array>;
         fetch?: typeof fetch;
         allowLoopbackHttp?: boolean;
+        allowNativeLoopbackHttp?: boolean;
     }): Promise<AppWebCloudCopyHost> {
         const {
             session,
@@ -289,6 +290,7 @@ export class AppWebCloudCopyHost {
             loadRuntime,
             fetch: request,
             allowLoopbackHttp,
+            allowNativeLoopbackHttp,
         } = options;
         let host: AppWebCloudCopyHost | null = null;
         try {
@@ -300,7 +302,7 @@ export class AppWebCloudCopyHost {
                 origin,
                 signal,
             );
-            const {custody, restored} = await host.openOwnedDevice({mode, signal, loadRuntime, allowLoopbackHttp, requireReceipt: true});
+            const {custody, restored} = await host.openOwnedDevice({mode, signal, loadRuntime, allowLoopbackHttp, allowNativeLoopbackHttp, requireReceipt: true});
             if (mode === "existing") {
                 host.native!.acknowledgeDeviceRegistration(restored!.receipt!);
                 host.check(signal);
@@ -339,8 +341,9 @@ export class AppWebCloudCopyHost {
         signal: AbortSignal;
         loadRuntime(options: {signal: AbortSignal}): Promise<Uint8Array>;
         allowLoopbackHttp?: boolean;
+        allowNativeLoopbackHttp?: boolean;
     }): Promise<AppWebCloudCopyHost> {
-        const {signIn, installation, release, origin, signal, loadRuntime, allowLoopbackHttp} = options;
+        const {signIn, installation, release, origin, signal, loadRuntime, allowLoopbackHttp, allowNativeLoopbackHttp} = options;
         let host: AppWebCloudCopyHost | null = null;
         try {
             const session = signIn.confirmedHostSession(release.logOrigin, release.environment);
@@ -348,7 +351,7 @@ export class AppWebCloudCopyHost {
             host.signIn = signIn;
             const prepared = await signIn.prepareOriginalDevice(installation);
             host.check(signal);
-            const {custody, restored} = await host.openOwnedDevice({mode: prepared.mode, signal, loadRuntime, allowLoopbackHttp, requireReceipt: false});
+            const {custody, restored} = await host.openOwnedDevice({mode: prepared.mode, signal, loadRuntime, allowLoopbackHttp, allowNativeLoopbackHttp, requireReceipt: false});
             host.originalCustody = custody;
             if (restored?.receipt && signIn.view().state !== "paired") throw fail("recovery_required");
             // Protect original Noise immediately, even before explicit attestation.
@@ -388,17 +391,18 @@ export class AppWebCloudCopyHost {
         signal: AbortSignal;
         loadRuntime(options: {signal: AbortSignal}): Promise<Uint8Array>;
         allowLoopbackHttp?: boolean;
+        allowNativeLoopbackHttp?: boolean;
         requireReceipt: boolean;
     }) {
-        const {mode, signal, loadRuntime, allowLoopbackHttp, requireReceipt} = options;
+        const {mode, signal, loadRuntime, allowLoopbackHttp, allowNativeLoopbackHttp, requireReceipt} = options;
         this.check(signal);
-        this.provider = await AppIndexedDbDeviceKeyProvider.open({source: this.pin, origin: this.origin, mode, signal, allowLoopbackHttp});
+        this.provider = await AppIndexedDbDeviceKeyProvider.open({source: this.pin, origin: this.origin, mode, signal, allowLoopbackHttp, allowNativeLoopbackHttp});
         this.check(signal);
         this.key = this.provider.deviceCustodyKek({signal});
         this.check(signal);
-        this.keys = await AppIndexedDbDeviceKeyProtectedStore.open({source: this.pin, origin: this.origin, mode, signal, allowLoopbackHttp});
+        this.keys = await AppIndexedDbDeviceKeyProtectedStore.open({source: this.pin, origin: this.origin, mode, signal, allowLoopbackHttp, allowNativeLoopbackHttp});
         this.check(signal);
-        this.noiseStore = await AppIndexedDbNoiseProtectedStore.open({source: this.pin, origin: this.origin, mode, signal, allowLoopbackHttp});
+        this.noiseStore = await AppIndexedDbNoiseProtectedStore.open({source: this.pin, origin: this.origin, mode, signal, allowLoopbackHttp, allowNativeLoopbackHttp});
         this.check(signal);
         this.noise = new AppWebNoiseCustody(this.pin, this.key, this.noiseStore);
         const restored = await this.noise.restore({signal});
@@ -431,6 +435,7 @@ export class AppWebCloudCopyHost {
         displayName?: string;
         fetch?: typeof fetch;
         allowLoopbackHttp?: boolean;
+        allowNativeLoopbackHttp?: boolean;
     }): Promise<AppCloudCopyBootstrapMetadata> {
         const {
             scope,
@@ -441,6 +446,7 @@ export class AppWebCloudCopyHost {
             reconcile,
             fetch: request,
             allowLoopbackHttp,
+            allowNativeLoopbackHttp,
         } = options;
         const signal = this.operationSignal(callerSignal);
         const requestedName = options.displayName;
@@ -503,6 +509,7 @@ export class AppWebCloudCopyHost {
                 mode: outcomeMode,
                 signal,
                 allowLoopbackHttp,
+                allowNativeLoopbackHttp,
             });
             this.checkCollection(signal);
             this.outcome = new AppWebCloudCopyBootstrapPersistence(
@@ -857,8 +864,9 @@ export class AppWebCloudCopyHost {
         this.checkCollection(signal);
         this.native.tick();
     }
-    /** READ-only admission through the actual typed native Query gate. Warm
-     * probes have a fixed budget; cold first sync bounds inactivity instead.
+    /** READ-only admission through the actual typed native Query gate. While
+     * the log pump runs, the budget bounds inactivity, so a warm replica far
+     * behind can finish its catch-up turn; without a pump it is fixed.
      * No status-based admission, write retry, key override or private grant. */
     waitForVerifiedRead(options: {
         signal: AbortSignal;
@@ -932,7 +940,7 @@ export class AppWebCloudCopyHost {
         };
         this.readVerified = false;
         try {
-            if (cold) {
+            if (this.pump) {
                 // Only native accepted prefix/READ-cursor/snapshot positions count.
                 // Requests sent, accepted heartbeats, head growth and status
                 // flicker cannot keep a stuck replica alive. Observe DURING a

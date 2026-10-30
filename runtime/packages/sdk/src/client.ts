@@ -397,6 +397,12 @@ export class Write {
   }
 }
 
+/** A create receipt with the record identity minted by the SDK, even when the
+ * replica omits optimistic records from its response. */
+export interface RecordWrite extends Write {
+  readonly recordId: Uuid;
+}
+
 /** A live query handle. */
 export class LiveQuery implements LiveQueryState {
   private result = new LiveResult();
@@ -1742,7 +1748,7 @@ export class MdbaseClient {
   }
 
   /** Create a record. The ID is minted here, so the app can use it before confirmation. */
-  create(input: CreateInput, o: WriteOptions = {}): Promise<Write> {
+  create(input: CreateInput, o: WriteOptions = {}): Promise<RecordWrite> {
     if (o.intent !== undefined && o.mutationId === undefined)
       return intentIds(this.collectionId, o.intent).then(([mutationId, id]) => this.create({ ...input, id: input.id ?? id }, { ...o, mutationId }));
     if (input.contract) return this.createThroughContract(input, input.contract, o);
@@ -1752,10 +1758,10 @@ export class MdbaseClient {
     if (input.frontmatter !== undefined) op.frontmatter = toFmMap(input.frontmatter);
     if (input.body !== undefined) op.body = input.body;
     if (input.document !== undefined) op.document = input.document;
-    return this.one(op, o);
+    return this.one(op, o).then(write => Object.assign(write, { recordId: op.id }));
   }
 
-  private async createThroughContract(input: CreateInput, contract: ContractSelector, o: WriteOptions): Promise<Write> {
+  private async createThroughContract(input: CreateInput, contract: ContractSelector, o: WriteOptions): Promise<RecordWrite> {
     if (input.document !== undefined) throw mdbaseError("invalid_request", "a contract create takes frontmatter fields, not a document");
     if (input.type !== undefined && contract.type !== undefined && input.type.toLowerCase() !== contract.type.toLowerCase()) {
       throw mdbaseError("invalid_request", "the create type and contract type must name the same type");
@@ -1765,7 +1771,7 @@ export class MdbaseClient {
     const op: Op = { kind: "create", id: input.id ?? uuidv7(), type: plan.type, frontmatter: plan.patch };
     if (input.path !== undefined) op.path = input.path;
     if (input.body !== undefined) op.body = input.body;
-    return this.one(op, o);
+    return Object.assign(await this.one(op, o), { recordId: op.id });
   }
 
   /**

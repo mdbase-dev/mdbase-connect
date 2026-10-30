@@ -21,7 +21,7 @@ function fixture(){
   const packaged:PackagedApplicationNativeAssets={release:()=>({schema:"mdbn-app-trust/release/1",environment:"production",cpOrigin,logOrigin:"https://log.test",assetSha256:"a".repeat(64),source:{repository:"mdbase-dev/mdbase-connect",commit:"b".repeat(40),version:"fixture"},trustedRoots:[new Uint8Array(32).fill(1)],policyPins:new Uint8Array([1,2,3])}),runtime:{url:`${origin}/native/app.wasm`,sha256:"c".repeat(64),bytes:4,maxBytes:3300000},sqlite:{url:`${origin}/native/sqlite.wasm`,sha256:"d".repeat(64),bytes:4,maxBytes:1100000},initializeSqlite:vi.fn()};
   const channel=new MessageChannel(),events:ApplicationWorkerEvent[]=[],waiters:Array<()=>void>=[];ports.push(channel.port2);
   channel.port2.addEventListener("message",event=>{events.push(event.data);for(const wake of waiters.splice(0))wake();});channel.port2.start();
-  const host=new ApplicationWorkerHost(channel.port1,binding,declaration,packaged,undefined);active.push(host);
+  const host=new ApplicationWorkerHost(channel.port1,binding,declaration,packaged,undefined,null);active.push(host);
   async function event(kind:ApplicationWorkerEvent[2],requestId:number){
     for(;;){const found=events.find(value=>value[2]===kind&&value[3]===requestId);if(found)return found;
       await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(`missing ${kind}:${requestId}`)),1000);waiters.push(()=>{clearTimeout(timer);resolve();});});

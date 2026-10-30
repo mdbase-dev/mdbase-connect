@@ -595,6 +595,9 @@ pub struct Replica<S: Store> {
     pub(crate) attachment_inventories: attachment_inventory::Inventories,
     /// Why the last due snapshot build did not run, if it did not.
     pub(crate) snapshot_blocked: Option<snapshot::SnapshotBlocked>,
+    /// The log already held a snapshot at or past this position when it
+    /// declined ours: the periodic build counts from here.
+    pub(crate) snapshot_declined: u64,
 
     /// Counters.
     pub stats: Stats,
@@ -913,6 +916,7 @@ impl<S: Store> Replica<S> {
             device_keys_failed: false,
             attachment_inventories: attachment_inventory::Inventories::default(),
             snapshot_blocked: None,
+            snapshot_declined: 0,
             stats: Stats::default(),
         };
         r.restore_private_choice();

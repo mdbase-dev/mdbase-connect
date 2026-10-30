@@ -319,6 +319,34 @@ fn own_retained_basics(s: &mut dyn Store) {
         },
     );
     assert_eq!(seqs(s), vec![30, 40, 50]);
+    let rows = s.own_retained(0, 10).unwrap();
+    assert_eq!(
+        s.own_retained_stats().unwrap(),
+        TailStats {
+            first: 30,
+            last: 50,
+            count: 3,
+            bytes: rows.iter().map(|(_, r)| r.to_bytes().len() as u64).sum(),
+        }
+    );
+    let mut replacement = pending_row(1, 103);
+    replacement.touches.push("larger replacement".repeat(100));
+    commit(
+        s,
+        Tx {
+            own_retained_put: vec![(30, replacement)],
+            ..Tx::default()
+        },
+    );
+    let rows = s.own_retained(0, 10).unwrap();
+    let stats = s.own_retained_stats().unwrap();
+    assert_eq!(stats.count, 3, "replacement must not double-count");
+    assert_eq!(
+        stats.bytes,
+        rows.iter()
+            .map(|(_, r)| r.to_bytes().len() as u64)
+            .sum::<u64>()
+    );
 }
 
 fn retained_prune_together(s: &mut dyn Store) {

@@ -2,7 +2,7 @@
  * one app. Every name is derived from the known scope (CP origin, local slot
  * owner, appId, account, connector, device, installation, collections), the
  * same derivations the stores use; nothing outside that scope is touched. */
-import { LOG_TOKEN_DATABASE } from "./log-token-cache.js";
+import { LOG_TOKEN_DATABASE, eraseAppLogTokens } from "./log-token-cache.js";
 import { uuidToBytes } from "../codec.js";
 
 export interface AppSignOutEraseScope {
@@ -10,6 +10,7 @@ export interface AppSignOutEraseScope {
   readonly appId: string;
   /** Local slot owner (installation-store `owner`); absent for unlabelled slots. */
   readonly owner?: string;
+  readonly storageNamespace?: string;
   /** Null when the ledger never reached that step (no account confirmed yet). */
   readonly accountId: string | null;
   readonly connectorId: string | null;
@@ -67,7 +68,7 @@ function ledgerNames(scope: AppSignOutEraseScope): readonly [string, string] {
 }
 async function otherDatabaseNames(scope: AppSignOutEraseScope, ledger: string, unlabelled: string): Promise<string[]> {
   const others = new Set<string>(scope.isolated ? [] : scope.databases);
-  if (!scope.isolated) others.add(unlabelled); // an earlier unlabelled slot of this app (removed below when it is the current one)
+  if (!scope.isolated && scope.storageNamespace === undefined) others.add(unlabelled); // an earlier unlabelled slot of this app (removed below when it is the current one)
   const { accountId: account, connectorId: connector, deviceId: device, installationId: installation } = scope;
   if (account && connector && device && installation) {
     const keyIds = [account, connector, device, installation].map(hex).join(".");
@@ -139,8 +140,10 @@ export async function eraseAppInstallationData(scope: AppSignOutEraseScope): Pro
   const ledger = await deleteDatabase(current);
   let others: string[] | null = null;
   try { others = await otherDatabaseNames(scope, current, unlabelled); } catch { /* malformed scope: leftovers reported below */ }
-  // The log token cache (P5) holds only this installation's device tokens.
-  const results = others ? await Promise.all([...others, ...(scope.isolated ? [] : [LOG_TOKEN_DATABASE])].map(deleteDatabase)) : [false];
+  // Preserve legacy default erasure. Namespace callers share the cache DB,
+  // so they remove only their CP/connector/device records below.
+  const results = others ? await Promise.all([...others, ...(scope.isolated || scope.storageNamespace !== undefined ? [] : [LOG_TOKEN_DATABASE])].map(deleteDatabase)) : [false];
+  const tokens = scope.storageNamespace === undefined ? true : await bounded(eraseAppLogTokens(scope), false);
   const replicas = scope.accountId && scope.installationId ? await removeReplicas(scope.accountId, scope.installationId).catch(() => false) : true;
-  return Object.freeze({ ledger, complete: ledger && replicas && results.every(Boolean) });
+  return Object.freeze({ ledger, complete: ledger && tokens && replicas && results.every(Boolean) });
 }

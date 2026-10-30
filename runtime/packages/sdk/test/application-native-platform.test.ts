@@ -20,7 +20,7 @@ describe("declared native production loopback",()=>{
     expect(appOriginPlatform(origin)).toBeNull();
     expect(compileApplicationManifest(declaration(origin)).manifest).toMatchObject({platform:"native",homepage:origin});
     expect(()=>declaration(origin,null)).toThrow();
-    expect(selectAppEnvironment({environment:"production",appOrigin:origin,platform:"native",release:release()}).allowLoopbackHttp).toBe(true);
+    expect(selectAppEnvironment({environment:"production",appOrigin:origin,platform:"native",release:release()})).toMatchObject({allowLoopbackHttp:false,allowNativeLoopbackHttp:true});
     expect(()=>selectAppEnvironment({environment:"production",appOrigin:origin,release:release()})).toThrow();
     expect(declaredReturnUrl(`${origin}/callback`,manifest(origin),false)).toBe(true);
     expect(declaredReturnUrl(`${origin}/other`,manifest(origin),false)).toBe(false);
@@ -58,7 +58,7 @@ describe("declared native production loopback",()=>{
     const origin="http://127.0.0.1:49152",bytes=Uint8Array.of(0,97,115,109),sha256=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),x=>x.toString(16).padStart(2,"0")).join("");
     const asset={url:`${origin}/runtime.wasm`,sha256,bytes:4,maxBytes:4},fetch=vi.fn(async()=>new Response(bytes));
     const assets=applicationNativeAssets(declaration(origin),{release,runtime:asset,sqlite:asset,initializeSqlite:vi.fn()},vi.fn(),fetch);
-    expect(assets.environment.appOrigin).toBe(origin);expect(assets.collection.allowLoopbackHttp).toBe(true);
+    expect(assets.environment.appOrigin).toBe(origin);expect(assets.collection.allowLoopbackHttp).toBe(false);expect(assets.collection.allowNativeLoopbackHttp).toBe(true);
     expect(await assets.loadRuntime({signal:new AbortController().signal})).toEqual(bytes);
     expect(assets.collection.setupJournal.appOrigin).toBe(origin);
   });

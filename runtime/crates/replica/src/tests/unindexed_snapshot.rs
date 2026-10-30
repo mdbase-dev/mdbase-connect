@@ -88,7 +88,7 @@ fn build_source(attachment: bool, plain: &[u8]) -> (Node, rt::ManifestPayload, H
         .unwrap();
     a.r.build_snapshot_now().unwrap();
     let mut manifest = None;
-    for call in a.r.take_log_calls() {
+    for call in snapshot_uploads(&mut a) {
         if let LogRequest::PutObject {
             address,
             bytes,
@@ -106,6 +106,25 @@ fn build_source(attachment: bool, plain: &[u8]) -> (Node, rt::ManifestPayload, H
     }
     let (m, h) = manifest.expect("guarded native manifest");
     (a, m, h, objects)
+}
+/// Every object a just-started snapshot build uploads. Uploads are paced, so
+/// each one but the manifest (sent last) is acknowledged to release the next.
+pub(super) fn snapshot_uploads(a: &mut Node) -> Vec<crate::log::LogCall> {
+    let mut out = Vec::new();
+    loop {
+        let calls = a.r.take_log_calls();
+        if calls.is_empty() {
+            return out;
+        }
+        for call in calls {
+            if let LogRequest::PutObject { kind, .. } = &call.request
+                && *kind != ItemKind::Manifest
+            {
+                a.r.on_log_reply(call.id, Ok(LogResponse::PutObject { existed: false }));
+            }
+            out.push(call);
+        }
+    }
 }
 pub(super) fn receiver(a: &Node, m: &rt::ManifestPayload, h: Hash) -> Node {
     let mut b = node();

@@ -9,7 +9,7 @@ import { AppCollectionDeleteError, collectionDeleteError } from "./collection-de
 import { webSignInProblem, type AppWebSignInProblemDetail } from "./web-sign-in-problem.js";
 import { appBrowserDirectAccess, type AppBrowserDirectAccessOptions, type AppBrowserDirectAccessSnapshot } from "./browser-direct-access.js";
 import { AppCloudCopyBootstrapError, type AppBundledReleaseTrust } from "./cloud-copy-bootstrap.js";
-import { selectAppEnvironment } from "./app-environment.js";
+import { selectAppEnvironment, type AppEnvironmentSelection } from "./app-environment.js";
 import { acquireAppInstallationLease, acquireAppReplicaLease, type AppInstallationCustodyAuthority, type AppReplicaLease, type AppReplicaScope } from "./owner.js";
 import { eraseAppInstallationData, eraseAppCollectionAccess } from "./sign-out-erase.js";
 import type { AppLogHealth } from "./log-pump.js";
@@ -181,6 +181,7 @@ export class AppWebSignInSession<Connection> {
   // Replaced by signOut, so Sign in works again in the same session.
   private flowLifetime = new AbortController();
   private readonly options: Readonly<AppWebSignInSessionOptions<Connection>>;
+  private readonly environment: AppEnvironmentSelection;
   private readonly listeners = new Set<() => void>();
   private flow: AppProtectedInstallationSignIn | null = null;
   private host: AppWebCloudCopyHost | null = null;
@@ -223,7 +224,7 @@ export class AppWebSignInSession<Connection> {
   constructor(options: AppWebSignInSessionOptions<Connection>) {
     this.options = Object.freeze({...options});
     // Validate the authenticated environment before touching storage or HTTP.
-    selectAppEnvironment({environment: options.environment, appOrigin: options.origin, release: options.release});
+    this.environment = selectAppEnvironment({environment: options.environment, appOrigin: options.origin, platform: options.allowNativeLoopbackHttp ? "native" : undefined, release: options.release});
     options.signal.addEventListener("abort", this.onAbort, {once: true});
     this.lifetime.signal.addEventListener("abort", this.abortCollections, {once: true});
   }
@@ -354,7 +355,7 @@ export class AppWebSignInSession<Connection> {
       this.publish({status: "starting", problem: null, signOutResult: null});
       const p = this.options;
       this.flow = await AppProtectedInstallationSignIn.open({...p, mode: p.storeMode ?? "open", signal: this.flowLifetime.signal,
-        environmentSelection: selectAppEnvironment({environment: p.environment, appOrigin: p.origin, release: p.release})});
+        environmentSelection: this.environment});
       this.check();
       // Local ledger only: the pairing request is created by the sign-in
       // gesture (authorize), never by a page load.
@@ -614,7 +615,7 @@ export class AppWebSignInSession<Connection> {
       this.host = await AppWebCloudCopyHost.openInstallationDevice({signIn: this.flow!, installation: this.installation,
         release: this.options.release, origin: this.options.origin, signal: this.lifetime.signal,
         loadRuntime: this.options.loadRuntime,
-        allowLoopbackHttp: selectAppEnvironment({environment: this.options.environment, appOrigin: this.options.origin, release: this.options.release}).allowLoopbackHttp}); this.check();
+        allowLoopbackHttp: this.environment.allowLoopbackHttp, allowNativeLoopbackHttp: this.environment.allowNativeLoopbackHttp}); this.check();
       this.acknowledged = this.flow!.view().state === "paired";
     } else if (!this.acknowledged && this.flow!.view().state === "paired") {
       await this.host.completeInstallationSignIn(); this.check(); this.acknowledged = true;
@@ -965,6 +966,7 @@ export class AppWebSignInSession<Connection> {
       this.receiptRead = null; this.foregroundRead = null; this.forgotten.clear(); this.removedScopes.clear();
       const p = this.options;
       const local = await eraseAppInstallationData({cpOrigin: p.cpOrigin, appId: p.appId, ...(p.owner === undefined ? {} : {owner: p.owner}),
+        ...(p.storageNamespace === undefined ? {} : {storageNamespace: p.storageNamespace}),
         accountId: view?.accountId ?? null, connectorId, installationId: view?.installationId ?? null, deviceId: view?.deviceId ?? null,
         collectionIds, databases: p.localDatabases ?? [], ...(p.recoveryFor ? {isolated: true} : {})});
       this.check();

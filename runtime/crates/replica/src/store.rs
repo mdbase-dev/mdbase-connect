@@ -415,7 +415,7 @@ pub struct TailRow {
     pub applied_at: TimeMs,
 }
 
-/// Size of the retained tail, kept by stores without scanning.
+/// Size of a retained set (raw tail or confirmed own history).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TailStats {
     /// Lowest retained position (0 when empty).
@@ -424,7 +424,7 @@ pub struct TailStats {
     pub last: Seq,
     /// Rows retained.
     pub count: u64,
-    /// Sum of `item` lengths.
+    /// Sum of item lengths (tail) or canonical encoded row lengths (own).
     pub bytes: u64,
 }
 
@@ -437,7 +437,8 @@ pub struct TailRetention {
     pub min_positions: u64,
     /// Keep everything applied within this long.
     pub min_age_ms: i64,
-    /// Never keep more than this many item bytes.
+    /// Hard aggregate budget for exact item bytes plus encoded own-intent rows.
+    /// Pending (unconfirmed) writes are not part of this evictable history.
     pub max_bytes: u64,
 }
 
@@ -1205,6 +1206,28 @@ pub trait Store {
     /// Own-retained rows with `seq > after`, in `seq` order.
     fn own_retained(&self, _after: Seq, _limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
         Ok(Vec::new())
+    }
+
+    /// Size of confirmed own history, counting canonical `PendingRow::to_bytes`.
+    /// Retaining stores should override this with maintained accounting. The
+    /// fallback scans bounded pages so forwarding stores cannot undercount.
+    fn own_retained_stats(&self) -> StoreResult<TailStats> {
+        let mut stats = TailStats::default();
+        loop {
+            let rows = self.own_retained(stats.last, 1)?;
+            let Some((seq, row)) = rows.first() else {
+                return Ok(stats);
+            };
+            if *seq <= stats.last {
+                return Err(StoreError::Corrupt("own retention order".into()));
+            }
+            if stats.count == 0 {
+                stats.first = *seq;
+            }
+            stats.last = *seq;
+            stats.count += 1;
+            stats.bytes = stats.bytes.saturating_add(row.to_bytes().len() as u64);
+        }
     }
 
     // ---- writes ----

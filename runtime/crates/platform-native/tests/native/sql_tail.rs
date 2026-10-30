@@ -109,6 +109,85 @@ fn file_wrapper_forwards_retention_and_preserves_raw_and_own_on_reopen() {
     assert_eq!(store.own_retained(0, 10).unwrap().len(), 1);
 }
 
+/// Retention uses ordinary DELETEs, not VACUUM. Real SQLite must make their
+/// pages reusable under sustained own-history churn and after closing/reopening.
+#[test]
+fn retained_own_churn_reuses_sqlite_pages_without_vacuum() {
+    let dir = scratch("own-churn-reuse");
+    let path = dir.join("state.db");
+    let mut store = open(&path);
+    let scalar = |store: &SqlStore<SqliteIndex>, pragma: &str| {
+        let rows = store
+            .index()
+            .borrow_mut()
+            .run(&Batch {
+                mode: BatchMode::Autocommit,
+                stmts: vec![Stmt::new(pragma, vec![])],
+            })
+            .unwrap();
+        match rows[0].values.as_slice() {
+            [SqlValue::Integer(n)] => *n,
+            other => panic!("pragma: {other:?}"),
+        }
+    };
+    assert_eq!(scalar(&store, "PRAGMA auto_vacuum"), 0);
+    let mut row = mdbn_store_file::testing::replica::conformance::pending_row(1, 1);
+    row.touches = vec!["large original".repeat(2400)];
+    let own_bytes = row.to_bytes().len() as u64;
+    let mut warm_pages = 0;
+    for seq in 1u64..=300 {
+        // Same paired floor emitted by Replica's budget pruning. Keep four
+        // encoded originals, independent of the much smaller encrypted tail.
+        let floor = seq.saturating_sub(3).max(1);
+        store
+            .commit(Tx {
+                tail_drop_below: Some(floor),
+                own_retained_drop_below: Some(floor),
+                tail_put: vec![TailRow {
+                    seq,
+                    item: vec![7; 128],
+                    applied_at: 0,
+                }],
+                own_retained_put: vec![(seq, row.clone())],
+                ..Tx::default()
+            })
+            .unwrap();
+        assert!(Store::own_retained_stats(&store).unwrap().bytes <= 4 * own_bytes);
+        assert!(store.tail_stats().unwrap().bytes <= 4 * 128);
+        let pages = scalar(&store, "PRAGMA page_count");
+        if seq == 50 {
+            warm_pages = pages;
+        }
+        if seq > 50 {
+            assert!(
+                pages <= warm_pages + 4,
+                "freed own-history pages must be reused"
+            );
+        }
+        if seq == 150 {
+            drop(store);
+            store = open(&path);
+        }
+    }
+    store
+        .commit(Tx {
+            tail_drop_above: Some(0),
+            own_retained_drop_above: Some(0),
+            ..Tx::default()
+        })
+        .unwrap();
+    assert!(scalar(&store, "PRAGMA freelist_count") > 0);
+    drop(store);
+    let store = open(&path);
+    assert_eq!(
+        Store::own_retained_stats(&store).unwrap(),
+        TailStats::default()
+    );
+    assert_eq!(store.tail_stats().unwrap(), TailStats::default());
+    // Physical high-water capacity is retained, not forensic erasure or shrink.
+    assert!(scalar(&store, "PRAGMA page_count") <= warm_pages + 4);
+}
+
 #[test]
 fn retained_tail_oversized_envelope_fails_instead_of_returning_a_prefix() {
     let dir = scratch("tail-bounded-page");

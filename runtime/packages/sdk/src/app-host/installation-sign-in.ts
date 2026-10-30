@@ -287,11 +287,13 @@ export class AppProtectedInstallationSignIn {
       if (selection !== undefined) {
         if (!isAppEnvironmentSelection(selection) || selection.environment !== p.environment ||
             selection.appOrigin !== p.origin || selection.cpOrigin !== p.cpOrigin ||
-            (p.allowLoopbackHttp === true && !selection.allowLoopbackHttp)) throw fail("binding");
+            (p.allowLoopbackHttp === true && !selection.allowLoopbackHttp) ||
+            (p.allowNativeLoopbackHttp === true && !selection.allowNativeLoopbackHttp)) throw fail("binding");
       }
       // The application supplies its exact origin; the origin-bound store and
       // CP registry authorize it. No brand-specific client allowlist.
-      opened = await AppInstallationStore.open({...p, allowLoopbackHttp: selection?.allowLoopbackHttp ?? p.allowLoopbackHttp}, () => {
+      opened = await AppInstallationStore.open({...p, allowLoopbackHttp: selection?.allowLoopbackHttp ?? p.allowLoopbackHttp,
+        allowNativeLoopbackHttp: selection?.allowNativeLoopbackHttp ?? p.allowNativeLoopbackHttp}, () => {
         const bytes = crypto.getRandomValues(new Uint8Array(32));
         try {
           const secret = `pair_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;

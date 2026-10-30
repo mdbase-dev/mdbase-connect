@@ -71,7 +71,7 @@ function workerFixture(f: ReturnType<typeof fixture>) {
   const primary = new MessageChannel(), channel = new MessageChannel(), binding = "foreground_queue_follower";
   const frames: unknown[][] = [];
   channel.port2.onmessage = event => frames.push(event.data);
-  const host = new ApplicationWorkerHost(primary.port1, "foreground_queue_primary", {} as never, {} as never, undefined);
+  const host = new ApplicationWorkerHost(primary.port1, "foreground_queue_primary", {} as never, {} as never, undefined,null);
   host.attach(channel.port1, binding);
   return {frames, send: (requestId: number, action: "foreground" | "start" | "select", payload: string | boolean | null = null) => channel.port2.postMessage([APPLICATION_WORKER_PROTOCOL, binding, requestId, action, payload]),
     close: async () => {try {await host.stop();} finally {channel.port2.close(); primary.port2.close();}}};

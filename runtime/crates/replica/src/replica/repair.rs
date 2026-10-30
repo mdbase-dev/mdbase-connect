@@ -33,15 +33,19 @@ impl<S: Store> Replica<S> {
             .devices
             .get(&self.cfg.device_id)
             .is_some_and(|d| !d.active);
-        if revoked || row.item.len() as u64 > self.tail_retention.max_bytes {
+        let own_bytes = tx.own_retained_put.iter().fold(0u64, |bytes, (_, own)| {
+            bytes.saturating_add(own.to_bytes().len() as u64)
+        });
+        if revoked
+            || (row.item.len() as u64).saturating_add(own_bytes) > self.tail_retention.max_bytes
+        {
             // Current validated policy is persisted by the same head transaction
             // (or was durably read ahead). Rollback must preserve revocation
             // evidence before ever resetting that policy or these retention sets.
             tx.tail_drop_above = Some(0);
             tx.own_retained_drop_above = Some(0);
             tx.own_retained_put.clear();
-        } else {
-            self.prune_retained(&row, &mut tx)?;
+        } else if self.prune_retained(&row, &mut tx)? {
             tx.tail_put.push(row);
         }
         self.commit_with_read_health(Some(head), tx)?;
@@ -81,7 +85,7 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
-    fn prune_retained(&self, new: &TailRow, tx: &mut Tx) -> Result<(), StoreError> {
+    fn prune_retained(&self, new: &TailRow, tx: &mut Tx) -> Result<bool, StoreError> {
         let retention = self.tail_retention;
         let mut stats = self.tail_stats;
         if stats.last >= new.seq
@@ -95,12 +99,38 @@ impl<S: Store> Replica<S> {
             stats.bytes = stats.bytes.saturating_sub(old.item.len() as u64);
             stats.count = stats.count.saturating_sub(1);
         }
-        let mut bytes = stats.bytes.saturating_add(new.item.len() as u64);
+        let own_stats = self
+            .store
+            .own_retained_stats()
+            .map_err(retention_read_error)?;
+        let mut own_bytes = own_stats.bytes;
+        for (seq, row) in &tx.own_retained_put {
+            // Apply currently hands over only the new position. Check rather
+            // than silently misaccount if a future caller changes that contract.
+            if *seq != new.seq {
+                return Err(StoreError::Corrupt("own handover position".into()));
+            }
+            if own_stats.last >= *seq
+                && let Some((old_seq, old)) = self
+                    .store
+                    .own_retained(seq.saturating_sub(1), 1)
+                    .map_err(retention_read_error)?
+                    .first()
+                && old_seq == seq
+            {
+                own_bytes = own_bytes.saturating_sub(old.to_bytes().len() as u64);
+            }
+            own_bytes = own_bytes.saturating_add(row.to_bytes().len() as u64);
+        }
+        let mut bytes = stats
+            .bytes
+            .saturating_add(new.item.len() as u64)
+            .saturating_add(own_bytes);
         let threshold = (retention.min_positions / 20).clamp(1, 1_000);
         let prune_window =
             stats.count.saturating_add(1) > retention.min_positions.saturating_add(threshold);
         if !prune_window && bytes <= retention.max_bytes {
-            return Ok(());
+            return Ok(true);
         }
         let position_floor = new
             .seq
@@ -110,24 +140,51 @@ impl<S: Store> Replica<S> {
         let mut after = 0;
         let mut floor = None;
         loop {
-            // One bounded row at a time, not 64 large envelopes to prune counters.
+            // Merge both ordered sets: raw-tail loss/erasure need not erase
+            // own history. A missing raw row is NOT permission to drop an intent
+            // on age alone, but its bytes still count against the hard budget.
+            // Read one row per set, not a page of potentially large originals.
             let rows = self.store.tail(after, 1).map_err(retention_read_error)?;
-            let Some(old) = rows.first().filter(|r| r.seq < new.seq) else {
+            let own = self
+                .store
+                .own_retained(after, 1)
+                .map_err(retention_read_error)?;
+            let tail = rows.first().filter(|r| r.seq < new.seq);
+            let own = own.first().filter(|(seq, _)| *seq < new.seq);
+            let Some(seq) = tail
+                .map(|r| r.seq)
+                .into_iter()
+                .chain(own.map(|(s, _)| *s))
+                .min()
+            else {
                 break;
             };
-            let expired = prune_window && old.seq < position_floor && old.applied_at < time_floor;
+            let tail = tail.filter(|r| r.seq == seq);
+            let own = own.filter(|(s, _)| *s == seq);
+            let expired = prune_window
+                && seq < position_floor
+                && tail.is_some_and(|r| r.applied_at < time_floor);
             if !expired && bytes <= retention.max_bytes {
                 break;
             }
-            bytes = bytes.saturating_sub(old.item.len() as u64);
-            after = old.seq;
-            floor = old.seq.checked_add(1);
+            bytes = bytes.saturating_sub(tail.map_or(0, |r| r.item.len() as u64));
+            bytes = bytes.saturating_sub(own.map_or(0, |(_, r)| r.to_bytes().len() as u64));
+            after = seq;
+            floor = seq.checked_add(1);
+        }
+        if bytes > retention.max_bytes {
+            // A replayed position can already have an oversized retained own
+            // row even without a new handover. Match oversized-new-item policy.
+            tx.tail_drop_above = Some(0);
+            tx.own_retained_drop_above = Some(0);
+            tx.own_retained_put.clear();
+            return Ok(false);
         }
         if let Some(floor) = floor {
             tx.tail_drop_below = Some(floor);
             tx.own_retained_drop_below = Some(floor);
         }
-        Ok(())
+        Ok(true)
     }
 }
 

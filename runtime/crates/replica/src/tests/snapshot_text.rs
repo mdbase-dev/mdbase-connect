@@ -1,6 +1,6 @@
 use super::{
     engine::Node,
-    unindexed_snapshot::{build, receiver, reply_install},
+    unindexed_snapshot::{build, receiver, reply_install, snapshot_uploads},
 };
 use crate::{
     log::{LogPort, LogRequest, LogResponse},
@@ -39,7 +39,7 @@ fn fixture(doc: &str, source: &[u8]) -> (Node, rt::ManifestPayload, Hash, Object
     a.r.build = None;
     a.r.test_build_native_snapshot().unwrap();
     let mut manifest = None;
-    for c in a.r.take_log_calls() {
+    for c in snapshot_uploads(&mut a) {
         if let LogRequest::PutObject {
             address,
             bytes,

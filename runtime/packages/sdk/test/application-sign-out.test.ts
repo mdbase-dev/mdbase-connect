@@ -25,11 +25,11 @@ const signedOut={status:"signed_out",signIn:null,collections:[],selectedCollecti
 
 class FakeWorker {
   static all:FakeWorker[]=[];static snapshot:unknown=paired;
-  readonly terminate=vi.fn();readonly requests:unknown[][]=[];port:MessagePort|null=null;binding="";
+  readonly terminate=vi.fn();readonly requests:unknown[][]=[];bootstrap:unknown[]=[];port:MessagePort|null=null;binding="";
   constructor(){FakeWorker.all.push(this);}
   addEventListener(){}removeEventListener(){}
   postMessage(message:unknown[],transfer:MessagePort[]){
-    this.binding=message[1] as string;const port=transfer[0]!;this.port=port;
+    this.bootstrap=message;this.binding=message[1] as string;const port=transfer[0]!;this.port=port;
     port.addEventListener("message",event=>{
       const request=event.data as unknown[],action=request[3];if(action==="foreground")return;
       this.requests.push(request);
@@ -41,10 +41,10 @@ class FakeWorker {
 const store=new Map<string,string>();
 const localStorage={getItem:(k:string)=>store.get(k)??null,setItem:(k:string,v:string)=>{store.set(k,v);},removeItem:(k:string)=>{store.delete(k);}};
 const actions=()=>FakeWorker.all.flatMap(w=>w.requests.map(r=>r[3]));
-const page=(href=`${origin}/`)=>{
+const page=(href=`${origin}/`,storage?:{applicationNamespace:string})=>{
   const next=Object.assign(new EventTarget(),{location:{origin,href},history:{state:null,pushState(){},replaceState(){}}});
   vi.stubGlobal("window",next);vi.stubGlobal("location",next.location);
-  const entry=new MdbaseConnect(declaration);return {entry,app:entry.application()};
+  const entry=new MdbaseConnect({...declaration,...(storage?{storage}:{})});return {entry,app:entry.application()};
 };
 beforeEach(()=>{FakeWorker.all=[];FakeWorker.snapshot=paired;store.clear();vi.stubGlobal("Worker",FakeWorker);vi.stubGlobal("localStorage",localStorage);
   // A browser page also has locks, storage and IndexedDB (entry capability probe).
@@ -72,6 +72,14 @@ describe("front door additions",()=>{
   });
 });
 describe("sign out (UX-011)",()=>{
+  it("binds namespace before registration and sends it only for an override",async()=>{
+    const a=page(`${origin}/`,{applicationNamespace:"vault-a"});await a.app.start();
+    expect(FakeWorker.all[0]!.bootstrap[3]).toBe("vault-a");
+    const b=page();await b.app.start();
+    expect(FakeWorker.all[1]!.bootstrap).toHaveLength(3);
+    expect((FakeWorker.all[1]!.bootstrap[2] as {storage:{applicationNamespace:string}}).storage.applicationNamespace).toBe("55555555-5555-4555-8555-555555555555");
+    await a.app.close();await b.app.close();
+  });
   it("signs out, drops the Worker and this page's storage; the next start uses a fresh Worker",async()=>{
     const {app}=page();await app.start();await app.forget(B);
     expect([...store.keys()].some(k=>k.startsWith("mdbase.org.example.app."))).toBe(true);

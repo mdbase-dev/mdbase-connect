@@ -58,6 +58,7 @@ test("local SDK builder packages the local runtime under the name its selector l
     // The generated packaging step copies the same file the selector loads.
     execFileSync(process.execPath, [join(outputDirectory, "scripts/package-local-assets.mjs")]);
     expect(readFileSync(join(outputDirectory, "dist/native/runtime-local.wasm")).equals(runtime)).toBe(true);
+    expect(existsSync(join(outputDirectory, "dist/native/sqlite3-opfs-async-proxy.js"))).toBe(true);
     expect(existsSync(join(outputDirectory, "dist/native/provenance.local.json"))).toBe(true);
   } finally { rmSync(directory, {recursive: true}); }
 });

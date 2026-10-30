@@ -23,6 +23,7 @@ import {
 import { selectAppEnvironment } from "../app-host/app-environment.js";
 import type { AppInstallationCollection } from "../app-host/installation-sign-in.js";
 import { applicationDeclaration, type MdbaseApplicationDeclaration } from "../application/declaration.js";
+import { applicationStorageNamespace, applicationStorageOwner } from "../application/storage-scope.js";
 import { compileApplicationManifest } from "../application/manifest.js";
 import { appReleaseTrust } from "../application/packaged-trust.js";
 import { resolveApplicationRegistration, type ApplicationRegistration } from "../application/registration.js";
@@ -330,12 +331,13 @@ export class MdbaseAppGrants {
   private ownerValue: string | null = null;
   /**
    * The local owner of this app's grants: its manifest family from the ORIGINAL
-   * declaration, never the CP-assigned id. It labels the default store and binds
+   * declaration plus an optional storage namespace, never the CP-assigned id.
+   * It labels the default store and binds
    * the refresh ciphertext, so a wrong registration id cannot select, use or
    * delete another app's grants.
    */
   private owner(): string {
-    return this.ownerValue ??= `bundle:${String((compileApplicationManifest(this.declaration).manifest as { id?: unknown }).id)}`;
+    return this.ownerValue ??= applicationStorageOwner(compileApplicationManifest(this.declaration).manifest.id, applicationStorageNamespace(this.declaration));
   }
 
   private async store(): Promise<AppGrantStore> {

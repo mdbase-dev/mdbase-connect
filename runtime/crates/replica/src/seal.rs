@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 
 use mdbn_wire::common::{B16, B32, Signature, Uuid};
-use mdbn_wire::envelope::{Item, KeyGrantPayload, RekeyPayload, RekeyReason};
+use mdbn_wire::envelope::{Item, KeyGrantPayload, RekeyPayload, RekeyReason, SealedBox};
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::crypto::chunked_blob::upload_resume::{
@@ -415,7 +415,8 @@ pub struct KeyringSealer {
     kem: KemKeyPair,
     keys: Keyring,
     commits: BTreeMap<u64, B32>,
-    history: Option<(u64, mdbn_wire::envelope::SealedBox)>,
+    /// History boxes of applied rekeys, for a device later keyed by a grant.
+    histories: BTreeMap<u64, SealedBox>,
     epoch: u64,
     verifier: Ed25519Verifier,
 }
@@ -445,7 +446,7 @@ impl KeyringSealer {
             kem: KemKeyPair::from_secret(kem_sk),
             keys: Keyring::new(),
             commits: BTreeMap::new(),
-            history: None,
+            histories: BTreeMap::new(),
             epoch: 0,
             verifier: Ed25519Verifier,
         }
@@ -901,7 +902,9 @@ impl Sealer for KeyringSealer {
 
     fn accept_rekey(&mut self, p: &RekeyPayload) -> KeyEvent {
         self.commits.insert(p.epoch, p.commit);
-        self.history = Some((p.epoch, p.history.clone()));
+        if p.from != 0 {
+            self.histories.insert(p.epoch, p.history.clone());
+        }
         match keys::open_rekey(p, &self.collection, &self.device, &self.kem) {
             Ok(RekeyOpened::Keys { key, history }) => {
                 for h in history {
@@ -947,18 +950,18 @@ impl Sealer for KeyringSealer {
         };
         match keys::open_key_grant(p, &self.collection, &self.kem, &commit) {
             Ok(k) => {
-                // A later recipient gets the current key through a grant, not
-                // the original rekey wraps. Recover the same authenticated
-                // history box once that key is held; never invent another epoch.
-                if let Some((epoch, history)) = &self.history
-                    && *epoch == p.epoch
-                    && let Ok(old) = keys::open_history(&k, &self.collection, *epoch, history)
+                // The granted key opens the history box of the rekey that created
+                // its epoch, and so every older epoch (`sealed-envelope.md` §5.3),
+                // `K_1` for idempotency tokens included. As for a rekey, an older
+                // key is used only once checked against its applied commitment.
+                if let Some(b) = self.histories.get(&p.epoch)
+                    && let Ok(history) = keys::open_history(&k, &self.collection, p.epoch, b)
                 {
-                    for h in old {
-                        if let Some(commit) = self.commits.get(&h.epoch())
-                            && let Ok((e, k)) = h.verify(&self.collection, commit)
+                    for h in history {
+                        if let Some(c) = self.commits.get(&h.epoch()).copied()
+                            && let Ok((e, old)) = h.verify(&self.collection, &c)
                         {
-                            self.keys.insert(e, k);
+                            self.keys.insert(e, old);
                         }
                     }
                 }
@@ -1122,7 +1125,6 @@ impl Sealer for KeyringSealer {
         .map_err(|_| bad())?;
         let k = b.get(8..8 + n).ok_or_else(bad)?;
         self.keys = Keyring::from_bytes(k)?;
-        self.history = None;
         let rest = &b[8 + n..];
         if !rest.len().is_multiple_of(40) {
             return Err(bad());

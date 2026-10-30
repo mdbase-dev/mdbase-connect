@@ -15,6 +15,10 @@
     "initializer": {
       "sha256": "a6d3fe46aa3f924e7686329f97b0564549ef1f787e0c19924179aef7f72bcc01",
       "bytes": 642742
+    },
+    "asyncProxy": {
+      "sha256": "9f1970e05ee07a79332498858740b705eeb1dcee03bc150f6f690bc0fb5f0a06",
+      "bytes": 32505
     }
   }
 }

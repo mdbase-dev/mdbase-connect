@@ -11,6 +11,8 @@ export interface AppEnvironmentSelection {
   readonly logOrigin: string;
   readonly assetSha256: string;
   readonly allowLoopbackHttp: boolean;
+  /** Native app-origin storage only; never CP/log HTTP or test trust. */
+  readonly allowNativeLoopbackHttp: boolean;
 }
 const selections = new WeakSet<object>();
 const invalid = () => new Error("app environment: explicit authenticated build context required");
@@ -47,7 +49,8 @@ export function selectAppEnvironment(input: {
   if (local && ![cpOrigin, logOrigin, appOrigin].every(localApplicationOrigin)) throw invalid();
   if (!isAppOrigin(appOrigin, applicationLoopbackAllowed(environment), input.platform)) throw invalid();
   const selected = Object.freeze({environment, appOrigin, cpOrigin, logOrigin, assetSha256: release.assetSha256,
-    allowLoopbackHttp: new URL(appOrigin).protocol === "http:"});
+    allowLoopbackHttp: applicationLoopbackAllowed(environment) && new URL(appOrigin).protocol === "http:",
+    allowNativeLoopbackHttp: input.platform === "native" && isAppOrigin(appOrigin, false, "native") && new URL(appOrigin).protocol === "http:"});
   selections.add(selected); return selected;
 }
 /** Only a previously validated immutable selection, not a copied/redirect object.

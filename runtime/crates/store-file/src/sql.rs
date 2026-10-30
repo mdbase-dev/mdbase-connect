@@ -1533,6 +1533,9 @@ impl<I: IndexStorage> Store for SqlStore<I> {
     fn tail_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
         tail::stats(self, "st_tail", "tail")
     }
+    fn own_retained_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
+        SqlStore::own_retained_stats(self)
+    }
     fn own_retained(&self, after: u64, limit: u32) -> StoreResult<Vec<(u64, PendingRow)>> {
         tail::own(self, after, limit)
     }

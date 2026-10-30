@@ -282,6 +282,7 @@ RecordSessionSnapshot -> RecordSessionSnapshot@records/types.ts
 RecordSessionState -> RecordSessionState@records/types.ts
 RecordValidation -> RecordValidation@validation.ts
 RecordView -> RecordView@wire.ts
+RecordWrite -> RecordWrite@client.ts
 Recovery -> Recovery@wire.ts
 recoveryFor -> recoveryFor@errors.ts
 RecoveryKeyStatus -> RecoveryKeyStatus@private.ts
@@ -550,6 +551,7 @@ RecordSessionSnapshot -> RecordSessionSnapshot@records/types.ts
 RecordSessionState -> RecordSessionState@records/types.ts
 RecordValidation -> RecordValidation@validation.ts
 RecordView -> RecordView@wire.ts
+RecordWrite -> RecordWrite@client.ts
 Recovery -> Recovery@wire.ts
 recoveryFor -> recoveryFor@errors.ts
 RecoveryKeyStatus -> RecoveryKeyStatus@private.ts
@@ -906,6 +908,7 @@ RecordSessionSnapshot -> RecordSessionSnapshot@records/types.ts
 RecordSessionState -> RecordSessionState@records/types.ts
 RecordValidation -> RecordValidation@validation.ts
 RecordView -> RecordView@wire.ts
+RecordWrite -> RecordWrite@client.ts
 Recovery -> Recovery@wire.ts
 recoveryFor -> recoveryFor@errors.ts
 RecoveryKeyStatus -> RecoveryKeyStatus@private.ts
@@ -1563,6 +1566,7 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export UpdateInput
   export WriteOptions
   export Write
+  export RecordWrite
   export LiveQuery
   export FenceHandler
   export MdbaseClient
@@ -2298,6 +2302,7 @@ AppDeviceRegistrationReceipt@app-host/wasm-runtime.ts
 
 AppEnvironmentSelection@app-host/app-environment.ts
   readonly allowLoopbackHttp: boolean
+  readonly allowNativeLoopbackHttp: boolean
   readonly appOrigin: string
   readonly assetSha256: string
   readonly cpOrigin: string
@@ -2413,6 +2418,7 @@ AppHttpLogTransport@app-host/http-log.ts
 
 AppIndexedDbDeviceKeyOptions@app-host/device-key-idb.ts
   readonly allowLoopbackHttp?: boolean | undefined
+  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly mode: 'fresh' | 'existing'
   readonly origin: string
   readonly signal: AbortSignal
@@ -2433,6 +2439,7 @@ AppIndexedDbDeviceKeyProvider@app-host/device-key-provider.ts
 
 AppIndexedDbDeviceKeyProviderOptions@app-host/device-key-provider.ts
   readonly allowLoopbackHttp?: boolean | undefined
+  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly mode: 'fresh' | 'existing'
   readonly origin: string
   readonly signal: AbortSignal
@@ -2440,6 +2447,7 @@ AppIndexedDbDeviceKeyProviderOptions@app-host/device-key-provider.ts
 
 AppIndexedDbNoiseOptions@app-host/noise-idb.ts
   allowLoopbackHttp?: boolean | undefined
+  readonly allowNativeLoopbackHttp?: boolean | undefined
   mode: 'fresh' | 'existing'
   origin: string
   signal: AbortSignal
@@ -2513,6 +2521,7 @@ AppInstallationSignInError@app-host/installation-sign-in.ts
 
 AppInstallationSignInOptions@app-host/installation-sign-in.ts
   readonly allowLoopbackHttp?: boolean | undefined
+  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly appId: string
   readonly appName: string
   readonly cpOrigin: string
@@ -2528,6 +2537,7 @@ AppInstallationSignInOptions@app-host/installation-sign-in.ts
   readonly recoveryFor?: Readonly<{ accountId: string; collectionId: string; }> | undefined
   readonly requestedCreateCollections?: boolean | undefined
   readonly signal: AbortSignal
+  readonly storageNamespace?: string | undefined
 
 AppInstallationSignInView@app-host/installation-sign-in.ts
   readonly accountEmail?: string | null | undefined
@@ -2561,6 +2571,7 @@ AppInstallationStore@app-host/installation-store.ts
 
 AppInstallationStoreOptions@app-host/installation-store.ts
   readonly allowLoopbackHttp?: boolean | undefined
+  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly appId: string
   readonly cpOrigin: string
   readonly locks: AppLockPort | undefined
@@ -2568,6 +2579,7 @@ AppInstallationStoreOptions@app-host/installation-store.ts
   readonly origin: string
   readonly owner?: string | undefined
   readonly signal: AbortSignal
+  readonly storageNamespace?: string | undefined
 
 AppInstallationTimerChannel@app-host/installation-sign-in.ts
   readonly channelId: string | null
@@ -3019,7 +3031,7 @@ AppWebCloudCopyHost@app-host/cloud-copy-host.ts
   adoptCloudCopy: (options: AppCloudCopyAdoptionOptions, sql: AppSqlLifetime) => void
   attachDataFacade: (channel: MessagePort) => ReturnType<typeof attachAppLocalFacade>['resourceSetup']
   attestInstallation: () => Promise<AppInstallationSignInView>
-  bootstrapCloudCopy: (options: { scope: Readonly<AppReplicaScope>; collectionCurrent(): boolean; purpose: 'create' | 'join'; outcomeMode: 'fresh' | 'existing'; signal: AbortSignal; reconcile?: 'explicit-unknown-outcome'; displayName?: string; fetch?: typeof fetch; allowLoopbackHttp?: boolean; }) => Promise<AppCloudCopyBootstrapMetadata>
+  bootstrapCloudCopy: (options: { scope: Readonly<AppReplicaScope>; collectionCurrent(): boolean; purpose: 'create' | 'join'; outcomeMode: 'fresh' | 'existing'; signal: AbortSignal; reconcile?: 'explicit-unknown-outcome'; displayName?: string; fetch?: typeof fetch; allowLoopbackHttp?: boolean; allowNativeLoopbackHttp?: boolean; }) => Promise<AppCloudCopyBootstrapMetadata>
   close: () => Promise<void>
   completeInstallationSignIn: () => Promise<AppDeviceRegistrationReceipt>
   detachDataFacade: (channel: MessagePort) => void
@@ -3040,11 +3052,12 @@ AppWebCloudCopyHost@app-host/cloud-copy-host.ts
   waitForVerifiedRead: (options: { signal: AbortSignal; timeoutMs?: number; onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void; cold?: boolean; }) => Promise<void>
   wakeCollectionLog: (options: { signal: AbortSignal; }) => Promise<void>
   static new (source: AppCloudCopyHostSession, installation: AppInstallationCustodyAuthority, originalRelease: AppCloudCopyHostRelease, origin: string, lifetime: AbortSignal): AppWebCloudCopyHost
-  static openInstallationDevice: (options: { signIn: AppProtectedInstallationSignIn; installation: AppInstallationCustodyAuthority; release: AppCloudCopyHostRelease; origin: string; signal: AbortSignal; loadRuntime(options: { signal: AbortSignal; }): Promise<Uint8Array>; allowLoopbackHttp?: boolean; }) => Promise<AppWebCloudCopyHost>
-  static openOriginalDevice: (options: { session: AppCloudCopyHostSession; installation: AppInstallationCustodyAuthority; release: AppCloudCopyHostRelease; origin: string; mode: 'fresh' | 'existing'; signal: AbortSignal; loadRuntime(options: { signal: AbortSignal; }): Promise<Uint8Array>; fetch?: typeof fetch; allowLoopbackHttp?: boolean; }) => Promise<AppWebCloudCopyHost>
+  static openInstallationDevice: (options: { signIn: AppProtectedInstallationSignIn; installation: AppInstallationCustodyAuthority; release: AppCloudCopyHostRelease; origin: string; signal: AbortSignal; loadRuntime(options: { signal: AbortSignal; }): Promise<Uint8Array>; allowLoopbackHttp?: boolean; allowNativeLoopbackHttp?: boolean; }) => Promise<AppWebCloudCopyHost>
+  static openOriginalDevice: (options: { session: AppCloudCopyHostSession; installation: AppInstallationCustodyAuthority; release: AppCloudCopyHostRelease; origin: string; mode: 'fresh' | 'existing'; signal: AbortSignal; loadRuntime(options: { signal: AbortSignal; }): Promise<Uint8Array>; fetch?: typeof fetch; allowLoopbackHttp?: boolean; allowNativeLoopbackHttp?: boolean; }) => Promise<AppWebCloudCopyHost>
 
 AppWebCollectionAdapterOptions@app-host/web-collection.ts
   readonly allowLoopbackHttp?: boolean | undefined
+  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly fetch?: { (input: RequestInfo | URL, init?: RequestInit): Promise<Response>; (input: string | URL | Request, init?: RequestInit): Promise<Response>; } | undefined
   handoff: (value: AppWebCollectionHandoff) => void
   readonly joinDatabaseName: string
@@ -3176,6 +3189,7 @@ AppWebSignInSession@app-host/web-sign-in-session.ts
 AppWebSignInSessionOptions@app-host/web-sign-in-session.ts
   <Connection>
   readonly allowLoopbackHttp?: boolean | undefined
+  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly appId: string
   readonly appName: string
   readonly autoSelect?: 'only' | 'never' | undefined
@@ -3195,6 +3209,7 @@ AppWebSignInSessionOptions@app-host/web-sign-in-session.ts
   readonly release: AppBundledReleaseTrust
   readonly requestedCreateCollections?: boolean | undefined
   readonly signal: AbortSignal
+  readonly storageNamespace?: string | undefined
   readonly storeMode?: 'open' | 'fresh' | 'existing' | undefined
 
 AppWebSignInSnapshot@app-host/web-sign-in-session.ts
@@ -4315,7 +4330,7 @@ MdbaseClient@client.ts
   changes: (cursor?: string, limit?: number, signal?: AbortSignal) => Promise<ChangesResult>
   close: () => void
   readonly collection: string
-  create: (input: CreateInput, o?: WriteOptions) => Promise<Write>
+  create: (input: CreateInput, o?: WriteOptions) => Promise<RecordWrite>
   createType: (document: string, o?: WriteOptions) => Promise<TypeCreation>
   currentSession: () => Session
   delete: (target: RecordRef, o?: WriteOptions & { ifRevision?: string; contract?: ContractSelector; }) => Promise<Write>
@@ -5206,6 +5221,17 @@ RecordView@wire.ts
   state: RecordState
   types: string[]
   values?: FmMap | undefined
+
+RecordWrite@client.ts
+  readonly confirmed: Promise<Receipt>
+  readonly mutationId: string
+  onReceipt: (fn: ReceiptListener) => () => void
+  readonly published: Promise<Receipt>
+  receipt: Receipt
+  readonly recordId: string
+  readonly records: RecordView[]
+  readonly state: import("src/wire").ReceiptState
+  update: (r: Receipt) => void
 
 Records@records/types.ts
   open: (ref: RecordRef, options?: RecordOpenOptions) => Promise<RecordLease>

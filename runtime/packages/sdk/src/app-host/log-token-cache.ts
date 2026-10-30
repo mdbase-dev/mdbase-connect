@@ -4,7 +4,7 @@
  * mint, two CP round trips) on every open. The token is no more powerful than
  * the device key beside it in this origin's storage, which can mint one; RPCs
  * are still signed per request. A refused token is dropped; signing out deletes
- * the database.
+ * its scoped records (legacy default sign-out deletes the database).
  */
 export const LOG_TOKEN_DATABASE = "mdbase.app.log-token.v1";
 const STORE = "tokens";
@@ -57,5 +57,30 @@ export function idbLogTokenCache(): AppLogTokenCache | null {
     },
     async write(key: string, token: AppLogToken) { await run("readwrite", store => store.put({ value: token.value, expires: token.expires }, key)).catch(() => null); },
     async drop(key: string) { await run("readwrite", store => store.delete(key)).catch(() => null); },
+  });
+}
+
+/** Remove only this installation's device tokens, including unlisted collections
+ * and earlier log origins. A pre-pairing slot has no device tokens to erase.
+ * Match the exact CP/connector/device tuple written by AppCpLogAuthority. */
+export async function eraseAppLogTokens(scope: {readonly cpOrigin:string;readonly connectorId:string|null;readonly deviceId:string|null}):Promise<boolean> {
+  const {cpOrigin,connectorId,deviceId}=scope;
+  if(!connectorId||!deviceId)return true;
+  const db=await open();
+  if(!db)return false;
+  return new Promise<boolean>(resolve=>{
+    try {
+      const tx=db.transaction(STORE,"readwrite"),cursor=tx.objectStore(STORE).openCursor();
+      cursor.onsuccess=()=>{
+        const row=cursor.result;if(!row)return;
+        if(typeof row.key==="string"){
+          const parts=row.key.split(" ");
+          if(parts.length===5&&parts[0]===cpOrigin&&parts[2]===connectorId&&parts[3]===deviceId)row.delete();
+        }
+        row.continue();
+      };
+      tx.oncomplete=()=>{db.close();resolve(true);};
+      tx.onerror=tx.onabort=()=>{db.close();resolve(false);};
+    }catch{db.close();resolve(false);}
   });
 }

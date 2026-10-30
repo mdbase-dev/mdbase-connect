@@ -15,6 +15,7 @@ mod join_ahead;
 mod link_where;
 mod mirror_admission;
 mod pending_inventory;
+mod projected_budget;
 mod query_cursor;
 mod resource_list;
 mod resources;

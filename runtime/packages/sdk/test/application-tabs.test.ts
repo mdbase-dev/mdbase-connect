@@ -24,6 +24,30 @@ afterEach(()=>{for(const tabs of live.splice(0))tabs.release();});
 const next=(port:MessagePort)=>new Promise<MessageEvent>(resolve=>{port.addEventListener("message",resolve,{once:true});port.start();});
 
 describe("one session per app per browser",()=>{
+  it("vault namespaces elect separate Workers; sign-out and re-sign-in stay in their tab group",async()=>{
+    const env={locks:webLocks(),BroadcastChannel},lost=vi.fn(),back=vi.fn();
+    const a=new ApplicationTabs({...scope,storageNamespace:"vault/a"},env,vi.fn()),b=new ApplicationTabs({...scope,storageNamespace:"vault/b"},env,lost,back);
+    live.push(a,b);
+    expect((await a.elect(new AbortController().signal)).kind).toBe("leader");
+    a.lead({attach:vi.fn(),detach:vi.fn()});
+    expect((await b.elect(new AbortController().signal)).kind).toBe("leader");
+    b.lead({attach:vi.fn(),detach:vi.fn()});
+    const follower=new ApplicationTabs({...scope,storageNamespace:"vault/b"},env,lost);live.push(follower);
+    expect((await follower.elect(new AbortController().signal)).kind).toBe("follower");
+    a.signedOut();a.resign();
+    expect((await a.elect(new AbortController().signal)).kind).toBe("leader");
+    a.lead({attach:vi.fn(),detach:vi.fn()});a.signedIn();
+    await new Promise(resolve=>setTimeout(resolve,20));
+    expect(b.leader).toBe(true);expect(lost).not.toHaveBeenCalled();expect(back).not.toHaveBeenCalled();
+  });
+  it("keeps default lock and broadcast names exact",async()=>{
+    const locks=webLocks(),request=vi.spyOn(locks,"request"),channels:string[]=[];
+    class Channel extends BroadcastChannel{constructor(name:string){super(name);channels.push(name);}}
+    const a=new ApplicationTabs(scope,{locks,BroadcastChannel:Channel},vi.fn());live.push(a);
+    expect((await a.elect(new AbortController().signal)).kind).toBe("leader");
+    const base=`mdbn-app-tabs/1/${scope.cpOrigin}/${scope.appId}/${scope.build}`;
+    expect(channels).toEqual([base]);expect(request.mock.calls.map(c=>c[0])).toEqual([`${base}/tab/${a.tab}`,`${base}/leader`]);
+  });
   it("a follower reaches the leader's Worker through tunnelled ports, both ways; leaving detaches it; it takes over when the leader goes",async()=>{
     const locks=webLocks(),env={locks,BroadcastChannel};
     const lostB=vi.fn();

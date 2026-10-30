@@ -108,6 +108,15 @@ for(const environment of ["lab","staging","production"])test(`real verifier pack
       assert.throws(()=>select(environment,"https://foreign.example.test"));
     }
     assert.equal(readFileSync(join(f.dir,"dist/native/runtime.wasm")).length,8);
+    // The official initializer resolves its Worker relative to its own URL.
+    // Test the packaged dist, not just the installed dependency or a source list.
+    const initializerUrl=pathToFileURL(join(f.dir,"dist/native/sqlite3.js"));
+    const initializer=readFileSync(initializerUrl,"utf8");
+    const proxyReference=initializer.match(/new URL\("([^"]*opfs-async-proxy\.js)", import.meta.url\)/);
+    assert(proxyReference,"official SQLite Worker URL anchor");
+    const proxy=readFileSync(new URL(proxyReference[1],initializerUrl));
+    assert.equal(proxy.length,f.pins.sqlite.asyncProxy.bytes);
+    assert.equal(hex(proxy),f.pins.sqlite.asyncProxy.sha256);
     const provenance=JSON.parse(readFileSync(join(f.dir,"dist/native/provenance.json")));
     assert.equal(provenance.environment,environment);assert.equal(provenance.verifier.clockOverride,false);
     assert.equal(provenance.handoff.contextSha256,f.receipt.contextSha256);

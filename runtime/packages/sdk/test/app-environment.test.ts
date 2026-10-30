@@ -15,7 +15,7 @@ describe("explicit build environment selection (context validation, not authenti
   });
   it("selects immutable explicit LAB context and no production default", () => {
     const selected = selectAppEnvironment({environment: "lab", appOrigin, release: release()});
-    expect(selected).toEqual({environment: "lab", appOrigin, cpOrigin, logOrigin: "https://log.example.test", assetSha256: "11".repeat(32), allowLoopbackHttp: true});
+    expect(selected).toEqual({environment: "lab", appOrigin, cpOrigin, logOrigin: "https://log.example.test", assetSha256: "11".repeat(32), allowLoopbackHttp: true, allowNativeLoopbackHttp: false});
     expect(Object.isFrozen(selected)).toBe(true);
     expect(() => selectAppEnvironment({environment: undefined as never, appOrigin, release: release()})).toThrow();
     expect(() => selectAppEnvironment({environment: "production", appOrigin: undefined as never, release: release("production")})).toThrow();

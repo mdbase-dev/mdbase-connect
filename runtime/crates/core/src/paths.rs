@@ -687,8 +687,9 @@ impl std::fmt::Display for PathViolation {
 
 /// Whether `c` is invisible or ignored by HFS+ name comparison: zero-width
 /// characters, bidirectional controls, deprecated format characters, word
-/// joiners and the byte-order mark.
-fn is_ignorable(c: char) -> bool {
+/// joiners and the byte-order mark. [`check_path`] refuses any of them
+/// ([`PathViolation::IgnorableCharacter`]).
+pub fn is_ignorable(c: char) -> bool {
     matches!(c as u32,
         0x00AD | 0x034F | 0x115F | 0x1160 | 0x17B4 | 0x17B5 | 0x180B..=0x180F
         | 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x206F | 0x3164 | 0xFE00..=0xFE0F

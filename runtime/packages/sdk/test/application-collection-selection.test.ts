@@ -44,6 +44,19 @@ function setup(href:string,session:ReturnType<typeof signInSession>,memory?:{rea
 }
 
 describe("SDK collection selection: requested URL collection vs usable collection",()=>{
+  it.each(["ready","blocked"] as const)("selecting the same collection during auto-reopen is a no-op and keeps its %s outcome",async status=>{
+    const session=signInSession({collections:[A,B]});
+    session.publish({status:"opening",selectedCollectionId:A});
+    const {selection}=setup(`${origin}/?collection=${A}`,session);
+    await settle();expect(session.opened).toEqual([]);
+    await expect(selection.select(A)).resolves.toMatchObject({state:"opening",requested:{collectionId:A}});
+    expect(session.opened).toEqual([]);
+    session.publish({status,...(status==="blocked"?{problem:"open_failed"}:{})});await settle();
+    expect(selection.getSnapshot()).toMatchObject(status==="ready"?{state:"usable",usable:{collectionId:A}}:{state:"blocked",usable:null});
+    expect(session.opened).toEqual([]);
+    await selection.select(B);expect(session.opened).toEqual([B]);selection.close();
+  });
+
   it("fresh device with a shared link: sign-in approves A and A opens, not another approved collection",async()=>{
     const session=signInSession("signed_out"),{web,selection}=setup(`${origin}/tasks?collection=${A}`,session);await settle();
     expect(selection.getSnapshot()).toMatchObject({state:"pending",requested:{collectionId:A,source:"url",approved:false},usable:null});

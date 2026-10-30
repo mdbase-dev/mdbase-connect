@@ -78,7 +78,7 @@ function leader(){
   const declaration=applicationDeclaration({id:appId,name:"Notes",origin,environment:"production",manifest:{manifest_version:1,id:"dev.example.notes",name:"Notes",homepage:origin,redirect_uris:[`${origin}/callback`],requirements:{access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:[]}}}});
   const packaged={release:()=>release} as unknown as PackagedApplicationNativeAssets;
   const primary=new MessageChannel();
-  const host=new ApplicationWorkerHost(primary.port1,"leader_binding_00001",declaration,packaged,undefined);
+  const host=new ApplicationWorkerHost(primary.port1,"leader_binding_00001",declaration,packaged,undefined,null);
   cleanup.push(()=>host.stop().catch(()=>{}));
   const open=(id:string)=>opened.filter(value=>value.id===id&&!value.closed);
   return {host,session,hosts,opened,open,primary:primary.port2,flow};

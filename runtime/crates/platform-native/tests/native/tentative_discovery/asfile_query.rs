@@ -124,7 +124,7 @@ fn include() -> Include {
 }
 
 #[test]
-fn native_asfile_target_rereads_share_one_budget_and_never_publish_null_prefix() {
+fn native_asfile_targets_share_one_budget_and_never_publish_null_prefix() {
     let path = scratch("native-query-asfile-target-reread-budget").join("state.db");
     let (mut app, session, _index) = open(&path, Rc::new(Probe::default()));
     let service = log();
@@ -133,33 +133,60 @@ fn native_asfile_target_rereads_share_one_budget_and_never_publish_null_prefix()
         "---\nCrew Links:\n{}---\nTask\n",
         "  - '[[People/Alex]]'\n".repeat(600)
     );
+    let large = format!("---\nname: Large\n---\n{}", "x".repeat(400_000));
     submit(
         &mut app,
         session,
         vec![
             create(B16([21; 16]), "Tasks/First.md", &source),
             create(B16([22; 16]), "People/Alex.md", "---\nname: Alex\n---\n"),
+            create(
+                B16([23; 16]),
+                "Other/Second.md",
+                "---\nCrew Links: ['[[People/A]]', '[[People/B]]', '[[People/C]]']\n---\nTask\n",
+            ),
         ],
         41,
     );
+    // One large target per mutation, within the per-entry bound.
+    for (n, name) in [(24, "A"), (25, "B"), (26, "C")] {
+        let id = B16([n; 16]);
+        submit(
+            &mut app,
+            session,
+            vec![create(id, &format!("People/{name}.md"), &large)],
+            n,
+        );
+    }
     settle(&mut app, &service);
-    let query = Value::Map(vec![
-        (
-            "where".into(),
-            Value::Text("file.path == 'Tasks/First.md'".into()),
-        ),
-        (
-            "select".into(),
-            Value::List(vec![selection(
-                "resolved",
-                "raw['Crew Links'].map(l, l.asFile().file.path)",
-            )]),
-        ),
-        ("limit".into(), Value::Int(1)),
-    ]);
-    // Only TWO outer records, but each target reread costs the same invocation.
-    // Native Core's infallible lookup must not disguise exhaustion as null.
-    let error = app.query(session, query, include()).unwrap_err();
+    let query = |folder: &str| {
+        Value::Map(vec![
+            (
+                "where".into(),
+                Value::Text(format!("file.inFolder('{folder}')")),
+            ),
+            (
+                "select".into(),
+                Value::List(vec![selection(
+                    "resolved",
+                    "raw['Crew Links'].map(l, l.asFile().file.path)",
+                )]),
+            ),
+            ("limit".into(), Value::Int(1)),
+        ])
+    };
+    // 600 rereads of ONE target are admitted once per invocation.
+    let result = app.query(session, query("Tasks"), include()).unwrap();
+    assert_eq!(
+        result.records[0].values.as_ref().unwrap().get("resolved"),
+        Some(&Value::List(vec![
+            Value::Text("People/Alex.md".into());
+            600
+        ]))
+    );
+    // Distinct targets still cost the same invocation. Native Core's
+    // infallible lookup must not disguise exhaustion as null.
+    let error = app.query(session, query("Other"), include()).unwrap_err();
     assert_eq!(error.code(), Some(ErrorCode::TooLarge));
     assert_eq!(
         error.problem().reason.as_deref(),

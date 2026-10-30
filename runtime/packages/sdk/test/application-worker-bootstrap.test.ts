@@ -4,7 +4,7 @@ const state=vi.hoisted(()=>({loaded:vi.fn(),constructed:vi.fn(),messages:[] as u
 vi.mock("../src/application/worker-host.js",()=>{
   state.loaded();
   return {ApplicationWorkerHost:class {
-    constructor(port:MessagePort){state.constructed();port.addEventListener("message",event=>state.messages.push(event.data));port.start();}
+    constructor(port:MessagePort,...args:unknown[]){state.constructed(...args);port.addEventListener("message",event=>state.messages.push(event.data));port.start();}
   }};
 });
 vi.mock("../src/application/packaged-assets.js",()=>({packagedApplicationAssets:vi.fn(()=>({}))}));
@@ -32,5 +32,17 @@ it("constructs the original host only after bootstrap binding and preserves queu
 it("rejects an invalid original binding before constructing any host",async()=>{
   await import("../src/application/worker.js");const c=channel(),reply=new Promise<unknown>(resolve=>{c.port2.addEventListener("message",event=>resolve(event.data));c.port2.start();});
   events.dispatchEvent(new MessageEvent("message",{data:[APPLICATION_WORKER_PROTOCOL,binding,{...declaration,origin:"https://other.test"}],ports:[c.port1]}));
+  await expect(reply).resolves.toEqual([APPLICATION_WORKER_PROTOCOL,binding,"fatal",0,{code:"application_worker_binding"}]);expect(state.constructed).not.toHaveBeenCalled();
+});
+
+it("passes only the declaration namespace to the original Worker session",async()=>{
+  await import("../src/application/worker.js");const c=channel();
+  events.dispatchEvent(new MessageEvent("message",{data:[APPLICATION_WORKER_PROTOCOL,binding,{...declaration,storage:{applicationNamespace:"vault-a"}},"vault-a"],ports:[c.port1]}));
+  await vi.waitFor(()=>expect(state.constructed).toHaveBeenCalledOnce());
+  expect(state.constructed.mock.calls[0]!.at(-1)).toBe("vault-a");
+});
+it("refuses a substituted namespace before constructing the Worker host",async()=>{
+  await import("../src/application/worker.js");const c=channel(),reply=new Promise<unknown>(resolve=>{c.port2.addEventListener("message",event=>resolve(event.data));c.port2.start();});
+  events.dispatchEvent(new MessageEvent("message",{data:[APPLICATION_WORKER_PROTOCOL,binding,{...declaration,storage:{applicationNamespace:"vault-a"}},"vault-b"],ports:[c.port1]}));
   await expect(reply).resolves.toEqual([APPLICATION_WORKER_PROTOCOL,binding,"fatal",0,{code:"application_worker_binding"}]);expect(state.constructed).not.toHaveBeenCalled();
 });

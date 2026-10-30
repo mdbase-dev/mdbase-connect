@@ -628,7 +628,9 @@ fn retained_tail_byte_cap_overrides_both_windows() {
     settle(&mut [&mut a]);
     a.create(0, "n0.md", "x");
     settle(&mut [&mut a]);
-    let cap = svc.items(&COL).last().unwrap().len() as u64 * 2;
+    let cap = (svc.items(&COL).last().unwrap().len() as u64
+        + a.r.store().own_retained_stats().unwrap().bytes)
+        * 2;
     a.r.set_tail_retention(TailRetention {
         min_positions: 100_000,
         min_age_ms: i64::MAX,
@@ -662,6 +664,149 @@ fn retained_tail_byte_cap_overrides_both_windows() {
         a.doc(9).is_some(),
         "retention never changes apply semantics"
     );
+}
+
+#[test]
+fn retained_budget_never_prunes_unconfirmed_pending_intents() {
+    use crate::Store;
+    use crate::store::{Head, TailRetention, TailRow, Tx};
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    let mut pending = crate::conformance::pending_row(1, 250);
+    pending.touches.push("unconfirmed original".repeat(1000));
+    a.r.store_mut()
+        .commit(Tx {
+            pending_put: vec![pending.clone()],
+            own_retained_put: vec![(1, pending.clone())],
+            ..Tx::default()
+        })
+        .unwrap();
+    a.r.set_tail_retention(TailRetention {
+        max_bytes: 100,
+        ..TailRetention::DESKTOP
+    });
+    let seq = a.r.head().seq + 1;
+    let item = vec![42; 10];
+    let head = Head {
+        seq,
+        chain: mdbn_wire::hash::chain_hash(&item),
+    };
+    a.r.retaining = Some(TailRow {
+        seq,
+        item,
+        applied_at: 0,
+    });
+    a.r.commit_retained(
+        head,
+        Tx {
+            head: Some(head),
+            ..Tx::default()
+        },
+    )
+    .unwrap();
+    assert!(a.r.store().own_retained(0, 10).unwrap().is_empty());
+    assert_eq!(
+        a.r.store().pending_get(&pending.mutation.id).unwrap(),
+        Some(pending)
+    );
+}
+
+#[test]
+fn retained_plaintext_budget_bounds_churn_even_without_raw_tail() {
+    use crate::Store;
+    use crate::store::{TailRetention, Tx};
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    // The fake log codec does not compress. Charge originals independently
+    // rather than relying on the size of their envelopes.
+    let doc = "compressible original intent\n".repeat(300);
+    a.create(1, "churn1.md", &doc);
+    settle(&mut [&mut a]);
+    let cap = 3
+        * (a.r.store().tail_stats().unwrap().bytes
+            + a.r.store().own_retained_stats().unwrap().bytes);
+    a.r.set_tail_retention(TailRetention {
+        min_positions: 100_000,
+        min_age_ms: i64::MAX,
+        max_bytes: cap,
+    });
+    for i in 2..=100 {
+        let receipt = a.create(i, &format!("churn{i}.md"), &doc);
+        settle(&mut [&mut a]);
+        assert!(
+            a.r.store()
+                .pending_get(&receipt.mutation)
+                .unwrap()
+                .is_none()
+        );
+        let tail = a.r.store().tail_stats().unwrap();
+        let own = a.r.store().own_retained_stats().unwrap();
+        assert!(tail.bytes + own.bytes <= cap);
+        assert!(
+            own.count > 0,
+            "in-budget acknowledged originals remain recoverable"
+        );
+        if i > 10 {
+            assert!(
+                own.first > 1,
+                "byte pressure overrides both minimum windows"
+            );
+        }
+        if i == 50 {
+            // Raw tails are best-effort and independent of durable own history.
+            a.r.store_mut()
+                .commit(Tx {
+                    tail_drop_above: Some(0),
+                    ..Tx::default()
+                })
+                .unwrap();
+            a.r.tail_stats_dirty = true;
+            a.r.refresh_retained_stats().unwrap();
+        }
+    }
+    let own = a.r.store().own_retained(0, 100).unwrap();
+    let mut reopened = node(&svc, 1, a.r.into_store());
+    settle(&mut [&mut reopened]);
+    assert_eq!(reopened.r.store().own_retained(0, 100).unwrap(), own);
+    assert!(
+        reopened.r.store().tail_stats().unwrap().bytes
+            + reopened.r.store().own_retained_stats().unwrap().bytes
+            <= cap
+    );
+}
+
+#[test]
+fn retained_oversized_original_confirms_without_retaining_partial_pair() {
+    use crate::Store;
+    use crate::store::TailRetention;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    let doc = "large original\n".repeat(300);
+    a.create(1, "sample.md", &doc);
+    settle(&mut [&mut a]);
+    let cap = svc.items(&COL).last().unwrap().len() as u64 + 1024;
+    a.r.set_tail_retention(TailRetention {
+        max_bytes: cap,
+        ..TailRetention::DESKTOP
+    });
+    let receipt = a.create(2, "oversized-original.md", &doc);
+    settle(&mut [&mut a]);
+    assert!(
+        svc.items(&COL).last().unwrap().len() as u64 <= cap,
+        "raw item alone fits; the original makes the pair oversized"
+    );
+    assert!(a.doc(2).is_some());
+    assert!(
+        a.r.store()
+            .pending_get(&receipt.mutation)
+            .unwrap()
+            .is_none()
+    );
+    assert!(a.r.store().own_retained(0, 100).unwrap().is_empty());
+    assert_eq!(a.r.store().tail_stats().unwrap().count, 0);
 }
 
 #[test]
@@ -1283,6 +1428,65 @@ fn endorsement_requires_matching_state() {
     let mut c = a.log.service().client(B16([9; 16]));
     let r = mdbn_replica_get_snapshot(&mut c);
     assert!(r.iter().any(|p| p.endorsed), "B endorsed A's snapshot");
+}
+
+/// Two replicas reach the periodic build at the same head; the log registers
+/// one snapshot and declines the other. The declined replica must not rebuild
+/// and re-upload the whole state on every tick while the head stays there.
+#[test]
+fn a_declined_periodic_snapshot_is_not_rebuilt_at_the_same_head() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    let mut b = node(&svc, 2, MemStore::new());
+    a.r.snapshot_every = 10;
+    b.r.snapshot_every = 10;
+    for i in 0..10u8 {
+        a.create(i, &format!("n{i}.md"), &format!("doc {i}"));
+    }
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.r.head(), a.r.head());
+    assert_eq!(a.r.stats.snapshots_built + b.r.stats.snapshots_built, 1);
+    let objects = svc.objects(&COL).len();
+    settle(&mut [&mut a, &mut b]);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(
+        svc.objects(&COL).len(),
+        objects,
+        "no rebuild at the same head"
+    );
+    // The next period still builds.
+    for i in 10..20u8 {
+        a.create(i, &format!("n{i}.md"), &format!("doc {i}"));
+    }
+    settle(&mut [&mut a, &mut b]);
+    assert!(svc.objects(&COL).len() > objects);
+    assert_eq!(a.r.stats.snapshots_built + b.r.stats.snapshots_built, 2);
+}
+
+/// A snapshot of several MiB of notes spans many record buckets. Its chunk
+/// uploads go out a few at a time: a native app host takes at most 64 calls in
+/// one turn and retires the whole log session on a larger burst.
+#[test]
+fn a_large_snapshot_build_paces_its_uploads() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    let doc = "x".repeat(100 << 10);
+    for i in 0..100u8 {
+        a.create(i, &format!("n{i}.md"), &format!("{i}{doc}"));
+        settle(&mut [&mut a]);
+    }
+    a.r.build_snapshot_now().unwrap();
+    let mut most = 0;
+    for _ in 0..200 {
+        most = most.max(a.r.calls.len());
+        a.pump();
+        a.r.tick();
+    }
+    assert!(
+        most > 0 && most <= 64,
+        "at most {most} calls queued at once"
+    );
+    assert_eq!(a.r.stats.snapshots_built, 1);
 }
 
 fn mdbn_replica_get_snapshot(c: &mut FakeLog) -> Vec<mdbn_wire::log_service::SnapshotPointer> {
