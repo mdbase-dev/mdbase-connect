@@ -6,21 +6,10 @@ import { decode, type CborValue } from "../../../packages/sdk/src/cbor.ts";
 import type { Engine, AttachmentReadOut } from "./engine.js";
 import { sendCall, StaleAppendStore, type LogFence } from "./log.ts";
 import type { ObjectOriginPolicy } from "./object-origins.ts";
+import { objectMap as map, objectSize as size, streamDirectObject } from "./object-download.ts";
 
 const INLINE = 1 << 20;
-const SEALED = 9 << 20;
 const META = INLINE + (32 << 10);
-const TIMEOUT = 15_000;
-function map(v: CborValue | undefined): Map<CborValue, CborValue> {
-  if (!(v instanceof Map)) throw new Error("invalid object metadata");
-  return v;
-}
-function size(v: CborValue | undefined): number {
-  if (typeof v !== "number" || !Number.isSafeInteger(v) || v <= 0 || v > SEALED)
-    throw new Error("invalid object size");
-  return v;
-}
-function base64(bytes: Uint8Array): string { return btoa(String.fromCharCode(...bytes)); }
 
 /** Reuse the authenticated LS nonce/possession-proof path, with a much smaller
  * reply budget and no append credits. Replies are correlated to this exact lease.
@@ -50,6 +39,7 @@ export async function fetchAttachment(log: Fetcher, engine: Engine, token: strin
   lease: AttachmentReadOut, fence: LogFence, origins: ObjectOriginPolicy, directFetch: typeof fetch = fetch): Promise<void> {
   const current = () => fence() && engine.attachmentAllowed(lease.ticket);
   let inline: Uint8Array | undefined;
+  let completedCurrent = current;
   try {
     if (!current()) throw new Error("stale read");
     const result = await metadata(log, engine, token, lease, current);
@@ -67,71 +57,13 @@ export async function fetchAttachment(log: Fetcher, engine: Engine, token: strin
       if (!current() || !engine.attachmentReserve(lease.ticket, count)) throw new Error("read allocation refused");
       if (!current() || !engine.attachmentWrite(lease.ticket, bytes)) throw new Error("stale read");
     } else {
-      const transfer = map(result.get(1));
-      const uri = transfer.get(0);
-      const expiry = transfer.get(2);
-      if (typeof uri !== "string" || uri.length > 8192 || typeof expiry !== "number" ||
-          !Number.isSafeInteger(expiry) || expiry <= Date.now()) throw new Error("invalid direct capability");
-      const { viaLog } = origins.destination(uri);
-      const headers = new Headers();
-      const supplied = map(transfer.get(1));
-      let headerBytes = 0;
-      if (supplied.size > 32) throw new Error("direct headers over budget");
-      for (const [k, v] of supplied) {
-        if (typeof k !== "string" || typeof v !== "string" || k.length > 128 || v.length > 4096 ||
-            /^(authorization|proxy-authorization|cookie|host|range)$/i.test(k)) throw new Error("invalid direct headers");
-        headerBytes += k.length + v.length;
-        if (headerBytes > (16 << 10)) throw new Error("direct headers over budget");
-        headers.set(k, v);
-      }
-      // Closed, exact ciphertext range; never accept a silent whole-body fallback.
-      headers.set("range", `bytes=0-${count - 1}`);
-      const live = () => current() && expiry > Date.now();
-      if (!live() || !engine.attachmentReserve(lease.ticket, count)) throw new Error("read allocation refused");
-      if (!live()) throw new Error("stale read");
-      const init: RequestInit = { method: "GET", headers, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT) };
-      const response = viaLog ? await log.fetch(uri, init) : await directFetch(uri, init);
-      if (!live() || response.status !== 206 || response.headers.get("content-length") !== String(count) ||
-          response.headers.get("content-range") !== `bytes 0-${count - 1}/${count}` ||
-          response.headers.get("x-amz-checksum-sha256") !== base64(checksum)) {
-        await response.body?.cancel();
-        throw new Error("direct range refused");
-      }
-      if (!response.body) throw new Error("missing object body");
-      // A transferable 64KiB BYOB piece is reused, not one fresh external
-      // ArrayBuffer per network pull. Unsupported byte streams fail closed.
-      const reader = response.body.getReader({ mode: "byob" });
-      let scratch = new Uint8Array(64 << 10);
-      let received = 0;
-      let complete = false;
-      try {
-        for (;;) {
-          const part = await reader.read(scratch);
-          if (!live()) { part.value?.fill(0); throw new Error("stale read"); }
-          if (part.value) {
-            try {
-              if (received + part.value.length > count) throw new Error("object over budget");
-              if (part.value.length && !engine.attachmentWrite(lease.ticket, part.value))
-                throw new Error("stale read");
-              received += part.value.length;
-            } finally {
-              part.value.fill(0);
-              scratch = new Uint8Array(part.value.buffer);
-            }
-          }
-          if (part.done) break;
-        }
-        if (received !== count || !live()) throw new Error("incomplete object");
-        complete = true;
-      } finally {
-        if (!complete) await reader.cancel().catch(() => {});
-        try { scratch.fill(0); } catch { /* ownership was transferred to reader */ }
-        reader.releaseLock();
-      }
+      completedCurrent = await streamDirectObject(log, map(result.get(1)), count, checksum, current, origins,
+        () => engine.attachmentReserve(lease.ticket, count),
+        bytes => engine.attachmentWrite(lease.ticket, bytes), AbortSignal.timeout(15_000), directFetch);
     }
     // Rust checks the full encoded checksum AND manifest/chunk authentication;
     // no plaintext release until both succeed and the current gate still holds.
-    if (!current() || !engine.attachmentComplete(lease.ticket, checksum)) throw new Error("object authentication failed");
+    if (!completedCurrent() || !engine.attachmentComplete(lease.ticket, checksum)) throw new Error("object authentication failed");
   } catch {
     engine.attachmentFailed(lease.ticket); // exact old ticket cannot cancel a newer stream
   } finally {

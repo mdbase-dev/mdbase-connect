@@ -4,6 +4,7 @@ import { AppCollectionJoinError } from "../src/app-host/collection-join-ledger.j
 import { AppCollectionControlError } from "../src/app-host/collection-control.js";
 import { AppCloudCopyBootstrapError } from "../src/app-host/cloud-copy-bootstrap.js";
 import { MdbaseError } from "../src/errors.js";
+import { AppCloudCopyHostError } from "../src/app-host/cloud-copy-host.js";
 import { appServerProblem } from "../src/app-host/cp-problem.js";
 
 describe("bounded web sign-in diagnostic vocabulary", () => {
@@ -33,6 +34,10 @@ describe("bounded web sign-in diagnostic vocabulary", () => {
     }
     expect(appServerProblem(409, {error: {code: "collection_unavailable", details: {update_url: "https://evil.example/update", retry_after_ms: 10 ** 9}}}))
       .toMatchObject({updateUrl: null, retryAfterMs: 600_000});
+  });
+  it("keeps a typed cold-sync stall in diagnostic detail without adding a public copy key", () => {
+    expect(webSignInProblem(new AppCloudCopyHostError("sync_stalled"))).toEqual({problem: "unavailable", detail: {name: "AppCloudCopyHostError", code: "sync_stalled"}});
+    expect(webSignInProblem(Object.assign(new Error("secret"), {reason: "sync_stalled"})).problem).toBe("open_failed");
   });
   it("exports only a known replica code, not its reason/body/custody", () => {
     expect(webSignInProblem(new MdbaseError({code: "unavailable", recovery: "retry", message: "secret", reason: "secret", details: new Map([["bearer", "secret"]])}))).toEqual({problem: "open_failed", detail: {name: "MdbaseError", code: "unavailable"}});

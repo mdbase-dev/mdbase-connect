@@ -298,7 +298,7 @@ impl<S: Store> Replica<S> {
         }
         if let Some((_, r)) = &job.current {
             if let Some(need) = r.need() {
-                let (address, limit) = match need {
+                let (address, _limit) = match need {
                     UnindexedSourceNeed::Blob {
                         address,
                         max_sealed_bytes,
@@ -313,12 +313,12 @@ impl<S: Store> Replica<S> {
                         ..
                     }) => (address, sealed_bytes),
                 };
-                // A bounded transport request is not a plaintext-range proof:
-                // supply below requires the entire sealed object, then full SHA/count.
+                // A size bound is not an exact ciphertext range. Supply below
+                // checks the bound and requires the complete authenticated object.
                 let call = self.queue(LogRequest::GetObject {
                     collection: self.cfg.collection,
                     address,
-                    range: Some((0, limit)),
+                    range: None,
                 });
                 self.inflight
                     .insert(call, super::append::Inflight::UnindexedSource(job.head));

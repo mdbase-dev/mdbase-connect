@@ -95,6 +95,16 @@ pub struct AuthenticatedReadChunk {
 }
 
 impl AuthenticatedReadChunk {
+    /// Native source-reader custody transfer, only after Blob AEAD/part checks.
+    /// Not a whole-source proof: count/hash/UTF-8 still gate stream completion.
+    pub(crate) fn verified_blob_part(offset: u64, plain: Zeroizing<Vec<u8>>) -> Self {
+        let range = 0..plain.len();
+        Self {
+            offset,
+            plain,
+            range,
+        }
+    }
     /// File offset of the requested slice.
     pub fn offset(&self) -> u64 {
         self.offset

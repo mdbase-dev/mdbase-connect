@@ -8,7 +8,7 @@ export class ApplicationPortalError extends Error {
 }
 /** Private UI port only. Apps reach it solely through the narrower public
  * `signIn` opener (openerApplicationPortalHost), never directly. */
-export interface ApplicationPopupWindow {navigate(uri:string):void;close():void;
+export interface ApplicationPopupWindow {navigate(uri:string):void;close():void;focus?():void;
   /** True once the person closed the window. Absent where unknown (openers). */
   closed?():boolean}
 export interface ApplicationPortalHost {
@@ -22,7 +22,7 @@ export interface ApplicationPortalHost {
 const owned=new WeakSet<ApplicationPopupWindow>();
 /** Reserve before ANY startup/expiry await. Window lifetime and original caller
  * remain pinned; this helper neither starts/retries authorization nor owns keys. */
-export function reserveApplicationPortal(host:ApplicationPortalHost):AppWebSignInPortal&{readonly closed:boolean} {
+export function reserveApplicationPortal(host:ApplicationPortalHost):AppWebSignInPortal&{readonly closed:boolean;focus():void} {
   const origin=host.cpOrigin,signal=host.signal,current=host.isCurrent,open=host.open;
   const check=()=>{
     let active=false;try{active=!signal.aborted&&current()===true;}catch{/* stale host observations are fenced */}
@@ -48,7 +48,11 @@ export function reserveApplicationPortal(host:ApplicationPortalHost):AppWebSignI
   const abort=()=>{try{close();}catch{/* retained original physical stop failure */}};
   signal.addEventListener("abort",abort,{once:true});
   try{check();}catch(error){close();throw error;}
-  return Object.freeze({close,get closed(){try{return stopped||window.closed?.()===true;}catch{return false;}},navigate(uri:string){
+  return Object.freeze({close,get closed(){try{return stopped||window.closed?.()===true;}catch{return false;}},focus(){
+    check();if(stopped)return;
+    try{window.focus?.();}catch{throw new ApplicationPortalError("application_popup_unavailable");}
+    check();
+  },navigate(uri:string){
     check();if(stopped)throw new ApplicationPortalError("application_popup_fenced");
     let url:URL;try{url=new URL(uri);}catch{throw new ApplicationPortalError("application_popup_binding");}
     if(url.origin!==origin||url.username||url.password)throw new ApplicationPortalError("application_popup_binding");
@@ -79,7 +83,7 @@ export function browserApplicationPortalHost(cpOrigin:string,signal:AbortSignal,
       const open=!popup.closed;popup.close();
       // Return the person to the app the window was opened from.
       if(open)try{globalThis.window.focus();}catch{/* focus is best-effort */}
-    },closed:()=>popup.closed};
+    },focus(){try{popup.focus();}catch{/* focus is best-effort, never a new approval */}},closed:()=>popup.closed};
     browserWindows.set(popup,port);return port;
   }};
 }

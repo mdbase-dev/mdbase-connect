@@ -21,6 +21,12 @@ import {
 import { AppIndexedDbCloudCopyOutcomeStore } from "../src/app-host/cloud-copy-persistence-idb.js";
 import { MdbaseClient } from "../src/client.js";
 import { mdbaseError } from "../src/errors.js";
+import type { SyncStatus } from "../src/wire.js";
+import { AppLogPump, type AppLogCall, type AppLogRuntime, type AppLogTransport } from "../src/app-host/log-pump.js";
+import { encode, type CborValue } from "../src/cbor.js";
+import { uuidToBytes } from "../src/codec.js";
+import { appServerProblem } from "../src/app-host/cp-problem.js";
+import { AppHttpLogTransport } from "../src/app-host/http-log.js";
 import { IDBFactory } from "fake-indexeddb";
 import { createAppWebCollectionAdapter } from "../src/app-host/web-collection.js";
 import * as collectionSql from "../src/app-storage/collection-sql.js";
@@ -154,7 +160,7 @@ async function fixture(mode: "fresh" | "existing" = "fresh") {
             requiresReopen: false,
             keyringRebuildFailed: false,
             keyringRebuilding: false,
-            status: { mode: "synced", connection: "online", incidents: [], pending: 0, confirmedThrough: 99, headKnown: 99 },
+            status: { mode: "synced", connection: "online", incidents: [], pending: 0, confirmedThrough: 99, headKnown: 99, holds: 0, unresolved: 0 } as SyncStatus,
         })),
         bindCpConnector: vi.fn(),
         bindLogTransport: vi.fn(),
@@ -349,6 +355,8 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
                 .spyOn(localFacade, "attachAppLocalFacade")
                 .mockReturnValue(facade),
             pump = {
+                readProgress: 0,
+                responseProgress: vi.fn(() => [] as {id: number; bytes: number}[]),
                 pump: vi.fn(async () => ({ quiet: true })),
                 close: vi.fn(async () => {}),
             };
@@ -740,6 +748,301 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         await c.host.close();
         expect(c.facade.close).toHaveBeenCalledTimes(1);
     });
+    it("cold first sync permits a forty-second multi-RPC pump making accepted prefix progress", async () => {
+        const c = await readableFixture();
+        let confirmed = 0, issued = 0, outcome = "opening";
+        const observation = c.f.runtime.observations();
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {
+            ...observation.status, confirmedThrough: confirmed, headKnown: 16,
+        }}));
+        const runtime: AppLogRuntime = {
+            takeLogCalls: () => confirmed < 16 ? [0, 1].map((): AppLogCall => ({endpoint: 37, frame: encode(new Map<number, CborValue>([
+                [0, 0], [1, ++issued], [2, "read"], [3, new Map<number, CborValue>([[0, uuidToBytes(c.options.scope.collection)], [1, confirmed]])],
+            ]))})) : [],
+            acceptLogReply: () => {confirmed++; return true;}, logNoResponse: vi.fn(), retireLog: vi.fn(),
+        };
+        const transport: AppLogTransport = {endpoint: 37, collection: c.options.scope.collection, isCurrent: () => true,
+            send: vi.fn<AppLogTransport["send"]>((_call, {signal}) => new Promise<Uint8Array>((resolve, reject) => {
+                const stop = () => {clearTimeout(timer); reject(Error("aborted"));};
+                const timer = setTimeout(() => {signal.removeEventListener("abort", stop); resolve(Uint8Array.of(1));}, 5_000);
+                signal.addEventListener("abort", stop, {once: true});
+            })),
+        };
+        const pump = new AppLogPump(runtime, transport, {endpoint: 37, collection: c.options.scope.collection});
+        c.f.runtime.bindLogTransport.mockReturnValue(pump);
+        await c.host.startCollectionLog({signal: c.options.signal});
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold: true}).then(
+            () => {outcome = "readable";}, error => {outcome = error.reason ?? "failed";});
+        try {
+            await vi.advanceTimersByTimeAsync(20_000);
+            expect(confirmed).toBeGreaterThan(0);
+            expect(outcome).toBe("opening");
+            expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+            await vi.advanceTimersByTimeAsync(20_001); await work;
+            expect(outcome).toBe("readable");
+            expect(transport.send).toHaveBeenCalledTimes(16);
+            expect(c.reader.query).toHaveBeenCalledOnce();
+            expect(c.mint).toHaveBeenCalledOnce(); expect(c.adopt).toHaveBeenCalledOnce();
+            c.host.attachDataFacade(c.channel);
+        } finally {await pump.close(); vi.useRealTimers(); await work; await c.host.close();}
+    });
+    it.each([
+        {cold: true, duration: 14_000, expected: "readable"},
+        {cold: true, duration: 16_000, expected: "sync_stalled"},
+        {cold: false, duration: 14_000, expected: "unavailable"},
+    ])("streamed RPC keeps its own body deadline, not the earlier sync clock: $cold / $duration", async ({cold, duration, expected}) => {
+        const c = await readableFixture(), observation = c.f.runtime.observations();
+        let confirmed = 0, issued = false, outcome = "opening", rpcAborted = false;
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {...observation.status, confirmedThrough: confirmed, headKnown: 1}}));
+        const runtime: AppLogRuntime = {
+            takeLogCalls: () => {
+                if (issued) return []; issued = true;
+                return [{endpoint: 37, frame: encode(new Map<number, CborValue>([[0, 0], [1, 1], [2, "read"],
+                    [3, new Map<number, CborValue>([[0, uuidToBytes(c.options.scope.collection)], [1, 0]])]]))}];
+            },
+            acceptLogReply: () => {confirmed = 1; return true;}, logNoResponse: vi.fn(), retireLog: vi.fn(),
+        };
+        const transport = new AppHttpLogTransport({endpoint: 37, collection: c.options.scope.collection,
+            origin: "https://log.example.test", directOrigins: [], isCurrent: () => true,
+            accessToken: async () => "fixture-token",
+            signLogProof: async () => {await new Promise(resolve => setTimeout(resolve, 4_000)); return new Uint8Array(64);},
+        }, {fetch: vi.fn<typeof fetch>(async (url, init) => {
+            if (String(url).endsWith("/v1/nonce")) return new Response("11".repeat(32));
+            // Actual HTTP framing/body streaming; native acknowledgement is mocked.
+            const raw = encode(new Map<number, CborValue>([[0, 1], [1, 1], [2, new Uint8Array(2 * 1024 * 1024)]]));
+            const size = Math.ceil(raw.length / 4);
+            return new Response(new ReadableStream<Uint8Array>({start(controller) {
+                const timers = [0, 4_000, 8_000, duration].map((delay, i) => setTimeout(() => {
+                    controller.enqueue(raw.slice(i * size, Math.min((i + 1) * size, raw.length)));
+                    if (i === 3) {init!.signal!.removeEventListener("abort", abort); controller.close();}
+                }, delay));
+                const abort = () => {rpcAborted = true; timers.forEach(clearTimeout); controller.error(Error("RPC deadline"));};
+                init!.signal!.addEventListener("abort", abort, {once: true});
+            }}));
+        })});
+        const pump = new AppLogPump(runtime, transport, {endpoint: 37, collection: c.options.scope.collection});
+        c.f.runtime.bindLogTransport.mockReturnValue(pump);
+        await c.host.startCollectionLog({signal: c.options.signal});
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold}).then(
+            () => {outcome = "readable";}, error => {outcome = error.reason;});
+        try {
+            await vi.advanceTimersByTimeAsync(15_500);
+            expect(outcome).toBe(cold ? "opening" : "unavailable");
+            expect(confirmed).toBe(0);
+            expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+            await vi.advanceTimersByTimeAsync(5_000); await work;
+            expect(outcome).toBe(expected);
+            if (cold && duration > 15_000) expect(rpcAborted).toBe(true);
+            expect(c.reader.query).toHaveBeenCalledTimes(expected === "readable" ? 1 : 0);
+            if (expected !== "readable") expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+            expect(transport.responseProgress()).toEqual([]);
+        } finally {await pump.close(); await c.host.close(); vi.useRealTimers();}
+    });
+    it.each(["stops", "new_call"])('provisional bytes that $0 cannot keep an unadvanced cold replica alive', async kind => {
+        const c = await readableFixture(); await c.host.startCollectionLog({signal: c.options.signal});
+        c.pump.pump.mockImplementation(() => new Promise(() => {}));
+        let active = [{id: 1, bytes: 1}];
+        c.pump.responseProgress.mockImplementation(() => active);
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold: true}).then(() => null, error => error);
+        try {
+            await vi.advanceTimersByTimeAsync(5_000); active[0]!.bytes++;
+            if (kind === "new_call") {
+                await vi.advanceTimersByTimeAsync(10_000);
+                active = [{id: 2, bytes: 100}]; // Prior call settled without native progress.
+                await vi.advanceTimersByTimeAsync(250);
+            } else await vi.advanceTimersByTimeAsync(15_250);
+            expect(await work).toMatchObject({reason: "sync_stalled"});
+            expect(c.reader.query).not.toHaveBeenCalled();
+            expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {await c.host.close(); vi.useRealTimers();}
+    });
+    it("reports observed snapshot/replay/READ stages, never errors or collection contents", async () => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        const observation = c.f.runtime.observations();
+        let installing = true, confirmed = 0;
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {...observation.status, mode: "synced", confirmedThrough: confirmed, headKnown: 10, installing: installing ? {done: 1, total: 10} : undefined}}));
+        c.pump.pump.mockImplementation(async () => {installing = false; confirmed = Math.min(10, confirmed + 5); return {quiet: true};});
+        const stages: string[] = [];
+        await c.host.waitForVerifiedRead({signal: c.options.signal, cold: true, onProgress: stage => stages.push(stage)});
+        expect(stages[0]).toBe("loading_snapshot");
+        expect(stages).toContain("replaying");
+        expect(stages.at(-1)).toBe("verifying_read");
+        expect(c.reader.query).toHaveBeenCalled();
+        await c.host.close();
+    });
+    it("cold first sync with no accepted progress fails typed and bounded, never handing out a facade", async () => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        c.pump.pump.mockImplementation(() => new Promise(() => {}));
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold: true}).then(() => null, error => error);
+        try {
+            await vi.advanceTimersByTimeAsync(15_000);
+            expect(await work).toMatchObject({reason: "sync_stalled"});
+            expect(c.reader.query).not.toHaveBeenCalled();
+            expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+            expect(c.adopt).toHaveBeenCalledOnce();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {vi.useRealTimers(); await c.host.close();}
+    });
+    it("cold stall clock starts from the last accepted progress, not the open's start", async () => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        let confirmed = 0;
+        const observation = c.f.runtime.observations();
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {...observation.status, confirmedThrough: confirmed, headKnown: 10}}));
+        c.pump.pump.mockImplementation(() => new Promise(() => {}));
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        let outcome = "opening";
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold: true}).then(
+            () => {outcome = "readable";}, error => {outcome = error.reason;});
+        try {
+            await vi.advanceTimersByTimeAsync(5_000); confirmed = 1;
+            await vi.advanceTimersByTimeAsync(14_999);
+            expect(outcome).toBe("opening");
+            await vi.advanceTimersByTimeAsync(251); await work;
+            expect(outcome).toBe("sync_stalled");
+            expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {vi.useRealTimers(); await c.host.close();}
+    });
+    it("cold head growth without accepted prefix progress cannot hide a stalled replica", async () => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        const observation = c.f.runtime.observations();
+        let head = 0;
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {
+            ...observation.status, mode: "synced", confirmedThrough: 0, headKnown: ++head,
+        }}));
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold: true}).then(() => null, error => error);
+        try {
+            await vi.advanceTimersByTimeAsync(15_000);
+            expect(await work).toMatchObject({reason: "sync_stalled"});
+            expect(c.reader.query).not.toHaveBeenCalled();
+            expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+        } finally {vi.useRealTimers(); await c.host.close();}
+    });
+    it.each([{status: 401, code: "account_suspended"}, {status: 403, code: "forbidden"}, {status: 409, code: "collection_migrating"}])("cold sync propagates explicit $code without waiting for a stall or handing out a facade", async ({status, code}) => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        const server = appServerProblem(status, {error: {code}});
+        c.pump.pump.mockImplementation(async () => {Object.assign(c.pump, {terminalProblem: server}); return {quiet: true};});
+        await expect(c.host.waitForVerifiedRead({signal: c.options.signal, cold: true})).rejects.toMatchObject({server});
+        expect(c.reader.query).not.toHaveBeenCalled();
+        expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+        expect(c.mint).toHaveBeenCalledOnce();
+        await c.host.close();
+    });
+    it.each([
+        {status: 401, code: null}, {status: 401, code: "unauthenticated"}, {status: 403, code: "invalid_proof"},
+        {status: 404, code: "not_found"}, {status: 408, code: "timeout"}, {status: 409, code: "route_not_ready"},
+    ])("cold open recovers from HTTP $status / $code followed by native accepted success", async ({status, code}) => {
+        const c = await readableFixture(), observation = c.f.runtime.observations();
+        let confirmed = 0, issued = 0, posts = 0, tokenGeneration = 1;
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {...observation.status, confirmedThrough: confirmed, headKnown: 1}}));
+        const runtime: AppLogRuntime = {
+            takeLogCalls: () => confirmed ? [] : [{endpoint: 37, frame: encode(new Map<number, CborValue>([[0, 0], [1, ++issued], [2, "read"],
+                [3, new Map<number, CborValue>([[0, uuidToBytes(c.options.scope.collection)], [1, 0]])]]))}],
+            acceptLogReply: () => {confirmed = 1; return true;}, logNoResponse: vi.fn(), retireLog: vi.fn(),
+        };
+        const auth = {endpoint: 37, collection: c.options.scope.collection, origin: "https://log.example.test", directOrigins: [],
+            isCurrent: () => true, accessToken: vi.fn(async () => `fixture-token-${tokenGeneration}`),
+            invalidateToken: vi.fn(() => {tokenGeneration++;}), signLogProof: vi.fn(async () => new Uint8Array(64)),
+        };
+        const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+            if (String(url).endsWith("/v1/nonce")) return new Response("11".repeat(32));
+            if (++posts === 1) return new Response(code === null ? "unauthenticated" : JSON.stringify({error: {code, details: {reason: "expired"}}}), {status});
+            return new Response(encode(new Map<number, CborValue>([[0, 1], [1, issued], [2, null]])).slice());
+        });
+        const pump = new AppLogPump(runtime, new AppHttpLogTransport(auth, {fetch}), {endpoint: 37, collection: c.options.scope.collection});
+        c.f.runtime.bindLogTransport.mockReturnValue(pump);
+        await c.host.startCollectionLog({signal: c.options.signal});
+        try {
+            await c.host.waitForVerifiedRead({signal: c.options.signal, cold: true});
+            expect(posts).toBe(2);
+            expect(auth.accessToken).toHaveBeenCalledTimes(2); expect(auth.signLogProof).toHaveBeenCalledTimes(2);
+            expect(auth.invalidateToken).toHaveBeenCalledTimes(status === 401 ? 1 : 0);
+            expect(runtime.logNoResponse).toHaveBeenCalledOnce();
+            expect(c.reader.query).toHaveBeenCalledOnce();
+            expect(c.mint).toHaveBeenCalledOnce(); expect(c.adopt).toHaveBeenCalledOnce();
+            c.host.attachDataFacade(c.channel);
+        } finally {await pump.close(); await c.host.close();}
+    });
+    it.each(["key_scan", "snapshot"])("cold %s advances are progress without claiming a readable prefix", async kind => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        const observation = c.f.runtime.observations();
+        let done = 0, complete = false;
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {
+            ...observation.status, mode: "synced", confirmedThrough: complete ? 10 : 0, headKnown: 10,
+            incidents: !complete && kind === "key_scan" ? [{kind: "waiting_for_key", details: new Map<string, CborValue>([["position", 1], ["reason", "reading"]])}] : [],
+            ...(!complete && kind === "snapshot" ? {installing: {done, total: 4}} : {}),
+        }}));
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        let outcome = "opening";
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold: true}).then(
+            () => {outcome = "readable";}, error => {outcome = error.reason;});
+        try {
+            for (let i = 0; i < 4; i++) {
+                await vi.advanceTimersByTimeAsync(5_000); done++;
+                if (kind === "key_scan") c.pump.readProgress++;
+                expect(outcome).toBe("opening");
+                expect(c.reader.query).not.toHaveBeenCalled();
+                expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+            }
+            complete = true;
+            await vi.advanceTimersByTimeAsync(1_001); await work;
+            expect(outcome).toBe("readable");
+            expect(c.reader.query).toHaveBeenCalledOnce();
+        } finally {vi.useRealTimers(); await c.host.close();}
+    });
+    it("cold cancellation removes its progress watchdog and cannot admit a late read", async () => {
+        const c = await readableFixture(), caller = new AbortController();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        c.pump.pump.mockImplementation(() => new Promise(() => {}));
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        const work = c.host.waitForVerifiedRead({signal: caller.signal, cold: true}).then(() => null, error => error);
+        try {
+            await vi.advanceTimersByTimeAsync(1_000); caller.abort();
+            expect(await work).toMatchObject({reason: "fenced"});
+            expect(vi.getTimerCount()).toBe(0);
+            expect(c.reader.query).not.toHaveBeenCalled();
+            expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+        } finally {vi.useRealTimers(); await c.host.close();}
+    });
+    it("paces a one-second first-key wait within the original read deadline without hot-turn exhaustion", async () => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal, allowLoopbackHttp: true});
+        let keyed = false, outcome = "waiting";
+        const observation = c.f.runtime.observations();
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {
+            ...observation.status, incidents: keyed ? [] : [{kind: "waiting_for_key", details: new Map()}],
+        }}));
+        c.reader.query.mockImplementation(async () => {
+            if (!keyed) throw mdbaseError("unavailable", "verified prefix warming");
+            return {records: []};
+        });
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        const keyArrives = setTimeout(() => {keyed = true;}, 1000);
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal}).then(
+            () => {outcome = "readable";}, error => {outcome = error.reason ?? "failed";});
+        try {
+            expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(outcome).toBe("readable");
+            expect(c.adopt).toHaveBeenCalledOnce();
+            expect(c.mint).toHaveBeenCalledOnce();
+            expect(c.sqlClose).not.toHaveBeenCalled();
+        } finally {
+            clearTimeout(keyArrives); vi.useRealTimers(); await work; await c.host.close();
+        }
+    });
     it("warm native Query can pass offline without token/transport; unreadable native stays fenced", async () => {
         const c = await readableFixture();
         c.reader.query.mockRejectedValueOnce(
@@ -818,7 +1121,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
             requiresReopen: false,
             keyringRebuildFailed: true,
             keyringRebuilding: false,
-            status: { mode: "synced", connection: "online", incidents: [], pending: 0, confirmedThrough: 99, headKnown: 99 },
+            status: { mode: "synced", connection: "online", incidents: [], pending: 0, confirmedThrough: 99, headKnown: 99, holds: 0, unresolved: 0 },
         });
         await expect(
             c.host.waitForVerifiedRead({ signal: c.options.signal }),
@@ -837,6 +1140,77 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         await expect(
             c.host.waitForVerifiedRead({ signal: c.options.signal }),
         ).rejects.toThrow();
+        expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+        await c.host.close();
+    });
+    it("paces an unreadable prefix to the original 15 s deadline, then stops without a facade", async () => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        c.reader.query.mockRejectedValue(mdbaseError("unavailable", "prefix pending"));
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        try {
+            const work = c.host.waitForVerifiedRead({signal: c.options.signal});
+            const rejected = expect(work).rejects.toMatchObject({reason: "unavailable"});
+            await vi.advanceTimersByTimeAsync(14_999);
+            expect(c.reader.query.mock.calls.length).toBeGreaterThan(2);
+            expect(c.reader.query.mock.calls.length).toBeLessThan(20);
+            expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+            await vi.advanceTimersByTimeAsync(1); await rejected;
+            const calls = c.reader.query.mock.calls.length;
+            await vi.advanceTimersByTimeAsync(30_000);
+            expect(c.reader.query).toHaveBeenCalledTimes(calls);
+            expect(vi.getTimerCount()).toBe(0);
+            expect(c.adopt).toHaveBeenCalledOnce();
+        } finally {vi.useRealTimers(); await c.host.close();}
+    });
+    it("cancels the paced READ wait without another pump/query or a replacement host", async () => {
+        const c = await readableFixture(), caller = new AbortController();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        c.reader.query.mockRejectedValue(mdbaseError("unavailable", "key pending"));
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        try {
+            const work = c.host.waitForVerifiedRead({signal: caller.signal});
+            const rejected = expect(work).rejects.toMatchObject({reason: "fenced"});
+            await vi.advanceTimersByTimeAsync(100);
+            expect(c.reader.query).toHaveBeenCalledOnce();
+            caller.abort(); await rejected;
+            await vi.advanceTimersByTimeAsync(20_000);
+            expect(c.reader.query).toHaveBeenCalledOnce();
+            expect(vi.getTimerCount()).toBe(0);
+            expect(c.sqlClose).not.toHaveBeenCalled();
+        } finally {vi.useRealTimers(); await c.host.close();}
+    });
+    it.each([
+        {cold: false, code: "unauthenticated"}, {cold: true, code: "unauthenticated"},
+        {cold: false, code: "forbidden"}, {cold: true, code: "forbidden"},
+    ] as const)("does not retry typed native $code READ failure, cold=$cold", async ({cold, code}) => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        const error = mdbaseError(code, "access removed");
+        c.reader.query.mockRejectedValue(error);
+        await expect(c.host.waitForVerifiedRead({signal: c.options.signal, cold})).rejects.toBe(error);
+        expect(c.reader.query).toHaveBeenCalledOnce();
+        expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+        await c.host.close();
+    });
+    it("READ deadline covers an ignored-cancellation Query and never admits its late success", async () => {
+        const c = await readableFixture();
+        let finish!: () => void;
+        c.reader.query.mockImplementationOnce(() => new Promise(resolve => {finish = () => resolve({records: []});}));
+        await expect(c.host.waitForVerifiedRead({signal: c.options.signal, timeoutMs: 10})).rejects.toMatchObject({reason: "unavailable"});
+        finish(); await Promise.resolve();
+        expect(() => c.host.attachDataFacade(c.channel)).toThrow();
+        expect(c.reader.close).toHaveBeenCalledOnce();
+        await c.host.close();
+    });
+    it("READ deadline closes a late connect that ignored cancellation", async () => {
+        const c = await readableFixture();
+        let finish!: () => void;
+        c.connect.mockImplementationOnce(() => new Promise(resolve => {finish = () => resolve(c.reader as unknown as MdbaseClient);}));
+        await expect(c.host.waitForVerifiedRead({signal: c.options.signal, timeoutMs: 10})).rejects.toMatchObject({reason: "unavailable"});
+        finish(); await Promise.resolve(); await Promise.resolve();
+        expect(c.reader.close).toHaveBeenCalledOnce();
+        expect(c.reader.query).not.toHaveBeenCalled();
         expect(() => c.host.attachDataFacade(c.channel)).toThrow();
         await c.host.close();
     });

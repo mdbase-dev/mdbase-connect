@@ -16,6 +16,8 @@
 //! (avoiding duplicated history storage). The derived index is
 //! one narrow table, `rs_terms`, rebuilt from the replica-supplied `RecordMeta`.
 
+use crate::io;
+use mdbn_replica::store::{StoreError, StoreResult};
 use postgres::Client;
 
 /// Bump when the DDL below changes incompatibly; [`migrate`] records it.
@@ -216,48 +218,68 @@ pub const MIGRATION_LOCK: i64 = 7_123_402_911;
 /// at once: every migrator holds a session-level advisory lock for the whole run
 /// (the version check included), so concurrent migrators serialise instead of
 /// interleaving DDL.
-pub fn migrate(client: &mut Client) -> Result<(), postgres::Error> {
-    client.execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK])?;
+pub fn migrate(client: &mut Client) -> StoreResult<()> {
+    client
+        .execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK])
+        .map_err(io)?;
     let result = migrate_locked(client);
     // Release even on failure; a failed unlock is only reported if the
     // migration itself succeeded (the lock also ends with the session).
     let unlocked = client.execute("SELECT pg_advisory_unlock($1)", &[&MIGRATION_LOCK]);
     result?;
-    unlocked.map(|_| ())
+    unlocked.map(|_| ()).map_err(io)
 }
 
-fn migrate_locked(client: &mut Client) -> Result<(), postgres::Error> {
-    let mut t = client.transaction()?;
-    if current_in(&mut t)?.is_some_and(|v| v >= SCHEMA_VERSION) {
-        return t.commit();
+pub(crate) fn check_version(version: i32) -> StoreResult<()> {
+    if version < 0 {
+        return Err(StoreError::Corrupt(
+            "invalid Postgres store schema version".into(),
+        ));
     }
-    t.batch_execute(DDL)?;
+    if version > SCHEMA_VERSION {
+        return Err(StoreError::Io(format!(
+            "Postgres store schema version {version} is newer than supported version {SCHEMA_VERSION}; upgrade the runtime"
+        )));
+    }
+    Ok(())
+}
+
+fn migrate_locked(client: &mut Client) -> StoreResult<()> {
+    let mut t = client.transaction().map_err(io)?;
+    let version = current_in(&mut t).map_err(io)?.unwrap_or(0);
+    check_version(version)?;
+    for next in version + 1..=SCHEMA_VERSION {
+        match next {
+            1 => migrate_v1(&mut t)?,
+            _ => unreachable!("missing Postgres store migration"),
+        }
+        t.execute("DELETE FROM rs_schema", &[]).map_err(io)?;
+        t.execute("INSERT INTO rs_schema (version) VALUES ($1)", &[&next])
+            .map_err(io)?;
+    }
+    t.commit().map_err(io)
+}
+
+fn migrate_v1(t: &mut postgres::Transaction<'_>) -> StoreResult<()> {
+    t.batch_execute(DDL).map_err(io)?;
     let lz4: bool = t
         .query_one(
             "SELECT current_setting('server_version_num')::int >= 140000 \
              AND EXISTS (SELECT 1 FROM pg_settings WHERE name = 'default_toast_compression' \
                          AND 'lz4' = ANY(enumvals))",
             &[],
-        )?
+        )
+        .map_err(io)?
         .get(0);
     if lz4 {
         for (table, col) in LZ4 {
             t.batch_execute(&format!(
                 "ALTER TABLE {table} ALTER COLUMN {col} SET COMPRESSION lz4"
-            ))?;
+            ))
+            .map_err(io)?;
         }
     }
-    let have: Option<i32> = t
-        .query_opt("SELECT max(version) FROM rs_schema", &[])?
-        .and_then(|r| r.get(0));
-    if have.is_none_or(|v| v < SCHEMA_VERSION) {
-        t.execute("DELETE FROM rs_schema", &[])?;
-        t.execute(
-            "INSERT INTO rs_schema (version) VALUES ($1)",
-            &[&SCHEMA_VERSION],
-        )?;
-    }
-    t.commit()
+    Ok(())
 }
 
 /// The recorded schema version, if the schema exists.

@@ -10,6 +10,8 @@
 import { decode, type CborValue } from "../../../packages/sdk/src/cbor.ts";
 import type { Engine, LogCallOut } from "./engine.js";
 import { appendObservation, type AppendObservation } from "./append-observe.ts";
+import type { ObjectOriginPolicy } from "./object-origins.ts";
+import { completeObjectReply } from "./object-download.ts";
 
 const ORIGIN = "https://log.internal"; // service binding: the host part is ignored
 const MAX_REPLY_BYTES = 16 << 20;
@@ -177,6 +179,7 @@ export async function sendCall(
   stale: StaleAppendStore,
   observeAppend?: (call: LogCallOut, observation: AppendObservation) => void,
   readReplyCap = MAX_REPLY_BYTES,
+  objectOrigins?: ObjectOriginPolicy,
 ): Promise<SendOutcome> {
   if (!fence()) return "dropped";
   // Everything about the call is captured ONCE, before any await: its ID, method,
@@ -250,8 +253,20 @@ export async function sendCall(
     reply = await boundedBytes(r, isAppend ? MAX_APPEND_REPLY_BYTES : Math.min(readReplyCap, MAX_REPLY_BYTES));
     // The session moved while this call was out: never feed a later engine.
     if (!fence()) return markStale();
+    let replyCurrent = fence;
+    if (method === "get_object" && objectOrigins) {
+      const completed = await completeObjectReply(log, frame, reply, id, fence, objectOrigins, signal);
+      if (completed) {
+        reply.fill(0);
+        reply = completed.bytes;
+        replyCurrent = completed.live;
+      }
+      if (!fence()) return markStale();
+      if (!replyCurrent() || signal.aborted) throw new Error("stale object reply");
+    }
     observe(appendObservation(frame, reply));
     if (!fence()) return markStale();
+    if (method === "get_object" && objectOrigins && (!replyCurrent() || signal.aborted)) throw new Error("stale object reply");
     engine.logReply(id, reply);
     return "sent";
   } catch {
@@ -295,6 +310,9 @@ const QUIET_METHODS = new Set(["subscribe", "head", "unsubscribe"]);
 export class PumpReport {
   /** Calls other than head checks (reads, appends, objects, snapshots...). */
   work = 0;
+  /** Successful reads, a subset of work. A fully rebuilt native engine with
+   * unchanged applied progress can identify these as control replay, not activity. */
+  reads = 0;
   /** Calls that failed or were refused: the engine retries, so not idle. */
   failed = 0;
   /** True when the pump sent no work and nothing failed. */
@@ -304,6 +322,8 @@ export class PumpReport {
 export interface PumpHooks {
   /** The log refused the bearer (401/403): drop any held token. */
   tokenRefused?: () => void;
+  /** Normal object reads only; pinned attachment metadata keeps raw Direct. */
+  objectOrigins?: ObjectOriginPolicy;
   report?: PumpReport;
 }
 
@@ -349,11 +369,14 @@ export async function pumpLog(
       try { observeCall?.(c); } catch { /* Telemetry cannot affect transport. */ }
       if (!fence()) { c.frame.fill(0); return; }
       const method = hooks.report || timings ? methodOf(c.frame) : "";
-      const outcome = await sendCall(log, engine, t, c, fence, stale, observeAppend);
+      const outcome = await sendCall(log, engine, t, c, fence, stale, observeAppend, MAX_REPLY_BYTES, hooks.objectOrigins);
       note(timings, method, started);
       if (hooks.report) {
         if (outcome === "failed" || outcome === "refused") hooks.report.failed++;
-        else if (outcome === "sent" && !QUIET_METHODS.has(method)) hooks.report.work++;
+        else if (outcome === "sent" && !QUIET_METHODS.has(method)) {
+          hooks.report.work++;
+          if (method === "read") hooks.report.reads++;
+        }
       }
       if (outcome === "refused") {
         try { hooks.tokenRefused?.(); } catch { /* Never let a hook change transport. */ }

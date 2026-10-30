@@ -46,4 +46,6 @@ jobs:
       - name: Run library, binary, integration and documentation tests
         env:
           MDBN_TEST_PG_URL: host=127.0.0.1 port=5432 user=mdbn password=mdbn dbname=mdbn_test
+          # store-pg's schema tests fail instead of skipping if the URL above goes missing.
+          MDBN_TEST_PG_REQUIRED: '1'
         run: cargo test --locked ${{ matrix.packages }}

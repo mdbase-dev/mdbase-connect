@@ -24,6 +24,7 @@ mod type_packs;
 mod unindexed_async;
 mod unindexed_blob_interop;
 mod unindexed_capture;
+mod unindexed_client_read;
 mod unindexed_end_to_end;
 mod unindexed_inventory;
 mod unindexed_move;

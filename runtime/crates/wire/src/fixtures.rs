@@ -1421,8 +1421,42 @@ pub fn all() -> Vec<Fixture> {
             hold: None,
             mtime: None,
             media_type: None,
+            content_profile: None,
         },
     ));
+    for (name, profile) in [
+        ("file-view-ordinary-blob", FileContentProfile::OrdinaryBlob),
+        (
+            "file-view-ordinary-attachment-v1",
+            FileContentProfile::OrdinaryAttachmentV1,
+        ),
+        (
+            "file-view-unindexed-markdown-blob",
+            FileContentProfile::UnindexedMarkdownBlob,
+        ),
+        (
+            "file-view-unindexed-markdown-attachment-v1",
+            FileContentProfile::UnindexedMarkdownAttachmentV1,
+        ),
+    ] {
+        v.push(fx(
+            "client",
+            name,
+            FileView {
+                id: b16(FILE),
+                path: "Photos/today.png".into(),
+                size: 18,
+                digest: blob().plain_hash,
+                media: MediaClass::Image,
+                state: FileState::Remote,
+                confirmed_seq: 40,
+                hold: None,
+                mtime: None,
+                media_type: None,
+                content_profile: Some(profile),
+            },
+        ));
+    }
     v.push(fx(
         "client",
         "open-upload",

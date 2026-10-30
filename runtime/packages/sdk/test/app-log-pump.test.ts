@@ -7,6 +7,7 @@ import { appServerProblem } from "../src/app-host/cp-problem.js";
 const COLLECTION = "00000000-0000-4000-8000-000000000003";
 const OTHER = "00000000-0000-4000-8000-000000000004";
 function call(id: number | bigint = 1, method = "head", params = new Map<number, CborValue>([[0, uuidToBytes(COLLECTION)]])): AppLogCall {
+  if (method === "read" && !params.has(1)) params = new Map(params).set(1, 0);
   return { endpoint: 37, frame: encode(new Map<number, CborValue>([[0, 0], [1, id], [2, method], [3, params]])) };
 }
 function fixture(initial = [call()], maxRounds?: number) {
@@ -69,6 +70,42 @@ describe("app log pump (immutable authenticated binding)", () => {
     expect(f.pump.serverProblem).toBe(server); // forged problem objects are ignored
     f.queue.push(call(3)); await f.pump.pump();
     expect(f.pump.serverProblem).toBeNull(); await f.pump.close();
+  });
+  it("keeps an admission refusal even when a concurrent RPC is accepted", async () => {
+    const f = fixture([call(1, "read"), call(2, "head")]);
+    const server = appServerProblem(403, {error: {code: "forbidden"}});
+    vi.mocked(f.transport.send).mockRejectedValueOnce(new AppHttpLogError("unavailable", server));
+    await f.pump.pump();
+    expect(f.pump.terminalProblem).toBe(server);
+    expect(f.pump.transportHealth).toBeNull(); // the other reply cleared display health only
+    await f.pump.close();
+  });
+  it.each([400, 401, 403, 404, 405, 408, 409, 410, 413, 416, 429, 500, 503])("HTTP %s without an explicit final code does not become a terminal admission refusal", async status => {
+    const f = fixture();
+    vi.mocked(f.transport.send).mockRejectedValueOnce(new AppHttpLogError("unavailable", appServerProblem(status, {error: {code: "busy"}})));
+    await f.pump.pump(); expect(f.pump.terminalProblem).toBeNull(); await f.pump.close();
+  });
+  it("a forged server problem cannot become a terminal admission refusal", async () => {
+    const f = fixture();
+    const server = {...appServerProblem(403, {error: {code: "forbidden"}})};
+    vi.mocked(f.transport.send).mockRejectedValueOnce(new AppHttpLogError("unavailable", server));
+    await f.pump.pump(); expect(f.pump.terminalProblem).toBeNull(); await f.pump.close();
+  });
+  it("counts only native-accepted advancing READ cursors, independently for data and control", async () => {
+    const read = (id: number, after: number, control = false) => call(id, "read", new Map<number, CborValue>([[0, uuidToBytes(COLLECTION)], [1, after], [3, control ? 1 : 0]]));
+    const f = fixture([read(1, 0)]);
+    await f.pump.pump(); expect(f.pump.readProgress).toBe(1);
+    f.queue.push(read(2, 0), call(3, "head"));
+    await f.pump.pump(); expect(f.pump.readProgress).toBe(1);
+    f.queue.push(read(4, 100)); vi.mocked(f.runtime.acceptLogReply).mockReturnValueOnce(false);
+    await f.pump.pump(); expect(f.pump.readProgress).toBe(1);
+    f.queue.push(read(5, 100));
+    await f.pump.pump(); expect(f.pump.readProgress).toBe(2);
+    f.queue.push(read(6, 0, true));
+    await f.pump.pump(); expect(f.pump.readProgress).toBe(3);
+    f.queue.push(read(7, 0, true));
+    await f.pump.pump(); expect(f.pump.readProgress).toBe(3);
+    await f.pump.close();
   });
   it("bounds remote replies without decoding a remote result tree in JS", async () => {
     const f = fixture();

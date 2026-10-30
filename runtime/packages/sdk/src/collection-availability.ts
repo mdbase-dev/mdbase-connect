@@ -16,6 +16,7 @@ export const COLLECTION_UNAVAILABLE_REASONS = [
   "no_device_registered",
   "access_removed",
   "collection_migrating",
+  "collection_not_yet_migrated",
   "collection_deleted",
 ] as const;
 

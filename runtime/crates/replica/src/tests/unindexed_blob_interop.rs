@@ -15,13 +15,41 @@ use mdbn_wire::{
     schema::Wire,
     unindexed_markdown::FileKindV1,
 };
-#[test]
-fn valid_signed_native_blob_profile_receives_and_survives_public_snapshot_build() {
+pub(super) fn fixture() -> (
+    crate::fake::FakeLogService,
+    super::engine::Node,
+    super::engine::Node,
+    mdbn_wire::intent::BlobRef,
+    Vec<u8>,
+) {
+    fixture_with_source(source_bytes(2_097_153), crate::crypto::blob::PART_SIZE)
+}
+
+/// Deterministic varied valid UTF8, not a compressible constant-source shortcut.
+pub(super) fn source_bytes(len: usize) -> Vec<u8> {
+    let mut state = 0x7a19_c431u32;
+    let mut bytes: Vec<u8> = (0..len)
+        .map(|_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            b' ' + ((state >> 24) % 95) as u8
+        })
+        .collect();
+    let header = "---\r\ntitle: Blob\r\n---\r\n🪴\0exact\r\n".as_bytes();
+    bytes[..header.len()].copy_from_slice(header);
+    bytes
+}
+
+pub(super) fn fixture_with_source(
+    bytes: Vec<u8>,
+    part_size: u64,
+) -> (
+    crate::fake::FakeLogService,
+    super::engine::Node,
+    super::engine::Node,
+    mdbn_wire::intent::BlobRef,
+    Vec<u8>,
+) {
     let (svc, mut a, mut b) = pair();
-    let mut bytes = "---\r\ntitle: Blob\r\n---\r\n🪴\0exact\r\n"
-        .as_bytes()
-        .to_vec();
-    bytes.resize(2_097_153, b'x');
     let epoch = a.r.policy.epoch;
     let keys = a.r.testing_epoch_keys();
     let key = &keys.iter().find(|(e, _)| *e == epoch).unwrap().1;
@@ -30,7 +58,7 @@ fn valid_signed_native_blob_profile_receives_and_survives_public_snapshot_build(
         epoch,
         &COL,
         &bytes,
-        1_048_576,
+        part_size,
         false,
         a.r.host.entropy.as_mut(),
     )
@@ -86,6 +114,12 @@ fn valid_signed_native_blob_profile_receives_and_survives_public_snapshot_build(
         "{reply:?}"
     );
     settle(&mut [&mut a, &mut b]);
+    (svc, a, b, blob, bytes)
+}
+
+#[test]
+fn valid_signed_native_blob_profile_receives_and_survives_public_snapshot_build() {
+    let (_, mut a, mut b, blob, _) = fixture();
     let id = B16([52; 16]);
     for n in [&a, &b] {
         let f = n.r.store.file(&id).unwrap().unwrap();

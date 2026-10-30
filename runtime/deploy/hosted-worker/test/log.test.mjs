@@ -193,7 +193,7 @@ test("a second refusal after the fresh token ends the pump", async () => {
   assert.deepEqual({ minted, dropped, sent }, { minted: 2, dropped: 2, sent: 2 });
 });
 
-test("the pump report: head checks alone are quiet; reads, appends and failures are not", async () => {
+test("the pump report: reads remain work and are counted separately for native replay classification", async () => {
   const run = async (methods, status = 200) => {
     const report = new PumpReport();
     const e = pumpEngine([methods.map((m, id) => ({ id, frame: frame(m) }))]);
@@ -202,6 +202,8 @@ test("the pump report: head checks alone are quiet; reads, appends and failures 
   };
   assert.equal((await run([])).quiet, true);
   assert.equal((await run(["subscribe", "head", "unsubscribe"])).quiet, true);
+  assert.equal((await run(["read"])).reads, 1);
+  assert.equal((await run(["read"], 503)).reads, 0);
   for (const m of ["read", "append", "put_object", "get_snapshot"]) assert.equal((await run(["subscribe", m])).quiet, false, m);
   assert.equal((await run(["subscribe"], 503)).quiet, false, "a failed head check is retried soon, not idle");
 });

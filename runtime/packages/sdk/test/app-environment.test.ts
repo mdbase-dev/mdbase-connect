@@ -33,13 +33,27 @@ describe("explicit build environment selection (context validation, not authenti
     expect(() => selectAppEnvironment({environment: "production", appOrigin, release: release("production")})).toThrow();
     expect(selectAppEnvironment({environment: "production", appOrigin: "https://notes.example.test", release: release("production")}).allowLoopbackHttp).toBe(false);
   });
-  it.each(["lab", "production"] as const)("takes %s CP/log origins only from explicit build metadata, not deployment inference", environment => {
+  it.each(["lab", "staging", "production"] as const)("takes %s CP/log origins only from explicit build metadata, not deployment inference", environment => {
     // Synthetic structural fixture, not authenticated release provenance. The
     // BUILD verifier must authenticate the external context before selection.
     const bundled = {...release(environment), cpOrigin: "https://other-control.example.test", logOrigin: "https://other-log.example.test"};
     const selected = selectAppEnvironment({environment, appOrigin: "https://notes.example.test", release: bundled});
     expect(selected).toMatchObject({environment, cpOrigin: bundled.cpOrigin, logOrigin: bundled.logOrigin, allowLoopbackHttp: false});
     expect(Object.isFrozen(selected)).toBe(true);
+  });
+  it.each([["staging", "production"], ["production", "staging"]] as const)("refuses %s selection with a %s release", (environment, released) => {
+    expect(() => selectAppEnvironment({environment, appOrigin: "https://notes.example.test", release: release(released)})).toThrow();
+  });
+  it("selects distinct staging trust and rejects environment swaps and loopback before side effects", () => {
+    const bundled = {...release("staging"), cpOrigin: "https://connect-staging.mdbase.dev"};
+    const selected = selectAppEnvironment({environment: "staging", appOrigin: "https://notes-staging.example.test", release: bundled});
+    expect(selected).toMatchObject({environment: "staging", cpOrigin: bundled.cpOrigin, allowLoopbackHttp: false});
+    for (const environment of ["lab", "production", "local"] as const)
+      expect(() => selectAppEnvironment({environment, appOrigin: "https://notes-staging.example.test", release: bundled})).toThrow();
+    for (const environment of ["lab", "production", "local"])
+      expect(() => selectAppEnvironment({environment: "staging", appOrigin: "https://notes-staging.example.test", release: release(environment)})).toThrow();
+    for (const origin of ["http://127.0.0.1:48218", "http://localhost:48218", "http://[::1]:48218"])
+      expect(() => selectAppEnvironment({environment: "staging", appOrigin: origin, release: bundled})).toThrow();
   });
   it.each(["cpOrigin"] as const)("keeps %s HTTPS/canonical-origin requirements", field => {
     for (const value of ["http://127.0.0.1:48218", "https://control.example.test/path", "https://control.example.test/", "https://user:pass@control.example.test", "https://control.example.test?redirect=other"]) {

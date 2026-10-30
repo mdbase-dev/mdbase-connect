@@ -64,7 +64,7 @@ rule_for() {
     client/query-result-*) echo query-result ;;
     client/query-update-*) echo query-update ;;
     client/hold-file) echo hold ;;
-    client/file-view) echo file-view ;;
+    client/file-view|client/file-view-*) echo file-view ;;
     client/open-upload) echo open-upload-params ;;
     client/transfer-progress) echo transfer-progress ;;
     client/materialization) echo materialization ;;

@@ -124,6 +124,116 @@ impl IndexStorage for Trace {
         Ok(result)
     }
 }
+// A real second SQLite connection, not a same-connection fault injector.
+struct CompetingWriter {
+    inner: SqliteIndex,
+    other: rusqlite::Connection,
+    metadata_seen: bool,
+    groups: usize,
+    blocked: bool,
+}
+impl IndexStorage for CompetingWriter {
+    fn info(&self) -> IndexInfo {
+        self.inner.info()
+    }
+    fn reset(&mut self) -> Result<(), IndexError> {
+        self.inner.reset()
+    }
+    fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
+        for stmt in &batch.stmts {
+            if stmt
+                .sql
+                .starts_with("SELECT path, length(CAST(doc AS BLOB))")
+            {
+                self.metadata_seen = true;
+            }
+            if stmt
+                .sql
+                .starts_with("SELECT path, doc FROM st_res WHERE path >=")
+            {
+                assert!(self.metadata_seen);
+                self.groups += 1;
+                if self.groups == 1 {
+                    // Attempt an actual competing commit after the metadata read
+                    // and before the first group. A completed write would change
+                    // the byte length and make this inventory inconsistent.
+                    let error = self
+                        .other
+                        .execute("UPDATE st_res SET doc='after' WHERE path='r000'", [])
+                        .unwrap_err();
+                    assert!(matches!(
+                        error.sqlite_error_code(),
+                        Some(
+                            rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                        )
+                    ));
+                    self.blocked = true;
+                }
+            }
+        }
+        self.inner.run(batch)
+    }
+}
+
+#[test]
+fn competing_native_writer_is_excluded_between_resource_metadata_and_groups() {
+    for durability in [IndexDurability::Durable, IndexDurability::Disposable] {
+        let path =
+            scratch(&format!("resource-inventory-exclusion-{durability:?}")).join("state.db");
+        let inner = SqliteIndex::open(&path, durability).unwrap();
+        let other = rusqlite::Connection::open(&path).unwrap();
+        other.busy_timeout(std::time::Duration::ZERO).unwrap();
+        let index = Rc::new(RefCell::new(CompetingWriter {
+            inner,
+            other,
+            metadata_seen: false,
+            groups: 0,
+            blocked: false,
+        }));
+        let before: Vec<_> = (0..80)
+            .map(|n| (format!("r{n:03}"), "x".repeat(60_000)))
+            .collect();
+        fn check(mut store: impl Store, before: &[(String, String)]) {
+            store
+                .commit(Tx {
+                    resources_put: before.to_vec(),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(store.resources().unwrap(), before);
+        }
+        if durability == IndexDurability::Durable {
+            check(SqlStore::open(index.clone()).unwrap(), &before);
+        } else {
+            check(
+                mdbn_store_file::TentativeStore::open(index.clone(), Default::default()).unwrap(),
+                &before,
+            );
+        }
+        assert!(index.borrow().blocked);
+        assert_eq!(index.borrow().groups, 3);
+        // The exclusion is connection-lifetime, not a lucky query timing:
+        // another runtime can commit only after the original owner closes.
+        let CompetingWriter { inner, other, .. } = Rc::try_unwrap(index).ok().unwrap().into_inner();
+        drop(inner);
+        assert_eq!(
+            other
+                .execute("UPDATE st_res SET doc='after' WHERE path='r000'", [])
+                .unwrap(),
+            1
+        );
+        drop(other);
+        let reopened = mdbn_store_file::TentativeStore::open(
+            Rc::new(RefCell::new(SqliteIndex::open(&path, durability).unwrap())),
+            Default::default(),
+        )
+        .unwrap();
+        let mut after = before;
+        after[0].1 = "after".into();
+        assert_eq!(reopened.resources().unwrap(), after);
+    }
+}
+
 type Fixture = (SqlStore<Trace>, Rc<RefCell<Trace>>, Rc<Probe>);
 fn fixture(name: &str, rows: Vec<(String, String)>) -> Fixture {
     let probe = Rc::new(Probe::default());

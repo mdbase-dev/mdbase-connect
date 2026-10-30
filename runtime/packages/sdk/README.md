@@ -222,6 +222,45 @@ File-action consent is advisory on an installation device: Connect records the
 person's choice and the SDK enforces it, but the app's own replica is not
 narrowed by it.
 
+## Cloud-copy first-open waits
+
+Initial opening keeps the same enrolled device, native host, SQL and keys while
+retrying a parsed CP HTTP 503 `busy` log-token refusal. There are at most three
+log-init attempts; retries must fit a 15-second scheduling window and respect
+Retry-After. Individual challenge/mint requests retain their 15-second deadlines.
+Unknown 401/403/409 responses, malformed responses and generic unavailable errors
+do not authorize a retry. Each failed mint retry obtains a fresh challenge/proof,
+not another enrollment or collection.
+
+For a previously synced local replica, the native verified-read gate keeps its
+15-second deadline, including connect, pump and Query. For a cold replica (the
+SDK join ledger has never recorded a completed first sync), the same 15 seconds
+bounds **lack of progress**, not total catch-up time. The watchdog observes native
+accepted prefix, advancing data/control READ cursors and snapshot-install
+positions even while a multi-RPC pump is pending. Control READ cursors cover
+key scanning whose native `reading` incident does not expose intermediate
+positions. Only native-accepted replies to increasing cursors count; sending
+calls, rejected replies, head growth, heartbeats and repeated cursors do not
+reset it. Active, size/range-capped response bytes can defer a stall for the
+already in-flight calls under their existing per-request deadlines; they do not
+reset native progress or admit READ. Once those calls settle, successive retries
+cannot renew that deferral without accepted native progress. This also covers
+object downloads whose existing per-request budget exceeds 15 seconds.
+Cold catch-up must reach the complete known prefix,
+then pass an actual native Query; metadata never admits a data facade. A stall
+fails typed `AppCloudCopyHostError("sync_stalled")` (the existing public
+`unavailable` problem with a distinct diagnostic code).
+
+Both paths retain typed READ-unavailable pacing (250 ms, 500 ms, then at most
+one per second). Explicit server authority outcomes and typed HTTP 403
+`forbidden` are latched against concurrent success. An HTTP status alone is not
+terminal: stale-token 401 can invalidate/refresh through the existing authority,
+and opaque routing/timeouts keep the existing NoResponse path. Native Query
+`unauthenticated`/`forbidden` errors still refuse without retry. Cancellation stops the waits;
+failed keyring recovery and non-retryable native errors still refuse. This remains the existing opening
+state, with explicit retry after a terminal failure: no new migration state,
+write/setup replay, legacy fallback or application retry loop is needed.
+
 ## Private collections from web apps
 
 `@mdbase-dev/sdk/app-grant` lets a signed-in web app open a Private collection
@@ -320,6 +359,22 @@ Not covered yet for Private collections:
   copies always have one. A Private entry's is `null` when Connect doesn't
   report it: older servers, or an account whose access needs renewing. Gate
   owner actions on `role === "owner"`; Connect still checks each action.
+
+## Managed application build environments
+
+Application declarations support explicit `lab`, `staging` and `production`
+environments. Each SDK artifact must be packaged with the completed authenticated
+trust handoff for that exact environment; changing an app build variable cannot
+retarget a LAB archive. Staging packaging pins Connect to
+`https://connect-staging.mdbase.dev`, production to `https://connect.mdbase.dev`.
+CP/log origins and release trust still come only from the verified build context;
+missing, expired or crossed trust refuses without a fallback. Staging and
+production do not permit HTTP loopback app origins. Isolated `local` builds remain
+separate and refuse all managed environments.
+
+The app manifest must declare the installation origin under
+`installation_origins.staging` for staging pairing, just as for other environments.
+Packaging support alone is not an application deployment or acceptance receipt.
 
 ## Native shells and browser extensions
 

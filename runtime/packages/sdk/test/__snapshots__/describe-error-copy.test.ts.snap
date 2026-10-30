@@ -51,6 +51,13 @@ exports[`describes collection availability and access in plain, specific copy 1`
     "message": "Your data is safe. This usually takes a few minutes, and the app reconnects by itself when it's done.",
     "title": "Your collection is being upgraded",
   },
+  "availability:collection_not_yet_migrated": {
+    "action": "retry",
+    "actionLabel": "Try again",
+    "key": "collection_not_yet_migrated",
+    "message": "Your data is safe. Open the latest mdbase desktop app on the computer that keeps this collection to finish upgrading it, then try again.",
+    "title": "Your collection needs an upgrade",
+  },
   "availability:desktop_update_required": {
     "action": "update_app",
     "actionLabel": "Get the update",

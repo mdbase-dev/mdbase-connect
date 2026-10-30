@@ -1,0 +1,6 @@
+{
+  "reason": "The cloud-copy and private join routes share the collection's account name returned to a joining device through bootstrap-common. No new module or abstraction is introduced.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}

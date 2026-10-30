@@ -7,6 +7,8 @@ import { AppCollectionJoinLedger } from "../src/app-host/collection-join-ledger.
 import type { AppWebSignInSessionOptions } from "../src/app-host/web-sign-in-session.js";
 import type { AppWebNativeCollection } from "../src/app-host/web-collection.js";
 import { MdbaseClient } from "../src/client.js";
+import { AppCpAuthorityError } from "../src/app-host/cp-authority.js";
+import { appServerProblem } from "../src/app-host/cp-problem.js";
 import { attachAppTimerReceiver } from "../src/app-host/timer-port.js";
 import type { AppLogHealth } from "../src/app-host/log-pump.js";
 import type { AppWebCloudCopyHost } from "../src/app-host/cloud-copy-host.js";
@@ -42,6 +44,164 @@ function fixture(policy: "explicit" | "approved-new-collection" = "explicit", pe
   return {adapter, context, open, host, parent, ui, trace, handoff: () => handoff!};
 }
 describe("real protected native collection composition", () => {
+  it("reports actual opening boundaries without changing the single bootstrap or READ gate", async () => {
+    const f = fixture(), stages: string[] = [];
+    f.context.onProgress = stage => stages.push(stage);
+    await f.open();
+    expect(stages).toEqual(["joining", "opening_store", "connecting_log", "syncing", "checking_setup"]);
+    expect(f.host.bootstrapCloudCopy).toHaveBeenCalledOnce();
+    expect(f.host.waitForVerifiedRead).toHaveBeenCalledOnce();
+  });
+  it("display callback failure cannot interrupt opening or authorize another bootstrap", async () => {
+    const f = fixture(); f.context.onProgress = () => {throw Error("observer");};
+    await f.open();
+    expect(f.host.bootstrapCloudCopy).toHaveBeenCalledOnce();
+    expect(f.trace).toContain("handoff");
+  });
+  it("retries an initial busy mint on the SAME host without repeating device enrollment", async () => {
+    const f = fixture();
+    f.host.startCollectionLog.mockRejectedValueOnce(new AppCpAuthorityError("unavailable",
+      appServerProblem(503, {error: {code: "busy"}}, new Headers({"retry-after": "1"}))));
+    const outcome = await f.open().then(result => ({kind: "opened", result}), error => ({kind: error.reason, error}));
+    expect(outcome.kind).toBe("opened");
+    expect(f.host.bootstrapCloudCopy).toHaveBeenCalledOnce();
+    expect(f.host.openCollectionSql).toHaveBeenCalledOnce();
+    expect(f.host.startCollectionLog).toHaveBeenCalledTimes(2);
+    expect(f.host.close).not.toHaveBeenCalled();
+    expect(f.trace.filter(x => x === "handoff")).toHaveLength(1);
+  }, 15_000);
+  it.each([400,401,403,404,409,429,500,502,504])("does not retry bare unavailable from auth/identity/invariant HTTP %s", async status => {
+    const f = fixture(), error = new AppCpAuthorityError("unavailable",
+      appServerProblem(status, {error: {code: status===409 ? "not_enrolled" : "invalid_proof"}}));
+    f.host.startCollectionLog.mockRejectedValueOnce(error);
+    await expect(f.open()).rejects.toBe(error);
+    expect(f.host.bootstrapCloudCopy).toHaveBeenCalledOnce();
+    expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
+    expect(f.trace).not.toContain("handoff");
+  });
+  it.each(["unavailable", "not_ready", "invalid_proof"])("does not retry unknown 503 code %s", async code => {
+    const f = fixture(), error = new AppCpAuthorityError("unavailable", appServerProblem(503, {error: {code}}));
+    f.host.startCollectionLog.mockRejectedValueOnce(error);
+    await expect(f.open()).rejects.toBe(error);
+    expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
+    expect(f.trace).not.toContain("handoff");
+  });
+  it("does not infer retry authority from a forged busy detail or a bare unavailable error", async () => {
+    const f = fixture(), error = new AppCpAuthorityError("unavailable",
+      {...appServerProblem(503, {error: {code: "busy"}})});
+    f.host.startCollectionLog.mockRejectedValueOnce(error);
+    await expect(f.open()).rejects.toBe(error);
+    expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
+  });
+  it("does not retry generic unavailable without a parsed busy response", async () => {
+    const f = fixture(), error = new AppCpAuthorityError("unavailable");
+    f.host.startCollectionLog.mockRejectedValueOnce(error);
+    await expect(f.open()).rejects.toBe(error);
+    expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
+  });
+  it("stops when a second busy Retry-After cannot fit the remaining scheduling window", async () => {
+    const f = fixture();
+    const first = new AppCpAuthorityError("unavailable", appServerProblem(503, {error: {code: "busy"}}, new Headers({"retry-after": "10"})));
+    const second = new AppCpAuthorityError("unavailable", appServerProblem(503, {error: {code: "busy"}}, new Headers({"retry-after": "6"})));
+    let rejectFirst!: (error: unknown) => void;
+    f.host.startCollectionLog.mockImplementationOnce(() => new Promise((_resolve, reject) => {rejectFirst = reject;})).mockRejectedValueOnce(second);
+    const work = f.open(), rejected = expect(work).rejects.toBe(second);
+    await vi.waitFor(() => expect(f.host.startCollectionLog).toHaveBeenCalledOnce());
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+    try {
+      rejectFirst(first); await vi.advanceTimersByTimeAsync(10_000); await rejected;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.host.startCollectionLog).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(f.host.bootstrapCloudCopy).toHaveBeenCalledOnce();
+      expect(f.trace).not.toContain("handoff");
+    } finally {vi.useRealTimers();}
+  });
+  it("does not shorten a server busy wait that exceeds the initial retry window", async () => {
+    const f = fixture(), error = new AppCpAuthorityError("unavailable",
+      appServerProblem(503, {error: {code: "busy"}}, new Headers({"retry-after": "60"})));
+    f.host.startCollectionLog.mockRejectedValueOnce(error);
+    await expect(f.open()).rejects.toBe(error);
+    expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
+  });
+  it("bounds repeated initial busy refusals to three SAME-host attempts and releases the retry timer", async () => {
+    const f = fixture(), error = new AppCpAuthorityError("unavailable", appServerProblem(503, {error: {code: "busy"}}));
+    let rejectFirst!: (error: unknown) => void;
+    f.host.startCollectionLog.mockRejectedValue(error).mockImplementationOnce(() => new Promise((_resolve, reject) => {rejectFirst = reject;}));
+    const work = f.open(), rejected = expect(work).rejects.toBe(error);
+    await vi.waitFor(() => expect(f.host.startCollectionLog).toHaveBeenCalledOnce());
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+    try {
+      rejectFirst(error);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(2_001); await rejected;
+      expect(f.host.startCollectionLog).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.host.startCollectionLog).toHaveBeenCalledTimes(3);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(f.host.bootstrapCloudCopy).toHaveBeenCalledOnce();
+      expect(f.host.openCollectionSql).toHaveBeenCalledOnce();
+      expect(f.host.waitForVerifiedRead).not.toHaveBeenCalled();
+      expect(f.trace).not.toContain("handoff");
+    } finally {vi.useRealTimers();}
+  });
+  it("aborts initial busy backoff without another mint, enrollment or data handoff", async () => {
+    const f = fixture(), error = new AppCpAuthorityError("unavailable", appServerProblem(503, {error: {code: "busy"}}));
+    let rejectFirst!: (error: unknown) => void;
+    f.host.startCollectionLog.mockImplementationOnce(() => new Promise((_resolve, reject) => {rejectFirst = reject;}));
+    const work = f.open(), rejected = expect(work).rejects.toBeDefined();
+    await vi.waitFor(() => expect(f.host.startCollectionLog).toHaveBeenCalledOnce());
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+    try {
+      rejectFirst(error); await vi.advanceTimersByTimeAsync(100);
+      f.parent.abort(); await rejected;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
+      expect(f.host.bootstrapCloudCopy).toHaveBeenCalledOnce();
+      expect(f.trace).not.toContain("handoff");
+    } finally {vi.useRealTimers();}
+  });
+  it("honors the sanitized busy Retry-After before retrying or handing off data", async () => {
+    const f = fixture(), error = new AppCpAuthorityError("unavailable",
+      appServerProblem(503, {error: {code: "busy"}}, new Headers({"retry-after": "1"})));
+    let rejectFirst!: (error: unknown) => void;
+    f.host.startCollectionLog.mockImplementationOnce(() => new Promise((_resolve, reject) => {rejectFirst = reject;}));
+    const work = f.open();
+    await vi.waitFor(() => expect(f.host.startCollectionLog).toHaveBeenCalledOnce());
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+    try {
+      rejectFirst(error); await vi.advanceTimersByTimeAsync(4_999);
+      expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
+      expect(f.trace).not.toContain("handoff");
+      await vi.advanceTimersByTimeAsync(251);
+      const result = await work;
+      expect(f.host.startCollectionLog).toHaveBeenCalledTimes(2);
+      expect(f.host.bootstrapCloudCopy).toHaveBeenCalledOnce();
+      expect(f.trace.filter(value => value === "handoff")).toHaveLength(1);
+      await result.close(); expect(vi.getTimerCount()).toBe(0);
+    } finally {vi.useRealTimers();}
+  });
+  it.each(["host", "scope", "installation"])("fences %s drift during initial busy backoff without borrowing a new host", async variant => {
+    const f = fixture(), error = new AppCpAuthorityError("unavailable", appServerProblem(503, {error: {code: "busy"}}));
+    let rejectFirst!: (error: unknown) => void;
+    f.host.startCollectionLog.mockImplementationOnce(() => new Promise((_resolve, reject) => {rejectFirst = reject;}));
+    const work = f.open(), rejected = expect(work).rejects.toMatchObject({reason: "fenced"});
+    await vi.waitFor(() => expect(f.host.startCollectionLog).toHaveBeenCalledOnce());
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+    try {
+      rejectFirst(error); await vi.advanceTimersByTimeAsync(100);
+      if (variant === "host") f.context.host = {} as typeof f.context.host;
+      if (variant === "scope") f.context.scope = {...scope, collection: scope.account};
+      if (variant === "installation") f.context.installation = {...f.context.installation};
+      await vi.advanceTimersByTimeAsync(1_000); await rejected;
+      expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
+      expect(f.host.openCollectionSql).toHaveBeenCalledOnce();
+      expect(f.trace).not.toContain("handoff");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {vi.useRealTimers();}
+  });
   it("configured people crosses original CONTROL only, reusing SAME UI client and no host/authority loan", async () => {
     const f = fixture("explicit", true), result = await f.open();
     expect(f.handoff().people).toBe(true); expect(f.host.peopleAuthority).toHaveBeenCalledOnce();
@@ -141,21 +301,24 @@ describe("real protected native collection composition", () => {
     await expect(f.adapter(f.context)).rejects.toMatchObject({reason: "fenced"}); expect(stop).toHaveBeenCalledOnce();
     stop.mockRestore(); originalClose(); f.parent.abort(); f.ui.abort();
   });
-  it("holds the handoff until the replica first catches up; once caught up, a later offline open uses local data", async () => {
+  it("holds handoff behind the cold progress gate; a previously synced offline open keeps the warm gate", async () => {
     vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
     try {
-      const f = fixture(); f.host.initialSync.mockReturnValue("waiting_for_key");
+      const f = fixture();
+      let synced!: () => void;
+      f.host.waitForVerifiedRead.mockImplementationOnce(() => new Promise(resolve => {synced = resolve;}));
       const opening = f.open();
-      await vi.waitFor(() => expect(f.host.driveCollection).toHaveBeenCalled());
+      await vi.waitFor(() => expect(f.host.waitForVerifiedRead).toHaveBeenCalledWith({signal: expect.any(AbortSignal), cold: true, onProgress: expect.any(Function)}));
       await vi.advanceTimersByTimeAsync(60_000);
-      expect(f.trace).not.toContain("handoff"); // no setup assessment or empty state on a stalled replica
-      expect(f.host.driveCollection.mock.calls.length).toBeGreaterThan(1); // the wait drives the log
-      f.host.initialSync.mockReturnValue(null);
+      expect(f.trace).not.toContain("handoff"); // genuine host gate owns cold progress and READ
+      expect(f.host.driveCollection).not.toHaveBeenCalled(); // no second competing cold pump
+      synced();
       await opening; expect(f.trace.at(-1)).toBe("handoff");
       await vi.waitFor(async () => expect(await new AppCollectionJoinLedger({databaseName: "tasknotes.native-collection-join.v1", scope, isCurrent: () => true})
         .syncedBefore({signal: new AbortController().signal})).toBe(true));
       const g = fixture(); g.host.initialSync.mockReturnValue("offline");
       await g.open(); expect(g.trace.at(-1)).toBe("handoff");
+      expect(g.host.waitForVerifiedRead).toHaveBeenCalledWith({signal: expect.any(AbortSignal), cold: false, onProgress: expect.any(Function)});
     } finally { vi.useRealTimers(); }
   });
   it("never polls the log head on a timer; a foreground event wakes it once; a failed turn does not stop the loop", async () => {

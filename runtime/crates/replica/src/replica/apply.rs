@@ -2113,8 +2113,8 @@ impl<S: Store> Replica<S> {
         Ok(Outcome::Applied)
     }
 
-    /// Recompute every record's index entries after a catalog change.
-    fn reindex(&mut self) -> Result<(), StoreError> {
+    /// Recompute every record's index entries after a catalog or derived-version change.
+    pub(super) fn reindex(&mut self) -> Result<(), StoreError> {
         let mut after = None;
         loop {
             let page = self

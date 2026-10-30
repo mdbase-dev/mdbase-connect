@@ -1509,6 +1509,21 @@ pub extern "C" fn hd_tick(now_ms: f64) {
     with(|s| s.engine.tick(now_ms as i64));
 }
 
+/// Opaque applied progress for idle scheduling, never an authority observation.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_applied_head() -> u64 {
+    let Some((seq, chain)) = with(|s| s.engine.applied_head()) else {
+        return give(Vec::new());
+    };
+    give(
+        cbor::encode(&Cbor::Array(vec![
+            Cbor::Uint(seq),
+            Cbor::Bytes(chain.to_vec()),
+        ]))
+        .expect("bounded applied head encodes"),
+    )
+}
+
 /// The next wakeup (host ms), or −1.
 #[unsafe(no_mangle)]
 pub extern "C" fn hd_next_wakeup() -> f64 {

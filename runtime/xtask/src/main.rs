@@ -371,6 +371,11 @@ fn short_digest(json: &str) -> String {
 
 /// The TS SDK (`packages/sdk`): typecheck, tests (incl. the golden wire fixtures), build.
 fn sdk() -> Result<()> {
+    let mut verifier = Command::new("cargo");
+    verifier
+        .current_dir(repo_root())
+        .args(["build", "-p", "mdbn-trust", "--locked"]);
+    run(verifier)?;
     npm_package("packages/sdk")
 }
 

@@ -10,6 +10,7 @@ type AlarmStorage = Pick<DurableObjectStorage, "get" | "put" | "getAlarm" | "set
 
 export class AlarmLifecycle {
   private inhibited = false;
+  private scheduling: Promise<void> = Promise.resolve();
   constructor(private readonly storage: AlarmStorage) {}
 
   /** Synchronous local continuation fence; not a distributed generation. */
@@ -41,14 +42,24 @@ export class AlarmLifecycle {
     await this.storage.deleteAlarm();
   }
 
-  /** Keep the earlier deadline without allowing an inhibited/stale continuation
-   * to install a new alarm after a storage await. The caller's fence must be a
-   * synchronous local identity check, not an authorization callback. */
-  async schedule(at: number, current: () => boolean): Promise<void> {
-    if (!Number.isSafeInteger(at) || at <= 0) throw new Error("invalid alarm deadline");
-    if (!current() || !await this.allowed() || !current() || !this.current) return;
-    const scheduled = await this.storage.getAlarm();
-    if (!current() || !this.current) return;
-    await this.storage.setAlarm(Math.max(Date.now() + 100, Math.min(at, scheduled ?? at)));
+  /** Keep earlier deadlines, except an exact provisional retry installed by
+   * this opener. Return the deadline actually installed, or null when coalesced
+   * or fenced. This is scheduling bookkeeping, never an authorization callback.
+   * Serialize read/modify/write so an interleaved earlier wake cannot be lost. */
+  schedule(at: number, current: () => boolean, replace?: number): Promise<number | null> {
+    const operation = this.scheduling.then(async () => {
+      if (!Number.isSafeInteger(at) || at <= 0) throw new Error("invalid alarm deadline");
+      if (!current() || !await this.allowed() || !current() || !this.current) return null;
+      const scheduled = await this.storage.getAlarm();
+      if (!current() || !this.current) return null;
+      const target = Math.max(Date.now() + 100, at);
+      if (scheduled !== null && scheduled !== replace && scheduled <= target) return null;
+      if (scheduled === target) return null;
+      await this.storage.setAlarm(target);
+      return target;
+    });
+    // Only the queue tail absorbs rejection; the caller still observes failure.
+    this.scheduling = operation.then(() => {}, () => {});
+    return operation;
   }
 }

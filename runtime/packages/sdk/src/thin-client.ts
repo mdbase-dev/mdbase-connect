@@ -26,6 +26,7 @@ export type {
   Conflict,
   ConflictEntry,
   ConflictValue,
+  FileContentProfile,
   FileView,
   GrantInfo,
   HelloResult,

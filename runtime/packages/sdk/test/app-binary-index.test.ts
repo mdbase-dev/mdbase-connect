@@ -161,6 +161,56 @@ describe("app binary index (file ABI v1)", () => {
   });
 });
 
+describe("same-Worker resource inventory isolation", () => {
+  it("finishes all binary SQL batches before a queued resource write can run", async () => {
+    const { host, inner, db, index } = memory();
+    const metadata = "SELECT path, length(CAST(doc AS BLOB)) FROM st_res ORDER BY path";
+    const group = "SELECT path, doc FROM st_res WHERE path >= ?1 AND path <= ?2 ORDER BY path";
+    inner.run({ mode: "Transaction", stmts: [
+      { sql: "CREATE TABLE st_res(path TEXT PRIMARY KEY,doc TEXT)", params: [] },
+      ...Array.from({ length: 80 }, (_, n) => ({ sql: "INSERT INTO st_res VALUES(?,?)", params: [
+        { kind: "Text" as const, value: `r${String(n).padStart(3, "0")}` },
+        { kind: "Text" as const, value: "x".repeat(60_000) },
+      ] })),
+    ] });
+    const run = inner.run.bind(inner), trace: string[] = [];
+    let written = false;
+    let finish!: () => void;
+    const writer = new Promise<void>(resolve => { finish = resolve; });
+    const spy = vi.spyOn(inner, "run").mockImplementation((batch, limits) => {
+      const result = run(batch, limits);
+      if (batch.stmts[0]?.sql === metadata) {
+        trace.push("metadata");
+        queueMicrotask(() => {
+          db.exec({ sql: "UPDATE st_res SET doc=?", bind: ["y".repeat(60_001)] });
+          written = true; trace.push("write"); finish();
+        });
+      } else trace.push("group");
+      return result;
+    });
+    try {
+      expect(host.run(request([{ sql: metadata, params: [] }], "Autocommit"))[8]).toBe(2);
+      for (const [first, last] of [["r000", "r033"], ["r034", "r067"], ["r068", "r079"]]) {
+        expect(host.run(request([{ sql: group, params: [
+          { kind: "Text", value: first! }, { kind: "Text", value: last! },
+        ] }], "Autocommit"))[8]).toBe(2);
+      }
+      expect(written).toBe(false);
+      const results = spy.mock.results.map(result => result.value[0]);
+      expect(results[0].values.filter((_: SqlValue, n: number) => n % 2 === 1))
+        .toEqual(Array(80).fill({ kind: "Integer", value: 60_000n }));
+      const docs = results.slice(1).flatMap(result => result.values.filter((_: SqlValue, n: number) => n % 2 === 1));
+      expect(docs).toHaveLength(80);
+      expect(docs.every((v: SqlValue) => v.kind === "Text" && v.value === "x".repeat(60_000))).toBe(true);
+      trace.push("read-return");
+      await writer;
+      expect(trace).toEqual(["metadata", "group", "group", "group", "read-return", "write"]);
+      expect(db.selectValue("SELECT count(*) FROM st_res WHERE length(CAST(doc AS BLOB))=60001")).toBe(80);
+      expect(host.needsRecovery).toBe(false);
+    } finally { index.close(); }
+  });
+});
+
 describe("same-Worker WASM import memory ownership", () => {
   it("copies borrowed input, survives memory grow, and packs the owned reply", () => {
     const { host, index } = memory();

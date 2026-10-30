@@ -41,11 +41,12 @@ impl<S: Store> Replica<S> {
                         Err(error) => Stage::Failed(error.into_problem()),
                     },
                     Ok(Some(need)) => {
-                        let (address, max) = request(need);
+                        let (address, _) = request(need);
                         let call = self.queue(LogRequest::GetObject {
                             collection: self.cfg.collection,
                             address,
-                            range: Some((0, max)),
+                            // Response handling checks the complete-object bound.
+                            range: None,
                         });
                         self.inflight.insert(
                             call,

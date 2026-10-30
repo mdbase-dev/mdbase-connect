@@ -6,9 +6,9 @@ async function asset():Promise<ApplicationAsset>{const digest=new Uint8Array(awa
 const signal=()=>new AbortController().signal;
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 describe("SDK-private bundled asset intake (transport integrity, not release authentication)",()=>{
-  it("reads exact immutable packaged bytes with no credentials or redirect retry",async()=>{
+  it.each(["staging","production"] as const)("%s reads exact immutable packaged bytes with no credentials or redirect retry",async environment=>{
     const fetcher=vi.fn(async()=>new Response(bytes,{headers:{"content-length":String(bytes.length)}}));
-    const source={...await asset()},load=applicationAssetLoader(source,{origin,environment:"production",fetch:fetcher}),caller=signal();source.url="https://foreign.test/changed";source.sha256="0".repeat(64);
+    const source={...await asset()},load=applicationAssetLoader(source,{origin,environment,fetch:fetcher}),caller=signal();source.url="https://foreign.test/changed";source.sha256="0".repeat(64);
     expect(await load({signal:caller})).toEqual(bytes);expect(fetcher).toHaveBeenCalledExactlyOnceWith(url,{signal:caller,credentials:"omit",cache:"force-cache",redirect:"error"});
   });
   it("reopens verified bytes offline with a fresh loader, rejecting tampering and other releases",async()=>{
@@ -58,6 +58,12 @@ describe("SDK-private bundled asset intake (transport integrity, not release aut
   });
   it.each(["https://foreign.test/runtime.wasm","http://app.test/runtime.wasm"])("refuses unbound source URL %s before fetch",async changed=>{
     const fetcher=vi.fn(),a=await asset();expect(()=>applicationAssetLoader({...a,url:changed},{origin,environment:"production",fetch:fetcher})).toThrow("application asset");expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("staging assets reject HTTP loopback before fetch",async()=>{
+    const a=await asset(),fetcher=vi.fn();
+    for(const app of ["http://127.0.0.1:32111","http://localhost:32111","http://[::1]:32111"])
+      expect(()=>applicationAssetLoader({...a,url:app+"/runtime.wasm"},{origin:app,environment:"staging",fetch:fetcher})).toThrow("application asset");
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it("lab HTTP remains explicit loopback-only",async()=>{
     const a=await asset();expect(()=>applicationAssetLoader({...a,url:"http://127.0.0.1:32111/runtime.wasm"},{origin:"http://127.0.0.1:32111",environment:"lab"})).not.toThrow();

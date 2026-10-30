@@ -25,6 +25,29 @@ describe("app CP log-token authority", () => {
     expect(f.runtime.signCpLogToken).toHaveBeenCalledTimes(1); expect(f.signature.every(b => b === 0)).toBe(true);
     expect(await f.authority.accessToken({ signal: signal() })).toBe("ls-device-token"); expect(f.fetch).toHaveBeenCalledTimes(2);
   });
+  it("a later SAME-authority mint after busy signs a fresh challenge, never reuses the consumed proof", async () => {
+    let challenges = 0, mints = 0;
+    const bodies: {challenge: string; sig: string}[] = [];
+    const f = fixture(async (url, init) => {
+      if (String(url).endsWith("/challenge")) return ok({challenge: (++challenges === 1 ? "11" : "22").repeat(32), expires_at: now + 60_000});
+      bodies.push(JSON.parse(init!.body as string));
+      return ++mints === 1 ? new Response(JSON.stringify({error: {code: "busy"}}), {status: 503}) :
+        ok({token: "ls-device-token", expires_at: now + 60_000});
+    });
+    f.runtime.signCpLogToken.mockImplementation(() => new Uint8Array(64).fill(0x77));
+    await expect(f.authority.accessToken({signal: signal()})).rejects.toMatchObject({reason: "unavailable", server: {status: 503, code: "busy"}});
+    expect(f.authority.isCurrent()).toBe(false);
+    expect(await f.authority.accessToken({signal: signal()})).toBe("ls-device-token");
+    expect(bodies.map(body => body.challenge)).toEqual(["11".repeat(32), "22".repeat(32)]);
+    expect(f.runtime.signCpLogToken).toHaveBeenCalledTimes(2);
+    expect(f.runtime.bindCpConnector).toHaveBeenCalledOnce();
+    expect(f.runtime.retireLog).not.toHaveBeenCalled();
+    expect(f.fetch.mock.calls.map(call => new URL(String(call[0])).pathname)).toEqual([
+      "/v1/next/devices/challenge", `/v1/next/collections/${C}/log-token`,
+      "/v1/next/devices/challenge", `/v1/next/collections/${C}/log-token`,
+    ]);
+    f.authority.close();
+  });
   it("expiry triggers one fresh challenge, not identity retirement or background retry", async () => {
     const f = fixture(); await f.authority.accessToken({ signal: signal() }); f.tick(15 * 60_000); expect(f.authority.isCurrent()).toBe(true);
     await f.authority.accessToken({ signal: signal() }); expect(f.fetch).toHaveBeenCalledTimes(4); expect(f.runtime.retireLog).not.toHaveBeenCalled();

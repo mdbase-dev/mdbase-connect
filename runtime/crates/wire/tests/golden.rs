@@ -219,3 +219,27 @@ fn reencoding_any_fixture_value_is_stable() {
         assert_eq!(once, twice, "{}/{}", f.format, f.name);
     }
 }
+
+#[test]
+fn file_content_profile_goldens_roundtrip() {
+    use mdbn_wire::client::FileView;
+    for profile in [
+        "ordinary-blob",
+        "ordinary-attachment-v1",
+        "unindexed-markdown-blob",
+        "unindexed-markdown-attachment-v1",
+    ] {
+        let bytes = fs::read(
+            root()
+                .join("client")
+                .join(format!("file-view-{profile}.cbor")),
+        )
+        .unwrap();
+        let view = FileView::from_bytes(&bytes).unwrap();
+        assert_eq!(
+            view.to_bytes().unwrap(),
+            bytes,
+            "{profile}: profile must survive decoding"
+        );
+    }
+}

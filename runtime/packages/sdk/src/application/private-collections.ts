@@ -26,7 +26,7 @@ import type { MdbaseApplicationConnection, MdbaseApplicationReadinessSnapshot } 
 import type { MdbaseSetupPlan, MdbaseSetupPlanOptions } from "./setup.js";
 
 /** The grant operations this controller uses (a fake in tests). */
-export type ApplicationPrivateGrants = Pick<MdbaseAppGrants, "collections" | "availability" | "waitForAvailable" | "connector" | "people" | "setup" | "forget" | "authorize"> & Partial<Pick<MdbaseAppGrants,"prepareAuthorization" | "verifiedStoredNativeGrant">>;
+export type ApplicationPrivateGrants = Pick<MdbaseAppGrants, "collections" | "availability" | "waitForAvailable" | "connector" | "people" | "setup" | "forget" | "forgetAllGrants" | "authorize"> & Partial<Pick<MdbaseAppGrants,"prepareAuthorization" | "verifiedStoredNativeGrant">>;
 
 export interface ApplicationPrivateCollectionsOptions {
   readonly declaration: MdbaseApplicationDeclaration;
@@ -346,18 +346,19 @@ export class ApplicationPrivateCollections {
     if(this.bindings===null || binding && await grants.verifiedStoredNativeGrant?.(binding))await (binding?grants.forget(collectionId,{expectedNoisePublicKey:binding.client_noise_public_key}):grants.forget(collectionId));
     if (this.list.some(c => c.collectionId === collectionId)) { this.list = Object.freeze(this.list.filter(c => c.collectionId !== collectionId)); this.changed(); }
   }
-  /** Sign-out: every grant this browser holds goes too. */
+  /** Sign-out: every grant this browser holds goes too — including any in
+   * the store that this page never listed (grants carry no account, so one
+   * left behind could serve a different account). Rejects when the wipe
+   * could not complete; the caller reports it, never swallows it. */
   async forgetAll(): Promise<void> {
-    const ids = [...new Set([...this.list.map(c => c.collectionId), ...(this.open ? [this.open.id] : []), ...(this.bindings ?? []).map(c=>c.collection_id)])];
     this.native?.life.abort();this.native?.prepared?.cancel();this.native=null;
     this.close();
-    if (!ids.length && !this.loading) return;
-    const grants = await this.grants();
-    for (const id of ids) {
-      const binding=this.bindings?.find(c=>c.collection_id===id && c.account_id===this.bindingsAccount);
-      if(this.bindings===null || binding && await grants.verifiedStoredNativeGrant?.(binding))await (binding?grants.forget(id,{expectedNoisePublicKey:binding.client_noise_public_key}):grants.forget(id)).catch(() => {});
+    try {
+      const grants = await this.grants();
+      await grants.forgetAllGrants();
+    } finally {
+      this.list = Object.freeze([]); this.listed = null; this.settled = null; this.changed();
     }
-    this.list = Object.freeze([]); this.listed = null; this.settled = null; this.changed();
   }
   /** Close the open Private collection (its client), if any. */
   close(notify = true): void {

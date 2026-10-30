@@ -12,7 +12,7 @@ use mdbn_wire::{
     common::{B16, B32, Bytes},
     envelope::{Item, ItemKind, KeyGrantPayload, KeyWrap},
     log_service::{AppendParams, HeadResult},
-    policy::{CState, DeviceKind, Genesis, PolicyOp},
+    policy::{CState, DeviceKind, Genesis, MemberRemove, MemberSet, PolicyOp, Role},
     schema::Wire,
 };
 use std::{
@@ -219,6 +219,107 @@ fn hosted_cloud_grant_keeps_epoch_signature_and_rekey_guards() {
     assert_eq!(error.code, Code::Frozen);
     assert_eq!(error.reason.as_deref(), Some("rekey_required"));
 }
+#[test]
+fn member_removal_closes_live_delivery_and_fences_content_until_excluding_rekey() {
+    let f = Fixture::new();
+    let member = Device::new("removed-cloud-member", id16("removed-cloud-account"));
+    let h = f.head();
+    f.append(
+        &Principal::ControlPlane,
+        f.cp.policy_item(
+            f.col,
+            h.head + 1,
+            h.head_chain,
+            vec![
+                PolicyOp::MemberSet(MemberSet {
+                    account: member.account,
+                    role: Role::Editor,
+                }),
+                member.enrol(DeviceKind::AppRuntime),
+            ],
+            3,
+        ),
+    )
+    .unwrap();
+    let mut hub = mdbn_log_service::hub::Hub::new(f.col);
+    hub.subscribe(1, Some(member.id), None);
+    hub.subscribe(2, Some(f.user.id), None);
+    let append = |principal: &Principal, bytes: Vec<u8>| {
+        let h = f.head();
+        ready(f.service.append(
+            principal,
+            AppendParams {
+                collection: f.col,
+                expect_seq: h.head + 1,
+                expect_prev: h.head_chain,
+                items: vec![Bytes(bytes)],
+            },
+            1000,
+        ))
+    };
+    let h = f.head();
+    let removal = append(
+        &Principal::ControlPlane,
+        f.cp.policy_item(
+            f.col,
+            h.head + 1,
+            h.head_chain,
+            vec![PolicyOp::MemberRemove(MemberRemove {
+                account: member.account,
+            })],
+            4,
+        ),
+    )
+    .unwrap();
+    assert_eq!(removal.notice.as_ref().unwrap().revoked, vec![member.id]);
+    let pushes = hub.on_commit(removal.notice.as_ref().unwrap(), &removal.items);
+    let removed_pushes: Vec<_> = pushes.iter().filter(|p| p.to == 1).collect();
+    assert_eq!(removed_pushes.len(), 1);
+    assert_eq!(removed_pushes[0].push.kind, "closed");
+    assert_eq!(hub.subscriber_count(), 1);
+    assert_eq!(
+        ready(f.service.head(&f.principal(&member), &f.col))
+            .unwrap_err()
+            .code,
+        Code::Forbidden
+    );
+
+    let entry = |epoch| {
+        let h = f.head();
+        f.user.entry(
+            f.col,
+            h.head + 1,
+            h.head_chain,
+            epoch,
+            id16("post-remove-write"),
+            None,
+            vec![7; 32],
+        )
+    };
+    let frozen = append(&f.principal(&f.user), entry(1)).unwrap_err();
+    assert_eq!(frozen.reason.as_deref(), Some("rekey_required"));
+    let h = f.head();
+    append(
+        &f.principal(&f.user),
+        f.user.rekey(
+            f.col,
+            h.head + 1,
+            h.head_chain,
+            1,
+            &[f.user.id, f.hosted.id, f.escrow.id],
+        ),
+    )
+    .unwrap();
+    assert!(append(&f.principal(&f.user), entry(1)).is_err());
+    let written = append(&f.principal(&f.user), entry(2)).unwrap();
+    let pushes = hub.on_commit(written.notice.as_ref().unwrap(), &written.items);
+    assert!(!pushes.is_empty());
+    assert!(
+        pushes.iter().all(|p| p.to == 2),
+        "removed live session receives no new entry or head"
+    );
+}
+
 #[test]
 fn hosted_cloud_grant_keeps_active_device_and_mode_guards() {
     let f = Fixture::new();

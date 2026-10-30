@@ -20,7 +20,7 @@ struct Job {
     control: Hash,
     queue: VecDeque<FileContent>,
     current: Option<(FileContent, UnindexedSourceReader)>,
-    call: Option<CallId>,
+    call: Option<(CallId, u64)>,
     retry_at: Option<i64>,
     refs: BTreeSet<Hash>,
     meta: Vec<MetaPut>,
@@ -194,11 +194,13 @@ impl<S: Store> Replica<S> {
                     let id = self.queue(LogRequest::GetObject {
                         collection: self.cfg.collection,
                         address,
-                        range: Some((0, max)),
+                        // The bound is not an exact ciphertext range. Request the
+                        // complete object; reject an over-bound response below.
+                        range: None,
                     });
                     self.inflight
                         .insert(id, super::append::Inflight::InstallNative);
-                    j.call = Some(id);
+                    j.call = Some((id, max));
                 }
             } else {
                 j.ready = Some(Err(StreamError::Protocol(
@@ -212,7 +214,11 @@ impl<S: Store> Replica<S> {
         let Some(mut j) = self.install_native_auth.job.take() else {
             return;
         };
-        if j.call != Some(id) {
+        let Some((call, max)) = j.call else {
+            self.install_native_auth.job = Some(j);
+            return;
+        };
+        if call != id {
             self.install_native_auth.job = Some(j);
             return;
         }
@@ -230,6 +236,9 @@ impl<S: Store> Replica<S> {
             return;
         }
         let result = match reply {
+            Ok(LogResponse::GetObject { size, .. }) if size > max => Some(Err(
+                StreamError::Corrupt("snapshot native object exceeds sealed bound"),
+            )),
             Ok(LogResponse::GetObject { bytes, size, .. }) if size == bytes.len() as u64 => {
                 let Some((c, r)) = j.current.as_mut() else {
                     return;

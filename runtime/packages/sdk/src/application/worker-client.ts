@@ -1,3 +1,4 @@
+import {isAppOpeningProgress} from "../app-host/opening-progress.js";
 import {nativeAuthorizationCall, type NativeAuthorizationCall, type NativeAuthorizationResult} from "./native-authorization-rpc.js";
 import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 import type {AppWebSignInPortal,AppWebSignInSnapshot} from "../app-host/web-sign-in-session.js";
@@ -27,9 +28,10 @@ function nativeSnapshot(value:unknown):AppWebSignInSnapshot {
   if(!value||typeof value!=="object"||Array.isArray(value))throw new ApplicationWorkerError("application_worker_binding");
   const snapshot=value as AppWebSignInSnapshot;
   if(!["not_started","starting","signed_out","authorizing","unselected","opening","setup_required","ready","blocked","closed"].includes(snapshot.status)||
+    !(snapshot.openingProgress==null||typeof snapshot.openingProgress==="string")||
     !Array.isArray(snapshot.collections)||snapshot.collections.length>1024||!(snapshot.selectedCollectionId===null||typeof snapshot.selectedCollectionId==="string")||
     !(snapshot.problem===null||(typeof snapshot.problem==="string"&&/^[a-z0-9_-]{1,128}$/.test(snapshot.problem))))throw new ApplicationWorkerError("application_worker_binding");
-  return Object.freeze(snapshot);
+  return Object.freeze({...snapshot,openingProgress:isAppOpeningProgress(snapshot.openingProgress)?snapshot.openingProgress:null});
 }
 /** One original operation slot, no queue/retry/cancel RPC. Caller cancellation
  * rejects delivery only; the original slot remains until reply AND handoff drain.

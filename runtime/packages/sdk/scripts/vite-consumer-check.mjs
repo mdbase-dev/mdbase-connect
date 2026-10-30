@@ -29,7 +29,7 @@ try {
   await build({root,configFile:false,logLevel:"warn",build:{outDir:"out",emptyOutDir:true}});
   const assets=join(root,"out/assets"),names=readdirSync(assets),read=name=>readFileSync(join(assets,name));
   const one=(pattern,label)=>{const found=names.filter(name=>pattern.test(name));assert.equal(found.length,1,`${label}: ${names.join(", ")}`);return found[0];};
-  const runtime=one(/^runtime-lab-.*\.wasm$/,"runtime wasm"),sqlite=one(/^sqlite3-.*\.wasm$/,"sqlite wasm"),initializer=one(/^sqlite3-.*\.js$/,"sqlite initializer");
+  const runtime=one(/^runtime-.*\.wasm$/,"runtime wasm"),sqlite=one(/^sqlite3-.*\.wasm$/,"sqlite wasm"),initializer=one(/^sqlite3-.*\.js$/,"sqlite initializer");
   const worker=one(/^worker-.*\.js$/,"SDK Worker");
   assert.equal(sha256(read(runtime)),pins.runtime.sha256);assert.equal(read(runtime).length,pins.runtime.bytes);
   assert.equal(sha256(read(sqlite)),pins.sqlite.sha256);assert.equal(read(sqlite).length,pins.sqlite.bytes);

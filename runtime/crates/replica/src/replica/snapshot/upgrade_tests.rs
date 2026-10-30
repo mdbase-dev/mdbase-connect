@@ -2,7 +2,7 @@
 use super::*;
 use crate::mem::MemStore;
 use crate::seal::{PlainSealer, Sealer};
-use crate::store::{RecordMeta, Stage};
+use crate::store::Stage;
 use crate::{DeviceSecrets, Host, ReplicaConfig, UtcOnly};
 use mdbn_core::host::Clock;
 use mdbn_wire::common::{B16, B64};
@@ -19,6 +19,9 @@ impl Clock for FixedClock {
 }
 fn row(id: B16, path: &str) -> RecordRow {
     let doc = "prior bytes\n".to_owned();
+    // Keep the snapshot-refusal fixture's prior row canonical: open now
+    // rebuilds legacy derived metadata before the install under test.
+    let meta = crate::plan::record_meta(&mdbn_core::types::Catalog::empty(), path, &doc);
     RecordRow {
         id,
         path: path.into(),
@@ -27,7 +30,7 @@ fn row(id: B16, path: &str) -> RecordRow {
         doc,
         modified_seq: 7,
         bucket: bucket16(&id),
-        meta: RecordMeta::default(),
+        meta,
     }
 }
 pub(super) fn replica() -> Replica<MemStore> {

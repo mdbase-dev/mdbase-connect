@@ -174,13 +174,12 @@ impl<S: Store> Replica<S> {
         }
         j.retry_at = None;
         match j.reader.need() {
-            Ok(Some(SourceNeed::BlobPart {
-                address, max_bytes, ..
-            })) => {
+            Ok(Some(SourceNeed::BlobPart { address, .. })) => {
                 let id = self.queue(LogRequest::GetObject {
                     collection: self.cfg.collection,
                     address,
-                    range: Some((0, max_bytes)),
+                    // Source supply enforces the sealed-size bound.
+                    range: None,
                 });
                 self.inflight
                     .insert(id, super::append::Inflight::InstallText);

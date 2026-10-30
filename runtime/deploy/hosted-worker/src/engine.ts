@@ -70,6 +70,7 @@ interface Exports extends WebAssembly.Exports {
   hd_close(session: number): void;
   hd_tick(now: number): void;
   hd_next_wakeup(): number;
+  hd_applied_head(): bigint;
   hd_poll(): bigint;
   hd_log_calls(): bigint;
   hd_log_reply(call: number, p: number, n: number): void;
@@ -720,6 +721,14 @@ export class Engine {
 
   tick(now: number): void {
     this.ex.hd_tick(now);
+  }
+
+  /** Opaque native applied progress, for idle scheduling only. Never persisted,
+   * logged, installed back, or used for serving/currentness/effect permission. */
+  appliedHead(): string {
+    const bytes = this.take(this.ex.hd_applied_head());
+    if (bytes.length < 36 || bytes.length > 44) throw new Error("invalid applied head");
+    return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
   }
 
   nextWakeup(): number | null {

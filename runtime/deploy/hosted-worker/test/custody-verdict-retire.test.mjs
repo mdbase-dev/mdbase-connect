@@ -22,7 +22,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
     b.onLoad({ filter: /hosted\.wasm$/ }, () => ({ contents: "export default new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));" }));
   },
 }] });
-const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString("base64")}`);
+const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=custody-verdict-worker.mjs").toString("base64")}`);
 
 function object(escrow = false) {
   const data = new Map(); let alarm = null;
@@ -58,7 +58,7 @@ function coldWake(escrow, code) {
 
 function warmEngine(t) {
   const calls = []; let wiped = 0;
-  const engine = { logBound: false, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null,
+  const engine = { appliedHead: () => "cached", logBound: false, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null,
     tick() { calls.push("tick"); }, refresh() { calls.push("refresh"); } };
   Object.assign(t.o, { engine, collection, live: { admitted: true }, log: () => ({}) });
   t.o.readers.set("reader", { wipe() { wiped++; } });

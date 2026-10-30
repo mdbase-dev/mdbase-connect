@@ -7,6 +7,8 @@
 mod native;
 #[path = "pg/resource_list.rs"]
 mod resource_list;
+#[path = "pg/schema_version.rs"]
+mod schema_version;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 

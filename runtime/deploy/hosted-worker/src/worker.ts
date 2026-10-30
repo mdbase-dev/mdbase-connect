@@ -714,22 +714,21 @@ export class HostedCollection extends DurableObject<Env> {
     await this.ctx.storage.put("service-collection", collection);
     trace.stage = "alarm_guard";
     if (!this.alarms.current) throw new Error("hosted_alarm_inhibited");
-    // Persist a retry before custody/network work; failed first-open must not
-    // leave a registered service device without an alarm.
+    if (this.engine) return this.engine;
+    const openingTrace = this.openingTrace ??= { stage: "open_retry_read" };
+    trace.opening = openingTrace;
     let openFailures = 0;
-    if (!this.engine) {
-      trace.stage = "open_retry_read";
+    this.opening ??= (async () => {
+      // Reserve once, inside the shared opener, before custody/network work.
+      // Only the alarm actually installed here may be replaced on success.
+      openingTrace.stage = "open_retry_read";
       const stored = await this.ctx.storage.get<unknown>(OPEN_FAILURES_KEY);
       openFailures = typeof stored === "number" && Number.isSafeInteger(stored) && stored > 0 ? stored : 0;
-      trace.stage = "open_retry_schedule";
-      await this.alarms.schedule(Date.now() + openRetryMs(openFailures), () => !this.engine);
-    }
-    trace.stage = "alarm_guard";
-    if (!this.alarms.current) throw new Error("hosted_alarm_inhibited");
-    if (this.engine) return this.engine;
-    const openingTrace = this.openingTrace ??= { stage: "custody_open_sealer" };
-    trace.opening = openingTrace;
-    this.opening ??= (async () => {
+      openingTrace.stage = "open_retry_schedule";
+      const retry = await this.alarms.schedule(Date.now() + openRetryMs(openFailures), () => !this.engine);
+      openingTrace.stage = "alarm_guard";
+      if (!this.alarms.current) throw new Error("hosted_alarm_inhibited");
+      openingTrace.stage = "custody_open_sealer";
       // First open of this wake: phase timings for the LAB status (Workers clocks
       // advance only across I/O, so CPU-only phases can read 0 ms).
       const t0 = Date.now();
@@ -794,7 +793,8 @@ export class HostedCollection extends DurableObject<Env> {
       // The open queued a head fetch: it counts as a refresh.
       this.lastRefresh = Date.now();
       openingTrace.stage = "sync";
-      await this.sync(engine, calls);
+      const gen = this.logGen;
+      const next = await this.sync(engine, calls);
       openingTrace.stage = "pin_parked_guard";
       if (this.pinParked) throw new PinParked();
       openingTrace.stage = "timing_snapshot";
@@ -827,12 +827,16 @@ export class HostedCollection extends DurableObject<Env> {
         runIndex(this.ctx.storage, RESET);
         throw new Error("hosted cache reset; retry");
       }
-      return engine;
-    })().then(async (engine) => {
       openingTrace.stage = "open_failure_clear";
       if (openFailures) await this.ctx.storage.delete(OPEN_FAILURES_KEY);
+      // All open checks succeeded. Until here, a post-sync failure must still
+      // have the earlier retry. Never replace a different pending wake.
+      if (retry !== null && next !== undefined) {
+        openingTrace.stage = "open_retry_schedule";
+        await this.alarms.schedule(next, () => !this.pitrClosed && this.alarms.current && this.logGen === gen && this.engine === engine, retry);
+      }
       return engine;
-    }, async (error: unknown) => {
+    })().catch(async (error: unknown) => {
       if (isPermanentCustodyRefusal(error)) { await this.retireForVerdict(); throw error; }
       try { await this.ctx.storage.put(OPEN_FAILURES_KEY, openFailures + 1); } catch { /* the retry alarm is already set */ }
       throw error;
@@ -976,20 +980,21 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   /** Move log traffic until quiet, deliver output, schedule the next wakeup. */
-  private async sync(engine: Engine, timings?: CallTimings): Promise<void> {
+  private async sync(engine: Engine, timings?: CallTimings): Promise<number | undefined> {
     if (this.pitrClosed) { this.closePitrResources(); return; }
     const gen = this.logGen;
     const current = () => !this.pitrClosed && this.alarms.current && this.logGen === gen && this.engine === engine;
     if (!await this.alarms.allowed() || !current()) return;
     const tag = this.env.LAB === "1" && this.collection ? await wakeCollectionTag(this.collection) : null;
     if (!current()) return;
+    const applied = engine.appliedHead();
     const report = new PumpReport();
     let delivered = 0;
     await pumpLog(this.log(), engine, this.token, current, this.staleAppends, 64, timings, tag ? (call) => {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_emitted", undefined, grantRecipients(call.frame));
     } : undefined, tag ? (call, observation) => {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_append_outcome", observation);
-    } : undefined, { tokenRefused: () => this.dropLogToken(), report });
+    } : undefined, { tokenRefused: () => this.dropLogToken(), report, objectOrigins: this.objectOrigins });
     if (!current() || !await this.checkPinRebuild(engine) || !current()) return;
     this.pruneAttachment();
     delivered += this.deliver(engine); // read_file response precedes object/network waits
@@ -1017,7 +1022,12 @@ export class HostedCollection extends DurableObject<Env> {
     }
     if (!current()) return;
     this.pruneAttachment();
-    const active = this.activitySeen || !report.quiet || delivered > 0 || this.clientOpen();
+    const progressed = engine.appliedHead() !== applied;
+    // Cold recovery replays control data on every eviction. Only a completed,
+    // unchanged native rebuild can discount successful reads; writes, partial
+    // rebuilds, failures and actual new log progress still reset the streak.
+    const replayOnly = report.reads > 0 && report.work === report.reads && report.failed === 0 && !progressed && engine.serving();
+    const active = this.activitySeen || (!report.quiet && !replayOnly) || progressed || delivered > 0 || this.clientOpen();
     this.activitySeen = false;
     const pollMs = await this.idlePoll(active, current);
     if (!current()) return;
@@ -1025,7 +1035,9 @@ export class HostedCollection extends DurableObject<Env> {
     const poll = Date.now() + pollMs;
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.
-    await this.alarms.schedule(Math.min(next ?? poll, poll), current);
+    const at = Math.min(next ?? poll, poll);
+    await this.alarms.schedule(at, current);
+    return at;
   }
 
   private releaseAttachment(engine: Engine, session?: number): void {

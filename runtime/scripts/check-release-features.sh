@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # Features that must never reach a shipped artifact, in any workspace crate.
-denied='^(lab|testing|testkit|test[-_].*|debug[-_]hooks|insecure.*)$'
+denied='^(lab|staging|local-rehearsal|testing|testkit|test[-_].*|debug[-_]hooks|insecure.*)$'
 
 target=
 feature_args=()

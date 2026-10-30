@@ -201,6 +201,7 @@ describe("first-party cloud-copy CP bootstrap (protocol/native/persistence stand
     });
     it.each([
         [429, { code: "account_collection_quota_exceeded", message: "secret" }, "account_collection_quota_exceeded", null],
+        [409, { code: "collection_not_yet_migrated", message: "secret", details: { retry_after_seconds: 45 } }, "collection_not_yet_migrated", 45_000],
         [409, { code: "collection_migrating", message: "secret", details: { retry_after_seconds: 45 } }, "collection_migrating", 45_000],
         [403, { code: "account_suspended", message: "secret" }, "account_suspended", null],
         [409, { code: "collection_unavailable", details: { reason: "moved_to_next_runtime", update_url: "https://app.example.test/update" } }, "update_required", null],

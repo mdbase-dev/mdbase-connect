@@ -135,6 +135,13 @@ impl<I: IndexStorage> Store for TentativeStore<I> {
     fn records(&self, p: Page) -> StoreResult<Vec<RecordRow>> {
         read!(self.records(p))
     }
+    fn records_visit<B>(
+        &self,
+        p: Page,
+        visitor: &mut dyn FnMut(RecordRow) -> std::ops::ControlFlow<B>,
+    ) -> StoreResult<std::ops::ControlFlow<B>> {
+        read!(self.records_visit(p, visitor))
+    }
     fn records_in_buckets(&self, range: Range<u32>, p: Page) -> StoreResult<Vec<RecordRow>> {
         read!(self.records_in_buckets(range, p))
     }

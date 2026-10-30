@@ -36,10 +36,11 @@ export interface Mdbase {
   start(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   /** Call from the user gesture: sign in (opens Connect). */
   signIn(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
-  /** Call from the user gesture: choose or create another collection in Connect. */
+  /** Call from the user gesture: choose a Cloud copy or Private collection,
+   * or create a collection in Connect. No current collection is preselected. */
   addCollection(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
-  /** Call from the user gesture: give this app one of your Private collections
-   * (kept on your computers) and open it. It lists with `kind: "private"`. */
+  /** @deprecated Use `addCollection`. This is the same unified chooser,
+   * with the same options and no preselected collection. */
   addPrivateCollection(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   /** Re-read the approved collection list now (for example when a switcher opens). */
   refreshCollectionList(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
@@ -87,16 +88,14 @@ export function createMdbase(declaration: MdbaseApplicationDeclaration, options:
 export function mdbaseFront(entry: Pick<MdbaseConnect, "application" | "connection">): Mdbase {
   const app = entry.application();
   const view = () => strict(app.getSnapshot());
+  const addCollection = async (o?: MdbaseApplicationRequestOptions) => strict(await app.approve(null, o));
   return Object.freeze({
     getSnapshot: view,
     subscribe: (listener: () => void) => app.subscribe(listener),
     start: async (o?: MdbaseApplicationRequestOptions) => strict(await app.start(o)),
     signIn: async (o?: MdbaseApplicationRequestOptions) => strict(await app.authorize(o)),
-    addCollection: async (o?: MdbaseApplicationRequestOptions) => strict(await app.approve(null, o)),
-    addPrivateCollection: (o?: MdbaseApplicationRequestOptions) => {
-      if (!app.addPrivateCollection) return Promise.reject(mdbaseError("unavailable", "Private collections are unavailable here", "application_not_yet_available"));
-      return app.addPrivateCollection(o).then(strict);
-    },
+    addCollection,
+    addPrivateCollection: addCollection,
     approve: async (id?: string | null, o?: MdbaseApplicationRequestOptions) => strict(await app.approve(id, o)),
     refreshCollectionList: async (o?: MdbaseApplicationRequestOptions) => {
       if (!app.refreshCollectionList) throw mdbaseError("unavailable", "Refreshing the collection list isn't available here.", "application_not_yet_available");

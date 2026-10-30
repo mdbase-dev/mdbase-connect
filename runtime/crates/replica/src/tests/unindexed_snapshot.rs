@@ -4,7 +4,7 @@ use super::{
     unindexed_async::{contents, node},
 };
 use crate::{
-    log::{LogPort, LogRequest, LogResponse},
+    log::{LogClient, LogError, LogErrorCode, LogPort, LogRequest, LogResponse},
     replica::{
         append::Inflight,
         snapshot::{ControlPoint, Install},
@@ -188,6 +188,69 @@ fn reach_sources(b: &mut Node, objects: &Objects) -> crate::log::LogCall {
     panic!("no native source read")
 }
 #[test]
+fn fake_ls_rejects_exact_ranges_past_eof_without_clamping() {
+    let service = crate::fake::FakeLogService::new();
+    let mut log = service.client(B16([4; 16]));
+    let address = B32([9; 32]);
+    log.call(LogRequest::PutObject {
+        collection: super::engine::COL,
+        address,
+        kind: ItemKind::BlobPart,
+        bytes: vec![1, 2, 3],
+    })
+    .unwrap();
+    for range in [(0, 4), (4, 0), (u64::MAX, 1), (1, u64::MAX)] {
+        assert!(
+            matches!(
+                log.call(LogRequest::GetObject {
+                    collection: super::engine::COL,
+                    address,
+                    range: Some(range),
+                }),
+                Err(LogError::Service {
+                    code: LogErrorCode::Invalid,
+                    reason: Some(reason),
+                    ..
+                }) if reason == "range"
+            ),
+            "range {range:?} must not be clamped"
+        );
+    }
+    let LogResponse::GetObject { bytes, size, .. } = log
+        .call(LogRequest::GetObject {
+            collection: super::engine::COL,
+            address,
+            range: Some((1, 2)),
+        })
+        .unwrap()
+    else {
+        panic!("not an object reply")
+    };
+    assert_eq!(bytes, [2, 3]);
+    assert_eq!(size, 3);
+}
+#[test]
+fn source_authentication_requests_complete_objects_not_upper_bound_ranges() {
+    for attachment in [false, true] {
+        let (a, m, h, objects) = build(attachment);
+        let mut b = receiver(&a, &m, h);
+        b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
+            bytes: objects[&h].clone(),
+            size: objects[&h].len() as u64,
+            checksum: h,
+        }));
+        let call = reach_sources(&mut b, &objects);
+        // A ciphertext size bound is not an exact encoded byte range. The real
+        // HTTP/direct transport refuses ranges extending past the actual EOF;
+        // FakeLogService's clamping must not mask a stalled initial install.
+        assert!(
+            matches!(call.request, LogRequest::GetObject { range: None, .. }),
+            "attachment={attachment}: {:?}",
+            call.request
+        );
+    }
+}
+#[test]
 fn sections12_13_cv6_full_sources_before_atomic_swap_and_local_proofs_excluded() {
     for attachment in [false, true] {
         let (a, m, h, objects) = build(attachment);
@@ -257,6 +320,40 @@ fn sections12_13_cv6_full_sources_before_atomic_swap_and_local_proofs_excluded()
             crate::replica::state_digest(&b.r.store).unwrap()
         );
     }
+}
+#[test]
+fn over_bound_whole_source_reply_never_swaps_or_publishes_proofs() {
+    let (a, m, h, mut objects) = build(false);
+    let mut b = receiver(&a, &m, h);
+    let old = b.r.store.head().unwrap();
+    b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
+        bytes: objects[&h].clone(),
+        size: objects[&h].len() as u64,
+        checksum: h,
+    }));
+    let source = reach_sources(&mut b, &objects);
+    let LogRequest::GetObject {
+        address,
+        range: None,
+        ..
+    } = source.request
+    else {
+        panic!("complete source request required")
+    };
+    // More than the source's 1 MiB part bound, still below the unchanged global
+    // 9 MiB encoded-object cap. A full reply must be rejected, never truncated.
+    objects.get_mut(&address).unwrap().resize(4 << 20, 0);
+    reply_install(&mut b, source, &objects, false);
+    assert!(!b.r.installing());
+    assert_eq!(b.r.store.head().unwrap(), old);
+    assert_eq!(b.r.stats.snapshots_installed, 0);
+    assert!(b.r.store.file(&B16([61; 16])).unwrap().is_none());
+    assert!(
+        b.r.store
+            .meta("replica.unindexed_byte_proofs")
+            .unwrap()
+            .is_none()
+    );
 }
 #[test]
 fn source_corruption_cleans_staging_and_keeps_confirmed_prefix_and_cache() {

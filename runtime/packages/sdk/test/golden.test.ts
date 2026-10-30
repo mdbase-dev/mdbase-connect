@@ -177,3 +177,39 @@ describe("typed: spot checks against the debug views", () => {
   });
 
 });
+
+describe("FileView content profiles", () => {
+  for (const profile of [
+    "ordinary_blob", "ordinary_attachment_v1",
+    "unindexed_markdown_blob", "unindexed_markdown_attachment_v1",
+  ]) {
+    it(`decodes ${profile} from key 10`, () => {
+      const bytes = read(`client/file-view-${profile.replaceAll("_", "-")}.cbor`);
+      expect(w.fileView.dec(decode(bytes))).toHaveProperty("contentProfile", profile);
+    });
+  }
+  it("keeps an absent profile unknown", () => {
+    expect(w.fileView.dec(decode(read("client/file-view.cbor"))))
+      .not.toHaveProperty("contentProfile");
+  });
+  it.each([4, 255, 0xffffffffffffffffn])("omits future key10 variant %s without losing FileView", (variant) => {
+    const raw = decode(read("client/file-view.cbor")) as Map<number, w.Value>;
+    const expected = w.fileView.dec(raw);
+    raw.set(10, variant);
+    const future = decode(encode(raw));
+    expect(w.fileView.dec(future)).toEqual(expected);
+    expect(w.fileView.dec(future)).not.toHaveProperty("contentProfile");
+    expect((future as Map<number, w.Value>).get(10)).toBe(variant);
+  });
+  it("does not suppress a malformed content profile", () => {
+    const raw = decode(read("client/file-view.cbor")) as Map<number, w.Value>;
+    raw.set(10, "future_profile");
+    expect(() => w.fileView.dec(raw)).toThrow(/uint enum/);
+  });
+  it("does not suppress an unknown required state when the profile is future", () => {
+    const raw = decode(read("client/file-view.cbor")) as Map<number, w.Value>;
+    raw.set(10, 255);
+    raw.set(5, 255);
+    expect(() => w.fileView.dec(raw)).toThrow(/file-state: unknown variant/);
+  });
+});

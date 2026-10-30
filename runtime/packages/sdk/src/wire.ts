@@ -1082,6 +1082,13 @@ export const conflictEntry = struct<ConflictEntry>("conflict-entry", [
 
 export type FileState = "materialized" | "remote" | "fetching" | "pending_upload";
 
+/** Actual persisted file kind and content representation (§10.1), never inferred from the path. */
+export type FileContentProfile =
+  | "ordinary_blob"
+  | "ordinary_attachment_v1"
+  | "unindexed_markdown_blob"
+  | "unindexed_markdown_attachment_v1";
+
 export interface FileView {
   id: Uuid;
   path: string;
@@ -1095,9 +1102,15 @@ export interface FileView {
   mtime?: number;
   /** IANA media type from the path's extension (Core-derived, never sniffed); absent when unknown or from an older replica. */
   mediaType?: string;
+  /** Actual persisted kind and content representation; absent means unknown. */
+  contentProfile?: FileContentProfile;
 }
 
-export const fileView = struct<FileView>("file-view", [
+const fileContentProfile = enumOf<FileContentProfile>("file-content-profile", [
+  "ordinary_blob", "ordinary_attachment_v1",
+  "unindexed_markdown_blob", "unindexed_markdown_attachment_v1",
+]);
+const knownFileView = struct<FileView>("file-view", [
   [0, "id", uuid],
   [1, "path", tstr],
   [2, "size", uint],
@@ -1108,7 +1121,27 @@ export const fileView = struct<FileView>("file-view", [
   [7, "hold", holdRef, "opt"],
   [8, "mtime", int, "opt"],
   [9, "mediaType", tstr, "opt"],
+  [10, "contentProfile", fileContentProfile, "opt"],
 ]);
+
+/** A future optional profile is unknown metadata, not an unreadable FileView. */
+export const fileView: Codec<FileView> = {
+  ...knownFileView,
+  dec(c) {
+    const fields = c instanceof Map ? c as Map<number, CborValue> : undefined;
+    if (fields?.has(10)) {
+      try { fileContentProfile.dec(fields.get(10)!); }
+      catch (error) {
+        if (!(error instanceof SchemaError) || !error.unknown) throw error;
+        // Do not mutate the caller's map or suppress malformed/required fields.
+        const withoutProfile = new Map(fields);
+        withoutProfile.delete(10);
+        return knownFileView.dec(withoutProfile);
+      }
+    }
+    return knownFileView.dec(c);
+  },
+};
 
 export interface ListFilesResult {
   files: FileView[];

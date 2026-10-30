@@ -273,6 +273,10 @@ const BANNED_STD_MODULES: &[&str] = &["fs", "env", "net", "process", "thread"];
 
 // Declared dev-only dependency for the real SQLite/Core differential test.
 // Keep normal/build/unknown kinds out; do not widen the production RULES lists.
+fn migration_oracle_test_edge(from: &str, to: &str, kind: &Value) -> bool {
+    from == "mdbn-migrate" && to == "mdbn-hosted-worker" && kind.as_str() == Some("dev")
+}
+
 fn conformance_test_edge(from: &str, to: &str, kind: &Value) -> bool {
     let dev = kind.as_str() == Some("dev");
     (from == "mdbn-platform-native" && to == "mdbn-conformance" && dev)
@@ -304,6 +308,7 @@ pub fn run() -> Result<()> {
             if members.contains_key(dep_name)
                 && !allowed.contains(dep_name)
                 && !conformance_test_edge(name, dep_name, &dep["kind"])
+                && !migration_oracle_test_edge(name, dep_name, &dep["kind"])
             {
                 let kind = dep["kind"].as_str().unwrap_or("normal");
                 errors.push(format!(
@@ -1053,6 +1058,61 @@ mod tests {
         assert!(DETERMINISTIC_LIBS.contains(&"mdbn-noise"));
         assert!(!PORTABLE.contains(&"mdbn-noise"));
         assert!(WASM_ROOTS.contains(&"mdbn-log-service"));
+    }
+
+    #[test]
+    fn migration_oracle_edge_is_exact_and_dev_only() {
+        assert!(migration_oracle_test_edge(
+            "mdbn-migrate",
+            "mdbn-hosted-worker",
+            &Value::String("dev".into())
+        ));
+        for kind in [
+            Value::Null,
+            Value::String("normal".into()),
+            Value::String("build".into()),
+            Value::String("unknown".into()),
+            Value::Bool(true),
+            Value::Number(1.into()),
+        ] {
+            assert!(!migration_oracle_test_edge(
+                "mdbn-migrate",
+                "mdbn-hosted-worker",
+                &kind
+            ));
+        }
+        for from in [
+            "mdbn-core",
+            "mdbn-wire",
+            "mdbn-replica",
+            "mdbn-hosted-worker",
+            "unknown",
+        ] {
+            assert!(!migration_oracle_test_edge(
+                from,
+                "mdbn-hosted-worker",
+                &Value::String("dev".into())
+            ));
+        }
+        for to in [
+            "mdbn-core",
+            "mdbn-wire",
+            "mdbn-replica",
+            "mdbn-migrate",
+            "unknown",
+        ] {
+            assert!(!migration_oracle_test_edge(
+                "mdbn-migrate",
+                to,
+                &Value::String("dev".into())
+            ));
+        }
+        let rules = RULES
+            .iter()
+            .find(|(name, _)| *name == "mdbn-migrate")
+            .unwrap()
+            .1;
+        assert!(!rules.contains(&"mdbn-hosted-worker"));
     }
 
     #[test]

@@ -736,6 +736,20 @@ wire_enum! {
     }
 }
 
+wire_enum! {
+    /// Persisted file kind and content representation (replica-client-api.md §10.1).
+    pub enum FileContentProfile {
+        /// Ordinary file with legacy blob content.
+        OrdinaryBlob = 0,
+        /// Ordinary file with attachment-v1 content.
+        OrdinaryAttachmentV1 = 1,
+        /// Unindexed Markdown with legacy blob content.
+        UnindexedMarkdownBlob = 2,
+        /// Unindexed Markdown with attachment-v1 content.
+        UnindexedMarkdownAttachmentV1 = 3,
+    }
+}
+
 wire_struct! {
     /// A file handle (replica-client-api.md §10.1).
     pub struct FileView {
@@ -759,6 +773,8 @@ wire_struct! {
         8 opt mtime: i64,
         /// IANA media type derived from the path's extension; absent when unknown.
         9 opt media_type: String,
+        /// Actual persisted kind and content representation; absent means unknown.
+        10 opt content_profile: FileContentProfile,
     }
 }
 

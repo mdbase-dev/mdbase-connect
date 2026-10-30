@@ -70,7 +70,7 @@
     "build:browser": "node scripts/build-browser.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "api:update": "node scripts/public-api.mjs --update",
-    "test": "vitest run && node --test scripts/browser-bundle.node-test.mjs scripts/application-assets.node-test.mjs scripts/offline-shell.node-test.mjs",
+    "test": "vitest run && node --test scripts/browser-bundle.node-test.mjs scripts/application-assets.node-test.mjs scripts/production-application.node-test.mjs scripts/offline-shell.node-test.mjs",
     "size": "node scripts/size.mjs",
     "check:vite-consumer": "node scripts/vite-consumer-check.mjs",
     "check:npm-consumer": "node scripts/npm-consumer-check.mjs"

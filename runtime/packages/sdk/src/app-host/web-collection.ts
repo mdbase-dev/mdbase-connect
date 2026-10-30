@@ -1,7 +1,9 @@
 /** Concrete protected native collection composition. Runs in the original owned
  * Worker. One UI data client, SDK-owned journal/control, no duplicate leases or
  * app-private installation controller. Native host retains SQL close LAST. */
-import { appServerOutcome, type AppServerProblem } from "./cp-problem.js";
+import { appServerOutcome, isAppServerProblem, type AppServerProblem } from "./cp-problem.js";
+import { AppCpAuthorityError } from "./cp-authority.js";
+import { waitForOpenRetry } from "./open-wait.js";
 import type { AppLogHealth } from "./log-pump.js";
 import type { AppLogPushChannel, AppLogPushEnd } from "./log-push.js";
 import type { AppInitialSyncWait } from "./initial-sync.js";
@@ -25,6 +27,10 @@ const PAUSED_AFTER_MS = 10_000;
 const BACKGROUND_FLUSH_MS = 120_000;
 /** A replica that caught up before waits at most this long for a fresh catch-up. */
 const WARM_SYNC_MS = 2_000;
+/** Only initial log-token busy refusals may schedule these SAME-host retries.
+ * Individual challenge/mint calls retain their existing 15 s HTTP deadlines. */
+const INITIAL_LOG_RETRY_MS = 15_000;
+const INITIAL_LOG_ATTEMPTS = 3;
 
 export interface AppWebCollectionHandoff {
   readonly schema: "mdbn-app-collection/1";
@@ -86,6 +92,10 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
     if (occupied.has(slot)) throw fail("fenced"); occupied.add(slot);
     const {host, installation: custody, signal: parentSignal, collection, setupPolicy} = context;
     const ownership = custody.isCurrent, displayName = collection.displayName;
+    const report = (stage: import("./opening-progress.js").AppOpeningProgress) => {
+      if (!current()) return;
+      try { context.onProgress?.(stage); } catch { /* display observers do not own opening */ }
+    };
     const scope = Object.freeze({account: context.scope.account, installation: context.scope.installation, collection: context.scope.collection});
     const original = JSON.stringify([scope.account, scope.installation, scope.collection]), life = new AbortController();
     let closed = false, foreground = true, timer: ReturnType<typeof setTimeout> | null = null;
@@ -237,11 +247,9 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       else if (foreground) hiddenAt = Date.now();
       foreground = active; if (timer !== null) clearTimeout(timer); timer = null; schedule();
     };
-    // The open (and so the handoff, setup assessment and any empty state)
-    // waits for the first catch-up with the log. A replica that never caught up
-    // waits without limit (the session shows a slow opening); one that caught up
-    // before waits briefly, and not at all offline, so it opens from local data.
-    const waitForInitialSync = (warm: boolean) => new Promise<void>((resolve, reject) => {
+    // Cold catch-up is driven/guarded inside waitForVerifiedRead. A previously
+    // synced local replica keeps the existing brief, offline-capable warm wait.
+    const waitForWarmSync = () => new Promise<void>((resolve, reject) => {
       let last: string | undefined, bound: ReturnType<typeof setTimeout> | null = null;
       const finish = (error?: unknown) => {
         settleInitial = null; if (bound !== null) clearTimeout(bound);
@@ -255,7 +263,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
         if (ended !== null) { finish(); return; }
         let wait: AppInitialSyncWait | null = "first_turn";
         if (turned) { try { wait = typeof host.initialSync === "function" ? host.initialSync() : null; } catch { wait = "unavailable"; } }
-        if (wait === null || (warm && (wait === "offline" || health?.kind === "offline"))) { finish(); return; }
+        if (wait === null || wait === "offline" || health?.kind === "offline") { finish(); return; }
         let detail: Record<string, string | number> | null = null;
         if (wait === "waiting_for_key" && typeof host.keyWaitDetail === "function") { try { detail = host.keyWaitDetail(); } catch { detail = null; } }
         const shown = wait + (detail ? JSON.stringify(detail) : "");
@@ -264,7 +272,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
           try { console.debug("mdbase: waiting for the first sync", {...detail, reason: wait}); } catch { /* console is optional */ }
         }
       };
-      if (warm) bound = setTimeout(() => finish(), WARM_SYNC_MS);
+      bound = setTimeout(() => finish(), WARM_SYNC_MS);
       settleInitial();
     });
     parentSignal.addEventListener("abort", abort, {once: true});
@@ -273,6 +281,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       journal = new AppCollectionSetupJournal({...options.setupJournal, scope, isCurrent: current}); // validate BUILD config before bootstrap IO
       const ledger = new AppCollectionJoinLedger({databaseName: options.joinDatabaseName, scope, isCurrent: current});
       const attempt = await ledger.prepare({signal: life.signal}); check();
+      report("joining");
       await host.bootstrapCloudCopy({scope, collectionCurrent: current, purpose: "join", outcomeMode: attempt.outcomeMode,
         signal: life.signal, ...(attempt.outcomeMode === "existing" ? {reconcile: "explicit-unknown-outcome" as const} : {}),
         fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp}); check();
@@ -281,9 +290,32 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       if (receipt.installationId !== scope.installation) throw fail("binding");
       let ledgerRows: AppLedgerRows | null = null;
       const openLedgerSql: typeof openSql = async input => { const opened = await openSql(input); ledgerRows = opened.ledger ?? null; return opened; };
+      report("opening_store");
       await host.openCollectionSql({signal: life.signal, replicaId: receipt.deviceId, endpoint: 0, openSql: openLedgerSql}); check();
-      await host.startCollectionLog({signal: life.signal, fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp});
-      await host.waitForVerifiedRead({signal: life.signal}); check();
+      report("connecting_log");
+      const retryUntil = Date.now() + INITIAL_LOG_RETRY_MS;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await host.startCollectionLog({signal: life.signal, fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp});
+          check(); break;
+        } catch (error) {
+          check();
+          const server = error instanceof AppCpAuthorityError && error.reason === "unavailable" ? error.server : null;
+          // The public unavailable key alone proves nothing: auth, identity,
+          // unknown 409s, storage and malformed responses must not loop.
+          if (!isAppServerProblem(server) || server.status !== 503 || server.code !== "busy" || appServerOutcome(server) !== null || attempt + 1 >= INITIAL_LOG_ATTEMPTS) throw error;
+          const wait = server.retryAfterMs ?? 1_000 * 2 ** attempt;
+          // Never shorten a server-directed wait to fit the retry window.
+          if (Date.now() + wait >= retryUntil) throw error;
+          await waitForOpenRetry(wait, life.signal); check();
+          if (Date.now() >= retryUntil) throw error;
+          // startCollectionLog retains this host/authority/SQL. A failed mint
+          // kept no token; accessToken obtains a NEW challenge and proof.
+        }
+      }
+      const warm = await ledger.syncedBefore({signal: life.signal}); check();
+      report("syncing");
+      await host.waitForVerifiedRead({signal: life.signal, cold: !warm, onProgress: report}); check();
       // Drive the log now: the first catch-up below needs it, and a write or
       // file transfer drives the log at once rather than on the next turn.
       host.onLogWork?.(kick);
@@ -300,7 +332,8 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       // Not live within PAUSED_AFTER_MS of starting (a blocked or hung socket)
       // reads as paused, as a lost one does.
       if (push) {push.start(); onLive(false);} else paused = true;
-      await waitForInitialSync(await ledger.syncedBefore({signal: life.signal})); check();
+      if (warm) { report("syncing"); await waitForWarmSync(); } check();
+      report("checking_setup");
       void ledger.markSynced({signal: life.signal}).catch(() => {});
       const intent = await journal.load(life.signal); check();
       const setupMode = intent && intent.version !== 1 && (intent.phase === "attempted" || intent.phase === "confirmed") ? "reconcile-original" :

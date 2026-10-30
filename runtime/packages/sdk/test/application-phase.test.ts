@@ -10,6 +10,13 @@ const snap=(over:Partial<MdbaseApplicationSnapshot>):MdbaseApplicationSnapshot=>
   selection:{state:"usable",problem:null,usable:collection,requested:{collectionId:A,source:"url",displayName:"Notes",approved:true}},...over} as MdbaseApplicationSnapshot);
 const connection={id:A,isCurrent:()=>true} as unknown as MdbaseApplicationConnection;
 
+it("opening progress belongs only to the selected opening scope and never grants ready",()=>{
+  expect(applicationPhase(snap({status:"opening",openingProgress:"replaying"}))).toMatchObject({kind:"opening",progress:"replaying"});
+  expect(applicationPhase(snap({status:"opening",selectedCollectionId:null,openingProgress:"replaying"}))).not.toHaveProperty("progress");
+  expect(applicationPhase(snap({openingProgress:"replaying"}),{connection})).toMatchObject({kind:"ready"});
+  expect(applicationPhase(snap({openingProgress:"replaying"}),{connection})).not.toHaveProperty("progress");
+});
+
 it("a scoped wrong-account refusal names only the original account and offers the explicit approval gesture",()=>{
   const phase=applicationPhase(snap({status:"blocked",problem:"recovery_account_mismatch",recoveryAccountLabel:"a@example.test",removedScopeIds:[A]}));
   expect(phase).toMatchObject({kind:"problem",collectionId:A,problem:{title:"Use a different account",message:"This collection belongs to a@example.test. Sign in as a@example.test to continue.",action:"approve",actionLabel:"Sign in as a@example.test",severity:"info"}});

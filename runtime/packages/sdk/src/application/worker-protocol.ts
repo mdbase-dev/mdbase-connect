@@ -1,6 +1,8 @@
 import type {ApplicationDeclarationSnapshot} from "./declaration.js";
 import {MdbaseError,isErrorCode} from "../errors.js";
 import {AppInstallationSignInError} from "../app-host/installation-sign-in.js";
+import {AppCpAuthorityError} from "../app-host/cp-authority.js";
+import {AppCloudCopyBootstrapError} from "../app-host/cloud-copy-bootstrap.js";
 import {AppCollectionDeleteError,COLLECTION_DELETE_CODES} from "../app-host/collection-delete.js";
 import type {AppWebSignInSnapshot} from "../app-host/web-sign-in-session.js";
 import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
@@ -65,9 +67,10 @@ export function applicationWorkerProblem(error:unknown):ApplicationWorkerProblem
   try {
   if(error instanceof ApplicationWorkerError)return Object.freeze({code:error.code});
   if(error instanceof AppCollectionDeleteError&&(COLLECTION_DELETE_CODES as readonly string[]).includes(error.code))return Object.freeze({code:error.code});
+  if((error instanceof AppInstallationSignInError||error instanceof AppCpAuthorityError||error instanceof AppCloudCopyBootstrapError)&&error.reason==="collection_not_yet_migrated")return Object.freeze({code:error.reason});
   if(error instanceof AppInstallationSignInError&&["binding","fenced","busy","open_in_another_tab","account_confirmation_required","outcome_unknown","unavailable","response","refused","expired","recovery_required"].includes(error.reason))return Object.freeze({code:error.reason});
   if(error instanceof MdbaseError&&isErrorCode(error.code)){
-    const allowed=["sign_out_failed","application_packaged_assets_unavailable","application_production_trust_unavailable","application_asset_binding","application_asset_unavailable","application_asset_fetch","application_asset_response","application_asset_stop_failed","application_asset_fenced"];
+    const allowed=["collection_not_yet_migrated","sign_out_failed","application_packaged_assets_unavailable","application_release_trust_unavailable","application_asset_binding","application_asset_unavailable","application_asset_fetch","application_asset_response","application_asset_stop_failed","application_asset_fenced"];
     return Object.freeze({code:error.reason&&allowed.includes(error.reason)?error.reason:error.code});
   }
   }catch{/* hostile rejection/prototype/getter is not an error DTO producer */}

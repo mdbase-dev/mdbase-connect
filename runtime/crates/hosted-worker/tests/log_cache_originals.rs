@@ -23,7 +23,13 @@ impl IndexStorage for IndexSpy {
             .stmts
             .iter()
             .map(|stmt| {
-                if stmt.sql.starts_with("SELECT seq,length(item) FROM st_tail") {
+                if stmt.sql == "PRAGMA user_version" {
+                    StmtResult {
+                        columns: 1,
+                        values: vec![SqlValue::Integer(0)],
+                        ..StmtResult::default()
+                    }
+                } else if stmt.sql.starts_with("SELECT seq,length(item) FROM st_tail") {
                     StmtResult {
                         columns: 2,
                         ..StmtResult::default()

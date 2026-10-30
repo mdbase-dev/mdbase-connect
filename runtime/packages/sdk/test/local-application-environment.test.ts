@@ -27,7 +27,7 @@ const release: AppBundledReleaseTrust = {schema: "mdbn-app-trust/release/1", env
 describe("explicit local application artifact", () => {
   it("selects only its local release and exact loopback origins", () => {
     expect(selectAppEnvironment({environment: "local", appOrigin, release})).toMatchObject({environment: "local", cpOrigin: release.cpOrigin, logOrigin: release.logOrigin, allowLoopbackHttp: true});
-    for (const environment of ["lab", "production"] as const)
+    for (const environment of ["lab", "staging", "production"] as const)
       expect(() => selectAppEnvironment({environment, appOrigin, release: {...release, environment}})).toThrow();
     for (const origin of ["http://localhost:48218", "http://127.0.0.1:0", "http://127.0.0.1:80", appOrigin + "/", "https://connect-lab.mdbase.dev", "http://127.1:48218"])
       for (const field of ["cpOrigin", "logOrigin"] as const)
@@ -36,7 +36,7 @@ describe("explicit local application artifact", () => {
   it("admits local declaration/assets without admitting managed context", () => {
     const declaration = {id: "test-local", name: "Local test", origin: appOrigin, environment: "local" as const, manifest: {id: "test-local"}};
     expect(applicationDeclaration(declaration).environment).toBe("local");
-    for (const environment of ["lab", "production"] as const)
+    for (const environment of ["lab", "staging", "production"] as const)
       expect(() => applicationDeclaration({...declaration, environment})).toThrow();
     expect(() => applicationAssetLoader({url: appOrigin + "/runtime.wasm", sha256: "11".repeat(32), bytes: 3, maxBytes: 3}, {origin: appOrigin, environment: "local"})).not.toThrow();
     expect(() => applicationAssetLoader({url: appOrigin + "/runtime.wasm", sha256: "11".repeat(32), bytes: 3, maxBytes: 3}, {origin: appOrigin, environment: "lab"})).toThrow();

@@ -13,6 +13,8 @@ mod native_activation;
 mod native_snapshot;
 #[path = "native/query_differential.rs"]
 mod query_differential;
+#[path = "native/record_pages.rs"]
+mod record_pages;
 #[path = "native/resource_list.rs"]
 mod resource_list;
 #[path = "native/sql_content.rs"]
@@ -23,6 +25,8 @@ mod sql_faults;
 mod sql_fields;
 #[path = "native/sql_query.rs"]
 mod sql_query;
+#[path = "native/sql_schema.rs"]
+mod sql_schema;
 #[path = "native/sql_tail.rs"]
 mod sql_tail;
 #[path = "native/tentative_discovery.rs"]

@@ -946,6 +946,32 @@ pub trait Store {
     fn record_at(&self, path_key: &str) -> StoreResult<Option<Uuid>>;
     /// Records in ID order (state digest, snapshot builds, verification).
     fn records(&self, page: Page) -> StoreResult<Vec<RecordRow>>;
+    /// Visit records in ID order without retaining a decoded page. A visitor may
+    /// stop early; neither it nor the caller may yield or write to this store
+    /// during the scan. Retaining rows in the visitor is the caller's choice.
+    ///
+    /// SqlStore overrides the bounded point-read default with canonical
+    /// byte-group hydration. Decorators forward rather than materialize a page.
+    fn records_visit<B>(
+        &self,
+        page: Page,
+        visitor: &mut dyn FnMut(RecordRow) -> std::ops::ControlFlow<B>,
+    ) -> StoreResult<std::ops::ControlFlow<B>>
+    where
+        Self: Sized,
+    {
+        let mut after = page.after;
+        for _ in 0..page.limit {
+            let Some(row) = self.records(Page { after, limit: 1 })?.pop() else {
+                break;
+            };
+            after = Some(row.id);
+            if let std::ops::ControlFlow::Break(value) = visitor(row) {
+                return Ok(std::ops::ControlFlow::Break(value));
+            }
+        }
+        Ok(std::ops::ControlFlow::Continue(()))
+    }
     /// Records whose [`bucket16`] is in `range`, in ID order.
     fn records_in_buckets(&self, range: Range<u32>, page: Page) -> StoreResult<Vec<RecordRow>>;
     /// Number of live records.
@@ -1409,8 +1435,15 @@ pub enum KeyringPersistence {
 /// One meta row write (`None` deletes it).
 pub type MetaPut = (String, Option<Vec<u8>>);
 
+/// Version of replica-derived record metadata. Bump when `record_meta` changes
+/// incompatibly: open reuses the catalog reindex before replaying pending work.
+/// This is separate from backend schema/codec and query-projection versions.
+pub const DERIVED_DATA_VERSION: u64 = 1;
+
 /// Meta keys the replica uses. Stores treat values as opaque bytes.
 pub mod meta_keys {
+    /// Completed derived record-metadata rebuild, big-endian u64. Missing is v0.
+    pub const DERIVED_VERSION: &str = "replica.derived_version";
     /// This replica's identity: replica ID, collection.
     pub const IDENTITY: &str = "replica.identity";
     /// Policy state `P` at the head (policy.md §6.1).
