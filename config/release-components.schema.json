@@ -1,13 +1,39 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mdbase.dev/schemas/release-components/v1",
+  "$id": "https://mdbase.dev/schemas/release-components/v2",
   "title": "mdbase product release component contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "repository", "publication", "sourceDependencies", "components"],
+  "required": ["schemaVersion", "repository", "publication", "sdkPublication", "sourceDependencies", "components"],
   "properties": {
     "$schema": { "type": "string" },
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
+    "sdkPublication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow", "ready", "productionRegistry", "prerelease", "environments"],
+      "properties": {
+        "workflow": { "const": "publish-sdk-npm.yml" },
+        "ready": { "type": "boolean" },
+        "productionRegistry": { "const": "https://registry.npmjs.org/" },
+        "prerelease": {
+          "const": {
+            "tagPrefix": "sdk-v",
+            "assets": { "staging": "sdk-staging.tgz", "lab": "sdk-lab.tgz" }
+          }
+        },
+        "environments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["production", "staging", "lab"],
+          "properties": {
+            "production": { "$ref": "#/$defs/sdkEnvironment" },
+            "staging": { "$ref": "#/$defs/sdkEnvironment" },
+            "lab": { "$ref": "#/$defs/sdkEnvironment" }
+          }
+        }
+      }
+    },
     "repository": { "const": "mdbase-dev/mdbase-connect" },
     "publication": {
       "type": "object",
@@ -50,6 +76,22 @@
           "platform": { "const": "linux/amd64" },
           "attestationType": { "const": "https://mdbase.dev/attestations/release-image/v1" }
         }
+      }
+    }
+  },
+  "$defs": {
+    "sdkEnvironment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "sha256", "bytes", "cpOrigin", "logOrigin", "sourceCommit", "sourceVersion"],
+      "properties": {
+        "package": { "enum": ["@mdbase-dev/sdk", "@mdbase-dev/sdk-staging", "@mdbase-dev/sdk-lab"] },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "cpOrigin": { "type": "string", "pattern": "^https://" },
+        "logOrigin": { "type": "string", "pattern": "^https://" },
+        "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "sourceVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$" }
       }
     }
   }

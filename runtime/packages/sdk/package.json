@@ -1,6 +1,6 @@
 {
   "name": "@mdbase-dev/sdk",
-  "version": "0.0.0",
+  "version": "0.1.0-beta.147",
   "description": "TypeScript SDK: live queries, optimistic submits, receipts, status, holds, files and presence over the replica client API.",
   "license": "MIT",
   "type": "module",

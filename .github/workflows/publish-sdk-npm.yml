@@ -1,0 +1,207 @@
+name: Publish source-built SDK
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/publish-sdk-npm.yml
+      - .github/workflows/publish-runtime-npm.yml
+      - config/release-components*
+      - config/next-trust/**
+      - scripts/**sdk-publication*
+      - scripts/publish-sdk-prerelease*
+      - scripts/lib/sdk-publication*
+      - scripts/lib/sdk-prerelease*
+      - runtime/packages/sdk/**
+      - runtime/crates/**
+      - runtime/Cargo.toml
+      - runtime/Cargo.lock
+      - runtime/rust-toolchain.toml
+      - runtime/.cargo/**
+      - runtime/xtask/**
+      - runtime/tools/wasm/**
+  workflow_dispatch:
+    inputs:
+      production_verified_commit:
+        description: Full tagged SHA independently verified in production; required for publication
+        type: string
+        required: false
+      dry_run:
+        description: Build, verify and pack only; never publish by default
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-publication-${{ (github.event_name == 'workflow_dispatch' && !inputs.dry_run) && 'live' || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: node --test scripts/lib/sdk-publication.test.mjs scripts/lib/sdk-prerelease.test.mjs
+      - run: node scripts/sdk-publication.mjs check
+
+  build:
+    needs: validate
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Refuse a release before the runtime port is qualified
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        run: node scripts/sdk-publication.mjs ready
+      - name: Require exact release qualification before publication
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
+        run: |
+          node scripts/verify-client-publication.mjs
+          scripts/ci/verify-qualified-commit "$GITHUB_SHA"
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow runtime-ci.yml --commit "$GITHUB_SHA" \
+            --branch main --status success --json headSha,event --limit 100 | \
+            jq -e --arg sha "$GITHUB_SHA" 'any(.[]; .headSha == $sha and (.event == "push" or .event == "workflow_dispatch"))'
+      - name: Install pinned build tools
+        run: |
+          (cd runtime && rustup toolchain install && rustup show active-toolchain)
+          npm ci --prefix runtime/tools/wasm --ignore-scripts
+          npm ci --prefix runtime/packages/sdk --ignore-scripts
+      - name: Build verifier and application runtime from this commit
+        working-directory: runtime
+        env:
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/source --remap-path-prefix=/home/runner/.cargo=/cargo
+        run: |
+          cargo test --locked -p mdbn-trust
+          cargo build --locked --release -p mdbn-trust --bin mdbn-trust
+          cargo xtask wasm-app
+      - name: Compile, cold-test and verify all three environment archives from the same WASM
+        run: node scripts/sdk-publication.mjs pack-all "$RUNNER_TEMP/sdk-packages"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: source-built-sdks
+          path: ${{ runner.temp }}/sdk-packages/*.tgz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && !inputs.dry_run
+    runs-on: ubuntu-24.04
+    environment: npm-sdk
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: node scripts/sdk-publication.mjs ready
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: source-built-sdks
+          path: ${{ runner.temp }}/sdk-packages
+      - run: node scripts/sdk-publication.mjs verify-npm "$RUNNER_TEMP/sdk-packages/sdk-production.tgz"
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: ${{ runner.temp }}/sdk-packages/sdk-production.tgz
+      - run: npm install --global npm@11
+      - name: Recheck exact production candidate immediately before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
+        run: |
+          scripts/ci/verify-qualified-commit "$GITHUB_SHA"
+          node scripts/verify-client-publication.mjs
+      - name: Publish the verified production archive with provenance
+        # One-time first-name bootstrap only; remove this env binding in the
+        # immediate post-bootstrap PR after trusted publishing is configured.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_SDK_BOOTSTRAP_TOKEN }}
+        run: npm publish "$RUNNER_TEMP/sdk-packages/sdk-production.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org/ --tag next --provenance
+
+  attest-internal:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && !inputs.dry_run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: source-built-sdks
+          path: ${{ runner.temp }}/sdk-packages
+      - id: staging
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-path: ${{ runner.temp }}/sdk-packages/sdk-staging.tgz
+      - id: lab
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-path: ${{ runner.temp }}/sdk-packages/sdk-lab.tgz
+      - name: Stage the exact attested assets and verification bundles
+        env:
+          STAGING_BUNDLE: ${{ steps.staging.outputs.bundle-path }}
+          LAB_BUNDLE: ${{ steps.lab.outputs.bundle-path }}
+        run: |
+          mkdir "$RUNNER_TEMP/sdk-internal"
+          cp "$RUNNER_TEMP/sdk-packages/sdk-staging.tgz" "$RUNNER_TEMP/sdk-internal/"
+          cp "$RUNNER_TEMP/sdk-packages/sdk-lab.tgz" "$RUNNER_TEMP/sdk-internal/"
+          cp "$STAGING_BUNDLE" "$RUNNER_TEMP/sdk-internal/sdk-staging.tgz.sigstore.json"
+          cp "$LAB_BUNDLE" "$RUNNER_TEMP/sdk-internal/sdk-lab.tgz.sigstore.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: attested-internal-sdks
+          path: ${{ runner.temp }}/sdk-internal/*
+          if-no-files-found: error
+
+  publish-internal:
+    # Only after the verified production publish, so a dry or failed
+    # run never consumes a prerelease tag.
+    needs: [attest-internal, publish]
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && !inputs.dry_run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: attested-internal-sdks
+          path: ${{ runner.temp }}/sdk-internal
+      - name: Create an SDK prerelease without replacing existing assets or Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
+        run: |
+          node scripts/verify-client-publication.mjs
+          node scripts/publish-sdk-prerelease.mjs "$RUNNER_TEMP/sdk-internal"

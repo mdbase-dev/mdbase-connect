@@ -110,10 +110,11 @@ pnpm ci:local
 ```
 
 Replace `N` with a higher positive beta number. The command validates all inputs
-before writing, updates the same 19 version-bearing files as the beta122 prep
-commit, assembles notes, refreshes architecture counters, and consumes both kinds
-of fragments. It leaves the independently versioned editor and feedback service,
-registry dependencies, lock checksums, and engine pins unchanged. Review the
+before writing, updates the release cohort including the SDK manifest, npm lock
+and Obsidian SDK peer/local lock, assembles notes, refreshes architecture counters,
+and consumes both kinds of fragments. It leaves the independently versioned
+editor, feedback service and Obsidian runtime's own version, registry dependencies,
+lock checksums, and engine pins unchanged. Review the
 resulting diff, then follow [Releasing](docs/releasing.md). The command does not
 commit, open a PR, tag, publish, or deploy. Pending fragments are required; add a
 release-specific infrastructure note if a release has no product changes.
