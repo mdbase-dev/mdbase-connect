@@ -1,3 +1,3 @@
 ## Changed
 
-- Prepare source-built, environment-pinned SDK publication: production-only npmjs with provenance, plus individually attested staging/LAB tarballs on immutable, never-Latest GitHub prereleases from the same build. Dry runs and the separate runtime-port gate remain fail-closed; existing app pins are unchanged and SDKs cannot use the off-CI archive publisher.
+- Publish the source-built SDK at the Connect release version after exact tagged production verification: production-only npmjs with provenance, plus individually attested staging/LAB tarballs on immutable, never-Latest GitHub prereleases from the same build. Preserve beta.141 production trust, refresh the application WASM from the ported runtime, and keep dry runs nonpublishing. Existing app pins are unchanged and SDKs cannot use the off-CI archive publisher.

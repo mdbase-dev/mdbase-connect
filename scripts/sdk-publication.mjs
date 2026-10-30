@@ -18,7 +18,7 @@ export async function verifySdkDirectory(directory, environment, sourceCommit) {
   const pin = sdkTarget(contract, environment);
   const manifest = readJson(join(directory, "package.json"));
   assert.equal(manifest.name, pin.package);
-  assert.equal(manifest.version, readJson(join(sdk, "package.json")).version);
+  assert.equal(manifest.version, readJson(join(root, "package.json")).version);
   assert.equal(manifest.dependencies["@mdbase-dev/connect-protocol"],
     readJson(join(sdk, "package.json")).dependencies["@mdbase-dev/connect-protocol"]);
   assert(manifest.bundleDependencies.includes("@mdbase-dev/connect-protocol"));
@@ -97,7 +97,8 @@ async function packAllSdks(output) {
   const original = readFileSync(join(sdk, "package.json"));
   const manifest = JSON.parse(original);
   const version = exactSdkVersion(manifest.version);
-  assert.notEqual(version, "0.0.0", "assign a new immutable SDK version before cutting a release");
+  assert.equal(version, readJson(join(root, "package.json")).version,
+    "SDK version must match the Connect release version");
   const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   assert.equal(commit, process.env.GITHUB_SHA, "SDK build must identify the checked-out workflow commit");
   const pins = readJson(join(sdk, "src/application/asset-pins.json"));
@@ -141,7 +142,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   else if (command === "ready") requireSdkPublicationReady(publication());
   else if (command === "pack-all") await packAllSdks(resolve(environment));
   else if (command === "verify-npm") verifySdkArchive(resolve(environment), "production",
-    readJson(join(sdk, "package.json")).version, process.env.GITHUB_SHA, publication());
+    readJson(join(root, "package.json")).version, process.env.GITHUB_SHA, publication());
   else if (command === "production-version") console.log(exactSdkVersion(environment));
   else if (command === "verify") await verifySdkDirectory(resolve(directory), environment, commit);
   else if (command === "legacy-archive") checkLegacyArchive(environment);

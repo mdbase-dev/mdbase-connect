@@ -2,12 +2,12 @@
 
 The source inventory is now schema v2: `sdkPublication` records the separate
 environment-pinned SDK workflow (production npmjs and staging/LAB prerelease
-assets) and its held readiness gate. See [SDK publication](sdk-publication.md).
+assets) and its source-build qualification gate. See [SDK publication](sdk-publication.md).
 No current ops change is required: private promotion readers consume their own
 component mapping and the unchanged OCI bundle, not this public source inventory.
 The OCI component matrix and signed image release
-bundle stay unchanged (bundle schema v1); SDK npm versions are independently
-qualified and attested, not silently added to the image bundle.
+bundle stay unchanged (bundle schema v1); the SDK uses the same release version
+and verified tag, with separate qualification and attestations.
 
 `config/release-components.json` is the public, non-secret inventory of every
 product artifact promoted together as an mdbase Connect server release. It owns

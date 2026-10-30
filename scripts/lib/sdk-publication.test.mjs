@@ -20,8 +20,8 @@ test("all three environment identities and reviewed trust bytes validate", () =>
   }
 });
 
-test("publication remains explicitly blocked pending the separate port", () => {
-  assert.throws(() => requireSdkPublicationReady(contract), /port the outstanding/);
+test("publication requires explicit qualification", () => {
+  assert.throws(() => requireSdkPublicationReady({ ...contract, ready: false }), /qualify/);
   assert.throws(() => requireSdkPublicationReady({ ready: "true" }));
   requireSdkPublicationReady({ ready: true });
 });
@@ -140,7 +140,8 @@ test("production dependency admission rejects all aliases, URLs, tarballs and mu
 test("workflow builds all variants once, isolates both publisher credentials and defaults to dry-run", () => {
   const workflow = readFileSync(join(root, ".github/workflows/publish-sdk-npm.yml"), "utf8");
   assert.match(workflow, /dry_run:[\s\S]*?default: true/);
-  assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow, /production_verified_commit:/);
+  assert.equal(workflow.match(/startsWith\(github\.ref, 'refs\/tags\/v0\.1\.0-beta\.'\)/g).length, 3);
   assert.match(workflow, /cargo build --locked --release -p mdbn-trust/);
   assert.match(workflow, /cargo xtask wasm-app/);
   assert.match(workflow, /verify-qualified-commit/);
@@ -158,6 +159,10 @@ test("workflow builds all variants once, isolates both publisher credentials and
   assert.match(publish, /environment: npm-sdk/);
   assert.match(publish, /sdk-publication.mjs ready/);
   assert.match(publish, /sdk-publication.mjs verify-npm/);
+  assert.match(publish, /scripts\/verify-client-publication.mjs/);
+  assert.match(publish, /PRODUCTION_VERIFIED_COMMIT: \$\{\{ inputs.production_verified_commit \}\}/);
+  assert.match(publish, /NODE_AUTH_TOKEN: \$\{\{ secrets.NPM_SDK_BOOTSTRAP_TOKEN \}\}/);
+  assert(!build.includes("NPM_SDK_BOOTSTRAP_TOKEN"));
   assert.match(publish, /npm publish "\$RUNNER_TEMP\/sdk-packages\/sdk-production.tgz"/);
   assert.match(publish, /--registry https:\/\/registry.npmjs.org\/ --tag next --provenance/);
   assert(!publish.includes("contents: write"));

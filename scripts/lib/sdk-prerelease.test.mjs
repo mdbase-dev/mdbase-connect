@@ -126,7 +126,7 @@ test("wrong version, source, environment, or a missing bundle refuses before Git
     value => { value.pack("lab", {}, "b".repeat(40)); },
     value => { value.pack("staging", { name: "@mdbase-dev/sdk" }); },
     value => { rmSync(join(value.directory, "sdk-lab.tgz.sigstore.json")); },
-    value => { value.options.publication = contract; },
+    value => { value.options.publication = { ...contract, ready: false }; },
   ]) {
     const value = fixture(context);
     change(value);

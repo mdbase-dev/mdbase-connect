@@ -10,7 +10,7 @@
   },
   "sdkPublication": {
     "workflow": "publish-sdk-npm.yml",
-    "ready": false,
+    "ready": true,
     "productionRegistry": "https://registry.npmjs.org/",
     "prerelease": {
       "tagPrefix": "sdk-v",

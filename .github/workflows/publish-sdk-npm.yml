@@ -14,6 +14,10 @@ on:
       - runtime/packages/sdk/**
   workflow_dispatch:
     inputs:
+      production_verified_commit:
+        description: Full tagged SHA independently verified in production; required for publication
+        type: string
+        required: false
       dry_run:
         description: Build, verify and pack only; never publish by default
         type: boolean
@@ -40,7 +44,7 @@ jobs:
 
   build:
     needs: validate
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -53,16 +57,19 @@ jobs:
           node-version: 24
           package-manager-cache: false
       - name: Refuse a release before the runtime port is qualified
-        if: ${{ !inputs.dry_run }}
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
         run: node scripts/sdk-publication.mjs ready
-      - name: Require qualified main before publication
-        if: ${{ !inputs.dry_run }}
+      - name: Require exact release qualification before publication
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
         env:
           GH_TOKEN: ${{ github.token }}
+          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
         run: |
+          node scripts/verify-client-publication.mjs
           scripts/ci/verify-qualified-commit "$GITHUB_SHA"
           gh run list --repo "$GITHUB_REPOSITORY" --workflow runtime-ci.yml --commit "$GITHUB_SHA" \
-            --branch main --event push --status success --json headSha --limit 100 | jq -e 'length > 0'
+            --branch main --status success --json headSha,event --limit 100 | \
+            jq -e --arg sha "$GITHUB_SHA" 'any(.[]; .headSha == $sha and (.event == "push" or .event == "workflow_dispatch"))'
       - name: Install pinned build tools
         run: |
           (cd runtime && rustup toolchain install && rustup show active-toolchain)
@@ -86,11 +93,12 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.dry_run
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && !inputs.dry_run
     runs-on: ubuntu-24.04
     environment: npm-sdk
     permissions:
       contents: read
+      actions: read
       id-token: write
       attestations: write
     steps:
@@ -110,11 +118,23 @@ jobs:
         with:
           subject-path: ${{ runner.temp }}/sdk-packages/sdk-production.tgz
       - run: npm install --global npm@11
-      - run: npm publish "$RUNNER_TEMP/sdk-packages/sdk-production.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org/ --tag next --provenance
+      - name: Recheck exact production candidate immediately before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
+        run: |
+          scripts/ci/verify-qualified-commit "$GITHUB_SHA"
+          node scripts/verify-client-publication.mjs
+      - name: Publish the verified production archive with provenance
+        # One-time first-name bootstrap only; remove this env binding in the
+        # immediate post-bootstrap PR after trusted publishing is configured.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_SDK_BOOTSTRAP_TOKEN }}
+        run: npm publish "$RUNNER_TEMP/sdk-packages/sdk-production.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org/ --tag next --provenance
 
   attest-internal:
     needs: build
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.dry_run
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && !inputs.dry_run
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -151,10 +171,10 @@ jobs:
           if-no-files-found: error
 
   publish-internal:
-    # Only after the approved production publish, so an unapproved or failed
+    # Only after the verified production publish, so a dry or failed
     # run never consumes an immutable prerelease tag.
     needs: [attest-internal, publish]
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.dry_run
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && !inputs.dry_run
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -174,4 +194,7 @@ jobs:
       - name: Create a new immutable SDK prerelease, never Latest or a replacement
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/publish-sdk-prerelease.mjs "$RUNNER_TEMP/sdk-internal"
+          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
+        run: |
+          node scripts/verify-client-publication.mjs
+          node scripts/publish-sdk-prerelease.mjs "$RUNNER_TEMP/sdk-internal"
