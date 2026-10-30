@@ -39,6 +39,8 @@ else if (mode === "stop-failed" && command === "daemon stop") fail("unavailable"
 else if (command === "daemon start") process.stdout.write(JSON.stringify({readiness:{ready:true},started:mode !== "already-running"}));
 else if (command === "daemon stop") process.stdout.write(JSON.stringify({stopped:true}));
 else if (command === "status") {
+  // A status call slower than the time left before the deadline.
+  if (mode === "slow-offline") Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400);
   let calls = 0;
   try { calls = Number(readFileSync(counter, "utf8")); } catch {}
   writeFileSync(counter, String(calls + 1));
@@ -58,7 +60,7 @@ else if (command === "status") {
     readiness: {ready:true}, pid: 1, target: "isolated_profile", state_dir: stateDir,
     started_at_ms: 1, secret_backend: mode === "insecure" ? "insecure-test-file" : "keychain",
     account: {
-      signed_in: mode !== "signed-out", online: calls >= 1 && mode !== "account-offline",
+      signed_in: mode !== "signed-out", online: calls >= 1 && mode !== "account-offline" && mode !== "slow-offline",
       server: mode === "other-origin" ? "https://connect-lab.example" : "${ORIGIN}",
       account_id: "${SECRET}", environment: "production",
       ...(mode === "account-error" ? {last_error: "${SECRET}"} : {})
@@ -240,6 +242,14 @@ test("reports a failed shutdown after an otherwise operational probe", async (t)
   assert.equal(result.json.status, "failed");
   assert.deepEqual(result.json.error, { stage: "shutdown", code: "daemon_unreachable" });
   assert.ok(result.json.stages.slice(0, 6).every((stage) => stage.status === "operational"));
+});
+
+test("a deadline that expires during a poll reports why the probe was waiting", async (t) => {
+  const options = await fixture(t);
+  const result = await invoke(options, { "timeout-ms": "1000" }, { FAKE_CLI_MODE: "slow-offline" });
+  assert.equal(result.code, 1);
+  assert.deepEqual(result.json.error, { stage: "registration", code: "account_offline" });
+  assert.equal((await calls(options)).at(-1), "daemon stop");
 });
 
 test("bounds a hanging CLI by the probe deadline", async (t) => {
