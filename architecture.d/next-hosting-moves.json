@@ -1,0 +1,9 @@
+{
+  "reason": "One temporary module for moving migrated hosted collections onto the control plane's own hosted deployment: migration-token routes that fence a collection, CAS its re-wrapped service-device record and settle routing in one transaction. It is deleted with the migration routing code once every collection has moved.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 11,
+    "typeScriptExportDeclarations": 13,
+    "services/server": 1
+  }
+}
