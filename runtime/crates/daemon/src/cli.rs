@@ -1972,9 +1972,9 @@ mod takeover_cli_tests {
     use super::*;
 
     #[test]
-    fn sync_only_offers_implemented_commands() {
+    fn sync_parses_enable_and_disable() {
         assert!(Cli::try_parse_from(["mdbase", "sync", "enable", "Notes"]).is_ok());
-        assert!(Cli::try_parse_from(["mdbase", "sync", "disable", "Notes"]).is_err());
+        assert!(Cli::try_parse_from(["mdbase", "sync", "disable", "Notes"]).is_ok());
     }
 
     #[test]
