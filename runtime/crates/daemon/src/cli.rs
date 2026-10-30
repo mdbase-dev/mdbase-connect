@@ -56,6 +56,17 @@ struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+enum ConflictCmd {
+    /// Accept the merge result; clear its conflicts without changing files.
+    Dismiss {
+        /// Record or file ID, or a unique ID prefix (from `conflicts`).
+        id: String,
+        /// Collection ID, prefix or name; optional with one registered collection.
+        collection: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum Command {
     /// Daemon and collection overview.
     Status,
@@ -87,8 +98,10 @@ enum Command {
     },
     /// Changes mdbase merged where one side's value was kept over the other's.
     Conflicts {
-        /// Collection ID, ID prefix or name.
-        collection: String,
+        /// Collection ID, ID prefix or name (for listing).
+        collection: Option<String>,
+        #[command(subcommand)]
+        command: Option<ConflictCmd>,
     },
     /// Turn sync on or off (moves the collection's log).
     #[command(subcommand)]
@@ -867,8 +880,46 @@ async fn run_command(
             )
             .await
         }
-        Command::Conflicts { collection } => {
+        Command::Conflicts {
+            collection,
+            command,
+        } => {
+            let (collection, dismiss) = match command {
+                Some(ConflictCmd::Dismiss {
+                    id,
+                    collection: target,
+                }) => (target.or(collection), Some(id)),
+                None => (collection, None),
+            };
+            let collection = match collection {
+                Some(c) => c,
+                None => {
+                    let list: Vec<CollectionStatus> = serde_json::from_value(
+                        call(profile, Method::COLLECTION_LIST, json!({})).await?,
+                    )
+                    .map_err(|e| ClientError::Protocol(e.to_string()))?;
+                    match list.as_slice() {
+                        [one] => one.id.clone(),
+                        _ => {
+                            return Err(ClientError::Remote(ControlError::invalid(
+                                "collection_required",
+                                "specify a collection ID or name after the conflict ID",
+                            )));
+                        }
+                    }
+                }
+            };
             let id = resolve(profile, &collection).await?;
+            if let Some(conflict) = dismiss {
+                let v = call(
+                    profile,
+                    Method::CONFLICTS_DISMISS,
+                    json!({ "collection": id, "id": conflict }),
+                )
+                .await?;
+                out.value(&v);
+                return Ok(ExitCode::SUCCESS);
+            }
             let v = call(
                 profile,
                 Method::COLLECTION_CONFLICTS,
@@ -1975,6 +2026,24 @@ mod takeover_cli_tests {
     fn sync_parses_enable_and_disable() {
         assert!(Cli::try_parse_from(["mdbase", "sync", "enable", "Notes"]).is_ok());
         assert!(Cli::try_parse_from(["mdbase", "sync", "disable", "Notes"]).is_ok());
+    }
+
+    #[test]
+    fn conflicts_list_and_dismiss_syntax() {
+        assert!(matches!(
+            Cli::try_parse_from(["mdbase", "conflicts", "Notes"]).unwrap().command,
+            Command::Conflicts { collection: Some(c), command: None } if c == "Notes"
+        ));
+        for args in [
+            vec!["mdbase", "conflicts", "dismiss", "9090"],
+            vec!["mdbase", "conflicts", "dismiss", "9090", "Notes"],
+        ] {
+            assert!(matches!(
+                Cli::try_parse_from(args).unwrap().command,
+                Command::Conflicts { command: Some(ConflictCmd::Dismiss { id, .. }), .. } if id == "9090"
+            ));
+        }
+        assert!(Cli::try_parse_from(["mdbase", "conflicts", "dismiss"]).is_err());
     }
 
     #[test]

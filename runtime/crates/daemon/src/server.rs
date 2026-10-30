@@ -1388,6 +1388,7 @@ impl Daemon {
                 self.holds(&p.collection).await
             }
             Method::COLLECTION_RESOLVE_HOLD => self.resolve_hold(params(req)?).await,
+            Method::CONFLICTS_DISMISS => self.dismiss_conflict(params(req)?).await,
             Method::COLLECTION_CONFLICTS => {
                 let p: CollectionRef = params(req)?;
                 self.conflicts(&p.collection).await
@@ -1717,6 +1718,89 @@ impl Daemon {
             });
         }
         Ok(json!(out))
+    }
+
+    /// Accept the existing merge result, using the SDK's ordinary dismissal op.
+    async fn dismiss_conflict(
+        &self,
+        p: crate::control::DismissConflict,
+    ) -> Result<Value, ControlError> {
+        use mdbn_wire::Wire;
+        use mdbn_wire::client::{Receipt, SubmitParams, WaitFor};
+        use mdbn_wire::common::B16;
+        use mdbn_wire::intent::{ConflictDismiss, Op};
+        let prefix = p.id.replace('-', "").to_ascii_lowercase();
+        if prefix.is_empty() || prefix.len() > 32 || !prefix.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Err(ControlError::invalid(
+                "invalid_id",
+                "id must be a UUID or UUID prefix",
+            ));
+        }
+        let rows: Vec<ConflictSummary> =
+            serde_json::from_value(self.conflicts(&p.collection).await?)
+                .map_err(|e| ControlError::internal(e.to_string()))?;
+        let matches: Vec<_> = rows
+            .iter()
+            .filter(|c| c.id.replace('-', "").starts_with(&prefix))
+            .collect();
+        let Some(first) = matches.first() else {
+            return Err(ControlError::not_found(
+                "no unresolved conflict matches that ID",
+            ));
+        };
+        if matches.iter().any(|c| c.id != first.id) {
+            return Err(ControlError::invalid(
+                "ambiguous_conflict",
+                "ID prefix matches several records; use a longer ID",
+            ));
+        }
+        let uuid = |s: &str| -> Result<B16, ControlError> {
+            secrets::hex_decode(&s.replace('-', ""))
+                .ok()
+                .and_then(|b| b.try_into().ok())
+                .map(B16)
+                .ok_or_else(|| ControlError::internal("the replica returned an invalid UUID"))
+        };
+        let mut ops = Vec::new();
+        for c in matches {
+            let op = Op::ConflictDismiss(ConflictDismiss {
+                mutation: uuid(&c.mutation)?,
+                record: uuid(&c.id)?,
+            });
+            if !ops.contains(&op) {
+                ops.push(op);
+            }
+        }
+        let rt = self.runtime_of(&p.collection).await?;
+        let submit = SubmitParams {
+            ops,
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: Some(WaitFor::Confirmed),
+        };
+        let result = host_call(&rt, "submit", submit.to_cbor()).await?;
+        let receipts: Vec<Receipt> = Wire::from_cbor(&result)
+            .map_err(|_| ControlError::internal("the replica's receipt does not decode"))?;
+        let receipt = receipts
+            .first()
+            .ok_or_else(|| ControlError::internal("no receipt"))?;
+        use mdbn_wire::client::ReceiptState;
+        Ok(json!(HoldResolved {
+            mutation: secrets::uuid_string(&receipt.mutation.0),
+            state: match receipt.state {
+                ReceiptState::Pending => "pending",
+                ReceiptState::Confirmed => "confirmed",
+                ReceiptState::Rejected => "rejected",
+                ReceiptState::Unknown => "unknown",
+            }
+            .into(),
+        }))
     }
 
     /// The registered collection `raw` names, as the registry spells it. Only

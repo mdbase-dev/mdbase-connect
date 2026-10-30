@@ -226,6 +226,8 @@ impl Method {
     pub const COLLECTION_RESOLVE_HOLD: &'static str = "collection.resolve_hold";
     /// `{collection}` → the client API's `list_conflicts` result.
     pub const COLLECTION_CONFLICTS: &'static str = "collection.conflicts";
+    /// `{collection, id}` → receipt; accept the kept values without changing files.
+    pub const CONFLICTS_DISMISS: &'static str = "conflicts.dismiss";
     /// [`JoinCollection`] → [`CollectionStatus`]: join an account's cloud copy into
     /// an empty folder (enrolled through Connect; hosted then keys this device).
     pub const COLLECTION_JOIN: &'static str = "collection.join";
@@ -573,6 +575,15 @@ pub struct ConflictSummary {
     pub mutation: String,
     /// That entry's log position.
     pub seq: u64,
+}
+
+/// `conflicts.dismiss` params. Dismiss all recorded conflicts for one record/file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DismissConflict {
+    /// Collection ID.
+    pub collection: String,
+    /// Record or file ID, or a unique prefix of it.
+    pub id: String,
 }
 
 /// `collection.resolve_hold` params.

@@ -57,6 +57,24 @@ Only the daemon opens the local registry, holds collection and mirror leases,
 watches filesystem authorities, advances mirror journals, or maintains relay
 connections. Commands are requests, not independent state owners.
 
+## Runtime conflict handling
+
+The new runtime CLI lists recorded merge conflicts with `mdbase conflicts <collection>`.
+Use `mdbase conflicts dismiss <id> [collection]` to accept the values the merge
+already kept. The collection name or ID is optional only when exactly one
+collection is registered. The record/file ID accepts a unique prefix; ambiguous
+prefixes fail without submitting anything. Dismissal clears all currently listed
+conflicts for that record/file, including conflicts from different mutations.
+
+The control method is `conflicts.dismiss` with `{collection, id}`. It submits the
+replica's existing `conflict_dismiss` operations as one mutation and returns the
+receipt's mutation ID and state. Dismissal is synced to other devices. It does not
+rewrite, delete, or create files, and does not create a second copy of a lost
+value. Any copies already on disk remain untouched. There is no general
+`--keep local|remote` resolution: the replica records kept/lost values rather
+than a universal local/remote choice. Choosing a new value remains an ordinary
+SDK update plus dismissal.
+
 ## Command model
 
 Collection commands operate directly on the current directory or `--root
