@@ -27,9 +27,10 @@ use crate::access::{AccessEntry, AccessEvent, AccessList, AccessState, CachedGra
 use crate::collections::CollectionHost;
 use crate::control::{
     AccountInfo, AddCollection, ApproveDevice, Check, CollectionRef, CollectionStatus,
-    ControlError, DaemonStatus, DeleteCollection, DeviceInfo, EnableSync, GrantRef, HoldAction,
-    HoldResolved, HoldSummary, JoinCollection, Method, NotReady, Notice, PROTOCOL,
-    READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, Settings, UpdateCollection,
+    ConflictSummary, ControlError, DaemonStatus, DeleteCollection, DeviceInfo, EnableSync,
+    GrantRef, HoldAction, HoldResolved, HoldSummary, JoinCollection, Method, NotReady, Notice,
+    PROTOCOL, READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, Settings,
+    UpdateCollection,
 };
 use crate::fsutil;
 use crate::instance::{InstanceLock, LockError};
@@ -1389,8 +1390,7 @@ impl Daemon {
             Method::COLLECTION_RESOLVE_HOLD => self.resolve_hold(params(req)?).await,
             Method::COLLECTION_CONFLICTS => {
                 let p: CollectionRef = params(req)?;
-                self.serving(&p.collection).await?;
-                Err(ControlError::not_implemented(&req.method))
+                self.conflicts(&p.collection).await
             }
             Method::SYNC_ENABLE => {
                 let p: EnableSync = params(req)?;
@@ -1659,6 +1659,63 @@ impl Daemon {
             Err(_) => Vec::new(),
         };
         out.extend(taken.iter().map(takeover_hold_summary));
+        Ok(json!(out))
+    }
+
+    /// `collection.conflicts`: the replica's unresolved conflicts, content-free.
+    async fn conflicts(&self, id: &str) -> Result<Value, ControlError> {
+        use mdbn_wire::Wire;
+        use mdbn_wire::cbor::Cbor;
+        use mdbn_wire::entry::ConflictKind;
+        let rt = self.runtime_of(id).await?;
+        let bad = || ControlError::internal("the replica's conflicts do not decode");
+        let Cbor::Array(rows) = host_call(&rt, "list_conflicts", Cbor::Map(vec![])).await? else {
+            return Err(bad());
+        };
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            let Cbor::Map(m) = row else {
+                return Err(bad());
+            };
+            let at = |k: u64| {
+                m.iter()
+                    .find(|(key, _)| *key == Cbor::Uint(k))
+                    .map(|(_, v)| v)
+                    .ok_or_else(bad)
+            };
+            let mutation = mdbn_wire::common::Uuid::from_cbor(at(0)?).map_err(|_| bad())?;
+            let Cbor::Uint(seq) = at(1)? else {
+                return Err(bad());
+            };
+            let conflict =
+                mdbn_wire::attachment_runtime_v1::Conflict::from_cbor(at(2)?).map_err(|_| bad())?;
+            // The path, while a record with this ID exists (files have none here).
+            let path = host_call(
+                &rt,
+                "get",
+                Cbor::Map(vec![(Cbor::Uint(0), conflict.id.to_cbor())]),
+            )
+            .await
+            .ok()
+            .and_then(|v| mdbn_wire::client::RecordView::from_cbor(&v).ok())
+            .map(|r| r.path);
+            out.push(ConflictSummary {
+                id: secrets::uuid_string(&conflict.id.0),
+                path,
+                kind: match conflict.kind {
+                    ConflictKind::Field => "field",
+                    ConflictKind::Frontmatter => "frontmatter",
+                    ConflictKind::Body => "body",
+                    ConflictKind::Path => "path",
+                    ConflictKind::Delete => "delete",
+                    ConflictKind::File => "file",
+                }
+                .into(),
+                field: conflict.field,
+                mutation: secrets::uuid_string(&mutation.0),
+                seq: *seq,
+            });
+        }
         Ok(json!(out))
     }
 
@@ -2445,6 +2502,18 @@ impl Daemon {
     }
 
     async fn enable_sync(&self, p: EnableSync) -> Result<Value, ControlError> {
+        // A local collection added a moment ago may still be opening; turning sync
+        // on needs it serving, so wait for the open first (bounded).
+        let local = self
+            .inner
+            .lock()
+            .await
+            .registry
+            .get(&p.collection)
+            .is_some_and(|e| e.mode == SyncMode::Local);
+        if local {
+            self.settled_status(&p.collection, ENABLE_OPEN_WAIT).await?;
+        }
         // Accepting takeover holds clears them: the takeover gate comes first, as
         // in a takeover run.
         let _takeover = if p.accept_takeover_holds {
@@ -3095,7 +3164,17 @@ impl Daemon {
         if let Some(b) = barrier {
             let _ = tokio::time::timeout(RESUME_WAIT, b.wait()).await;
         }
-        let deadline = tokio::time::Instant::now() + RESUME_WAIT;
+        to_value(&self.settled_status(id, RESUME_WAIT).await?)
+    }
+
+    /// The collection's status once it has finished opening (or settled in
+    /// another state), or as it is after `wait`.
+    async fn settled_status(
+        &self,
+        id: &str,
+        wait: Duration,
+    ) -> Result<CollectionStatus, ControlError> {
+        let deadline = tokio::time::Instant::now() + wait;
         loop {
             let status = {
                 let inner = self.inner.lock().await;
@@ -3111,7 +3190,7 @@ impl Daemon {
             if status.state != crate::control::CollectionState::Opening
                 || tokio::time::Instant::now() >= deadline
             {
-                return to_value(&status);
+                return Ok(status);
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
@@ -4508,6 +4587,9 @@ impl crate::takeover::mirror_import::Target for HostTarget {
 const HOST_CALL_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long `collection.resume` waits for the collection to serve again.
 const RESUME_WAIT: Duration = Duration::from_secs(30);
+/// How long `sync.enable` waits for a local collection that is still opening
+/// (within the CLI's call timeout, leaving time for the bootstrap itself).
+const ENABLE_OPEN_WAIT: Duration = Duration::from_secs(15);
 /// How often the daemon checks whether an old connector daemon has started.
 const OLD_CONNECTOR_POLL: Duration = Duration::from_secs(5);
 
@@ -4627,14 +4709,22 @@ fn cloud_refusal(e: crate::cloud::CloudError) -> ControlError {
     }
 }
 
-/// Strictly empty: hidden files/directories may contain user data too.
+/// Empty for a join: nothing but hidden entries (`.obsidian`, `.git`, ...). Those
+/// are never collection content, so the log's files cannot land on them, and
+/// they are left as they are. The replica's private directory (`.mdbase`, any
+/// casing) is not ignored: another collection's state may be in it.
 fn folder_is_empty(root: &std::path::Path) -> Result<bool, ControlError> {
-    let mut it = std::fs::read_dir(root).map_err(|e| ControlError::internal(e.to_string()))?;
-    match it.next() {
-        None => Ok(true),
-        Some(Ok(_)) => Ok(false),
-        Some(Err(e)) => Err(ControlError::internal(e.to_string())),
+    let private = mdbn_platform_native::OpenOptions::default().private_dir;
+    for entry in std::fs::read_dir(root).map_err(|e| ControlError::internal(e.to_string()))? {
+        let name = entry
+            .map_err(|e| ControlError::internal(e.to_string()))?
+            .file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with('.') || name.to_lowercase().starts_with(&private.to_lowercase()) {
+            return Ok(false);
+        }
     }
+    Ok(true)
 }
 
 /// Only for an authenticated owner's EXISTING local registration: FileStore
@@ -6455,9 +6545,8 @@ impl Daemon {
             return Ok(());
         }
         let Ok(_prompt) = self.link_prompt.try_lock() else {
-            return Err(ControlError::new(
-                "forbidden",
-                "link_not_approved",
+            return Err(ControlError::unavailable(
+                "link_prompt_busy",
                 "another link request is waiting for confirmation",
             ));
         };

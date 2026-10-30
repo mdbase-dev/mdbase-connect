@@ -554,6 +554,27 @@ pub struct HoldSummary {
     pub binary: bool,
 }
 
+/// One unresolved conflict, as `collection.conflicts` lists it. Content-free: the
+/// SDK's conflict surface carries the kept and lost values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflictSummary {
+    /// Record or file ID.
+    pub id: String,
+    /// Its path, while the record exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Wire `ConflictKind`, snake_case: `field`, `frontmatter`, `body`, `path`,
+    /// `delete` or `file`.
+    pub kind: String,
+    /// The frontmatter field, for `field`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// The mutation whose log entry recorded it.
+    pub mutation: String,
+    /// That entry's log position.
+    pub seq: u64,
+}
+
 /// `collection.resolve_hold` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolveHold {
