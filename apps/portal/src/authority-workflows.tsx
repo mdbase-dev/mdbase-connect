@@ -375,7 +375,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     <CollectionPicker
                       label={t(i18n)`Open in ${pairing.connector_name}`}
                       collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind,
-                        hint:collection.role==="owner"?t(i18n)`Owner`:collection.role?t(i18n)`Shared with you`:undefined}))}
+                        hint:collection.role&&collection.role!=="owner"?t(i18n)`Shared with you`:undefined}))}
                       value={selectedCollectionId} onChoose={setSelectedCollectionId} disabled={busy}
                       onCreate={pairing.can_create_collection && !pairing.creation?.completed ? ()=>setSelectedCollectionId(NEW_COLLECTION) : undefined}
                       creationSelected={selectedCollectionId===NEW_COLLECTION}

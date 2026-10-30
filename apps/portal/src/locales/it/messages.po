@@ -2431,7 +2431,6 @@ msgctxt "Connect interface"
 msgid "Overview"
 msgstr "Panoramica"
 
-#: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
 msgstr "Proprietario"
@@ -2776,10 +2775,6 @@ msgstr "Torna a {applicationName}."
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
 msgstr "Torna a {mirrorName}."
-
-#: src/authority-workflows.tsx
-#~ msgid "Return to mdbase connect."
-#~ msgstr "Torna a mdbase connect."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3271,10 +3266,6 @@ msgstr "La raccolta richiesta da questa applicazione non è disponibile."
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
 msgstr "il computer che conserva questa raccolta"
-
-#: src/authority-workflows.tsx
-#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
-#~ msgstr "L'app desktop completerà la procedura in modo sicuro. Nessun token del connettore è stato mostrato o copiato."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx

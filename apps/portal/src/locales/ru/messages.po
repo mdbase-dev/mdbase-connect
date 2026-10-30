@@ -2431,7 +2431,6 @@ msgctxt "Connect interface"
 msgid "Overview"
 msgstr "Обзор"
 
-#: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
 msgstr "Владелец"
@@ -2776,10 +2775,6 @@ msgstr "Вернитесь в {applicationName}."
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
 msgstr "Вернитесь к {mirrorName}."
-
-#: src/authority-workflows.tsx
-#~ msgid "Return to mdbase connect."
-#~ msgstr "Вернитесь в mdbase connect."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
@@ -3271,10 +3266,6 @@ msgstr "Коллекция, запрошенная этим приложение
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
 msgstr "компьютер, на котором хранится эта коллекция"
-
-#: src/authority-workflows.tsx
-#~ msgid "The desktop app will finish securely. No connector token was displayed or copied."
-#~ msgstr "Настольное приложение безопасно завершит процесс. Токен подключения не показывался и не копировался."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
