@@ -8,7 +8,7 @@ use std::time::Duration;
 use mdbn_daemon::client::{self, ClientError, ControlClient};
 use mdbn_daemon::control::{CollectionState, CollectionStatus, DaemonStatus, Method};
 use mdbn_daemon::paths::Profile;
-use mdbn_daemon::secrets::MemoryStore;
+use mdbn_daemon::secrets::{MemoryStore, SecretError, SecretStore};
 use mdbn_daemon::server::{self, RunError};
 use serde_json::json;
 
@@ -539,6 +539,90 @@ async fn daemon_lifecycle() {
         .unwrap()
         .unwrap();
 
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A credential store that refuses access while locked, like Secret Service
+/// before login unlocks it.
+#[derive(Clone, Default)]
+struct LockableStore {
+    locked: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    inner: std::sync::Arc<MemoryStore>,
+}
+
+impl LockableStore {
+    fn check(&self) -> Result<(), SecretError> {
+        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(SecretError::Unavailable("locked".into()));
+        }
+        Ok(())
+    }
+}
+
+impl SecretStore for LockableStore {
+    fn get(&self, name: &str) -> Result<Option<zeroize::Zeroizing<Vec<u8>>>, SecretError> {
+        self.check()?;
+        self.inner.get(name)
+    }
+    fn set(&self, name: &str, value: &[u8]) -> Result<(), SecretError> {
+        self.check()?;
+        self.inner.set(name, value)
+    }
+    fn delete(&self, name: &str) -> Result<(), SecretError> {
+        self.check()?;
+        self.inner.delete(name)
+    }
+    fn backend(&self) -> &'static str {
+        "memory"
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_locked_credential_store_recovers_when_a_client_authenticates() {
+    let root = scratch("l");
+    let profile = Profile::isolated(&root.join("s")).unwrap();
+    let store = LockableStore::default();
+    // A previous run created the control key the client will read.
+    mdbn_daemon::secrets::load_or_create_control_key(store.inner.as_ref()).unwrap();
+    store
+        .locked
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let p = profile.clone();
+    let s2 = store.clone();
+    let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(s2))).await });
+
+    let unavailable = Some(mdbn_daemon::control::NotReady::CredentialStoreUnavailable);
+    let mut reason = None;
+    for _ in 0..200 {
+        if let Ok(r) = client::ping(&profile.control).await {
+            reason = r.safe_reason;
+            if reason == unavailable {
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(reason, unavailable);
+
+    // Unlocking alone does not make the daemon touch the store: retries wait
+    // for a client, so a locked store never sees a stream of unlock prompts.
+    store
+        .locked
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let r = client::ping(&profile.control).await.unwrap();
+    assert_eq!(r.safe_reason, unavailable);
+
+    let mut c = ControlClient::connect(&profile.control).await.unwrap();
+    c.authenticate(&store).await.unwrap();
+    wait_ready(&profile).await;
+
+    c.call(Method::SHUTDOWN, json!({})).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(15), daemon)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
     let _ = std::fs::remove_dir_all(&root);
 }
 

@@ -99,6 +99,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         access_events: tokio::sync::broadcast::channel(64).0,
         activity: crate::activity::ActivityLog::open(dir.path().join("activity.jsonl")),
         control_key: std::sync::OnceLock::new(),
+        credential_retry: tokio::sync::Notify::new(),
         account: std::sync::Mutex::new(Account::default()),
         account_gate: Mutex::new(()),
         link_prompt: Mutex::new(()),
