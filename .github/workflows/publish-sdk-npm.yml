@@ -121,7 +121,7 @@ jobs:
           name: source-built-sdks
           path: ${{ runner.temp }}/sdk-packages
       - run: node scripts/sdk-publication.mjs verify-npm "$RUNNER_TEMP/sdk-packages/sdk-production.tgz"
-      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/sdk-packages/sdk-production.tgz
       - run: npm install --global npm@11
@@ -154,11 +154,11 @@ jobs:
           name: source-built-sdks
           path: ${{ runner.temp }}/sdk-packages
       - id: staging
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: ${{ runner.temp }}/sdk-packages/sdk-staging.tgz
       - id: lab
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: ${{ runner.temp }}/sdk-packages/sdk-lab.tgz
       - name: Stage the exact attested assets and verification bundles
