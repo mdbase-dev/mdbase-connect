@@ -929,9 +929,14 @@ select {
   min-width: 0;
 }
 
-/* Consent becoming available must look enabled immediately, not fade from gray. */
+/* Consent becoming available must look enabled immediately, not fade from gray.
+ * The approve label names the chosen collection, which can be long. */
 .installation-approval .mdbase-button.is-primary {
   transition-property: border-color;
+  max-width: 100%;
+  padding-block: var(--space-2);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .installation-approval .installation-account-label {
