@@ -1,6 +1,0 @@
-{
-  "reason": "One shared RateLimitError carries the plugin's retry delay to the canonical HTTP problem serializer instead of treating throttling as invalid input.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}
