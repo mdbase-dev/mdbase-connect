@@ -427,10 +427,8 @@ impl<S: Store> Replica<S> {
         self.cancel_stale_approvals();
         let context = self.approval_context(session, target)?;
         if self
-            .store
-            .meta(&rejection_marker(self.cfg.collection, target))
+            .device_approval_rejected(target, context.binding.commitment)
             .map_err(super::submit::store_err)?
-            .is_some()
         {
             return Err(denied());
         }
@@ -745,36 +743,6 @@ impl<S: Store> Replica<S> {
         Ok((intent, ApprovalDisposition::Queued))
     }
 
-    /// The user allowed the device in mdbase's own UI or CLI: one decision, no
-    /// code to type. This completes the SAME commit-then-reveal exchange as
-    /// [`Self::submit_device_approval`]: the reveal must already have verified
-    /// against the requester's logged commitment, and only this approver, which
-    /// the requester pinned when it revealed, signs the `key_grant`. The
-    /// displayed comparison code goes straight to the existing check.
-    pub fn allow_device_approval(
-        &mut self,
-        session: SessionId,
-        target: Uuid,
-    ) -> ApiResult<(ApprovalIntent, ApprovalDisposition)> {
-        self.host_only(session)?;
-        self.cancel_stale_approvals();
-        let code = self
-            .approval
-            .approver
-            .pending(&self.policy)
-            .into_iter()
-            .find(|w| w.device == target)
-            .and_then(|w| w.sas.map(Zeroizing::new))
-            .and_then(|c| ApproverCode::parse(&c))
-            .ok_or_else(|| {
-                ErrorCode::Conflict.err_with_reason(
-                    "approval_not_ready",
-                    "the requester's reveal has not completed for this exchange",
-                )
-            })?;
-        self.submit_device_approval(session, target, &code)
-    }
-
     /// Allow only the comparison code actually displayed to the user. Uses the
     /// existing exchange/context and SAS checks; never substitutes the current SAS.
     pub fn allow_device_approval_checked(
@@ -790,8 +758,8 @@ impl<S: Store> Replica<S> {
         self.submit_device_approval(session, target, &code)
     }
 
-    /// The user denied the device here: end its exchange and stop offering it
-    /// across restarts and commitment renewal. Revocation is a control-plane action.
+    /// Deny this logged request across restarts, until a fresh commitment is applied.
+    /// Revocation is a control-plane action.
     pub fn reject_device_approval(&mut self, session: SessionId, target: Uuid) -> ApiResult<()> {
         self.host_only(session)?;
         if self.policy.devices.get(&target).is_some_and(|d| d.keyed)
@@ -811,9 +779,13 @@ impl<S: Store> Replica<S> {
                 "a grant was already sent or the device is keyed; denial is not revocation",
             ));
         }
+        let binding = self.rejectable_device_binding(session, target)?;
         let checkpoint = super::apply_checkpoint::Checkpoint::capture(self);
         match self.store.commit(Tx {
-            meta: vec![(rejection_marker(self.cfg.collection, target), Some(vec![1]))],
+            meta: vec![(
+                rejection_marker(self.cfg.collection, target),
+                Some(binding.commitment.0.to_vec()),
+            )],
             ..Tx::default()
         }) {
             Ok(_) => {}
@@ -831,7 +803,7 @@ impl<S: Store> Replica<S> {
         self.approval
             .outbox
             .retain(|c| c.binding.requester.device != target);
-        self.approval.approver.reject(&target);
+        self.approval.approver.cancel(&target);
         if self
             .approval
             .pending_grant
@@ -863,6 +835,34 @@ impl<S: Store> Replica<S> {
             .ok_or_else(|| ErrorCode::NotFound.err("unknown approval intent"))
     }
 
+    fn rejectable_device_binding(
+        &self,
+        session: SessionId,
+        target: Uuid,
+    ) -> ApiResult<ApprovalBinding> {
+        self.approval_context(session, target)
+            .map(|context| context.binding)
+            .or_else(|error| {
+                self.approval
+                    .pending_grant
+                    .as_ref()
+                    .filter(|grant| grant.target == target && grant.sends == 0)
+                    .map(|grant| grant.binding.clone())
+                    .ok_or(error)
+            })
+    }
+
+    fn device_approval_rejected(
+        &self,
+        target: Uuid,
+        commitment: B32,
+    ) -> Result<bool, crate::store::StoreError> {
+        Ok(self
+            .store
+            .meta(&rejection_marker(self.cfg.collection, target))?
+            .is_some_and(|denied| denied == commitment.0))
+    }
+
     /// Whether the queued grant's authority, tuple and lifecycle are exactly what
     /// the user confirmed. Checked immediately before signing and sending.
     fn private_grant_current(&self, g: &PendingGrant) -> bool {
@@ -883,9 +883,8 @@ impl<S: Store> Replica<S> {
             || !self.private_state_current()
             || g.stamp.epoch == 0
             || !matches!(
-                self.store
-                    .meta(&rejection_marker(self.cfg.collection, g.target)),
-                Ok(None)
+                self.device_approval_rejected(g.target, g.binding.commitment),
+                Ok(false)
             )
         {
             return false;
@@ -1065,19 +1064,22 @@ impl<S: Store> Replica<S> {
             .pending(&self.policy)
             .into_iter()
             .filter_map(|w| {
-                let context = self.approval_context(session, w.device).ok()?;
+                let binding = self.rejectable_device_binding(session, w.device).ok()?;
                 if self
-                    .store
-                    .meta(&rejection_marker(self.cfg.collection, w.device))
+                    .device_approval_rejected(w.device, binding.commitment)
                     .ok()?
-                    .is_some()
                 {
                     return None;
                 }
                 // A commitment already spent on an exchange cannot be approved
                 // again; the requester logs a fresh one and shows up again.
-                let live = self.approval.exchanges.contains_key(&w.device);
-                if !live && self.store.meta(&marker(&context.binding)).ok()?.is_some() {
+                let live = self.approval.exchanges.contains_key(&w.device)
+                    || self
+                        .approval
+                        .pending_grant
+                        .as_ref()
+                        .is_some_and(|grant| grant.target == w.device && grant.sends == 0);
+                if !live && self.store.meta(&marker(&binding)).ok()?.is_some() {
                     return None;
                 }
                 Some(PendingDevice {

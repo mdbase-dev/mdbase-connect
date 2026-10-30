@@ -2064,16 +2064,18 @@ export class MdbaseClient {
   /**
    * Devices waiting for approval in a private collection. Offered only to the app
    * hosting the replica (no grant). `exchangeReady` is challenge/reveal readiness,
-   * NOT approval/key delivery. Never display a legacy `sas` from this response.
+   * NOT approval/key delivery. Once ready, `sas` is the host-only comparison code
+   * to display beside Allow; the user must check it matches on the other computer.
    */
   pendingDevices(signal?: AbortSignal): Promise<PendingDevice[]> {
     return this.call("pending_devices", null, { codec: list(pendingDevice), retry: true, ...(signal ? { signal } : {}) });
   }
 
   /**
-   * Confirm with the six digits the HUMAN TYPED from the requesting device's local
-   * display. Never copy a code from pending metadata or an approver push. The
-   * replica checks the current context and awaits the actual approval disposition.
+   * Confirm with the six digits displayed for the current host exchange, only
+   * after the user visually checks they match on the requesting computer. Nothing
+   * is typed. Never substitute a newer code after the user confirms. The replica
+   * checks the current context and awaits the actual approval disposition.
    */
   approveDevice(device: Uuid, sas: string): Promise<void> {
     if (!/^\d{6}$/.test(sas)) {
@@ -2088,7 +2090,7 @@ export class MdbaseClient {
     ).then(() => {});
   }
 
-  /** Stop offering a device here. Revoking it is a control-plane action. */
+  /** Dismiss this request until a fresh commitment is logged, including automatic renewal. Not revocation. */
   rejectDevice(device: Uuid): Promise<void> {
     return this.call("reject_device", params([[0, uuidCodec.enc(device)]])).then(() => {});
   }

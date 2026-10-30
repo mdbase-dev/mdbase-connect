@@ -107,7 +107,6 @@ pub struct Approver {
     collection: Uuid,
     me: Uuid,
     attempts: BTreeMap<Uuid, Attempt>,
-    rejected: std::collections::BTreeSet<Uuid>,
 }
 
 impl std::fmt::Debug for Approver {
@@ -116,7 +115,6 @@ impl std::fmt::Debug for Approver {
             .field("collection", &self.collection)
             .field("device", &self.me)
             .field("attempts", &self.attempts.len())
-            .field("rejected", &self.rejected.len())
             .finish()
     }
 }
@@ -128,7 +126,6 @@ impl Approver {
             collection,
             me,
             attempts: BTreeMap::new(),
-            rejected: Default::default(),
         }
     }
 
@@ -172,9 +169,7 @@ impl Approver {
     pub fn pending(&self, p: &PolicyState) -> Vec<Waiting> {
         p.devices
             .iter()
-            .filter(|(id, d)| {
-                d.active && !d.keyed && d.sas_commit.is_some() && !self.rejected.contains(id)
-            })
+            .filter(|(_, d)| d.active && !d.keyed && d.sas_commit.is_some())
             .filter(|(id, _)| self.may_approve(p, id).is_ok())
             .map(|(id, d)| Waiting {
                 device: *id,
@@ -291,13 +286,6 @@ impl Approver {
     /// prevents this from resetting the failed-attempt budget after context loss.
     pub(crate) fn cancel(&mut self, device: &Uuid) {
         self.attempts.remove(device);
-        self.rejected.remove(device);
-    }
-
-    /// Stop offering `device` here (`reject_device`).
-    pub fn reject(&mut self, device: &Uuid) {
-        self.attempts.remove(device);
-        self.rejected.insert(*device);
     }
 }
 

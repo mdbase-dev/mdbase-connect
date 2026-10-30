@@ -641,6 +641,7 @@ async fn pending_device(
         .map(|d| d.device.as_str())
         .filter(|d| !device.is_empty() && d.starts_with(&device.to_ascii_lowercase()))
         .collect();
+    ids.sort_unstable();
     ids.dedup();
     match ids.as_slice() {
         [one] => Ok((one.to_string(), collection)),

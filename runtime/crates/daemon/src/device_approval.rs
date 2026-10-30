@@ -264,9 +264,19 @@ impl Daemon {
     /// `device.reject`.
     pub(super) async fn device_reject(&self, p: ApproveDevice) -> Result<Value, ControlError> {
         let target = uuid(&p.device, "device")?;
+        let mut rejected = false;
         for (_, _, rt) in self.private_hosts(p.collection.as_deref()).await? {
+            if !self.waits_here(&rt, target).await {
+                continue;
+            }
             let host = HostSession::open(&rt).await?;
             run(&rt, Op::Reject(host.id, target)).await?;
+            rejected = true;
+        }
+        if !rejected {
+            return Err(ControlError::not_found(
+                "that computer is not waiting to open a private collection here",
+            ));
         }
         Ok(json!({}))
     }
@@ -672,6 +682,21 @@ async fn send_reveal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn blanket_deny_refuses_when_no_collection_has_a_waiting_request() {
+        let dir = crate::testutil::TestDir::new("deny-no-request");
+        let daemon = super::super::tests::daemon(&dir);
+        let error = daemon
+            .device_reject(ApproveDevice {
+                device: B16([2; 16]).to_uuid_string(),
+                collection: None,
+                sas: None,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "not_found");
+    }
 
     #[test]
     fn lost_challenge_renews_on_timer_without_restart_or_inbox_gap() {

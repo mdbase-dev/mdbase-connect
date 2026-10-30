@@ -19,7 +19,7 @@ export interface PendingDevice {
   kind: DeviceKind | string;
   /** Current challenge/reveal readiness only: NOT approval or key delivery. */
   exchangeReady: boolean;
-  /** @deprecated Decode-only legacy field. NEVER display it or use it as approval input. */
+  /** Host-only comparison code after a verified reveal; visually compare before Allow. */
   sas?: string;
 }
 
@@ -41,7 +41,7 @@ const pendingDeviceShape = struct<PendingDevice>("pending-device", [
   [0, "device", uuid],
   [1, "account", uuid],
   [2, "kind", deviceKind],
-  [3, "sas", tstr, "opt"], // Reserved: decode-only.
+  [3, "sas", tstr, "opt"], // Host response only; omitted from client encodings.
   [4, "exchangeReady", bool],
 ]);
 export const pendingDevice: Codec<PendingDevice> = {
@@ -81,7 +81,7 @@ export const recoveryKeyCreated = struct<{ phrase: string; device: Uuid }>("reco
   [1, "device", uuid],
 ]);
 
-/** Format a requester's locally generated code; never display an approver's code. */
+/** Format either computer's local comparison code, preserving leading zeroes. */
 export function formatSas(sas: string): string {
   return /^\d{6}$/.test(sas) ? `${sas.slice(0, 3)} ${sas.slice(3)}` : sas;
 }

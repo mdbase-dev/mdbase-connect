@@ -461,6 +461,55 @@ pub async fn run_private_approval(log: &str, dir: &Path) {
         t0.elapsed()
     );
 
+    approval(&ra, Op::Reject(sa, b.tk.id)).await.unwrap();
+    assert!(matches!(
+        approval(&ra, Op::Pending(sa)).await,
+        Ok(Reply::Pending(list)) if list.is_empty()
+    ));
+    let Ok(Reply::Waiting {
+        to_log: Some(commitment),
+        ..
+    }) = approval(&rb, Op::Waiting(sb, Box::new(journal.clone()), true)).await
+    else {
+        panic!("B did not renew its denied request")
+    };
+    assert!(matches!(
+        approval(&ra, Op::Pending(sa)).await,
+        Ok(Reply::Pending(list)) if list.is_empty()
+    ));
+    append_policy(
+        log,
+        &cp,
+        c,
+        vec![PolicyOp::ApprovalRequest(
+            mdbn_wire::policy::ApprovalRequest {
+                device: b.tk.id,
+                sas_commit: commitment,
+            },
+        )],
+    )
+    .await;
+    let renewal_started = Instant::now();
+    loop {
+        let pending = matches!(
+            approval(&ra, Op::Pending(sa)).await,
+            Ok(Reply::Pending(list)) if list.iter().any(|device| device.device == b.tk.id)
+        );
+        let logged = matches!(
+            approval(&rb, Op::Waiting(sb, Box::new(journal.clone()), false)).await,
+            Ok(Reply::Waiting {
+                waiting: true,
+                to_log: None
+            })
+        );
+        if pending && logged {
+            break;
+        }
+        assert!(renewal_started.elapsed() < Duration::from_secs(60));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    println!("PASS: Deny lasts until B's fresh commitment applies on both computers");
+
     // Listing prepares the exchange before the user's one final Allow.
     assert!(
         approval(&ra, Op::Allow(sa, b.tk.id, "000000".into()))
