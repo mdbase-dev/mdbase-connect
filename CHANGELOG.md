@@ -135,6 +135,8 @@
 
 - Replay retained native Markdown and file-to-record entries from supported earlier semantics versions using structural checks instead of requiring an upgrade. Newer semantics still stall, and same-version entries still verify against the planner.
 
+- A Private collection can now be opened on a second computer. The computer that already has it shows "<computer> wants to open <collection>" with Allow and Deny in the desktop app, and `mdbase device pending`, `mdbase device approve <id>` and `mdbase device deny <id>` do the same from the command line. After a visual check that the six-digit code shown on both computers matches, one Allow completes the approval; nothing is typed. Deny dismisses only the current waiting request and cancels an unsent Allow. The dismissal survives a restart, but the prompt can return when the waiting computer automatically renews its request (normally after five minutes). Deny is not device revocation. Approval is still never possible from a third-party app.
+
 - Report collection join throttling as retryable `rate_limited` errors instead of `invalid_request` / `sync_refused`, preserving the server's retry delay. Fastify rate limits now use the same canonical problem shape across routes.
 
 - Show per-file sync notices in status and the desktop collection view for unsupported entries, invalid UTF-8, oversized notes, held files and upload refusals. Retain locally known paths when resource ingestion fails, and show omitted counts when long notice lists exceed status limits.
