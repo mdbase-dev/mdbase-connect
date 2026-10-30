@@ -11,6 +11,7 @@ import { readReleaseBuild } from '../runtime/scripts/lib/read-release-trust.mjs'
 export { readReleaseBuild };
 export const REPOSITORY = 'mdbase-dev/mdbase-connect';
 export const WORKFLOW = 'release-workers.yml';
+export const BUILD_WORKFLOW = 'build-workers.yml';
 export const CI_WORKFLOW = 'runtime-ci.yml';
 export const IDENTITY = 'https://github.com/mdbase-dev/mdbase-connect/.github/workflows/release-workers.yml@refs/heads/main';
 export const OPS_VERIFIER_COMMIT = 'eaaab7cafd6d58af18bbb4f316dbe349392c5cdb';
@@ -35,7 +36,7 @@ export function verifyRun(run, expected, workflow) {
       || run.head_sha !== expected.source || run.head_branch !== 'main'
       || !['push', 'workflow_dispatch'].includes(run.event) || run.status !== 'completed' || run.conclusion !== 'success'
       || run.repository?.full_name !== REPOSITORY || run.repository?.private !== false
-      || run.actor?.login !== 'callumalpass' || run.triggering_actor?.login !== 'callumalpass'
+      || (run.event === 'workflow_dispatch' && (run.actor?.login !== 'callumalpass' || run.triggering_actor?.login !== 'callumalpass'))
       || run.path !== `.github/workflows/${workflow}`) {
     fail('exact successful main push or dispatch workflow identity required');
   }
@@ -86,14 +87,21 @@ export function inputs(env) {
     logId: positive(env.LOG_RUN_ID), logAttempt: positive(env.LOG_RUN_ATTEMPT), trust };
 }
 export function publisher(env, input) {
+  if (env.GITHUB_EVENT_NAME === 'workflow_run') {
+    requireThat(env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === 'refs/heads/main'
+      && env.GITHUB_REF_PROTECTED === 'true' && SHA.test(env.GITHUB_SHA ?? '')
+      && env.GITHUB_WORKFLOW_REF === `${REPOSITORY}/.github/workflows/${BUILD_WORKFLOW}@refs/heads/main`, 'protected-main build required');
+    return { repository: REPOSITORY, workflow: BUILD_WORKFLOW, run_id: positive(env.GITHUB_RUN_ID),
+      run_attempt: positive(env.GITHUB_RUN_ATTEMPT), publisher_commit: env.GITHUB_SHA };
+  }
   requireThat(input.environment === (env.RELEASE_ENVIRONMENT ?? 'staging')
     && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === 'refs/heads/main'
     && env.GITHUB_REF_PROTECTED === 'true' && env.GITHUB_EVENT_NAME === 'workflow_dispatch'
     && env.GITHUB_ACTOR === 'callumalpass' && env.GITHUB_TRIGGERING_ACTOR === 'callumalpass'
     && env.GITHUB_WORKFLOW_REF === `${REPOSITORY}/.github/workflows/${WORKFLOW}@refs/heads/main`
-    && env.GITHUB_SHA === input.source, 'exact protected-main owner dispatch/source required');
+    && SHA.test(env.GITHUB_SHA ?? '') && SHA.test(input.source ?? ''), 'protected-main owner selection required');
   return { repository: REPOSITORY, workflow: WORKFLOW, run_id: positive(env.GITHUB_RUN_ID),
-    run_attempt: positive(env.GITHUB_RUN_ATTEMPT), publisher_commit: input.source };
+    run_attempt: positive(env.GITHUB_RUN_ATTEMPT), publisher_commit: env.GITHUB_SHA };
 }
 export function gate(input, api = gh, list = pages) {
   const ci = () => {
@@ -198,7 +206,7 @@ export function check(directory, expectedSha256, input, env) {
 function main() {
   const env = process.env, input = inputs(env);
   publisher(env, input);
-  requireThat(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: 'pipe' }).trim() === input.source, 'checkout must equal dispatch source');
+  requireThat(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: 'pipe' }).trim() === input.source, 'checkout must equal build source');
   execFileSync('git', ['diff', '--exit-code', 'HEAD'], { cwd: root, stdio: 'pipe' });
   gate(input);
   requireThat(process.argv.length === 3, 'one fixed workflow operation required');

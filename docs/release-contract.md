@@ -211,3 +211,9 @@ with deployment and cannot retract already published packages. Retry a failed
 publication only while the same exact candidate is still verified in production.
 GitHub environment protection remains authoritative. Earlier v1 release history
 is unchanged.
+
+## Build-once publication
+
+See [build once, release by selecting](build-once-release.md) for automatic
+per-main OCI/Worker builds, owner-only Worker selection, retention/setup limits,
+and the required ops-first format rollout. Selection does not authorize deployment.

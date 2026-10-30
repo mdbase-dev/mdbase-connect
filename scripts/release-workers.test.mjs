@@ -1,12 +1,13 @@
 // Hermetic source/API and post-authentication byte-custody regressions only.
 import test from 'node:test';
+import { selectedManifest } from './select-worker-build.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256, REPOSITORY, DO_JOB, CI_JOBS, CI_WORKFLOW, IDENTITY, OPS_VERIFIER_COMMIT,
-  check, inputs, publisher, gate, fileInventory } from './release-workers.mjs';
+  check, inputs, publisher, gate, fileInventory, BUILD_WORKFLOW } from './release-workers.mjs';
 
 const source = 'a'.repeat(40), connect = 'b'.repeat(40), trustPublisher = 'c'.repeat(40);
 const base = resolve(dirname(fileURLToPath(import.meta.url)), '../target/release-workers-tests');
@@ -89,7 +90,7 @@ test('publication equals the protected main dispatch SHA, exact identity, actor 
   const e = env(), input = inputs(e);
   assert.equal(publisher(e, input).publisher_commit, source);
   for (const [key, value] of [['GITHUB_REF', 'refs/pull/1/merge'], ['GITHUB_REF_PROTECTED', 'false'], ['GITHUB_REPOSITORY', 'fork/repo'],
-    ['GITHUB_EVENT_NAME', 'pull_request_target'], ['GITHUB_SHA', connect], ['GITHUB_ACTOR', 'other'], ['GITHUB_TRIGGERING_ACTOR', 'other'],
+    ['GITHUB_EVENT_NAME', 'pull_request_target'], ['GITHUB_SHA', 'main'], ['GITHUB_ACTOR', 'other'], ['GITHUB_TRIGGERING_ACTOR', 'other'],
     ['GITHUB_WORKFLOW_REF', `${REPOSITORY}/.github/workflows/other.yml@refs/heads/main`], ['GITHUB_RUN_ID', '0'], ['GITHUB_RUN_ATTEMPT', 'NaN']]) {
     assert.throws(() => publisher({ ...e, [key]: value }, input));
   }
@@ -102,6 +103,16 @@ test('CLI refuses local/non-main context before invoking git, GitHub, a compiler
   assert.equal(child.status, 1); assert.equal(child.stdout, '');
   assert.match(child.stderr, /^Managed Worker publication refused:/);
   assert.ok(!child.stderr.includes('/private/'));
+});
+
+test('automatic build identity is separate from the owner-only signing identity', () => {
+  const e = { ...env(), GITHUB_EVENT_NAME: 'workflow_run', GITHUB_ACTOR: 'contributor',
+    GITHUB_TRIGGERING_ACTOR: 'github-actions[bot]', GITHUB_SHA: 'd'.repeat(40),
+    GITHUB_WORKFLOW_REF: `${REPOSITORY}/.github/workflows/${BUILD_WORKFLOW}@refs/heads/main` };
+  assert.equal(publisher(e, inputs(e)).workflow, BUILD_WORKFLOW);
+  assert.equal(publisher(e, inputs(e)).publisher_commit, e.GITHUB_SHA);
+  assert.throws(() => publisher({ ...e, GITHUB_REF_PROTECTED: 'false' }, inputs(e)));
+  assert.throws(() => publisher({ ...e, GITHUB_WORKFLOW_REF: env().GITHUB_WORKFLOW_REF }, inputs(e)));
 });
 test('exact successful source CI and log attempts on main qualify, with no artifact bytes input', () => {
   const input = inputs(env()), f = apiFixture(input);
@@ -136,10 +147,10 @@ for (const [key, value] of [['head_sha', connect], ['head_branch', 'topic'], ['r
     assert.throws(() => gate(input, f.api, f.list));
   });
 }
-test('fork/private repo and alternate actor qualification are refused', () => {
+test('fork/private repo and non-owner dispatch qualification are refused', () => {
   const input = inputs(env());
   for (const mutate of [r => { r.repository.full_name = 'fork/repo'; }, r => { r.repository.private = true; }, r => { r.actor.login = 'other'; }, r => { r.triggering_actor.login = 'other'; }]) {
-    const f = apiFixture(input); mutate(f.runs[1]); assert.throws(() => gate(input, f.api, f.list));
+    const f = apiFixture(input); f.runs[1].event = 'workflow_dispatch'; mutate(f.runs[1]); assert.throws(() => gate(input, f.api, f.list));
   }
 });
 test('missing, skipped, duplicate or cancelled native hosted jobs cannot hide behind successful result wrappers', () => {
@@ -203,7 +214,8 @@ test('missing or changed handoff proof refuses even without signing', () => with
 
 test('workflow keeps private assembly out of OIDC and binds only this build artifact', () => {
   const yaml = readFileSync(new URL('../.github/workflows/release-workers.yml', import.meta.url), 'utf8');
-  const [build, sign] = yaml.split('\n  sign:');
+  const build = readFileSync(new URL('../.github/workflows/build-workers.yml', import.meta.url), 'utf8');
+  const sign = yaml;
   assert.equal((yaml.match(/id-token: write/g) ?? []).length, 1);
   assert.ok(yaml.includes('on:\n  workflow_dispatch:'));
   assert.ok(!/workflow_call:|pull_request_target:|schedule:/.test(yaml));
@@ -218,11 +230,12 @@ test('workflow keeps private assembly out of OIDC and binds only this build arti
   assert.ok(build.includes("! grep -Eq '^(#|ℹ) skipped [1-9][0-9]*$'"));
   assert.ok(build.indexOf('git merge-base --is-ancestor') < build.indexOf('pnpm install'));
   assert.ok(build.includes('--ignore-pnpmfile --config.manage-package-manager-versions=false'));
-  assert.ok(sign.includes('needs.build.outputs.manifest_sha256'));
-  assert.ok(sign.includes('needs.build.outputs.artifact_id'));
-  assert.ok(sign.includes('run: node scripts/release-workers.mjs check'));
+  assert.ok(sign.includes('build_run_id:'));
+  assert.ok(sign.includes('build_run_attempt:'));
+  assert.ok(sign.includes('run: node scripts/select-worker-build.mjs check'));
+  assert.ok(!/cargo |npm |pnpm |wrangler /.test(sign));
   assert.ok(sign.includes(IDENTITY));
-  assert.ok(sign.includes('--certificate-github-workflow-sha "$SOURCE_REVISION"'));
+  assert.ok(sign.includes('--certificate-github-workflow-sha "$GITHUB_SHA"'));
   assert.ok(!sign.includes('WORKER_RELEASE_READ_TOKEN'));
   assert.ok(!sign.includes('worker-release-deps'));
   assert.ok(!yaml.includes('CLOUDFLARE_API_TOKEN'));
@@ -233,3 +246,38 @@ test('no LAB profile or runtime signer override', () => {
   for (const environment of ['lab', 'local', '', '../production']) assert.throws(() => inputs(env(environment)));
   assert.equal(IDENTITY, 'https://github.com/mdbase-dev/mdbase-connect/.github/workflows/release-workers.yml@refs/heads/main');
 });
+
+test('each main qualification gets a unique concurrency group instead of replacing pending commits', () => {
+  for (const workflow of ['server-ci.yml', 'runtime-ci.yml']) {
+    const yaml = readFileSync(new URL(`../.github/workflows/${workflow}`, import.meta.url), 'utf8');
+    assert.ok(yaml.includes("github.event_name == 'pull_request' && github.ref || github.run_id"));
+    assert.ok(yaml.includes("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"));
+  }
+});
+
+test('non-owner main pushes qualify but owner dispatch remains mandatory', () => {
+  const f = apiFixture();
+  f.runs[1].actor.login = 'contributor'; f.runs[1].triggering_actor.login = 'contributor';
+  gate(inputs(env()), f.api, f.list);
+  f.runs[1].event = 'workflow_dispatch';
+  assert.throws(() => gate(inputs(env()), f.api, f.list));
+});
+
+for (const environment of ['staging', 'production']) {
+  test(`${environment}: selection preserves all Worker/trust bytes across advancing main`, () => withBundle(({ dir, manifest, save, e }) => {
+    manifest.publication = { repository: REPOSITORY, workflow: BUILD_WORKFLOW, run_id: 77, run_attempt: 2, publisher_commit: source };
+    save();
+    const receipt = { workflow: BUILD_WORKFLOW, run_id: 77, run_attempt: 2, publisher_commit: source,
+      artifact_id: 5, artifact_digest: 'sha256:' + 'a'.repeat(64) };
+    const owner = { ...e, GITHUB_SHA: 'd'.repeat(40) };
+    const result = selectedManifest(dir, receipt, owner).manifest;
+    assert.deepEqual(result.files, manifest.files);
+    assert.deepEqual(result.trust, manifest.trust);
+    assert.equal(result.next_source, source);
+    assert.equal(result.publication.publisher_commit, owner.GITHUB_SHA);
+    assert.equal(result.qualification.build.manifest_sha256, sha256(readFileSync(join(dir, 'manifest.json'))));
+    assert.throws(() => selectedManifest(dir, { ...receipt, run_attempt: 3 }, owner));
+    manifest.files['hosted/compiled/worker.js'].sha256 = 'f'.repeat(64); save();
+    assert.throws(() => selectedManifest(dir, receipt, owner));
+  }, environment));
+}
