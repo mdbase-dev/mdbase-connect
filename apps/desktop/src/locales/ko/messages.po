@@ -44,28 +44,8 @@ msgstr "{0, plural, other {해결되지 않은 충돌 #건}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
-msgstr "{0, select, desktop {새 컴퓨터가 {name}을(를) 열려고 합니다} mobile {새 휴대전화가 {name}을(를) 열려고 합니다} other {새 기기가 {name}을(를) 열려고 합니다}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
-msgstr "{0, select, desktop {새 컴퓨터에 표시된 6자리 코드를 입력하세요} mobile {새 휴대전화에 표시된 6자리 코드를 입력하세요} other {새 기기에 표시된 6자리 코드를 입력하세요}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
-msgstr "{0, select, desktop {코드가 일치하지 않습니다. 새 컴퓨터에 표시된 코드를 확인하세요. 직접 시작한 요청이 아니라면 거절하세요.} mobile {코드가 일치하지 않습니다. 새 휴대전화에 표시된 코드를 확인하세요. 직접 시작한 요청이 아니라면 거절하세요.} other {코드가 일치하지 않습니다. 새 기기에 표시된 코드를 확인하세요. 직접 시작한 요청이 아니라면 거절하세요.}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
-msgstr "{0, select, desktop {이제 새 컴퓨터에서 {name}을(를) 열 수 있습니다.} mobile {이제 새 휴대전화에서 {name}을(를) 열 수 있습니다.} other {이제 새 기기에서 {name}을(를) 열 수 있습니다.}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
-msgstr "{0, select, desktop {새 컴퓨터에 {name} 접근 권한이 부여되지 않았습니다.} mobile {새 휴대전화에 {name} 접근 권한이 부여되지 않았습니다.} other {새 기기에 {name} 접근 권한이 부여되지 않았습니다.}}"
+msgid "{0, select, desktop {Another computer} mobile {Another phone} other {Another device}}"
+msgstr "{0, select, desktop {다른 컴퓨터} mobile {다른 휴대폰} other {다른 기기}}"
 
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
@@ -89,11 +69,6 @@ msgstr "{0}이(가) 이 컴퓨터를 통해 {1}을(를) 더 이상 사용할 수
 #: src/renderer/access-view.tsx
 msgid "{0} can now use {where}."
 msgstr "{0}이(가) 이제 {where}을(를) 사용할 수 있습니다."
-
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "{0} is on this computer only now."
-#~ msgstr "{0}은(는) 이제 이 컴퓨터에만 있습니다."
 
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
@@ -247,6 +222,18 @@ msgstr "{waiting, plural, other {이동 전에 “{name}”에서 편집한 #건
 msgid "{waiting, plural, one {You removed “{name}” from this computer, so # edit made in “{name}” before the move was not added to it. It is still in {oldPath}.} other {You removed “{name}” from this computer, so # edits made in “{name}” before the move were not added to it. They are still in {oldPath}.}}"
 msgstr "{waiting, plural, other {이 컴퓨터에서 “{name}”을(를) 제거했으므로 이동 전에 “{name}”에서 편집한 #건은 추가되지 않았습니다. 해당 편집은 여전히 {oldPath}에 있습니다.}}"
 
+#: src/renderer/device-requests.tsx
+msgid "{who} can now open {collection}."
+msgstr "이제 {who}에서 {collection}을 열 수 있습니다."
+
+#: src/renderer/device-requests.tsx
+msgid "{who} wants to open {collection}"
+msgstr "{who}에서 {collection}을 열려고 합니다"
+
+#: src/renderer/device-requests.tsx
+msgid "{who} was not given access to {collection}."
+msgstr "{who}에 {collection} 접근 권한을 부여하지 않았습니다."
+
 #: src/renderer/takeover-panel.tsx
 msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>다시 연결할 때까지 호스팅 미러 중지 허용"
@@ -318,6 +305,18 @@ msgstr "첫 컬렉션 추가"
 msgid "All on this computer only"
 msgstr "모두 이 컴퓨터에만 있음"
 
+#: src/renderer/device-requests.tsx
+msgid "Allow"
+msgstr "허용"
+
+#: src/renderer/device-requests.tsx
+msgid "Allow only a computer you are setting up yourself."
+msgstr "직접 설정하고 있는 컴퓨터만 허용하세요."
+
+#: src/renderer/device-requests.tsx
+msgid "Allowing {who}…"
+msgstr "{who} 허용 중…"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "An app"
@@ -362,15 +361,6 @@ msgstr "모양"
 #: src/renderer/main.tsx
 msgid "Application"
 msgstr "애플리케이션"
-
-#: src/renderer/device-requests.tsx
-msgctxt "Connect interface"
-msgid "Approve"
-msgstr "승인"
-
-#: src/renderer/device-requests.tsx
-msgid "Approve a device only if you started setting it up yourself."
-msgstr "직접 설정을 시작한 기기만 승인하세요."
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Approve this computer in your browser. This window updates automatically."
@@ -482,6 +472,14 @@ msgstr "{0}에 같은 키가 표시되는지 확인하세요."
 #: src/renderer/takeover-state.mts
 msgid "Check that the disk is not full, then try again. Nothing was changed."
 msgstr "디스크가 가득 차지 않았는지 확인한 뒤 다시 시도하세요. 변경된 내용은 없습니다."
+
+#: src/main/main.ts
+msgid "Check the verification code before allowing."
+msgstr "허용하기 전에 확인 코드를 확인하세요."
+
+#: src/renderer/collections-view.tsx
+msgid "Check this code matches on your other computer:"
+msgstr "이 코드가 다른 컴퓨터의 코드와 일치하는지 확인하세요:"
 
 #: src/renderer/takeover-state.mts
 msgid "Check whether this folder was copied from another computer. Nothing was changed."
@@ -712,6 +710,10 @@ msgstr "노트 삭제"
 msgid "Deleted on another device"
 msgstr "다른 기기에서 삭제됨"
 
+#: src/renderer/device-requests.tsx
+msgid "Deny"
+msgstr "거부"
+
 #: src/renderer/collections-view.tsx
 msgid "Description"
 msgstr "설명"
@@ -821,10 +823,6 @@ msgstr "mdbase 계정에 이 컴퓨터가 표시되는 방식"
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "승인하면 {0}이(가) 이 컴퓨터를 통해 {where}에서 {1}을(를) 할 수 있습니다. 언제든 철회할 수 있습니다."
-
-#: src/renderer/device-requests.tsx
-msgid "If you approve, it can read and change everything in {name}, as this computer can."
-msgstr "승인하면 이 컴퓨터와 마찬가지로 {name}의 모든 내용을 읽고 변경할 수 있습니다."
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -1141,11 +1139,6 @@ msgstr "새 앱은 이제 이 컴퓨터에서 승인할 때까지 대기합니�
 msgid "New collection"
 msgstr "새 컬렉션"
 
-#: src/renderer/device-requests.tsx
-msgctxt "Connect interface"
-msgid "New devices waiting"
-msgstr "대기 중인 새 기기"
-
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "No actions"
@@ -1221,6 +1214,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "이 컴퓨터에만 있음"
 
+#: src/renderer/device-requests.tsx
+msgid "Only allow if this matches the code on {who}"
+msgstr "이 코드가 {who}의 코드와 일치하는 경우에만 허용하세요"
+
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
 #: src/main/main.ts
@@ -1283,6 +1280,10 @@ msgstr "일시 중지됨"
 msgctxt "Collection move recovery"
 msgid "Postponed"
 msgstr "연기됨"
+
+#: src/renderer/device-requests.tsx
+msgid "Preparing comparison code…"
+msgstr "비교 코드 준비 중…"
 
 #: src/renderer/main.tsx
 msgid "Previous version restored"
@@ -1547,11 +1548,6 @@ msgstr "업로드가 끝날 때까지 온라인 상태를 유지한 뒤 다시 �
 msgid "Stop {0} from using {1} through this computer?"
 msgstr "{0}이(가) 이 컴퓨터를 통해 {1}을(를) 사용하지 못하게 할까요?"
 
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
-#~ msgstr "{0}의 동기화를 중단할까요? 이 컴퓨터에는 남지만 다른 기기와 웹 앱은 변경 사항을 더 이상 받지 못합니다."
-
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "중단됨"
@@ -1596,11 +1592,6 @@ msgstr "다른 버전 선택"
 msgctxt "Desktop application"
 msgid "The application update is in progress."
 msgstr "애플리케이션 업데이트가 진행 중입니다."
-
-#: src/main/main.ts
-msgctxt "Desktop application"
-msgid "The code is six digits."
-msgstr "코드는 6자리여야 합니다."
 
 #: src/renderer/takeover-state.mts
 msgid "the collection did not accept it"
@@ -1841,10 +1832,6 @@ msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "이 mdbase 버전은 서비스에 사용하기에 너무 오래되었습니다. mdbase를 업데이트하세요."
 
 #: src/renderer/collections-view.tsx
-#~ msgid "Turn off sync"
-#~ msgstr "동기화 끄기"
-
-#: src/renderer/collections-view.tsx
 msgid "Turn on sync"
 msgstr "동기화 켜기"
 
@@ -1969,6 +1956,10 @@ msgstr "로그인 승인 대기 중"
 #: src/renderer/daemon-view.mts
 msgid "Waiting for the collection's access policy from mdbase."
 msgstr "mdbase에서 컬렉션 액세스 정책을 기다리는 중입니다."
+
+#: src/renderer/device-requests.tsx
+msgid "Waiting for you"
+msgstr "결정 대기 중"
 
 #: src/renderer/access-view.tsx
 msgid "Waiting for your approval"

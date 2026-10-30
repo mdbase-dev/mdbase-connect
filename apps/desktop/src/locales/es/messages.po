@@ -44,28 +44,8 @@ msgstr "{0, plural, one {# conflicto sin resolver} other {# conflictos sin resol
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
-msgstr "{0, select, desktop {Un ordenador nuevo quiere abrir {name}} mobile {Un teléfono nuevo quiere abrir {name}} other {Un dispositivo nuevo quiere abrir {name}}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
-msgstr "{0, select, desktop {Introduce el código de seis dígitos que aparece en el ordenador nuevo} mobile {Introduce el código de seis dígitos que aparece en el teléfono nuevo} other {Introduce el código de seis dígitos que aparece en el dispositivo nuevo}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
-msgstr "{0, select, desktop {El código no coincide. Comprueba el código en el ordenador nuevo. Si no has iniciado este proceso, rechaza la solicitud.} mobile {El código no coincide. Comprueba el código en el teléfono nuevo. Si no has iniciado este proceso, rechaza la solicitud.} other {El código no coincide. Comprueba el código en el dispositivo nuevo. Si no has iniciado este proceso, rechaza la solicitud.}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
-msgstr "{0, select, desktop {El ordenador nuevo ya puede abrir {name}.} mobile {El teléfono nuevo ya puede abrir {name}.} other {El dispositivo nuevo ya puede abrir {name}.}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
-msgstr "{0, select, desktop {No se ha concedido al ordenador nuevo acceso a {name}.} mobile {No se ha concedido al teléfono nuevo acceso a {name}.} other {No se ha concedido al dispositivo nuevo acceso a {name}.}}"
+msgid "{0, select, desktop {Another computer} mobile {Another phone} other {Another device}}"
+msgstr "{0, select, desktop {Otro ordenador} mobile {Otro teléfono} other {Otro dispositivo}}"
 
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
@@ -89,11 +69,6 @@ msgstr "{0} ya no puede usar {1} a través de este ordenador."
 #: src/renderer/access-view.tsx
 msgid "{0} can now use {where}."
 msgstr "{0} ya puede usar {where}."
-
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "{0} is on this computer only now."
-#~ msgstr "{0} ahora está solo en este ordenador."
 
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
@@ -247,6 +222,18 @@ msgstr "{waiting, plural, one {# edición hecha en «{name}» antes del traslado
 msgid "{waiting, plural, one {You removed “{name}” from this computer, so # edit made in “{name}” before the move was not added to it. It is still in {oldPath}.} other {You removed “{name}” from this computer, so # edits made in “{name}” before the move were not added to it. They are still in {oldPath}.}}"
 msgstr "{waiting, plural, one {Quitaste «{name}» de este ordenador, por lo que no se le añadió # edición hecha en «{name}» antes del traslado. Sigue en {oldPath}.} other {Quitaste «{name}» de este ordenador, por lo que no se le añadieron # ediciones hechas en «{name}» antes del traslado. Siguen en {oldPath}.}}"
 
+#: src/renderer/device-requests.tsx
+msgid "{who} can now open {collection}."
+msgstr "{who} ya puede abrir {collection}."
+
+#: src/renderer/device-requests.tsx
+msgid "{who} wants to open {collection}"
+msgstr "{who} quiere abrir {collection}"
+
+#: src/renderer/device-requests.tsx
+msgid "{who} was not given access to {collection}."
+msgstr "No se ha concedido a {who} acceso a {collection}."
+
 #: src/renderer/takeover-panel.tsx
 msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>Permitir que las réplicas alojadas se detengan hasta que vuelva a incorporarlas"
@@ -318,6 +305,18 @@ msgstr "Añade tu primera colección"
 msgid "All on this computer only"
 msgstr "Todas solo en este ordenador"
 
+#: src/renderer/device-requests.tsx
+msgid "Allow"
+msgstr "Permitir"
+
+#: src/renderer/device-requests.tsx
+msgid "Allow only a computer you are setting up yourself."
+msgstr "Permite el acceso solo a un ordenador que estés configurando tú."
+
+#: src/renderer/device-requests.tsx
+msgid "Allowing {who}…"
+msgstr "Permitiendo el acceso a {who}…"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "An app"
@@ -362,15 +361,6 @@ msgstr "Apariencia"
 #: src/renderer/main.tsx
 msgid "Application"
 msgstr "Aplicación"
-
-#: src/renderer/device-requests.tsx
-msgctxt "Connect interface"
-msgid "Approve"
-msgstr "Aprobar"
-
-#: src/renderer/device-requests.tsx
-msgid "Approve a device only if you started setting it up yourself."
-msgstr "Aprueba un dispositivo solo si has iniciado tú mismo su configuración."
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Approve this computer in your browser. This window updates automatically."
@@ -482,6 +472,14 @@ msgstr "Comprueba que {0} muestre la misma clave."
 #: src/renderer/takeover-state.mts
 msgid "Check that the disk is not full, then try again. Nothing was changed."
 msgstr "Comprueba que el disco no esté lleno y vuelve a intentarlo. No se cambió nada."
+
+#: src/main/main.ts
+msgid "Check the verification code before allowing."
+msgstr "Comprueba el código de verificación antes de permitir el acceso."
+
+#: src/renderer/collections-view.tsx
+msgid "Check this code matches on your other computer:"
+msgstr "Comprueba que este código coincida con el de tu otro ordenador:"
 
 #: src/renderer/takeover-state.mts
 msgid "Check whether this folder was copied from another computer. Nothing was changed."
@@ -712,6 +710,10 @@ msgstr "eliminar notas"
 msgid "Deleted on another device"
 msgstr "Eliminado en otro dispositivo"
 
+#: src/renderer/device-requests.tsx
+msgid "Deny"
+msgstr "Denegar"
+
 #: src/renderer/collections-view.tsx
 msgid "Description"
 msgstr "Descripción"
@@ -821,10 +823,6 @@ msgstr "Cómo aparece este ordenador en tu cuenta de mdbase"
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "Si lo apruebas, {0} podrá {1} en {where} a través de este ordenador. Puedes revocar el acceso cuando quieras."
-
-#: src/renderer/device-requests.tsx
-msgid "If you approve, it can read and change everything in {name}, as this computer can."
-msgstr "Si lo apruebas, podrá leer y cambiar todo en {name}, igual que este ordenador."
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -1141,11 +1139,6 @@ msgstr "Las aplicaciones nuevas ahora esperan tu aprobación en este ordenador."
 msgid "New collection"
 msgstr "Colección nueva"
 
-#: src/renderer/device-requests.tsx
-msgctxt "Connect interface"
-msgid "New devices waiting"
-msgstr "Nuevos dispositivos en espera"
-
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "No actions"
@@ -1221,6 +1214,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "Solo en este ordenador"
 
+#: src/renderer/device-requests.tsx
+msgid "Only allow if this matches the code on {who}"
+msgstr "Permite el acceso solo si este código coincide con el de {who}"
+
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
 #: src/main/main.ts
@@ -1283,6 +1280,10 @@ msgstr "En pausa"
 msgctxt "Collection move recovery"
 msgid "Postponed"
 msgstr "Aplazada"
+
+#: src/renderer/device-requests.tsx
+msgid "Preparing comparison code…"
+msgstr "Preparando el código de comparación…"
 
 #: src/renderer/main.tsx
 msgid "Previous version restored"
@@ -1547,11 +1548,6 @@ msgstr "Mantente en línea hasta que terminen las cargas y vuelve a intentarlo."
 msgid "Stop {0} from using {1} through this computer?"
 msgstr "¿Impedir que {0} use {1} a través de este ordenador?"
 
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
-#~ msgstr "¿Dejar de sincronizar {0}? Permanecerá en este ordenador; tus otros dispositivos y las aplicaciones web dejarán de recibir sus cambios."
-
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "Detenida"
@@ -1596,11 +1592,6 @@ msgstr "Usar la otra versión"
 msgctxt "Desktop application"
 msgid "The application update is in progress."
 msgstr "La actualización de la aplicación está en curso."
-
-#: src/main/main.ts
-msgctxt "Desktop application"
-msgid "The code is six digits."
-msgstr "El código tiene seis dígitos."
 
 #: src/renderer/takeover-state.mts
 msgid "the collection did not accept it"
@@ -1841,10 +1832,6 @@ msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "Esta versión de mdbase es demasiado antigua para el servicio. Actualiza mdbase."
 
 #: src/renderer/collections-view.tsx
-#~ msgid "Turn off sync"
-#~ msgstr "Desactivar sincronización"
-
-#: src/renderer/collections-view.tsx
 msgid "Turn on sync"
 msgstr "Activar sincronización"
 
@@ -1969,6 +1956,10 @@ msgstr "Esperando la aprobación del inicio de sesión"
 #: src/renderer/daemon-view.mts
 msgid "Waiting for the collection's access policy from mdbase."
 msgstr "Esperando la política de acceso de la colección desde mdbase."
+
+#: src/renderer/device-requests.tsx
+msgid "Waiting for you"
+msgstr "Esperando tu decisión"
 
 #: src/renderer/access-view.tsx
 msgid "Waiting for your approval"

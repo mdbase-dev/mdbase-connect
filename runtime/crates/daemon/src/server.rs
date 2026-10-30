@@ -26,11 +26,10 @@ use tokio::sync::{Mutex, mpsc, watch};
 use crate::access::{AccessEntry, AccessEvent, AccessList, AccessState, CachedGrant};
 use crate::collections::CollectionHost;
 use crate::control::{
-    AccountInfo, AddCollection, ApproveDevice, Check, CollectionRef, CollectionStatus,
-    ConflictSummary, ControlError, DaemonStatus, DeleteCollection, DeviceInfo, EnableSync,
-    GrantRef, HoldAction, HoldResolved, HoldSummary, JoinCollection, Method, NotReady, Notice,
-    PROTOCOL, READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, Settings,
-    UpdateCollection,
+    AccountInfo, AddCollection, Check, CollectionRef, CollectionStatus, ConflictSummary,
+    ControlError, DaemonStatus, DeleteCollection, DeviceInfo, EnableSync, GrantRef, HoldAction,
+    HoldResolved, HoldSummary, JoinCollection, Method, NotReady, Notice, PROTOCOL,
+    READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, Settings, UpdateCollection,
 };
 use crate::fsutil;
 use crate::instance::{InstanceLock, LockError};
@@ -96,6 +95,8 @@ pub struct Daemon {
     account_gate: Mutex<()>,
     /// One link-approval prompt at a time.
     link_prompt: Mutex<()>,
+    /// Host sessions holding in-progress visual device checks.
+    device_approvals: Mutex<std::collections::HashMap<String, device_approval::ApprovalSession>>,
     /// Dynamic projection for per-collection authority, published after durable state.
     authority: crate::authority::Authority,
     /// Native confirmation dialogs.
@@ -205,6 +206,7 @@ pub async fn run_with(
         account: std::sync::Mutex::new(Account::default()),
         account_gate: Mutex::new(()),
         link_prompt: Mutex::new(()),
+        device_approvals: Default::default(),
         authority: crate::authority::Authority::default(),
         confirmer: std::sync::RwLock::new(Arc::from(confirmer)),
         grant_publications: Default::default(),
@@ -238,6 +240,7 @@ pub async fn run_with(
     let signals = tokio::spawn(wait_for_signal(daemon.clone()));
     let strict_reports = tokio::spawn(daemon.clone().strict_witness_reports());
     let account_keys = tokio::spawn(daemon.clone().account_key_reconcile());
+    let device_requests = tokio::spawn(daemon.clone().device_approval_requests());
     let old_connector = tokio::spawn(daemon.clone().watch_old_connector());
     let status_feed = tokio::spawn(daemon.clone().publish_status());
 
@@ -291,6 +294,7 @@ pub async fn run_with(
     signals.abort();
     strict_reports.abort();
     account_keys.abort();
+    device_requests.abort();
     old_connector.abort();
     status_feed.abort();
     let close = async {
@@ -1416,29 +1420,13 @@ impl Daemon {
                 self.serving(&p.collection).await?;
                 Err(ControlError::not_implemented("disabling sync"))
             }
-            Method::DEVICE_PENDING
-            | Method::RECOVERY_STATUS
-            | Method::RECOVERY_CREATE
-            | Method::RECOVERY_IMPORT => {
+            Method::DEVICE_PENDING => self.device_pending(params(req)?).await,
+            Method::DEVICE_APPROVE => self.device_approve(params(req)?).await,
+            Method::DEVICE_REJECT => self.device_reject(params(req)?).await,
+            Method::RECOVERY_STATUS | Method::RECOVERY_CREATE | Method::RECOVERY_IMPORT => {
                 let p: CollectionRef = params(req)?;
                 self.e2e_collection(&p.collection).await?;
                 Err(ControlError::not_implemented(&req.method))
-            }
-            Method::DEVICE_APPROVE => {
-                let p: ApproveDevice = params(req)?;
-                if p.code.len() != 6 || !p.code.bytes().all(|b| b.is_ascii_digit()) {
-                    return Err(ControlError::invalid(
-                        "invalid_code",
-                        "the code is six digits",
-                    ));
-                }
-                self.e2e_collection(&p.collection).await?;
-                Err(ControlError::not_implemented("device approval"))
-            }
-            Method::DEVICE_REJECT => {
-                let p: CollectionRef = params(req)?;
-                self.e2e_collection(&p.collection).await?;
-                Err(ControlError::not_implemented("device rejection"))
             }
             Method::PRIVATE_STATUS => self.private_status().await,
             Method::PRIVATE_SETUP => self.private_setup(params(req)?).await,
@@ -4687,40 +4675,9 @@ async fn host_call(
     params: mdbn_wire::cbor::Cbor,
 ) -> Result<mdbn_wire::cbor::Cbor, ControlError> {
     use mdbn_wire::Wire;
-    use mdbn_wire::client::{ClientFrame, ClientRequest, HelloParams, Problem};
-    use mdbn_wire::common::Version;
+    use mdbn_wire::client::{ClientFrame, ClientRequest};
     let stopped = || ControlError::unavailable("runtime_stopped", "the collection stopped");
-    let problem =
-        |p: Problem| ControlError::new(&p.code, p.reason.as_deref().unwrap_or(&p.code), p.message);
-    let hello = ClientRequest {
-        id: 0,
-        method: "hello".into(),
-        params: HelloParams {
-            versions: vec![Version { major: 1, minor: 0 }],
-            client_name: "mdbase-daemon".into(),
-            client_version: env!("CARGO_PKG_VERSION").into(),
-            features: None,
-            timezone: None,
-        }
-        .to_cbor(),
-    };
-    let bytes = ClientFrame::Request(hello)
-        .to_bytes()
-        .map_err(|_| ControlError::internal("hello does not encode"))?;
-    let (session, resp, mut out) = rt
-        .hello(mdbn_replica::api::SessionAuth::Host, bytes)
-        .await
-        .ok_or_else(stopped)?;
-    let session = match (session, ClientFrame::from_bytes(&resp)) {
-        (Some(s), Ok(ClientFrame::Response(r))) if r.problem.is_none() => s,
-        (_, Ok(ClientFrame::Response(r))) => {
-            return Err(r
-                .problem
-                .map(problem)
-                .unwrap_or_else(|| ControlError::internal("host hello refused")));
-        }
-        _ => return Err(ControlError::internal("the replica answered hello badly")),
-    };
+    let mut host = HostSession::open(rt).await?;
     let req = ClientFrame::Request(ClientRequest {
         id: 1,
         method: method.into(),
@@ -4729,34 +4686,91 @@ async fn host_call(
     .to_bytes()
     .map_err(|_| ControlError::internal("request does not encode"))?;
     let result = async {
-        if !rt.frame(session, req) {
+        if !rt.frame(host.id, req) {
             return Err(stopped());
         }
         loop {
-            let Some(b) = out.recv().await else {
+            let Some(b) = host.out.recv().await else {
                 return Err(stopped());
             };
             if let Ok(ClientFrame::Response(r)) = ClientFrame::from_bytes(&b)
                 && r.id == 1
             {
                 return match (r.result, r.problem) {
-                    (_, Some(p)) => Err(problem(p)),
+                    (_, Some(p)) => Err(problem_error(p)),
                     (Some(v), None) => Ok(v),
                     (None, None) => Ok(mdbn_wire::cbor::Cbor::Null),
                 };
             }
         }
     };
-    let outcome = tokio::time::timeout(HOST_CALL_TIMEOUT, result)
+    tokio::time::timeout(HOST_CALL_TIMEOUT, result)
         .await
         .unwrap_or_else(|_| {
             Err(ControlError::unavailable(
                 "timeout",
                 format!("{method} did not answer in time"),
             ))
-        });
-    rt.close(session);
-    outcome
+        })
+}
+
+/// A replica problem as the control error (same codes, §9).
+fn problem_error(p: mdbn_wire::client::Problem) -> ControlError {
+    ControlError::new(&p.code, p.reason.as_deref().unwrap_or(&p.code), p.message)
+}
+
+/// A `SessionAuth::Host` session on a collection's runtime (the daemon is the
+/// host: no grant, the user's own device). Closed when dropped.
+struct HostSession {
+    rt: Arc<crate::runtime::Runtime>,
+    id: mdbn_replica::api::SessionId,
+    out: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+}
+
+impl HostSession {
+    async fn open(rt: &Arc<crate::runtime::Runtime>) -> Result<Self, ControlError> {
+        use mdbn_wire::Wire;
+        use mdbn_wire::client::{ClientFrame, ClientRequest, HelloParams};
+        use mdbn_wire::common::Version;
+        let stopped = || ControlError::unavailable("runtime_stopped", "the collection stopped");
+        let hello = ClientRequest {
+            id: 0,
+            method: "hello".into(),
+            params: HelloParams {
+                versions: vec![Version { major: 1, minor: 0 }],
+                client_name: "mdbase-daemon".into(),
+                client_version: env!("CARGO_PKG_VERSION").into(),
+                features: None,
+                timezone: None,
+            }
+            .to_cbor(),
+        };
+        let bytes = ClientFrame::Request(hello)
+            .to_bytes()
+            .map_err(|_| ControlError::internal("hello does not encode"))?;
+        let (session, resp, out) = rt
+            .hello(mdbn_replica::api::SessionAuth::Host, bytes)
+            .await
+            .ok_or_else(stopped)?;
+        match (session, ClientFrame::from_bytes(&resp)) {
+            (Some(id), Ok(ClientFrame::Response(r))) if r.problem.is_none() => Ok(Self {
+                rt: rt.clone(),
+                id,
+                out,
+            }),
+            (_, Ok(ClientFrame::Response(r))) => Err(r
+                .problem
+                .map(problem_error)
+                .unwrap_or_else(|| ControlError::internal("host hello refused"))),
+            _ => Err(ControlError::internal("the replica answered hello badly")),
+        }
+    }
+}
+
+impl Drop for HostSession {
+    fn drop(&mut self) {
+        self.rt.close(self.id);
+    }
 }
 
 /// A Connect refusal as a control error (no secrets in messages).
@@ -6792,6 +6806,9 @@ mod collection_mode;
 mod private_key;
 #[path = "private_mode.rs"]
 mod private_mode;
+
+#[path = "device_approval.rs"]
+mod device_approval;
 
 #[cfg(test)]
 #[path = "server_tests.rs"]

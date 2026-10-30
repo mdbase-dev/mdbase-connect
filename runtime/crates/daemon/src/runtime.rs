@@ -45,6 +45,10 @@ use tokio::sync::{mpsc, oneshot, watch};
 #[path = "native_pending_fixture.rs"]
 pub(crate) mod native_pending_fixture;
 
+#[path = "runtime_device_approval.rs"]
+mod device_approval;
+pub use device_approval::{DeviceApprovalOp, DeviceApprovalReply};
+
 type Store = crate::keyring_store::KeychainKeyring<mdbn_local_host::NativeStore>;
 
 /// The collection folder's private directory (the platform's and the host lock's).
@@ -218,6 +222,11 @@ enum Cmd {
     ),
     /// App grant approval on this collection (`policy.md` §5.1).
     GrantApproval(GrantApprovalOp, oneshot::Sender<GrantApprovalReply>),
+    /// Second-computer approval on this private collection (§8.3).
+    DeviceApproval(
+        DeviceApprovalOp,
+        oneshot::Sender<Result<DeviceApprovalReply, Box<mdbn_wire::client::Problem>>>,
+    ),
 }
 
 /// A grant-approval operation for the runtime thread.
@@ -737,6 +746,16 @@ impl Runtime {
     pub async fn grant_approval(&self, op: GrantApprovalOp) -> Option<GrantApprovalReply> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::GrantApproval(op, tx)).ok()?;
+        rx.await.ok()
+    }
+
+    /// Run a device-approval operation; `None` once stopped.
+    pub async fn device_approval(
+        &self,
+        op: DeviceApprovalOp,
+    ) -> Option<Result<DeviceApprovalReply, Box<mdbn_wire::client::Problem>>> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Cmd::DeviceApproval(op, tx)).ok()?;
         rx.await.ok()
     }
 
@@ -1736,6 +1755,9 @@ fn run(
                         GrantApprovalReply::Effective(rep.grant_effective(&grant))
                     }
                 });
+            }
+            Ok(Cmd::DeviceApproval(op, reply)) => {
+                let _ = reply.send(device_approval::handle(&mut rep, op));
             }
             Ok(Cmd::FsWake) => {
                 if let Some(w) = &watcher {

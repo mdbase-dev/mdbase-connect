@@ -44,28 +44,8 @@ msgstr "{0, plural, other {未解決の競合 # 件}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
-msgstr "{0, select, desktop {新しいコンピューターが {name} を開こうとしています} mobile {新しいスマートフォンが {name} を開こうとしています} other {新しいデバイスが {name} を開こうとしています}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
-msgstr "{0, select, desktop {新しいコンピューターに表示されている6桁のコードを入力してください} mobile {新しいスマートフォンに表示されている6桁のコードを入力してください} other {新しいデバイスに表示されている6桁のコードを入力してください}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
-msgstr "{0, select, desktop {コードが一致しません。新しいコンピューターに表示されたコードを確認してください。ご自身で開始していない場合は拒否してください。} mobile {コードが一致しません。新しいスマートフォンに表示されたコードを確認してください。ご自身で開始していない場合は拒否してください。} other {コードが一致しません。新しいデバイスに表示されたコードを確認してください。ご自身で開始していない場合は拒否してください。}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
-msgstr "{0, select, desktop {新しいコンピューターで {name} を開けるようになりました。} mobile {新しいスマートフォンで {name} を開けるようになりました。} other {新しいデバイスで {name} を開けるようになりました。}}"
-
-#. placeholder {0}: device.kind
-#: src/renderer/device-requests.tsx
-msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
-msgstr "{0, select, desktop {新しいコンピューターには {name} へのアクセスが許可されませんでした。} mobile {新しいスマートフォンには {name} へのアクセスが許可されませんでした。} other {新しいデバイスには {name} へのアクセスが許可されませんでした。}}"
+msgid "{0, select, desktop {Another computer} mobile {Another phone} other {Another device}}"
+msgstr "{0, select, desktop {別のコンピューター} mobile {別のスマートフォン} other {別のデバイス}}"
 
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
@@ -89,11 +69,6 @@ msgstr "{0} はこのコンピューター経由で {1} を利用できなくな
 #: src/renderer/access-view.tsx
 msgid "{0} can now use {where}."
 msgstr "{0} は {where} を利用できるようになりました。"
-
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "{0} is on this computer only now."
-#~ msgstr "{0} は現在このコンピューター上にのみあります。"
 
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
@@ -247,6 +222,18 @@ msgstr "{waiting, plural, other {移動前に「{name}」で行った編集 # �
 msgid "{waiting, plural, one {You removed “{name}” from this computer, so # edit made in “{name}” before the move was not added to it. It is still in {oldPath}.} other {You removed “{name}” from this computer, so # edits made in “{name}” before the move were not added to it. They are still in {oldPath}.}}"
 msgstr "{waiting, plural, other {「{name}」をこのコンピューターから削除したため、移動前に「{name}」で行った編集 # 件は追加されていません。{oldPath} に残っています。}}"
 
+#: src/renderer/device-requests.tsx
+msgid "{who} can now open {collection}."
+msgstr "{who}で{collection}を開けるようになりました。"
+
+#: src/renderer/device-requests.tsx
+msgid "{who} wants to open {collection}"
+msgstr "{who}が{collection}を開こうとしています"
+
+#: src/renderer/device-requests.tsx
+msgid "{who} was not given access to {collection}."
+msgstr "{who}に{collection}へのアクセスは許可されませんでした。"
+
 #: src/renderer/takeover-panel.tsx
 msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>再度参加するまでホスト型ミラーを停止することを許可"
@@ -318,6 +305,18 @@ msgstr "最初のコレクションを追加"
 msgid "All on this computer only"
 msgstr "すべてこのコンピューター上のみ"
 
+#: src/renderer/device-requests.tsx
+msgid "Allow"
+msgstr "許可"
+
+#: src/renderer/device-requests.tsx
+msgid "Allow only a computer you are setting up yourself."
+msgstr "自分で設定しているコンピューターだけを許可してください。"
+
+#: src/renderer/device-requests.tsx
+msgid "Allowing {who}…"
+msgstr "{who}を許可しています…"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "An app"
@@ -362,15 +361,6 @@ msgstr "外観"
 #: src/renderer/main.tsx
 msgid "Application"
 msgstr "アプリケーション"
-
-#: src/renderer/device-requests.tsx
-msgctxt "Connect interface"
-msgid "Approve"
-msgstr "承認"
-
-#: src/renderer/device-requests.tsx
-msgid "Approve a device only if you started setting it up yourself."
-msgstr "ご自身で設定を開始した場合にのみデバイスを承認してください。"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Approve this computer in your browser. This window updates automatically."
@@ -482,6 +472,14 @@ msgstr "{0} に同じキーが表示されていることを確認してくだ�
 #: src/renderer/takeover-state.mts
 msgid "Check that the disk is not full, then try again. Nothing was changed."
 msgstr "ディスクの空き容量を確認してから再試行してください。何も変更されていません。"
+
+#: src/main/main.ts
+msgid "Check the verification code before allowing."
+msgstr "許可する前に確認コードを確認してください。"
+
+#: src/renderer/collections-view.tsx
+msgid "Check this code matches on your other computer:"
+msgstr "このコードがもう一方のコンピューターと一致するか確認してください："
 
 #: src/renderer/takeover-state.mts
 msgid "Check whether this folder was copied from another computer. Nothing was changed."
@@ -712,6 +710,10 @@ msgstr "ノートを削除"
 msgid "Deleted on another device"
 msgstr "別のデバイスで削除されました"
 
+#: src/renderer/device-requests.tsx
+msgid "Deny"
+msgstr "拒否"
+
 #: src/renderer/collections-view.tsx
 msgid "Description"
 msgstr "説明"
@@ -821,10 +823,6 @@ msgstr "mdbase アカウントに表示されるこのコンピューターの�
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "承認すると、{0} はこのコンピューター経由で {where} 内の {1} を実行できます。いつでも取り消せます。"
-
-#: src/renderer/device-requests.tsx
-msgid "If you approve, it can read and change everything in {name}, as this computer can."
-msgstr "承認すると、このコンピューターと同様に {name} のすべてを読み取り、変更できます。"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -1141,11 +1139,6 @@ msgstr "新しいアプリは、このコンピューターでの承認を待つ
 msgid "New collection"
 msgstr "新しいコレクション"
 
-#: src/renderer/device-requests.tsx
-msgctxt "Connect interface"
-msgid "New devices waiting"
-msgstr "待機中の新しいデバイス"
-
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "No actions"
@@ -1221,6 +1214,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "このコンピューター上のみ"
 
+#: src/renderer/device-requests.tsx
+msgid "Only allow if this matches the code on {who}"
+msgstr "このコードが{who}のコードと一致する場合のみ許可してください"
+
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
 #: src/main/main.ts
@@ -1283,6 +1280,10 @@ msgstr "一時停止中"
 msgctxt "Collection move recovery"
 msgid "Postponed"
 msgstr "延期しました"
+
+#: src/renderer/device-requests.tsx
+msgid "Preparing comparison code…"
+msgstr "比較用コードを準備しています…"
 
 #: src/renderer/main.tsx
 msgid "Previous version restored"
@@ -1547,11 +1548,6 @@ msgstr "アップロードが完了するまでオンラインのまま待ち、
 msgid "Stop {0} from using {1} through this computer?"
 msgstr "{0} がこのコンピューター経由で {1} を利用するのを停止しますか？"
 
-#. placeholder {0}: collection.name
-#: src/renderer/collections-view.tsx
-#~ msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
-#~ msgstr "{0} の同期を停止しますか？ このコンピューターには残りますが、ほかのデバイスや Web アプリには変更が届かなくなります。"
-
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "停止しました"
@@ -1596,11 +1592,6 @@ msgstr "もう一方のバージョンを使用"
 msgctxt "Desktop application"
 msgid "The application update is in progress."
 msgstr "アプリケーションの更新が進行中です。"
-
-#: src/main/main.ts
-msgctxt "Desktop application"
-msgid "The code is six digits."
-msgstr "コードは 6 桁です。"
 
 #: src/renderer/takeover-state.mts
 msgid "the collection did not accept it"
@@ -1841,10 +1832,6 @@ msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "このバージョンの mdbase は古すぎるためサービスを利用できません。mdbase を更新してください。"
 
 #: src/renderer/collections-view.tsx
-#~ msgid "Turn off sync"
-#~ msgstr "同期をオフにする"
-
-#: src/renderer/collections-view.tsx
 msgid "Turn on sync"
 msgstr "同期をオンにする"
 
@@ -1969,6 +1956,10 @@ msgstr "ログインの承認待ち"
 #: src/renderer/daemon-view.mts
 msgid "Waiting for the collection's access policy from mdbase."
 msgstr "mdbase からコレクションのアクセスポリシーを取得するのを待っています。"
+
+#: src/renderer/device-requests.tsx
+msgid "Waiting for you"
+msgstr "操作を待っています"
 
 #: src/renderer/access-view.tsx
 msgid "Waiting for your approval"

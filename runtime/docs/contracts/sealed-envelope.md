@@ -475,7 +475,7 @@ trust stops:
 
 | Collection state | Who appends the `key_grant` | User involvement |
 |---|---|---|
-| Synced end-to-end (Private) | the keyed device of an owner or editor on which the user approved it | **Required.** The user compares a six-digit code on both devices, computed by the commit-then-reveal protocol below. |
+| Synced end-to-end (Private) | the keyed device of an owner or editor on which the user approved it | **Required.** The user allows the new computer on a computer that already has the collection. The user visually checks that the six-digit code shown on both computers matches, then clicks Allow once. Nothing is typed; the devices run the existing commit-then-reveal exchange below. |
 | Synced with cloud copy (Standard) | hosted, or escrow if hosted is unavailable; keyed user devices retain their existing authority | Authenticated-account approval and control-signed membership/enrolment; no other user device must be online (§7.1). |
 
 Service-created hosted replicas bootstrap their own epoch in cloud-copy mode.
@@ -516,8 +516,13 @@ pattern of Vaudenay (2005), as used by ZRTP and Bluetooth numeric comparison.
                                    ‖ kem_pk_N ‖ noise_pk_N ‖ r_A ‖ r_N)) mod 1,000,000
    ```
    as six digits. Each device takes the keys from the enrol items in its own view of
-   the log.
-5. **Approve.** The user confirms on `A` that the codes match. `A` appends the
+   the log. Show the same six digits on both computers, grouped as `123 456`.
+   `N` says “Check this code matches on your other computer”; `A` says “Only allow
+   if this matches the code on N”. The exchange starts before final consent so
+   the code is available for the user's one decision.
+5. **Approve.** After visually checking that the codes match, the user allows `N`
+   on `A` (one Allow, in mdbase's own app or CLI, never from a third-party app).
+   No digits are typed. If the codes differ, deny instead. `A` checks the exchange and appends the
    `key_grant` for `N`.
 6. **Accept.** `N` uses the key from its first `key_grant` only if `A` signed it (the
    §5.2 local acceptance rule). That stops a forked log from keying `N` from an

@@ -49,6 +49,12 @@ struct Context {
     epoch: u64,
     role: Role,
 }
+pub(super) struct RequesterCode {
+    context: Context,
+    code: Zeroizing<String>,
+    started: i64,
+    expires: i64,
+}
 impl Context {
     fn identity_matches(&self, b: &Self) -> bool {
         self.collection == b.collection && self.stamp == b.stamp && self.me == b.me
@@ -376,6 +382,85 @@ impl<S: Store> Replica<S> {
         Ok(Some(challenge.binding.approver.clone()))
     }
 
+    /// Live six-digit visual comparison code for the trusted host's status UI.
+    /// Never exposed to an application session or after authority/expiry changes.
+    pub fn requester_approval_code(&self, session: SessionId) -> ApiResult<Option<String>> {
+        self.host_only(session)?;
+        let Some(display) = &self.approval.requester_code else {
+            return Ok(None);
+        };
+        let now = self.now();
+        if now < display.started
+            || now >= display.expires
+            || self.requester_context(session).as_ref() != Ok(&display.context)
+        {
+            return Ok(None);
+        }
+        Ok(Some(display.code.to_string()))
+    }
+
+    /// Whether this device is an enrolled, unkeyed approval requester here now.
+    pub fn awaiting_device_approval(&self, session: SessionId) -> bool {
+        self.requester_context(session).is_ok()
+    }
+
+    /// The commitment this requester must log through the control plane
+    /// (`approval-request`), if any: a FRESH one once its revealed exchange
+    /// expired without a key, or when `renew` (the host could not watch for an
+    /// approver's challenge for longer than one may live, so an approver may
+    /// have spent the commitment unseen), saved before it is returned; else the
+    /// saved one while the applied policy does not carry it yet. Never while a
+    /// revealed exchange is still live.
+    pub fn device_approval_commitment_to_log(
+        &mut self,
+        session: SessionId,
+        journal: &mut dyn ApprovalSecretJournal,
+        renew: bool,
+    ) -> ApiResult<Option<B32>> {
+        let context = self.requester_context(session)?;
+        let Some(mut record) = self.requester_load(journal, &context)? else {
+            return Ok(None);
+        };
+        if !record.context.identity_matches(&context) {
+            return Err(denied());
+        }
+        let mut n = NewDevice::restore(context.collection, context.keys(), &record.state)
+            .map_err(|_| denied())?;
+        let live = match &record.peer {
+            Some(peer) => {
+                let ApprovalPeerMessage::Challenge(challenge) = &peer.message else {
+                    return Err(denied());
+                };
+                self.now() < challenge.expires_at_ms
+            }
+            None => false,
+        };
+        if live {
+            return Ok(None);
+        }
+        if record.peer.is_some() || renew {
+            let fresh = n.fresh(self.host.entropy.as_mut());
+            record.context = context.clone();
+            record.state = n.state();
+            record.peer = None;
+            self.requester_save(journal, &record)?;
+            if self.requester_context(session)? != context {
+                return Err(denied());
+            }
+            return Ok(Some(B32(fresh)));
+        }
+        if n.approver().is_some() {
+            return Err(denied());
+        }
+        let logged = self
+            .policy
+            .devices
+            .get(&self.cfg.device_id)
+            .and_then(|d| d.sas_commit);
+        let saved = B32(n.commitment());
+        Ok((logged != Some(saved)).then_some(saved))
+    }
+
     /// Signed requester ingress. Validate CURRENT public policy/own custody/latest
     /// commitment, persist revealed state + ENTIRE signed selected challenge in one
     /// secret transaction, recheck after I/O, THEN make code/reveal available.
@@ -430,6 +515,13 @@ impl<S: Store> Replica<S> {
         {
             return Err(denied());
         }
+        // The selected approver is the one signer whose `key_grant` this device
+        // uses (`sealed-envelope.md` §5.3 step 6): trusted from here on. The host
+        // persists it in its link's `trusted_signers` before sending the reveal.
+        let approver = challenge.binding.approver.device;
+        if !self.cfg.trusted_signers.contains(&approver) {
+            self.cfg.trusted_signers.push(approver);
+        }
         let envelope = ApprovalPeerMessage::Reveal(super::ApprovalReveal {
             challenge: challenge.clone(),
             r_n: B32(*r_n),
@@ -439,6 +531,13 @@ impl<S: Store> Replica<S> {
         if self.requester_context(session)? != context {
             return Err(denied());
         }
+        self.approval.requester_code = Some(RequesterCode {
+            context,
+            code: code.clone(),
+            started: now,
+            expires: challenge.expires_at_ms,
+        });
+        self.status_dirty = true;
         Ok(RequesterApprovalReveal { code, envelope })
     }
 }
