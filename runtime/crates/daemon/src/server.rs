@@ -77,6 +77,8 @@ pub struct Daemon {
     readiness: watch::Sender<Readiness>,
     /// The control key, once loaded.
     control_key: std::sync::OnceLock<zeroize::Zeroizing<[u8; 32]>>,
+    /// Wakes initialization waiting on an unavailable credential store.
+    credential_retry: tokio::sync::Notify,
     /// Access events for notifications (pushed as `access`).
     access_events: tokio::sync::broadcast::Sender<AccessEvent>,
     activity: crate::activity::ActivityLog,
@@ -203,6 +205,7 @@ pub async fn run_with(
         access_events: tokio::sync::broadcast::channel(64).0,
         activity: crate::activity::ActivityLog::open(profile.activity_file()),
         control_key: std::sync::OnceLock::new(),
+        credential_retry: tokio::sync::Notify::new(),
         account: std::sync::Mutex::new(Account::default()),
         account_gate: Mutex::new(()),
         link_prompt: Mutex::new(()),
@@ -315,39 +318,33 @@ pub async fn run_with(
     Ok(())
 }
 
+/// How long `auth.challenge` waits for a credential retry it started.
+const CREDENTIAL_RETRY_WAIT: Duration = Duration::from_secs(5);
+
 async fn initialize(d: Arc<Daemon>) {
-    let device = {
-        let device_file = d.profile.identity_file();
-        let store: &dyn SecretStore = d.secrets.as_ref();
-        DeviceIdentity::load_or_create(store, &device_file)
-    };
-    let device = match device {
-        Ok(id) => {
-            let public = id.public();
-            d.identity.set(Arc::new(id));
-            public
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "device identity unavailable");
-            d.inner.lock().await.init_error = Some(e.to_string());
-            d.readiness
-                .send_replace(readiness(false, Some(NotReady::CredentialStoreUnavailable)));
-            d.bump();
+    let device = loop {
+        let e = match load_credentials(&d) {
+            Ok(device) => break device,
+            Err(e) => e,
+        };
+        d.inner.lock().await.init_error = Some(e.to_string());
+        d.readiness
+            .send_replace(readiness(false, Some(NotReady::CredentialStoreUnavailable)));
+        d.bump();
+        // A locked store (at boot, before login unlocks it) recovers without a
+        // restart; a malformed stored identity does not. Retry only when a
+        // local client authenticates: it has just read the control key from
+        // the same store, so the attempt should not raise an unlock prompt.
+        if !matches!(e, secrets::SecretError::Unavailable(_)) {
             return;
         }
+        d.credential_retry.notified().await;
+        tracing::info!("retrying the credential store");
     };
-    match secrets::load_or_create_control_key(d.secrets.as_ref()) {
-        Ok(k) => {
-            let _ = d.control_key.set(k);
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "control key unavailable");
-            d.inner.lock().await.init_error = Some(e.to_string());
-            d.readiness
-                .send_replace(readiness(false, Some(NotReady::CredentialStoreUnavailable)));
-            d.bump();
-            return;
-        }
+    if d.inner.lock().await.init_error.take().is_some() {
+        d.readiness
+            .send_replace(readiness(false, Some(NotReady::Starting)));
+        d.bump();
     }
     let mut registry = match Registry::load(&d.profile.registry_file()) {
         Ok(r) => r,
@@ -446,6 +443,19 @@ async fn initialize(d: Arc<Daemon>) {
     }
     // Take over (or resume taking over) an old connector's collections.
     tokio::spawn(d.clone().takeover_task(false));
+}
+
+/// Load the device identity and control key from the credential store.
+fn load_credentials(d: &Daemon) -> Result<DevicePublic, secrets::SecretError> {
+    let store: &dyn SecretStore = d.secrets.as_ref();
+    let id = DeviceIdentity::load_or_create(store, &d.profile.identity_file())
+        .inspect_err(|e| tracing::error!(error = %e, "device identity unavailable"))?;
+    let key = secrets::load_or_create_control_key(store)
+        .inspect_err(|e| tracing::error!(error = %e, "control key unavailable"))?;
+    let public = id.public();
+    d.identity.set(Arc::new(id));
+    let _ = d.control_key.set(key);
+    Ok(public)
 }
 
 /// Resume only an atomically published account epoch; missing/error fence denies.
@@ -1278,6 +1288,15 @@ impl Daemon {
     ) -> Result<Value, ControlError> {
         match req.method.as_str() {
             Method::AUTH_CHALLENGE => {
+                if self.control_key.get().is_none() {
+                    self.credential_retry.notify_one();
+                    let mut r = self.readiness.subscribe();
+                    let _ = tokio::time::timeout(
+                        CREDENTIAL_RETRY_WAIT,
+                        r.wait_for(|r| r.safe_reason != Some(NotReady::CredentialStoreUnavailable)),
+                    )
+                    .await;
+                }
                 let mut n = [0u8; 32];
                 getrandom::fill(&mut n).map_err(|e| ControlError::internal(e.to_string()))?;
                 conn.nonce = Some(n);
@@ -4207,8 +4226,8 @@ impl Daemon {
             },
             action: (!r.ready).then(|| match r.safe_reason {
                 Some(NotReady::CredentialStoreUnavailable) => {
-                    "Unlock the OS keychain (or Secret Service on Linux) and restart the daemon. \
-                     Do not delete daemon.json."
+                    "Unlock the OS keychain (or Secret Service on Linux), then open mdbase connect; \
+                     the daemon retries when it connects. Do not delete daemon.json."
                         .into()
                 }
                 Some(NotReady::InitializationFailed) => format!(
