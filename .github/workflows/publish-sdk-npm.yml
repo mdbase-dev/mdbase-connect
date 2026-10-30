@@ -12,6 +12,13 @@ on:
       - scripts/lib/sdk-publication*
       - scripts/lib/sdk-prerelease*
       - runtime/packages/sdk/**
+      - runtime/crates/**
+      - runtime/Cargo.toml
+      - runtime/Cargo.lock
+      - runtime/rust-toolchain.toml
+      - runtime/.cargo/**
+      - runtime/xtask/**
+      - runtime/tools/wasm/**
   workflow_dispatch:
     inputs:
       production_verified_commit:
@@ -27,8 +34,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: sdk-publication
-  cancel-in-progress: false
+  group: sdk-publication-${{ (github.event_name == 'workflow_dispatch' && !inputs.dry_run) && 'live' || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
 
 jobs:
   validate:
@@ -172,7 +179,7 @@ jobs:
 
   publish-internal:
     # Only after the verified production publish, so a dry or failed
-    # run never consumes an immutable prerelease tag.
+    # run never consumes a prerelease tag.
     needs: [attest-internal, publish]
     if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && !inputs.dry_run
     runs-on: ubuntu-24.04
@@ -191,7 +198,7 @@ jobs:
         with:
           name: attested-internal-sdks
           path: ${{ runner.temp }}/sdk-internal
-      - name: Create a new immutable SDK prerelease, never Latest or a replacement
+      - name: Create an SDK prerelease without replacing existing assets or Latest
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}

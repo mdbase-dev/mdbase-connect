@@ -141,6 +141,12 @@ test("workflow builds all variants once, isolates both publisher credentials and
   const workflow = readFileSync(join(root, ".github/workflows/publish-sdk-npm.yml"), "utf8");
   assert.match(workflow, /dry_run:[\s\S]*?default: true/);
   assert.match(workflow, /production_verified_commit:/);
+  assert.match(workflow, /group: sdk-publication-\$\{\{ \(github.event_name == 'workflow_dispatch' && !inputs.dry_run\) && 'live' \|\| github.ref \}\}/);
+  assert.match(workflow, /cancel-in-progress: \$\{\{ github.event_name != 'workflow_dispatch' \|\| inputs.dry_run \}\}/);
+  for (const path of ["runtime/crates/**", "runtime/Cargo.toml", "runtime/Cargo.lock",
+    "runtime/rust-toolchain.toml", "runtime/.cargo/**", "runtime/xtask/**", "runtime/tools/wasm/**"]) {
+    assert(workflow.includes(`      - ${path}\n`), `source-build trigger missing ${path}`);
+  }
   assert.equal(workflow.match(/startsWith\(github\.ref, 'refs\/tags\/v0\.1\.0-beta\.'\)/g).length, 3);
   assert.match(workflow, /cargo build --locked --release -p mdbn-trust/);
   assert.match(workflow, /cargo xtask wasm-app/);

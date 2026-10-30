@@ -118,7 +118,7 @@ removing the workflow's bootstrap `NODE_AUTH_TOKEN` binding; normal publication
 then uses GitHub OIDC alone. Do not create npm trusted publishers or registry
 entries for staging/LAB.
 
-### Immutable staging/LAB prerelease
+### Pinned staging/LAB prerelease
 
 The same run's `attest-internal` job downloads the shared build artifact and
 attests each internal tarball individually. It has only `contents: read`,
@@ -127,7 +127,7 @@ attestations. It stages the exact tarballs and their Sigstore verification bundl
 as one run-local transfer artifact. It has no npm setup or credentials.
 
 `publish-internal` runs only after the verified `npm-sdk` production publish
-succeeds, so a dry or failed run never consumes an immutable
+succeeds, so a dry or failed run never consumes a
 `sdk-v<version>` tag. It downloads those four fixed files. Its only granted permission
 is `contents: write`: no OIDC, attestation-write, packages permission or npm
 credentials. GitHub's contents permission is repository-scoped, not per-release;
@@ -153,6 +153,12 @@ A partial failure stops: do not delete, retarget, replace or automatically repla
 the same version. An owner must investigate and prepare a new version if the
 tag was already created. The npm and prerelease jobs are not a transaction; one
 may succeed while the other fails. Neither is silently republished or repaired.
+
+The publisher refuses replacement; repository writers can still change GitHub
+assets or tags outside this workflow while repository immutable releases are
+disabled. Consumers must pin the exact URL and lockfile integrity and verify the
+attached attestation against the reviewed producer SHA. Those checks reject
+substituted bytes; the URL alone provides no immutability guarantee.
 
 The workflow defaults to `dry_run: true`. PRs and dry-run dispatches build and
 verify all three packages without npm credentials, attestations or publication.
