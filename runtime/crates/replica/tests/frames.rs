@@ -250,7 +250,7 @@ struct Mock {
     file_pending: bool,
     file_error: Option<ErrorCode>,
     validation_rows: Option<Vec<RecordValidation>>,
-    validation_calls: Vec<Option<Vec<Target>>>,
+    validation_calls: Vec<Validate>,
 }
 
 fn nyi<T>() -> ApiResult<T> {
@@ -448,12 +448,8 @@ impl ClientApi for Mock {
     ) -> ApiResult<ChangesResult> {
         nyi()
     }
-    fn validate(
-        &mut self,
-        _: SessionId,
-        targets: Option<Vec<Target>>,
-    ) -> ApiResult<Vec<RecordValidation>> {
-        self.validation_calls.push(targets);
+    fn validate(&mut self, _: SessionId, scope: Validate) -> ApiResult<Vec<RecordValidation>> {
+        self.validation_calls.push(scope);
         self.validation_rows
             .take()
             .ok_or_else(|| ErrorCode::Unavailable.err_with_reason("not_implemented", "mock"))
@@ -706,7 +702,7 @@ fn validation_frame_preserves_actual_witness_and_core_diagnostic_fields() {
     let frames = frames_out(&mut f);
     assert_eq!(
         api.validation_calls,
-        vec![Some(vec![
+        vec![Validate::Targets(vec![
             Target::Id(uuid(2)),
             Target::Path("tasks/a.md".into())
         ])]
@@ -740,6 +736,9 @@ fn validation_frame_refuses_malformed_and_overbound_targets_before_api_dispatch(
         smap(vec![(0, Cbor::Array(vec![uuid(2).to_cbor(); 1001]))]),
         smap(vec![(0, Cbor::Bool(true))]),
         smap(vec![(1, Cbor::Array(vec![]))]),
+        smap(vec![(2, Cbor::Null)]),
+        smap(vec![(1, smap(vec![(1, Cbor::Null)]))]),
+        smap(vec![(0, Cbor::Array(vec![])), (1, Cbor::Map(vec![]))]),
     ] {
         let (mut api, mut f, s) = open();
         f.on_frame(&mut api, s, &request(1, "validate", params));
@@ -751,11 +750,27 @@ fn validation_frame_refuses_malformed_and_overbound_targets_before_api_dispatch(
         let (mut api, mut f, s) = open();
         api.validation_rows = Some(vec![]);
         f.on_frame(&mut api, s, &request(1, "validate", params));
-        assert_eq!(api.validation_calls, vec![None]);
+        assert_eq!(api.validation_calls, vec![Validate::All]);
         assert_eq!(
             response(&frames_out(&mut f)[0]).result,
             Some(Cbor::Array(vec![]))
         );
+    }
+    for (params, after) in [
+        (smap(vec![(1, Cbor::Map(vec![]))]), None),
+        (
+            smap(vec![
+                (0, Cbor::Null),
+                (1, smap(vec![(0, uuid(2).to_cbor())])),
+            ]),
+            Some(uuid(2)),
+        ),
+    ] {
+        let (mut api, mut f, s) = open();
+        api.validation_rows = Some(vec![]);
+        f.on_frame(&mut api, s, &request(1, "validate", params));
+        assert_eq!(api.validation_calls, vec![Validate::Page { after }]);
+        assert!(response(&frames_out(&mut f)[0]).problem.is_none());
     }
 }
 

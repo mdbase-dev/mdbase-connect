@@ -1043,20 +1043,30 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
         }
         "validate" => {
             let m = m?;
-            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0))) {
-                return Err(bad("validate accepts only targets"));
+            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0 | 1))) {
+                return Err(bad("validate accepts only targets and page"));
             }
-            let targets = match field(m, 0) {
-                None | Some(Cbor::Null) => None,
-                Some(Cbor::Array(a)) if a.len() <= 1000 => {
-                    Some(a.iter().map(target).collect::<ApiResult<_>>()?)
+            let scope = match (field(m, 0), field(m, 1)) {
+                (None | Some(Cbor::Null), None) => crate::api::Validate::All,
+                (None | Some(Cbor::Null), Some(Cbor::Map(page))) => {
+                    if page.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0))) {
+                        return Err(bad("validate page accepts only after"));
+                    }
+                    crate::api::Validate::Page {
+                        after: opt::<Uuid>(page, 0)?,
+                    }
                 }
-                Some(Cbor::Array(_)) => {
+                (_, Some(Cbor::Map(_))) => return Err(bad("validate pages only every record")),
+                (_, Some(_)) => return Err(bad("validate page must be a map")),
+                (Some(Cbor::Array(a)), None) if a.len() <= 1000 => {
+                    crate::api::Validate::Targets(a.iter().map(target).collect::<ApiResult<_>>()?)
+                }
+                (Some(Cbor::Array(_)), None) => {
                     return Err(ErrorCode::TooLarge.err("Too many validation targets."));
                 }
-                Some(_) => return Err(bad("validate targets must be a list")),
+                (Some(_), None) => return Err(bad("validate targets must be a list")),
             };
-            let out = api.validate(s, targets)?;
+            let out = api.validate(s, scope)?;
             Ok(Cbor::Array(
                 out.iter()
                     .map(crate::api::RecordValidation::to_cbor)

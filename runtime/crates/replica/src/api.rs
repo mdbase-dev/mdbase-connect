@@ -443,6 +443,21 @@ pub struct Describe {
     pub contracts: Vec<ContractSummary>,
 }
 
+/// Which records `validate` checks.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Validate {
+    /// These records, in request order.
+    Targets(Vec<Target>),
+    /// Every current record in one bounded request.
+    All,
+    /// The next records after `after` (exclusive) in ID order, as many as the
+    /// request budget allows. Empty when none remain.
+    Page {
+        /// The last record ID of the previous page; `None` starts at the first.
+        after: Option<Uuid>,
+    },
+}
+
 /// Diagnostics of one actual current record, not an unsaved draft or write permit.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordValidation {
@@ -883,12 +898,9 @@ pub trait ClientApi {
         limit: Option<u32>,
         watch: bool,
     ) -> ApiResult<ChangesResult>;
-    /// Validate current records against the current catalog (all when `None`).
-    fn validate(
-        &mut self,
-        session: SessionId,
-        targets: Option<Vec<Target>>,
-    ) -> ApiResult<Vec<RecordValidation>>;
+    /// Validate current records against the current catalog.
+    fn validate(&mut self, session: SessionId, scope: Validate)
+    -> ApiResult<Vec<RecordValidation>>;
 
     // ---- writes (§5, §6) ----
 

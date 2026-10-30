@@ -33,11 +33,25 @@ mod collection_delete_tests;
 /// How long `daemon start` waits for readiness.
 pub const START_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// The data commands' examples, after the command list.
+const DATA_HELP: &str = "\
+Records: `read`, `query`, `validate`, `types` and the writes work on the folder
+you are in, another with `-C PATH`, or a registered collection with `-c NAME`.
+When the daemon serves the folder they go through it; otherwise mdbase opens
+the folder itself.
+
+  mdbase query --types task --where 'status == \"open\"' --order-by -due
+  mdbase read tasks/review.md --json
+  mdbase update tasks/review.md --fields '{\"status\": \"done\"}'
+  mdbase rename tasks/review.md done/review.md
+  mdbase validate -c notes";
+
 #[derive(Debug, Parser)]
 #[command(
     name = "mdbase",
     version = crate::BINARY_VERSION,
-    about = "mdbase: your Markdown collections, synced."
+    about = "mdbase: your Markdown collections, synced.",
+    after_help = DATA_HELP
 )]
 struct Cli {
     /// Use an isolated profile in this directory instead of the installed service
@@ -151,6 +165,9 @@ enum Command {
     /// Start at login through the OS service manager (systemd, launchd, Task Scheduler).
     #[command(subcommand)]
     Service(crate::service::ServiceCmd),
+    /// Records: reads, queries, validation, types and writes.
+    #[command(flatten)]
+    Data(crate::data::DataCmd),
 }
 
 #[derive(Debug, Subcommand)]
@@ -620,27 +637,38 @@ async fn call(profile: &Profile, method: &str, params: Value) -> Result<Value, C
 const MIGRATE_START_TIMEOUT: Duration = Duration::from_secs(600);
 const _: () = assert!(MIGRATE_START_TIMEOUT.as_secs() > crate::takeover::DRAIN.as_secs() * 2);
 
+/// The registered collections and their state.
+pub(crate) async fn collections(profile: &Profile) -> Result<Vec<CollectionStatus>, ClientError> {
+    let list = call(profile, Method::COLLECTION_LIST, json!({})).await?;
+    serde_json::from_value(list).map_err(|e| ClientError::Protocol(e.to_string()))
+}
+
 /// Resolve a collection argument: exact ID, unique ID prefix, or exact name.
 async fn resolve(profile: &Profile, arg: &str) -> Result<String, ClientError> {
-    let list = call(profile, Method::COLLECTION_LIST, json!({})).await?;
-    let list: Vec<CollectionStatus> =
-        serde_json::from_value(list).map_err(|e| ClientError::Protocol(e.to_string()))?;
-    if list.iter().any(|c| c.id == arg) {
-        return Ok(arg.to_string());
+    Ok(pick(&collections(profile).await?, arg)?.id.clone())
+}
+
+/// The collection `arg` names: exact ID, unique ID prefix, or exact name.
+pub(crate) fn pick<'a>(
+    list: &'a [CollectionStatus],
+    arg: &str,
+) -> Result<&'a CollectionStatus, ControlError> {
+    if let Some(exact) = list.iter().find(|c| c.id == arg) {
+        return Ok(exact);
     }
     let matches: Vec<&CollectionStatus> = list
         .iter()
         .filter(|c| c.name == arg || (arg.len() >= 4 && c.id.starts_with(arg)))
         .collect();
     match matches.as_slice() {
-        [one] => Ok(one.id.clone()),
-        [] => Err(ClientError::Remote(ControlError::not_found(format!(
+        [one] => Ok(one),
+        [] => Err(ControlError::not_found(format!(
             "no registered collection matches {arg:?}"
-        )))),
-        _ => Err(ClientError::Remote(ControlError::invalid(
+        ))),
+        _ => Err(ControlError::invalid(
             "ambiguous_collection",
             format!("{arg:?} matches several collections; use the ID"),
-        ))),
+        )),
     }
 }
 
@@ -661,6 +689,7 @@ async fn run_command(
         Command::Daemon(DaemonCmd::Run) | Command::Companion => {
             unreachable!("handled before the runtime starts")
         }
+        Command::Data(cmd) => crate::data::run(cmd, profile, out.json).await,
         Command::Daemon(DaemonCmd::Start) => daemon_start(profile, out).await,
         Command::Daemon(DaemonCmd::Stop) => daemon_stop(profile, out).await,
         Command::Daemon(DaemonCmd::Status) => {

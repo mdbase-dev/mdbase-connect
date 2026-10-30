@@ -4676,6 +4676,7 @@ MemoryReplicaOptions@testing/memory-replica.ts
   collection?: string | undefined
   confirmDelayMs?: number | null | undefined
   contracts?: MemoryContract[] | undefined
+  features?: string[] | undefined
   fileFolders?: string[] | undefined
   grant?: string | undefined
   refuse?: w.Problem | undefined

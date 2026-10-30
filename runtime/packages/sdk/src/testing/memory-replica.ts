@@ -70,6 +70,8 @@ export interface MemoryReplicaOptions {
    * subset of Core's mapping; no schema validation). Absent: contract methods
    * are unknown, as on an older replica. */
   contracts?: MemoryContract[];
+  /** Further `hello` features to grant when asked (default: `presence` and `fence`). */
+  features?: string[];
 }
 
 interface Sub {
@@ -526,7 +528,7 @@ export class MemoryReplica {
       collection: this.collection,
       grant,
       status: this.status(),
-      features: (p.features ?? []).filter((x) => x === "presence" || x === "fence"),
+      features: (p.features ?? []).filter((x) => x === "presence" || x === "fence" || this.opts.features?.includes(x)),
     };
     return w.clientFrame.enc({ kind: "response", id: f.id, result: w.helloResult.enc(result) });
   }

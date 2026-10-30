@@ -922,6 +922,14 @@ impl<S: Store> Replica<S> {
             .collect();
         r.rebuild_local_view(&changed)
             .map_err(|e| OpenError::Corrupt(format!("{e:?}")))?;
+        // Index entries derived by an older version or under another catalog
+        // (a crash between a catalog change and its reindex) are rederived.
+        if r.install.is_none()
+            && r.store.meta(meta_keys::RECORD_META)?
+                != Some(crate::plan::record_meta_stamp(&r.store.resources()?))
+        {
+            r.reindex().map_err(OpenError::Store)?;
+        }
         // A store opened without a complete query index (older store, crash after
         // an invalidating write) is backfilled before serving.
         r.backfill_query_index().map_err(OpenError::Store)?;

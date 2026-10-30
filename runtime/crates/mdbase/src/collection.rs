@@ -4,13 +4,9 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use mdbn_core::types::Catalog;
-use mdbn_local_host::{
-    Descriptor, HostKind, HostLock, Identity, LocalReplica, LockError, OsEntropy, ReplicaOptions,
-    StoreOptions, SystemClock, SystemZones, open_store,
-};
+use mdbn_local_host::{FolderError, FolderOptions, HostLock, LocalReplica, OsEntropy};
 use mdbn_replica::Store;
 use mdbn_replica::api::{ClientApi, HoldResolution, Target as ApiTarget};
-use mdbn_store_file::SqlStoreLimits;
 use mdbn_wire::client::{Include, ReceiptState, SubmitParams};
 use mdbn_wire::common::{B16, Text};
 use mdbn_wire::intent as wire;
@@ -23,8 +19,7 @@ use crate::record::{
 };
 use crate::value::{RecordId, Revision, pairs_to_wire, to_wire};
 
-/// The config file every collection has at its root.
-pub const CONFIG_FILE: &str = "mdbase.yaml";
+pub use mdbn_local_host::CONFIG_FILE;
 
 /// How to open a collection. Start with [`Collection::builder`].
 #[derive(Debug, Clone)]
@@ -162,97 +157,34 @@ impl Collection {
     }
 
     fn open_with(o: OpenOptions) -> Result<Collection> {
-        let root = std::path::absolute(&o.root)?;
-        if !root.join(CONFIG_FILE).is_file() {
-            return Err(Error::NotACollection { root });
-        }
-        let store_opts = StoreOptions {
-            state_dir: o.state_dir.clone(),
-            limits: if o.desktop {
-                SqlStoreLimits::DESKTOP
-            } else {
-                SqlStoreLimits::MOBILE
+        let folder = mdbn_local_host::open_folder(
+            &o.root,
+            &FolderOptions {
+                state_dir: o.state_dir,
+                desktop: o.desktop,
+                timezone: o.timezone,
+                take_over: o.take_over,
+                client: o.client,
             },
-            ..StoreOptions::default()
-        };
-        // Someone who cannot take the OS lock (Obsidian) announces itself in
-        // the descriptor. Present means hosted, fresh or not (a paused mobile
-        // host still owns the folder), and a descriptor that exists but cannot
-        // be read counts as present; only an explicit take-over proceeds.
-        if !o.take_over {
-            match mdbn_local_host::host_lock::descriptor_state(&root, &store_opts.private_dir) {
-                mdbn_local_host::DescriptorState::Present(d) if d.host != HostKind::Library => {
-                    return Err(Error::AlreadyHosted {
-                        root,
-                        stale: d.is_stale(mdbn_local_host::host::now_ms(), 60_000),
-                        host: Some(d.host),
-                    });
-                }
-                mdbn_local_host::DescriptorState::Unreadable(_) => {
-                    return Err(Error::AlreadyHosted {
-                        root,
-                        stale: false,
-                        host: None,
-                    });
-                }
-                _ => {}
+        )
+        .map_err(|e| match e {
+            FolderError::NotACollection { root } => Error::NotACollection { root },
+            FolderError::AlreadyHosted { root, host, stale } => {
+                Error::AlreadyHosted { root, host, stale }
             }
-        }
-        let now = mdbn_local_host::host::now_ms();
-        let lock = match HostLock::try_acquire(
-            &root,
-            &store_opts.private_dir,
-            Some(Descriptor::new(HostKind::Library, now)),
-        ) {
-            Ok(l) => l,
-            Err(LockError::Held(d)) => {
-                return Err(Error::AlreadyHosted {
-                    root,
-                    stale: d.as_ref().is_some_and(|d| d.is_stale(now, 60_000)),
-                    host: d.map(|d| d.host),
-                });
-            }
-            Err(LockError::Unsafe(p)) => {
-                return Err(Error::InvalidPath {
-                    path: p.display().to_string(),
-                    reason: "symlink or escapes the collection".into(),
-                });
-            }
-            Err(LockError::Io(e)) => return Err(Error::Io(e)),
-        };
-        let state_dir = store_opts.state_dir(&root);
-        std::fs::create_dir_all(&state_dir)?;
-        let identity =
-            Identity::load_or_create(&state_dir.join("identity.json"), now, &mut OsEntropy)?;
-        let store = open_store(&root, &store_opts, Box::new(SystemClock))?;
-        let zone = o.timezone.clone().or_else(|| {
-            let cat = Catalog::load(
-                store
-                    .resources()
-                    .ok()?
-                    .iter()
-                    .map(|(p, s)| (p.as_str(), s.as_str())),
-            );
-            cat.settings().timezone.clone()
-        });
-        let rep = LocalReplica::open(
-            store,
-            &identity,
-            ReplicaOptions {
-                client: o.client.clone(),
-                zones: Some(Box::new(match zone {
-                    Some(z) => SystemZones::new(z),
-                    None => SystemZones::default(),
-                })),
-                ..ReplicaOptions::default()
+            FolderError::Unsafe(p) => Error::InvalidPath {
+                path: p.display().to_string(),
+                reason: "symlink or escapes the collection".into(),
             },
-        )?;
-        let col = Collection {
-            root,
-            inner: RefCell::new(Inner { rep, _lock: lock }),
-        };
-        col.rescan()?;
-        Ok(col)
+            FolderError::Host(e) => e.into(),
+        })?;
+        Ok(Collection {
+            root: folder.root,
+            inner: RefCell::new(Inner {
+                rep: folder.replica,
+                _lock: folder.lock,
+            }),
+        })
     }
 
     /// The collection root (absolute).

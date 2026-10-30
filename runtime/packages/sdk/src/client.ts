@@ -225,6 +225,9 @@ function accountSecret(secret: Uint8Array): void {
   if (!(secret instanceof Uint8Array) || secret.length !== 32) throw mdbaseError("invalid_request", "the account secret is 32 bytes", "account_secret_length");
 }
 
+/** The `hello` feature that lets `validate` page through every record. */
+const VALIDATE_PAGE = "validate-page-v1";
+
 function params(entries: [number, CborValue | undefined][]): Map<number, CborValue> {
   const m = new Map<number, CborValue>();
   for (const [k, v] of entries) if (v !== undefined) m.set(k, v);
@@ -686,7 +689,7 @@ export class MdbaseClient {
       versions: API_VERSIONS,
       clientName: opts.app.name,
       clientVersion: opts.app.version,
-      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1"])],
+      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", VALIDATE_PAGE])],
       ...(tz ? { timezone: tz } : {}),
     };
   }
@@ -1642,14 +1645,30 @@ export class MdbaseClient {
     return Object.freeze(watch) as ChangesWatch;
   }
 
+  /** Validate these records, or every record. Every record is validated a
+   * page at a time when the replica grants `validate-page-v1`; each page is an
+   * independent READ, so records changed meanwhile may be missed or repeated.
+   * Older replicas validate every record in one bounded request. */
   async validate(refs?: readonly RecordRef[], signal?: AbortSignal): Promise<RecordValidation[]> {
     signal?.throwIfAborted();
     const {targets,expected}=captureValidation(refs);
-    const result = await this.call("validate", params([[0, targets]]), {
+    const call = (p: Map<number, CborValue>) => this.call("validate", p, {
       codec: recordValidations, retry: true, ...(signal ? { signal } : {}),
     });
-    signal?.throwIfAborted();
-    return bindValidation(result,expected);
+    if (targets !== undefined || !this.hello.features.includes(VALIDATE_PAGE)) {
+      const result = await call(params([[0, targets]]));
+      signal?.throwIfAborted();
+      return bindValidation(result,expected);
+    }
+    const out: RecordValidation[] = [];
+    for (let after: string | undefined; ;) {
+      const page = await call(params([[1, new Map(after === undefined ? [] : [[0, uuidCodec.enc(after)]])]]));
+      signal?.throwIfAborted();
+      const last = page[page.length - 1];
+      if (last === undefined) return out;
+      out.push(...page);
+      after = last.id;
+    }
   }
 
   /** Independent native app-host Bases READ, exact original held session.

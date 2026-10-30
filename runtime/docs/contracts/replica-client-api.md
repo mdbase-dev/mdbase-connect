@@ -93,8 +93,8 @@ and **negotiated**. A failed hello or an unavailable current session is an error
 not a negative feature result. Absence of an unrequested marker says nothing about
 support. Do not use a prior session's hello to certify a new session.
 
-The current Replica producer's marker list is `presence` and `attachment-v1`
-(bare codec support), plus qualified `attachment-v1.read` and
+The current Replica producer's marker list is `presence`, `validate-page-v1`
+(`validate` pages, §4) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
 `attachment-v1.materialize` directions when that replica admits them.
 `attachment-v1.write` is not granted by this producer. Directions are not implied
 by the bare codec marker. This source list is not a qualification of a deployed
@@ -166,7 +166,7 @@ All of these require `collection.read`.
 | `subscribe` | `{0: query, ? 1: include}` | `{0: sub ID}`, then `query-update` pushes |
 | `unsubscribe` | `{0: sub ID}` | — |
 | `changes` | `{0: cursor?, ? 1: limit, ? 2: watch: bool}` | `{0: [change], 1: cursor, 2: reset: bool}`, then `changes` pushes if `watch` |
-| `validate` | `{? 0: [uuid / path] / null}` | `[validation-record]`, bounded current-record diagnostics below |
+| `validate` | `{? 0: [uuid / path] / null, ? 1: {? 0: uuid after}}` | `[validation-record]`, bounded current-record diagnostics below; key 1 pages every record (`validate-page-v1`) |
 | `list_files`, `get_file`, `read_file` | §10 | §10 |
 
 Spec 12 saved views (`mdbase.view` records) are not replica methods: the SDK's
@@ -197,9 +197,24 @@ nonempty and at most 4096 UTF-8 bytes; each examined document is at most 1 MiB.
 The producer meters at most 4096 record/index work units and 8 MiB of examined
 source/overlay data. The encoded result is at most 1 MiB, 4096 issues, 65536 CBOR
 nodes and depth 32. Absent/null targets request all current records, enumerated
-in bounded pages of 128 with a 1000-record ceiling. Cross-record uniqueness checks
-also need that bounded collection inventory, even for an explicit target.
+in bounded pages of 128 with a 1000-record ceiling.
 Exhaustion returns `too_large` / `validation_budget`, not truncated diagnostics.
+
+A page (key 1, only with absent/null targets) instead checks the current records
+after `after` (exclusive; absent: from the first) in record-ID order, and stops
+before the record that would exhaust the same budget: that record is not
+returned partially and starts the next page. A page has at least one record
+while any remain, and at most 1000; an empty result means none remain. Continue
+with `after` set to the last returned ID. Each page is an independent read, not
+a snapshot. A record that alone exhausts the budget refuses its page with
+`too_large` / `validation_budget`. Producers that grant the `validate-page-v1`
+hello feature accept pages; older ones refuse key 1 as `invalid_request`.
+
+Uniqueness checks find the other holders of a value through the store's unique
+index, which covers, for every record whatever its types, each field a `unique`
+rule names; the rule's scope and spec 12A equality are then checked on each
+candidate. A store rederives these entries on open when they were derived by an
+older index version or under other resources.
 These are selection/read/serialization bounds, not a peak-heap, kernel CPU,
 existing Store allocation or downstream UI qualification certificate.
 
