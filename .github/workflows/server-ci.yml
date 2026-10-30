@@ -755,6 +755,10 @@ jobs:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
 
+  runtime-native:
+    if: github.event_name == 'merge_group'
+    uses: ./.github/workflows/runtime-native-tests.yml
+
   qualification:
     name: Qualification
     if: always()
@@ -763,6 +767,7 @@ jobs:
       - windows-filesystem
       - windows-daemon-lifecycle
       - runtime-testbed
+      - runtime-native
       - node
       - server-container-full
       - previous-release-upgrade
@@ -782,6 +787,7 @@ jobs:
           WINDOWS: ${{ needs.windows-filesystem.result }}
           WINDOWS_DAEMON: ${{ needs.windows-daemon-lifecycle.result }}
           RUNTIME: ${{ needs.runtime-testbed.result }}
+          RUNTIME_NATIVE: ${{ needs.runtime-native.result }}
           NODE: ${{ needs.node.result }}
           CONTAINER: ${{ needs.server-container-full.result }}
           SERVER_UPGRADE: ${{ needs.previous-release-upgrade.result }}
@@ -794,6 +800,7 @@ jobs:
           PROVIDER_SYSTEM: ${{ needs.hosted-provider-system.result }}
         run: |
           if [[ "$RUN_FULL" == true ]]; then
+            [[ "$GITHUB_EVENT_NAME" != merge_group || "$RUNTIME_NATIVE" == success ]]
             for result in "$WINDOWS" "$WINDOWS_DAEMON" "$RUNTIME" "$NODE" "$CONTAINER" \
               "$SERVER_UPGRADE" "$SERVER_RETAINED_V2" "$PROVIDER_UPGRADE" "$RETAINED_V2" "$PROVIDER_RUST" \
               "$PROVIDER_SYSTEM" "$LOG_POSTGRES" "$LOG_DO"

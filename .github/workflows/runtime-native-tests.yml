@@ -1,0 +1,49 @@
+name: Native runtime tests
+on:
+  workflow_call:
+permissions:
+  contents: read
+defaults:
+  run:
+    working-directory: runtime
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_NET_RETRY: '10'
+jobs:
+  native:
+    name: native tests (${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: workspace
+            packages: --workspace --exclude mdbn-daemon --exclude mdbn-replica
+          - shard: replica
+            packages: -p mdbn-replica
+          - shard: daemon
+            packages: -p mdbn-daemon
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: mdbn
+          POSTGRES_PASSWORD: mdbn
+          POSTGRES_DB: mdbn_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mdbn" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtime -> target
+          shared-key: native-${{ matrix.shard }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Run library, binary, integration and documentation tests
+        env:
+          MDBN_TEST_PG_URL: host=127.0.0.1 port=5432 user=mdbn password=mdbn dbname=mdbn_test
+        run: cargo test --locked ${{ matrix.packages }}

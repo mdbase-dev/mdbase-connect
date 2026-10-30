@@ -2,10 +2,10 @@
 name: Runtime CI
 on:
   pull_request:
-    paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs']
+    paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/runtime-native-tests.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs']
   push:
     branches: [main]
-    paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs']
+    paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/runtime-native-tests.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs']
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,6 +20,9 @@ env:
   CARGO_NET_RETRY: '10'
   WRANGLER_SEND_METRICS: 'false'
 jobs:
+  native:
+    uses: ./.github/workflows/runtime-native-tests.yml
+
   wasm:
     name: wasm (build, size budget, determinism)
     runs-on: ubuntu-24.04

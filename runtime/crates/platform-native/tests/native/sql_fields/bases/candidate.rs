@@ -236,9 +236,7 @@ fn all_five_unchanged_shared_views_keep_membership_and_failure_domain() {
 }
 #[test]
 fn selective_dates_do_not_hide_unknown_tags_typed_null_links_or_earlier_errors() {
-    let mut unknown_tags = row(8, "tags: [task]\ndue: 2026-06-01\nstatus: open");
-    unknown_tags.doc.push_str("`#uncaptured` #task");
-    unknown_tags.revision = revision(unknown_tags.doc.as_bytes());
+    let unknown_tags = row(8, "tags: [task, 7]\ndue: 2026-06-01\nstatus: open");
     let rows = vec![
         row(1, "tags: [task]\ndue: 2026-06-10\nstatus: open"),
         row(2, "tags: [task]\ndue: 2026-06-01\nstatus: open"),
