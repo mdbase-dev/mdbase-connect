@@ -211,7 +211,10 @@ test('workflow keeps private assembly out of OIDC and binds only this build arti
   assert.ok(yaml.includes("environment: [staging, production]"));
   assert.ok(!build.includes('id-token: write'));
   assert.ok(build.indexOf('node scripts/release-workers.mjs resolve') < build.indexOf('secrets.WORKER_RELEASE_READ_TOKEN'));
-  assert.match(build, /ref: [0-9a-f]{40}/);
+  const assemblyCheckout = build.split('\n      - ').find(step => step.includes('path: target/worker-release-deps/assembly\n'));
+  assert.ok(assemblyCheckout);
+  const assemblyPin = assemblyCheckout.match(/^\s+ref: (.+)$/m)?.[1];
+  assert.match(assemblyPin ?? '', /^[0-9a-f]{40}$/);
   assert.ok(build.includes('node target/worker-release-deps/assembly/bin/lib/release-workers.mjs build'));
   assert.ok(build.includes('"$RELEASE_ENVIRONMENT" verify-trust'));
   assert.ok(build.includes('node --experimental-transform-types --test test/staging-escrow.test.mjs'));
@@ -261,7 +264,7 @@ function resolutionFixture() {
   return f;
 }
 
-test('auto-resolution pins the unique current attempt including the DO job for both receipts', () => {
+test('auto-resolution pins the exact current attempt including the DO job for both receipts', () => {
   const f = resolutionFixture();
   assert.deepEqual(f.resolve(), { CI_RUN_ID: '1', CI_RUN_ATTEMPT: '2', LOG_RUN_ID: '1', LOG_RUN_ATTEMPT: '2' });
   f.listed[0].event = f.runs[1].event = 'workflow_dispatch';
@@ -270,10 +273,45 @@ test('auto-resolution pins the unique current attempt including the DO job for b
   assert.throws(f.resolve);
 });
 
-test('auto-resolution refuses missing, ambiguous, skipped, duplicate, failed and racing evidence', () => {
+test('push and owner-dispatch qualification chooses the lowest run ID regardless of listing order', () => {
+  const fixture = resolutionFixture();
+  const push = { ...clone(fixture.runs[1]), id: 41006667030 };
+  const dispatch = { ...clone(fixture.runs[3]), id: 41008659065, event: 'workflow_dispatch' };
+  fixture.runs[push.id] = push; fixture.runs[dispatch.id] = dispatch;
+  fixture.lists[push.id] = clone(fixture.lists[1]); fixture.lists[dispatch.id] = clone(fixture.lists[1]);
+  for (const listed of [[dispatch, push], [push, dispatch]]) {
+    fixture.listed = listed;
+    assert.deepEqual(fixture.resolve(), { CI_RUN_ID: '41006667030', CI_RUN_ATTEMPT: '2',
+      LOG_RUN_ID: '41006667030', LOG_RUN_ATTEMPT: '2' });
+  }
+  fixture.runs[push.id].event = 'workflow_dispatch';
+  fixture.runs[dispatch.id].event = 'push';
+  fixture.listed = [fixture.runs[dispatch.id], fixture.runs[push.id]];
+  assert.equal(fixture.resolve().CI_RUN_ID, '41006667030');
+});
+
+test('a lower run ID without complete execution jobs does not outrank a qualifying run', () => {
+  const fixture = resolutionFixture();
+  fixture.listed.push(clone(fixture.runs[3]));
+  fixture.lists[3] = clone(fixture.lists[1]);
+  fixture.lists[1] = fixture.lists[1].filter(job => job.name !== DO_JOB);
+  assert.deepEqual(fixture.resolve(), { CI_RUN_ID: '3', CI_RUN_ATTEMPT: '4', LOG_RUN_ID: '3', LOG_RUN_ATTEMPT: '4' });
+});
+
+test('auto-resolution refuses zero qualifying runs and the source-run bound', () => {
+  const fixture = resolutionFixture();
+  fixture.listed = [];
+  assert.throws(fixture.resolve, /complete source Runtime CI run required/);
+  fixture.listed = [clone(fixture.runs[1])];
+  fixture.lists[1] = [];
+  assert.throws(fixture.resolve, /complete source Runtime CI run required/);
+  fixture.listed = Array.from({ length: 1001 }, (_, index) => ({ ...clone(fixture.runs[1]), id: index + 1 }));
+  assert.throws(fixture.resolve, /bounded unique source runs required/);
+});
+
+test('auto-resolution refuses missing, skipped, duplicate, failed and racing evidence', () => {
   for (const mutate of [
     f => { f.listed = []; },
-    f => { f.listed.push(clone(f.runs[3])); f.lists[3] = clone(f.lists[1]); },
     f => { f.listed.push(clone(f.listed[0])); },
     f => { f.listed[0].status = 'in_progress'; },
     f => { f.listed[0].conclusion = 'failure'; },

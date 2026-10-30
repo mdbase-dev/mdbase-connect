@@ -231,7 +231,7 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '24'
-      - name: Resolve unique current source qualification again (no source execution)
+      - name: Resolve lowest-ID source qualification again (no source execution)
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-workers.mjs resolve

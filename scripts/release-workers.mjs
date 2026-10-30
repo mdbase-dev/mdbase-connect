@@ -66,8 +66,8 @@ export function resolveQualification(source, api = gh, list = pages) {
     if (!jobsPass(jobs, CI_JOBS)) continue;
     qualified.push(expected);
   }
-  requireThat(qualified.length === 1, 'one unambiguous complete source Runtime CI run required');
-  const run = qualified[0];
+  requireThat(qualified.length > 0, 'complete source Runtime CI run required');
+  const run = qualified.sort((left, right) => left.id - right.id)[0];
   verifyRun(api(`repos/${REPOSITORY}/actions/runs/${run.id}`), run, CI_WORKFLOW);
   return { CI_RUN_ID: String(run.id), CI_RUN_ATTEMPT: String(run.attempt),
     LOG_RUN_ID: String(run.id), LOG_RUN_ATTEMPT: String(run.attempt) };

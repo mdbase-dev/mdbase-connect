@@ -46,8 +46,11 @@ all required execution jobs qualify: WASM, SDK, Obsidian runtime, Hosted worker,
 and the log-service DO job. Both legacy `ci` and `log` receipt slots name that
 same complete run and its exact observed current attempt.
 
-Exactly one qualifying run is required. Zero candidates or multiple qualifying
-runs refuse; there is no timestamp ordering, newest-run choice, or manual override.
+Choose the qualifying run with the lowest numeric run ID, independent of listing
+order or whether it was a push or owner dispatch. Zero qualifying runs, duplicate
+IDs and the existing source-run bound still refuse; there is no timestamp ordering,
+newest-run choice, or manual override. Every candidate receives the same execution
+job checks before selection.
 A listed attempt must still equal the current run API response. A failed or
 in-progress rerun cannot fall back to an older successful attempt. Attempt-specific
 jobs are inspected and the current attempt is rechecked to catch racing reruns.
