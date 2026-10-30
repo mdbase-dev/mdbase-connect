@@ -1209,26 +1209,9 @@ pub trait Store {
     }
 
     /// Size of confirmed own history, counting canonical `PendingRow::to_bytes`.
-    /// Retaining stores should override this with maintained accounting. The
-    /// fallback scans bounded pages so forwarding stores cannot undercount.
-    fn own_retained_stats(&self) -> StoreResult<TailStats> {
-        let mut stats = TailStats::default();
-        loop {
-            let rows = self.own_retained(stats.last, 1)?;
-            let Some((seq, row)) = rows.first() else {
-                return Ok(stats);
-            };
-            if *seq <= stats.last {
-                return Err(StoreError::Corrupt("own retention order".into()));
-            }
-            if stats.count == 0 {
-                stats.first = *seq;
-            }
-            stats.last = *seq;
-            stats.count += 1;
-            stats.bytes = stats.bytes.saturating_add(row.to_bytes().len() as u64);
-        }
-    }
+    /// Required, with no scanning default: the repair budget reads it on every
+    /// apply, so a forwarding store that forgot it would turn quadratic.
+    fn own_retained_stats(&self) -> StoreResult<TailStats>;
 
     // ---- writes ----
 

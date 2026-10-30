@@ -186,6 +186,11 @@ impl<I: IndexStorage> Store for LogCache<I> {
     fn tail_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
         self.0.tail_stats()
     }
+    // `own_retained` is not forwarded (the trait's empty default), so its size is
+    // empty too, as it was before this method became required.
+    fn own_retained_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
+        Ok(mdbn_replica::store::TailStats::default())
+    }
     fn stages(&self) -> bool {
         self.0.stages()
     }

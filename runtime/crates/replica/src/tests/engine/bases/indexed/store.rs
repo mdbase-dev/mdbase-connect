@@ -69,6 +69,7 @@ impl Store for ProjectionStore {
         tail(after:Seq,limit:u32)->StoreResult<Vec<TailRow>>;
         tail_stats()->StoreResult<TailStats>;
         own_retained(after:Seq,limit:u32)->StoreResult<Vec<(Seq,PendingRow)>>;
+        own_retained_stats()->StoreResult<TailStats>;
     }
     fn records(&self, page: Page) -> StoreResult<Vec<RecordRow>> {
         assert!(
