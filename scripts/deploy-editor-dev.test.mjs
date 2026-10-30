@@ -105,8 +105,9 @@ test("CLI dispatch runs only after report filesystem initialization", async () =
 
 test("Editor release source changes trigger signed image-bundle publication", async () => {
   const workflow = await readFile(resolve(root, ".github/workflows/publish-images.yml"), "utf8");
-  assert.match(workflow, /Cargo\.toml \\\n\s+apps\/editor \\\n\s+apps\/portal/u);
-  assert.match(workflow, /services\/server \\\n\s+scripts\/deploy-editor-dev\.mjs/u);
+  assert.match(workflow, /publish: 'true'/u);
+  assert.doesNotMatch(workflow, /git diff --quiet/u);
+  assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/u);
 });
 
 test("pinned Wrangler CLI exposes the expected Pages contract and no JSON flag", () => {

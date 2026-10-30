@@ -9,11 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Publish images or sign the reviewed fixed environment trust extension
+        description: Sign the reviewed fixed environment trust extension
         required: true
-        default: images
+        default: lab-trust
         type: choice
-        options: [images, lab-trust, staging-trust, production-trust]
+        options: [lab-trust, staging-trust, production-trust]
       image_publication_run_id:
         description: Existing successful image-bundle run (trust extensions only)
         required: false
@@ -27,7 +27,7 @@ on:
         required: false
         type: string
       source_commit:
-        description: Full release commit to rebuild and attest
+        description: Already-built release commit for trust attestation
         required: true
         type: string
       release_tag:
@@ -53,13 +53,12 @@ env:
 jobs:
   changes:
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.operation == 'images') ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
     outputs:
-      publish: ${{ steps.diff.outputs.publish }}
+      publish: 'true'
       component_matrix: ${{ steps.release.outputs.component_matrix }}
       qualification_run_id: ${{ steps.release.outputs.qualification_run_id }}
       qualification_run_attempt: ${{ steps.release.outputs.qualification_run_attempt }}
@@ -98,53 +97,6 @@ jobs:
             echo "qualification_run_attempt=$attempt"
           } >>"$GITHUB_OUTPUT"
 
-      - id: diff
-        name: Detect managed runtime changes
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
-            [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$ ]]
-            test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
-            test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$SOURCE_COMMIT"
-            test -n "$REPUBLISH_REASON"
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          parent=$(git rev-parse "$SOURCE_COMMIT^")
-          if git diff --quiet "$parent" "$SOURCE_COMMIT" -- \
-            .github/previous-release.env \
-            Cargo.toml \
-            apps/editor \
-            apps/portal \
-            config \
-            crates \
-            deploy/docker/Cargo.lock.hosted-provider \
-            deploy/docker/Dockerfile.hosted-provider \
-            deploy/docker/Dockerfile.client \
-            deploy/docker/Dockerfile.mcp \
-            deploy/docker/Dockerfile.server \
-            deploy/docker/mdbase-rs-revision \
-            package.json \
-            packages/app-ui \
-            packages/client \
-            packages/protocol \
-            packages/sync \
-            packages/ui \
-            pnpm-lock.yaml \
-            pnpm-workspace.yaml \
-            services/mcp \
-            services/server \
-            scripts/deploy-editor-dev.mjs \
-            scripts/lib/upgrade-release-identity.test.mjs \
-            scripts/lib/upgrade-test-contract.test.mjs
-          then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-          REPUBLISH_REASON: ${{ inputs.reason }}
 
   publish:
     needs: changes
