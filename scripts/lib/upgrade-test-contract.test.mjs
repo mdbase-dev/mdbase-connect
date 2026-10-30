@@ -22,10 +22,19 @@ test("upgrade workflows delegate scenario behavior to versioned test programs", 
 
 test("previous-release fixture and its qualification tests trigger normal signed publication", async () => {
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/publish-images.yml"), "utf8");
-  assert.doesNotMatch(workflow, /needs\.changes\.outputs\.publish/);
-  assert.doesNotMatch(workflow, /git diff --quiet/);
+  const changeDetector = workflow.match(/if git diff --quiet "\$parent" "\$SOURCE_COMMIT" -- \\\n([\s\S]*?)\n          then/)?.[1];
+  assert.ok(changeDetector, "normal main publication must inspect changed inputs");
+  for (const path of [
+    ".github/previous-release.env",
+    "scripts/lib/upgrade-release-identity.test.mjs",
+    "scripts/lib/upgrade-test-contract.test.mjs"
+  ]) {
+    assert.ok(changeDetector.split(/\\\n/).some(line => line.trim().replace(/ \\$/, "") === path),
+      `${path} must trigger signed image/bundle publication`);
+  }
   assert.match(workflow, /github\.event\.workflow_run\.event == 'push'/);
-  assert.doesNotMatch(workflow, /options: \[images,/);
+  assert.match(workflow, /git rev-list -n 1 "\$RELEASE_TAG"/,
+    "manual dispatch must retain its exact annotated-tag gate");
 });
 
 test("upgrade pins an exact versioned published fixture", async () => {

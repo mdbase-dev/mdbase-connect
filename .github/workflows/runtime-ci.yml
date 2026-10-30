@@ -2,14 +2,15 @@
 name: Runtime CI
 on:
   pull_request:
-    paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/build-workers.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs', 'scripts/select-worker-build*.mjs', 'scripts/unpack-worker-build.py']
+    paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs']
   push:
     branches: [main]
+    paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: runtime-ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  group: runtime-ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 defaults:
   run:

@@ -4,14 +4,13 @@
 // provider credentials, deployment or caller-selected paths live here.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readReleaseBuild } from '../runtime/scripts/lib/read-release-trust.mjs';
 export { readReleaseBuild };
 export const REPOSITORY = 'mdbase-dev/mdbase-connect';
 export const WORKFLOW = 'release-workers.yml';
-export const BUILD_WORKFLOW = 'build-workers.yml';
 export const CI_WORKFLOW = 'runtime-ci.yml';
 export const IDENTITY = 'https://github.com/mdbase-dev/mdbase-connect/.github/workflows/release-workers.yml@refs/heads/main';
 export const OPS_VERIFIER_COMMIT = 'eaaab7cafd6d58af18bbb4f316dbe349392c5cdb';
@@ -20,6 +19,7 @@ export const CI_JOBS = Object.freeze(['wasm (build, size budget, determinism)', 
   'obsidian runtime execution', 'Hosted worker', DO_JOB]);
 export const ROLES = Object.freeze(['log', 'hosted', 'escrow']);
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+export const sourceRoot = join(root, 'target/worker-release-source');
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const SHA = /^[0-9a-f]{40}$/, HASH = /^[0-9a-f]{64}$/;
 const fail = message => { throw new Error(message); };
@@ -42,13 +42,35 @@ export function verifyRun(run, expected, workflow) {
   }
 }
 
-export function verifyJobs(jobs, required) {
-  for (const name of required) {
+function jobsPass(jobs, required) {
+  return required.every(name => {
     const found = jobs.filter((job) => job.name === name);
-    if (found.length !== 1 || found[0].status !== 'completed' || found[0].conclusion !== 'success') {
-      fail('full exact-commit checks must pass; skips and duplicate identities refused');
-    }
+    return found.length === 1 && found[0].status === 'completed' && found[0].conclusion === 'success';
+  });
+}
+export function verifyJobs(jobs, required) {
+  requireThat(jobsPass(jobs, required), 'full exact-commit checks must pass; skips and duplicate identities refused');
+}
+
+export function resolveQualification(source, api = gh, list = pages) {
+  requireThat(SHA.test(source ?? ''), 'full source SHA required');
+  const runs = list(`repos/${REPOSITORY}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${source}&branch=main`, 'workflow_runs');
+  requireThat(runs.length < 1000 && new Set(runs.map(run => run.id)).size === runs.length, 'bounded unique source runs required');
+  const qualified = [];
+  for (const run of runs) {
+    if (!['push', 'workflow_dispatch'].includes(run.event) || run.status !== 'completed' || run.conclusion !== 'success') continue;
+    const expected = { id: positive(String(run.id)), attempt: positive(String(run.run_attempt)), source };
+    verifyRun(run, expected, CI_WORKFLOW);
+    verifyRun(api(`repos/${REPOSITORY}/actions/runs/${run.id}`), expected, CI_WORKFLOW);
+    const jobs = list(`repos/${REPOSITORY}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`, 'jobs');
+    if (!jobsPass(jobs, CI_JOBS)) continue;
+    qualified.push(expected);
   }
+  requireThat(qualified.length === 1, 'one unambiguous complete source Runtime CI run required');
+  const run = qualified[0];
+  verifyRun(api(`repos/${REPOSITORY}/actions/runs/${run.id}`), run, CI_WORKFLOW);
+  return { CI_RUN_ID: String(run.id), CI_RUN_ATTEMPT: String(run.attempt),
+    LOG_RUN_ID: String(run.id), LOG_RUN_ATTEMPT: String(run.attempt) };
 }
 
 export function gh(path) {
@@ -87,13 +109,6 @@ export function inputs(env) {
     logId: positive(env.LOG_RUN_ID), logAttempt: positive(env.LOG_RUN_ATTEMPT), trust };
 }
 export function publisher(env, input) {
-  if (env.GITHUB_EVENT_NAME === 'workflow_run') {
-    requireThat(env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === 'refs/heads/main'
-      && env.GITHUB_REF_PROTECTED === 'true' && SHA.test(env.GITHUB_SHA ?? '')
-      && env.GITHUB_WORKFLOW_REF === `${REPOSITORY}/.github/workflows/${BUILD_WORKFLOW}@refs/heads/main`, 'protected-main build required');
-    return { repository: REPOSITORY, workflow: BUILD_WORKFLOW, run_id: positive(env.GITHUB_RUN_ID),
-      run_attempt: positive(env.GITHUB_RUN_ATTEMPT), publisher_commit: env.GITHUB_SHA };
-  }
   requireThat(input.environment === (env.RELEASE_ENVIRONMENT ?? 'staging')
     && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === 'refs/heads/main'
     && env.GITHUB_REF_PROTECTED === 'true' && env.GITHUB_EVENT_NAME === 'workflow_dispatch'
@@ -204,14 +219,22 @@ export function check(directory, expectedSha256, input, env) {
   return sha256(raw);
 }
 function main() {
-  const env = process.env, input = inputs(env);
-  publisher(env, input);
-  requireThat(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: 'pipe' }).trim() === input.source, 'checkout must equal build source');
+  const env = process.env;
+  publisher(env, { environment: env.RELEASE_ENVIRONMENT, source: env.SOURCE_REVISION });
+  requireThat(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: 'pipe' }).trim() === env.GITHUB_SHA, 'orchestration checkout must equal signing revision');
   execFileSync('git', ['diff', '--exit-code', 'HEAD'], { cwd: root, stdio: 'pipe' });
-  gate(input);
   requireThat(process.argv.length === 3, 'one fixed workflow operation required');
-  if (process.argv[2] === 'check') check(join(root, `runtime/target/${input.environment}-worker-release/bundle`), env.EXPECTED_MANIFEST_SHA256, input, env);
-  else requireThat(process.argv[2] === 'verify', 'unknown workflow operation');
+  if (process.argv[2] === 'resolve') {
+    const receipt = resolveQualification(env.SOURCE_REVISION);
+    gate(inputs({ ...env, ...receipt }));
+    requireThat(env.GITHUB_ENV, 'workflow environment file required');
+    writeFileSync(env.GITHUB_ENV, Object.entries(receipt).map(([key, value]) => `${key}=${value}\n`).join(''), { flag: 'a' });
+  } else {
+    const input = inputs(env);
+    gate(input);
+    if (process.argv[2] === 'check') check(join(root, `runtime/target/${input.environment}-worker-release/bundle`), env.EXPECTED_MANIFEST_SHA256, input, env);
+    else requireThat(process.argv[2] === 'verify', 'unknown workflow operation');
+  }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { main(); } catch { console.error('Managed Worker publication refused: source, qualification, authenticated trust or frozen inventory mismatch'); process.exitCode = 1; }

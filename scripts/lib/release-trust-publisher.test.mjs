@@ -11,13 +11,9 @@ const require=createRequire(new URL('../../packages/protocol/package.json',impor
 const {parse}=require('yaml');
 const workflow=parse(readFileSync(new URL('../../.github/workflows/publish-images.yml',import.meta.url),'utf8'));
 test('fixed LAB/staging/production selector does not schedule image publication',()=>{
- assert.deepEqual(workflow.on.workflow_dispatch.inputs.operation.options,['lab-trust','staging-trust','production-trust']);
+ assert.deepEqual(workflow.on.workflow_dispatch.inputs.operation.options,['images','lab-trust','staging-trust','production-trust']);
  const guard=workflow.jobs.changes.if;
- assert.ok(guard.includes("github.event_name == 'workflow_run'"));
- assert.ok(!guard.includes("github.event_name == 'workflow_dispatch'"));
- assert.equal(workflow.jobs.changes.outputs.publish,undefined);
- assert.equal(workflow.jobs.publish.if,undefined);
- assert.equal(workflow.jobs['release-bundle'].if,undefined);
+ assert.ok(guard.includes("inputs.operation == 'images'"));
  assert.ok(!guard.includes("inputs.operation != 'lab-trust'"));
  const job=workflow.jobs['trust-bundle'];
  assert.ok(job.if.includes("inputs.operation == 'lab-trust'"));

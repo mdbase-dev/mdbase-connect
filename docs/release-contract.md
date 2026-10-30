@@ -212,8 +212,8 @@ publication only while the same exact candidate is still verified in production.
 GitHub environment protection remains authoritative. Earlier v1 release history
 is unchanged.
 
-## Build-once publication
+## On-demand Worker publication
 
-See [build once, release by selecting](build-once-release.md) for automatic
-per-main OCI/Worker builds, owner-only Worker selection, retention/setup limits,
-and the required ops-first format rollout. Selection does not authorize deployment.
+See [on-demand Worker builds](build-once-release.md) for exact-source builds,
+owner-only signing from main, automatic source qualification and trust rotation.
+Ops merges first. Publication does not authorize deployment; OCI is unchanged.
