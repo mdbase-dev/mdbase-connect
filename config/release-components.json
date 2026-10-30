@@ -11,6 +11,14 @@
   "sdkPublication": {
     "workflow": "publish-sdk-npm.yml",
     "ready": false,
+    "productionRegistry": "https://registry.npmjs.org/",
+    "prerelease": {
+      "tagPrefix": "sdk-v",
+      "assets": {
+        "staging": "sdk-staging.tgz",
+        "lab": "sdk-lab.tgz"
+      }
+    },
     "environments": {
       "production": {
         "package": "@mdbase-dev/sdk",

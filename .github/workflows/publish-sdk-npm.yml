@@ -8,14 +8,12 @@ on:
       - config/release-components*
       - config/next-trust/**
       - scripts/**sdk-publication*
+      - scripts/publish-sdk-prerelease*
       - scripts/lib/sdk-publication*
+      - scripts/lib/sdk-prerelease*
       - runtime/packages/sdk/**
   workflow_dispatch:
     inputs:
-      environment:
-        type: choice
-        options: [production, staging, lab]
-        default: production
       dry_run:
         description: Build, verify and pack only; never publish by default
         type: boolean
@@ -25,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sdk-npm-${{ inputs.environment || 'validation' }}
+  group: sdk-publication
   cancel-in-progress: false
 
 jobs:
@@ -37,7 +35,7 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - run: node --test scripts/lib/sdk-publication.test.mjs
+      - run: node --test scripts/lib/sdk-publication.test.mjs scripts/lib/sdk-prerelease.test.mjs
       - run: node scripts/sdk-publication.mjs check
 
   build:
@@ -48,8 +46,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-    env:
-      SDK_ENVIRONMENT: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -80,20 +76,12 @@ jobs:
           cargo test --locked -p mdbn-trust
           cargo build --locked --release -p mdbn-trust --bin mdbn-trust
           cargo xtask wasm-app
-      - name: Compile SDK with exactly one authenticated environment
-        run: node scripts/sdk-publication.mjs build "$SDK_ENVIRONMENT"
-      - name: Verify cold npm consumers
-        run: npm run check:npm-consumer --prefix runtime/packages/sdk
-      - name: Pack and verify the actual archive
-        run: |
-          mkdir -p "$RUNNER_TEMP/sdk-package" "$RUNNER_TEMP/sdk-unpacked"
-          (cd runtime/packages/sdk && npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP/sdk-package")
-          tar -xzf "$RUNNER_TEMP"/sdk-package/*.tgz -C "$RUNNER_TEMP/sdk-unpacked"
-          node scripts/sdk-publication.mjs verify "$SDK_ENVIRONMENT" "$RUNNER_TEMP/sdk-unpacked/package" "$GITHUB_SHA"
+      - name: Compile, cold-test and verify all three environment archives from the same WASM
+        run: node scripts/sdk-publication.mjs pack-all "$RUNNER_TEMP/sdk-packages"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: source-built-sdk
-          path: ${{ runner.temp }}/sdk-package/*.tgz
+          name: source-built-sdks
+          path: ${{ runner.temp }}/sdk-packages/*.tgz
           if-no-files-found: error
 
   publish:
@@ -115,10 +103,73 @@ jobs:
       - run: node scripts/sdk-publication.mjs ready
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: source-built-sdk
-          path: ${{ runner.temp }}/sdk-package
+          name: source-built-sdks
+          path: ${{ runner.temp }}/sdk-packages
+      - run: node scripts/sdk-publication.mjs verify-npm "$RUNNER_TEMP/sdk-packages/sdk-production.tgz"
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
-          subject-path: ${{ runner.temp }}/sdk-package/*.tgz
+          subject-path: ${{ runner.temp }}/sdk-packages/sdk-production.tgz
       - run: npm install --global npm@11
-      - run: npm publish "$RUNNER_TEMP"/sdk-package/*.tgz --ignore-scripts --access public --tag next --provenance
+      - run: npm publish "$RUNNER_TEMP/sdk-packages/sdk-production.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org/ --tag next --provenance
+
+  attest-internal:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.dry_run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: source-built-sdks
+          path: ${{ runner.temp }}/sdk-packages
+      - id: staging
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-path: ${{ runner.temp }}/sdk-packages/sdk-staging.tgz
+      - id: lab
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-path: ${{ runner.temp }}/sdk-packages/sdk-lab.tgz
+      - name: Stage the exact attested assets and verification bundles
+        env:
+          STAGING_BUNDLE: ${{ steps.staging.outputs.bundle-path }}
+          LAB_BUNDLE: ${{ steps.lab.outputs.bundle-path }}
+        run: |
+          mkdir "$RUNNER_TEMP/sdk-internal"
+          cp "$RUNNER_TEMP/sdk-packages/sdk-staging.tgz" "$RUNNER_TEMP/sdk-internal/"
+          cp "$RUNNER_TEMP/sdk-packages/sdk-lab.tgz" "$RUNNER_TEMP/sdk-internal/"
+          cp "$STAGING_BUNDLE" "$RUNNER_TEMP/sdk-internal/sdk-staging.tgz.sigstore.json"
+          cp "$LAB_BUNDLE" "$RUNNER_TEMP/sdk-internal/sdk-lab.tgz.sigstore.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: attested-internal-sdks
+          path: ${{ runner.temp }}/sdk-internal/*
+          if-no-files-found: error
+
+  publish-internal:
+    needs: attest-internal
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.dry_run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: attested-internal-sdks
+          path: ${{ runner.temp }}/sdk-internal
+      - name: Create a new immutable SDK prerelease, never Latest or a replacement
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/publish-sdk-prerelease.mjs "$RUNNER_TEMP/sdk-internal"

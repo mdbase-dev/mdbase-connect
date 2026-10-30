@@ -1,3 +1,3 @@
 ## Changed
 
-- Prepare source-built, environment-pinned SDK npm publication with provenance, dry-run support and a fail-closed gate pending the separate runtime port. SDK archives can no longer use the off-CI archive publisher; existing app pins remain unchanged.
+- Prepare source-built, environment-pinned SDK publication: production-only npmjs with provenance, plus individually attested staging/LAB tarballs on immutable, never-Latest GitHub prereleases from the same build. Dry runs and the separate runtime-port gate remain fail-closed; existing app pins are unchanged and SDKs cannot use the off-CI archive publisher.

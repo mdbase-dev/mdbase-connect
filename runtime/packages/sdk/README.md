@@ -1,10 +1,8 @@
 # @mdbase-dev/sdk
 
-Registry publication is source-built with one pinned trust environment:
-`@mdbase-dev/sdk` is production; `@mdbase-dev/sdk-staging` and
-`@mdbase-dev/sdk-lab` contain only their respective environment's trust.
-Use exact versions, never runtime trust overrides. The first source-built cut
-is held pending the separate runtime port and release-owner approval; see
+`@mdbase-dev/sdk` on npmjs contains production trust only. Staging/LAB use
+separately attested, version-pinned GitHub prerelease assets, not npm packages
+published to a registry. The first cut remains held; see
 [`docs/sdk-publication.md`](../../../docs/sdk-publication.md).
 
 The TS SDK for mdbase-next replicas. It implements the client side of

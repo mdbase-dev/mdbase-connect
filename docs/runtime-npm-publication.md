@@ -10,8 +10,9 @@ The runtime packages are independent of the legacy Connect release train:
 
 The existing `publish-npm.yml` does not publish these packages. The SDK now uses
 the separate source-build `publish-sdk-npm.yml` workflow and is blocked pending
-the runtime port; see [SDK publication](sdk-publication.md). This includes its
-staging and LAB package identities. **Do not use the archive preparation,
+the runtime port; see [SDK publication](sdk-publication.md). Only production is
+published to npmjs; staging/LAB use attested GitHub prerelease assets, not a
+registry. **Do not use the archive preparation,
 local-bootstrap or dispatch instructions below for any SDK package.**
 
 For `mdbase` and `@mdbase-dev/obsidian-runtime` only, use the separate

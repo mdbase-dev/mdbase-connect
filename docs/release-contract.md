@@ -1,9 +1,11 @@
 # Product release contract
 
 The source inventory is now schema v2: `sdkPublication` records the separate
-environment-pinned npm SDK workflow and its held readiness gate. See
-[SDK publication](sdk-publication.md). Private contract readers must adopt v2
-before promotion resumes. The OCI component matrix and signed image release
+environment-pinned SDK workflow (production npmjs and staging/LAB prerelease
+assets) and its held readiness gate. See [SDK publication](sdk-publication.md).
+No current ops change is required: private promotion readers consume their own
+component mapping and the unchanged OCI bundle, not this public source inventory.
+The OCI component matrix and signed image release
 bundle stay unchanged (bundle schema v1); SDK npm versions are independently
 qualified and attested, not silently added to the image bundle.
 

@@ -11,10 +11,17 @@
     "sdkPublication": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["workflow", "ready", "environments"],
+      "required": ["workflow", "ready", "productionRegistry", "prerelease", "environments"],
       "properties": {
         "workflow": { "const": "publish-sdk-npm.yml" },
         "ready": { "type": "boolean" },
+        "productionRegistry": { "const": "https://registry.npmjs.org/" },
+        "prerelease": {
+          "const": {
+            "tagPrefix": "sdk-v",
+            "assets": { "staging": "sdk-staging.tgz", "lab": "sdk-lab.tgz" }
+          }
+        },
         "environments": {
           "type": "object",
           "additionalProperties": false,

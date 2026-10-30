@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,9 +19,14 @@ export function checkedSdkAsset(file, pin) {
 }
 
 export function validateSdkPublication(publication, root) {
-  assert.deepEqual(Object.keys(publication).sort(), ["environments", "ready", "workflow"]);
+  assert.deepEqual(Object.keys(publication).sort(),
+    ["environments", "prerelease", "productionRegistry", "ready", "workflow"]);
   assert.equal(publication.workflow, "publish-sdk-npm.yml");
   assert.equal(typeof publication.ready, "boolean");
+  assert.equal(publication.productionRegistry, "https://registry.npmjs.org/");
+  assert.deepEqual(publication.prerelease, {
+    tagPrefix: "sdk-v", assets: { staging: "sdk-staging.tgz", lab: "sdk-lab.tgz" },
+  });
   assert.deepEqual(Object.keys(publication.environments).sort(), Object.keys(sdkPackages).sort());
   const hashes = new Set();
   for (const [environment, packageName] of Object.entries(sdkPackages)) {
@@ -59,4 +65,40 @@ export function sdkTarget(publication, environment) {
 export function requireSdkPublicationReady(publication) {
   assert.equal(publication.ready, true,
     "SDK publication blocked: port the outstanding mdbase-next commits and qualify the source-built SDK first");
+}
+
+export function exactSdkVersion(specifier) {
+  assert.equal(typeof specifier, "string");
+  assert.equal(specifier.match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?/)?.[0], specifier,
+    "production SDK dependency must be an exact npm version, never an alias, URL or tarball spec");
+  return specifier;
+}
+
+export function sdkTarball(publication, environment) {
+  sdkTarget(publication, environment);
+  return environment === "production" ? "sdk-production.tgz" : publication.prerelease.assets[environment];
+}
+
+export function sdkReleaseTag(publication, version) {
+  return publication.prerelease.tagPrefix + exactSdkVersion(version);
+}
+
+export function verifySdkArchive(archive, environment, version, commit, publication) {
+  const member = name => JSON.parse(execFileSync("tar", ["-xOf", archive, `package/${name}`], { encoding: "utf8" }));
+  const manifest = member("package.json");
+  assert.equal(manifest.name, sdkTarget(publication, environment).package);
+  assert.equal(manifest.version, exactSdkVersion(version));
+  if (environment === "production") {
+    assert.notEqual(manifest.private, true);
+    assert.equal(manifest.publishConfig?.registry, publication.productionRegistry);
+  } else {
+    assert.equal(manifest.private, true);
+    assert.equal(manifest.publishConfig, undefined);
+  }
+  const provenance = member("dist/native/provenance.json");
+  assert.match(commit, /^[a-f0-9]{40}$/);
+  assert.equal(provenance.schema, "mdbase-sdk/npm-publication/1");
+  assert.equal(provenance.commit, commit);
+  assert.equal(provenance.environment, environment);
+  assert.deepEqual(provenance.trust, sdkTarget(publication, environment));
 }

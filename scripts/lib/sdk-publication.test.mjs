@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { buildAppTrust } from "../../runtime/packages/sdk/scripts/build-app-trust.mjs";
-import { checkedSdkAsset, requireSdkPublicationReady, sdkPackages, sdkTarget, validateSdkPublication } from "./sdk-publication.mjs";
+import { checkedSdkAsset, exactSdkVersion, requireSdkPublicationReady, sdkPackages, sdkReleaseTag, sdkTarball, sdkTarget, validateSdkPublication } from "./sdk-publication.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
 const contract = JSON.parse(readFileSync(join(root, "config/release-components.json"))).sdkPublication;
@@ -36,6 +36,11 @@ test("cross-environment packages, trust swaps and caller-supplied roots fail clo
     value => { value.environments.production.sourceCommit = "00".repeat(20); },
     value => { value.environments.production.bytes += 1; },
     value => { value.environments.local = value.environments.lab; },
+    value => { value.productionRegistry = "https://npm.pkg.github.com/"; },
+    value => { value.prerelease.assets.production = "sdk-production.tgz"; },
+    value => { value.prerelease.assets.staging = "sdk-lab.tgz"; },
+    value => { value.prerelease.tagPrefix = "v"; },
+    value => { value.prerelease.latest = true; },
   ]) {
     const value = clone();
     mutate(value);
@@ -114,7 +119,25 @@ test("legacy archive publisher rejects SDKs and paths outside runtime/npm", asyn
   }
 });
 
-test("workflow builds only main source, isolates credentials and defaults to dry-run", () => {
+test("fixed prerelease identities keep production out of release assets", () => {
+  assert.equal(sdkReleaseTag(contract, "0.0.1-next.0"), "sdk-v0.0.1-next.0");
+  assert.equal(sdkTarball(contract, "production"), "sdk-production.tgz");
+  assert.equal(sdkTarball(contract, "staging"), "sdk-staging.tgz");
+  assert.equal(sdkTarball(contract, "lab"), "sdk-lab.tgz");
+  assert.throws(() => sdkTarball(contract, "local"));
+});
+
+test("production dependency admission rejects all aliases, URLs, tarballs and mutable versions", () => {
+  assert.equal(exactSdkVersion("0.0.1-next.0"), "0.0.1-next.0");
+  for (const specifier of [undefined, "latest", "next", "^0.0.1", "~0.0.1", "*", "0.0.1 || 0.0.2",
+    "npm:@mdbase-dev/sdk-staging@0.0.1-next.0", "npm:@mdbase-dev/sdk@0.0.1-next.0",
+    "https://github.com/mdbase-dev/mdbase-connect/releases/download/sdk-v0.0.1-next.0/sdk-staging.tgz",
+    "https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-0.0.1-next.0.tgz", "file:vendor/sdk.tgz", "./sdk.tgz", "workspace:*", "01.0.0", "0.0.1\n", " 0.0.1"]) {
+    assert.throws(() => exactSdkVersion(specifier));
+  }
+});
+
+test("workflow builds all variants once, isolates both publisher credentials and defaults to dry-run", () => {
   const workflow = readFileSync(join(root, ".github/workflows/publish-sdk-npm.yml"), "utf8");
   assert.match(workflow, /dry_run:[\s\S]*?default: true/);
   assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
@@ -122,11 +145,41 @@ test("workflow builds only main source, isolates credentials and defaults to dry
   assert.match(workflow, /cargo xtask wasm-app/);
   assert.match(workflow, /verify-qualified-commit/);
   assert.match(workflow, /--workflow runtime-ci.yml/);
-  const [build, publish] = workflow.split("\n  publish:\n");
+  const [build, publishers] = workflow.split("\n  publish:\n");
+  const [publish, internal] = publishers.split("\n  attest-internal:\n");
+  const [attest, release] = internal.split("\n  publish-internal:\n");
   assert(!build.includes("id-token: write"));
+  assert(!build.includes("contents: write"));
+  assert(!workflow.includes("inputs.environment"));
+  assert.equal(workflow.match(/cargo xtask wasm-app/g).length, 1);
+  assert.match(build, /sdk-publication.mjs pack-all/);
+  assert.match(build, /sdk-prerelease.test.mjs/);
   assert.match(publish, /!inputs.dry_run/);
   assert.match(publish, /environment: npm-sdk/);
   assert.match(publish, /sdk-publication.mjs ready/);
-  assert.match(publish, /--ignore-scripts --access public --tag next --provenance/);
+  assert.match(publish, /sdk-publication.mjs verify-npm/);
+  assert.match(publish, /npm publish "\$RUNNER_TEMP\/sdk-packages\/sdk-production.tgz"/);
+  assert.match(publish, /--registry https:\/\/registry.npmjs.org\/ --tag next --provenance/);
+  assert(!publish.includes("contents: write"));
+  assert(!publish.includes("*.tgz"));
+  assert.match(attest, /id-token: write/);
+  assert.match(attest, /attestations: write/);
+  assert(!attest.includes("contents: write"));
+  for (const environment of ["staging", "lab"]) {
+    assert.match(attest, new RegExp(`subject-path: .*sdk-${environment}\\.tgz`));
+    assert(attest.includes(`sdk-${environment}.tgz.sigstore.json`));
+  }
+  assert.match(release, /contents: write/);
+  assert(!release.includes("id-token:"));
+  assert(!release.includes("attestations:"));
+  assert.match(release, /!inputs.dry_run/);
+  assert.match(release, /node scripts\/publish-sdk-prerelease.mjs/);
+  for (const job of [attest, release]) {
+    assert(!job.includes("registry-url:"));
+    assert(!job.includes("npm publish"));
+    assert(!job.includes("NPM_TOKEN"));
+    assert(!job.includes("NODE_AUTH_TOKEN"));
+  }
+  assert(!workflow.includes("npm.pkg.github.com"));
   assert(!workflow.includes("MDBASE_SDK_APPLICATION_INPUTS"));
 });

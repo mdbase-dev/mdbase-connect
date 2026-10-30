@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildAppTrust } from "../runtime/packages/sdk/scripts/build-app-trust.mjs";
 import { readPackagedSqlite } from "../runtime/packages/sdk/scripts/build-application-assets.mjs";
-import { checkedSdkAsset, requireSdkPublicationReady, sdkPackages, sdkTarget, validateSdkPublication } from "./lib/sdk-publication.mjs";
+import { checkedSdkAsset, exactSdkVersion, requireSdkPublicationReady, sdkPackages, sdkTarball, sdkTarget, validateSdkPublication, verifySdkArchive } from "./lib/sdk-publication.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sdk = join(root, "runtime/packages/sdk");
@@ -22,6 +22,13 @@ export async function verifySdkDirectory(directory, environment, sourceCommit) {
   assert.equal(manifest.dependencies["@mdbase-dev/connect-protocol"],
     readJson(join(sdk, "package.json")).dependencies["@mdbase-dev/connect-protocol"]);
   assert(manifest.bundleDependencies.includes("@mdbase-dev/connect-protocol"));
+  if (environment === "production") {
+    assert.notEqual(manifest.private, true);
+    assert.equal(manifest.publishConfig.registry, contract.productionRegistry);
+  } else {
+    assert.equal(manifest.private, true);
+    assert.equal(manifest.publishConfig, undefined);
+  }
   const provenance = readJson(join(directory, "dist/native/provenance.json"));
   assert.equal(provenance.schema, "mdbase-sdk/npm-publication/1");
   assert.equal(provenance.commit, sourceCommit);
@@ -36,7 +43,7 @@ export async function verifySdkDirectory(directory, environment, sourceCommit) {
   const trustFile = join(directory, "dist/application/packaged-trust.js");
   assert.deepEqual(readFileSync(trustFile), readFileSync(join(sdk, "dist/application/packaged-trust.js")),
     "packed trust module differs from the canonical build output");
-  const module = await import(pathToFileURL(trustFile));
+  const module = await import(`${pathToFileURL(trustFile)}?environment=${environment}`);
   const release = module.appReleaseTrust();
   assert.equal(release.environment, environment);
   assert.equal(release.assetSha256, pin.sha256);
@@ -54,18 +61,11 @@ export async function verifySdkDirectory(directory, environment, sourceCommit) {
   }
 }
 
-async function buildSdk(environment) {
+async function buildSdk(environment, { runtime, sqlite, commit, manifest }) {
   const contract = publication();
   validateSdkPublication(contract, root);
   const pin = sdkTarget(contract, environment);
-  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-  assert.equal(commit, process.env.GITHUB_SHA, "SDK build must identify the checked-out workflow commit");
-  const manifest = readJson(join(sdk, "package.json"));
-  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
-  assert.notEqual(manifest.version, "0.0.0", "assign a new immutable SDK version before cutting a release");
   const pins = readJson(join(sdk, "src/application/asset-pins.json"));
-  const runtime = checkedSdkAsset(join(root, "runtime/target/wasm/app-runtime.wasm"), pins.runtime);
-  const sqlite = readPackagedSqlite();
   const dist = join(sdk, "dist");
   rmSync(dist, { recursive: true, force: true });
   execFileSync("npm", ["exec", "--", "tsc", "-p", "tsconfig.build.json"], { cwd: sdk, stdio: "inherit" });
@@ -82,9 +82,50 @@ async function buildSdk(environment) {
     schema: "mdbase-sdk/npm-publication/1", commit, environment, trust: pin, runtime: pins.runtime,
   }, null, 2) + "\n");
   manifest.name = pin.package;
+  if (environment !== "production") {
+    manifest.private = true;
+    delete manifest.publishConfig;
+  }
   writeFileSync(join(sdk, "package.json"), JSON.stringify(manifest, null, 2) + "\n");
   execFileSync("npm", ["run", "build:browser"], { cwd: sdk, stdio: "inherit" });
   await verifySdkDirectory(sdk, environment, commit);
+}
+
+async function packAllSdks(output) {
+  const contract = publication();
+  validateSdkPublication(contract, root);
+  const original = readFileSync(join(sdk, "package.json"));
+  const manifest = JSON.parse(original);
+  const version = exactSdkVersion(manifest.version);
+  assert.notEqual(version, "0.0.0", "assign a new immutable SDK version before cutting a release");
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  assert.equal(commit, process.env.GITHUB_SHA, "SDK build must identify the checked-out workflow commit");
+  const pins = readJson(join(sdk, "src/application/asset-pins.json"));
+  const runtime = checkedSdkAsset(join(root, "runtime/target/wasm/app-runtime.wasm"), pins.runtime);
+  const sqlite = readPackagedSqlite();
+  mkdirSync(output);
+  try {
+    for (const environment of Object.keys(sdkPackages)) {
+      writeFileSync(join(sdk, "package.json"), original);
+      await buildSdk(environment, { runtime, sqlite, commit, manifest: structuredClone(manifest) });
+      execFileSync("npm", ["run", "check:npm-consumer"], { cwd: sdk, stdio: "inherit" });
+      const [{ filename }] = JSON.parse(execFileSync("npm",
+        ["pack", "--ignore-scripts", "--json", "--pack-destination", output], { cwd: sdk, encoding: "utf8" }));
+      const archive = join(output, sdkTarball(contract, environment));
+      renameSync(join(output, filename), archive);
+      verifySdkArchive(archive, environment, version, commit, contract);
+      const unpacked = join(output, environment);
+      mkdirSync(unpacked);
+      try {
+        execFileSync("tar", ["-xzf", archive, "-C", unpacked]);
+        await verifySdkDirectory(join(unpacked, "package"), environment, commit);
+      } finally {
+        rmSync(unpacked, { recursive: true, force: true });
+      }
+    }
+  } finally {
+    writeFileSync(join(sdk, "package.json"), original);
+  }
 }
 
 export function checkLegacyArchive(archive) {
@@ -98,8 +139,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const [command, environment, directory, commit] = process.argv.slice(2);
   if (command === "check") validateSdkPublication(publication(), root);
   else if (command === "ready") requireSdkPublicationReady(publication());
-  else if (command === "build") await buildSdk(environment);
+  else if (command === "pack-all") await packAllSdks(resolve(environment));
+  else if (command === "verify-npm") verifySdkArchive(resolve(environment), "production",
+    readJson(join(sdk, "package.json")).version, process.env.GITHUB_SHA, publication());
+  else if (command === "production-version") console.log(exactSdkVersion(environment));
   else if (command === "verify") await verifySdkDirectory(resolve(directory), environment, commit);
   else if (command === "legacy-archive") checkLegacyArchive(environment);
-  else throw new Error("Expected check, ready, build, verify or legacy-archive");
+  else throw new Error("Expected check, ready, pack-all, verify-npm, production-version, verify or legacy-archive");
 }
