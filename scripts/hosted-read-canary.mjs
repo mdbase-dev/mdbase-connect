@@ -2,60 +2,35 @@
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, readFile, stat } from "node:fs/promises";
+import { access, lstat, open, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
-import { isAbsolute, posix, resolve } from "node:path";
+import { isAbsolute, posix, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const MAX_OUTPUT_BYTES = 256 * 1024;
-const REQUIRED_OPERATIONS = ["describe", "read"];
-// Only repository-owned CLI/daemon codes may cross the canary boundary. Never
-// reflect error messages, provider bodies, identifiers, or arbitrary code tokens.
+const MAX_OUTPUT_BYTES = 1024 * 1024;
+const MAX_MARKER_BYTES = 1024 * 1024;
+const POLL_INTERVAL_MS = 250;
+// `daemon stop` waits for the daemon's 10 s shutdown grace plus 5 s. Cleanup
+// keeps its own bound so an exhausted probe deadline still stops the daemon.
+const SHUTDOWN_TIMEOUT_MS = 30_000;
+// Only the daemon's stable error codes and start/stop reasons may cross the
+// canary boundary. Never reflect messages, account problems, identifiers,
+// paths, or arbitrary code tokens.
 const CLI_ERROR_CODES = new Set([
-  "daemon_unavailable", "internal_error", "invalid_arguments", "invalid_input",
-  "unsupported_cli_operation", "request_failed", "hosted_http_error",
-  "invalid_hosted_response", "hosted_response_too_large", "invalid_operation_response",
-  "connection_expired", "authorization_changed", "authorization_binding_mismatch",
-  "invalid_token_response", "unauthorized"
+  "daemon_not_running", "daemon_unreachable", "start_failed", "not_ready",
+  "invalid_request", "not_found", "unauthenticated", "forbidden", "unavailable",
+  "rate_limited", "upgrade_required", "cancelled", "internal"
 ]);
-
-function cliFailureCode(error) {
-  if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return "output_limit";
-  if (error?.killed || error?.code === "ETIMEDOUT") return "timeout";
-  if (error?.code === "ENOENT" || error?.code === "EACCES") return "cli_unavailable";
-  if (error?.signal) return "cli_signaled";
-  try {
-    const code = JSON.parse(error?.stderr)?.error?.code;
-    if (CLI_ERROR_CODES.has(code)) return code;
-  } catch {
-    // Non-JSON stderr is deliberately discarded, not searched for messages.
-  }
-  return "cli_failed";
-}
-const CLI_APPLICATION_MANIFEST = {
-  manifest_version: 1,
-  distribution: "portable",
-  id: "dev.mdbase.cli",
-  name: "mdbase CLI",
-  requirements: {
-    access: "full_collection",
-    contracts: [],
-    capabilities: {
-      contract_version: 2,
-      required: ["collection.read"],
-      optional: [
-        "records.create",
-        "records.edit",
-        "records.delete",
-        "views.manage",
-        "definitions.manage",
-        "offline.replica"
-      ]
-    }
-  }
-};
+// Stable `account.last_error` codes worth distinguishing while waiting for the
+// account link; anything else is `account_error`.
+const ACCOUNT_ERRORS = new Set([
+  "device_registration_failed", "sign_in_expired", "authentication_required",
+  "system_clock_wrong"
+]);
+// Variables that would select another profile, environment, or secret store.
+const OVERRIDES = ["MDBASE_HOME", "MDBASE_ENV", "MDBASE_SECRET_BACKEND"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const ENVIRONMENT = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
@@ -129,12 +104,11 @@ function parseArguments(argv, environmentVariables) {
       || !isAbsolute(stateDir)
       || !["https:", "http:"].includes(parsedOrigin.protocol)
       || parsedOrigin.origin !== expectedOrigin
-      || parsedOrigin.username
-      || parsedOrigin.password
       || !UUID.test(collectionId)
       || expectedCollectionName.length > 200
       || markerPath.length > 1024
       || posix.isAbsolute(markerPath)
+      || markerPath.includes("\\")
       || markerPath.split("/").some((part) => part === "" || part === "." || part === "..")
       || !DIGEST.test(expectedMarkerSha256)
       || !/^[1-9][0-9]*$/u.test(timeoutText)
@@ -160,29 +134,115 @@ function elapsed(started) {
   return Math.max(0, Math.round(performance.now() - started));
 }
 
-function parseJson(stdout, stage) {
+function cliFailureCode(error) {
+  if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return "output_limit";
+  if (error?.killed || error?.code === "ETIMEDOUT") return "timeout";
+  if (error?.code === "ENOENT" || error?.code === "EACCES") return "cli_unavailable";
+  if (error?.signal) return "cli_signaled";
   try {
-    return JSON.parse(stdout);
+    // `--json` prints `{"error": {code, reason?, message}}` on stdout.
+    const failure = JSON.parse(error?.stdout)?.error;
+    if (CLI_ERROR_CODES.has(failure?.reason)) return failure.reason;
+    if (CLI_ERROR_CODES.has(failure?.code)) return failure.code;
   } catch {
-    throw new CanaryError(stage, "malformed_json");
+    // Non-JSON output is deliberately discarded, not searched for messages.
   }
+  return "cli_failed";
 }
 
-function operationResult(value, stage) {
-  if (value?.valid !== true || value.result === undefined) {
-    throw new CanaryError(stage, "invalid_response");
-  }
-  return value.result;
+/** The marker's exact bytes, as a `sha256:` digest. */
+export function markerSha256(bytes) {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
-export function markerDocumentSha256(document) {
-  return `sha256:${createHash("sha256").update(document, "utf8").digest("hex")}`;
+function accountState(status, options) {
+  const account = status?.account;
+  if (status?.secret_backend !== "keychain") return { terminal: "insecure_secret_backend" };
+  if (account?.signed_in !== true || account.pairing) return { terminal: "not_signed_in" };
+  if (account.server !== options.expectedOrigin) return { terminal: "origin_mismatch" };
+  if (account.last_error) {
+    return { waiting: ACCOUNT_ERRORS.has(account.last_error) ? account.last_error : "account_error" };
+  }
+  // The relay is a device-bound, authenticated control-plane session; this
+  // daemon was started by this run, so `online` proves a fresh round trip.
+  if (account.online !== true) return { waiting: "account_offline" };
+  return { done: true };
+}
+
+function collectionOf(status, options, stage) {
+  const matching = Array.isArray(status?.collections)
+    ? status.collections.filter((item) => item?.id === options.collectionId)
+    : [];
+  if (matching.length !== 1) throw new CanaryError(stage, "missing_collection");
+  const collection = matching[0];
+  if (collection.name !== options.expectedCollectionName
+      || collection.mode !== "synced"
+      || collection.log !== "hosted") {
+    throw new CanaryError(stage, "collection_mismatch");
+  }
+  return collection;
+}
+
+function syncState(collection) {
+  if (collection.state === "failed" || collection.state === "paused") {
+    return { terminal: `collection_${collection.state}` };
+  }
+  if (collection.state !== "ready") {
+    return { waiting: collection.state === "unavailable" ? "collection_unavailable" : "collection_opening" };
+  }
+  const sync = collection.sync;
+  if (!sync) return { waiting: "collection_opening" };
+  if (sync.holds !== 0) return { terminal: "holds_present" };
+  if (sync.unresolved !== 0) return { terminal: "conflicts_present" };
+  // A freshly opened hosted replica starts `connecting`; it turns `online`
+  // only on an authenticated read or subscribe reply from the hosted log.
+  if (sync.connection !== "online") return { waiting: "log_offline" };
+  if (sync.resyncing
+      || !Number.isSafeInteger(sync.head_known)
+      || sync.head_known < 1
+      || sync.confirmed_through !== sync.head_known) {
+    return { waiting: "not_caught_up" };
+  }
+  if (sync.pending !== 0) return { waiting: "local_changes_pending" };
+  return { done: true };
+}
+
+async function readMarker(collection, markerPath) {
+  if (typeof collection.root !== "string" || !isAbsolute(collection.root)) {
+    throw new CanaryError("read", "invalid_response");
+  }
+  let root;
+  let target;
+  try {
+    root = await realpath(collection.root);
+    target = resolve(root, ...markerPath.split("/"));
+    const entry = await lstat(target);
+    if (!entry.isFile()) throw new CanaryError("read", "marker_mismatch");
+    if (!(await realpath(target)).startsWith(`${root}${sep}`)) {
+      throw new CanaryError("read", "marker_mismatch");
+    }
+    if (entry.size > MAX_MARKER_BYTES) throw new CanaryError("read", "marker_too_large");
+  } catch (error) {
+    if (error instanceof CanaryError) throw error;
+    throw new CanaryError("read", error?.code === "ENOENT" ? "marker_missing" : "marker_unreadable");
+  }
+  let handle;
+  try {
+    handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const bytes = await handle.readFile();
+    if (bytes.length > MAX_MARKER_BYTES) throw new CanaryError("read", "marker_too_large");
+    return bytes;
+  } catch (error) {
+    if (error instanceof CanaryError) throw error;
+    throw new CanaryError("read", "marker_unreadable");
+  } finally {
+    await handle?.close();
+  }
 }
 
 export async function runCanary(
   argv = process.argv.slice(2),
-  environmentVariables = process.env,
-  dependencies = {}
+  environmentVariables = process.env
 ) {
   const started = performance.now();
   const checkedAt = new Date().toISOString();
@@ -193,6 +253,7 @@ export async function runCanary(
     : argv[environmentArgument + 1];
   let environment = ENVIRONMENT.test(suppliedEnvironment ?? "") ? suppliedEnvironment : "unknown";
   let currentStage = "config";
+  let failure;
 
   const runStage = async (name, action) => {
     currentStage = name;
@@ -207,21 +268,32 @@ export async function runCanary(
     }
   };
 
+  let options;
+  let daemonOwned = false;
+  const runCli = async (stage, argumentsList, timeout) => {
+    try {
+      const { stdout } = await execFileAsync(
+        options.cli,
+        ["--state-dir", options.stateDir, "--json", ...argumentsList],
+        { env: environmentVariables, timeout, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true }
+      );
+      return JSON.parse(stdout);
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new CanaryError(stage, "malformed_json");
+      throw new CanaryError(stage, cliFailureCode(error));
+    }
+  };
+
   try {
-    const options = await runStage("config", async () => {
+    options = await runStage("config", async () => {
       const parsed = parseArguments(argv, environmentVariables);
       environment = parsed.environment;
-      if (environmentVariables.MDBASE_CONNECT_SOCKET) throw configError("endpoint_override");
+      if (OVERRIDES.some((name) => environmentVariables[name] !== undefined)) {
+        throw configError("environment_override");
+      }
       await access(parsed.cli, constants.X_OK).catch(() => { throw configError("cli_unavailable"); });
       const state = await stat(parsed.stateDir).catch(() => { throw configError("state_unavailable"); });
       if (!state.isDirectory()) throw configError("state_unavailable");
-      let cloud;
-      try {
-        cloud = JSON.parse(await readFile(resolve(parsed.stateDir, "cloud.json"), "utf8"));
-      } catch {
-        throw configError("invalid_state_config");
-      }
-      if (cloud?.server_url !== parsed.expectedOrigin) throw configError("origin_mismatch");
       return parsed;
     });
 
@@ -231,146 +303,85 @@ export async function runCanary(
       if (remaining <= 0) throw new CanaryError(stage, "timeout");
       return remaining;
     };
-    const runCli = async (stage, argumentsList) => {
-      const remaining = remainingTime(stage);
-      try {
-        const { stdout } = await execFileAsync(options.cli, argumentsList, {
-          env: environmentVariables,
-          timeout: remaining,
-          maxBuffer: MAX_OUTPUT_BYTES,
-          windowsHide: true
-        });
-        return parseJson(stdout, stage);
-      } catch (error) {
-        if (error instanceof CanaryError) throw error;
-        throw new CanaryError(stage, cliFailureCode(error));
+    const status = (stage) => runCli(stage, ["status"], remainingTime(stage));
+    // Poll the daemon until `evaluate` is done or terminal. At the deadline the
+    // last waiting reason is the failure code.
+    const awaitStatus = async (stage, evaluate) => {
+      for (;;) {
+        const current = await status(stage);
+        const state = evaluate(current);
+        if (state.done) return current;
+        if (state.terminal) throw new CanaryError(stage, state.terminal);
+        if (deadline - performance.now() <= POLL_INTERVAL_MS) {
+          throw new CanaryError(stage, state.waiting);
+        }
+        await new Promise((resolveSleep) => setTimeout(resolveSleep, POLL_INTERVAL_MS));
       }
     };
-    await runStage("registration", async () => {
-      let response;
-      try {
-        response = await (dependencies.fetchImpl ?? fetch)(
-          `${options.expectedOrigin}/v1/apps/register`,
-          {
-            method: "POST",
-            headers: {
-              accept: "application/json",
-              "content-type": "application/json"
-            },
-            body: JSON.stringify({ manifest: CLI_APPLICATION_MANIFEST }),
-            signal: AbortSignal.timeout(remainingTime("registration"))
-          }
-        );
-      } catch (error) {
-        if (error?.name === "AbortError" || error?.name === "TimeoutError") {
-          throw new CanaryError("registration", "timeout");
-        }
-        throw new CanaryError("registration", "network_error");
-      }
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw new CanaryError("registration", `http_${response.status}`);
-      }
-      let body;
-      try {
-        body = await response.json();
-      } catch {
-        throw new CanaryError("registration", "malformed_json");
-      }
-      if (
-        typeof body?.application?.id !== "string"
-        || !UUID.test(body.application.id)
-        || typeof body.application.manifest_digest !== "string"
-        || !/^[0-9a-f]{64}$/u.test(body.application.manifest_digest)
-      ) {
-        throw new CanaryError("registration", "invalid_response");
-      }
-    });
 
-    const common = ["--state-dir", options.stateDir, "--json"];
-    const operation = (stage, name, input) => runCli(stage, [
-      ...common,
-      "connect", "operation", options.collectionId, name,
-      "--input", JSON.stringify(input)
-    ]);
+    await runStage("registration", async () => {
+      // Every run starts its own daemon, so each online state below is new.
+      daemonOwned = true;
+      const start = await runCli("registration", ["daemon", "start"], remainingTime("registration"));
+      if (start?.started !== true) {
+        daemonOwned = start?.started !== false;
+        throw new CanaryError("registration", start?.started === false
+          ? "daemon_already_running"
+          : "invalid_response");
+      }
+      await awaitStatus("registration", (current) => accountState(current, options));
+    });
 
     await runStage("connections", async () => {
-      const connections = await runCli("connections", [
-        ...common, "connect", "hosted", "connections"
-      ]);
-      if (!Array.isArray(connections)) throw new CanaryError("connections", "invalid_response");
-      const matching = connections.filter((item) => item?.collection_id === options.collectionId);
-      if (matching.length !== 1) throw new CanaryError("connections", "missing_grant");
-      const connection = matching[0];
-      const operations = Array.isArray(connection.operations)
-        ? [...new Set(connection.operations)].sort()
-        : [];
-      if (connection.collection_name !== options.expectedCollectionName
-          || operations.length !== REQUIRED_OPERATIONS.length
-          || operations.some((item, index) => item !== REQUIRED_OPERATIONS[index])) {
-        throw new CanaryError("connections", "grant_mismatch");
-      }
+      collectionOf(await status("connections"), options, "connections");
     });
 
-    await runStage("describe", async () => {
-      const described = await operation("describe", "describe", {});
-      if (described?.collection_id !== options.collectionId
-          || described?.display_name !== options.expectedCollectionName) {
-        throw new CanaryError("describe", "collection_mismatch");
-      }
-    });
+    const synced = await runStage("describe", async () => collectionOf(
+      await awaitStatus("describe", (current) => syncState(collectionOf(current, options, "describe"))),
+      options,
+      "describe"
+    ));
 
-    let document;
-    await runStage("read", async () => {
-      const record = operationResult(await operation("read", "read", {
-        path: options.markerPath,
-        include_document: true
-      }), "read");
-      if (record?.path !== options.markerPath || typeof record.document !== "string") {
-        throw new CanaryError("read", "marker_mismatch");
-      }
-      document = record.document;
-    });
+    const bytes = await runStage("read", () => readMarker(synced, options.markerPath));
 
     await runStage("digest", async () => {
-      if (markerDocumentSha256(document) !== options.expectedMarkerSha256) {
+      if (markerSha256(bytes) !== options.expectedMarkerSha256) {
         throw new CanaryError("digest", "digest_mismatch");
       }
     });
-
-    return {
-      exitCode: 0,
-      result: {
-        schema_version: 1,
-        environment,
-        component: "hosted_canary",
-        status: "operational",
-        checked_at: checkedAt,
-        duration_ms: elapsed(started),
-        stages
-      }
-    };
   } catch (error) {
-    const failure = error instanceof CanaryError
+    failure = error instanceof CanaryError
       ? error
       : new CanaryError(currentStage, "internal_error");
     if (!stages.some((stage) => stage.name === failure.stage && stage.status === "failed")) {
       stages.push({ name: failure.stage, status: "failed", duration_ms: 0 });
     }
-    return {
-      exitCode: failure.exitCode,
-      result: {
-        schema_version: 1,
-        environment,
-        component: "hosted_canary",
-        status: "failed",
-        checked_at: checkedAt,
-        duration_ms: elapsed(started),
-        stages,
-        error: { stage: failure.stage, code: failure.code }
-      }
-    };
   }
+
+  if (daemonOwned) {
+    try {
+      await runStage("shutdown", async () => {
+        const stopped = await runCli("shutdown", ["daemon", "stop"], SHUTDOWN_TIMEOUT_MS);
+        if (typeof stopped?.stopped !== "boolean") throw new CanaryError("shutdown", "invalid_response");
+      });
+    } catch (error) {
+      failure ??= error instanceof CanaryError ? error : new CanaryError("shutdown", "internal_error");
+    }
+  }
+
+  return {
+    exitCode: failure?.exitCode ?? 0,
+    result: {
+      schema_version: 1,
+      environment,
+      component: "hosted_canary",
+      status: failure ? "failed" : "operational",
+      checked_at: checkedAt,
+      duration_ms: elapsed(started),
+      stages,
+      ...(failure ? { error: { stage: failure.stage, code: failure.code } } : {})
+    }
+  };
 }
 
 async function main() {

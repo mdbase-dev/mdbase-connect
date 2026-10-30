@@ -56,33 +56,46 @@ your platform.
 
 ## Hosted read canary
 
-The canary drives the previous connector CLI's `connect login` and
-`connect hosted` commands, which the mdbase daemon CLI does not have; run it with
-a CLI from an earlier mdbase connect release.
+`scripts/hosted-read-canary.mjs` proves, once per run, that a signed-in
+computer reaches its account and reads one immutable Markdown marker from a
+synced (cloud-copy) collection through the hosted log. It drives the shipped
+`mdbase` CLI and daemon against an isolated profile and has no credentials or
+network client of its own.
 
-`scripts/hosted-read-canary.mjs` registers the exact portable CLI manifest,
-then checks one immutable Markdown marker through the native hosted CLI path.
-This exercises application registration and authenticated hosted access in one
-bounded probe. Enrollment is deliberately interactive and separate
-from scheduled execution:
+Each run starts that profile's daemon, so nothing it observes predates the
+run: the account relay reports `online` only after a device-bound session with
+the control plane, and the joined collection's hosted log reports `online` only
+after an authenticated reply from the log service. The canary then requires the
+collection to be caught up to the head the log reported (no pending changes,
+holds or conflicts), reads the marker from the joined folder, compares the
+SHA-256 of its exact bytes, and stops the daemon. It refuses to use a daemon it
+did not start.
+
+Enrollment is a separate, manual step. Use a dedicated canary account that is a
+member of the marker collection, ideally with the viewer role, and the mdbase
+binary of the environment being probed (production builds sign in only to
+`https://connect.mdbase.dev`):
 
 ```bash
-mdbase --state-dir /secure/persistent/canary-state connect login
-mdbase --state-dir /secure/persistent/canary-state connect hosted authorize \
-  <collection-id> --operations describe,read
+mdbase --state-dir /secure/persistent/canary-state daemon start
+mdbase --state-dir /secure/persistent/canary-state account sign-in
+mkdir -m 0700 /secure/persistent/canary-collection
+mdbase --state-dir /secure/persistent/canary-state collection join \
+  <collection-id> /secure/persistent/canary-collection
+mdbase --state-dir /secure/persistent/canary-state status
+sha256sum /secure/persistent/canary-collection/status/canary.md
+mdbase --state-dir /secure/persistent/canary-state daemon stop
 ```
 
-Approve only the final `describe,read` grant. The canary rejects broader or
-different grants. Keep the state directory persistent across runs and use the
-platform's normal keyring or credential store; the state directory alone does
-not contain the grant credentials. Do not select the insecure test secret
-backend and do not pass credentials to the canary.
-Run it without `MDBASE_CONNECT_SOCKET`; inherited endpoint overrides are
-rejected so the selected state directory cannot probe another environment's
-daemon.
+Wait until `status` shows the collection ready and synced before computing the
+digest, and compare it with the marker you published: the expected digest is
+`sha256:` followed by the 64 lowercase hex digits of the marker's exact UTF-8
+Markdown bytes. The device identity lives in the platform keyring or credential
+store, not in the state directory; keep both persistent, leave the joined folder
+unmodified, and do not set `MDBASE_SECRET_BACKEND`. The folder path stays on
+this computer; only the collection ID goes to the control plane.
 
-Compute the expected digest from the marker's exact UTF-8 Markdown bytes, with
-the `sha256:` prefix. Then schedule the probe with explicit non-secret inputs:
+Schedule the probe with explicit non-secret inputs:
 
 ```bash
 node scripts/hosted-read-canary.mjs \
@@ -94,20 +107,31 @@ node scripts/hosted-read-canary.mjs \
   --expected-collection-name "Status marker" \
   --marker-path status/canary.md \
   --expected-marker-sha256 sha256:<64-lowercase-hex-digits> \
-  --timeout-ms 30000
+  --timeout-ms 60000
 ```
 
 Every option also has an `MDBASE_HOSTED_CANARY_*` environment-variable form;
-use either the argument or its environment variable, never both. A scheduler
-should retain only the one-line JSON result. Exit `0` is operational, `1` is a
-probe failure, and `2` is invalid or unsafe configuration. Re-enrollment is a
-manual keyring-backed action, not part of the scheduled probe.
+use either the argument or its environment variable, never both. Run it without
+`MDBASE_HOME`, `MDBASE_ENV` or `MDBASE_SECRET_BACKEND`; inherited overrides are
+rejected so a run cannot select another profile, environment or secret store.
+The timeout bounds the probe; stopping the daemon afterwards has its own
+30-second bound. Do not run another daemon on the canary profile.
 
-Failed CLI commands retain only a fixed allowlisted error code from the CLI's
-JSON stderr (for example `daemon_unavailable`, `hosted_http_error`, or
-`authorization_changed`). Process failures are classified as `timeout`,
-`output_limit`, `cli_unavailable`, or `cli_signaled`; unrecognized errors remain
-`cli_failed`. No message, arbitrary code, response body, credential, or path is
-reflected. These codes narrow diagnosis, not root cause: `hosted_http_error`, for
-example, does not identify the HTTP status. Keep both the installed CLI and the
-canary script current; copying a new script does not upgrade the daemon.
+The probe prints one JSON line: `schema_version` 1, `environment`, component
+`hosted_canary`, `status`, `checked_at`, `duration_ms`, the stages `config`,
+`registration` (fresh daemon; keyring-backed account at the expected origin;
+relay online), `connections` (the collection is registered once, synced, with
+the expected name), `describe` (hosted log online and caught up), `read`,
+`digest` and `shutdown`, and on failure an `error` with its stage and a fixed
+code. Exit `0` is operational, `1` is a probe failure, and `2` is invalid or
+unsafe configuration. A scheduler should retain only that line.
+
+Failed CLI commands contribute only the daemon's stable error code or a fixed
+start/stop reason (for example `start_failed`, `daemon_unreachable` or
+`unauthenticated`). A wait that outlasts the timeout reports the last reason it
+waited on, such as `account_offline`, `log_offline`, `not_caught_up` or
+`collection_opening`. Process failures are classified as `timeout`,
+`output_limit`, `cli_unavailable`, or `cli_signaled`; anything else is
+`cli_failed`. No message, arbitrary code, account error text, identifier,
+response body, credential, path or record content is reflected. Keep the
+installed CLI and the canary script current together.
