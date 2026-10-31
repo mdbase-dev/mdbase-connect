@@ -265,7 +265,7 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
             const before = observation.initial;
             const routing = hostedRead.migrationRouting;
             const route = await migrationRoute(client, routing, p.data.id);
-            if (route === "retired") throw new CreateError(403, "wrong_service_scope");
+            if (route === "retired" || route === "moving") throw new CreateError(403, "wrong_service_scope");
             const expected = route === "migration" ? routing!.inboundToken : hostedRead.token;
             if (!safeEqual(bearerToken(request)!, expected)) throw new CreateError(403, "wrong_service_scope");
             let nonce: { challenge: string } | undefined;

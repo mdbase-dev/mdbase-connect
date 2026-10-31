@@ -104,7 +104,7 @@ async function migrationRouteRetired(db: DatabaseQueryable, routing: MigrationRo
   return row?.retired === true;
 }
 
-type MigrationRoute = "default" | "migration" | "retired";
+type MigrationRoute = "default" | "migration" | "retired" | "moving";
 
 /** Only a held legacy hosted collection (a non-transferred `hosted_collections`
  * id) of a routed owner migrates, so only it is served by the migration Worker.
@@ -112,26 +112,30 @@ type MigrationRoute = "default" | "migration" | "retired";
  * one a routed owner creates after the flip and any CP-native cloud copy it
  * already had, stays on the control plane's own deployments. All retained
  * authoritative ownership mappings, transferred history included, must agree;
- * missing/ambiguous is never a migration match. */
+ * missing/ambiguous is never a migration match. A hosting move (hosting-moves.ts)
+ * decides first: `moving` has no hosted deployment, `moved` is the default. */
 export async function migrationRoute(db: DatabaseQueryable, routing: MigrationRouting | undefined, collection: string): Promise<MigrationRoute> {
   if (!routing) return "default";
-  const result = await db.query<{ owner: string; legacy: boolean }>(
-    `SELECT owners.owner, EXISTS (SELECT 1 FROM hosted_collections WHERE id=$1 AND authority_state<>'transferred') AS legacy FROM (
+  const result = await db.query<{ owner: string; legacy: boolean; move: string | null }>(
+    `SELECT owners.owner, EXISTS (SELECT 1 FROM hosted_collections WHERE id=$1 AND authority_state<>'transferred') AS legacy,
+       (SELECT state FROM next_hosting_moves WHERE collection_id=$1) AS move FROM (
        SELECT owner_user_id::text AS owner FROM next_collections WHERE collection_id=$1
        UNION SELECT user_id::text FROM hosted_collections WHERE id=$1
        UNION SELECT user_id::text FROM collections WHERE local_id=$1
        UNION SELECT owner_user_id::text FROM collection_identities WHERE id=$1) owners`, [collection]);
   if (result.rows.length > 1) throw new Error("ambiguous_collection_owner");
   const row = result.rows[0];
+  if (row?.move === "moving") return "moving";
+  if (row?.move === "moved") return "default";
   if (row?.legacy !== true || !await migrationAccount(db, routing, row.owner)) return "default";
   return await migrationRouteRetired(db, routing, collection) ? "retired" : "migration";
 }
 
 type Deployments = { hosted: { url: string; token: string }; escrow: { url: string; token: string } };
-/** null: the collection's migration route was retired, so it has no service deployments. */
+/** null: the collection's migration route was retired, or it is moving hosting, so it has no service deployments. */
 export async function migrationDeployments(db: DatabaseQueryable, normal: Deployments, routing: MigrationRouting | undefined, collection: string): Promise<Deployments | null> {
   const route = await migrationRoute(db, routing, collection);
-  return route === "retired" ? null : route === "migration" ? { ...normal, hosted: routing!.hosted } : normal;
+  return route === "retired" || route === "moving" ? null : route === "migration" ? { ...normal, hosted: routing!.hosted } : normal;
 }
 
 const RETIRED_EVENT = "next_migration.routing_retired";
