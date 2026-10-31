@@ -3,15 +3,21 @@
 // tool re-wraps the device's keys from the migration Worker's KMS key to the CP
 // hosted key (KMS ReEncrypt; the plaintext never leaves KMS) and drives these steps:
 //
-//   mark    → `moving`: migrationRoute() refuses every hosted caller, so neither
-//             Worker can mint a log token, read the record or take app sockets.
+//   mark    → `moving`, only for a collection routed to the migration Worker and
+//             still on the expected source key: migrationRoute() refuses every
+//             hosted caller, so neither Worker can mint a log token, read the
+//             record or take app sockets. Then release the deployment it is
+//             leaving: its ordinary activation re-mints the log token, is refused,
+//             and the actor drops its engine, so held app sockets close on their
+//             next frame instead of taking writes it can no longer append.
 //   status  → the hosted record, and whether the fence window has passed: the
 //             last log token minted before the mark has expired, plus clock skew.
 //   store   → after the fence, a CAS of `wrapped_keys`/`kms_key_arn` in the same
 //             transaction as `moving → moved` (or, re-wrapped back, the row's
 //             removal). The new key is itself a fence: the old Worker cannot open it.
 //   verify  → wake the CP hosted deployment: it opens the collection and syncs it.
-//   reverse → `moved → moving` with a fresh fence, then store re-wrapped back.
+//   reverse → `moved → moving` with a fresh fence and a release of the CP
+//             deployment, then store re-wrapped back.
 //   clear   → end a `moving` mark without re-wrapping: route to whichever
 //             Worker's key the record names.
 //
@@ -26,25 +32,28 @@ import { safeEqual } from "../../security.js";
 import { CreateError, inTransaction } from "./bootstrap-common.js";
 import { LOG_TOKEN_LIFETIME_MS } from "./log-service-client.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
+import { migrationRoute, type MigrationRouting } from "./migration-routing.js";
 import { collectionRegion } from "./policy-outbox.js";
-import { activationOutcome } from "./service-activation.js";
+import { activationOutcome, type Outcome } from "./service-activation.js";
 import { MAX_WRAPPED_KEYS_BYTES } from "./service-devices.js";
 
 /** The last token minted before the mark lasts LOG_TOKEN_LIFETIME_MS; allow for CP/log clock skew. */
 export const HOSTING_MOVE_FENCE_MS = LOG_TOKEN_LIFETIME_MS + 2 * 60_000;
-const VERIFY_TIMEOUT_MS = 30_000;
+const ACTIVATE_TIMEOUT_MS = 30_000;
 
 const sha256 = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
 const HEX64 = z.string().regex(/^[0-9a-f]{64}$/u);
 const ARN = z.string().min(1).max(2048).regex(/^arn:[!-~]+$/u);
 const BASE64 = z.string().min(4).max(Math.ceil(MAX_WRAPPED_KEYS_BYTES / 3) * 4).regex(/^[A-Za-z0-9+/]+={0,2}$/u);
 
-type MoveRow = { state: "moving" | "moved"; from_kms_key_arn_sha256: string; to_kms_key_arn_sha256: string; moving_at: Date; moved_at: Date | null; fence_at: Date; fence_elapsed: boolean };
+type MoveRow = { state: "moving" | "moved"; from_kms_key_arn_sha256: string; to_kms_key_arn_sha256: string; moving_at: Date; moved_at: Date | null;
+  released_at: Date | null; phase: string; fence_at: Date; fence_elapsed: boolean };
+type Deployment = { url: string; token: string };
 type HostedRow = { device_id: string; wrapped_keys: Buffer; kms_key_arn: string };
 
 async function moveRow(db: DatabaseQueryable, collection: string, forUpdate = false): Promise<MoveRow | undefined> {
   return (await db.query<MoveRow>(
-    `SELECT state, from_kms_key_arn_sha256, to_kms_key_arn_sha256, moving_at, moved_at,
+    `SELECT state, from_kms_key_arn_sha256, to_kms_key_arn_sha256, moving_at, moved_at, released_at, moving_at::text AS phase,
        moving_at + make_interval(secs => $2::double precision) AS fence_at,
        now() >= moving_at + make_interval(secs => $2::double precision) AS fence_elapsed
      FROM next_hosting_moves WHERE collection_id = $1 ${forUpdate ? "FOR UPDATE" : ""}`,
@@ -69,6 +78,7 @@ function view(collection: string, record: HostedRow, move: MoveRow | undefined) 
     moved_at: move?.moved_at?.toISOString() ?? null,
     fence_at: move?.state === "moving" ? move.fence_at.toISOString() : null,
     fence_elapsed: move?.state === "moving" ? move.fence_elapsed : null,
+    released: move?.state === "moving" ? move.released_at !== null : null,
     record: { device_id: record.device_id, kms_key_arn: record.kms_key_arn, kms_key_arn_sha256: sha256(record.kms_key_arn),
       wrapped_keys: record.wrapped_keys.toString("base64") },
   };
@@ -100,16 +110,19 @@ export async function hostingMoveInventory(db: DatabaseQueryable, keyHash?: stri
   return { groups, collections };
 }
 
-/** No row → `moving` from the record's current key. Idempotent while moving to the same key. */
-export async function markHostingMove(db: DatabasePool, collection: string, to: string): Promise<HostingMoveStatus> {
+/** No row → `moving`, for a migration-routed collection whose record is on `from`.
+ * Idempotent while moving between the same keys. */
+export async function markHostingMove(db: DatabasePool, routing: MigrationRouting, collection: string, from: string, to: string): Promise<HostingMoveStatus> {
+  if (from === to) throw new CreateError(400, "invalid_request");
   return inTransaction(db, async client => {
     const record = await hostedRecord(client, collection, true);
     const move = await moveRow(client, collection, true);
     if (move?.state === "moved") throw new CreateError(409, "hosting_move_moved");
-    if (move && move.to_kms_key_arn_sha256 !== to) throw new CreateError(409, "hosting_move_conflict");
+    if (move && (move.from_kms_key_arn_sha256 !== from || move.to_kms_key_arn_sha256 !== to)) throw new CreateError(409, "hosting_move_conflict");
     if (!move) {
-      const from = sha256(record.kms_key_arn);
-      if (from === to) throw new CreateError(409, "hosting_move_already_on_destination");
+      // A CP-native or retired collection must never be marked: it would go dark.
+      if (sha256(record.kms_key_arn) !== from) throw new CreateError(409, "hosting_move_wrong_key");
+      if (await migrationRoute(client, routing, collection) !== "migration") throw new CreateError(409, "hosting_move_not_migration_routed");
       await client.query(`INSERT INTO next_hosting_moves(collection_id, state, from_kms_key_arn_sha256, to_kms_key_arn_sha256)
         VALUES($1, 'moving', $2, $3)`, [collection, from, to]);
     }
@@ -124,7 +137,7 @@ export async function reverseHostingMove(db: DatabasePool, collection: string): 
     const move = await moveRow(client, collection, true);
     if (!move) throw new CreateError(409, "hosting_move_not_found");
     if (move.state === "moved") await client.query(
-      "UPDATE next_hosting_moves SET state = 'moving', moving_at = now(), moved_at = NULL WHERE collection_id = $1", [collection]);
+      "UPDATE next_hosting_moves SET state = 'moving', moving_at = now(), moved_at = NULL, released_at = NULL WHERE collection_id = $1", [collection]);
     return view(collection, record, await moveRow(client, collection));
   });
 }
@@ -165,6 +178,7 @@ export async function storeHostingMove(db: DatabasePool, collection: string, exp
     await hostedRecord(client, collection, true); // Same lock order as every other step.
     const move = await moveRow(client, collection, true);
     if (move?.state !== "moving") throw new CreateError(409, "hosting_move_not_moving");
+    if (!move.released_at) throw new CreateError(409, "hosting_move_not_released");
     if (!move.fence_elapsed) throw new CreateError(409, "hosting_move_fence_pending");
     const target = sha256(next.kms_key_arn);
     if (target === sha256(expected.kms_key_arn) || ![move.from_kms_key_arn_sha256, move.to_kms_key_arn_sha256].includes(target))
@@ -181,19 +195,37 @@ export async function storeHostingMove(db: DatabasePool, collection: string, exp
   });
 }
 
+/** The deployment's ordinary activation for the collection (what policy batches send). */
+async function activate(db: DatabaseQueryable, deployment: Deployment, collection: string, fetchImpl: typeof fetch): Promise<Outcome> {
+  const region = await collectionRegion(db, collection);
+  const url = new URL("internal/v1/collections/activate", `${deployment.url.replace(/\/+$/u, "")}/`);
+  try {
+    return await activationOutcome(await fetchImpl(url, { method: "POST", redirect: "manual",
+      headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ collection, ...(region ? { region } : {}) }), signal: AbortSignal.timeout(ACTIVATE_TIMEOUT_MS) }));
+  } catch { return { kind: "unknown" }; }
+}
+
+/** While `moving`: activate the deployment the collection is leaving (the one whose key
+ * the record names). Its fresh log-token mint is refused, so it answers with a custody
+ * verdict and drops its engine; only that answer records the release. Idempotent. */
+export async function releaseHostingMove(db: DatabasePool, deployments: { migration: Deployment; hosted: Deployment }, collection: string,
+  fetchImpl: typeof fetch = fetch): Promise<HostingMoveStatus> {
+  const move = await moveRow(db, collection), record = await hostedRecord(db, collection);
+  if (move?.state === "moving" && !move.released_at) {
+    const leaving = sha256(record.kms_key_arn) === move.from_kms_key_arn_sha256 ? deployments.migration : deployments.hosted;
+    if ((await activate(db, leaving, collection, fetchImpl)).kind === "refused") await db.query(
+      "UPDATE next_hosting_moves SET released_at = now() WHERE collection_id = $1 AND state = 'moving' AND moving_at::text = $2 AND released_at IS NULL",
+      [collection, move.phase]);
+  }
+  return hostingMoveStatus(db, collection);
+}
+
 /** Wake the CP hosted deployment for a moved collection: a cold open from the log, then sync. */
-export async function verifyHostingMove(db: DatabaseQueryable, hosted: { url: string; token: string }, collection: string,
+export async function verifyHostingMove(db: DatabaseQueryable, hosted: Deployment, collection: string,
   fetchImpl: typeof fetch = fetch): Promise<{ activated: true }> {
   if ((await moveRow(db, collection))?.state !== "moved") throw new CreateError(409, "hosting_move_not_moved");
-  const region = await collectionRegion(db, collection);
-  const url = new URL("internal/v1/collections/activate", `${hosted.url.replace(/\/+$/u, "")}/`);
-  let response: Response;
-  try {
-    response = await fetchImpl(url, { method: "POST", redirect: "manual",
-      headers: { authorization: `Bearer ${hosted.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ collection, ...(region ? { region } : {}) }), signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS) });
-  } catch { throw new CreateError(503, "hosting_move_not_ready"); }
-  const result = await activationOutcome(response);
+  const result = await activate(db, hosted, collection, fetchImpl);
   if (result.kind === "accepted") return { activated: true };
   throw new CreateError(result.kind === "refused" ? 409 : 503, result.kind === "refused" ? result.reason : "hosting_move_not_ready");
 }
@@ -201,14 +233,14 @@ export async function verifyHostingMove(db: DatabaseQueryable, hosted: { url: st
 /** `/internal/v1/next/migration/hosting-moves…`: the migration token only. Mount only with
  * migration routing: without it migrationRoute() never reads a move. */
 export function registerHostingMoveRoutes(app: FastifyInstance, options: {
-  db: DatabasePool; token: string; hosted: { url: string; token: string }; fetchImpl?: typeof fetch;
+  db: DatabasePool; token: string; routing: MigrationRouting; hosted: Deployment; fetchImpl?: typeof fetch;
 }): void {
   const base = "/internal/v1/next/migration/hosting-moves";
   const config = { rateLimit: migrationServiceRateLimit(options.token, "service:migration:hosting-move") };
   const id = z.object({ id: z.uuid() }).strict();
   const record = z.object({ wrapped_keys: BASE64, kms_key_arn: ARN }).strict();
   const bodies = {
-    mark: z.object({ to_kms_key_arn_sha256: HEX64 }).strict(),
+    mark: z.object({ from_kms_key_arn_sha256: HEX64, to_kms_key_arn_sha256: HEX64 }).strict(),
     store: z.object({ expected: record, record }).strict(),
     clear: z.object({}).strict(), reverse: z.object({}).strict(), verify: z.object({}).strict(),
   };
@@ -238,10 +270,18 @@ export function registerHostingMoveRoutes(app: FastifyInstance, options: {
       const p = id.safeParse(request.params), b = bodies[step].safeParse(request.body ?? {});
       if (!p.success || !b.success) invalid();
       const collection = p.data!.id;
-      if (step === "mark") return markHostingMove(options.db, collection, (b.data as z.infer<typeof bodies.mark>).to_kms_key_arn_sha256);
+      const deployments = { migration: options.routing.hosted, hosted: options.hosted };
+      if (step === "mark") {
+        const body = b.data as z.infer<typeof bodies.mark>;
+        await markHostingMove(options.db, options.routing, collection, body.from_kms_key_arn_sha256, body.to_kms_key_arn_sha256);
+        return releaseHostingMove(options.db, deployments, collection, options.fetchImpl);
+      }
       if (step === "store") { const body = b.data as z.infer<typeof bodies.store>; return storeHostingMove(options.db, collection, body.expected, body.record); }
       if (step === "clear") return clearHostingMove(options.db, collection);
-      if (step === "reverse") return reverseHostingMove(options.db, collection);
+      if (step === "reverse") {
+        await reverseHostingMove(options.db, collection);
+        return releaseHostingMove(options.db, deployments, collection, options.fetchImpl);
+      }
       return verifyHostingMove(options.db, options.hosted, collection, options.fetchImpl);
     }));
   }

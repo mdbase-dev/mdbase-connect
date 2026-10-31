@@ -648,7 +648,8 @@ export async function buildApp(options: BuildOptions) {
       if (options.nextControlPlane.migrationRouting) registerMigrationRouteRetireRoute(app, { db: options.db,
         token: options.nextControlPlane.migrationToken, routing: options.nextControlPlane.migrationRouting });
       if (options.nextControlPlane.migrationRouting && options.nextControlPlane.cloudCopyBootstrap) registerHostingMoveRoutes(app, { db: options.db,
-        token: options.nextControlPlane.migrationToken, hosted: options.nextControlPlane.cloudCopyBootstrap.hosted });
+        token: options.nextControlPlane.migrationToken, routing: options.nextControlPlane.migrationRouting,
+        hosted: options.nextControlPlane.cloudCopyBootstrap.hosted });
     }
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog, tailscaleAuth: options.tailscaleAuth });
     if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog });

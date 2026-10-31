@@ -43,24 +43,28 @@ describePostgres("hosting moves (real Postgres)", () => {
   const routing: MigrationRouting = { environment: "lab", accounts: new Set([owner]),
     hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
   const app = Fastify();
+  // CP hosted deployment answers verify; the deployment being left answers the release.
   let activation: () => Response = () => Response.json({ activated: true });
+  let release: () => Response = () => Response.json({ error: "custody_collection_not_allowed" }, { status: 409 });
   const woken: Request[] = [];
+  let releasingCp = false;
 
-  async function migrated() {
-    const collection = randomUUID(), device = randomUUID(), wrapped = envelope(MIGRATION_ARN, 1);
+  async function migrated({ legacy = true, arn = MIGRATION_ARN }: { legacy?: boolean; arn?: string } = {}) {
+    const collection = randomUUID(), device = randomUUID(), wrapped = envelope(arn, 1);
     await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next','cloud_copy',$3)", [collection, owner, Buffer.from(originUnsigned.root)]);
-    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Migrated','mdbase')", [collection, owner]);
+    if (legacy) await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Migrated','mdbase')", [collection, owner]);
     await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,1,$2,$3,$4,'appended')", [collection, Buffer.alloc(32),
       Buffer.from(signPolicyItem(originSigner, { collection, seq: 1, prev: Buffer.alloc(32), issuedAt: NOW, previousIssuedAt: 0, ops: [{ op: "genesis", owner, root: originUnsigned.root, state: "cloud-copy" }] })), NOW]);
     await storeServiceDevice(db, collection, parseServiceDevice({ kind: "hosted", device_id: device, sign_pk: "03".repeat(32), kem_pk: "04".repeat(32),
-      noise_pk: "05".repeat(32), wrapped_keys: wrapped, kms_key_arn: MIGRATION_ARN }));
+      noise_pk: "05".repeat(32), wrapped_keys: wrapped, kms_key_arn: arn }));
     const step = (name: string, payload: object = {}) => app.inject({ method: "POST", url: `/internal/v1/next/migration/hosting-moves/${collection}/${name}`,
       headers: { authorization: `Bearer ${operator}` }, payload });
     const status = async () => (await app.inject({ method: "GET", url: `/internal/v1/next/migration/hosting-moves/${collection}`, headers: { authorization: `Bearer ${operator}` } })).json();
     const mint = (token: string) => app.inject({ method: "POST", url: `/internal/v1/next/service-devices/${device}/log-token`, headers: { authorization: `Bearer ${token}` }, payload: { collection } });
     const record = (token: string) => app.inject({ method: "GET", url: `/internal/v1/next/collections/${collection}/service-devices/hosted`, headers: { authorization: `Bearer ${token}` } });
+    const mark = () => step("mark", { from_kms_key_arn_sha256: sha(MIGRATION_ARN), to_kms_key_arn_sha256: sha(CP_ARN) });
     const fenced = () => db.query("UPDATE next_hosting_moves SET moving_at = now() - make_interval(secs => $2) WHERE collection_id = $1", [collection, HOSTING_MOVE_FENCE_MS / 1000 + 1]);
-    return { collection, device, wrapped, step, status, mint, record, fenced };
+    return { collection, device, wrapped, step, status, mint, record, mark, fenced };
   }
 
   beforeAll(async () => {
@@ -76,8 +80,11 @@ describePostgres("hosting moves (real Postgres)", () => {
     const log = new LogServiceClient({ url: "https://log.example.test", tokenIssuerKeyPem: issuer.privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
       transportKeyPem: transport.export({ format: "pem", type: "pkcs8" }).toString() }, async () => { throw new Error("no network"); });
     registerNextHostedRoutes(app, { db, tokens: { hosted: cpHosted }, log, now: () => NOW, migrationRouting: routing });
-    registerHostingMoveRoutes(app, { db, token: operator, hosted: cpDeployment,
-      fetchImpl: async (input, init) => { woken.push(new Request(input, init)); return activation(); } });
+    registerHostingMoveRoutes(app, { db, token: operator, routing, hosted: cpDeployment, fetchImpl: async (input, init) => {
+      const request = new Request(input, init);
+      woken.push(request);
+      return request.url.startsWith(cpDeployment.url) && !releasingCp ? activation() : release();
+    } });
   }, 60_000);
 
   afterAll(async () => {
@@ -92,14 +99,23 @@ describePostgres("hosting moves (real Postgres)", () => {
     expect(await migrationRoute(db, routing, m.collection)).toBe("migration");
     expect((await m.mint(routing.inboundToken)).statusCode).toBe(200);
 
-    const marked = await m.step("mark", { to_kms_key_arn_sha256: sha(CP_ARN) });
+    // The migration Worker has not dropped its engine yet: the mark holds, unreleased.
+    release = () => new Response("busy", { status: 503 });
+    const marked = await m.mark();
     expect(marked.statusCode, marked.body).toBe(200);
     expect(marked.json()).toMatchObject({ state: "moving", from_kms_key_arn_sha256: sha(MIGRATION_ARN), to_kms_key_arn_sha256: sha(CP_ARN),
-      fence_elapsed: false, record: { device_id: m.device, kms_key_arn: MIGRATION_ARN, wrapped_keys: m.wrapped } });
+      fence_elapsed: false, released: false, record: { device_id: m.device, kms_key_arn: MIGRATION_ARN, wrapped_keys: m.wrapped } });
+    expect(woken.at(-1)!.url).toBe(`${routing.hosted.url}/internal/v1/collections/activate`);
+    expect(woken.at(-1)!.headers.get("authorization")).toBe(`Bearer ${routing.hosted.token}`);
     expect(Date.parse(marked.json().fence_at) - Date.parse(marked.json().moving_at)).toBe(HOSTING_MOVE_FENCE_MS);
-    // A repeated mark is idempotent and does not restart the fence.
-    expect((await m.step("mark", { to_kms_key_arn_sha256: sha(CP_ARN) })).json().moving_at).toBe(marked.json().moving_at);
-    expect((await m.step("mark", { to_kms_key_arn_sha256: sha("arn:aws:kms:other") })).json().error.code).toBe("hosting_move_conflict");
+    // A repeated mark is idempotent, does not restart the fence, and releases again.
+    release = () => Response.json({ error: "custody_collection_not_allowed" }, { status: 409 });
+    const again = (await m.mark()).json();
+    expect(again).toMatchObject({ moving_at: marked.json().moving_at, released: true });
+    const wakes = woken.length;
+    expect((await m.mark()).json().released).toBe(true);
+    expect(woken.length).toBe(wakes);
+    expect((await m.step("mark", { from_kms_key_arn_sha256: sha(MIGRATION_ARN), to_kms_key_arn_sha256: sha("arn:aws:kms:other") })).json().error.code).toBe("hosting_move_conflict");
     expect(await migrationRoute(db, routing, m.collection)).toBe("moving");
     for (const token of [routing.inboundToken, cpHosted]) {
       expect((await m.mint(token)).statusCode).toBe(403);
@@ -141,15 +157,44 @@ describePostgres("hosting moves (real Postgres)", () => {
     expect((await m.step("clear")).json().error.code).toBe("hosting_move_moved");
   });
 
+  it("refuses to mark a collection that is not migration-routed or not on the source key, and stores only after a release", async () => {
+    const native = await migrated({ legacy: false });
+    expect(await migrationRoute(db, routing, native.collection)).toBe("default");
+    expect((await native.mark()).json().error.code).toBe("hosting_move_not_migration_routed");
+    const retired = await migrated();
+    await db.query("INSERT INTO next_migration_routing_retirements(collection_id, actor, reason) VALUES($1, 'test', 'test')", [retired.collection]);
+    expect((await retired.mark()).json().error.code).toBe("hosting_move_not_migration_routed");
+    const elsewhere = await migrated({ arn: "arn:aws:kms:ap-southeast-1:000000000000:key/33333333-3333-4333-8333-333333333333" });
+    expect((await elsewhere.mark()).json().error.code).toBe("hosting_move_wrong_key");
+    expect((await elsewhere.step("mark", { from_kms_key_arn_sha256: sha(CP_ARN), to_kms_key_arn_sha256: sha(CP_ARN) })).statusCode).toBe(400);
+    for (const m of [native, retired, elsewhere]) expect((await m.status()).state).toBeNull();
+
+    // An activation the Worker accepted (it still minted) or did not answer is no release.
+    const m = await migrated();
+    release = () => Response.json({ activated: true });
+    expect((await m.mark()).json().released).toBe(false);
+    await m.fenced();
+    const store = { expected: { wrapped_keys: m.wrapped, kms_key_arn: MIGRATION_ARN }, record: { wrapped_keys: envelope(CP_ARN, 2), kms_key_arn: CP_ARN } };
+    expect((await m.step("store", store)).json().error.code).toBe("hosting_move_not_released");
+    release = () => Response.json({ error: "custody_collection_gone" }, { status: 409 });
+    expect((await m.mark()).json().released).toBe(true);
+    expect((await m.step("store", store)).json()).toMatchObject({ state: "moved" });
+    release = () => Response.json({ error: "custody_collection_not_allowed" }, { status: 409 });
+  });
+
   it("reverses after re-wrap with a fresh fence, returning the collection to the migration Worker", async () => {
     const m = await migrated();
-    await m.step("mark", { to_kms_key_arn_sha256: sha(CP_ARN) });
+    await m.mark();
     await m.fenced();
     const moved = { wrapped_keys: envelope(CP_ARN, 2), kms_key_arn: CP_ARN };
     expect((await m.step("store", { expected: { wrapped_keys: m.wrapped, kms_key_arn: MIGRATION_ARN }, record: moved })).statusCode).toBe(200);
 
+    // The reverse releases the CP deployment, the one the collection is now leaving.
+    releasingCp = true;
     const reversed = await m.step("reverse");
-    expect(reversed.json()).toMatchObject({ state: "moving", fence_elapsed: false, record: { kms_key_arn: CP_ARN } });
+    releasingCp = false;
+    expect(reversed.json()).toMatchObject({ state: "moving", fence_elapsed: false, released: true, record: { kms_key_arn: CP_ARN } });
+    expect(woken.at(-1)!.url).toBe(`${cpDeployment.url}/internal/v1/collections/activate`);
     expect((await m.mint(cpHosted)).statusCode).toBe(403);
     const back = { expected: moved, record: { wrapped_keys: envelope(MIGRATION_ARN, 3), kms_key_arn: MIGRATION_ARN } };
     expect((await m.step("store", back)).json().error.code).toBe("hosting_move_fence_pending");
@@ -163,13 +208,13 @@ describePostgres("hosting moves (real Postgres)", () => {
 
   it("clears a mark by the record's key: back to the migration Worker before re-wrap, on to the CP after", async () => {
     const before = await migrated();
-    await before.step("mark", { to_kms_key_arn_sha256: sha(CP_ARN) });
+    await before.mark();
     expect((await before.step("clear")).json()).toMatchObject({ state: null });
     expect(await migrationRoute(db, routing, before.collection)).toBe("migration");
     expect((await before.step("clear")).statusCode).toBe(200);
 
     const after = await migrated();
-    await after.step("mark", { to_kms_key_arn_sha256: sha(CP_ARN) });
+    await after.mark();
     await after.fenced();
     const moved = { wrapped_keys: envelope(CP_ARN, 2), kms_key_arn: CP_ARN };
     await after.step("store", { expected: { wrapped_keys: after.wrapped, kms_key_arn: MIGRATION_ARN }, record: moved });
@@ -181,7 +226,7 @@ describePostgres("hosting moves (real Postgres)", () => {
 
   it("inventories hosted devices by key and lists one key's collections with move state", async () => {
     const pending = await migrated(), marked = await migrated();
-    await marked.step("mark", { to_kms_key_arn_sha256: sha(CP_ARN) });
+    await marked.mark();
     const get = (query = "") => app.inject({ method: "GET", url: `/internal/v1/next/migration/hosting-moves${query}`, headers: { authorization: `Bearer ${operator}` } });
     const { groups } = (await get()).json();
     expect(groups.find((group: { kms_key_arn: string }) => group.kms_key_arn === MIGRATION_ARN)).toMatchObject({ kms_key_arn_sha256: sha(MIGRATION_ARN), moving: 1 });
