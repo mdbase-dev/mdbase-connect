@@ -768,7 +768,7 @@ impl<S: Store> Replica<S> {
                 // A stall waiting for this key can proceed.
                 if matches!(self.stalled, Some((IncidentKind::WaitingForKey, _))) {
                     self.stalled = None;
-                    self.key_wait_read.clear();
+                    self.stall_read.clear();
                 }
             }
             crate::seal::KeyEvent::None => {}

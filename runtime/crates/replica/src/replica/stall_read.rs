@@ -1,5 +1,12 @@
-//! Bounded ordinary read probes while waiting for a verified epoch key.
+//! Bounded ordinary read probes while apply is stalled, of any kind.
 //! A deadline is scheduling state, never key or policy authority.
+//!
+//! A stalled entry is re-read only by these probes: a read reply, a push or a
+//! tick never re-reads it sooner. Waiting for a key resolves through a key
+//! event; every other stall (an unknown format, an unpinned key, a planner this
+//! build cannot verify) depends only on the log and this build's code and
+//! configuration, which change only on reopen. The probes keep a stalled
+//! replica hearing of the log (its head, a snapshot it has fallen behind).
 //!
 //! The probe interval doubles while nothing changes. A known head past the one
 //! the last probe saw (a push: entries were appended, perhaps this device's
