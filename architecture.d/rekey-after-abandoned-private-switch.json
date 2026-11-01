@@ -1,7 +1,0 @@
-{
-  "reason": "Mode status and the abandon route share one rekey-item classifier, exported from the mode routes; status decodes control items, so the routes now import the policy wire codec.",
-  "growth": {
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 1
-  }
-}
