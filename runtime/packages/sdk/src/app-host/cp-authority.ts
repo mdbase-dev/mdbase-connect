@@ -1,6 +1,6 @@
 /** Enrolled-device CP log-token refresh + protected WASM proof authority.
  * Not registration, account login, key custody storage or readiness admission. */
-import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
+import { labLoopbackHttpOrigin } from "../application/local-build.js";
 import type { AppLogTokenCache } from "./log-token-cache.js";
 import { uuidToBytes } from "../codec.js";
 import { AppHttpLogTransport, type AppLogHttpAuthority, type AppLogHttpOptions, type AppLogHttpProof } from "./http-log.js";
@@ -22,7 +22,7 @@ const fail = (r: AppCpAuthorityError["reason"]) => new AppCpAuthorityError(r);
 const refused = (server: AppServerProblem) => new AppCpAuthorityError(appServerOutcome(server) ?? "unavailable", server);
 function origin(input: string, loopback: boolean): string {
   let u: URL; try { u = new URL(input); } catch { throw fail("binding"); }
-  if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || (u.protocol !== "https:" && !(loopback && u.protocol === "http:" && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(input) : ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname))))) throw fail("binding");
+  if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || (u.protocol !== "https:" && !(loopback && labLoopbackHttpOrigin(input)))) throw fail("binding");
   return u.origin;
 }
 function uint(v: number | bigint): bigint { if (typeof v === "number" && !Number.isSafeInteger(v)) throw fail("binding"); const n = BigInt(v); if (n < 0n || n > (1n << 64n) - 1n) throw fail("binding"); return n; }

@@ -4,21 +4,24 @@ import { ModuleKind, ScriptTarget, transpileModule } from "typescript";
 
 const source = readFileSync(new URL("../src/local-build.ts", import.meta.url), "utf8");
 const literal = "export const LOCAL_APPLICATION_BUILD: boolean = false;";
+// [origin, local build accepts, local relay accepts, managed LAB flag accepts].
+// The managed LAB host match is lenient by design; each caller still checks
+// credentials, path and canonical origin itself.
 const origins = [
-  ["http://127.0.0.1:4100", true, true],
-  ["http://localhost:4100", true, true],
-  ["http://[::1]:4100", true, true],
-  ["http://127.0.0.1:0", false, false],
-  ["http://127.0.0.1", false, false],
-  ["http://127.0.0.1:80", false, false],
-  ["http://remote.test:4100", false, false],
-  ["http://localhost.evil.test:4100", false, false],
-  ["http://127.1:4100", false, false],
-  ["http://user:pass@127.0.0.1:4100", false, false],
-  ["http://127.0.0.1:4100/path", false, true],
-  ["http://127.0.0.1:4100?query", false, false],
-  ["http://127.0.0.1:4100#fragment", false, false],
-  ["https://control.test", true, true],
+  ["http://127.0.0.1:4100", true, true, true],
+  ["http://localhost:4100", true, true, true],
+  ["http://[::1]:4100", true, true, true],
+  ["http://127.0.0.1:0", false, false, true],
+  ["http://127.0.0.1", false, false, true],
+  ["http://127.0.0.1:80", false, false, true],
+  ["http://remote.test:4100", false, false, false],
+  ["http://localhost.evil.test:4100", false, false, false],
+  ["http://127.1:4100", false, false, true],
+  ["http://user:pass@127.0.0.1:4100", false, false, true],
+  ["http://127.0.0.1:4100/path", false, true, true],
+  ["http://127.0.0.1:4100?query", false, false, true],
+  ["http://127.0.0.1:4100#fragment", false, false, true],
+  ["https://control.test", true, true, false],
 ] as const;
 const cases = [
   { compiledLocal: true, environment: "local" },
@@ -26,9 +29,9 @@ const cases = [
   { compiledLocal: false, environment: "production" },
   // A runtime label must not enable local transport in a managed artifact.
   { compiledLocal: false, environment: "local" },
-].flatMap(build => origins.map(([origin, localAccepted, localRelayAccepted]) => ({ ...build, origin, localAccepted, localRelayAccepted })));
+].flatMap(build => origins.map(([origin, localAccepted, localRelayAccepted, labAccepted]) => ({ ...build, origin, localAccepted, localRelayAccepted, labAccepted })));
 
-it.each(cases)("$environment compiledLocal=$compiledLocal: $origin", async ({ compiledLocal, environment, origin, localAccepted, localRelayAccepted }) => {
+it.each(cases)("$environment compiledLocal=$compiledLocal: $origin", async ({ compiledLocal, environment, origin, localAccepted, localRelayAccepted, labAccepted }) => {
   vi.resetModules();
   vi.doMock("../src/local-build.js", async () => {
     if (source.split(literal).length !== 2) throw Error("compiled build literal missing");
@@ -38,13 +41,15 @@ it.each(cases)("$environment compiledLocal=$compiledLocal: $origin", async ({ co
   });
   // Load one graph at a time: concurrent reset/mock imports can observe an
   // in-flight unmocked dependency before Vitest installs its compiled module.
-  const { localApplicationHttpOrigin } = await import("../src/local-build.js");
+  const { labLoopbackHttpOrigin, localApplicationHttpOrigin } = await import("../src/local-build.js");
   const { AppProtectedInstallationSignIn } = await import("../src/app-host/installation-sign-in.js");
   const { AppCollectionSetupJournal } = await import("../src/app-host/collection-setup-journal.js");
   const { controlRouteResolver } = await import("../src/transport/control-route.js");
   const { relayPipeCarrier } = await import("../src/transport/relay-pipe.js");
   const accepted = origin.startsWith("https:") || (compiledLocal && localAccepted);
   expect(localApplicationHttpOrigin(origin)).toBe(compiledLocal && origin.startsWith("http:") && localAccepted);
+  // A local build narrows the LAB flag to its own exact local origins.
+  expect(labLoopbackHttpOrigin(origin)).toBe(compiledLocal ? origin.startsWith("http:") && localAccepted : labAccepted);
   // Only URL admission is under test; this selected-scope stub is NOT custody,
   // consent, collection readiness or an end-to-end sign-in fixture.
   const flow = { confirmedSelection: () => ({}), state: { environment } } as unknown as typeof AppProtectedInstallationSignIn.prototype;

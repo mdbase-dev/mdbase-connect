@@ -13,7 +13,7 @@
  * frame carries its type at key 0 (1 response, 2 push) and every push a string
  * `kind` at key 1. Unknown frame types, push kinds and text messages are ignored,
  * never an error, so later message kinds need no protocol rework. */
-import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
+import { labLoopbackHttpOrigin } from "../application/local-build.js";
 import { decode, encode, type CborValue } from "../cbor.js";
 import { uuidToBytes } from "../codec.js";
 
@@ -62,9 +62,8 @@ export interface AppLogPushOptions {
 
 function wsOrigin(input: string, loopback: boolean): string {
   const u = new URL(input);
-  const local = LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(input) : ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
   if (u.protocol === "https:") return `wss://${u.host}`;
-  if (loopback && local && u.protocol === "http:") return `ws://${u.host}`;
+  if (loopback && labLoopbackHttpOrigin(input)) return `ws://${u.host}`;
   throw new Error("app log push: origin");
 }
 const hex = (b: Uint8Array) => [...b].map(v => v.toString(16).padStart(2, "0")).join("");

@@ -1,5 +1,5 @@
 /** First-party unary LS HTTP + staged object transfers. No account/key custody defaults. */
-import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
+import { labLoopbackHttpOrigin } from "../application/local-build.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { decode, encode, type CborValue } from "../cbor.js";
 import { uuidToBytes } from "../codec.js";
@@ -67,8 +67,7 @@ function hex(b: Uint8Array): string { return [...b].map(v => v.toString(16).padS
 function base64(b: Uint8Array): string { return btoa(String.fromCharCode(...b)); }
 function origin(input: string, loopback: boolean): string {
   let u: URL; try { u = new URL(input); } catch { throw error("binding"); }
-  const local = LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(input) : ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
-  if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || (u.protocol !== "https:" && !(loopback && local && u.protocol === "http:"))) throw error("binding");
+  if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || (u.protocol !== "https:" && !(loopback && labLoopbackHttpOrigin(input)))) throw error("binding");
   return u.origin;
 }
 /** Fetch exposes decoded bytes; CORS can hide Content-Encoding. Wire length

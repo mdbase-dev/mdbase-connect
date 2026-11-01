@@ -1,7 +1,7 @@
 /** Internal pre-account sign-in ledger. Nonextractable origin AES handle + bounded
  * encrypted operation in ONE strict IDB commit. Not an account KEK, generic KV,
  * OS keychain, XSS boundary or physical durability/collection Saved guarantee. */
-import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
+import { labLoopbackHttpOrigin } from "../application/local-build.js";
 import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { acquireAppSignInLease, isAppInstallationId, isInstallationOwner, AppReplicaOwnerError, type AppLockPort, type AppReplicaLease } from "./owner.js";
 const STORE = "installation-sign-in", KEY = "original", MAX = 128 * 1024; // bounded original + additive consent receipts (<=1000 IDs each)
@@ -64,7 +64,7 @@ export class AppInstallationStore {
     try {
       if (!isAppOrigin(p.origin, p.allowLoopbackHttp === true, p.allowNativeLoopbackHttp ? "native" : undefined)) throw fail();
       {
-        const origin = p.cpOrigin, u = new URL(origin), loopback = p.allowLoopbackHttp && u.protocol === "http:" && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(origin) : ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname));
+        const origin = p.cpOrigin, u = new URL(origin), loopback = p.allowLoopbackHttp && labLoopbackHttpOrigin(origin);
         if (u.origin !== origin || u.username || u.password || (u.protocol !== "https:" && !loopback)) throw fail();
       }
       if (p.owner !== undefined && !isInstallationOwner(p.owner)) throw fail();
