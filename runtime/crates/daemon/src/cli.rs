@@ -19,8 +19,8 @@ use serde_json::{Value, json};
 
 use crate::client::{self, ClientError, ControlClient};
 use crate::control::{
-    Check, CollectionStatus, ConflictSummary, ControlError, DaemonStatus, HoldSummary, Method,
-    PendingDevice,
+    AddCollection, Check, CollectionStatus, ConflictSummary, ControlError, DaemonStatus,
+    HoldSummary, Method, PendingDevice,
 };
 use crate::paths::Profile;
 use crate::registry::SyncMode;
@@ -176,6 +176,10 @@ enum CollectionCmd {
         /// Display name (default: the folder name).
         #[arg(long)]
         name: Option<String>,
+        /// Remove an `x-mdbase-connect` identity from the folder's mdbase.yaml that
+        /// no mdbase Connect on this computer manages (a copied or removed folder).
+        #[arg(long)]
+        remove_legacy_identity: bool,
     },
     /// Join one of your account's collections into an empty folder on this computer.
     Join {
@@ -760,14 +764,32 @@ async fn run_command(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Command::Collection(CollectionCmd::Add { path, name }) => {
+        Command::Collection(CollectionCmd::Add {
+            path,
+            name,
+            remove_legacy_identity,
+        }) => {
             let path = std::path::absolute(&path).map_err(ClientError::Io)?;
             let v = call(
                 profile,
                 Method::COLLECTION_ADD,
-                json!({ "path": path, "name": name }),
+                json!(AddCollection {
+                    path,
+                    name,
+                    remove_legacy_identity,
+                }),
             )
-            .await?;
+            .await
+            .map_err(|e| match e {
+                ClientError::Remote(mut err)
+                    if err.reason.as_deref() == Some("orphaned_legacy_identity") =>
+                {
+                    err.message
+                        .push_str(" (add it with `--remove-legacy-identity` to remove the key)");
+                    ClientError::Remote(err)
+                }
+                e => e,
+            })?;
             if out.json {
                 out.value(&v);
             } else {

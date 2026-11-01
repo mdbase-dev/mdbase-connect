@@ -2167,20 +2167,34 @@ impl Daemon {
                 "a collection cannot contain or sit inside the daemon's state directory",
             ));
         }
-        let claim = match classify_folder(&root, &self.profile) {
-            Ok(c) => c,
-            Err(e) => return Err(e),
-        };
-        if let FolderClaim::Connect(reason) = claim {
-            // Local migration: the takeover (drain, import, v2 marker) runs first.
-            return Err(ControlError::unavailable(
-                "migration_pending",
-                format!(
-                    "this folder is managed by today's mdbase Connect ({reason}); \
-                     it is taken over by the migration first"
-                ),
-            ));
+        let old_state = crate::takeover::old_state_dir(&self.profile);
+        let claim = classify_folder(&root, &self.profile, old_state.as_deref())?;
+        match claim {
+            FolderClaim::Connect(reason) => {
+                // Local migration: the takeover (drain, import, v2 marker) runs first.
+                return Err(ControlError::unavailable(
+                    "migration_pending",
+                    format!(
+                        "this folder is managed by today's mdbase Connect ({reason}); \
+                         it is taken over by the migration first"
+                    ),
+                ));
+            }
+            FolderClaim::OrphanedIdentity if !p.remove_legacy_identity => {
+                return Err(ControlError::new(
+                    "conflict",
+                    "orphaned_legacy_identity",
+                    format!(
+                        "mdbase.yaml has an mdbase Connect identity (`{LEGACY_IDENTITY_KEY}`) \
+                         that no Connect on this computer manages, for example because the \
+                         folder was copied or removed from Connect; confirm removing that \
+                         key to add the folder"
+                    ),
+                ));
+            }
+            _ => {}
         }
+        let orphaned = claim == FolderClaim::OrphanedIdentity;
         let name = p
             .name
             .as_deref()
@@ -2234,6 +2248,9 @@ impl Daemon {
         let mut inner = self.inner.lock().await;
         let mut next = inner.registry.clone();
         next.add(entry.clone()).map_err(registry_error)?;
+        if orphaned {
+            remove_legacy_identity(&entry.root)?;
+        }
         self.save_registry(&next)?;
         inner.registry = next;
         self.authority.publish_registry(&inner.registry);
@@ -3832,6 +3849,7 @@ impl Daemon {
                     AddCollection {
                         path: t.root.clone(),
                         name: Some(t.name.clone()),
+                        remove_legacy_identity: false,
                     },
                     t.paused,
                 )
@@ -5105,6 +5123,10 @@ fn strip_verbatim(p: std::path::PathBuf) -> std::path::PathBuf {
     }
 }
 
+/// The top-level `mdbase.yaml` key under which today's connector keeps a folder's
+/// collection identity (`x-mdbase-connect.collection_id`).
+const LEGACY_IDENTITY_KEY: &str = "x-mdbase-connect";
+
 /// Who manages a folder, from its role marker and `mdbase.yaml`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FolderClaim {
@@ -5118,16 +5140,23 @@ pub enum FolderClaim {
         /// This daemon's store ID for it.
         replica_id: String,
     },
-    /// Today's connector (a v1 marker, or a Connect identity in `mdbase.yaml` with no
-    /// v2 claim): the takeover runs first.
+    /// Today's connector (a v1 marker, or a Connect identity in `mdbase.yaml` for a
+    /// folder the old connector state on this device lists): the takeover runs first.
     Connect(&'static str),
+    /// A Connect identity in `mdbase.yaml` for a folder no old connector state on
+    /// this device lists (a copied folder, one removed before the migration, or a
+    /// device without the old connector). The takeover never reaches it, so it is
+    /// adopted only once the user confirms removing that key.
+    OrphanedIdentity,
 }
 
-/// Classify a folder. A v2 claim by another runtime or device, or an invalid
-/// marker, is refused (fail closed).
+/// Classify a folder against the old connector state in `old_state` (if any). A
+/// v2 claim by another runtime or device, or an invalid marker, is refused (fail
+/// closed).
 pub fn classify_folder(
     root: &std::path::Path,
     profile: &Profile,
+    old_state: Option<&std::path::Path>,
 ) -> Result<FolderClaim, ControlError> {
     use mdbn_legacy::marker::{self, Marker};
     let m = marker::read(root)
@@ -5158,14 +5187,112 @@ pub fn classify_folder(
             format!("the folder's .mdbase/connect-role.json is invalid ({why})"),
         )),
         Marker::Absent => {
-            let yaml = std::fs::read_to_string(root.join("mdbase.yaml")).unwrap_or_default();
-            if yaml.contains("x-mdbase-connect") {
+            let identity = read_config(root)?
+                .is_some_and(|(_, config)| config.contains_key(LEGACY_IDENTITY_KEY));
+            if !identity {
+                Ok(FolderClaim::Free)
+            } else if crate::takeover::old_state_lists(old_state, root)
+                .map_err(|e| ControlError::unavailable("legacy_state_unreadable", e))?
+            {
                 Ok(FolderClaim::Connect("collection identity in mdbase.yaml"))
             } else {
-                Ok(FolderClaim::Free)
+                Ok(FolderClaim::OrphanedIdentity)
             }
         }
     }
+}
+
+/// A folder's `mdbase.yaml` text and top-level mapping (`None`: no file). An empty
+/// or non-mapping document has no keys.
+fn read_config(
+    root: &std::path::Path,
+) -> Result<Option<(String, mdbn_core::value::Map)>, ControlError> {
+    let text = match std::fs::read_to_string(root.join("mdbase.yaml")) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(ControlError::invalid(
+                "unreadable_config",
+                format!("mdbase.yaml: {e}"),
+            ));
+        }
+    };
+    let config = config_map(&text).map_err(|e| {
+        ControlError::invalid(
+            "invalid_config",
+            format!("mdbase.yaml is not valid YAML: {e}"),
+        )
+    })?;
+    Ok(Some((text, config)))
+}
+
+fn config_map(text: &str) -> Result<mdbn_core::value::Map, mdbn_core::yaml::YamlError> {
+    Ok(match mdbn_core::yaml::parse_value(text)? {
+        Some(mdbn_core::value::Value::Map(m)) => m,
+        _ => mdbn_core::value::Map::new(),
+    })
+}
+
+/// `text` without its top-level [`LEGACY_IDENTITY_KEY`] entry, every other byte
+/// kept. `None` unless removing the entry's lines yields exactly the same mapping
+/// minus that key.
+fn without_legacy_identity(text: &str) -> Option<String> {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let opens_entry = |line: &str| {
+        let key = [
+            LEGACY_IDENTITY_KEY.to_owned(),
+            format!("\"{LEGACY_IDENTITY_KEY}\""),
+            format!("'{LEGACY_IDENTITY_KEY}'"),
+        ];
+        key.iter().any(|k| {
+            line.strip_prefix(k.as_str())
+                .and_then(|r| r.trim_start_matches([' ', '\t']).strip_prefix(':'))
+                .is_some_and(|r| r.is_empty() || r.starts_with([' ', '\t', '\r', '\n']))
+        })
+    };
+    let start = lines.iter().position(|l| opens_entry(l))?;
+    // The entry runs to the next line at column 0; blank lines before that stay.
+    let mut end = start + 1;
+    while end < lines.len() && (lines[end].trim().is_empty() || lines[end].starts_with([' ', '\t']))
+    {
+        end += 1;
+    }
+    while end > start + 1 && lines[end - 1].trim().is_empty() {
+        end -= 1;
+    }
+    let out: String = lines[..start]
+        .iter()
+        .chain(&lines[end..])
+        .copied()
+        .collect();
+    let mut expected = config_map(text).ok()?;
+    expected.remove(LEGACY_IDENTITY_KEY)?;
+    (config_map(&out).ok()? == expected).then_some(out)
+}
+
+/// Remove the orphaned Connect identity from `root`'s `mdbase.yaml`, as the user
+/// confirmed in `collection.add`.
+fn remove_legacy_identity(root: &std::path::Path) -> Result<(), ControlError> {
+    let path = root.join("mdbase.yaml");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| ControlError::invalid("unreadable_config", format!("mdbase.yaml: {e}")))?;
+    let out = without_legacy_identity(&text).ok_or_else(|| {
+        ControlError::invalid(
+            "legacy_identity_not_removable",
+            format!(
+                "the `{LEGACY_IDENTITY_KEY}` entry in mdbase.yaml cannot be removed \
+                 automatically; delete that key by hand, then add the folder again"
+            ),
+        )
+    })?;
+    // The user's file keeps its permissions (`write_atomic` creates it private).
+    let permissions = std::fs::metadata(&path).map(|m| m.permissions());
+    permissions
+        .and_then(|p| {
+            fsutil::write_atomic(&path, out.as_bytes())?;
+            std::fs::set_permissions(&path, p)
+        })
+        .map_err(|e| ControlError::internal(format!("mdbase.yaml: {e}")))
 }
 
 async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()> {

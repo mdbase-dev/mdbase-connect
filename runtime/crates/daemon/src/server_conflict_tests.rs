@@ -12,6 +12,7 @@ async fn dismiss_conflict_clears_list_without_changing_files() {
         .add(crate::control::AddCollection {
             path: folder.path().to_path_buf(),
             name: Some("Notes".into()),
+            remove_legacy_identity: false,
         })
         .await
         .unwrap();
