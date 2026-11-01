@@ -24,6 +24,10 @@ jobs:
             packages: -p mdbn-replica
           - shard: daemon
             packages: -p mdbn-daemon
+          # The staging artifact embeds only public in-repo trust, so CI builds
+          # and tests that exact profile too.
+          - shard: daemon-staging
+            packages: -p mdbn-daemon --features staging
     services:
       postgres:
         image: postgres:17-alpine
@@ -49,3 +53,13 @@ jobs:
           # store-pg's schema tests fail instead of skipping if the URL above goes missing.
           MDBN_TEST_PG_REQUIRED: '1'
         run: cargo test --locked ${{ matrix.packages }}
+      - name: Staging cannot combine with LAB or local-rehearsal
+        if: matrix.shard == 'daemon-staging'
+        run: |
+          for features in staging,lab staging,local-rehearsal; do
+            if cargo check --locked -p mdbn-daemon --features "$features" 2> exclusive.log; then
+              echo "--features $features compiled" >&2
+              exit 1
+            fi
+            grep -q 'distinct artifacts; choose exactly one' exclusive.log
+          done

@@ -9,26 +9,37 @@ function checked(path,hash){
   if(createHash("sha256").update(bytes).digest("hex")!==hash)throw refusal();
   return bytes;
 }
+const digest=bytes=>createHash("sha256").update(bytes).digest("hex");
+const hex=(v,n)=>typeof v==="string"&&new RegExp(`^[0-9a-f]{${n}}$`).test(v);
+const exact=(v,keys)=>v&&typeof v==="object"&&!Array.isArray(v)&&Object.keys(v).sort().join(",")===[...keys].sort().join(",");
 /** Post-authentication byte/custody binding, NOT Sigstore authentication.
  * Consume the ONE Ops verify-trust output unchanged; it must already have passed
  * signature, original-image, publisher, CI and reference-consumer gates.
  * The qualified SDK build supplies a frozen receipt binding that exact context
  * and verifier. Neither this unsigned JSON nor matching hashes confer authority. */
 export function readReleaseBuild(contextFile,receiptFile) {
-  const digest=bytes=>createHash("sha256").update(bytes).digest("hex");
-  const hex=(v,n)=>typeof v==="string"&&new RegExp(`^[0-9a-f]{${n}}$`).test(v);
-  const exact=(v,keys)=>v&&typeof v==="object"&&!Array.isArray(v)&&Object.keys(v).sort().join(",")===[...keys].sort().join(",");
+  const receiptBytes=readFileSync(receiptFile);
+  if(receiptBytes.length>65536)throw refusal();
+  const receipt=JSON.parse(receiptBytes);
+  if(!exact(receipt,["schema","contextSha256","verifierSha256","verifierSourceCommit"])||
+    receipt.schema!=="mdbn-sdk/application-build/1"||!hex(receipt.contextSha256,64)||
+    !hex(receipt.verifierSha256,64)||!hex(receipt.verifierSourceCommit,40))throw refusal();
+  const handoff=readTrustHandoff(contextFile);
+  if(handoff.contextSha256!==receipt.contextSha256)throw refusal();
+  return Object.freeze({...handoff,verifierSha256:receipt.verifierSha256,
+    verifierSourceCommit:receipt.verifierSourceCommit,receiptSha256:digest(receiptBytes)});
+}
+/** The same custody binding of one completed Ops verify-trust output, for a
+ * build that embeds its asset without running a separate verifier (the native
+ * daemon verifies with the compiled-in mdbn-trust). Confers no authority. */
+export function readTrustHandoff(contextFile) {
   const origin=v=>{try{const u=new URL(v);return u.protocol==="https:"&&u.origin===v&&!u.username&&!u.password;}catch{return false;}};
   const positive=v=>Number.isSafeInteger(v)&&v>0;
   const run=(v,publisher=false)=>exact(v,["run_id","run_attempt",...(publisher?["publisher_commit"]:[])])&&positive(v.run_id)&&positive(v.run_attempt)&&(!publisher||hex(v.publisher_commit,40));
-  const receiptBytes=readFileSync(receiptFile),contextBytes=readFileSync(contextFile);
-  if(receiptBytes.length>65536||contextBytes.length>65536)throw refusal();
-  const receipt=JSON.parse(receiptBytes),value=JSON.parse(contextBytes);
-  if(!exact(receipt,["schema","contextSha256","verifierSha256","verifierSourceCommit"])||
-    receipt.schema!=="mdbn-sdk/application-build/1"||!hex(receipt.contextSha256,64)||
-    !hex(receipt.verifierSha256,64)||!hex(receipt.verifierSourceCommit,40)||
-    digest(contextBytes)!==receipt.contextSha256||
-    !exact(value,["schema_version","kind","context","provenance"])||
+  const contextBytes=readFileSync(contextFile);
+  if(contextBytes.length>65536)throw refusal();
+  const value=JSON.parse(contextBytes);
+  if(!exact(value,["schema_version","kind","context","provenance"])||
     value.schema_version!==1||value.kind!=="mdbase-next-build-trust-context")throw refusal();
   const c=value.context,p=value.provenance;
   if(!exact(c,["sha256","environment","control_plane_origin","log_origin","source"])||
@@ -65,7 +76,6 @@ export function readReleaseBuild(contextFile,receiptFile) {
     inventory.qualification?.runId!==p.publisher_qualification.run_id||inventory.qualification?.runAttempt!==p.publisher_qualification.run_attempt)throw refusal();
   return Object.freeze({environment:c.environment,cpOrigin:c.control_plane_origin,logOrigin:c.log_origin,
     sha256:c.sha256,assetBytes:p.asset_length,sourceCommit:c.source.commit,sourceVersion:c.source.version,
-    verifierSha256:receipt.verifierSha256,verifierSourceCommit:receipt.verifierSourceCommit,
-    contextSha256:receipt.contextSha256,receiptSha256:digest(receiptBytes),provenance:p,asset:join(handoff,p.asset_path)});
+    contextSha256:digest(contextBytes),provenance:p,asset:join(handoff,p.asset_path)});
 }
 

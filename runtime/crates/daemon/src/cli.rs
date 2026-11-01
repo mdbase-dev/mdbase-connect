@@ -298,8 +298,9 @@ enum AccountCmd {
     /// Sign in: approve this computer in your browser.
     SignIn {
         /// Server: only this build's environment (production builds:
-        /// https://connect.mdbase.dev; LAB builds: https://connect-lab.mdbase.dev),
-        /// which is also the default.
+        /// https://connect.mdbase.dev; staging builds:
+        /// https://connect-staging.mdbase.dev; LAB builds:
+        /// https://connect-lab.mdbase.dev), which is also the default.
         #[arg(long)]
         server: Option<String>,
     },
@@ -2124,6 +2125,9 @@ fn account_problem(reason: &str) -> &'static str {
             "this computer's secure storage is unavailable; unlock the keychain or restart mdbase"
         }
         "account_state" => "the account settings could not be saved; check free disk space",
+        "environment_mismatch" => {
+            "this computer is signed in to a different mdbase environment than this build; sign out and sign in again"
+        }
         "account_cleanup_failed" => "signing out did not finish; sign out again",
         _ => "this computer could not connect to the account; mdbase keeps trying while running",
     }

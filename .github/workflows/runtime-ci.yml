@@ -117,6 +117,9 @@ jobs:
       - name: Managed native trust compiler-input regressions (real shared verifier)
         working-directory: runtime
         run: node --test scripts/build-managed-native-trust.test.mjs
+      - name: Native staging artifact custody regressions (synthetic custody only)
+        working-directory: runtime
+        run: node --test scripts/native-staging-artifact.test.mjs
       - name: install
         run: npm ci --no-audit --no-fund
       - name: typecheck
