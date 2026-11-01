@@ -37,13 +37,16 @@ pub async fn pair(
     );
     let server2 = server.clone();
     let fixture = tokio::spawn(async move {
-        loop {
+        'accept: loop {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut request = Vec::new();
             loop {
                 let mut buffer = [0; 4096];
                 let n = socket.read(&mut buffer).await.unwrap();
-                assert!(n > 0);
+                // A daemon shutting down aborts its in-flight requests.
+                if n == 0 {
+                    continue 'accept;
+                }
                 request.extend_from_slice(&buffer[..n]);
                 assert!(request.len() < 16_384);
                 if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {

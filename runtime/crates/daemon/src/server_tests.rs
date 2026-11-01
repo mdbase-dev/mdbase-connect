@@ -114,6 +114,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         // separately by trust_tests with the LAB feature enabled.
         trust: Some(Arc::new(crate::trust::fixture_trust())),
         shutdown: watch::channel(false).0,
+        tasks: Default::default(),
         identity: Default::default(),
         account_keys: Default::default(),
         takeover: Default::default(),
@@ -191,6 +192,54 @@ async fn readiness_waits_for_account_resume_and_host_refresh() {
     if let Some(link) = d.link.lock().unwrap_or_else(|p| p.into_inner()).take() {
         link.stop();
     }
+}
+
+#[tokio::test]
+async fn shutdown_aborts_and_awaits_every_daemon_task() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    struct SetOnDrop(Arc<AtomicBool>);
+    impl Drop for SetOnDrop {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    let dir = crate::testutil::TestDir::new("stop-tasks");
+    let d = daemon(&dir);
+    let dropped = Arc::new(AtomicBool::new(false));
+    let guard = SetOnDrop(dropped.clone());
+    d.spawn(async move {
+        let _guard = guard;
+        std::future::pending::<()>().await;
+    })
+    .unwrap();
+    // Blocking work already running outlives the abort of the task awaiting it;
+    // shutdown still waits for it.
+    let finished = Arc::new(AtomicBool::new(false));
+    let (started, running) = tokio::sync::oneshot::channel();
+    let (d2, done) = (d.clone(), finished.clone());
+    d.spawn(async move {
+        d2.run_blocking(move || {
+            let _ = started.send(());
+            std::thread::sleep(Duration::from_millis(200));
+            done.store(true, Ordering::SeqCst);
+        })
+        .await;
+    })
+    .unwrap();
+    running.await.unwrap();
+
+    d.shutdown.send_replace(true);
+    assert!(d.spawn(async {}).is_none(), "spawned after shutdown began");
+    assert!(d.run_blocking(|| ()).await.is_none());
+    d.stop_tasks().await;
+    assert!(
+        dropped.load(Ordering::SeqCst),
+        "a pending task outlived shutdown"
+    );
+    assert!(
+        finished.load(Ordering::SeqCst),
+        "blocking work outlived shutdown"
+    );
 }
 
 async fn paired_daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {

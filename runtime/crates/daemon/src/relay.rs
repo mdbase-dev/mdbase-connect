@@ -338,6 +338,14 @@ struct Pipe {
     task: tokio::task::JoinHandle<()>,
 }
 
+/// A pipe's session task stops with it, including when the relay task itself is
+/// aborted on shutdown.
+impl Drop for Pipe {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 /// Run the relay until `stop` fires, reconnecting with equal-jitter back-off.
 pub async fn run<H: RelayHost>(
     host: Arc<H>,
@@ -534,10 +542,8 @@ async fn session<H: RelayHost>(
                                 open_pipe(host, identity, &v, &mut open, &out_tx).await;
                             }
                             Some("pipe_close") => {
-                                if let Some(id) = v.get("pipe_id").and_then(Value::as_str).and_then(attest::uuid_bytes)
-                                    && let Some(p) = open.remove(&id)
-                                {
-                                    p.task.abort();
+                                if let Some(id) = v.get("pipe_id").and_then(Value::as_str).and_then(attest::uuid_bytes) {
+                                    open.remove(&id);
                                 }
                             }
                             Some("relay_incompatible") => break Ended::Terminal("incompatible_version".into()),
@@ -550,8 +556,7 @@ async fn session<H: RelayHost>(
                             && p.tx.try_send(payload.to_vec()).is_err()
                         {
                             // Slow or dead pipe: close it rather than buffer without bound.
-                            if let Some(p) = open.remove(&id) {
-                                p.task.abort();
+                            if open.remove(&id).is_some() {
                                 let _ = tx.send(Message::text(close_msg(&id, "backpressure"))).await;
                             }
                         }
@@ -589,9 +594,7 @@ async fn session<H: RelayHost>(
             }
         }
     };
-    for (_, p) in open {
-        p.task.abort();
-    }
+    drop(open);
     ended
 }
 
@@ -694,8 +697,7 @@ async fn close_dead<H: RelayHost>(
         }
     }
     for id in dead {
-        if let Some(p) = open.remove(&id) {
-            p.task.abort();
+        if open.remove(&id).is_some() {
             let _ = out.try_send(PipeOut::Close(id, "grant_inactive".into()));
         }
     }

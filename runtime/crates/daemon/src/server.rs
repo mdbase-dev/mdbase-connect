@@ -90,6 +90,9 @@ pub struct Daemon {
     /// The status after the latest change, built once for every subscriber.
     status_feed: watch::Sender<Option<Arc<serde_json::Value>>>,
     shutdown: watch::Sender<bool>,
+    /// Every task the daemon spawns ([`Daemon::spawn`]); shutdown aborts and
+    /// awaits them all before [`run`] returns.
+    tasks: std::sync::Mutex<tokio::task::JoinSet<()>>,
     inner: Mutex<Inner>,
     /// The account link (relay task, pairing in progress).
     account: std::sync::Mutex<Account>,
@@ -127,14 +130,14 @@ pub struct Daemon {
 struct Account {
     epoch: u64,
     pairing_allowed: bool,
-    pairing_task: Option<tokio::task::JoinHandle<()>>,
+    pairing_task: Option<tokio::task::AbortHandle>,
     signed_in: bool,
-    relay: Option<tokio::task::JoinHandle<()>>,
+    relay: Option<tokio::task::AbortHandle>,
     pairing: Option<String>,
     /// Reason code of the last account-link problem; cleared when the relay connects.
     last_error: Option<String>,
     /// Background device registration retries, while registration keeps failing.
-    registration: Option<tokio::task::JoinHandle<()>>,
+    registration: Option<tokio::task::AbortHandle>,
     /// Reason code while this device is not registered with the account; shown as
     /// `last_error` and cleared only by a registration.
     registration_error: Option<String>,
@@ -218,6 +221,7 @@ pub async fn run_with(
         link: std::sync::Mutex::new(None),
         trust: crate::trust::authenticated().ok().map(Arc::new),
         shutdown: watch::channel(false).0,
+        tasks: Default::default(),
         identity: Default::default(),
         account_keys: Default::default(),
         takeover: Default::default(),
@@ -239,13 +243,13 @@ pub async fn run_with(
         "daemon starting"
     );
 
-    let init = tokio::spawn(initialize(daemon.clone()));
-    let signals = tokio::spawn(wait_for_signal(daemon.clone()));
-    let strict_reports = tokio::spawn(daemon.clone().strict_witness_reports());
-    let account_keys = tokio::spawn(daemon.clone().account_key_reconcile());
-    let device_requests = tokio::spawn(daemon.clone().device_approval_requests());
-    let old_connector = tokio::spawn(daemon.clone().watch_old_connector());
-    let status_feed = tokio::spawn(daemon.clone().publish_status());
+    daemon.spawn(initialize(daemon.clone()));
+    daemon.spawn(wait_for_signal(daemon.clone()));
+    daemon.spawn(daemon.clone().strict_witness_reports());
+    daemon.spawn(daemon.clone().account_key_reconcile());
+    daemon.spawn(daemon.clone().device_approval_requests());
+    daemon.spawn(daemon.clone().watch_old_connector());
+    daemon.spawn(daemon.clone().publish_status());
 
     let mut stop = daemon.shutdown.subscribe();
     loop {
@@ -253,7 +257,7 @@ pub async fn run_with(
             accepted = control.accept() => match accepted {
                 Ok(stream) => {
                     let d = daemon.clone();
-                    tokio::spawn(async move {
+                    daemon.spawn(async move {
                         if let Err(e) = serve_control(d, stream).await {
                             tracing::debug!(error = %e, "control connection closed");
                         }
@@ -267,7 +271,7 @@ pub async fn run_with(
             accepted = replica.accept() => match accepted {
                 Ok(stream) => {
                     let d = daemon.clone();
-                    tokio::spawn(async move {
+                    daemon.spawn(async move {
                         let Some(id) = d.identity.get() else {
                             return; // not initialised: close without a handshake
                         };
@@ -293,13 +297,10 @@ pub async fn run_with(
         .readiness
         .send_replace(readiness(false, Some(NotReady::Stopping)));
     daemon.bump();
-    init.abort();
-    signals.abort();
-    strict_reports.abort();
-    account_keys.abort();
-    device_requests.abort();
-    old_connector.abort();
-    status_feed.abort();
+    daemon.stop_tasks().await;
+    if let Some(l) = daemon.link.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        l.stop();
+    }
     let close = async {
         let mut inner = daemon.inner.lock().await;
         for h in &mut inner.hosts {
@@ -308,9 +309,6 @@ pub async fn run_with(
     };
     if tokio::time::timeout(SHUTDOWN_GRACE, close).await.is_err() {
         tracing::warn!("collections did not close within the grace period");
-    }
-    if let Some(l) = daemon.link.lock().unwrap_or_else(|p| p.into_inner()).take() {
-        l.stop();
     }
     control.cleanup();
     replica.cleanup();
@@ -442,7 +440,7 @@ async fn initialize(d: Arc<Daemon>) {
         }
     }
     // Take over (or resume taking over) an old connector's collections.
-    tokio::spawn(d.clone().takeover_task(false));
+    d.spawn(d.clone().takeover_task(false));
 }
 
 /// Load the device identity and control key from the credential store.
@@ -528,7 +526,7 @@ fn start_relay_locked(d: &Arc<Daemon>, record: &crate::cloud::AccountRecord) {
     }
     let d2 = d.clone();
     let stop = d.shutdown.subscribe();
-    let task = tokio::spawn(async move {
+    let task = d.spawn(async move {
         let mut cfg = cfg;
         if !cfg.device_registered {
             match d2.register_device(epoch, &cloud, &mut cfg, &identity).await {
@@ -547,7 +545,7 @@ fn start_relay_locked(d: &Arc<Daemon>, record: &crate::cloud::AccountRecord) {
         }
     });
     let mut a = d.account.lock().unwrap_or_else(|p| p.into_inner());
-    if let Some(old) = a.relay.replace(task) {
+    if let Some(old) = std::mem::replace(&mut a.relay, task) {
         old.abort();
     }
     a.signed_in = true;
@@ -612,6 +610,50 @@ async fn wait_for_signal(d: Arc<Daemon>) {
 impl Daemon {
     fn bump(&self) {
         self.changes.send_modify(|n| *n += 1);
+    }
+
+    /// Spawn a task that [`Self::stop_tasks`] aborts and awaits on shutdown.
+    /// Once shutdown has begun the task is dropped unrun, so nothing spawned
+    /// late outlives [`run`].
+    fn spawn(
+        &self,
+        task: impl Future<Output = ()> + Send + 'static,
+    ) -> Option<tokio::task::AbortHandle> {
+        Some(self.open_tasks()?.spawn(task))
+    }
+
+    /// Run blocking work that [`Self::stop_tasks`] waits for: aborting the task
+    /// awaiting it does not stop a started closure, which could otherwise still
+    /// write after [`run`] returns. `None` once shutdown has begun, or when the
+    /// work panicked.
+    async fn run_blocking<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> Option<T> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.open_tasks()?.spawn_blocking(move || {
+            let _ = tx.send(work());
+        });
+        rx.await.ok()
+    }
+
+    /// The task set with finished tasks reaped, or `None` once shutdown began.
+    /// The flag is read under the lock that [`Self::stop_tasks`] takes.
+    fn open_tasks(&self) -> Option<std::sync::MutexGuard<'_, tokio::task::JoinSet<()>>> {
+        let mut tasks = self.tasks.lock().unwrap_or_else(|p| p.into_inner());
+        if *self.shutdown.borrow() {
+            return None;
+        }
+        while tasks.try_join_next().is_some() {}
+        Some(tasks)
+    }
+
+    /// Abort every spawned task and wait until each has stopped. The shutdown
+    /// flag is set first, so [`Self::spawn`] adds nothing afterwards.
+    async fn stop_tasks(&self) {
+        debug_assert!(*self.shutdown.borrow());
+        let mut tasks = std::mem::take(&mut *self.tasks.lock().unwrap_or_else(|p| p.into_inner()));
+        tasks.shutdown().await;
     }
 
     /// Rebuild status once per change for all `status.subscribe` connections,
@@ -1071,7 +1113,7 @@ impl Daemon {
                 return;
             }
         }
-        tokio::spawn(async move {
+        d.clone().spawn(async move {
             for attempt in 0..300 {
                 if attempt != 0 {
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -1360,10 +1402,8 @@ impl Daemon {
         match req.method.as_str() {
             Method::PING => Ok(json!({ "readiness": *self.readiness.borrow() })),
             Method::STATUS | Method::STATUS_SUBSCRIBE => to_value(&self.status().await),
-            Method::SHUTDOWN => {
-                self.shutdown.send_replace(true);
-                Ok(json!({}))
-            }
+            // `serve_control` stops the daemon once this reply is queued.
+            Method::SHUTDOWN => Ok(json!({})),
             Method::COLLECTION_LIST => {
                 let inner = self.inner.lock().await;
                 let taken = self.takeover_record();
@@ -1456,14 +1496,14 @@ impl Daemon {
             Method::MIGRATE_STATUS => {
                 let refresh =
                     req.params.get("refresh_rollout").and_then(Value::as_bool) == Some(true);
-                tokio::spawn(self.clone().retry_takeover(refresh));
+                self.spawn(self.clone().retry_takeover(refresh));
                 self.takeover_status().await
             }
             Method::MIGRATE_START => {
                 let p: crate::control::MigrateStart = params(req)?;
                 let out = self.clone().takeover_run(p.stop_mirrors, false).await;
                 if out.is_ok() {
-                    tokio::spawn(self.clone().auto_private());
+                    self.spawn(self.clone().auto_private());
                 }
                 out
             }
@@ -3376,7 +3416,7 @@ impl Daemon {
 
     fn spawn_auto_private(&self) {
         if let Some(d) = self.self_weak.get().and_then(std::sync::Weak::upgrade) {
-            tokio::spawn(d.auto_private());
+            self.spawn(d.auto_private());
         }
     }
 
@@ -3385,7 +3425,7 @@ impl Daemon {
         if self.auto_private.retrying.swap(true, Ordering::SeqCst) {
             return;
         }
-        tokio::spawn(async move {
+        self.clone().spawn(async move {
             let mut shutdown = self.shutdown.subscribe();
             let mut attempt = 0u32;
             loop {
@@ -3779,16 +3819,17 @@ impl Daemon {
         };
         let p2 = paths.clone();
         let _own = self.takeover.holding_old_lock();
-        let ran = tokio::task::spawn_blocking(move || {
-            let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
-                Box::new(crate::service::legacy::ForegroundOldService(old.clone()))
-            } else {
-                Box::new(crate::service::legacy::OldConnectorService::new())
-            };
-            crate::takeover::run(&p2, &old, old_service.as_mut(), &opts)
-        })
-        .await
-        .map_err(|e| ControlError::internal(e.to_string()))?;
+        let ran = self
+            .run_blocking(move || {
+                let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
+                    Box::new(crate::service::legacy::ForegroundOldService(old.clone()))
+                } else {
+                    Box::new(crate::service::legacy::OldConnectorService::new())
+                };
+                crate::takeover::run(&p2, &old, old_service.as_mut(), &opts)
+            })
+            .await
+            .ok_or_else(|| ControlError::internal("the takeover stopped"))?;
         let ran = match ran {
             Ok(r) => {
                 *self
@@ -3889,17 +3930,18 @@ impl Daemon {
     async fn refence_old_service(&self, old: std::path::PathBuf) {
         let paths = self.takeover_paths();
         let isolated = self.profile.target == crate::paths::Target::IsolatedProfile;
-        let fenced = tokio::task::spawn_blocking(move || {
-            let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
-                Box::new(crate::service::legacy::ForegroundOldService(old.clone()))
-            } else {
-                Box::new(crate::service::legacy::OldConnectorService::new())
-            };
-            crate::takeover::refence(&paths, &old, old_service.as_mut())
-        })
-        .await;
+        let fenced = self
+            .run_blocking(move || {
+                let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
+                    Box::new(crate::service::legacy::ForegroundOldService(old.clone()))
+                } else {
+                    Box::new(crate::service::legacy::OldConnectorService::new())
+                };
+                crate::takeover::refence(&paths, &old, old_service.as_mut())
+            })
+            .await;
         match fenced {
-            Ok(Ok(Some(revived))) => {
+            Some(Ok(Some(revived))) => {
                 self.takeover
                     .revived
                     .store(revived, std::sync::atomic::Ordering::Relaxed);
@@ -3909,9 +3951,9 @@ impl Daemon {
                     );
                 }
             }
-            Ok(Ok(None)) => {}
-            Ok(Err(e)) => tracing::warn!(error = %e, "could not re-fence the old connector"),
-            Err(e) => tracing::warn!(error = %e, "could not re-fence the old connector"),
+            Some(Ok(None)) => {}
+            Some(Err(e)) => tracing::warn!(error = %e, "could not re-fence the old connector"),
+            None => tracing::warn!("could not re-fence the old connector: stopped"),
         }
     }
 
@@ -3958,33 +4000,34 @@ impl Daemon {
         let paths2 = paths.clone();
         let connector2 = connector.to_owned();
         let _own = self.takeover.holding_old_lock();
-        let locks = tokio::task::spawn_blocking(move || {
-            if !isolated {
-                crate::service::legacy::OldConnectorService::new()
-                    .stop_and_disable()
-                    .map_err(|_| "legacy_service_not_disabled")?;
-            }
-            let mut locks = vec![
-                mdbn_legacy::lock::try_exclusive(&mdbn_legacy::lock::daemon_lock_path(
-                    &p2.old_state_dir,
-                ))
-                .map_err(|_| "legacy_lock_unavailable")?
-                .ok_or("old_connector_revived")?,
-            ];
-            for root in &p2.roots {
-                locks.push(
-                    mdbn_legacy::lock::try_exclusive(&mdbn_legacy::lock::write_lock_path(root))
-                        .map_err(|_| "legacy_lock_unavailable")?
-                        .ok_or("legacy_folder_busy")?,
-                );
-            }
-            if !p2.still_current(&paths2, &connector2) {
-                return Err("retirement_source_changed");
-            }
-            Ok::<_, &'static str>(locks)
-        })
-        .await
-        .map_err(|_| "retirement_local_gate_failed")??;
+        let locks = self
+            .run_blocking(move || {
+                if !isolated {
+                    crate::service::legacy::OldConnectorService::new()
+                        .stop_and_disable()
+                        .map_err(|_| "legacy_service_not_disabled")?;
+                }
+                let mut locks = vec![
+                    mdbn_legacy::lock::try_exclusive(&mdbn_legacy::lock::daemon_lock_path(
+                        &p2.old_state_dir,
+                    ))
+                    .map_err(|_| "legacy_lock_unavailable")?
+                    .ok_or("old_connector_revived")?,
+                ];
+                for root in &p2.roots {
+                    locks.push(
+                        mdbn_legacy::lock::try_exclusive(&mdbn_legacy::lock::write_lock_path(root))
+                            .map_err(|_| "legacy_lock_unavailable")?
+                            .ok_or("legacy_folder_busy")?,
+                    );
+                }
+                if !p2.still_current(&paths2, &connector2) {
+                    return Err("retirement_source_changed");
+                }
+                Ok::<_, &'static str>(locks)
+            })
+            .await
+            .ok_or("retirement_local_gate_failed")??;
         let current = || {
             if self.authority.incarnation() == Some(inc) && plan.still_current(&paths, connector) {
                 Ok(())
@@ -5298,6 +5341,9 @@ fn remove_legacy_identity(root: &std::path::Path) -> Result<(), ControlError> {
 async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()> {
     let (mut rd, mut wr) = tokio::io::split(stream);
     let (tx, mut rx) = mpsc::channel::<Response>(64);
+    // Untracked: it only writes to this socket, and it ends once the tracked
+    // connection task (and its subscription) drop their senders. Aborting it
+    // instead could lose the reply to `shutdown`.
     let writer = tokio::spawn(async move {
         while let Some(resp) = rx.recv().await {
             let bytes = serde_json::to_vec(&resp).unwrap_or_default();
@@ -5307,7 +5353,7 @@ async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()>
         }
         let _ = wr.shutdown().await;
     });
-    let mut subscription: Option<tokio::task::JoinHandle<()>> = None;
+    let mut subscription: Option<tokio::task::AbortHandle> = None;
     let mut conn = ConnAuth::default();
     let mut stop = d.shutdown.subscribe();
     loop {
@@ -5344,17 +5390,24 @@ async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()>
                 .await;
             break;
         }
-        let resp = match d.handle_and_note(&req, &mut conn).await {
+        let result = d.handle_and_note(&req, &mut conn).await;
+        let stopping = req.method == Method::SHUTDOWN && result.is_ok();
+        let resp = match result {
             Ok(v) => Response::ok(req.id, v),
             Err(e) => Response::err(req.id, e),
         };
-        if tx.send(resp).await.is_err() {
+        let sent = tx.send(resp).await;
+        // Only after the reply is queued: shutdown aborts this task.
+        if stopping {
+            d.shutdown.send_replace(true);
+        }
+        if sent.is_err() {
             break;
         }
         if req.method == Method::STATUS_SUBSCRIBE && subscription.is_none() {
             let d2 = d.clone();
             let tx2 = tx.clone();
-            subscription = Some(tokio::spawn(async move {
+            subscription = d.spawn(async move {
                 let mut feed = d2.status_feed.subscribe();
                 let mut access = d2.access_events.subscribe();
                 feed.mark_unchanged();
@@ -5375,7 +5428,7 @@ async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()>
                         break;
                     }
                 }
-            }));
+            });
         }
     }
     if let Some(s) = subscription {
@@ -6090,7 +6143,7 @@ impl Daemon {
         else {
             return;
         };
-        tokio::spawn(async move {
+        self.spawn(async move {
             if let Err(e) = cloud.revoke_grant(&grant).await {
                 tracing::warn!(error = %e, "upstream revocation failed; the local refusal holds");
             }
@@ -6425,7 +6478,7 @@ impl Daemon {
                 tracing::warn!(reason = %code, "device registration refused; registering a new device");
                 if self.begin_identity_replacement(epoch) {
                     let other = code == "device_already_bound";
-                    tokio::spawn(
+                    self.spawn(
                         self.clone()
                             .replace_identity(epoch, identity.device_id, other),
                     );
@@ -6457,7 +6510,7 @@ impl Daemon {
     ) {
         let d = self.clone();
         let mut stop = self.shutdown.subscribe();
-        let task = tokio::spawn(async move {
+        let Some(task) = self.spawn(async move {
             let mut attempt = 0u32;
             loop {
                 attempt = attempt.saturating_add(1);
@@ -6484,7 +6537,9 @@ impl Daemon {
                     }
                 }
             }
-        });
+        }) else {
+            return;
+        };
         let mut a = self.account.lock().unwrap_or_else(|p| p.into_inner());
         if a.epoch != epoch {
             task.abort();
@@ -6699,7 +6754,7 @@ impl Daemon {
         let d = self.clone();
         let p2 = pairing.clone();
         let computer_name = name.clone();
-        let task = tokio::spawn(async move {
+        let task = self.spawn(async move {
             let deadline =
                 tokio::time::Instant::now() + Duration::from_secs(p2.expires_in.min(3600));
             let result = loop {
@@ -6736,7 +6791,7 @@ impl Daemon {
                         d.activity
                             .record(crate::activity::ActivityEntry::now("signed_in"));
                         // Taken-over collections wait for an account to register.
-                        tokio::spawn(d.clone().takeover_task(false));
+                        d.spawn(d.clone().takeover_task(false));
                     }
                 }
             }
@@ -6744,7 +6799,7 @@ impl Daemon {
         self.account
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .pairing_task = Some(task);
+            .pairing_task = task;
         self.bump();
         Ok(
             json!({ "verification_uri": pairing.verification_uri, "expires_in": pairing.expires_in }),
