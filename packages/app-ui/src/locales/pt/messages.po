@@ -834,6 +834,11 @@ msgstr "A captura de tela não contém uma imagem PNG ou JPEG válida."
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
 msgstr "A captura de tela excede 3 MB. Escolha uma imagem menor."
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
+msgstr "A mudança para Privada não terminou. Revogue o dispositivo que a iniciou. Seus outros dispositivos de proprietário então substituirão a chave da coleção."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "this collection"

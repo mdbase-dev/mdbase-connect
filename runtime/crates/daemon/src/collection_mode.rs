@@ -242,6 +242,14 @@ impl Daemon {
             .await
             .map_err(cloud_refusal)?;
         let active = status.get("change").filter(|v| !v.is_null());
+        // An abandoned Private switch is reported until an excluding rekey
+        // follows it. Native policy runs that rekey; leaving e2e first would
+        // consume every switch-set device's exception, so neither direction starts.
+        if operation.is_none()
+            && active.is_some_and(|v| v.get("phase").and_then(Value::as_str) == Some("abandoned"))
+        {
+            return Ok(json!({"phase":"abandoned","target_mode":p.target_mode}));
+        }
         if operation.is_none()
             && active.is_some_and(|v| {
                 v.get("target_mode").and_then(Value::as_str) != Some(&p.target_mode)
@@ -384,6 +392,10 @@ impl Daemon {
             Request::clear(&dir)?;
             self.reconcile_private_choices_locked().await;
             return Ok(json!({"phase":"complete","request_id":op.request}));
+        }
+        if reserved.get("phase").and_then(Value::as_str) == Some("abandoned") {
+            Request::clear(&dir)?;
+            return Ok(json!({"phase":"abandoned","request_id":op.request}));
         }
         let receipt = runtime.mode_source(private, true, guard.clone()).await;
         let intent = runtime.mode_source(private, false, guard.clone()).await;

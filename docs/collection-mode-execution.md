@@ -119,6 +119,21 @@ the existing epoch. It does not publish a rekey, restore revoked services,
 claim new-key protection, or unpublish history. Subsequent device revocation or
 enrolment can proceed. A rekey already observed at the adjacent slot refuses
 abandon; native validity of an independently arriving signed rekey is unchanged.
+
+Abandon leaves Private on the epoch the services held, and native writes stay
+refused until the collection key is replaced. Surviving frozen owner devices
+replace it automatically (see `collection-mode-switch-trust.md`); revoking the
+lost requester first keeps it out of the new key. Owner status therefore reports
+the latest abandoned change as `abandoned` until a later change completes or a
+rekey control item follows its policy. The log read is bounded and reports
+`abandoned` when unavailable. This signal is advisory: the control plane does not
+judge whether the rekey qualifies (a void or wrong-reason rekey also clears it);
+devices do. The shared control explains the state and offers neither direction,
+because leaving e2e before the rekey would consume every switch-set device's
+exception, and the daemon neither resumes, journals nor starts a change while
+the switch is abandoned. The intent route does not yet refuse a new change in
+this state. Finish still requires the adjacent receipt, so an abandoned request
+never completes.
 Recovery remains available with execution disabled. Pre-publication cancellation
 is still separate and cannot cancel an assigned publication.
 

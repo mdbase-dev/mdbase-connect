@@ -8,8 +8,9 @@ import { bearerToken, requireConnector, requireSessionContext } from "../../plat
 import { tokenHash } from "../../security.js";
 import { CreateError, currentIdentity, currentMember, currentSession, exactEnrolment, inTransaction, lock, refuse, refuseRevoked, type Connector, type Device } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
-import { LOG_TOKEN_LIFETIME_MS } from "./log-service-client.js";
+import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
+import { decodeCbor } from "./policy-wire.js";
 
 const uuid = z.uuid().transform(value => value.toLowerCase()).refine(value => value !== "00000000-0000-0000-0000-000000000000");
 const mode = z.enum(["private", "cloud_copy"]);
@@ -94,7 +95,27 @@ async function status(client: DatabaseConnection, collection: string, current: M
     source_mode: change.source_mode, target_mode: change.target_mode, phase: change.abandoned_at ? "abandoned" : change.cancelled_at ? "cancelled" : phase, ...(retryAt ? { retry_at: retryAt } : {}) };
 }
 
-export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabasePool): void {
+export const isRekeyItem = (item: Uint8Array): boolean => (decodeCbor(item) as Map<number, unknown>).get(1) === 3;
+
+/** Whether any rekey follows an abandoned switch's policy. Every rekey after it
+ * moves off the epoch the services held; the native frozen-set rule decides its
+ * trust. Bounded; an unavailable or longer log reads as not yet observed. */
+async function rekeyFollows(log: ControlLog, collection: string, policySeq: number): Promise<boolean> {
+  let after = policySeq;
+  try {
+    for (let page = 0; page < 4; page++) {
+      const { items, more } = await log.controlItemsAfter(collection, after, 64);
+      if (items.some(({ item }) => isRekeyItem(item))) return true;
+      if (!more || !items.length) return false;
+      after = items.at(-1)!.seq;
+    }
+  } catch { /* Status stays conservative; abandon and policy routes are unaffected. */ }
+  return false;
+}
+
+type ControlLog = Pick<LogServiceClient, "controlItemsAfter">;
+
+export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabasePool, log: ControlLog): void {
   app.post("/v1/next/collections/:id/mode", {
     bodyLimit: 1024, config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
   }, async (request, reply) => {
@@ -133,13 +154,25 @@ export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabaseP
     const owner = await authenticateOwner(request, reply, db);
     if (!owner) return reply;
     try {
-      return await inTransaction(db, async client => {
+      const result = await inTransaction(db, async client => {
         const current = await ownedMode(client, owner, params.data.id);
         const change = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL AND abandoned_at IS NULL", [params.data.id])).rows[0];
-        return { collection_id: params.data.id, current_mode: current,
+        // An abandoned switch left Private on the services' epoch until a later
+        // change completes; a cancelled request changes nothing.
+        const abandoned = change ? undefined : (await client.query<Change & { seq: string }>(
+          `SELECT m.*,b.seq FROM next_collection_mode_changes m JOIN next_policy_outbox o ON o.id=m.policy_outbox_id
+           JOIN next_policy_batches b ON b.id=o.batch_id WHERE m.collection_id=$1 AND m.abandoned_at IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM next_collection_mode_changes c WHERE c.collection_id=$1
+             AND c.completed_at IS NOT NULL AND c.created_at>m.created_at)
+           ORDER BY m.created_at DESC LIMIT 1`, [params.data.id])).rows[0];
+        return { status: { collection_id: params.data.id, current_mode: current,
           execution_available: app.hasRoute({method:"POST",url:"/v1/next/collections/:id/mode/:requestId/prepare"}),
-          change: change ? await status(client, params.data.id, current, change) : null };
+          change: change ? await status(client, params.data.id, current, change) : null },
+          abandoned: abandoned && { seq: Number(abandoned.seq), change: await status(client, params.data.id, current, abandoned) } };
       });
+      // Network reads never hold the collection lock.
+      if (result.abandoned && !(await rekeyFollows(log, params.data.id, result.abandoned.seq))) result.status.change = result.abandoned.change;
+      return result.status;
     } catch (error) { return refuse(reply, error, "The switch status is unavailable. Try again."); }
   });
 

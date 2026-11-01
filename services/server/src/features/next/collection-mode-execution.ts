@@ -7,14 +7,14 @@ import type { DatabaseConnection } from "../../database-types.js";
 import { localBuild, localDeployment } from "../../local-deployment.js";
 import { apiError } from "../../platform/http-errors.js";
 import { authenticate, currentIdentity, enrolOp, exactEnrolment, inTransaction, CreateError, refuse, refuseRevoked, SERVICE_ACCOUNT, type Device } from "./bootstrap-common.js";
-import { authenticateOwner, ownedMode, type Owner, type Mode } from "./collection-mode-routes.js";
+import { authenticateOwner, isRekeyItem, ownedMode, type Owner, type Mode } from "./collection-mode-routes.js";
 import { collectionModeDigest } from "./collection-mode-proof.js";
 import { generateCloudCopyServices, loadCloudCopyRecords, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
 import { serializeOps } from "./policy-outbox.js";
 import { migrationDeployments } from "./migration-routing.js";
 import { pitrDeployments } from "./lab-pitr-config.js";
-import { decodeCbor, chainHash, type PolicyOp } from "./policy-wire.js";
+import { chainHash, type PolicyOp } from "./policy-wire.js";
 import { armModeFloor, ModeDevicesNeedUpdate } from "./collection-mode-capability.js";
 
 const uuid = z.uuid().transform(s => s.toLowerCase()).refine(s => s !== SERVICE_ACCOUNT);
@@ -121,7 +121,7 @@ export function registerCollectionModeRecovery(app: FastifyInstance, options: Cl
       if (row.target_mode !== "private" || row.completed_at || row.cancelled_at || !row.policy_outbox_id) throw new CreateError(409, "mode_not_abandonable");
       const published = await batch(options, collection, row.policy_outbox_id);
       const next = await options.log.controlItemAt(collection, Number(published.seq) + 1);
-      if (row.rekey_verified_at || (next && (decodeCbor(next) as Map<number, unknown>).get(1) === 3)) throw new CreateError(409, "mode_rekey_observed");
+      if (row.rekey_verified_at || (next && isRekeyItem(next))) throw new CreateError(409, "mode_rekey_observed");
       await inTransaction(options.db, async client => {
         await ownedMode(client, owner, collection);
         const current = (await load(client)).rows[0];
