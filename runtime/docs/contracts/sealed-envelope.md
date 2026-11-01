@@ -526,7 +526,14 @@ pattern of Vaudenay (2005), as used by ZRTP and Bluetooth numeric comparison.
    `key_grant` for `N`.
 6. **Accept.** `N` uses the key from its first `key_grant` only if `A` signed it (the
    §5.2 local acceptance rule). That stops a forked log from keying `N` from an
-   attacker's device.
+   attacker's device. Answering a challenge does not make `A` a trusted signer.
+   `N` keeps `A` as a trusted signer only if `A`'s `key_grant` keys `N` while
+   `N`'s entry in the log still carries the commitment of the exchange `N`
+   revealed to `A`. A key from any other device, or one applied after a fresh
+   commitment replaced it in the log (the exchange expired, was denied, or went
+   unseen), leaves `A` untrusted. `N` cannot itself confirm that the user
+   compared the codes before `A`'s Allow, so a device that sends the first
+   challenge and then grants the key itself is still accepted (#1071).
 
 The commitment is fixed before `r_A` exists, so an attacker that substitutes a device
 matches the code with probability 10^-6 per attempt. `A` allows at most 3 failed
