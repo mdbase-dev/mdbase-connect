@@ -54,6 +54,11 @@ impl MemBackend {
         self.cols.lock().unwrap().entry(*c).or_default().clone()
     }
 
+    /// Test hook: the number of stored idempotency tokens, expired ones included.
+    pub async fn token_rows(&self, c: &Uuid) -> usize {
+        self.col(c).lock_arc().await.tokens.len()
+    }
+
     /// Test hook: lose the last `n` items, as a failover to a lagging replica would.
     pub async fn lose_tail(&self, c: &Uuid, n: u64, roots: &[B32]) {
         let col = self.col(c);
@@ -304,6 +309,10 @@ impl Txn for MemTxn {
                 }
                 Write::DeleteEntriesThrough(c) => {
                     g.items.retain(|s, i| *s > c || i.kind != 1);
+                }
+                Write::PruneTokens(now) => {
+                    let MemCollection { items, tokens, .. } = &mut *g;
+                    tokens.retain(|_, (s, exp)| *exp > now || items.contains_key(s));
                 }
                 Write::Notify(_) => {}
             }

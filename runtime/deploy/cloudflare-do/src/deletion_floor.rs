@@ -49,7 +49,10 @@ pub(super) fn publishes(writes: &[Write]) -> bool {
         | Write::InsertSnapshot(_)
         | Write::EndorseSnapshot(_) => true,
         Write::Notify(notice) => !notice.gone,
-        Write::DeleteObject(_) | Write::DeleteSnapshot(_) | Write::DeleteEntriesThrough(_) => false,
+        Write::DeleteObject(_)
+        | Write::DeleteSnapshot(_)
+        | Write::DeleteEntriesThrough(_)
+        | Write::PruneTokens(_) => false,
     })
 }
 impl DoBackend {

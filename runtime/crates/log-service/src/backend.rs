@@ -60,6 +60,10 @@ pub enum Write {
     /// Tokens stay until they expire. The service archives the entries first
     /// ([`Archive::put_segment`]).
     DeleteEntriesThrough(u64),
+    /// Delete the tokens expired at `now` whose item is no longer stored, which
+    /// only compaction leaves behind. Tokens of retained items stay with them, as
+    /// a backup cut expects (`backup-verify`).
+    PruneTokens(i64),
     /// Tell subscribers (Postgres: `pg_notify` in the same transaction).
     Notify(CommitNotice),
 }

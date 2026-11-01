@@ -1147,11 +1147,9 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         let state = Self::load(&mut tx).await?;
         Self::authorize(&state, p)?;
         live(&state.meta)?;
-        if content && state.meta.used_bytes + total > state.meta.quotas.storage_bytes {
-            return Err(ServiceError::new(Code::QuotaExceeded));
-        }
 
-        // Step 4: idempotent replay (I4).
+        // Step 4: idempotent replay (I4), before the quota so that a retry of an
+        // append that already landed gets its receipt.
         let head = state.meta.head;
         if params.expect_seq <= head {
             let stored = tx
@@ -1174,6 +1172,9 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
                     .to_cbor(),
                 ));
             }
+        }
+        if content && state.meta.used_bytes + total > state.meta.quotas.storage_bytes {
+            return Err(ServiceError::new(Code::QuotaExceeded));
         }
         // Step 5: head check (I2).
         if params.expect_seq != head + 1 || params.expect_prev != state.meta.head_chain {
@@ -2074,6 +2075,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         )
         .await?;
         tx.write(Write::DeleteEntriesThrough(cp));
+        tx.write(Write::PruneTokens(now));
         state.meta.retained_from = cp + 1;
         state.meta.used_bytes = state.meta.used_bytes.saturating_sub(bytes);
         tx.write(Write::PutMeta(state.meta.clone()));
