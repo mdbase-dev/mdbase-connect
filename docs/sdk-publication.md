@@ -106,15 +106,15 @@ The publisher authenticates through GitHub OIDC alone, using **one npm trusted
 publisher** for `@mdbase-dev/sdk`: owner `mdbase-dev`, repository
 `mdbase-connect`, workflow `publish-sdk-npm.yml`, environment `npm-sdk`. It has
 no token binding or token fallback. The npm package must disallow token
-publishing; the scope owner configures and confirms the trusted publisher before
-this workflow replaces the bootstrap workflow.
+publishing. The scope owner confirmed this trusted publisher on 2026-11-01.
 
 The protected beta.149 tag retains the one-time bootstrap binding used for the
 first package publication, with the same exact-archive checks and `--provenance`
-command. After successful publication, the owner revokes the short-lived
-bootstrap token and deletes `NPM_SDK_BOOTSTRAP_TOKEN` from `npm-sdk`. That
+command. After successful publication, the owner revoked the short-lived
+bootstrap token and deleted `NPM_SDK_BOOTSTRAP_TOKEN` from `npm-sdk`. That
 historical tag is not modified. Never publish a placeholder or use an
-interactive local SDK publish. Do not create npm trusted publishers or registry entries for staging/LAB.
+interactive local SDK publish. Do not create npm trusted publishers or registry
+entries for staging/LAB.
 
 ### Pinned staging/LAB prerelease
 
