@@ -167,8 +167,9 @@ test("workflow builds all variants once, isolates both publisher credentials and
   assert.match(publish, /sdk-publication.mjs verify-npm/);
   assert.match(publish, /scripts\/verify-client-publication.mjs/);
   assert.match(publish, /PRODUCTION_VERIFIED_COMMIT: \$\{\{ inputs.production_verified_commit \}\}/);
-  assert.match(publish, /NODE_AUTH_TOKEN: \$\{\{ secrets.NPM_SDK_BOOTSTRAP_TOKEN \}\}/);
-  assert(!build.includes("NPM_SDK_BOOTSTRAP_TOKEN"));
+  assert.match(publish, /id-token: write/);
+  assert(!workflow.includes("NODE_AUTH_TOKEN"));
+  assert(!workflow.includes("NPM_SDK_BOOTSTRAP_TOKEN"));
   assert.match(publish, /npm publish "\$RUNNER_TEMP\/sdk-packages\/sdk-production.tgz"/);
   assert.match(publish, /--registry https:\/\/registry.npmjs.org\/ --tag next --provenance/);
   assert(!publish.includes("contents: write"));

@@ -102,20 +102,18 @@ explicit npmjs registry and OIDC provenance. Nonproduction tarballs cannot match
 that command's path or production package/registry admission checks. A conflicting
 npm version is an error, never a skip.
 
-Owner setup: npm trusted publishing cannot create a package. For the first
-publication only, after production verification and review of the exact CI-built
-`sdk-production.tgz`, the scope owner creates a short-lived granular token with
-publish rights restricted to `@mdbase-dev` and stores it directly as
-`NPM_SDK_BOOTSTRAP_TOKEN` on `npm-sdk`. The publisher uses that credential only
-when supplied, with the same `--provenance` command and all production gates.
-Never publish a placeholder or use an interactive local SDK publish.
+The publisher authenticates through GitHub OIDC alone, using **one npm trusted
+publisher** for `@mdbase-dev/sdk`: owner `mdbase-dev`, repository
+`mdbase-connect`, workflow `publish-sdk-npm.yml`, environment `npm-sdk`. It has
+no token binding or token fallback. The npm package must disallow token
+publishing. The scope owner confirmed this trusted publisher on 2026-11-01.
 
-After the first publish, configure **one npm trusted publisher**, for
-`@mdbase-dev/sdk` only: owner `mdbase-dev`, repository `mdbase-connect`, workflow
-`publish-sdk-npm.yml`, environment `npm-sdk`. Disallow token publishing, revoke
-the token and delete the environment secret. Immediately merge a follow-up PR
-removing the workflow's bootstrap `NODE_AUTH_TOKEN` binding; normal publication
-then uses GitHub OIDC alone. Do not create npm trusted publishers or registry
+The protected beta.149 tag retains the one-time bootstrap binding used for the
+first package publication, with the same exact-archive checks and `--provenance`
+command. After successful publication, the owner revoked the short-lived
+bootstrap token and deleted `NPM_SDK_BOOTSTRAP_TOKEN` from `npm-sdk`. That
+historical tag is not modified. Never publish a placeholder or use an
+interactive local SDK publish. Do not create npm trusted publishers or registry
 entries for staging/LAB.
 
 ### Pinned staging/LAB prerelease
