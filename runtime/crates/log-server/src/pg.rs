@@ -398,7 +398,10 @@ fn publishes(writes: &[Write]) -> bool {
         | Write::InsertSnapshot(_)
         | Write::EndorseSnapshot(_) => true,
         Write::Notify(notice) => !notice.gone,
-        Write::DeleteObject(_) | Write::DeleteSnapshot(_) | Write::DeleteEntriesThrough(_) => false,
+        Write::DeleteObject(_)
+        | Write::DeleteSnapshot(_)
+        | Write::DeleteEntriesThrough(_)
+        | Write::PruneTokens(_) => false,
     })
 }
 
@@ -906,6 +909,12 @@ async fn commit_writes(client: &Object, id: &[u8], writes: Vec<Write>) -> Result
                     vec![idp(), Box::new(c as i64)],
                 ));
             }
+            Write::PruneTokens(now) => stmts.push((
+                "DELETE FROM ls_tokens t
+                 WHERE t.collection = $1 AND t.expires_at <= $2
+                   AND NOT EXISTS (SELECT 1 FROM ls_items i WHERE i.collection = t.collection AND i.seq = t.seq)",
+                vec![idp(), Box::new(now)],
+            )),
             Write::Notify(n) => tail.push((
                 "SELECT pg_notify('ls_commits', $1)",
                 vec![Box::new(n.to_text())],

@@ -121,6 +121,7 @@ impl DoBackend {
                 | Write::EndorseSnapshot(_)
                 | Write::DeleteSnapshot(_)
                 | Write::DeleteEntriesThrough(_)
+                | Write::PruneTokens(_)
                 | Write::CreateCollection(_) => true,
                 Write::PutMeta(m) => {
                     quota_bytes(&m.quotas) != as_bytes(&cut[0])

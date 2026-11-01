@@ -806,6 +806,10 @@ impl Txn for DoTxn<'_> {
                             vec![int(c as i64)],
                         )?;
                     }
+                    Write::PruneTokens(now) => x(
+                        "DELETE FROM tokens WHERE expires_at <= ? AND seq NOT IN (SELECT seq FROM items)",
+                        vec![int(now)],
+                    )?,
                     Write::Notify(_) => {}
                 }
             }

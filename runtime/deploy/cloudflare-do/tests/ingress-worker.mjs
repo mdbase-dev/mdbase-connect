@@ -396,8 +396,13 @@ export class LogCollection extends RustCollection {
     }
     if (path === "/__test/age-aux-fixture") {
       this.testState.storage.sql.exec("UPDATE items SET appended_at = 1000 + seq");
-      this.testState.storage.sql.exec("UPDATE tokens SET expires_at = 2000 + seq");
       this.testState.storage.sql.exec("UPDATE snapshots SET created_at = 1000");
+      return new Response("ok");
+    }
+    // Separate from the fixture ageing: compaction prunes expired tokens of the
+    // entries it removes, so tokens are aged only after it has run.
+    if (path === "/__test/age-aux-tokens") {
+      this.testState.storage.sql.exec("UPDATE tokens SET expires_at = 2000 + seq");
       return new Response("ok");
     }
     if (path === "/__test/aux-state") {
@@ -446,7 +451,7 @@ export default {
         method: "POST", body: JSON.stringify(q),
       });
     }
-    if (["/__test/expire-cut", "/__test/age-objects", "/__test/aux-state", "/__test/age-aux-fixture",
+    if (["/__test/expire-cut", "/__test/age-objects", "/__test/aux-state", "/__test/age-aux-fixture", "/__test/age-aux-tokens",
       "/__test/floor-pause-state", "/__test/resume-floor", "/__test/destination-state", "/__test/corrupt-destination-denial"].includes(path)) {
       const { actor } = await req.json();
       if (typeof actor !== "string" || !/^[0-9a-f-]{36}$/.test(actor)) return new Response("actor", { status: 400 });

@@ -166,7 +166,7 @@ Inside the collection's actor, for one request:
 1. **Authenticate and authorize** the principal for the collection (§3). Failure:
    `unauthenticated` or `forbidden`.
 2. **Collection state.** If the collection is unknown: `not_found`. If deleted or moved:
-   `gone`. If over its storage quota: `quota_exceeded`.
+   `gone`.
 3. **Shape.**
    - 1–64 items, ≤ 4 MiB in total, each ≤ 1 MiB;
    - each item is a valid `mdb-cbor/1` item envelope of this collection, of a kind this
@@ -175,6 +175,9 @@ Inside the collection's actor, for one request:
    Failure: `invalid` or `too_large`.
 4. **Idempotent replay (I4).** If `expect_seq ≤ head`, and every item is byte-identical
    to the stored item at its position, return the stored `appended` for that range.
+   Then, if the batch holds content items and would put the collection over its
+   storage quota: `quota_exceeded`. A retry of an append that already landed thus
+   gets its receipt, not `quota_exceeded`.
 5. **Head check (I2).** If `expect_seq ≠ head + 1` or `expect_prev ≠ chain(head)`,
    return `head-moved`.
 6. **Chain within the batch.** Each item's `prev` must equal the chain hash of the item
@@ -453,7 +456,8 @@ endorse-snapshot-result = { 0: bool }    ; endorsed
   format 1: `{0: 1, 1: collection, 2: from, 3: to, 4: chain(to), 5: [[seq, item]…]}`,
   at most 8 MiB of item bytes each; the deletion commits only once every segment is
   stored). Archived bytes do not count toward storage. Their tokens stay in the index
-  until they expire.
+  until they expire; compaction also deletes the expired tokens of entries it has
+  already archived. Tokens of retained items are kept with them.
 
 ## 8. Ephemeral per-record streams
 

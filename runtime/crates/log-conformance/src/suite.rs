@@ -922,8 +922,18 @@ async fn limits_and_errors(t: &Target) -> Result<(), String> {
     fx.append_at_head(&c, &fx.a, 1, "thawed", 1)
         .await
         .map_err(e2s)?;
-    // Storage quota: content refused, policy still accepted.
+    // Storage quota: content refused, policy still accepted. A retry of an append
+    // that already landed gets its original receipt, not `quota_exceeded` (§4.1).
+    let (h, chain) = fx.head(&c).await?;
+    let landed = vec![fx.entry(&fx.a, h + 1, chain, 1, "landed")];
+    let receipt = appended(
+        fx.append(&c, h + 1, chain, landed.clone())
+            .await
+            .map_err(e2s)?,
+    )?;
     fx.quota(1, 1_000_000, 1 << 34, 1_000_000).await?;
+    let retried = appended(fx.append(&c, h + 1, chain, landed).await.map_err(e2s)?)?;
+    ensure!(retried == receipt, "retry {retried:?}, receipt {receipt:?}");
     expect_code(
         fx.append_at_head(&c, &fx.a, 1, "over-quota", 1).await,
         Code::QuotaExceeded,
