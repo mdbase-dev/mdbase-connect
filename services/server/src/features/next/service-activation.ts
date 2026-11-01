@@ -28,7 +28,7 @@ function wakeLog(collection: string, role: ServiceKind, phase: "sent" | "outcome
  * change either; a newer batch is tried again. */
 const REFUSALS = ["custody_collection_gone", "custody_collection_not_allowed"] as const;
 type Refusal = typeof REFUSALS[number];
-type Outcome = { kind: "accepted" } | { kind: "refused"; reason: Refusal } | { kind: "unknown" };
+export type Outcome = { kind: "accepted" } | { kind: "refused"; reason: Refusal } | { kind: "unknown" };
 
 async function smallJson(response: Response): Promise<unknown> {
   const reader = response.body?.getReader();
@@ -44,7 +44,8 @@ async function smallJson(response: Response): Promise<unknown> {
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return undefined; }
 }
 
-async function outcome(response: Response): Promise<Outcome> {
+/** The activation answer: accepted, a lasting refusal, or unknown (retry). */
+export async function activationOutcome(response: Response): Promise<Outcome> {
   if (response.status !== 200 && response.status !== 409) { await response.body?.cancel(); return { kind: "unknown" }; }
   const body = await smallJson(response);
   if (!body || typeof body !== "object" || Object.keys(body).length !== 1) return { kind: "unknown" };
@@ -72,9 +73,11 @@ export async function activatePendingServices(
     values.push([pitr.active, pitr.deleted]);
     exclusion = `AND NOT (device.kind = 'escrow' AND device.collection_id = ANY($${values.length}::uuid[]))`;
   }
-  // A retired migration route (LAB fixture disposal) has no service deployments to wake.
+  // A retired migration route (LAB fixture disposal) has no service deployments to
+  // wake; a collection moving hosting has none until the move ends.
   if (migrationRouting) exclusion += `
-     AND NOT EXISTS (SELECT 1 FROM next_migration_routing_retirements retired WHERE retired.collection_id = device.collection_id)`;
+     AND NOT EXISTS (SELECT 1 FROM next_migration_routing_retirements retired WHERE retired.collection_id = device.collection_id)
+     AND NOT EXISTS (SELECT 1 FROM next_hosting_moves move WHERE move.collection_id = device.collection_id AND move.state = 'moving')`;
   let selection = "";
   if (collectionId) {
     values.push(collectionId);
@@ -118,7 +121,7 @@ export async function activatePendingServices(
         headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
         body: JSON.stringify({ collection, ...(region ? { region } : {}) }), signal: AbortSignal.timeout(TIMEOUT_MS) });
       status = response.status;
-      result = await outcome(response);
+      result = await activationOutcome(response);
     } catch { /* Fixed persisted retry facts only; no response/URL/token/errors stored. */ }
     wakeLog(collection, kind, "outcome", { accepted: result.kind === "accepted", http_status: status, elapsed_ms: Math.max(0, Date.now() - started) });
     if (result.kind === "accepted") {

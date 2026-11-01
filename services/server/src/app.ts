@@ -40,6 +40,7 @@ import { registerPrearchiveMigrationRoutes } from "./features/next/migration-pre
 import { registerMigrationReplicaRoutes } from "./features/next/migration-replicas.js";
 import { registerMigrationTimerCleanupRoute } from "./features/next/migration-timer-cleanup.js";
 import { registerMigrationRouteRetireRoute } from "./features/next/migration-routing.js";
+import { registerHostingMoveRoutes } from "./features/next/hosting-moves.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
 import { registerLabFixtureRoutes } from "./features/next/lab-fixture-routes.js";
 import { validateLabFixtureConfig } from "./features/next/lab-fixture-config.js";
@@ -646,6 +647,9 @@ export async function buildApp(options: BuildOptions) {
         environment: options.environment, provider: options.hostedProvider });
       if (options.nextControlPlane.migrationRouting) registerMigrationRouteRetireRoute(app, { db: options.db,
         token: options.nextControlPlane.migrationToken, routing: options.nextControlPlane.migrationRouting });
+      if (options.nextControlPlane.migrationRouting && options.nextControlPlane.cloudCopyBootstrap) registerHostingMoveRoutes(app, { db: options.db,
+        token: options.nextControlPlane.migrationToken, routing: options.nextControlPlane.migrationRouting,
+        hosted: options.nextControlPlane.cloudCopyBootstrap.hosted });
     }
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog, tailscaleAuth: options.tailscaleAuth });
     if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog });

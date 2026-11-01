@@ -292,6 +292,32 @@ describe("migration routing environment gate (deployment configuration only)", (
       MDBASE_NEXT_MIGRATION_HOSTED_URL: production.MDBASE_NEXT_MIGRATION_HOSTED_URL })?.migrationRouting?.environment).toBe("production");
     expect(() => parseNextControlPlaneEnv({ ...full, MDBASE_CONNECT_ENVIRONMENT: "production", PUBLIC_URL: "https://connect.mdbase.dev" })).toThrow();
   });
+  it.each(["moving", "moved"] as const)("a hosting move decides first: %s", async move => {
+    const grant = { owner_account: account, grant_id: "grant", authorization_grant: "grant", policy_required: true, policy_active: true,
+      has_client_key: true, hosted_device: collection, hosted_noise_pk: Buffer.alloc(32, 1) };
+    const db = database([]);
+    db.query.mockImplementation(async sql => sql.includes("parent.owner_user_id::text AS owner_account") ? result([grant])
+      : sql.includes("UNION SELECT") ? result([{ owner: account, legacy: true, move }]) : result([]));
+    expect(await migrationRoute(db, routing, collection)).toBe(move === "moving" ? "moving" : "default");
+    // Moving: no deployment for bootstrap or wakes, and no hosted app target, though the grant stands.
+    expect(await migrationDeployments(db, normal, routing, collection)).toEqual(move === "moving" ? null : normal);
+    const route = await hostedRouteTarget(db, "opaque", collection, normal.hosted.url, routing);
+    expect(route!.grant).toEqual(grant);
+    if (move === "moving") expect(route!.target).toBeNull();
+    else expect(route!.target!.url).toContain(normal.hosted.url.replace("https:", "wss:"));
+    // Inbound: moving refuses both Workers; moved admits only the CP's hosted deployment.
+    const app = Fastify();
+    registerNextHostedRoutes(app, { db: db as unknown as DatabasePool, tokens: { hosted: "H".repeat(40) }, migrationRouting: routing });
+    try {
+      const request = (token: string) => app.inject({ method: "GET", url: `/internal/v1/next/collections/${collection}/state`, headers: { authorization: `Bearer ${token}` } });
+      expect((await request(routing.inboundToken)).statusCode).toBe(403);
+      expect((await request("H".repeat(40))).statusCode).toBe(move === "moving" ? 403 : 200);
+    } finally { await app.close(); }
+    // Without migration routing a move row is never read.
+    const disabled = database([]);
+    expect(await migrationRoute(disabled, undefined, collection)).toBe("default");
+    expect(disabled.query).not.toHaveBeenCalled();
+  });
   it("a retired route has no deployments, while other routes are unchanged", async () => {
     const db = database([]);
     db.query.mockImplementation(async sql => sql.includes("UNION SELECT") ? result([{ owner: account, legacy: true }])
