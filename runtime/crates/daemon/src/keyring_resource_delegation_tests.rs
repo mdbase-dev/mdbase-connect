@@ -175,9 +175,12 @@ macro_rules! forward_mem_reads {
     };
 }
 impl Store for ResourceProbe {
-    // Retains no own history (the trait's `own_retained` default).
+    // Retains no own history.
     fn own_retained_stats(&self) -> StoreResult<TailStats> {
         Ok(TailStats::default())
+    }
+    fn own_retained(&self, _after: Seq, _limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
+        Ok(Vec::new())
     }
     forward_mem_reads! {
         fn head() -> StoreResult<Head>;

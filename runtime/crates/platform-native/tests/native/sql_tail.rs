@@ -1,7 +1,7 @@
 //! Actual durable SQLite reopen and abort tests, not physical power-loss claims.
 use super::*;
-use mdbn_store_file::SqlStore;
 use mdbn_store_file::testing::replica::store::{StoreError, TailRow, TailStats};
+use mdbn_store_file::{LogCache, SqlStore, SqlStoreLimits};
 use std::path::Path;
 
 fn open(path: &Path) -> SqlStore<SqliteIndex> {
@@ -107,6 +107,23 @@ fn file_wrapper_forwards_retention_and_preserves_raw_and_own_on_reopen() {
     assert_eq!(store.tail(0, 10).unwrap().len(), 1);
     assert_eq!(store.tail_stats().unwrap().count, 1);
     assert_eq!(store.own_retained(0, 10).unwrap().len(), 1);
+}
+
+/// The hosted Worker runs `Engine<LogCache<_>>`: own history it commits must be
+/// read back, or repair and lost-tail recovery see none (issue 1083).
+#[test]
+fn log_cache_forwards_tail_and_own_history() {
+    let dir = scratch("log-cache-retention");
+    let n = Cell::new(0u32);
+    mdbn_store_file::testing::replica::conformance::run_tail(|| {
+        n.set(n.get() + 1);
+        let index = SqliteIndex::open(
+            dir.join(format!("cache{}.db", n.get())),
+            IndexDurability::Disposable,
+        )
+        .unwrap();
+        LogCache::open(Rc::new(RefCell::new(index)), SqlStoreLimits::default()).unwrap()
+    });
 }
 
 /// Retention uses ordinary DELETEs, not VACUUM. Real SQLite must make their
