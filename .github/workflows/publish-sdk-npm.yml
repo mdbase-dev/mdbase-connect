@@ -133,10 +133,6 @@ jobs:
           scripts/ci/verify-qualified-commit "$GITHUB_SHA"
           node scripts/verify-client-publication.mjs
       - name: Publish the verified production archive with provenance
-        # One-time first-name bootstrap only; remove this env binding in the
-        # immediate post-bootstrap PR after trusted publishing is configured.
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_SDK_BOOTSTRAP_TOKEN }}
         run: npm publish "$RUNNER_TEMP/sdk-packages/sdk-production.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org/ --tag next --provenance
 
   attest-internal:
