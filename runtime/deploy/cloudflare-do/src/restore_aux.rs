@@ -111,12 +111,12 @@ impl DoBackend {
             return Err(bad());
         }
         self.record_route(&c)?;
+        self.prefetch_deletion_floor(&c, budget).await;
         let _guard = self.lock.lock().await;
         self.refuse_destination_denial()?;
-        self.refuse_deletion_floor(&c, budget).await?;
-        self.refuse_destination_denial()?;
-        // Materialize current collection/plan only after the independent read;
-        // the rest of the validation and transaction contain no awaits.
+        self.refuse_cached_deletion_floor()?;
+        // Materialize current collection/plan only after the floor check; the
+        // rest of the validation and transaction contain no awaits.
         let meta = self.exec("SELECT meta FROM meta WHERE k = 0", vec![])?;
         let meta = meta.first().ok_or_else(bad)?;
         let meta = CollectionMeta::decode_with_budget(&as_bytes(&meta[0]), budget)?;

@@ -107,9 +107,9 @@ export async function destinationDenialCases({ base, token, transport, encode, d
   fail(await fault('floor-actor','collection_destination_close',close(deletion,epoch,id('foreign'))),'invalid','collection_destination_close_request');
   assert.deepEqual(await harness('destination-state'),initial,'invalid/unauthorized close leaves all SQL state unchanged');
 
-  // The real Rust producer owns its writer lock and has buffered changed quota.
-  // Hold its actual absent nil reply. Close runs as a separate authenticated RPC
-  // and must finish without the producer waking or releasing that lock.
+  // The real Rust producer reads its floor before taking its writer lock. Hold
+  // its actual absent nil reply. Close runs as a separate authenticated RPC and
+  // must finish without the producer waking.
   const pendingRequest = await signed('set_quota',map([[0,c],[1,[888888,101,100001,101]]]));
   const pending = fetch(`${base}/__test/floor-actor`, { method:'POST', body:JSON.stringify({
     actor, url:`https://do/v1/rpc?c=${actor}`, headers:pendingRequest.headers,
@@ -128,7 +128,7 @@ export async function destinationDenialCases({ base, token, transport, encode, d
       if ((await harness('floor-pause-state')).paused) { reached = true; break; }
       await delay(10);
     }
-    assert.ok(reached,'actual producer paused at nil reply while holding writer lock');
+    assert.ok(reached,'actual producer paused at its nil read');
     assert.deepEqual(await harness('destination-state'),initial,'prepared quota has not committed');
     // An unknown-length body needs the whole cap up front.
     const overlappingPositive = await signed('set_quota',quota);

@@ -15,6 +15,7 @@ import { collectionDeletionCases } from './collection-deletion-cases.mjs';
 import { destinationDenialCases } from './destination-denial-cases.mjs';
 import { destinationAuxDenialCases } from './destination-aux-denial-cases.mjs';
 import { collectionClosingCases } from './collection-closing-cases.mjs';
+import { registryOffAppendCases } from './registry-off-append-cases.mjs';
 import WebSocket from 'ws';
 import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -228,6 +229,7 @@ try {
     restart: async () => { await stop(); await start(); } });
   await collectionClosingCases({ base, token, transport, encode, decode, map, sha, h,
     restart: async () => { await stop(); await start(); } });
+  await registryOffAppendCases({ base, token, transport, encode, decode, map, sha, h });
   await ingressCases({base,token,transport,c,cid,encode,map,sha,h});
   await backupCases({ base, token, transport, encode, decode, map, sha, h,
     restart: async () => { await stop(); await start(); },
