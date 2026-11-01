@@ -3,8 +3,7 @@ import {isNativeLoopbackOrigin} from "@mdbase-dev/connect-protocol/manifest";
  * origins, declared native IPv4 loopback HTTP on any port, Capacitor's iOS `capacitor://<host>` and browser-extension pages.
  * Browsers may report custom app schemes as an opaque "null" origin, so the
  * canonical form is always `<scheme>//<host>`. Exact match, no wildcards. */
-import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
-const LOOPBACK = ["localhost", "127.0.0.1", "[::1]"];
+import { labLoopbackHttpOrigin } from "../application/local-build.js";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export type AppOriginPlatform = "web" | "mobile" | "extension" | "native";
 
@@ -19,7 +18,7 @@ export function appOriginPlatform(value: unknown, loopbackHttp = false, platform
   if (u.username || u.password || u.search || u.hash || !["", "/"].includes(u.pathname) || urlOrigin(u) !== value) return null;
   switch (u.protocol) {
     case "https:": return "web";
-    case "http:": return platform === "native" && isNativeLoopbackOrigin(value) ? "native" : loopbackHttp && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(value) : LOOPBACK.includes(u.hostname)) ? "web" : null;
+    case "http:": return platform === "native" && isNativeLoopbackOrigin(value) ? "native" : loopbackHttp && labLoopbackHttpOrigin(value) ? "web" : null;
     case "capacitor:": return !u.port && /^[a-z0-9.-]{1,253}$/.test(u.hostname) ? "mobile" : null;
     case "chrome-extension:": return /^[a-p]{32}$/.test(u.host) ? "extension" : null;
     case "moz-extension:": return UUID.test(u.host) ? "extension" : null;

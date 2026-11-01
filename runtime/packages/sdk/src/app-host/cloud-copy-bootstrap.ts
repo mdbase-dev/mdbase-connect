@@ -1,7 +1,7 @@
 /** First-party original-device CLOUD COPY HTTP bootstrap. No hosted-first,
  * seed loan, generic signer, runtime roots/keys discovery or readiness inference. */
 import { uuidToBytes } from "../codec.js";
-import { LOCAL_APPLICATION_BUILD, localApplicationEnvironment, localApplicationOrigin } from "../application/local-build.js";
+import { LOCAL_APPLICATION_BUILD, labLoopbackHttpOrigin, localApplicationEnvironment, localApplicationOrigin } from "../application/local-build.js";
 import { collectionDisplayName } from "./collection-display-name.js";
 import type { AppDeviceKeyCustodyPin } from "./device-key-custody.js";
 import type {
@@ -282,11 +282,7 @@ export class AppCpCloudCopyBootstrap {
             u.username ||
             u.password ||
             (u.protocol !== "https:" &&
-                !(
-                    this.loopback &&
-                    u.protocol === "http:" &&
-                    ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)
-                ))
+                !(this.loopback && labLoopbackHttpOrigin(raw)))
         )
             throw fail("binding");
         return u.origin;

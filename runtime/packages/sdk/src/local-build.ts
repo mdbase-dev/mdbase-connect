@@ -13,6 +13,17 @@ export function localApplicationHttpOrigin(value: string): boolean {
   } catch { return false; }
 }
 
+/** LAB loopback HTTP admission, only behind a caller's explicit LAB flag; local
+ * builds narrow it to {@link localApplicationHttpOrigin}. Not the native
+ * exception, which is canonical 127.0.0.1 only (`isNativeLoopbackOrigin`). */
+export function labLoopbackHttpOrigin(value: string): boolean {
+  if (LOCAL_APPLICATION_BUILD) return localApplicationHttpOrigin(value);
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  } catch { return false; }
+}
+
 /** The relay's local equivalent of TLS; credentials still travel in the first
  * frame, never in a URL. Managed relays continue to require wss. */
 export function localApplicationWebSocketUrl(value: string): boolean {
