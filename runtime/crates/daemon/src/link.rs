@@ -63,12 +63,15 @@ impl Link {
         crate::fsutil::write_atomic(&file, body.as_bytes())?;
         let token = *token;
         let task = tokio::spawn(async move {
+            // Dropped with this task, which aborts every connection: `stop` ends them.
+            let mut conns = tokio::task::JoinSet::new();
             loop {
                 let Ok((stream, peer)) = listener.accept().await else {
                     continue;
                 };
+                while conns.try_join_next().is_some() {}
                 let (id, h) = (identity.clone(), handler.clone());
-                tokio::spawn(async move {
+                conns.spawn(async move {
                     if let Err(e) = serve_conn(stream, peer, port, token, id, h).await {
                         tracing::debug!(error = %e, "localhost link connection ended");
                     }

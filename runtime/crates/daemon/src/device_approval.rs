@@ -305,7 +305,7 @@ impl Daemon {
         let host = session.host.clone();
         let rt = rt.clone();
         let id = id.to_string();
-        tokio::spawn(async move {
+        daemon.clone().spawn(async move {
             let mut stop = daemon.shutdown.subscribe();
             tokio::select! {
                 _ = stop.wait_for(|s| *s) => {}

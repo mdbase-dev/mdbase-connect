@@ -598,7 +598,7 @@ async fn logout_aborts_tracked_pairing_and_never_restores_an_older_epoch() {
     let epoch = d.begin_pairing().await.unwrap();
     let task = tokio::spawn(std::future::pending::<()>());
     let abort = task.abort_handle();
-    d.account.lock().unwrap().pairing_task = Some(task);
+    d.account.lock().unwrap().pairing_task = Some(task.abort_handle());
     d.sign_out().await.unwrap();
     tokio::task::yield_now().await;
     assert!(abort.is_finished());

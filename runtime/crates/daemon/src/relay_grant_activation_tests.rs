@@ -123,9 +123,9 @@ async fn pending_pipe_registered_and_swept_without_blocking_or_admitting() {
     assert!(p.tx.try_send(vec![0, 0, 0, 1, 0]).is_ok());
     assert!(p.waiting_for_grant.load(Ordering::SeqCst));
     assert!(rx.try_recv().is_err());
-    for (_, p) in pipes {
+    for (_, mut p) in pipes {
         p.task.abort();
-        assert!(p.task.await.unwrap_err().is_cancelled());
+        assert!((&mut p.task).await.unwrap_err().is_cancelled());
     }
 }
 #[tokio::test(start_paused = true)]
@@ -142,8 +142,8 @@ async fn activation_timeout_is_twenty_seconds_and_refuses_same_pipe() {
         rx.recv().await,
         Some(PipeOut::Close(pipe, "grant_inactive".into()))
     );
-    for (_, p) in pipes {
-        p.task.await.unwrap();
+    for (_, mut p) in pipes {
+        (&mut p.task).await.unwrap();
     }
     assert!(rx.try_recv().is_err());
 }
