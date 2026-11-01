@@ -5,6 +5,7 @@ use crate::testkit::TEST_OWNER;
 use mdbn_wire::envelope::{Item, ItemKind, RekeyPayload, RekeyReason};
 use mdbn_wire::policy::{CState, CollectionState, DeviceKind, DeviceRevoke, PolicyOp};
 use mdbn_wire::schema::Wire;
+use std::collections::BTreeSet;
 
 fn world() -> (FakeLogService, crate::testkit::TestControlPlane) {
     let svc = FakeLogService::new();
@@ -178,8 +179,8 @@ fn the_first_valid_non_owner_rekey_does_not_carry_over_trust() {
 }
 
 #[test]
-fn an_intervening_item_or_wrong_reason_permanently_consumes_the_exception() {
-    for intervening in [false, true] {
+fn a_wrong_reason_first_rekey_permanently_consumes_the_exception() {
+    for abandoned in [false, true] {
         let (svc, mut cp) = world();
         let store = MemStore::new();
         let data = store.data();
@@ -188,26 +189,20 @@ fn an_intervening_item_or_wrong_reason_permanently_consumes_the_exception() {
         settle(&mut [&mut a, &mut b]);
         switch(&mut cp, &svc);
         settle(&mut [&mut a, &mut b]);
-        if intervening {
-            cp.append(
-                &svc,
-                vec![PolicyOp::CollectionState(CollectionState {
-                    state: CState::E2e,
-                    compress: Some(false),
-                    min_sem_major: None,
-                })],
-            );
-            settle(&mut [&mut a, &mut b]);
+        if abandoned {
+            // The editor's ordinary rekey wins the released slot before the owner.
+            reassert_private(&mut cp, &svc);
+            settle(&mut [&mut b]);
+            direct_rekey(&mut b, RekeyReason::DeviceRevoked);
+            settle(&mut [&mut b]);
+        } else {
+            direct_rekey(&mut a, RekeyReason::DeviceRevoked);
         }
-        direct_rekey(
-            &mut a,
-            if intervening {
-                RekeyReason::CloudCopyOff
-            } else {
-                RekeyReason::DeviceRevoked
-            },
-        );
         settle(&mut [&mut a, &mut b]);
+        assert_eq!(
+            b.r.policy.epoch, 2,
+            "ordinary policy still accepts the rekey"
+        );
         assert!(b.r.key_untrusted);
         assert!(b.r.accepted_private_switch().is_none());
         drop(a);
@@ -216,6 +211,189 @@ fn an_intervening_item_or_wrong_reason_permanently_consumes_the_exception() {
         assert!(a.r.key_untrusted);
         assert!(a.r.request_private_switch(a.s).is_err());
     }
+}
+
+/// Owner 101 requests and is lost before its adjacent rekey; 105 is the other
+/// owner desktop and 104 another member's editor desktop.
+fn abandoned_world() -> (FakeLogService, crate::testkit::TestControlPlane) {
+    let svc = FakeLogService::new();
+    let cp = cloud_copy_genesis(
+        &svc,
+        &[
+            (101, TEST_OWNER, DeviceKind::Desktop),
+            (105, TEST_OWNER, DeviceKind::Desktop),
+            (104, OTHER, DeviceKind::Desktop),
+        ],
+    );
+    initial_rekey_by(&svc, 2);
+    (svc, cp)
+}
+/// A control-plane item that occupies the released slot without a rekey.
+fn reassert_private(cp: &mut crate::testkit::TestControlPlane, svc: &FakeLogService) -> u64 {
+    cp.append(
+        svc,
+        vec![PolicyOp::CollectionState(CollectionState {
+            state: CState::E2e,
+            compress: None,
+            min_sem_major: None,
+        })],
+    )
+}
+fn last_rekey(svc: &FakeLogService) -> (Item, RekeyPayload) {
+    let item = Item::from_bytes(svc.items(&COL).last().unwrap()).unwrap();
+    assert_eq!(item.kind, ItemKind::Rekey);
+    let rekey = RekeyPayload::from_bytes(&item.body.0).unwrap();
+    (item, rekey)
+}
+
+#[test]
+fn a_surviving_owner_rekeys_automatically_after_an_abandoned_slot() {
+    // 0: CP item; 1: the owner revokes the lost requester; 2: an existing key
+    // holder grants the old epoch to a new device, which must not wedge rotation.
+    for occupant in 0..3 {
+        let revoke_lost = occupant == 1;
+        let (svc, mut cp) = abandoned_world();
+        let mut lost = device(&svc, 1, MemStore::new());
+        let owner_store = MemStore::new();
+        let owner_data = owner_store.data();
+        let editor_store = MemStore::new();
+        let editor_data = editor_store.data();
+        let mut owner = device(&svc, 5, owner_store);
+        let mut editor = device(&svc, 4, editor_store);
+        settle(&mut [&mut lost, &mut owner, &mut editor]);
+        lost.r.request_private_switch(lost.s).unwrap();
+        drop(lost);
+        let ps = switch(&mut cp, &svc);
+        settle(&mut [&mut owner, &mut editor]);
+        // The other owner never requested, so the held adjacent slot stays empty.
+        assert_eq!(svc.head(&COL).0, ps);
+        assert!(owner.r.private_switch_waiting() && owner.r.key_untrusted);
+        // After abandon the next item takes the released slot: usually the
+        // owner's revocation of the lost requester. Neither consumes the set.
+        let released = match occupant {
+            0 => reassert_private(&mut cp, &svc),
+            1 => cp.revoke(&svc, B16([101; 16])),
+            _ => {
+                cp.enrol(
+                    &svc,
+                    crate::testkit::TestDevice {
+                        device: B16([107; 16]),
+                        account: TEST_OWNER,
+                        kind: DeviceKind::Desktop,
+                    },
+                );
+                let grant = editor
+                    .r
+                    .sealer
+                    .build_key_grant(
+                        1,
+                        &crate::crypto::keys::Recipient {
+                            device: B16([107; 16]),
+                            kem_pk: [107; 32],
+                        },
+                        &mut crate::crypto::TestEntropy::new(51),
+                    )
+                    .unwrap();
+                cp.append_item(
+                    &svc,
+                    ItemKind::KeyGrant,
+                    B16([104; 16]),
+                    grant.to_bytes().unwrap(),
+                )
+            }
+        };
+        settle(&mut [&mut owner, &mut editor]);
+        assert_eq!(svc.head(&COL).0, released + 1);
+        let (item, rekey) = last_rekey(&svc);
+        assert_eq!(item.signer, Some(B16([105; 16])));
+        assert_eq!(rekey.reason, RekeyReason::CloudCopyOff);
+        assert_eq!(rekey.from, 1);
+        let recipients = rekey
+            .wraps
+            .iter()
+            .map(|w| w.device)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(recipients.contains(&B16([101; 16])), !revoke_lost);
+        assert_eq!(recipients.contains(&B16([107; 16])), occupant == 2);
+        assert!(!recipients.iter().any(|id| [102, 103].contains(&id.0[0])));
+        for node in [&owner, &editor] {
+            assert_eq!(node.r.policy.epoch, 2);
+            assert_eq!(node.r.accepted_private_switch(), Some(B16([105; 16])));
+            assert_eq!(node.r.cfg.chosen_state, Some(CState::E2e));
+            assert!(!node.r.key_untrusted);
+            assert!(node.r.serves_apps().is_ok());
+        }
+        drop(owner);
+        drop(editor);
+        let mut owner = device(&svc, 5, MemStore::shared(owner_data));
+        let mut editor = device(&svc, 4, MemStore::shared(editor_data));
+        settle(&mut [&mut owner, &mut editor]);
+        assert_eq!(
+            svc.head(&COL).0,
+            released + 1,
+            "exactly one excluding rekey"
+        );
+        for node in [&owner, &editor] {
+            assert_eq!(node.r.cfg.chosen_state, Some(CState::E2e));
+            assert!(!node.r.key_untrusted);
+        }
+    }
+}
+
+#[test]
+fn losing_every_frozen_owner_consumes_an_abandoned_switch() {
+    let (svc, mut cp) = abandoned_world();
+    let mut lost = device(&svc, 1, MemStore::new());
+    let mut editor = device(&svc, 4, MemStore::new());
+    settle(&mut [&mut lost, &mut editor]);
+    lost.r.request_private_switch(lost.s).unwrap();
+    drop(lost);
+    switch(&mut cp, &svc);
+    settle(&mut [&mut editor]);
+    cp.revoke(&svc, B16([101; 16]));
+    settle(&mut [&mut editor]);
+    assert!(
+        editor.r.private_switch_waiting(),
+        "owner 105 can still rotate"
+    );
+    cp.revoke(&svc, B16([105; 16]));
+    settle(&mut [&mut editor]);
+    assert!(!editor.r.private_switch_waiting());
+    assert!(editor.r.key_untrusted);
+    assert!(editor.r.accepted_private_switch().is_none());
+}
+
+#[test]
+fn an_abandoned_slot_cannot_be_finished_by_a_non_owner() {
+    let (svc, mut cp) = world();
+    let owner_store = MemStore::new();
+    let owner_data = owner_store.data();
+    let mut owner = device(&svc, 1, owner_store);
+    let mut editor = device(&svc, 4, MemStore::new());
+    settle(&mut [&mut owner, &mut editor]);
+    switch(&mut cp, &svc);
+    settle(&mut [&mut owner, &mut editor]);
+    drop(owner);
+    reassert_private(&mut cp, &svc);
+    settle(&mut [&mut editor]);
+    assert!(
+        editor.r.private_switch_waiting(),
+        "a non-owner does not author"
+    );
+    direct_rekey(&mut editor, RekeyReason::CloudCopyOff);
+    settle(&mut [&mut editor]);
+    assert_eq!(editor.r.policy.epoch, 2);
+    assert!(editor.r.key_untrusted);
+    assert!(editor.r.accepted_private_switch().is_none());
+    let mut owner = device(&svc, 1, MemStore::shared(owner_data));
+    settle(&mut [&mut owner, &mut editor]);
+    assert!(owner.r.key_untrusted);
+    assert!(owner.r.accepted_private_switch().is_none());
+    assert_eq!(
+        svc.head(&COL).0,
+        editor.r.head().seq,
+        "no owner rekey follows"
+    );
 }
 
 #[test]
@@ -228,11 +406,20 @@ fn an_unkeyed_non_set_signer_cannot_manufacture_the_switch_key() {
     let mut outsider = node(&svc, 5, MemStore::new());
     settle(&mut [&mut outsider]);
     direct_rekey(&mut outsider, RekeyReason::CloudCopyOff);
+    settle(&mut [&mut outsider]);
+    assert_eq!(outsider.r.policy.epoch, 1, "the outsider's rekey is void");
+    // Its void item only occupies the slot; the frozen owner then rotates.
     settle(&mut [&mut a, &mut outsider]);
-    assert_eq!(a.r.policy.epoch, 1);
-    assert!(a.r.head().seq > ps);
-    assert!(a.r.key_untrusted);
-    assert!(a.r.accepted_private_switch().is_none());
+    assert_eq!(svc.head(&COL).0, ps + 2);
+    assert_eq!(a.r.policy.epoch, 2);
+    assert_eq!(a.r.accepted_private_switch(), Some(B16([101; 16])));
+    assert!(
+        a.r.policy
+            .devices
+            .get(&B16([105; 16]))
+            .is_none_or(|d| !d.keyed)
+    );
+    assert!(!a.r.cfg.trusted_signers.contains(&B16([105; 16])));
 }
 
 #[test]
@@ -318,7 +505,12 @@ fn completed_private_choice_survives_later_cloud_flags_and_old_epoch_selection()
     assert_eq!(a.r.policy.cstate, Some(CState::CloudCopy));
     assert_eq!(a.r.cfg.chosen_state, Some(CState::E2e));
     assert!(a.r.key_untrusted);
-    assert!(!a.r.policy.devices[&B16([105; 16])].keyed);
+    assert!(
+        a.r.policy
+            .devices
+            .get(&B16([105; 16]))
+            .is_none_or(|d| !d.keyed)
+    );
     // Even a replayed older Private policy must not make a service-held epoch
     // usable for new Private writes. This is a local acceptance-floor unit check.
     a.r.policy.cstate = Some(CState::E2e);

@@ -72,15 +72,15 @@ export class FakeLogService {
         throw new TypeError("read failed");
       }
       if (!log) return this.reply({ error: "not_found" });
-      const after = field(params, 1) as number;
+      const after = field(params, 1) as number, limit = field(params, 2) as number;
       const items: Cbor[] = [];
+      let more = false;
       for (let i = after; i < log.length; i += 1) {
-        const decoded = decodeCbor(log[i]!);
-        if (field(decoded, 0) !== 1) continue;
+        if (field(decodeCbor(log[i]!), 0) !== 1) continue;
+        if (items.length === limit) { more = true; break; }
         items.push([i + 1, log[i]!]);
-        break;
       }
-      result = st([0, items], [1, head().seq], [2, head().chain], [3, 1], [4, false], [6, false]);
+      result = st([0, items], [1, head().seq], [2, head().chain], [3, 1], [4, false], [6, more]);
     } else if (method === "append") {
       await this.beforeAppend?.();
       if (this.failNextAppend) {

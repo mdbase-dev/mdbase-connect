@@ -78,7 +78,10 @@ export function CollectionModeControl({ collectionId, load, change, cancel, nati
     finally{if(active===generation.current)setBusy(false);}
   }
   if (!status) return null;
-  const pending = status.change;
+  // Owner devices finish an abandoned Private switch by replacing the key;
+  // leaving Private first would consume their switch, so nothing is offered.
+  const abandoned = status.change?.phase === "abandoned";
+  const pending = abandoned ? null : status.change;
   const target = pending?.target_mode ?? (status.current_mode === "private" ? "cloud_copy" : "private");
   const blocked = step?.phase === "waiting_for_devices" && Array.isArray(step.devices) ? step.devices.filter((v): v is string => typeof v === "string") : [];
   const retryAt = typeof step?.retry_at === "string" ? step.retry_at : typeof pending?.retry_at === "string" ? pending.retry_at : undefined;
@@ -88,6 +91,7 @@ export function CollectionModeControl({ collectionId, load, change, cancel, nati
     <p>{target === "private"
       ? t(i18n)({ message: "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content.", context: "Collection storage mode" })
       : t(i18n)({ message: "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off.", context: "Collection storage mode" })}</p>
+    {abandoned && <p role="status">{t(i18n)({ message: "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key.", context: "Collection storage mode" })}</p>}
     {pending && <p role="status">{blocked.length > 0 ? t(i18n)({ message: "Waiting for devices to update.", context: "Collection storage mode" }) : pending.phase === "waiting_for_token_expiry"
       ? t(i18n)({ message: "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes.", context: "Collection storage mode" })
       : pending.phase === "waiting_for_device" ? t(i18n)({ message: "Open mdbase connect on one of the owner's devices to finish the switch.", context: "Collection storage mode" })
@@ -96,7 +100,7 @@ export function CollectionModeControl({ collectionId, load, change, cancel, nati
     {blocked.length > 0 && <div role="status"><p>{t(i18n)({ message: "Update or revoke these devices before continuing:", context: "Collection storage mode" })}</p><ul>{blocked.map(id => <li key={id}><code>{id}</code></li>)}</ul></div>}
     {failure && <p role="alert">{t(i18n)({ message: "We couldn’t confirm progress. Refresh, then retry. An interrupted switch may already have started.", context: "Collection storage mode" })}</p>}
     <div>
-      {(!pending || native) && <button type="button" className="mdbase-button" disabled={busy} onClick={() => void commit(target)}>{busy ? t(i18n)({ message: "Working…", context: "Collection storage mode" }) : pending ? t(i18n)({ message: "Continue on this device", context: "Collection storage mode" }) : target === "private" ? t(i18n)({ message: "Make private", context: "Collection storage mode" }) : t(i18n)({ message: "Turn on Cloud copy", context: "Collection storage mode" })}</button>}
+      {!abandoned && (!pending || native) && <button type="button" className="mdbase-button" disabled={busy} onClick={() => void commit(target)}>{busy ? t(i18n)({ message: "Working…", context: "Collection storage mode" }) : pending ? t(i18n)({ message: "Continue on this device", context: "Collection storage mode" }) : target === "private" ? t(i18n)({ message: "Make private", context: "Collection storage mode" }) : t(i18n)({ message: "Turn on Cloud copy", context: "Collection storage mode" })}</button>}
       {cancel && pending?.request_id && ["waiting_for_device","waiting_for_token_expiry"].includes(pending.phase) && <button type="button" className="mdbase-button is-tertiary" disabled={busy} onClick={() => void cancelPending()}>{t(i18n)({message:"Cancel switch",context:"Collection storage mode"})}</button>}
       <button type="button" className="mdbase-button is-tertiary" disabled={busy} onClick={() => void refresh()}>{t(i18n)({ message: "Refresh status", context: "Collection storage mode" })}</button>
     </div>

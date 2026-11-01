@@ -834,6 +834,11 @@ msgstr "Снимок экрана не содержит допустимого �
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
 msgstr "Снимок экрана больше 3 МБ. Выберите изображение меньшего размера."
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
+msgstr "Переход в режим «Приватная» не завершился. Отзовите устройство, которое его начало. После этого другие ваши устройства владельца заменят ключ коллекции."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "this collection"
