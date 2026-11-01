@@ -126,12 +126,17 @@ fn replay(sem: Version, change: impl FnOnce(&mut rt::EntryPayload)) -> Node {
     node
 }
 
-/// Writers either side of a SEM bump: the previous minor, the next minor and the
+/// Writers either side of a SEM bump: the previous registered SEM, the next minor and the
 /// next major.
 fn other_sems() -> [Version; 3] {
     let current = mdbn_core::semantics::SEM;
+    let rows = mdbn_core::semantics::SEMANTICS;
+    let previous = rows[rows.len() - 2].sem;
     [
-        Version { major: 1, minor: 0 },
+        Version {
+            major: previous.major,
+            minor: previous.minor,
+        },
         Version {
             major: current.major,
             minor: current.minor + 1,

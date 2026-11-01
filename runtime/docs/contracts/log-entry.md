@@ -532,13 +532,15 @@ values, never encodings:
 effects or conflict values are always re-executed when their `sem` equals the
 replica's, even its own entries and with verification mode off. A mismatch there is
 not applied as recorded: the replica stalls (§4.2), increments `verify_mismatch`
-once per stall and records a `verification_mismatch` incident with the entry's
-`seq`. This detects determinism bugs; it is not an authorization check, since the
-writer chooses `sem`. Native entries of any other `sem` are applied as recorded
-and always counted as `unverified`. Their V7
-structural checks (kind, path, prior CAS, size bounds, authenticated source) are
-format-level and decide validity on their own, so a `sem` bump on either side never
-stalls them.
+when it first stalls there in a session, and records a `verification_mismatch`
+incident with the entry's `seq`. This detects determinism bugs; it is not an
+authorization check, since the writer chooses `sem`. Native entries of any other
+`sem` are applied as recorded and always counted as `unverified`; a `sem` bump on
+either side does not stall them. Their validity rests on the V7 checks (kind, path,
+prior CAS, size bounds, authenticated source), which every replica runs with its
+own build. Those checks run before verification for every `sem`, so this agrees
+across builds only while V7, including path rules and path-key folding, stays fixed
+within a format (§4.3): a `sem` bump must not change them.
 
 **Who verifies.**
 - The hosted replica verifies every entry.

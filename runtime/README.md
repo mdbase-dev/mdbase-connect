@@ -185,10 +185,10 @@ operation changed. Add operations to `conformance/determinism/core.log` as core
 semantics land.
 
 The simulator's `semantics-retained-native` scenario replays a signed tail
-containing all four native file-kind operations, written under the previous and
-the next SEM minor as builds either side of a bump would, on Linux, macOS and
-Windows replicas. Its unit test runs two seeds, which put every kind on both sides,
-and checks convergence against
+containing all four native file-kind operations, written under the previous
+registered SEM and the next minor as builds either side of a bump would, on Linux,
+macOS and Windows replicas. Its unit test runs two seeds, which put every kind on
+both sides, and checks convergence against
 `conformance/determinism/retained-native.expected.json`; this replica-level golden
 is separate from the core-operation `.log` fixtures.
 

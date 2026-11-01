@@ -34,9 +34,9 @@ use crate::{
 };
 
 /// Keep all four native kinds in the tail while fresh current-SEM nodes join. The
-/// writers planned under the previous and the next minor, as builds either side of
-/// a bump interleave in one log; consecutive seeds swap which entry has which, so
-/// two seeds put every kind on both sides.
+/// writers planned under the previous registered SEM and the next minor, as builds
+/// either side of a bump interleave in one log; consecutive seeds swap which entry
+/// has which, so two seeds put every kind on both sides.
 pub fn run(world: &mut World) -> String {
     let collection = B16([0x73; 16]);
     let device = B16([0x20; 16]);
@@ -207,8 +207,13 @@ pub fn run(world: &mut World) -> String {
         })],
     ));
     let current = mdbn_core::semantics::SEM;
+    let rows = mdbn_core::semantics::SEMANTICS;
+    let previous = rows[rows.len() - 2].sem;
     let sems = [
-        Version { major: 1, minor: 0 },
+        Version {
+            major: previous.major,
+            minor: previous.minor,
+        },
         Version {
             major: current.major,
             minor: current.minor + 1,
