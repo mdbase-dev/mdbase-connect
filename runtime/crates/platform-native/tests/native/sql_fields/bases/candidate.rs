@@ -237,6 +237,10 @@ fn all_five_unchanged_shared_views_keep_membership_and_failure_domain() {
 #[test]
 fn selective_dates_do_not_hide_unknown_tags_typed_null_links_or_earlier_errors() {
     let unknown_tags = row(8, "tags: [task, 7]\ndue: 2026-06-01\nstatus: open");
+    // No raw frontmatter answer, so only the unavailable body capture decides.
+    let mut unknown_body_tags = row(11, "due: 2026-06-10\nstatus: open");
+    unknown_body_tags.doc.push_str("[x](y) #task\n");
+    unknown_body_tags.revision = revision(unknown_body_tags.doc.as_bytes());
     let rows = vec![
         row(1, "tags: [task]\ndue: 2026-06-10\nstatus: open"),
         row(2, "tags: [task]\ndue: 2026-06-01\nstatus: open"),
@@ -248,6 +252,7 @@ fn selective_dates_do_not_hide_unknown_tags_typed_null_links_or_earlier_errors()
         unknown_tags,
         row(9, "tags: [task]\ndue: '2026-06-10T23:00:00Z'\nstatus: open"),
         row(10, "tags: [task]\ndue: 2011-12-30\nstatus: open"),
+        unknown_body_tags,
     ];
     let (store, index, _, _, _) = open("bases_candidate_failure_domain", rows, &[]);
     let hints = BTreeMap::from([("due".into(), "date".into())]);
@@ -256,7 +261,7 @@ fn selective_dates_do_not_hide_unknown_tags_typed_null_links_or_earlier_errors()
     );
     let (matches, selected) = differential(&store, &p, &hints, clock("UTC"));
     assert_eq!(matches, BTreeSet::from([id(1), id(9)]));
-    for n in [3, 4, 5, 8, 9] {
+    for n in [3, 4, 5, 8, 9, 11] {
         assert!(selected.contains(&id(n)));
     }
     for n in [2, 6, 7, 10] {
