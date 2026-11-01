@@ -428,9 +428,11 @@ Each of these stops the replica at `p − 1` until it can proceed, with status
 - an unknown payload `fmt`, or an unknown variant anywhere in the payload
   (`00-overview.md` §6.2);
 - a root or policy key missing from this build's trust configuration, or native
-  results this build's planner cannot verify (including planner errors). These
-  report `upgrade_required`, never a persisted void: retry the same bytes after
-  updating the configuration or build. Only bytes and log state may justify void.
+  results of this build's own `sem` that its planner does not reproduce (including
+  planner errors; §5). These report `upgrade_required`, never a persisted void:
+  retry the same bytes after updating the configuration or build. A planner
+  disagreement also records a `verification_mismatch` incident. Only bytes and log
+  state may justify void.
 
 Reads keep serving at `p − 1`. Local writes stay pending.
 
@@ -525,6 +527,18 @@ values, never encodings:
   - it continues.
 - **Other `sem`:** counted as `unverified`. Planners exist only for their own semantics
   version.
+
+**Native file kinds.** Entries with unindexed-Markdown or file-to-record operations,
+effects or conflict values are always re-executed when their `sem` equals the
+replica's, even its own entries and with verification mode off. A mismatch there is
+not applied as recorded: the replica stalls (§4.2), increments `verify_mismatch`
+once per stall and records a `verification_mismatch` incident with the entry's
+`seq`. This detects determinism bugs; it is not an authorization check, since the
+writer chooses `sem`. Native entries of any other `sem` are applied as recorded
+and always counted as `unverified`. Their V7
+structural checks (kind, path, prior CAS, size bounds, authenticated source) are
+format-level and decide validity on their own, so a `sem` bump on either side never
+stalls them.
 
 **Who verifies.**
 - The hosted replica verifies every entry.
