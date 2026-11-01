@@ -576,8 +576,8 @@ fn requester_hook_answers_for_the_bare_enrolment_commitment() {
         .receive_device_approval_challenge(s, &peer, &mut journal)
         .unwrap();
     assert_eq!(output.code.len(), 6);
-    // Its key grant will be trusted.
-    assert!(r.cfg.trusted_signers.contains(&ME));
+    // Answering trusts nobody yet; only the approver's key grant will be used.
+    assert!(!r.cfg.trusted_signers.contains(&ME));
     assert_eq!(
         r.restore_requester_approval_peer(s, &mut journal)
             .unwrap()
@@ -1550,4 +1550,306 @@ fn requester_renews_an_unanswered_commitment_only_when_asked() {
     let next = requester_challenge(&r, fresh);
     r.receive_device_approval_challenge(s, &next, &mut j)
         .unwrap();
+}
+
+/// A keyed device in this computer's view that the user never compared codes
+/// with: a control plane and log service showing a fork can make it the first
+/// approver to challenge (#1071).
+const FORKED: Uuid = B16([4; 16]);
+fn with_forked_approver(r: &mut Replica<MemStore>) {
+    let mut d = device(tuple(FORKED, 30), true, None);
+    d.introduced_by = None;
+    d.delivered_by = None;
+    r.policy.devices.insert(FORKED, d);
+}
+fn signed_challenge(
+    r: &Replica<MemStore>,
+    (approver, seed): (Uuid, u8),
+    commit: B32,
+    r_a: [u8; 32],
+    expires_at_ms: i64,
+) -> super::super::ApprovalPeerEnvelope {
+    super::super::ApprovalPeerMessage::Challenge(ApprovalChallenge {
+        binding: ApprovalBinding {
+            collection: COL,
+            epoch: 1,
+            approver: ApprovalDevice::from_policy(approver, &r.policy.devices[&approver]),
+            requester: ApprovalDevice::from_policy(NEW, &r.policy.devices[&NEW]),
+            commitment: commit,
+        },
+        r_a: B32(r_a),
+        expires_at_ms,
+    })
+    .sign(&DeviceSigner::from_seed(&[seed; 32]))
+    .unwrap()
+}
+/// The approver's key grant for this computer, as applied from the log.
+fn keyed_by(r: &mut Replica<MemStore>, signer: Uuid) {
+    let d = r.policy.devices.get_mut(&NEW).unwrap();
+    d.keyed = true;
+    d.introduced_by = Some(signer);
+    d.delivered_by = Some(signer);
+    r.check_key_trust();
+}
+
+/// Reveal to the approver `(id, seed)` for a fresh logged commitment.
+fn revealed(
+    r: &mut Replica<MemStore>,
+    s: SessionId,
+    j: &mut RequesterJournal,
+    approver: (Uuid, u8),
+) -> B32 {
+    let c = r.request_device_approval_commitment(s, j).unwrap();
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(c);
+    let peer = signed_challenge(r, approver, c, [42; 32], 121_000);
+    r.receive_device_approval_challenge(s, &peer, j).unwrap();
+    c
+}
+
+#[test]
+fn answered_challenge_without_allow_leaves_no_trust_in_its_approver() {
+    let (mut r, s, _, clock) = requester_fixture_with_clock();
+    r.cfg.trusted_signers = vec![NEW];
+    with_forked_approver(&mut r);
+    let mut j = RequesterJournal::default();
+    revealed(&mut r, s, &mut j, (FORKED, 30));
+    // The code is shown, but nobody has compared it or clicked Allow.
+    assert!(r.requester_approval_code(s).unwrap().is_some());
+    assert!(
+        !r.cfg.trusted_signers.contains(&FORKED),
+        "an approver is trusted before any code comparison or Allow"
+    );
+    assert_eq!(r.requester_approval_signer(s, &mut j).unwrap(), None);
+    // The exchange expires unallowed; its renewal reaches the log.
+    clock.0.set(121_000);
+    let fresh = r
+        .device_approval_commitment_to_log(s, &mut j, false)
+        .unwrap()
+        .unwrap();
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(fresh);
+    r.check_key_trust();
+    // A key that device delivers afterwards is not used, now or after a restart.
+    keyed_by(&mut r, FORKED);
+    assert!(r.key_untrusted);
+    assert_eq!(r.requester_approval_signer(s, &mut j).unwrap(), None);
+    assert!(!r.cfg.trusted_signers.contains(&FORKED));
+    let (mut reopened, s2, _) = requester_fixture();
+    reopened.cfg.trusted_signers = vec![NEW];
+    reopened.policy = r.policy.clone();
+    reopened.check_key_trust();
+    assert!(reopened.key_untrusted);
+    assert_eq!(
+        reopened.requester_approval_signer(s2, &mut j).unwrap(),
+        None
+    );
+    assert!(reopened.key_untrusted);
+}
+
+/// Deny on the other computer leaves the request unanswered; once the
+/// requester's renewal is in the log, that exchange's approver is not trusted.
+#[test]
+fn a_logged_renewal_drops_the_approver_of_an_unallowed_exchange() {
+    let (mut r, s, _) = requester_fixture();
+    r.cfg.trusted_signers = vec![NEW];
+    let mut j = RequesterJournal::default();
+    revealed(&mut r, s, &mut j, (ME, 10));
+    let fresh = r
+        .device_approval_commitment_to_log(s, &mut j, true)
+        .unwrap();
+    // Still live: nothing renews until it expires (the daemon's timer asks).
+    assert_eq!(fresh, None);
+    let (mut r, s, _, clock) = requester_fixture_with_clock();
+    r.cfg.trusted_signers = vec![NEW];
+    let mut j = RequesterJournal::default();
+    revealed(&mut r, s, &mut j, (ME, 10));
+    clock.0.set(121_000);
+    let fresh = r
+        .device_approval_commitment_to_log(s, &mut j, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(r.requester_approval_code(s).unwrap(), None);
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(fresh);
+    r.check_key_trust();
+    // A grant arriving after that is not used, even from the challenger.
+    keyed_by(&mut r, ME);
+    assert!(r.key_untrusted);
+    assert_eq!(r.requester_approval_signer(s, &mut j).unwrap(), None);
+    assert_eq!(r.cfg.trusted_signers, vec![NEW]);
+}
+
+/// An Allow sent in time whose grant applies after this computer renewed
+/// locally, but before the fresh commitment reached the log, is still used.
+#[test]
+fn a_grant_for_the_logged_commitment_survives_an_unlogged_renewal() {
+    let (mut r, s, _, clock) = requester_fixture_with_clock();
+    r.cfg.trusted_signers = vec![NEW];
+    let mut j = RequesterJournal::default();
+    revealed(&mut r, s, &mut j, (ME, 10));
+    clock.0.set(121_000);
+    assert!(
+        r.device_approval_commitment_to_log(s, &mut j, false)
+            .unwrap()
+            .is_some()
+    );
+    keyed_by(&mut r, ME);
+    assert!(!r.key_untrusted);
+    assert_eq!(r.requester_approval_signer(s, &mut j).unwrap(), Some(ME));
+}
+
+#[test]
+fn a_key_from_another_device_ends_the_exchange_without_trust() {
+    let (mut r, s, _) = requester_fixture();
+    r.cfg.trusted_signers = vec![NEW];
+    with_forked_approver(&mut r);
+    let mut j = RequesterJournal::default();
+    revealed(&mut r, s, &mut j, (ME, 10));
+    keyed_by(&mut r, FORKED);
+    assert!(r.key_untrusted);
+    assert_eq!(r.requester_approval_signer(s, &mut j).unwrap(), None);
+    assert_eq!(r.cfg.trusted_signers, vec![NEW]);
+}
+
+#[test]
+fn the_selected_approvers_grant_makes_it_a_trusted_signer() {
+    let (mut r, s, _) = requester_fixture();
+    r.cfg.trusted_signers = vec![NEW];
+    let mut j = RequesterJournal::default();
+    revealed(&mut r, s, &mut j, (ME, 10));
+    assert!(!r.cfg.trusted_signers.contains(&ME));
+    // The approver's grant, after the user's Allow there.
+    keyed_by(&mut r, ME);
+    assert!(!r.key_untrusted);
+    assert!(r.cfg.trusted_signers.contains(&ME));
+    // Offered to the host until it closes, so a failed save is retried.
+    assert_eq!(r.requester_approval_signer(s, &mut j).unwrap(), Some(ME));
+    assert_eq!(r.requester_approval_signer(s, &mut j).unwrap(), Some(ME));
+    // Only for the host.
+    r.sessions.get_mut(&s).unwrap().auth = SessionAuth::Grant {
+        grant: B16([4; 16]),
+        client_pk: [5; 32],
+    };
+    assert!(r.requester_approval_signer(s, &mut j).is_err());
+}
+
+/// #1072: the requester restarts between its reveal and the Allow on the
+/// other computer. The same code (leading zero kept) comes back while the
+/// exchange lives, and the approver's grant is still used and then kept.
+#[test]
+fn restart_between_reveal_and_allow_restores_the_code_and_approver() {
+    let (mut r, s, _) = requester_fixture();
+    r.cfg.trusted_signers = vec![NEW];
+    let n = NewDevice::new(COL, tuple(NEW, 20), &mut TestEntropy::new(95));
+    let mut j = RequesterJournal {
+        blob: Some(n.state()),
+        ..RequesterJournal::default()
+    };
+    let c = B32(n.commitment());
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(c);
+    // An r_A whose code has a leading zero.
+    let r_n: [u8; 32] = n.state()[..32].try_into().unwrap();
+    let r_a = (0..=255u8)
+        .map(|b| [b; 32])
+        .find(|r_a| {
+            crate::crypto::keys::sas_code(&COL, &tuple(ME, 10), &tuple(NEW, 20), r_a, &r_n)
+                .starts_with('0')
+        })
+        .unwrap();
+    let peer = signed_challenge(&r, (ME, 10), c, r_a, 121_000);
+    let shown = r
+        .receive_device_approval_challenge(s, &peer, &mut j)
+        .unwrap()
+        .code;
+    assert!(shown.starts_with('0'));
+
+    let (mut reopened, s2, _, clock2) = requester_fixture_with_clock();
+    reopened.cfg.trusted_signers = vec![NEW];
+    reopened.policy = r.policy.clone();
+    clock2.0.set(60_000);
+    assert_eq!(reopened.requester_approval_code(s2).unwrap(), None);
+    // The host's next requester poll restores it; nothing is renewed.
+    assert_eq!(
+        reopened
+            .device_approval_commitment_to_log(s2, &mut j, false)
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        reopened.requester_approval_code(s2).unwrap().as_deref(),
+        Some(shown.as_str())
+    );
+    keyed_by(&mut reopened, ME);
+    assert!(!reopened.key_untrusted);
+    assert_eq!(
+        reopened.requester_approval_signer(s2, &mut j).unwrap(),
+        Some(ME)
+    );
+
+    // Once expired, a restart shows no code; it renews at once, and the
+    // approver's grant counts only until that renewal is logged.
+    let (mut late, s3, _, clock3) = requester_fixture_with_clock();
+    late.cfg.trusted_signers = vec![NEW];
+    late.policy = r.policy.clone();
+    clock3.0.set(121_000);
+    let fresh = late
+        .device_approval_commitment_to_log(s3, &mut j, false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(late.requester_approval_code(s3).unwrap(), None);
+    late.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(fresh);
+    late.check_key_trust();
+    keyed_by(&mut late, ME);
+    assert!(late.key_untrusted);
+}
+
+/// A restart after the grant applied but before the host kept its signer: the
+/// saved exchange names it, only for the latest logged commitment.
+#[test]
+fn restart_after_the_grant_keeps_the_saved_exchanges_approver() {
+    let (mut r, s, _) = requester_fixture();
+    r.cfg.trusted_signers = vec![NEW];
+    let mut j = RequesterJournal::default();
+    revealed(&mut r, s, &mut j, (ME, 10));
+    keyed_by(&mut r, ME);
+    let reopen = |policy: &PolicyState| {
+        let (mut reopened, s2, _) = requester_fixture();
+        reopened.cfg.trusted_signers = vec![NEW];
+        reopened.policy = policy.clone();
+        reopened.check_key_trust();
+        assert!(reopened.key_untrusted);
+        (reopened, s2)
+    };
+    // Not for a commitment other than the one the exchange answered.
+    let mut moved = r.policy.clone();
+    moved.devices.get_mut(&NEW).unwrap().sas_commit = Some(B32([88; 32]));
+    let (mut other, s2) = reopen(&moved);
+    assert_eq!(other.requester_approval_signer(s2, &mut j).unwrap(), None);
+    assert!(other.key_untrusted);
+    // A journal read failure is reported, but approval is not poisoned.
+    let (mut failing, s2) = reopen(&r.policy);
+    struct Failing;
+    impl super::super::ApprovalSecretJournal for Failing {
+        fn load(
+            &mut self,
+        ) -> Result<Option<zeroize::Zeroizing<Vec<u8>>>, super::super::ApprovalPersistenceError>
+        {
+            Err(super::super::ApprovalPersistenceError)
+        }
+        fn save(&mut self, _: &[u8]) -> Result<(), super::super::ApprovalPersistenceError> {
+            Err(super::super::ApprovalPersistenceError)
+        }
+    }
+    assert!(failing.requester_approval_signer(s2, &mut Failing).is_err());
+    assert!(!failing.approval.poisoned);
+    assert_eq!(
+        failing.requester_approval_signer(s2, &mut j).unwrap(),
+        Some(ME)
+    );
+    // The same exchange's approver.
+    let (mut reopened, s2) = reopen(&r.policy);
+    assert_eq!(
+        reopened.requester_approval_signer(s2, &mut j).unwrap(),
+        Some(ME)
+    );
+    assert!(!reopened.key_untrusted);
+    assert!(reopened.cfg.trusted_signers.contains(&ME));
 }

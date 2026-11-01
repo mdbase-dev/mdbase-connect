@@ -797,6 +797,7 @@ impl<S: Store> Replica<S> {
     /// Device-local key trust: a key that reached this device only through
     /// devices its user never approved is not used for sealing.
     pub(crate) fn check_key_trust(&mut self) {
+        self.latch_requester_signer();
         if self.private_switch_blocks() {
             self.key_untrusted = true;
             return;

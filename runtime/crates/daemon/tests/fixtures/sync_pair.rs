@@ -440,7 +440,8 @@ pub async fn run_private_approval(log: &str, dir: &Path) {
             approval(&rb, Op::Waiting(sb, Box::new(journal.clone()), false)).await,
             Ok(Reply::Waiting {
                 waiting: true,
-                to_log: None
+                to_log: None,
+                ..
             })
         );
         let pending = matches!(
@@ -499,7 +500,8 @@ pub async fn run_private_approval(log: &str, dir: &Path) {
             approval(&rb, Op::Waiting(sb, Box::new(journal.clone()), false)).await,
             Ok(Reply::Waiting {
                 waiting: true,
-                to_log: None
+                to_log: None,
+                ..
             })
         );
         if pending && logged {
@@ -590,9 +592,10 @@ pub async fn run_private_approval(log: &str, dir: &Path) {
         Duration::from_secs(60),
     )
     .await;
+    // Only now, keyed by A's grant, does B keep A as a trusted signer.
     assert!(matches!(
         approval(&rb, Op::Waiting(sb, Box::new(journal.clone()), false)).await,
-        Ok(Reply::Waiting { waiting: false, .. })
+        Ok(Reply::Waiting { waiting: false, trusted: Some(signer), .. }) if signer == a.tk.id
     ));
     assert!(
         matches!(approval(&ra, Op::Pending(sa)).await, Ok(Reply::Pending(list)) if list.is_empty())

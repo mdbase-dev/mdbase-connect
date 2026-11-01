@@ -428,8 +428,16 @@ impl NewDevice {
         }
     }
 
-    /// The device it compared codes with: the only signer whose `key_grant` it uses
-    /// (step 6). Add it to the replica's `trusted_signers`.
+    /// The code shown for the challenge `r_A` this device revealed to, rebuilt
+    /// from the restored state with the approver's keys in `p`.
+    pub fn code(&self, p: &PolicyState, r_a: &[u8; 32]) -> Option<String> {
+        let a = enrolled(p, &self.approver?)?;
+        self.committer
+            .revealed_code(&self.collection, &a, &self.me, r_a)
+    }
+
+    /// The device it revealed to: the only signer whose `key_grant` it uses
+    /// (step 6). It becomes a trusted signer only once that grant keys this device.
     pub fn approver(&self) -> Option<Uuid> {
         self.approver
     }

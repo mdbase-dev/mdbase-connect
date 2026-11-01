@@ -575,6 +575,19 @@ impl SasCommitter {
         ct_eq(&self.commit, logged)
     }
 
+    /// The code [`SasCommitter::reveal`] showed for `r_A` from approver `a`,
+    /// rebuilt after a restart. `None` until `r_N` is revealed.
+    pub fn revealed_code(
+        &self,
+        collection: &Uuid,
+        a: &EnrolledKeys,
+        me: &EnrolledKeys,
+        r_a: &[u8; 32],
+    ) -> Option<String> {
+        self.revealed
+            .then(|| sas_code(collection, a, me, r_a, self.r_n.expose()))
+    }
+
     /// Answer the first accepted challenge `r_A` from approver `a`.
     pub fn reveal(
         &mut self,

@@ -27,7 +27,8 @@ pub enum DeviceApprovalOp {
     /// Approver: the user denied it.
     Reject(SessionId, B16),
     /// Requester: whether this computer waits for a key, and the commitment it
-    /// must log (if any); `true` renews an unanswered one.
+    /// must log (if any); `true` renews an unanswered one. Once keyed, the
+    /// approver whose grant keyed it, to keep as a trusted signer.
     Waiting(SessionId, Box<dyn ApprovalSecretJournal + Send>, bool),
     /// Requester: answer an approver's signed challenge; the reveal to send back.
     Challenge(
@@ -57,6 +58,8 @@ pub enum DeviceApprovalReply {
         waiting: bool,
         /// A commitment the control plane does not carry yet.
         to_log: Option<B32>,
+        /// The approver whose key grant keyed this computer, to persist.
+        trusted: Option<B16>,
     },
 }
 
@@ -106,6 +109,9 @@ pub(crate) fn handle<S: ReplicaStore>(
                 DeviceApprovalReply::Waiting {
                     waiting: false,
                     to_log: None,
+                    trusted: rep
+                        .requester_approval_signer(s, journal.as_mut())
+                        .map_err(problem)?,
                 }
             } else {
                 DeviceApprovalReply::Waiting {
@@ -113,6 +119,7 @@ pub(crate) fn handle<S: ReplicaStore>(
                     to_log: rep
                         .device_approval_commitment_to_log(s, journal.as_mut(), renew)
                         .map_err(problem)?,
+                    trusted: None,
                 }
             }
         }

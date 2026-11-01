@@ -42,7 +42,7 @@ pub struct ApprovalDevice {
     pub noise_pk: B32,
 }
 impl ApprovalDevice {
-    fn from_policy(device: Uuid, d: &DeviceState) -> Self {
+    pub(super) fn from_policy(device: Uuid, d: &DeviceState) -> Self {
         Self {
             device,
             account: d.account,
@@ -218,6 +218,7 @@ pub(super) struct ApprovalRuntime {
     outbox: Vec<ApprovalChallenge>,
     pub(super) poisoned: bool,
     pub(super) requester_code: Option<super::approval_requester::RequesterCode>,
+    pub(super) requester_trust: super::approval_requester::RequesterTrust,
     /// At most one confirmed grant is in flight; a second confirmation waits.
     pending_grant: Option<PendingGrant>,
     next_intent: u64,
@@ -236,6 +237,7 @@ impl ApprovalRuntime {
             outbox: Vec::new(),
             poisoned: false,
             requester_code: None,
+            requester_trust: Default::default(),
             pending_grant: None,
             next_intent: 1,
             dispositions: BTreeMap::new(),
