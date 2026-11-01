@@ -1,5 +1,5 @@
 //! Actual read/timer paths with a synthetic stalled state; not key acceptance.
-use crate::log::{EndpointId, LogError, LogPort, LogPush, LogRequest};
+use crate::log::{EndpointId, LogError, LogPort, LogPush, LogRequest, LogResponse};
 use crate::mem::MemStore;
 use crate::seal::PlainSealer;
 use crate::{DeviceSecrets, Host, Replica, ReplicaConfig, UtcOnly};
@@ -14,6 +14,9 @@ impl Clock for Now {
     }
 }
 fn waiting() -> (Replica<MemStore>, Rc<Cell<u64>>) {
+    stalled(IncidentKind::WaitingForKey)
+}
+fn stalled(kind: IncidentKind) -> (Replica<MemStore>, Rc<Cell<u64>>) {
     let clock = Rc::new(Cell::new(0));
     let mut replica = Replica::open(
         ReplicaConfig {
@@ -50,7 +53,7 @@ fn waiting() -> (Replica<MemStore>, Rc<Cell<u64>>) {
     replica.calls.clear();
     replica.inflight.clear();
     replica.reading = false;
-    replica.stalled = Some((IncidentKind::WaitingForKey, 4));
+    replica.stalled = Some((kind, 4));
     replica.head_known = 4;
     (replica, clock)
 }
@@ -117,7 +120,7 @@ fn cleared_key_stall_resumes_prefix_reads_without_waiting_for_the_old_deadline()
     replica.stalled = None;
     replica.pump();
     assert_eq!(replica.take_log_calls().len(), 1);
-    assert_eq!(replica.key_wait_read.deadline(4), None);
+    assert_eq!(replica.stall_read.deadline(4), None);
 }
 #[test]
 fn a_pushed_head_past_the_last_probe_reads_again_within_a_second() {
@@ -145,4 +148,51 @@ fn a_pushed_head_past_the_last_probe_reads_again_within_a_second() {
     assert_eq!(replica.take_log_calls().len(), 1);
     assert_eq!(replica.stalled, Some((IncidentKind::WaitingForKey, 4)));
     assert!(!replica.caught_up);
+}
+#[test]
+fn a_stall_of_any_kind_is_re_read_on_the_backoff_not_from_the_read_reply() {
+    for kind in [
+        IncidentKind::UpgradeRequired,
+        IncidentKind::Integrity,
+        IncidentKind::WaitingForKey,
+    ] {
+        let (mut replica, clock) = stalled(kind);
+        replica.pump();
+        assert!(replica.take_log_calls().is_empty(), "{kind:?}");
+        assert_eq!(replica.next_wakeup(), Some(1_000), "{kind:?}");
+        let mut reads = 0;
+        // A minute of 20 ms ticks, each read answered with a head past the
+        // stall: the reply alone used to re-read at once, without limit.
+        for now in (0..60_000).step_by(20) {
+            clock.set(now);
+            replica.tick();
+            for call in replica.take_log_calls() {
+                let LogRequest::Read(read) = &call.request else {
+                    panic!("ordinary prefix read")
+                };
+                assert_eq!(read.after, replica.head().seq);
+                reads += 1;
+                replica.on_log_reply(
+                    call.id,
+                    Ok(LogResponse::Read(mdbn_wire::log_service::ReadResult {
+                        items: vec![],
+                        head: 100,
+                        head_chain: B32([9; 32]),
+                        retained_from: 1,
+                        behind: false,
+                        snapshot: None,
+                        more: true,
+                    })),
+                );
+                assert!(
+                    replica.take_log_calls().is_empty(),
+                    "{kind:?}: a reply cannot bypass the deadline"
+                );
+            }
+        }
+        // Probes at 1 s, 2 s (the first reply's head hint), 6, 14 and 30 s.
+        assert_eq!(reads, 5, "{kind:?}");
+        assert_eq!(replica.stalled, Some((kind, 4)));
+        assert!(!replica.caught_up);
+    }
 }

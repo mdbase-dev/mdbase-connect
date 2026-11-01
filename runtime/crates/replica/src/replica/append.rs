@@ -178,13 +178,12 @@ impl<S: Store> Replica<S> {
             return;
         }
         if let Some((kind, _)) = self.stalled {
-            // Missing keys need bounded probes, not a read on every reply and
-            // not permanent silence. A push never supplies key authority.
-            if kind == IncidentKind::WaitingForKey
-                && !self.local_only()
-                && self.log_move == LogMove::None
-            {
-                self.join_ahead_step();
+            // A stall needs bounded probes, not a read on every reply and not
+            // permanent silence. A push never supplies key authority.
+            if !self.local_only() && self.log_move == LogMove::None {
+                if kind == IncidentKind::WaitingForKey {
+                    self.join_ahead_step();
+                }
                 self.request_read();
             }
             return;
@@ -236,17 +235,15 @@ impl<S: Store> Replica<S> {
         {
             return;
         }
-        if let Some((IncidentKind::WaitingForKey, position)) = self.stalled {
+        if let Some((_, position)) = self.stalled {
             if self.local_only()
                 || self.log_move != LogMove::None
-                || !self
-                    .key_wait_read
-                    .due(position, self.now(), self.head_known)
+                || !self.stall_read.due(position, self.now(), self.head_known)
             {
                 return;
             }
         } else {
-            self.key_wait_read.clear();
+            self.stall_read.clear();
         }
         self.reading = true;
         let id = self.queue(LogRequest::Read(ReadParams {
@@ -1639,8 +1636,8 @@ impl<S: Store> Replica<S> {
         };
         // The escrow's fallback key grant opens at a known time: wake for it.
         let grant = self.key_grant_turn().filter(|t| *t > self.now());
-        let key_probe = match self.stalled {
-            Some((IncidentKind::WaitingForKey, position))
+        let stall_probe = match self.stalled {
+            Some((_, position))
                 if !self.reading
                     && !self.local_only()
                     && !self.apply_fault
@@ -1649,7 +1646,7 @@ impl<S: Store> Replica<S> {
                     && self.log_move == LogMove::None
                     && self.now() != i64::MAX =>
             {
-                self.key_wait_read.deadline(position)
+                self.stall_read.deadline(position)
             }
             _ => None,
         };
@@ -1666,7 +1663,7 @@ impl<S: Store> Replica<S> {
         [
             append,
             grant,
-            key_probe,
+            stall_probe,
             upload,
             fetch,
             ingest,

@@ -6,4 +6,5 @@ pub mod race;
 pub mod semantics;
 pub mod slice;
 pub mod slice_real;
+pub mod stall;
 pub mod tapcheck;

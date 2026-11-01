@@ -104,7 +104,7 @@ mod hosted_attachment_upload;
 mod join_ahead;
 mod key_rebuild;
 pub use join_ahead::KeyWaitReason;
-mod key_wait;
+mod stall_read;
 #[cfg(test)]
 pub(crate) use disk::DiskKey;
 mod latch;
@@ -503,7 +503,7 @@ pub struct Replica<S: Store> {
     pub(crate) caught_up: bool,
     pub(crate) moved_streak: u32,
     pub(crate) stalled: Option<(IncidentKind, u64)>,
-    key_wait_read: key_wait::ReadBackoff,
+    stall_read: stall_read::ReadBackoff,
     /// Control read-ahead while waiting for a key (`join_ahead.rs`).
     pub(crate) join_ahead: Option<join_ahead::JoinAhead>,
     pub(crate) incidents: BTreeMap<u64, Incident>,
@@ -858,7 +858,7 @@ impl<S: Store> Replica<S> {
             caught_up: false,
             moved_streak: 0,
             stalled: None,
-            key_wait_read: Default::default(),
+            stall_read: Default::default(),
             join_ahead: None,
             incidents: BTreeMap::new(),
             sessions: BTreeMap::new(),
