@@ -1,0 +1,18 @@
+diff --git a/dist/crypto.js b/dist/crypto.js
+index 8d8110ee4234766dc639b4c01b3cc6d6ba980d40..6ba1de01ca93d6b38492ec3596aec035b61e198b 100644
+--- a/dist/crypto.js
++++ b/dist/crypto.js
+@@ -51,7 +51,12 @@ function verify(data, key, signature, algorithm) {
+     // The try/catch is to work around an issue in Node 14.x where verify throws
+     // an error in some scenarios if the signature is invalid.
+     try {
+-        return crypto_1.default.verify(algorithm, data, key, signature);
++        // BoringSSL (Electron) has no default digest for EC or RSA keys; name
++        // OpenSSL's default explicitly. EdDSA keys must not specify one.
++        const keyType = key.asymmetricKeyType;
++        const digest = algorithm ??
++            (keyType === 'ed25519' || keyType === 'ed448' ? undefined : 'sha256');
++        return crypto_1.default.verify(digest, data, key, signature);
+     }
+     catch (e) {
+         /* istanbul ignore next */

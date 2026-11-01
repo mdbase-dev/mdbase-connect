@@ -75,5 +75,7 @@ minimumReleaseAgeExclude:
   - '@mdbase-dev/ui@0.1.0-beta.147'
 
 patchedDependencies:
+  '@sigstore/core@3.2.1': patches/@sigstore__core@3.2.1.patch
+  '@tufjs/models@4.1.0': patches/@tufjs__models@4.1.0.patch
   electron-installer-common@0.10.4: patches/electron-installer-common@0.10.4.patch
   electron-installer-redhat@3.4.0: patches/electron-installer-redhat@3.4.0.patch

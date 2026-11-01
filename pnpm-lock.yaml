@@ -35,6 +35,8 @@ overrides:
   '@vue/server-renderer@>=3.0.0 <3.5.42': 3.5.42
 
 patchedDependencies:
+  '@sigstore/core@3.2.1': 5e61e09d46c037961e688ef34a207f3ade2f300f48236354ee9dcf5106191e43
+  '@tufjs/models@4.1.0': 28ca3c891f304cd73d7dbed0d2e3a6c373470c3782135ee9276b618f3cb26ba4
   electron-installer-common@0.10.4: b1094beec871a05a8e2f5422eab2499ddb2af8767cde264995a60f31d14a8821
   electron-installer-redhat@3.4.0: 88d1a8224b57ecd84b003f6e905ac74ce1cba9ca53644c80abcc0146adff1c62
 
@@ -8400,7 +8402,7 @@ snapshots:
     dependencies:
       '@sigstore/protobuf-specs': 0.5.1
 
-  '@sigstore/core@3.2.1': {}
+  '@sigstore/core@3.2.1(patch_hash=5e61e09d46c037961e688ef34a207f3ade2f300f48236354ee9dcf5106191e43)': {}
 
   '@sigstore/protobuf-specs@0.5.1': {}
 
@@ -8408,7 +8410,7 @@ snapshots:
     dependencies:
       '@gar/promise-retry': 1.0.3
       '@sigstore/bundle': 4.0.0
-      '@sigstore/core': 3.2.1
+      '@sigstore/core': 3.2.1(patch_hash=5e61e09d46c037961e688ef34a207f3ade2f300f48236354ee9dcf5106191e43)
       '@sigstore/protobuf-specs': 0.5.1
       make-fetch-happen: 15.0.6(supports-color@10.2.2)
       proc-log: 6.1.0
@@ -8425,7 +8427,7 @@ snapshots:
   '@sigstore/verify@3.1.1':
     dependencies:
       '@sigstore/bundle': 4.0.0
-      '@sigstore/core': 3.2.1
+      '@sigstore/core': 3.2.1(patch_hash=5e61e09d46c037961e688ef34a207f3ade2f300f48236354ee9dcf5106191e43)
       '@sigstore/protobuf-specs': 0.5.1
 
   '@sinclair/typebox@0.27.12': {}
@@ -8499,7 +8501,7 @@ snapshots:
 
   '@tufjs/canonical-json@2.0.0': {}
 
-  '@tufjs/models@4.1.0':
+  '@tufjs/models@4.1.0(patch_hash=28ca3c891f304cd73d7dbed0d2e3a6c373470c3782135ee9276b618f3cb26ba4)':
     dependencies:
       '@tufjs/canonical-json': 2.0.0
       minimatch: 10.2.6
@@ -11532,7 +11534,7 @@ snapshots:
   sigstore@4.1.1(supports-color@10.2.2):
     dependencies:
       '@sigstore/bundle': 4.0.0
-      '@sigstore/core': 3.2.1
+      '@sigstore/core': 3.2.1(patch_hash=5e61e09d46c037961e688ef34a207f3ade2f300f48236354ee9dcf5106191e43)
       '@sigstore/protobuf-specs': 0.5.1
       '@sigstore/sign': 4.1.1(supports-color@10.2.2)
       '@sigstore/tuf': 4.0.2(supports-color@10.2.2)
@@ -11837,7 +11839,7 @@ snapshots:
 
   tuf-js@4.1.0(supports-color@10.2.2):
     dependencies:
-      '@tufjs/models': 4.1.0
+      '@tufjs/models': 4.1.0(patch_hash=28ca3c891f304cd73d7dbed0d2e3a6c373470c3782135ee9276b618f3cb26ba4)
       debug: 4.4.3(supports-color@10.2.2)
       make-fetch-happen: 15.0.6(supports-color@10.2.2)
     transitivePeerDependencies:
