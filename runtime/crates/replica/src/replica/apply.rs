@@ -1262,14 +1262,6 @@ impl<S: Store> Replica<S> {
         if native && mdbn_core::plan::check_request(&mutation).is_err() {
             return self.commit_payload_void(head, &payload, "V7: invalid request");
         }
-        let entry_sem = mdbn_core::semantics::Sem {
-            major: payload.sem.major,
-            minor: payload.sem.minor,
-        };
-        let previous_sem = entry_sem < mdbn_core::semantics::SEM
-            && mdbn_core::semantics::SEMANTICS
-                .iter()
-                .any(|info| info.sem == entry_sem);
         // T6b always verifies full kind/path/prior CAS, even for our own entry or
         // when optional legacy result checking is disabled.
         if native
@@ -1773,79 +1765,59 @@ impl<S: Store> Replica<S> {
                 return self.commit_payload_void(head, &payload, "V7: path already taken");
             }
         }
-        let mut stall = None;
-        // Verification (log-entry.md §5) against the state at p − 1.
-        if native || (self.cfg.verify && payload.mutation.origin != self.cfg.replica_id) {
-            let sem = mdbn_core::semantics::SEM;
-            if payload.sem.major == sem.major && payload.sem.minor == sem.minor {
-                let view = StoreView::new(&self.store, self.catalog.clone());
-                // The marker selects resurrection semantics only; it never widens
-                // what verification accepts.
-                let stage = if payload.resurrect.is_some() {
-                    Stage::Resurrect
-                } else {
-                    Stage::Head
-                };
-                let r = self.planner.plan(&mutation, &view, &PlanOptions { stage });
-                if native && let Some(e) = view.error() {
-                    return Err(e);
-                }
-                let ok = match r {
-                    Ok(pl) => {
-                        convert::wstatus(pl.status) == payload.status
-                            && pl
-                                .effects
-                                .iter()
-                                .map(convert::wruntime_effect)
-                                .collect::<CResult<Vec<_>>>()
-                                .as_ref()
-                                == Ok(&effects)
-                            && pl
-                                .conflicts
-                                .iter()
-                                .map(convert::wruntime_conflict)
-                                .collect::<CResult<Vec<_>>>()
-                                .as_ref()
-                                == Ok(&conflicts)
-                            && pl.aliases.iter().map(convert::walias).collect::<Vec<_>>()
-                                == payload.aliases.clone().unwrap_or_default()
-                    }
-                    Err(_) => false,
-                };
-                if ok {
-                    if !native {
-                        self.stats.verified += 1;
-                    }
-                } else {
-                    if native {
-                        stall = Some("native results cannot be verified by this build's planner");
-                    } else {
-                        self.stats.verify_mismatch += 1;
-                        self.incident(
-                            IncidentKind::VerificationMismatch,
-                            Some(Value::Map(vec![
-                                (
-                                    "seq".into(),
-                                    Value::Int(i64::try_from(p).unwrap_or(i64::MAX)),
-                                ),
-                                (
-                                    "count".into(),
-                                    Value::Int(
-                                        i64::try_from(self.stats.verify_mismatch)
-                                            .unwrap_or(i64::MAX),
-                                    ),
-                                ),
-                            ])),
-                        );
-                    }
-                }
+        // Verification (log-entry.md §5) against the state at p − 1. Only this
+        // build's own `sem` is re-planned; native results of any other `sem` rest
+        // on the structural checks above, as legacy results do.
+        let same_sem = payload.sem.major == mdbn_core::semantics::SEM.major
+            && payload.sem.minor == mdbn_core::semantics::SEM.minor;
+        let mut native_mismatch = false;
+        if same_sem
+            && (native || (self.cfg.verify && payload.mutation.origin != self.cfg.replica_id))
+        {
+            let view = StoreView::new(&self.store, self.catalog.clone());
+            // The marker selects resurrection semantics only; it never widens
+            // what verification accepts.
+            let stage = if payload.resurrect.is_some() {
+                Stage::Resurrect
             } else {
-                if native && !previous_sem {
-                    stall = Some("T6b semantics cannot be verified");
-                } else if !native {
-                    self.stats.unverified += 1;
-                }
+                Stage::Head
+            };
+            let r = self.planner.plan(&mutation, &view, &PlanOptions { stage });
+            if native && let Some(e) = view.error() {
+                return Err(e);
             }
+            let ok = match r {
+                Ok(pl) => {
+                    convert::wstatus(pl.status) == payload.status
+                        && pl
+                            .effects
+                            .iter()
+                            .map(convert::wruntime_effect)
+                            .collect::<CResult<Vec<_>>>()
+                            .as_ref()
+                            == Ok(&effects)
+                        && pl
+                            .conflicts
+                            .iter()
+                            .map(convert::wruntime_conflict)
+                            .collect::<CResult<Vec<_>>>()
+                            .as_ref()
+                            == Ok(&conflicts)
+                        && pl.aliases.iter().map(convert::walias).collect::<Vec<_>>()
+                            == payload.aliases.clone().unwrap_or_default()
+                }
+                Err(_) => false,
+            };
+            if native {
+                // Counted once the source check below lets this entry through.
+                native_mismatch = !ok;
+            } else if ok {
+                self.stats.verified += 1;
+            } else {
+                self.verify_mismatch(p);
+            }
+        } else if !native && self.cfg.verify && payload.mutation.origin != self.cfg.replica_id {
+            self.stats.unverified += 1;
         }
         let source_meta = if native {
             match self.unindexed_source_check(head, &payload, refs) {
@@ -1876,11 +1848,27 @@ impl<S: Store> Replica<S> {
         } else {
             Vec::new()
         };
-        if let Some(reason) = stall {
-            return Ok(Outcome::Stall(IncidentKind::UpgradeRequired, reason.into()));
+        if native_mismatch {
+            // This build's planner disagrees with the writer's under the same
+            // `sem`: a determinism bug on one side (the writer picks `sem`, so this
+            // is detection, not a security gate). Voiding would persist a
+            // build-dependent verdict, so stop here, report the mismatch once per
+            // stall (reads retry the stalled entry) and retry the same bytes
+            // after an upgrade.
+            if self.stalled != Some((IncidentKind::UpgradeRequired, p)) {
+                self.verify_mismatch(p);
+            }
+            return Ok(Outcome::Stall(
+                IncidentKind::UpgradeRequired,
+                "native results cannot be verified by this build's planner".into(),
+            ));
         }
         if native {
-            self.stats.verified += 1;
+            if same_sem {
+                self.stats.verified += 1;
+            } else {
+                self.stats.unverified += 1;
+            }
         }
 
         tx.meta.extend(source_meta);
@@ -2146,6 +2134,24 @@ impl<S: Store> Replica<S> {
             self.query_context = context;
         }
         Ok(())
+    }
+
+    /// Count and report a re-planned entry whose recorded results differ.
+    fn verify_mismatch(&mut self, p: u64) {
+        self.stats.verify_mismatch += 1;
+        self.incident(
+            IncidentKind::VerificationMismatch,
+            Some(Value::Map(vec![
+                (
+                    "seq".into(),
+                    Value::Int(i64::try_from(p).unwrap_or(i64::MAX)),
+                ),
+                (
+                    "count".into(),
+                    Value::Int(i64::try_from(self.stats.verify_mismatch).unwrap_or(i64::MAX)),
+                ),
+            ])),
+        );
     }
 
     pub(crate) fn sem_ratchet(&self) -> u64 {

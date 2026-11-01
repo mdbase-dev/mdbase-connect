@@ -9,7 +9,10 @@
 //! Bump `minor` for fixes whose old and new behaviour may interleave in one log;
 //! bump `major` for changes that must not interleave. Either bump needs a new row
 //! in [`SEMANTICS`] and, if replay output changes, updated
-//! `conformance/determinism/*.expected.json` in the same commit.
+//! `conformance/determinism/*.expected.json` in the same commit. A bump must
+//! not change the V7 inputs (path rules, path-key folding, request rules):
+//! replicas of every `sem` judge an entry's validity with their own
+//! (`log-entry.md` §4.3, §5).
 
 /// A semantics version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
