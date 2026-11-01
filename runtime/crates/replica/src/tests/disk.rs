@@ -153,9 +153,12 @@ struct DiskStore {
 }
 
 impl Store for DiskStore {
-    // Retains no lost-tail or own history (the trait's `own_retained` default).
+    // Retains no lost-tail or own history.
     fn own_retained_stats(&self) -> StoreResult<TailStats> {
         Ok(TailStats::default())
+    }
+    fn own_retained(&self, _after: Seq, _limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
+        Ok(Vec::new())
     }
     fn head(&self) -> StoreResult<Head> {
         self.inner.head()

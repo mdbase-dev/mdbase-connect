@@ -186,10 +186,13 @@ impl<I: IndexStorage> Store for LogCache<I> {
     fn tail_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
         self.0.tail_stats()
     }
-    // `own_retained` is not forwarded (the trait's empty default), so its size is
-    // empty too, as it was before this method became required.
+    // Own history is committed to the inner store, so the repair budget and
+    // lost-tail recovery must read it from there too.
     fn own_retained_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
-        Ok(mdbn_replica::store::TailStats::default())
+        self.0.own_retained_stats()
+    }
+    fn own_retained(&self, after: u64, limit: u32) -> StoreResult<Vec<(u64, PendingRow)>> {
+        self.0.own_retained(after, limit)
     }
     fn stages(&self) -> bool {
         self.0.stages()

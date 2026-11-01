@@ -1016,9 +1016,12 @@ fn put_records(
 }
 
 impl Store for PgStore {
-    // Retains no own history (the trait's `own_retained` default).
+    // Retains no own history: commit does not write `own_retained_put`.
     fn own_retained_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
         Ok(mdbn_replica::store::TailStats::default())
+    }
+    fn own_retained(&self, _after: u64, _limit: u32) -> StoreResult<Vec<(u64, PendingRow)>> {
+        Ok(Vec::new())
     }
     fn head(&self) -> StoreResult<Head> {
         let r = self
