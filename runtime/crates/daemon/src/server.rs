@@ -500,6 +500,14 @@ fn start_relay_locked(d: &Arc<Daemon>, record: &crate::cloud::AccountRecord) {
     {
         return;
     }
+    // Account state signed in by another environment's build (its credential and
+    // connector belong to that control plane) never reconnects from this one.
+    if crate::trust::sign_in_server(Some(&cfg.server_url)).as_deref() != Ok(cfg.server_url.as_str())
+    {
+        tracing::error!(server = %cfg.server_url, "account state is not this build's environment; relay not started");
+        d.set_account_error("environment_mismatch");
+        return;
+    }
     let epoch = record.epoch;
     let Some(identity) = d.identity.get() else {
         return;

@@ -13,7 +13,9 @@ test("runtime PRs and the merge queue share exhaustive retry-free native test sh
   assert.match(server, /runtime-native:\n    if: github.event_name == 'merge_group'\n    uses: \.\/\.github\/workflows\/runtime-native-tests.yml/);
   assert.match(native, /packages: --workspace --exclude mdbn-daemon --exclude mdbn-replica/);
   assert.match(native, /packages: -p mdbn-replica/);
-  assert.match(native, /packages: -p mdbn-daemon/);
+  assert.match(native, /packages: -p mdbn-daemon\n/);
+  assert.match(native, /packages: -p mdbn-daemon --features staging\n/);
+  assert.match(native, /if: matrix.shard == 'daemon-staging'\n        run: \|\n          for features in staging,lab staging,local-rehearsal; do/);
   assert.match(native, /run: cargo test --locked \$\{\{ matrix.packages \}\}/);
   assert.doesNotMatch(native, /--no-run|cargo-test.mjs|--lib/);
 });
