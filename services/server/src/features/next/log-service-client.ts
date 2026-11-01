@@ -276,13 +276,19 @@ export class LogServiceClient {
 
   /** Exact-position control read; control items are never compacted. */
   async controlItemAt(collection: string, seq: number): Promise<Uint8Array | null> {
-    const result = await this.rpc("read", struct([[0, uuidBytes(collection)], [1, seq - 1], [2, 1], [3, 1]]));
+    const [item] = (await this.controlItemsAfter(collection, seq - 1, 1)).items;
+    return item?.seq === seq ? item.item : null;
+  }
+
+  /** The next control items after a position, in log order; `more` when the page stopped early. */
+  async controlItemsAfter(collection: string, after: number, limit: number): Promise<{ items: Array<{ seq: number; item: Uint8Array }>; more: boolean }> {
+    const result = await this.rpc("read", struct([[0, uuidBytes(collection)], [1, after], [2, limit], [3, 1]]));
     const items = field(result, 0);
     if (!Array.isArray(items)) throw new Error("malformed control read response");
-    if (items.length === 0) return null;
-    const item = items[0];
-    if (!Array.isArray(item) || typeof item[0] !== "number" || !(item[1] instanceof Uint8Array)) throw new Error("malformed control item response");
-    return item[0] === seq ? item[1] : null;
+    return { more: field(result, 6) === true, items: items.map(item => {
+      if (!Array.isArray(item) || typeof item[0] !== "number" || !(item[1] instanceof Uint8Array)) throw new Error("malformed control item response");
+      return { seq: item[0], item: item[1] };
+    }) };
   }
 
   async head(collection: string): Promise<{ seq: number; chain: Uint8Array }> {

@@ -341,6 +341,29 @@ fn a_surviving_owner_rekeys_automatically_after_an_abandoned_slot() {
 }
 
 #[test]
+fn losing_every_frozen_owner_consumes_an_abandoned_switch() {
+    let (svc, mut cp) = abandoned_world();
+    let mut lost = device(&svc, 1, MemStore::new());
+    let mut editor = device(&svc, 4, MemStore::new());
+    settle(&mut [&mut lost, &mut editor]);
+    lost.r.request_private_switch(lost.s).unwrap();
+    drop(lost);
+    switch(&mut cp, &svc);
+    settle(&mut [&mut editor]);
+    cp.revoke(&svc, B16([101; 16]));
+    settle(&mut [&mut editor]);
+    assert!(
+        editor.r.private_switch_waiting(),
+        "owner 105 can still rotate"
+    );
+    cp.revoke(&svc, B16([105; 16]));
+    settle(&mut [&mut editor]);
+    assert!(!editor.r.private_switch_waiting());
+    assert!(editor.r.key_untrusted);
+    assert!(editor.r.accepted_private_switch().is_none());
+}
+
+#[test]
 fn an_abandoned_slot_cannot_be_finished_by_a_non_owner() {
     let (svc, mut cp) = world();
     let owner_store = MemStore::new();

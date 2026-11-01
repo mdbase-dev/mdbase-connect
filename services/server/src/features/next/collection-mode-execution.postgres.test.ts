@@ -43,7 +43,7 @@ describePg("collection mode capability floor and token drain", () => {
   let serviceFetch: typeof fetch = async () => { throw new Error("unexpected service effect"); };
   const server = () => {
     const app = Fastify(); void app.register(cookie); registerErrorHandler(app);
-    registerCollectionModeRoutes(app, db);
+    registerCollectionModeRoutes(app, db, log);
     const next = { logService: {}, cloudCopyBootstrap: { hosted: { url: "https://hosted.example.test", token: "public-hosted-fixture".repeat(3) }, escrow: { url: "https://escrow.example.test", token: "public-escrow-fixture".repeat(3) } } } as Parameters<typeof registerCollectionModeExecution>[1]["next"];
     registerCollectionModeRecovery(app, { db, emitter, log, next });
     registerCollectionModeExecution(app, { db, emitter, log, next, fetchImpl: (...args) => serviceFetch(...args), now: () => now });
@@ -172,11 +172,23 @@ describePg("collection mode capability floor and token drain", () => {
     expect((await db.query("SELECT sync FROM next_collections WHERE collection_id=$1",[f.collection])).rows[0].sync).toBe("private");
     expect((await db.query("SELECT count(*)::int AS n FROM next_service_devices WHERE collection_id=$1",[f.collection])).rows[0].n).toBe(0);
     expect((await app.inject({method:"POST",url,headers:f.otherHeaders})).json().phase).toBe("abandoned");
-    const active=await app.inject({method:"GET",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders});
-    expect(active.json().change).toBeNull();
+    // Not presented as finished Private while the services' epoch is current.
+    const mode=async()=>(await app.inject({method:"GET",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders})).json();
+    expect(await mode()).toMatchObject({current_mode:"private",change:{request_id:f.request,target_mode:"private",phase:"abandoned"}});
     expect((await prepare(f)).json().error.code).toBe("mode_abandoned");
     await inTransaction(db,client=>queueNextPolicy(client,f.collection,[{op:"device-revoke",device:f.a}]));
     await emitter.publishCommitted(f.collection);expect((await log.head(f.collection)).seq).toBe(head.seq+1);
+    expect((await mode()).change.phase).toBe("abandoned");
+    wire.failNextRead=true;expect((await mode()).change.phase).toBe("abandoned");
+    // A later request cancelled before publication changes nothing.
+    const later=randomUUID();
+    const intent=await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders,payload:{request_id:later,target_mode:"cloud_copy"}});expect(intent.statusCode,intent.body).toBe(202);
+    expect((await app.inject({method:"DELETE",url:`/v1/next/collections/${f.collection}/mode/${later}`,headers:f.otherHeaders})).json().phase).toBe("cancelled");
+    expect((await mode()).change).toMatchObject({request_id:f.request,phase:"abandoned"});
+    // A surviving switch-set owner's excluding rekey follows the revocation.
+    const revoked=await log.head(f.collection);
+    wire.logs.get(f.collection.replaceAll("-",""))!.push(Buffer.from(encodeCbor({struct:[[0,1],[1,3],[2,Buffer.from(f.collection.replaceAll("-",""),"hex")],[3,revoked.seq+1],[4,revoked.chain],[5,2],[6,Buffer.from(f.b.replaceAll("-",""),"hex")],[11,Buffer.from("excluding rekey fixture")]]})));
+    expect((await mode()).change).toBeNull();
   });
 
   it.each(["before-effect", "lost-ack", "wrong-device", "wrong-challenge", "service-unready"])("service %s never completes early; both directions resume exact receipts after restart", async failure => {

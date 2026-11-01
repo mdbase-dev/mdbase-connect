@@ -834,6 +834,11 @@ msgstr "屏幕截图不是有效的 PNG 或 JPEG 图片。"
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
 msgstr "屏幕截图大于 3 MB。请选择较小的图片。"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
+msgstr "切换到私有模式未完成。请撤销发起切换的设备。之后你的其他所有者设备会替换集合密钥。"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "this collection"

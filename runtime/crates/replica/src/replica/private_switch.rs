@@ -658,8 +658,7 @@ impl<S: Store> Replica<S> {
         else {
             return false;
         };
-        let adjacent = self.head == *at && self.policy.seq == at.seq;
-        ((adjacent && self.private_switch.requested) || self.head.seq > at.seq)
+        (self.private_switch.requested || self.head.seq > at.seq)
             && owners.contains(&self.cfg.device_id)
             && self.current_owner(&self.cfg.device_id)
             && self.policy.cstate == Some(CState::E2e)
@@ -687,17 +686,16 @@ impl<S: Store> Replica<S> {
             return;
         };
         // After an abandoned slot, the first rekey (the epoch check) is accepted
-        // only from a frozen owner that still holds the role. Its recipients are
-        // ordinary policy's keyed set: a grant on the old epoch needs an existing
-        // key holder, so the control plane alone cannot add one.
+        // only from a frozen owner that still holds the role; expiry keeps policy
+        // e2e meanwhile. Its recipients are ordinary policy's keyed set: a grant on
+        // the old epoch needs an existing key holder, so the control plane alone
+        // cannot add one.
         let adjacent =
             at.seq.checked_add(1) == Some(p) && self.head == *at && item.prev == Some(at.chain);
-        let excluding = self.head.seq > at.seq
-            && self.policy.cstate == Some(CState::E2e)
-            && item
+        let valid = (adjacent
+            || item
                 .signer
-                .is_some_and(|signer| self.current_owner(&signer));
-        let valid = (adjacent || excluding)
+                .is_some_and(|signer| self.current_owner(&signer)))
             && rekey.from == *epoch
             && rekey.reason == RekeyReason::CloudCopyOff
             && item.signer.is_some_and(|signer| owners.contains(&signer))
@@ -719,10 +717,13 @@ impl<S: Store> Replica<S> {
         }
     }
     /// A later non-rekey item no longer consumes the switch (the excluding rekey
-    /// may follow the abandoned slot). Leaving Private or any other epoch does.
+    /// may follow the abandoned slot). Leaving Private, another epoch (only by
+    /// read-ahead; settled rekeys resolve in accept), or losing every frozen owner
+    /// that could author the rekey does.
     pub(super) fn expire_private_switch(&mut self, head: Head) {
-        if matches!(&self.private_switch.state, State::Pending { at, epoch, .. }
-            if head.seq > at.seq && (self.policy.cstate != Some(CState::E2e) || self.policy.epoch != *epoch))
+        if matches!(&self.private_switch.state, State::Pending { at, epoch, owners, .. }
+            if (head.seq > at.seq && (self.policy.cstate != Some(CState::E2e) || self.policy.epoch != *epoch))
+                || !owners.iter().any(|owner| self.current_owner(owner)))
         {
             self.private_switch.state = State::Refused;
         }
