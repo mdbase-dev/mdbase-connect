@@ -19,7 +19,7 @@ and direct protocol remain original file archives. No LAB archive retargeting,
 repacking, generated trust context or replacement receipt is allowed.
 
 The UI input is the exact published npm version in `apps/editor/package.json`,
-currently `@mdbase-dev/ui@0.1.0-beta.147`, not workspace source. Both target
+currently `@mdbase-dev/ui@0.1.0-beta.149`, not workspace source. Both target
 configs commit its version and registry SHA512 integrity; the frozen lock must
 match both. The dependency-free guard downloads that version's archive from
 `registry.npmjs.org`, rejects redirects/unavailable versions and verifies its
@@ -29,7 +29,7 @@ using the same comparison as SDK/protocol. The plan and receipt retain the UI
 version, archive URL, SHA512, SHA256, byte length and member count. There is no
 file/workspace fallback, range or tag resolution and no protected
 `NATIVE_UI_SHA256` input. Update the dependency, both config pins and frozen lock
-together when adopting a new published UI version; do not pre-pin beta.148.
+together when adopting a new published UI version; do not pre-pin an unpublished version.
 
 Protected `editor-staging` environment variables:
 
