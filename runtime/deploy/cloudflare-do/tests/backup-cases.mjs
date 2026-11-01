@@ -126,6 +126,7 @@ export async function backupCases({ base, token, transport, encode, decode, map,
   if (compacted) {
     assert.equal(ok(await call('compact',map([[0,c]]))).get(0),36,'real native compaction preserves controls and removes old entries');
   }
+  assert.equal((await fetch(`${base}/__test/age-aux-tokens`, { method: 'POST', body: JSON.stringify({ actor }) })).status, 200);
   const retainedSeqs=Array.from({length:H},(_,i)=>i+1).filter(seq=>!compacted || seq<3 || seq>=36);
   // Permission checks are real device proof-of-possession, not a test bypass.
   fail(await call('backup_begin', map([[0, c]]), true), 'principal');
