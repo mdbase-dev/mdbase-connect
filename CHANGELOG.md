@@ -4,6 +4,36 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.150
+
+### Changed
+
+- Publish the production SDK through GitHub OIDC trusted publishing alone, removing the completed first-publication token bootstrap.
+
+### Fixed
+
+- The daemon now aborts and waits for every task it started before shutdown returns, including takeover retries, Private sync turn-on passes and the blocking takeover work. Previously these could still write to the profile directory after the daemon stopped (#1089).
+
+- Desktop update checks verify signed releases again. Electron's BoringSSL has no default digest for ECDSA keys, so Sigstore's TUF root and transparency-log checks rejected every release with "root was signed by 0/3 keys" (#426).
+
+- The log service answers a retried append that already landed with its original receipt, even when the collection is now over its storage quota, instead of `quota_exceeded`.
+- Compaction now deletes expired idempotency tokens of entries it has already archived, so the token table no longer grows with the whole history (Durable Objects, Postgres and memory backends).
+
+- Hosted collections now read back the own-change history they store, so the repair history budget counts it and lost-change recovery can use it. Previously the hosted store wrote these rows but reported none (#1083).
+
+- Adding a folder whose `mdbase.yaml` carries an `x-mdbase-connect` identity that no mdbase Connect on this computer manages (a copied folder, one removed before the migration, or a computer without the old connector) no longer fails with `migration_pending` forever. mdbase now reads the YAML key instead of matching the text, so the key in a comment is ignored, and an orphaned identity is refused as `orphaned_legacy_identity` until you confirm removing only that key (`mdbase collection add --remove-legacy-identity`, or the confirmation in the desktop app) (#450).
+
+- After an abandoned switch to Private, surviving owner devices now replace the collection key automatically instead of stalling on the key the services held, and owner status and the storage mode control show the switch as unfinished until they do.
+
+- A replica stalled on an entry it cannot apply (an unknown format, an unpinned policy key, native results this build cannot verify) re-reads it on the same bounded backoff as a missing key, from 1 s up to every 30 s, instead of re-reading and re-applying it without pause.
+
+- Replay native Markdown and file-to-record entries written under a newer semantics version with the same structural checks as earlier versions, so replicas that have not updated yet keep syncing through a semantics bump. When this build's planner disagrees with an entry of its own semantics version, the replica still stops for an update, and now also reports a verification mismatch.
+
+### Security
+
+- A computer waiting for approval of a Private collection no longer trusts the approving device as soon as it answers that device's challenge. The approver is kept as a trusted signer only when its key grant, sent after Allow, keys this computer for that same exchange. Expired, denied and renewed exchanges leave no trust behind (#1071).
+- The comparison code on a computer waiting for Private approval comes back after a restart while the exchange is still live, so the codes can still be compared before Allow (#1072).
+
 ## 0.1.0-beta.149
 
 ### Added
