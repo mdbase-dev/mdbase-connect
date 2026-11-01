@@ -1,9 +1,0 @@
-{
-  "reason": "One inline owner-mode control reused by desktop and portal. Availability derives from actual executor registration, not a rollout/trust flag. The browser records owner intent only; the desktop invokes the existing privileged native operation. No new state framework or keying path.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 1,
-    "packages/app-ui": 1
-  }
-}

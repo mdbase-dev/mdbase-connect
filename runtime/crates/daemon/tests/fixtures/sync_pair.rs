@@ -81,6 +81,7 @@ struct Dev {
     account: Uuid,
     tk: Device,
     kem_sk: [u8; 32],
+    noise_pk: B32,
     /// This device's credential store (its epoch keyring lives here, across restarts).
     secrets: Arc<dyn mdbn_daemon::secrets::SecretStore>,
 }
@@ -93,6 +94,7 @@ impl Dev {
             account,
             tk: Device::new(label, account),
             kem_sk: random(),
+            noise_pk: B32(KemKeyPair::from_secret(&random()).pk),
             secrets: Arc::new(mdbn_daemon::secrets::MemoryStore::default()),
         }
     }
@@ -103,16 +105,27 @@ impl Dev {
         }
     }
     fn enrol(&self) -> PolicyOp {
+        self.enrol_with(None)
+    }
+    fn enrol_with(&self, sas_commit: Option<B32>) -> PolicyOp {
         PolicyOp::DeviceEnrol(DeviceEnrol {
             device: self.tk.id,
             account: self.account,
             kind: self.kind,
             sign_pk: self.tk.pk(),
             kem_pk: B32(KemKeyPair::from_secret(&self.kem_sk).pk),
-            noise_pk: B32(KemKeyPair::from_secret(&random()).pk),
-            sas_commit: None,
+            noise_pk: self.noise_pk,
+            sas_commit,
             local_root: None,
         })
+    }
+    fn keys(&self) -> mdbn_replica::crypto::keys::EnrolledKeys {
+        mdbn_replica::crypto::keys::EnrolledKeys {
+            device: self.tk.id,
+            sign_pk: self.tk.pk().0,
+            kem_pk: KemKeyPair::from_secret(&self.kem_sk).pk,
+            noise_pk: self.noise_pk.0,
+        }
     }
 }
 
@@ -234,6 +247,26 @@ async fn cp_rpc(log: &str, cp: Arc<ControlPlane>, c: Uuid, method: &str, params:
     }
 }
 
+/// A paired desktop's host authority: its account, incarnation and Noise key.
+struct Paired {
+    account: Uuid,
+    noise_pk: B32,
+}
+impl GrantSource for Paired {
+    fn grant(&self, _: &Uuid) -> Option<EffectiveGrant> {
+        None
+    }
+    fn active_account(&self) -> Option<Uuid> {
+        Some(self.account)
+    }
+    fn authority_epoch(&self) -> Option<u64> {
+        Some(1)
+    }
+    fn device_noise_pk(&self) -> Option<B32> {
+        Some(self.noise_pk)
+    }
+}
+
 fn open(
     dir: &Path,
     log: &str,
@@ -243,6 +276,21 @@ fn open(
     replica: [u8; 16],
     genesis: [u8; 32],
 ) -> Runtime {
+    open_with(dir, log, cp, c, d, replica, genesis, CState::CloudCopy)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn open_with(
+    dir: &Path,
+    log: &str,
+    cp: &Arc<ControlPlane>,
+    c: Uuid,
+    d: &Dev,
+    replica: [u8; 16],
+    genesis: [u8; 32],
+    state: CState,
+) -> Runtime {
+    let private = state == CState::E2e;
     let folder = dir.join(d.label);
     std::fs::create_dir_all(&folder).unwrap();
     let cfg = RuntimeConfig {
@@ -256,10 +304,10 @@ fn open(
         computer_name: None,
         sync: Some(Synced {
             log_url: log.into(),
-            chosen_state: CState::CloudCopy,
+            chosen_state: state,
             trusted_roots: vec![cp.root_pk().0],
-            trusted_signers: vec![],
-            user_enabled_cloud_copy: true,
+            trusted_signers: if private { vec![d.tk.id.0] } else { vec![] },
+            user_enabled_cloud_copy: !private,
             tokens: Arc::new(Tokens {
                 cp: cp.clone(),
                 device: Some(Device::new(d.label, d.account)),
@@ -273,8 +321,292 @@ fn open(
             ),
         }),
     };
-    Runtime::open(cfg, d.secrets(), Box::new(NoGrants), Default::default())
+    let grants: Box<dyn GrantSource + Send> = if private {
+        Box::new(Paired {
+            account: d.account,
+            noise_pk: d.noise_pk,
+        })
+    } else {
+        Box::new(NoGrants)
+    };
+    Runtime::open(cfg, d.secrets(), grants, Default::default())
         .unwrap_or_else(|e| panic!("open {}: {}", d.label, e.0))
+}
+
+/// A host session on `rt` (the daemon is the host).
+async fn host(rt: &Runtime) -> mdbn_replica::api::SessionId {
+    use mdbn_wire::client::{ClientFrame, ClientRequest, HelloParams};
+    let hello = ClientFrame::Request(ClientRequest {
+        id: 0,
+        method: "hello".into(),
+        params: HelloParams {
+            versions: vec![mdbn_wire::common::Version { major: 1, minor: 0 }],
+            client_name: "sync-pair".into(),
+            client_version: "0".into(),
+            features: None,
+            timezone: None,
+        }
+        .to_cbor(),
+    })
+    .to_bytes()
+    .unwrap();
+    let (session, response, out) = rt
+        .hello(mdbn_replica::api::SessionAuth::Host, hello)
+        .await
+        .unwrap();
+    std::mem::forget(out); // keep the session's transport open
+    session.unwrap_or_else(|| {
+        panic!(
+            "host hello refused: {:?}",
+            ClientFrame::from_bytes(&response)
+        )
+    })
+}
+
+/// The requester's secret state, shared across runtime calls (the daemon keeps
+/// it in the OS keychain).
+#[derive(Clone, Default)]
+struct Journal(Arc<std::sync::Mutex<Option<Vec<u8>>>>);
+impl mdbn_replica::replica::ApprovalSecretJournal for Journal {
+    fn load(
+        &mut self,
+    ) -> Result<Option<zeroize::Zeroizing<Vec<u8>>>, mdbn_replica::replica::ApprovalPersistenceError>
+    {
+        Ok(self.0.lock().unwrap().clone().map(zeroize::Zeroizing::new))
+    }
+    fn save(
+        &mut self,
+        state: &[u8],
+    ) -> Result<(), mdbn_replica::replica::ApprovalPersistenceError> {
+        *self.0.lock().unwrap() = Some(state.to_vec());
+        Ok(())
+    }
+}
+
+async fn approval(
+    rt: &Runtime,
+    op: mdbn_daemon::runtime::DeviceApprovalOp,
+) -> Result<mdbn_daemon::runtime::DeviceApprovalReply, Box<mdbn_wire::client::Problem>> {
+    rt.device_approval(op).await.expect("runtime running")
+}
+
+/// Second-computer approval on a private collection, through the real log
+/// service: A creates it and keys itself; B is enrolled with its commitment and
+/// waits; A allows it (no code), B answers, A's key grant keys B, and a note
+/// written on A opens on B. The peer inbox between them is the control plane's
+/// (tested on its own); here the signed messages are handed across directly.
+pub async fn run_private_approval(log: &str, dir: &Path) {
+    use mdbn_daemon::runtime::{DeviceApprovalOp as Op, DeviceApprovalReply as Reply};
+    use mdbn_replica::replica::{ApprovalDisposition, ApprovalPeerMessage};
+    std::fs::create_dir_all(dir).unwrap();
+    let cp = Arc::new(ControlPlane::new(CP_LABEL));
+    let c = B16(random());
+    let owner = B16(random());
+    let a = Dev::new("private-a", DeviceKind::Desktop, owner);
+    let b = Dev::new("private-b", DeviceKind::Desktop, owner);
+    let requester =
+        mdbn_replica::approval::NewDevice::new(c, b.keys(), &mut mdbn_local_host::OsEntropy);
+    let journal = Journal::default();
+    *journal.0.lock().unwrap() = Some(requester.state().to_vec());
+    let genesis = cp.policy_item(
+        c,
+        1,
+        B32([0; 32]),
+        vec![
+            PolicyOp::Genesis(Genesis {
+                owner,
+                root: mdbn_log_service::policy::key_id(&cp.root_pk()),
+                state: CState::E2e,
+            }),
+            PolicyOp::MemberSet(MemberSet {
+                account: owner,
+                role: Role::Owner,
+            }),
+            a.enrol(),
+            b.enrol_with(Some(B32(requester.commitment()))),
+        ],
+        1,
+    );
+    let pin = mdbn_wire::hash::chain_hash(&genesis).0;
+    create_log(log, cp.clone(), c, genesis).await;
+    let ra = open_with(dir, log, &cp, c, &a, random(), pin, CState::E2e);
+    let rb = open_with(dir, log, &cp, c, &b, random(), pin, CState::E2e);
+    let (sa, sb) = (host(&ra).await, host(&rb).await);
+
+    // A keys itself (the initial rekey); B then sees B waiting, A sees it pending.
+    let t0 = Instant::now();
+    loop {
+        let waiting = matches!(
+            approval(&rb, Op::Waiting(sb, Box::new(journal.clone()), false)).await,
+            Ok(Reply::Waiting {
+                waiting: true,
+                to_log: None
+            })
+        );
+        let pending = matches!(
+            approval(&ra, Op::Pending(sa)).await,
+            Ok(Reply::Pending(list)) if list.iter().any(|d| d.device == b.tk.id)
+        );
+        if waiting && pending {
+            break;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "B never became a pending requester"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    println!(
+        "PASS: B waits for approval and A lists it ({:?})",
+        t0.elapsed()
+    );
+
+    approval(&ra, Op::Reject(sa, b.tk.id)).await.unwrap();
+    assert!(matches!(
+        approval(&ra, Op::Pending(sa)).await,
+        Ok(Reply::Pending(list)) if list.is_empty()
+    ));
+    let Ok(Reply::Waiting {
+        to_log: Some(commitment),
+        ..
+    }) = approval(&rb, Op::Waiting(sb, Box::new(journal.clone()), true)).await
+    else {
+        panic!("B did not renew its denied request")
+    };
+    assert!(matches!(
+        approval(&ra, Op::Pending(sa)).await,
+        Ok(Reply::Pending(list)) if list.is_empty()
+    ));
+    append_policy(
+        log,
+        &cp,
+        c,
+        vec![PolicyOp::ApprovalRequest(
+            mdbn_wire::policy::ApprovalRequest {
+                device: b.tk.id,
+                sas_commit: commitment,
+            },
+        )],
+    )
+    .await;
+    let renewal_started = Instant::now();
+    loop {
+        let pending = matches!(
+            approval(&ra, Op::Pending(sa)).await,
+            Ok(Reply::Pending(list)) if list.iter().any(|device| device.device == b.tk.id)
+        );
+        let logged = matches!(
+            approval(&rb, Op::Waiting(sb, Box::new(journal.clone()), false)).await,
+            Ok(Reply::Waiting {
+                waiting: true,
+                to_log: None
+            })
+        );
+        if pending && logged {
+            break;
+        }
+        assert!(renewal_started.elapsed() < Duration::from_secs(60));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    println!("PASS: Deny lasts until B's fresh commitment applies on both computers");
+
+    // Listing prepares the exchange before the user's one final Allow.
+    assert!(
+        approval(&ra, Op::Allow(sa, b.tk.id, "000000".into()))
+            .await
+            .is_err()
+    );
+    let Ok(Reply::Envelope(challenge)) = approval(&ra, Op::Start(sa, b.tk.id)).await else {
+        panic!("A did not start the exchange")
+    };
+    assert!(matches!(
+        challenge.message,
+        ApprovalPeerMessage::Challenge(_)
+    ));
+    let Ok(Reply::Envelope(reveal)) = approval(
+        &rb,
+        Op::Challenge(sb, challenge.clone(), Box::new(journal.clone())),
+    )
+    .await
+    else {
+        panic!("B did not answer the challenge")
+    };
+    // The same challenge is answered once only.
+    assert!(
+        approval(&rb, Op::Challenge(sb, challenge, Box::new(journal.clone())))
+            .await
+            .is_err()
+    );
+    assert!(matches!(
+        approval(&ra, Op::Reveal(sa, reveal)).await,
+        Ok(Reply::Done)
+    ));
+    let Ok(Reply::Code(Some(requester_code))) = approval(&rb, Op::Code(sb)).await else {
+        panic!("B did not show the verification code")
+    };
+    let Ok(Reply::Pending(list)) = approval(&ra, Op::Pending(sa)).await else {
+        panic!("A could not list the verification code")
+    };
+    let approver_code = list
+        .iter()
+        .find(|d| d.device == b.tk.id)
+        .unwrap()
+        .sas
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        approver_code, &requester_code,
+        "both computers must show the same code"
+    );
+    assert_eq!(requester_code.len(), 6);
+    let Ok(Reply::Allowed(intent, mut state)) =
+        approval(&ra, Op::Allow(sa, b.tk.id, requester_code)).await
+    else {
+        panic!("A could not allow B")
+    };
+    let t1 = Instant::now();
+    while !matches!(state, ApprovalDisposition::Applied { .. }) {
+        assert!(
+            !matches!(state, ApprovalDisposition::Refused(_)),
+            "approval refused: {state:?}"
+        );
+        assert!(
+            t1.elapsed() < Duration::from_secs(60),
+            "key grant never applied: {state:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        state = match approval(&ra, Op::Disposition(sa, intent)).await {
+            Ok(Reply::Disposition(d)) => d,
+            _ => panic!("disposition"),
+        };
+    }
+    println!("PASS: A's key grant applied ({:?})", t1.elapsed());
+
+    // B is keyed: no longer waiting, and A's notes open there.
+    std::fs::write(dir.join(a.label).join("from-a.md"), "private on A\n").unwrap();
+    converge(
+        &dir.join(b.label).join("from-a.md"),
+        "private on A\n",
+        Duration::from_secs(60),
+    )
+    .await;
+    assert!(matches!(
+        approval(&rb, Op::Waiting(sb, Box::new(journal.clone()), false)).await,
+        Ok(Reply::Waiting { waiting: false, .. })
+    ));
+    assert!(
+        matches!(approval(&ra, Op::Pending(sa)).await, Ok(Reply::Pending(list)) if list.is_empty())
+    );
+    std::fs::write(dir.join(b.label).join("from-b.md"), "private on B\n").unwrap();
+    converge(
+        &dir.join(a.label).join("from-b.md"),
+        "private on B\n",
+        Duration::from_secs(60),
+    )
+    .await;
+    println!("PASS: B keyed by A; notes open both ways");
+    ra.stop().await;
+    rb.stop().await;
 }
 
 /// Wait until `path` holds exactly `want`.

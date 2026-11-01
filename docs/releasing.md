@@ -5,10 +5,12 @@ mdbase daemon/CLI (the mdbn-daemon built from `runtime/`). A release is one
 tested unit; mixing desktop and daemon versions is unsupported.
 
 Until the stable `0.1.0` contract is ready, releases use
-`0.1.0-beta.N`. Beta tags are immutable test releases: increment `N` for every
-published desktop build. Production and managed test deployments promote the
-signed server image digests built from the exact tag commit and never build
-from a tag, release branch, or Render.
+`0.1.0-beta.N`. Release tag updates and deletions are blocked, and newly
+published GitHub releases lock their assets under the
+[release integrity protections](release-contract.md#release-tag-and-asset-integrity).
+Increment `N` for every published desktop build. Production and managed test
+deployments promote the signed server image digests built from the exact tag
+commit and never build from a tag, release branch, or Render.
 
 ## Prepare release metadata
 

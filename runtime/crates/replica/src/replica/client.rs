@@ -1128,9 +1128,8 @@ impl<S: Store> ClientApi for Replica<S> {
         not_yet("approve_device")
     }
 
-    fn reject_device(&mut self, session: SessionId, _device: Uuid) -> ApiResult<()> {
-        self.host_only(session)?;
-        not_yet("reject_device")
+    fn reject_device(&mut self, session: SessionId, device: Uuid) -> ApiResult<()> {
+        self.reject_device_approval(session, device)
     }
 
     fn pending_grants(&mut self, session: SessionId) -> ApiResult<Vec<crate::api::PendingGrant>> {

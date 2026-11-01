@@ -171,7 +171,7 @@ fn approval_runtime_persists_consumed_commit_before_code_free_exchange() {
     r.receive_device_reveal(s, &reveal).unwrap();
     r.receive_device_reveal(s, &reveal).unwrap(); // exact peer retry is idempotent
     assert!(r.pending_devices(s).unwrap()[0].exchange_ready);
-    // Actor's output is only a readiness boolean; requester reveals its own code.
+    // Pushes carry readiness only; visual codes are read through host-only status.
     assert!(r.take_pushes().iter().any(
         |(_, p)| matches!(p, Push::ApprovalReady {device,exchange_ready:true} if *device == NEW)
     ));
@@ -316,7 +316,7 @@ fn approval_runtime_invalid_reveals_exhaust_without_reset_or_ready() {
     }
     assert!(r.receive_device_reveal(s, &valid).is_err());
     assert!(r.start_device_approval(s, NEW).is_err());
-    assert!(!r.pending_devices(s).unwrap()[0].exchange_ready);
+    assert!(r.pending_devices(s).unwrap().is_empty());
     assert!(!r.take_pushes().iter().any(|(_, p)| matches!(
         p,
         Push::ApprovalReady {
@@ -522,7 +522,11 @@ impl super::super::ApprovalSecretJournal for RequesterJournal {
     }
 }
 fn requester_fixture() -> (Replica<MemStore>, SessionId, Source) {
-    let (mut r, s, _, source, _) = fixture();
+    let (r, s, source, _) = requester_fixture_with_clock();
+    (r, s, source)
+}
+fn requester_fixture_with_clock() -> (Replica<MemStore>, SessionId, Source, ClockRef) {
+    let (mut r, s, _, source, clock) = fixture();
     r.cfg.device_id = NEW;
     r.secrets = DeviceSecrets {
         sign_sk: [20; 32],
@@ -531,7 +535,7 @@ fn requester_fixture() -> (Replica<MemStore>, SessionId, Source) {
     r.sealer = Box::new(KeyringSealer::new(COL, NEW, &[20; 32], &[20; 32]));
     r.key_untrusted = false;
     r.grant_source = Some(Box::new(RequesterSource(source.clone())));
-    (r, s, source)
+    (r, s, source, clock)
 }
 fn requester_challenge(r: &Replica<MemStore>, commit: B32) -> super::super::ApprovalPeerEnvelope {
     super::super::ApprovalPeerMessage::Challenge(ApprovalChallenge {
@@ -567,10 +571,13 @@ fn requester_hook_answers_for_the_bare_enrolment_commitment() {
         commit
     );
     let peer = requester_challenge(&r, commit);
+    r.cfg.trusted_signers = vec![NEW];
     let output = r
         .receive_device_approval_challenge(s, &peer, &mut journal)
         .unwrap();
     assert_eq!(output.code.len(), 6);
+    // Its key grant will be trusted.
+    assert!(r.cfg.trusted_signers.contains(&ME));
     assert_eq!(
         r.restore_requester_approval_peer(s, &mut journal)
             .unwrap()
@@ -753,7 +760,7 @@ fn confirmed_code_queues_a_signed_key_grant_for_the_append_turn_only() {
     assert_eq!(r.device_approval_disposition(s, intent).unwrap(), d);
     // Confirmation itself appends nothing; the exchange is consumed.
     assert!(appends(&mut r).is_empty());
-    assert!(!r.pending_devices(s).unwrap()[0].exchange_ready);
+    assert_eq!(r.pending_devices(s).unwrap().len(), 1);
     assert_eq!(
         r.start_device_approval(s, NEW)
             .unwrap_err()
@@ -810,7 +817,7 @@ fn wrong_code_refuses_consumes_the_exchange_and_keeps_the_budget() {
     );
     assert_eq!(r.device_approval_disposition(s, intent).unwrap(), d);
     assert!(!r.send_private_key_grant_if_needed());
-    assert!(!r.pending_devices(s).unwrap()[0].exchange_ready);
+    assert!(r.pending_devices(s).unwrap().is_empty()); // spent commitment
     // No retry on the same commitment: the marker stays and the exchange is gone.
     assert_eq!(
         r.start_device_approval(s, NEW)
@@ -1051,4 +1058,496 @@ fn snapshot_read_ahead_never_publishes_applied() {
     assert!(r.evaluate_control_bytes(seq, &bytes.0).is_err());
     assert_eq!(r.approval.dispositions[&intent], ApprovalDisposition::Sent);
     assert!(r.approval.staged_applied.is_empty());
+}
+
+#[test]
+fn checked_allow_completes_the_exchange_without_a_typed_code() {
+    use mdbn_wire::envelope::{Item, ItemKind};
+    let (mut r, s, mut n, _, _) = fixture();
+    let c = r.start_device_approval(s, NEW).unwrap();
+    // Allow before the requester revealed is not ready, and spends nothing.
+    assert_eq!(
+        r.allow_device_approval_checked(s, NEW, "000000")
+            .unwrap_err()
+            .0
+            .reason
+            .as_deref(),
+        Some("approval_not_ready")
+    );
+    let reveal = answer(&r, &mut n, c);
+    r.receive_device_reveal(s, &reveal).unwrap();
+    let code = r.pending_devices(s).unwrap()[0].sas.clone().unwrap();
+    let (intent, d) = r.allow_device_approval_checked(s, NEW, &code).unwrap();
+    assert_eq!(d, ApprovalDisposition::Queued);
+    assert!(r.send_private_key_grant_if_needed());
+    let calls = appends(&mut r);
+    assert_eq!(calls.len(), 1);
+    let item = Item::from_bytes(&calls[0].items[0].0).unwrap();
+    assert_eq!((item.kind, item.signer), (ItemKind::KeyGrant, Some(ME)));
+    assert_eq!(
+        KeyGrantPayload::from_bytes(&item.body.0).unwrap().recipient,
+        NEW
+    );
+    r.note_private_key_grant_applied(Some(ME), NEW, 7);
+    assert_eq!(
+        r.device_approval_disposition(s, intent).unwrap(),
+        ApprovalDisposition::Applied { seq: 7 }
+    );
+}
+
+#[test]
+fn checked_allow_needs_the_host_session_and_a_verified_reveal() {
+    let (mut r, s, _, _, _) = fixture();
+    r.start_device_approval(s, NEW).unwrap();
+    // A reveal that does not match the logged commitment never makes it ready.
+    let c = r.take_device_approval_challenges().pop().unwrap();
+    assert!(
+        r.receive_device_reveal(
+            s,
+            &ApprovalReveal {
+                challenge: c,
+                r_n: B32([3; 32]),
+            }
+        )
+        .is_err()
+    );
+    assert!(r.allow_device_approval_checked(s, NEW, "000000").is_err());
+    assert!(
+        r.allow_device_approval_checked(SessionId(9_999), NEW, "000000")
+            .is_err()
+    );
+}
+
+#[test]
+fn visual_codes_match_on_requester_and_approver() {
+    let (mut approver, a, n, _, _) = fixture();
+    let (mut requester, s, _, clock) = requester_fixture_with_clock();
+    let mut journal = RequesterJournal {
+        blob: Some(n.state()),
+        ..RequesterJournal::default()
+    };
+    assert_eq!(requester.requester_approval_code(s).unwrap(), None);
+    let challenge = approver.start_device_approval(a, NEW).unwrap();
+    assert_eq!(approver.pending_devices(a).unwrap()[0].sas, None);
+    let peer = super::super::ApprovalPeerMessage::Challenge(challenge)
+        .sign(&DeviceSigner::from_seed(&[10; 32]))
+        .unwrap();
+    let output = requester
+        .receive_device_approval_challenge(s, &peer, &mut journal)
+        .unwrap();
+    approver
+        .receive_device_approval_peer(a, &output.envelope)
+        .unwrap();
+    let code = requester.requester_approval_code(s).unwrap().unwrap();
+    assert_eq!(code.len(), 6);
+    assert!(code.bytes().all(|b| b.is_ascii_digit()));
+    assert_eq!(
+        approver.pending_devices(a).unwrap()[0].sas.as_deref(),
+        Some(code.as_str())
+    );
+    assert!(requester.requester_approval_code(SessionId(9_999)).is_err());
+    clock.0.set(121_000);
+    assert_eq!(requester.requester_approval_code(s).unwrap(), None);
+}
+
+#[test]
+fn denial_cancels_an_unsent_grant() {
+    let (mut r, s, mut n, _, _) = fixture();
+    let c = r.start_device_approval(s, NEW).unwrap();
+    let reveal = answer(&r, &mut n, c);
+    r.receive_device_reveal(s, &reveal).unwrap();
+    let code = r.pending_devices(s).unwrap()[0].sas.clone().unwrap();
+    let (intent, _) = r.allow_device_approval_checked(s, NEW, &code).unwrap();
+    r.reject_device_approval(s, NEW).unwrap();
+    assert!(r.approval.pending_grant.is_none());
+    assert_eq!(
+        r.device_approval_disposition(s, intent).unwrap(),
+        ApprovalDisposition::Refused(ApprovalRefusal::ContextChanged)
+    );
+    assert!(!r.send_private_key_grant_if_needed());
+    assert!(appends(&mut r).is_empty());
+    assert!(r.pending_devices(s).unwrap().is_empty());
+}
+
+#[test]
+fn queued_allow_remains_deniable_during_temporary_context_loss() {
+    for stalled in [false, true] {
+        let (mut replica, session, mut requester, _, _) = fixture();
+        let challenge = replica.start_device_approval(session, NEW).unwrap();
+        let (reveal, code) = answer_with_code(&replica, &mut requester, challenge);
+        replica.receive_device_reveal(session, &reveal).unwrap();
+        replica
+            .allow_device_approval_checked(session, NEW, &code)
+            .unwrap();
+        if stalled {
+            replica.stalled = Some((
+                mdbn_wire::client::IncidentKind::WaitingForKey,
+                replica.head.seq + 1,
+            ));
+            assert!(replica.approval_context(session, NEW).is_err());
+        }
+        assert_eq!(replica.pending_devices(session).unwrap().len(), 1);
+        replica.reject_device_approval(session, NEW).unwrap();
+        assert!(replica.approval.pending_grant.is_none());
+        replica.stalled = None;
+        assert!(replica.pending_devices(session).unwrap().is_empty());
+        assert!(!replica.send_private_key_grant_if_needed());
+        assert!(appends(&mut replica).is_empty());
+    }
+}
+
+#[test]
+fn aborted_denial_keeps_the_unsent_grant() {
+    let (mut r, s, mut n, _, _) = fixture();
+    let c = r.start_device_approval(s, NEW).unwrap();
+    let reveal = answer(&r, &mut n, c);
+    r.receive_device_reveal(s, &reveal).unwrap();
+    let code = r.pending_devices(s).unwrap()[0].sas.clone().unwrap();
+    let (intent, _) = r.allow_device_approval_checked(s, NEW, &code).unwrap();
+    r.store.fail_commits(1);
+    assert_eq!(
+        r.reject_device_approval(s, NEW).unwrap_err().0.code,
+        "unavailable"
+    );
+    assert_eq!(
+        r.device_approval_disposition(s, intent).unwrap(),
+        ApprovalDisposition::Queued
+    );
+    assert!(r.approval.pending_grant.is_some());
+    assert!(r.send_private_key_grant_if_needed());
+}
+
+#[test]
+fn durable_denial_marker_blocks_the_append_boundary() {
+    let (mut r, s, mut n, _, _) = fixture();
+    let c = r.start_device_approval(s, NEW).unwrap();
+    let reveal = answer(&r, &mut n, c);
+    r.receive_device_reveal(s, &reveal).unwrap();
+    let code = r.pending_devices(s).unwrap()[0].sas.clone().unwrap();
+    let (intent, _) = r.allow_device_approval_checked(s, NEW, &code).unwrap();
+    r.store
+        .commit(Tx {
+            meta: vec![(
+                rejection_marker(COL, NEW),
+                Some(r.policy.devices[&NEW].sas_commit.unwrap().0.to_vec()),
+            )],
+            ..Tx::default()
+        })
+        .unwrap();
+    assert!(!r.send_private_key_grant_if_needed());
+    assert!(appends(&mut r).is_empty());
+    assert_eq!(
+        r.device_approval_disposition(s, intent).unwrap(),
+        ApprovalDisposition::Refused(ApprovalRefusal::ContextChanged)
+    );
+}
+
+#[test]
+fn sent_grant_witness_must_commit_before_emission() {
+    for outcome in ["abort", "unknown", "landed-unknown"] {
+        let (mut r, s, mut n, _, _) = fixture();
+        let c = r.start_device_approval(s, NEW).unwrap();
+        let reveal = answer(&r, &mut n, c);
+        r.receive_device_reveal(s, &reveal).unwrap();
+        let code = r.pending_devices(s).unwrap()[0].sas.clone().unwrap();
+        let (intent, _) = r.allow_device_approval_checked(s, NEW, &code).unwrap();
+        match outcome {
+            "abort" => r.store.fail_commits(1),
+            "unknown" => r.store.fail_unknown_commits(1),
+            "landed-unknown" => r.store.fail_after_commit(1),
+            _ => unreachable!(),
+        }
+        assert!(!r.send_private_key_grant_if_needed(), "{outcome}");
+        assert!(appends(&mut r).is_empty(), "{outcome}");
+        assert_eq!(
+            r.approval.dispositions[&intent],
+            ApprovalDisposition::Queued
+        );
+        if outcome == "abort" {
+            assert!(
+                r.store
+                    .meta(&sent_grant_marker(COL, NEW))
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(r.send_private_key_grant_if_needed());
+            assert_eq!(
+                r.store.meta(&sent_grant_marker(COL, NEW)).unwrap(),
+                Some(vec![1])
+            );
+            assert_eq!(appends(&mut r).len(), 1);
+        } else {
+            assert!(r.requires_reopen());
+            assert!(!r.send_private_key_grant_if_needed());
+            assert!(appends(&mut r).is_empty());
+        }
+    }
+}
+
+#[test]
+fn denial_conflicts_after_sent_grant_restart_before_replay() {
+    let (mut r, s, mut n, _, _) = fixture();
+    let (_, bytes) = sent_grant(&mut r, s, &mut n);
+    // Lose all volatile grant evidence, retaining the committed Store and the
+    // pre-grant applied policy: the earlier append can still arrive after Deny.
+    r.approval = ApprovalRuntime::new(COL, ME);
+    r.append = crate::replica::append::AppendState::Idle;
+    assert!(!r.policy.devices[&NEW].keyed);
+    let error = r.reject_device_approval(s, NEW).unwrap_err();
+    assert_eq!(error.0.code, "conflict");
+    assert_eq!(error.0.reason.as_deref(), Some("approval_already_granted"));
+    assert!(r.store.meta(&rejection_marker(COL, NEW)).unwrap().is_none());
+    // The delayed grant remains valid; denial must not have promised revocation.
+    r.evaluate_control_bytes(r.head.seq + 1, &bytes.0).unwrap();
+    assert!(r.policy.devices[&NEW].keyed);
+}
+
+#[test]
+fn denial_conflicts_after_a_grant_is_sent_or_applied() {
+    for applied in [false, true] {
+        let (mut r, s, mut n, _, _) = fixture();
+        let (intent, bytes) = sent_grant(&mut r, s, &mut n);
+        if applied {
+            let seq = r.head.seq + 1;
+            r.evaluate_control_bytes(seq, &bytes.0).unwrap();
+            r.note_private_key_grant_applied(Some(ME), NEW, seq);
+            assert!(r.approval.pending_grant.is_none());
+        } else {
+            // Even after the append batch clears, a previously sent grant is
+            // not safely cancellable: it might already be in the log.
+            r.append = crate::replica::append::AppendState::Idle;
+        }
+        let disposition = r.device_approval_disposition(s, intent).unwrap();
+        let error = r.reject_device_approval(s, NEW).unwrap_err();
+        assert_eq!(error.0.code, "conflict");
+        assert_eq!(error.0.reason.as_deref(), Some("approval_already_granted"));
+        assert_eq!(
+            r.device_approval_disposition(s, intent).unwrap(),
+            disposition
+        );
+        assert!(r.store.meta(&rejection_marker(COL, NEW)).unwrap().is_none());
+    }
+    // Another approver may have keyed the recipient without any local intent.
+    let (mut r, s, _, _, _) = fixture();
+    r.policy.devices.get_mut(&NEW).unwrap().keyed = true;
+    assert_eq!(
+        r.reject_device_approval(s, NEW).unwrap_err().0.code,
+        "conflict"
+    );
+}
+
+#[test]
+fn checked_allow_uses_the_displayed_code_not_the_current_code() {
+    for valid in [false, true] {
+        let (mut r, s, mut n, _, _) = fixture();
+        let c = r.start_device_approval(s, NEW).unwrap();
+        let (reveal, code) = answer_with_code(&r, &mut n, c);
+        r.receive_device_reveal(s, &reveal).unwrap();
+        assert!(r.allow_device_approval_checked(s, NEW, "invalid").is_err());
+        assert!(
+            r.allow_device_approval_checked(SessionId(9_999), NEW, &code)
+                .is_err()
+        );
+        let mut displayed = code.into_bytes();
+        if !valid {
+            displayed[0] = if displayed[0] == b'9' {
+                b'0'
+            } else {
+                displayed[0] + 1
+            };
+        }
+        let (_, disposition) = r
+            .allow_device_approval_checked(s, NEW, std::str::from_utf8(&displayed).unwrap())
+            .unwrap();
+        assert_eq!(
+            disposition,
+            if valid {
+                ApprovalDisposition::Queued
+            } else {
+                ApprovalDisposition::Refused(ApprovalRefusal::CodeMismatch)
+            }
+        );
+        assert_eq!(r.send_private_key_grant_if_needed(), valid);
+        assert_eq!(appends(&mut r).len(), usize::from(valid));
+    }
+}
+
+#[test]
+fn checked_allow_refuses_a_stale_displayed_exchange() {
+    let (mut r, s, mut n, _, _) = fixture();
+    let c = r.start_device_approval(s, NEW).unwrap();
+    let (reveal, code) = answer_with_code(&r, &mut n, c);
+    r.receive_device_reveal(s, &reveal).unwrap();
+    let fresh = n.fresh(&mut TestEntropy::new(94));
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(B32(fresh));
+    assert!(r.allow_device_approval_checked(s, NEW, &code).is_err());
+    assert!(!r.send_private_key_grant_if_needed());
+    assert!(appends(&mut r).is_empty());
+}
+
+#[test]
+fn denial_commit_abort_does_not_hide_request() {
+    let (mut r, s, _, _, _) = fixture();
+    r.store.fail_commits(1);
+    assert_eq!(
+        r.reject_device_approval(s, NEW).unwrap_err().0.code,
+        "unavailable"
+    );
+    assert_eq!(r.pending_devices(s).unwrap().len(), 1);
+    r.reject_device_approval(s, NEW).unwrap();
+    assert!(r.pending_devices(s).unwrap().is_empty());
+}
+
+#[test]
+fn denial_survives_restart_until_a_fresh_commitment_is_applied() {
+    for restart in [false, true] {
+        let (mut r, s, mut n, _, _) = fixture();
+        r.reject_device_approval(s, NEW).unwrap();
+        if restart {
+            r.approval = ApprovalRuntime::new(COL, ME);
+        }
+        assert!(r.pending_devices(s).unwrap().is_empty());
+        assert!(r.start_device_approval(s, NEW).is_err());
+        let fresh = n.fresh(&mut TestEntropy::new(94));
+        assert!(r.pending_devices(s).unwrap().is_empty());
+        r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(B32(fresh));
+        assert_eq!(r.pending_devices(s).unwrap().len(), 1);
+        let challenge = r.start_device_approval(s, NEW).unwrap();
+        let (reveal, code) = answer_with_code(&r, &mut n, challenge);
+        r.receive_device_reveal(s, &reveal).unwrap();
+        r.allow_device_approval_checked(s, NEW, &code).unwrap();
+        assert!(r.send_private_key_grant_if_needed());
+        assert_eq!(appends(&mut r).len(), 1);
+    }
+}
+
+#[test]
+fn denial_requires_a_waiting_request_and_does_not_block_future_enrolment() {
+    let (mut r, session, _, _, _) = fixture();
+    let commitment = r.policy.devices.get_mut(&NEW).unwrap().sas_commit.take();
+    assert!(r.reject_device_approval(session, NEW).is_err());
+    assert!(r.store.meta(&rejection_marker(COL, NEW)).unwrap().is_none());
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = commitment;
+    assert_eq!(r.pending_devices(session).unwrap().len(), 1);
+}
+
+#[test]
+fn denied_or_spent_requests_are_not_offered() {
+    let (mut r, s, mut n, _, _) = fixture();
+    assert_eq!(r.pending_devices(s).unwrap().len(), 1);
+    r.reject_device_approval(s, NEW).unwrap();
+    assert!(r.pending_devices(s).unwrap().is_empty());
+    // A spent commitment (exchange lost) is hidden until a fresh one is logged.
+    let (mut r, s, _, _, _) = fixture();
+    r.start_device_approval(s, NEW).unwrap();
+    assert_eq!(
+        r.pending_devices(s).unwrap().len(),
+        1,
+        "live exchange stays"
+    );
+    r.approval = ApprovalRuntime::new(COL, ME);
+    assert!(r.pending_devices(s).unwrap().is_empty());
+    let fresh = n.fresh(&mut TestEntropy::new(94));
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(B32(fresh));
+    assert_eq!(r.pending_devices(s).unwrap().len(), 1);
+}
+
+#[test]
+fn requester_logs_a_fresh_commitment_only_after_its_exchange_expires() {
+    let (mut r, s, _, clock) = requester_fixture_with_clock();
+    assert!(r.awaiting_device_approval(s));
+    let mut j = RequesterJournal::default();
+    let c = r.request_device_approval_commitment(s, &mut j).unwrap();
+    // Saved but not logged yet: log it.
+    assert_eq!(
+        r.device_approval_commitment_to_log(s, &mut j, false)
+            .unwrap(),
+        Some(c)
+    );
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(c);
+    assert_eq!(
+        r.device_approval_commitment_to_log(s, &mut j, false)
+            .unwrap(),
+        None
+    );
+    let peer = requester_challenge(&r, c);
+    r.receive_device_approval_challenge(s, &peer, &mut j)
+        .unwrap();
+    // While the challenge is live nothing is renewed, even when asked.
+    assert_eq!(
+        r.device_approval_commitment_to_log(s, &mut j, false)
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        r.device_approval_commitment_to_log(s, &mut j, true)
+            .unwrap(),
+        None
+    );
+    clock.0.set(121_000);
+    let writes = j.writes;
+    let fresh = r
+        .device_approval_commitment_to_log(s, &mut j, false)
+        .unwrap()
+        .unwrap();
+    assert_ne!(fresh, c);
+    assert_eq!(j.writes, writes + 1, "saved before it is returned");
+    // Not logged yet: the same fresh one again, never another.
+    assert_eq!(
+        r.device_approval_commitment_to_log(s, &mut j, false)
+            .unwrap(),
+        Some(fresh)
+    );
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(fresh);
+    assert_eq!(
+        r.device_approval_commitment_to_log(s, &mut j, false)
+            .unwrap(),
+        None
+    );
+    // The renewed requester answers a new challenge for the fresh commitment.
+    let mut next = requester_challenge(&r, fresh);
+    if let super::super::ApprovalPeerMessage::Challenge(ch) = &mut next.message {
+        ch.expires_at_ms = 200_000;
+    }
+    let next = next
+        .message
+        .sign(&DeviceSigner::from_seed(&[10; 32]))
+        .unwrap();
+    r.receive_device_approval_challenge(s, &next, &mut j)
+        .unwrap();
+    // A keyed device is no longer a requester.
+    r.policy.devices.get_mut(&NEW).unwrap().keyed = true;
+    assert!(!r.awaiting_device_approval(s));
+}
+
+#[test]
+fn requester_renews_an_unanswered_commitment_only_when_asked() {
+    let (mut r, s, _) = requester_fixture();
+    let mut j = RequesterJournal::default();
+    let c = r.request_device_approval_commitment(s, &mut j).unwrap();
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(c);
+    assert_eq!(
+        r.device_approval_commitment_to_log(s, &mut j, false)
+            .unwrap(),
+        None
+    );
+    // The host was away longer than a challenge lives: an approver may have
+    // spent this commitment unseen, so a fresh one is saved and logged.
+    let writes = j.writes;
+    let fresh = r
+        .device_approval_commitment_to_log(s, &mut j, true)
+        .unwrap()
+        .unwrap();
+    assert_ne!(fresh, c);
+    assert_eq!(j.writes, writes + 1, "saved before it is returned");
+    // The old commitment's challenge is refused; the fresh one's is answered.
+    let old = requester_challenge(&r, c);
+    assert!(
+        r.receive_device_approval_challenge(s, &old, &mut j)
+            .is_err()
+    );
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(fresh);
+    let next = requester_challenge(&r, fresh);
+    r.receive_device_approval_challenge(s, &next, &mut j)
+        .unwrap();
 }

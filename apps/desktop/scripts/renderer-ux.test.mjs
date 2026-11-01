@@ -347,27 +347,77 @@ test("access: markup-shaped app names are shown literally in the key check", asy
   } finally { await page.close(); }
 });
 
-test("a new device is approved only with the code shown on its screen", async () => {
+test("another computer shows its comparison code and is allowed with one click, without typing", async () => {
   const { page, errors, calls } = await desktop({
     collections: [collection({ id: "c-private", name: "Diary", mode: "synced_e2e" })],
-    devices: [{ collection: "c-private", device: "d-laptop", account: "a1", kind: "desktop", code: "482913" }]
+    devices: [{ collection: "c-private", collection_name: "Diary", device: "d-laptop", name: "Laptop", kind: "desktop", sas: "012345" }]
   });
   try {
     await nav(page, "Collections").click();
-    const prompt = page.locator(".approval-prompt").filter({ hasText: "A new computer wants to open Diary" });
+    const prompt = page.locator(".approval-prompt").filter({ hasText: "Laptop wants to open Diary" });
     await prompt.waitFor();
     assert.equal(await nav(page, "Collections").innerText(), "Collections\n1");
-    const approve = prompt.getByRole("button", { name: "Approve" });
-    assert.equal(await approve.isDisabled(), true);
-    await prompt.getByLabel("Enter the six-digit code shown on the new computer").fill("482 914");
-    await approve.click();
-    await prompt.getByRole("alert").waitFor();
+    assert.equal(await prompt.locator("input").count(), 0);
+    await prompt.getByText("Only allow if this matches the code on Laptop", { exact: true }).waitFor();
+    await prompt.getByText("012 345", { exact: true }).waitFor();
+    assert.equal(await prompt.getByRole("button", { name: "Deny" }).count(), 1);
     await screenshot(page, "device-approval");
+    await prompt.getByRole("button", { name: "Allow" }).click();
+    await page.getByText("Laptop can now open Diary.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("approveDevice"), [["c-private", "d-laptop", "012345"]]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("Allow waits for a revealed code while Deny remains available", async () => {
+  const { page, errors, calls } = await desktop({
+    devices: [{ collection: "c-private", collection_name: "Diary", device: "d-laptop", name: "Laptop", kind: "desktop", sas: null }]
+  });
+  try {
+    await nav(page, "Collections").click();
+    const prompt = page.locator(".approval-prompt");
+    await prompt.getByText("Preparing comparison code…", { exact: true }).waitFor();
+    assert.equal(await prompt.getByRole("button", { name: "Allow", exact: true }).isDisabled(), true);
+    assert.equal(await prompt.getByRole("button", { name: "Deny", exact: true }).isDisabled(), false);
     assert.deepEqual(await calls("approveDevice"), []);
-    await prompt.getByLabel("Enter the six-digit code shown on the new computer").fill("482 913");
-    await approve.click();
-    await page.getByText("The new computer can now open Diary.", { exact: true }).waitFor();
-    assert.deepEqual(await calls("approveDevice"), [["c-private", "d-laptop", "482913"]]);
+    await prompt.getByRole("button", { name: "Deny", exact: true }).click();
+    assert.deepEqual(await calls("rejectDevice"), [["c-private", "d-laptop"]]);
+    await page.evaluate(() => { window.fixture.devices[0].sas = "123456"; });
+    await page.clock.runFor(5_000);
+    await prompt.getByText("123 456", { exact: true }).waitFor();
+    assert.equal(await prompt.getByRole("button", { name: "Allow", exact: true }).isDisabled(), false);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("a waiting computer shows its comparison code and clears it after approval", async () => {
+  const { page, errors } = await desktop({
+    collections: [collection({ mode: "synced_e2e", state: "opening", reason: "waiting_for_approval", approval_code: null })]
+  });
+  try {
+    await nav(page, "Collections").click();
+    const card = page.locator(".collection-card");
+    assert.equal(await card.locator(".approval-code").count(), 0);
+    await page.evaluate(() => { window.fixture.collections[0].approval_code = "012345"; });
+    await page.clock.runFor(5_000);
+    await card.getByText("Check this code matches on your other computer:", { exact: true }).waitFor();
+    await card.getByText("012 345", { exact: true }).waitFor();
+    await screenshot(page, "waiting-device-approval");
+    await page.evaluate(() => { Object.assign(window.fixture.collections[0], { state: "ready", reason: null, approval_code: null }); });
+    await page.clock.runFor(5_000);
+    assert.equal(await card.locator(".approval-code").count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("a computer of another account is named generically", async () => {
+  const { page, errors } = await desktop({
+    collections: [collection({ id: "c-private", name: "Diary", mode: "synced_e2e" })],
+    devices: [{ collection: "c-private", collection_name: "Diary", device: "d-other", kind: "desktop" }]
+  });
+  try {
+    await nav(page, "Collections").click();
+    await page.locator(".approval-prompt").filter({ hasText: "Another computer wants to open Diary" }).waitFor();
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

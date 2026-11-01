@@ -775,10 +775,10 @@ the replica (sessions without a grant), never to granted clients.
 
 | Method | Result |
 |---|---|
-| `pending_devices` | `[* {0: uuid device, 1: uuid account, 2: device-kind, 4: bool exchange_ready}]`. Legacy key 3 (`sas`) is optional/deprecated, never emitted and never reused |
+| `pending_devices` | `[* {0: uuid device, 1: uuid account, 2: device-kind, ? 3: tstr sas, 4: bool exchange_ready}]`. Key 3 is the existing six-digit SAS, emitted only after the verified reveal for the current host exchange |
 | `start_approval {0: uuid}` | draws `r_A` only for the current verified enrolment/commitment, then carries it through the control plane's pending-approval channel. Push `approval {0: uuid, 2: bool exchange_ready}` when the current exchange is ready, or `approval_failed {0: uuid, 1: reason}`. Legacy approval key 1 (`sas`) is optional/deprecated and never emitted/reused |
-| `approve_device {0: uuid, 1: tstr sas}` | the user **types the requester's six digits**; the replica checks them internally under current policy and appends the `key_grant`. At most 3 failures per commitment survive restart (or lost attempt state requires a fresh logged commitment). Success waits for actual log append/application/disposition |
-| `reject_device {0: uuid}` | stops offering it here; revoking is a control-plane action |
+| `approve_device {0: uuid, 1: tstr sas}` | the host passes the six digits the user visually compared (nothing is typed); the replica checks them internally under current policy and appends the `key_grant`. At most 3 failures per commitment survive restart (or lost attempt state requires a fresh logged commitment). Success waits for actual log append/application/disposition |
+| `reject_device {0: uuid}` | dismisses the current waiting request here, including after restart, until a fresh commitment is applied. The waiting computer renews unanswered requests automatically, so the prompt can return after renewal (normally five minutes). Cancels an unsent Allow; a sent grant cannot be revoked by Deny. Device revocation is a control-plane action |
 | `account_key_setup {0: bstr .size 32 R}` | private collections with the default (password + recovery key) UX: appends the account-key `key_grant` for this account signed as the account-key device derived from `R` (owner or host session only; never over a cloud-copy session). Result: the `key_grant` mutation's `receipt`, `pending` until applied. `R` crosses only the in-process/IPC boundary and is derived and dropped |
 | `account_key_unlock {0: bstr .size 32 R}` | this (enrolled, unkeyed) device unlocks with `R`: accepted for processing, result `{}`; progress by `account_key_status`. `invalid_request` if `R` is not 32 bytes; `unavailable` while local-only, installing or faulted |
 | `account_key_status` | `{0: &(idle: 0, reading_ahead: 1, pending_grant: 2, keyed: 3, refused: 4), ? 1: problem}`; `refused` carries the typed refusal (`forbidden` for a revoked or wrong-account recovery device, `outcome_unknown` for an uncertain commit) with `details.reason`. No push in v1 (poll) |
@@ -786,12 +786,19 @@ the replica (sessions without a grant), never to granted clients.
 | `approve_grant {0: uuid, 1: [+ capability], ? 2: [+ path]}` | appends the `grant_approval` with the capabilities and folders the user kept |
 
 `exchange_ready` describes only the current challenge/reveal context, not approval or
-key delivery. The approver never displays its computed SAS in pending output, pushes,
-CLI, debug or telemetry. See `device-approval.cddl` for the existing-slot allocation.
+key delivery. The approver displays its computed SAS in host-only pending output
+and the local app/CLI; it is not logged in debug or telemetry. See
+`device-approval.cddl` for the existing-slot allocation.
 
 The new device's side runs in the runtime that enrols it: it displays its own SAS only
 once its logged keys/commitment are checked and its reveal state is durably persisted
-before sending `r_N`. The user types that code on the approver. It accepts only a
+before sending `r_N`. The waiting computer shows “Check this code matches on your
+other computer: 123 456”; the approving computer shows the same six-digit SAS with
+“Only allow if this matches the code on <computer>”. The host starts the exchange
+when listing requests, then offers one final Allow once the code is ready. Nothing
+is typed. `mdbase device pending` shows each code and `mdbase status` shows it on
+the waiting computer. Unanswered requests renew on a five-minute timer, even
+without an inbox gap. It accepts only a
 `key_grant` signed by the verified approver it selected, including after restart
 (`sealed-envelope.md` §5.3 step 6).
 

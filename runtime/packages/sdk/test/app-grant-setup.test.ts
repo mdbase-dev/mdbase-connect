@@ -114,8 +114,10 @@ describe("Private collection setup",()=>{
   });
   it("cancels unsent pending review without submitting setup or retaining a MID",async()=>{
     const f=await nativeSetupFixture(JOURNAL,{pendingForever:true}),abort=new AbortController();
-    setTimeout(()=>abort.abort(),5);
-    await expect(f.setup.plan({signal:abort.signal})).rejects.toMatchObject({code:"cancelled"});
+    const pending=f.setup.plan({signal:abort.signal});
+    await expect.poll(()=>f.requests.map(r=>r.get(1))).toContain("poll");
+    abort.abort();
+    await expect(pending).rejects.toMatchObject({code:"cancelled"});
     expect(f.requests.map(r=>r.get(1))).toContain("cancel");
     expect(f.requests.filter(r=>r.get(1)==="apply")).toHaveLength(0);expect(f.state.attempt).toBeUndefined();
   });

@@ -4,7 +4,7 @@ import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useState } from "react";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { CollectionModeControl } from "@mdbase-dev/ui/collection-mode";
-import { presentCollection } from "./daemon-view.mjs";
+import { groupedApprovalCode, presentCollection } from "./daemon-view.mjs";
 import { Empty, SectionHeading, StatusDot } from "./ui-components";
 import { message, relativeTime, syncEnableMessage } from "./view-model";
 import type { TakeoverHold } from "./takeover-state.mjs";
@@ -73,6 +73,10 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
           {collection.description && <small className="collection-description">{collection.description}</small>}
           <code>{collection.root}</code>
           <small>{view.mode} · {view.status}{view.detail ? ` · ${view.detail}` : ""}</small>
+          {collection.approval_code && <div className="approval-check" aria-live="polite">
+            <span><Trans>Check this code matches on your other computer:</Trans></span>
+            <strong className="approval-code">{groupedApprovalCode(collection.approval_code)}</strong>
+          </div>}
           {collection.notices.filter((notice) => notice.code !== "file_held" && notice.code !== "collection_deleted" && notice.code !== "sync_revoked").map((notice, index) => <small key={`${notice.code}:${notice.path ?? index}`} className="collection-notice">{notice.path && <><code>{notice.path}</code>{": "}</>}{notice.message}</small>)}
         </div>
       </div>

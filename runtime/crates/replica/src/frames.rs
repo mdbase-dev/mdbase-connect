@@ -284,12 +284,16 @@ fn pending_grant_cbor(g: crate::api::PendingGrant) -> Cbor {
 }
 
 fn pending_device_cbor(d: crate::api::PendingDevice) -> Cbor {
-    smap(vec![
+    let mut fields = vec![
         (0, d.device.to_cbor()),
         (1, d.account.to_cbor()),
         (2, d.kind.to_cbor()),
-        (4, Cbor::Bool(d.exchange_ready)),
-    ])
+    ];
+    if let Some(sas) = d.sas {
+        fields.push((3, Cbor::Text(sas)));
+    }
+    fields.push((4, Cbor::Bool(d.exchange_ready)));
+    smap(fields)
 }
 
 fn changes_cbor(c: ChangesResult) -> Cbor {
@@ -1336,17 +1340,31 @@ mod approval_codec_tests {
     }
 
     #[test]
-    fn pending_golden_uses_ready_slot_four_and_never_sas_slot_three() {
+    fn pending_golden_without_code_uses_ready_slot_four() {
         let payload = pending_device_cbor(crate::api::PendingDevice {
             device: B16([0; 16]),
             account: B16([1; 16]),
             kind: DeviceKind::Desktop,
             exchange_ready: true,
+            sas: None,
         });
         assert_eq!(cbor::encode(&payload).unwrap(), golden("pending_device"));
         let fields = fields(&payload).unwrap();
         assert!(field(fields, 3).is_none());
         assert_eq!(field(fields, 4), Some(&Cbor::Bool(true)));
+    }
+
+    #[test]
+    fn pending_visual_code_uses_existing_sas_slot_three() {
+        let payload = pending_device_cbor(crate::api::PendingDevice {
+            device: B16([0; 16]),
+            account: B16([1; 16]),
+            kind: DeviceKind::Desktop,
+            exchange_ready: true,
+            sas: Some("012345".into()),
+        });
+        let fields = fields(&payload).unwrap();
+        assert_eq!(field(fields, 3), Some(&Cbor::Text("012345".into())));
     }
 
     #[test]

@@ -7,7 +7,7 @@ approval-pending-device = {
   0: approval-uuid,         ; device
   1: approval-uuid,         ; account
   2: 0..6,                  ; existing device-kind; runtime approval is USER-only
-  ? 3: tstr,                ; legacy SAS: decode-only, MUST NOT emit or reuse
+  ? 3: tstr .regexp "^[0-9]{6}$", ; host-only visual SAS, after verified reveal
   4: bool,                  ; exchange_ready: current exchange only, NOT keyed
 }
 
@@ -49,5 +49,5 @@ approval-peer-envelope = {
 approval-start = { 0: approval-uuid }
 approval-typed-confirmation = {
   0: approval-uuid,
-  1: tstr .regexp "^[0-9]{6}$", ; USER types the code displayed on requester
+  1: tstr .regexp "^[0-9]{6}$", ; host confirms the visually compared code; no typing
 }

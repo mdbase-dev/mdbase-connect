@@ -995,7 +995,7 @@ impl Cloud {
 
     /// Enrol this device in a private collection with its SAS commitment (Connect
     /// #621, `POST /v1/next/collections/:id/private/devices`). An owner device then
-    /// approves it by the six-digit code.
+    /// approves it (`device.approve`).
     pub async fn enrol_private(
         &self,
         connector_id: &str,
@@ -1046,6 +1046,34 @@ impl Cloud {
         v.get("requested_at")
             .and_then(Value::as_u64)
             .ok_or_else(|| CloudError::Server(200, "malformed".into()))
+    }
+
+    /// The name of another of this account's computers by its device ID
+    /// (`GET /v1/next/devices/:id/name`), shown when it asks to open a private
+    /// collection here. `None` when the server does not know it as ours.
+    pub async fn computer_name(
+        &self,
+        device: &[u8; 16],
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<Option<String>, CloudError> {
+        let request = self
+            .http
+            .get(format!(
+                "{}/v1/next/devices/{}/name",
+                self.server,
+                secrets::uuid_string(device)
+            ))
+            .bearer_auth(self.token.as_str());
+        match self.send_current(request, current).await {
+            Ok(v) => Ok(v
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(|n| n.chars().take(80).collect())),
+            Err(CloudError::Server(404, _)) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     /// A signed account-key request proof (Connect #635): a fresh challenge, then the

@@ -141,10 +141,11 @@ and the log service must enforce them. So membership, device public keys and app
 grants are visible to mdbase even for end-to-end collections. Hiding them would need
 the control plane to stop managing them, which contradicts the product.
 
-**Q19. Device approval in end-to-end collections.** *Provisional: required, with a
-six-digit SAS compared on both devices.* This stops a compromised control plane from
-enrolling its own device and receiving keys. It adds friction to "add a device"
-(Signal-style). The alternative of trusting the control plane would make end-to-end
+**Q19. Device approval in end-to-end collections.** *Provisional: required, as one
+Allow on a computer that already has the collection, plus a visual check that the
+six-digit SAS shown on both computers matches; nothing is typed.* The devices run
+the existing commit-then-reveal exchange before final Allow. The control plane
+cannot key a device on its own or substitute its key without a mismatching code. The alternative of trusting the control plane would make end-to-end
 equivalent to cloud copy. **Decision (product).**
 
 **Q20. Recovery for end-to-end collections.** *Provisional: none beyond the user's

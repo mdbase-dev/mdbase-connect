@@ -1,9 +1,0 @@
-{
-  "reason": "The owner-only mode request/status routes own the durable transition-intent boundary separately from collection metadata editing. They reuse existing identity, membership, collection locks and policy outbox evidence; no second policy producer or keying engine is added.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 8,
-    "typeScriptExportDeclarations": 1,
-    "services/server": 1
-  }
-}

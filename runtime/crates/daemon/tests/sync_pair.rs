@@ -46,3 +46,25 @@ async fn two_desktops_and_hosted_converge_through_the_log_service() {
     server.abort();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_second_computer_opens_a_private_collection_after_one_allow() {
+    use mdbn_log_server::{AnyService, Gateway};
+    use mdbn_log_service::Service;
+    use mdbn_log_service::mem::{MemBackend, MemObjects};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let gateway = Gateway::new(
+        AnyService::Mem(Service::new(
+            MemBackend::default(),
+            MemObjects::default(),
+            mdbn_log_server::testkit_config("conformance", &base),
+        )),
+        false,
+    );
+    let server = tokio::spawn(mdbn_log_server::serve(gateway, listener));
+    let dir = scratch("pp");
+    scenario::run_private_approval(&base, &dir).await;
+    server.abort();
+    let _ = std::fs::remove_dir_all(&dir);
+}

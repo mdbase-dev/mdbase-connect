@@ -740,6 +740,7 @@ impl CollectionHost {
             .await
             .and_then(Result::ok)
             .flatten();
+        let approval_code = crate::server::Daemon::requester_code(&runtime).await;
         if current()
             && self
                 .runtime()
@@ -756,6 +757,7 @@ impl CollectionHost {
                 });
             }
             status.sync = Some(counters);
+            status.approval_code = approval_code;
         }
         status
     }
@@ -861,6 +863,7 @@ impl CollectionHost {
             sync: None,
             last_sync_failure,
             other_devices_online: self.other_devices_online,
+            approval_code: None,
             notices,
         }
     }

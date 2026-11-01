@@ -64,6 +64,31 @@ describe("device helpers", () => {
       expect((await db.query("SELECT kind FROM next_devices WHERE id = $1", [deviceId])).rows[0].kind).toBe(kind);
     } finally { await db.end(); }
   });
+  it("names only the caller's own current computers", async () => {
+    const db = await createDatabase("memory");
+    const app = Fastify();
+    registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null }, relay: { fenceConnector: async () => "closed" } });
+    try {
+      const mine = await localGrantFixture(db), other = await localGrantFixture(db);
+      const laptop = randomUUID();
+      await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Laptop',$1)", [laptop, mine]);
+      const [onLaptop, onDesktop, onTheirs] = [randomUUID(), randomUUID(), randomUUID()];
+      await registerDevice(db, { id: laptop, user_id: mine }, await registration(db, laptop, onLaptop, deviceKeys()));
+      await registerDevice(db, { id: mine, user_id: mine }, await registration(db, mine, onDesktop, deviceKeys()));
+      await registerDevice(db, { id: other, user_id: other }, await registration(db, other, onTheirs, deviceKeys()));
+      await db.query("UPDATE connectors SET token_hash = $2 WHERE id = $1", [mine, tokenHash("con_mine")]);
+      const name = (device: string) => app.inject({ method: "GET", url: `/v1/next/devices/${device}/name`, headers: { authorization: "Bearer con_mine" } });
+      const own = await name(onLaptop);
+      expect(own.statusCode).toBe(200);
+      expect(own.json()).toEqual({ name: "Laptop" });
+      expect(own.headers["cache-control"]).toBe("no-store");
+      expect((await name(onDesktop)).json()).toEqual({ name: "Fixture connector" });
+      for (const device of [onTheirs, randomUUID(), "not-a-device"]) expect((await name(device)).statusCode).toBe(404);
+      await db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [laptop]);
+      expect((await name(onLaptop)).statusCode).toBe(404);
+      expect((await app.inject({ method: "GET", url: `/v1/next/devices/${onLaptop}/name` })).statusCode).toBe(401);
+    } finally { await app.close(); await db.end(); }
+  });
   it("derives v2 capability groups exactly and never offers offline.replica", () => {
     expect(grantCapabilityGroups(2, ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type", "create", "sync"]))
       .toEqual(["collection.read", "records.create"]);

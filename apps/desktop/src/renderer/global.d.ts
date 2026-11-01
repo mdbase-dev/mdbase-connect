@@ -40,6 +40,8 @@ interface DaemonCollection {
   reason?: string;
   sync?: SyncCounters;
   other_devices_online?: number;
+  /** Six-digit comparison code while this computer waits for Private collection approval. */
+  approval_code?: string | null;
   notices: Array<{ code: string; message: string; path?: string }>;
 }
 
@@ -76,15 +78,17 @@ interface AccessEntry {
   terms_unavailable?: boolean;
 }
 
-/** `device.pending` entry, with the collection it asks to open. */
+/** `device.pending` entry: another computer asking to open a Private collection. */
 interface PendingDevice {
+  /** Raw six-digit comparison code; null while the exchange is preparing. */
+  sas?: string | null;
   collection: string;
+  collection_name?: string;
   device: string;
-  account: string;
+  /** The computer's name, when it is one of this account's. */
+  name?: string;
   /** `desktop`, `mobile`, ... */
   kind: string;
-  /** The six-digit code the new device shows. */
-  code: string;
 }
 
 /** `activity.list` entry: something that changed on this computer. */
@@ -178,7 +182,7 @@ interface Window {
     denyAccess(grant: string): Promise<AccessEntry>;
     revokeAccess(grant: string): Promise<AccessEntry>;
     listPendingDevices(): Promise<PendingDevice[]>;
-    approveDevice(collectionId: string, device: string, code: string): Promise<unknown>;
+    approveDevice(collectionId: string, device: string, sas: string): Promise<unknown>;
     rejectDevice(collectionId: string, device: string): Promise<unknown>;
     getSettings(): Promise<{ require_grant_approval: boolean }>;
     setRequireApproval(on: boolean): Promise<{ require_grant_approval: boolean }>;

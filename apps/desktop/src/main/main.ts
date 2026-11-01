@@ -439,9 +439,10 @@ function registerIpc(): void {
     trustedIpc(event);
     return requestReadyAgent("access.revoke", { grant: grantIdOf(grant) }, 10_000);
   });
-  // New computers asking to open a Private collection. Listing reveals their
-  // six-digit codes and approving hands over the collection key, so both are
-  // privileged and go through the CLI; declining only narrows access.
+  // Other computers asking to open a Private collection. Allowing hands over the
+  // collection key, so listing and allowing are privileged and go through the
+  // CLI; denying only narrows access. Allowing answers once the other computer
+  // has answered and holds the key (up to a few minutes).
   ipcMain.handle("connect:devices:pending", async (event) => {
     trustedIpc(event);
     return pendingDevices();
@@ -449,12 +450,13 @@ function registerIpc(): void {
   ipcMain.handle("connect:devices:approve", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid approval.");
-    const code = typeof value.code === "string" ? value.code.replace(/\s/gu, "") : "";
-    if (!/^\d{6}$/u.test(code)) throw new Error(t(i18n)({ message: "The code is six digits.", context: "Desktop application" }));
     pendingDeviceCache = null;
+    const sas = value.sas;
+    if (typeof sas !== "string" || !/^[0-9]{6}$/u.test(sas)) throw new Error(t(i18n)`Check the verification code before allowing.`);
     return bootGate.request(() => daemonCli().run([
-      "device", "approve", collectionIdOf(value.collectionId), deviceIdOf(value.device), "--code", code
-    ], 120_000));
+      "device", "approve", deviceIdOf(value.device), collectionIdOf(value.collectionId),
+      "--checked-code", sas
+    ], 250_000));
   });
   ipcMain.handle("connect:devices:reject", async (event, input: unknown) => {
     trustedIpc(event);
@@ -488,7 +490,7 @@ function deviceIdOf(value: unknown): string {
   return value;
 }
 
-interface PendingDeviceEntry { collection: string; device: string; account: string; kind: string; code: string }
+interface PendingDeviceEntry { collection: string; collection_name: string; device: string; name?: string; kind: string }
 
 /** Each `device pending` call spawns the CLI, so the renderer's poll is served from a short cache. */
 const PENDING_DEVICE_TTL_MS = 20_000;
@@ -497,22 +499,13 @@ let pendingDeviceCache: { at: number; value: Promise<PendingDeviceEntry[]> } | n
 function pendingDevices(): Promise<PendingDeviceEntry[]> {
   if (pendingDeviceCache && Date.now() - pendingDeviceCache.at < PENDING_DEVICE_TTL_MS) return pendingDeviceCache.value;
   const value = (async () => {
-    const collections = await requestReadyAgent<Array<{ id: string; mode: string; state: string }>>("collection.list");
-    const lists = await Promise.all(collections
-      .filter((collection) => collection.mode === "synced_e2e" && collection.state === "ready")
-      .map(async (collection) => {
-        try {
-          const devices = await bootGate.request(() => daemonCli().run<Array<Omit<PendingDeviceEntry, "collection">>>(
-            ["device", "pending", collection.id], 15_000
-          ));
-          return devices.map((device) => ({ ...device, collection: collection.id }));
-        } catch (error) {
-          // A daemon without device approval yet has nothing to show.
-          if (error instanceof DaemonControlError && error.reason === "not_implemented") return [];
-          throw error;
-        }
-      }));
-    return lists.flat();
+    try {
+      return await bootGate.request(() => daemonCli().run<PendingDeviceEntry[]>(["device", "pending"], 30_000));
+    } catch (error) {
+      // A daemon without device approval yet has nothing to show.
+      if (error instanceof DaemonControlError && error.reason === "not_implemented") return [];
+      throw error;
+    }
   })();
   pendingDeviceCache = { at: Date.now(), value };
   value.catch(() => { if (pendingDeviceCache?.value === value) pendingDeviceCache = null; });
