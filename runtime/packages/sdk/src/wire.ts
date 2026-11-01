@@ -31,7 +31,26 @@ import {
   union,
   uuid,
   value,
+  version,
+  type Version,
 } from "./codec.js";
+import {
+  appliedPrefix,
+  confirmedHead,
+  helloParams,
+  issue,
+  problem,
+  recovery,
+  type AppliedPrefix,
+  type ConfirmedHead,
+  type HelloParams,
+  type Issue,
+  type Problem,
+  type Recovery,
+} from "./generated/replica-client-api.js";
+
+export * from "./generated/replica-client-api.js";
+export { version, type Version };
 
 export type Uuid = string;
 /** `sha256:<64 lowercase hex>`. */
@@ -41,72 +60,6 @@ export type Value = CborValue;
 export type FmMap = Map<string, Value>;
 
 // ------------------------------------------------------------------ frames (§1)
-
-export interface Version {
-  major: number;
-  minor: number;
-}
-
-export const version: Codec<Version> = mapped(
-  "version",
-  tuple<[number, number]>("version", [uint, uint]),
-  ([major, minor]) => ({ major, minor }),
-  (v): [number, number] => [v.major, v.minor],
-);
-
-export const RECOVERY = [
-  "fix_request",
-  "refresh",
-  "resolve_conflict",
-  "reauthorize",
-  "repair_collection",
-  "retry",
-  "free_space",
-  "upgrade",
-  "resolve_outcome",
-  "none",
-  "contact_support",
-] as const;
-export type Recovery = (typeof RECOVERY)[number];
-export const recovery = enumOf<Recovery>("recovery", RECOVERY);
-
-export const severity = enumOf("severity", ["warning", "error"] as const);
-
-export interface Issue {
-  code: string;
-  severity: "warning" | "error";
-  message: string;
-  details?: Value;
-}
-
-export const issue = struct<Issue>("issue", [
-  [0, "code", tstr],
-  [1, "severity", severity],
-  [2, "message", tstr],
-  [3, "details", value, "opt"],
-]);
-
-export interface Problem {
-  code: string;
-  recovery: Recovery;
-  message: string;
-  reason?: string;
-  details?: Value;
-  retryAfterMs?: number;
-  issues?: Issue[];
-  traceId?: string;
-}
-
-export const problem = struct<Problem>("problem", [
-  [0, "code", tstr],
-  [1, "recovery", recovery],
-  [2, "message", tstr],
-  [3, "reason", tstr, "opt"],
-  [4, "details", value, "opt"],
-  [5, "retryAfterMs", uint, "opt"],
-  [6, "issues", list(issue), "opt"],
-  [7, "traceId", tstr, "opt"],
-]);
 
 export type ClientFrame =
   | { kind: "request"; id: number; method: string; params: CborValue }
@@ -143,22 +96,6 @@ export const clientFrame = union<ClientFrame>("client-frame", [
 ]);
 
 // ------------------------------------------------------------------ session (§2)
-
-export interface HelloParams {
-  versions: Version[];
-  clientName: string;
-  clientVersion: string;
-  features?: string[];
-  timezone?: string;
-}
-
-export const helloParams = struct<HelloParams>("hello-params", [
-  [0, "versions", list(version, { nonEmpty: true }), "req1"],
-  [1, "clientName", tstr],
-  [2, "clientVersion", tstr],
-  [3, "features", list(tstr), "opt"],
-  [4, "timezone", tstr, "opt"],
-]);
 
 export const ROLES = ["viewer", "editor", "owner"] as const;
 export type Role = (typeof ROLES)[number];
@@ -236,37 +173,6 @@ export const resyncing = struct<Resyncing>("resyncing", [
 
 export type SyncMode = "local_only" | "synced";
 export type Connection = "online" | "connecting" | "offline";
-
-/** Confirmed-only prefix facts. Decoding is neither authentication nor a readiness gate. */
-export interface ConfirmedHead {
-  seq: number;
-  chain: Hash;
-  policyGeneration: Hash;
-  catalogGeneration: Hash;
-}
-export const confirmedHead = struct<ConfirmedHead>("confirmed-head", [
-  [0, "seq", uint],
-  [1, "chain", hash],
-  [2, "policyGeneration", hash],
-  [3, "catalogGeneration", hash],
-]);
-
-/** Historical position to compare under the existing authenticated READ session. */
-export interface AppliedPrefixParams { seq: number }
-export const appliedPrefixParams = struct<AppliedPrefixParams>("applied-prefix-params", [[0, "seq", uint]]);
-
-/** Historical chain at the echoed seq, NOT the local current chain/generations. */
-export interface AppliedPrefix {
-  appliedThrough: number;
-  seq: number;
-  /** Absent for zero, behind, unretained or ineligible. Remain hosted. */
-  chain?: Hash;
-}
-export const appliedPrefix = struct<AppliedPrefix>("applied-prefix", [
-  [0, "appliedThrough", uint],
-  [1, "seq", uint],
-  [2, "chain", hash, "opt"],
-]);
 
 /** "Confirmed through N, plus pending" (§7). */
 export interface SyncStatus {

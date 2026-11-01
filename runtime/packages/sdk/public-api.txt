@@ -10,8 +10,8 @@ API_VERSIONS -> API_VERSIONS@session.ts
 ApplicationJson -> ApplicationJson@application/declaration.ts
 applicationPhase -> applicationPhase@application/phase.ts
 ApplicationStorageDeclaration -> ApplicationStorageDeclaration@application/declaration.ts
-AppliedPrefix -> AppliedPrefix@wire.ts
-AppliedPrefixParams -> AppliedPrefixParams@wire.ts
+AppliedPrefix -> AppliedPrefix@generated/replica-client-api.ts
+AppliedPrefixParams -> AppliedPrefixParams@generated/replica-client-api.ts
 approvalReadiness -> approvalReadiness@private.ts
 ApprovalReadiness -> ApprovalReadiness@private.ts
 AppTimersPort -> AppTimersPort@timers.ts
@@ -40,7 +40,7 @@ CollectionMemberProfile -> CollectionMemberProfile@people.ts
 collectionUnavailableError -> collectionUnavailableError@collection-availability.ts
 CollectionUnavailableReason -> CollectionUnavailableReason@collection-availability.ts
 compareVersions -> compareVersions@semver.ts
-ConfirmedHead -> ConfirmedHead@wire.ts
+ConfirmedHead -> ConfirmedHead@generated/replica-client-api.ts
 Conflict -> Conflict@wire.ts
 ConflictEntry -> ConflictEntry@wire.ts
 ConflictValue -> ConflictValue@wire.ts
@@ -131,7 +131,7 @@ isConfirmed -> isConfirmed@status.ts
 isErrorCode -> isErrorCode@errors.ts
 isMdbaseError -> isMdbaseError@errors.ts
 isReadyPhase -> isReadyPhase@application/phase.ts
-Issue -> Issue@wire.ts
+Issue -> Issue@generated/replica-client-api.ts
 isValid -> isValid@cbor.ts
 JsonLike -> JsonLike@values.ts
 KeyPair -> KeyPair@transport/noise.ts
@@ -248,7 +248,7 @@ pipeCloseError -> pipeCloseError@transport/relay-pipe.ts
 PlainValue -> PlainValue@values.ts
 portPair -> portPair@transport/port.ts
 PresenceApi -> PresenceApi@presence.ts
-Problem -> Problem@wire.ts
+Problem -> Problem@generated/replica-client-api.ts
 PROBLEM_CODES -> PROBLEM_CODES@describe-error.ts
 ProblemCode -> ProblemCode@describe-error.ts
 problemCodeOf -> problemCodeOf@describe-error.ts
@@ -283,7 +283,7 @@ RecordSessionState -> RecordSessionState@records/types.ts
 RecordValidation -> RecordValidation@validation.ts
 RecordView -> RecordView@wire.ts
 RecordWrite -> RecordWrite@client.ts
-Recovery -> Recovery@wire.ts
+Recovery -> Recovery@generated/replica-client-api.ts
 recoveryFor -> recoveryFor@errors.ts
 RecoveryKeyStatus -> RecoveryKeyStatus@private.ts
 relayConnector -> relayConnector@transport/relay.ts
@@ -380,8 +380,8 @@ ACCOUNT_KEY_STATES -> ACCOUNT_KEY_STATES@private.ts
 AccountKeyState -> AccountKeyState@private.ts
 AccountKeyStatus -> AccountKeyStatus@private.ts
 API_VERSIONS -> API_VERSIONS@session.ts
-AppliedPrefix -> AppliedPrefix@wire.ts
-AppliedPrefixParams -> AppliedPrefixParams@wire.ts
+AppliedPrefix -> AppliedPrefix@generated/replica-client-api.ts
+AppliedPrefixParams -> AppliedPrefixParams@generated/replica-client-api.ts
 approvalReadiness -> approvalReadiness@private.ts
 ApprovalReadiness -> ApprovalReadiness@private.ts
 AttachmentContentV1 -> AttachmentContentV1@attachment-wire.ts
@@ -407,7 +407,7 @@ COLLECTION_UNAVAILABLE_REASONS -> COLLECTION_UNAVAILABLE_REASONS@collection-avai
 CollectionAvailability -> CollectionAvailability@collection-availability.ts
 collectionUnavailableError -> collectionUnavailableError@collection-availability.ts
 CollectionUnavailableReason -> CollectionUnavailableReason@collection-availability.ts
-ConfirmedHead -> ConfirmedHead@wire.ts
+ConfirmedHead -> ConfirmedHead@generated/replica-client-api.ts
 Conflict -> Conflict@wire.ts
 ConflictEntry -> ConflictEntry@wire.ts
 ConflictValue -> ConflictValue@wire.ts
@@ -472,7 +472,7 @@ isCollectionUnavailableReason -> isCollectionUnavailableReason@collection-availa
 isConfirmed -> isConfirmed@status.ts
 isErrorCode -> isErrorCode@errors.ts
 isMdbaseError -> isMdbaseError@errors.ts
-Issue -> Issue@wire.ts
+Issue -> Issue@generated/replica-client-api.ts
 isValid -> isValid@cbor.ts
 JsonLike -> JsonLike@values.ts
 KeyPair -> KeyPair@transport/noise.ts
@@ -522,7 +522,7 @@ pipeCloseError -> pipeCloseError@transport/relay-pipe.ts
 PlainValue -> PlainValue@values.ts
 portPair -> portPair@transport/port.ts
 PresenceApi -> PresenceApi@presence.ts
-Problem -> Problem@wire.ts
+Problem -> Problem@generated/replica-client-api.ts
 PublishState -> PublishState@wire.ts
 Query -> Query@client.ts
 QueryGroup -> QueryGroup@wire.ts
@@ -552,7 +552,7 @@ RecordSessionState -> RecordSessionState@records/types.ts
 RecordValidation -> RecordValidation@validation.ts
 RecordView -> RecordView@wire.ts
 RecordWrite -> RecordWrite@client.ts
-Recovery -> Recovery@wire.ts
+Recovery -> Recovery@generated/replica-client-api.ts
 recoveryFor -> recoveryFor@errors.ts
 RecoveryKeyStatus -> RecoveryKeyStatus@private.ts
 relayConnector -> relayConnector@transport/relay.ts
@@ -635,8 +635,8 @@ AppHost -> "src/app-host/index"@app-host/index.ts
 ApplicationJson -> ApplicationJson@application/declaration.ts
 applicationPhase -> applicationPhase@application/phase.ts
 ApplicationStorageDeclaration -> ApplicationStorageDeclaration@application/declaration.ts
-AppliedPrefix -> AppliedPrefix@wire.ts
-AppliedPrefixParams -> AppliedPrefixParams@wire.ts
+AppliedPrefix -> AppliedPrefix@generated/replica-client-api.ts
+AppliedPrefixParams -> AppliedPrefixParams@generated/replica-client-api.ts
 approvalReadiness -> approvalReadiness@private.ts
 ApprovalReadiness -> ApprovalReadiness@private.ts
 AppTimersPort -> AppTimersPort@timers.ts
@@ -666,7 +666,7 @@ CollectionMemberProfile -> CollectionMemberProfile@people.ts
 collectionUnavailableError -> collectionUnavailableError@collection-availability.ts
 CollectionUnavailableReason -> CollectionUnavailableReason@collection-availability.ts
 compareVersions -> compareVersions@semver.ts
-ConfirmedHead -> ConfirmedHead@wire.ts
+ConfirmedHead -> ConfirmedHead@generated/replica-client-api.ts
 Conflict -> Conflict@wire.ts
 ConflictEntry -> ConflictEntry@wire.ts
 ConflictValue -> ConflictValue@wire.ts
@@ -757,7 +757,7 @@ isConfirmed -> isConfirmed@status.ts
 isErrorCode -> isErrorCode@errors.ts
 isMdbaseError -> isMdbaseError@errors.ts
 isReadyPhase -> isReadyPhase@application/phase.ts
-Issue -> Issue@wire.ts
+Issue -> Issue@generated/replica-client-api.ts
 isValid -> isValid@cbor.ts
 JsonLike -> JsonLike@values.ts
 KeyPair -> KeyPair@transport/noise.ts
@@ -874,7 +874,7 @@ pipeCloseError -> pipeCloseError@transport/relay-pipe.ts
 PlainValue -> PlainValue@values.ts
 portPair -> portPair@transport/port.ts
 PresenceApi -> PresenceApi@presence.ts
-Problem -> Problem@wire.ts
+Problem -> Problem@generated/replica-client-api.ts
 PROBLEM_CODES -> PROBLEM_CODES@describe-error.ts
 ProblemCode -> ProblemCode@describe-error.ts
 problemCodeOf -> problemCodeOf@describe-error.ts
@@ -909,7 +909,7 @@ RecordSessionState -> RecordSessionState@records/types.ts
 RecordValidation -> RecordValidation@validation.ts
 RecordView -> RecordView@wire.ts
 RecordWrite -> RecordWrite@client.ts
-Recovery -> Recovery@wire.ts
+Recovery -> Recovery@generated/replica-client-api.ts
 recoveryFor -> recoveryFor@errors.ts
 RecoveryKeyStatus -> RecoveryKeyStatus@private.ts
 relayConnector -> relayConnector@transport/relay.ts
@@ -1574,24 +1574,14 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export Value
 
 "src/wire"@wire.ts
+  export version
+  export Version
   export Uuid
   export Hash
   export Value
   export FmMap
-  export Version
-  export version
-  export RECOVERY
-  export Recovery
-  export recovery
-  export severity
-  export Issue
-  export issue
-  export Problem
-  export problem
   export ClientFrame
   export clientFrame
-  export HelloParams
-  export helloParams
   export ROLES
   export Role
   export role
@@ -1608,12 +1598,6 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export resyncing
   export SyncMode
   export Connection
-  export ConfirmedHead
-  export confirmedHead
-  export AppliedPrefixParams
-  export appliedPrefixParams
-  export AppliedPrefix
-  export appliedPrefix
   export SyncStatus
   export syncStatus
   export HelloResult
@@ -1769,6 +1753,24 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export describeTypingResult
   export DESCRIBE_TYPING_MAX_TYPES
   export DESCRIBE_TYPING_MAX_PATHS
+  export RECOVERY
+  export Recovery
+  export recovery
+  export SEVERITY
+  export Severity
+  export severity
+  export Issue
+  export issue
+  export Problem
+  export problem
+  export HelloParams
+  export helloParams
+  export ConfirmedHead
+  export confirmedHead
+  export AppliedPrefixParams
+  export appliedPrefixParams
+  export AppliedPrefix
+  export appliedPrefix
 
 ACCOUNT_KEY_STATES@private.ts
   : readonly ['idle', 'reading_ahead', 'pending_grant', 'keyed', 'refused']
@@ -3300,12 +3302,12 @@ ApplicationStorageDeclaration@application/declaration.ts
   readonly joinDatabaseName?: string | undefined
   readonly setupDatabaseName?: string | undefined
 
-AppliedPrefix@wire.ts
+AppliedPrefix@generated/replica-client-api.ts
   appliedThrough: number
   chain?: string | undefined
   seq: number
 
-AppliedPrefixParams@wire.ts
+AppliedPrefixParams@generated/replica-client-api.ts
   seq: number
 
 ApprovalReadiness@private.ts
@@ -3488,7 +3490,7 @@ CollectionMemberProfile@people.ts
 CollectionUnavailableReason@collection-availability.ts
   = 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted'
 
-ConfirmedHead@wire.ts
+ConfirmedHead@generated/replica-client-api.ts
   catalogGeneration: string
   chain: string
   policyGeneration: string
@@ -3836,7 +3838,7 @@ HandleMdbasePushOptions@notifications.ts
 Hash@wire.ts
   = string
 
-HelloParams@wire.ts
+HelloParams@generated/replica-client-api.ts
   clientName: string
   clientVersion: string
   features?: string[] | undefined
@@ -3980,9 +3982,9 @@ IpcConnectorOptions@node.ts
   stateDir?: string | undefined
   staticKey: StaticKey | KeyPair
 
-Issue@wire.ts
+Issue@generated/replica-client-api.ts
   code: string
-  details?: CborValue | undefined
+  details?: import("src/cbor").CborValue | undefined
   message: string
   severity: 'warning' | 'error'
 
@@ -5034,9 +5036,9 @@ ProbeSyncHandle@app-host/storage-probe.ts
   read: (bytes: Uint8Array, options: { at: number; }) => number
   write: (bytes: Uint8Array, options: { at: number; }) => number
 
-Problem@wire.ts
+Problem@generated/replica-client-api.ts
   code: string
-  details?: CborValue | undefined
+  details?: import("src/cbor").CborValue | undefined
   issues?: Issue[] | undefined
   message: string
   reason?: string | undefined
@@ -5236,7 +5238,7 @@ RecordWrite@client.ts
 Records@records/types.ts
   open: (ref: RecordRef, options?: RecordOpenOptions) => Promise<RecordLease>
 
-Recovery@wire.ts
+Recovery@generated/replica-client-api.ts
   = 'fix_request' | 'refresh' | 'resolve_conflict' | 'reauthorize' | 'repair_collection' | 'retry' | 'free_space' | 'upgrade' | 'resolve_outcome' | 'none' | 'contact_support'
 
 RecoveryDevice@account-key.ts
@@ -5808,7 +5810,7 @@ Uuid@wire.ts
 
 ValidationIssue@validation.ts
   code: string
-  details?: CborValue | undefined
+  details?: import("src/cbor").CborValue | undefined
   location?: string | undefined
   message: string
   severity: 'warning' | 'error'
@@ -5818,7 +5820,7 @@ ValidationIssue@validation.ts
 Value@wire.ts
   = string | number | bigint | boolean | import("src/cbor").CborMap | import("src/cbor").Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | null
 
-Version@wire.ts
+Version@codec.ts
   major: number
   minor: number
 
