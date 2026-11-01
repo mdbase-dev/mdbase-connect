@@ -417,6 +417,7 @@ msgctxt "Connect interface"
 msgid "Background behavior"
 msgstr "バックグラウンド動作"
 
+#: src/main/main.ts
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Cancel"
@@ -851,6 +852,11 @@ msgstr "このコンピューターでそのホスト型コレクションに参
 #: src/renderer/takeover-state.mts
 msgid "It retries when mdbase restarts. If it keeps failing, move again to see the error."
 msgstr "mdbase の再起動時に再試行します。失敗が続く場合は、再度移動してエラーを確認してください。"
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged."
+msgstr "このフォルダーの mdbase.yaml には、このコンピューター上のどの mdbase Connect も管理していない x-mdbase-connect の項目があります。フォルダーがコピーされたか、Connect から削除された可能性があります。フォルダーを追加するとその項目が削除され、ファイルのほかの部分は変更されません。"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1359,6 +1365,11 @@ msgstr "削除"
 msgid "Remove {0} from mdbase? Apps stop using it. The folder and its files stay where they are."
 msgstr "{0} を mdbase から削除しますか？ アプリは利用できなくなります。フォルダーとファイルは元の場所に残ります。"
 
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Remove and add"
+msgstr "削除して追加"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "名前を変更"
@@ -1798,6 +1809,11 @@ msgstr "このコピーはコレクションを追跡しなくなりました。
 #: src/renderer/collections-view.tsx
 msgid "This file is not a note: restore the other version by hand if you need it."
 msgstr "このファイルはノートではありません。必要な場合はもう一方のバージョンを手動で復元してください。"
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "This folder has an old mdbase Connect identity"
+msgstr "このフォルダーには古い mdbase Connect の ID があります"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"

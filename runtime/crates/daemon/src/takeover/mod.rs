@@ -612,6 +612,22 @@ pub fn old_state_dir(profile: &crate::paths::Profile) -> Option<PathBuf> {
     }
 }
 
+/// Whether the old connector state in `old_state_dir` lists the folder `root`, so
+/// that T0 discovers it (whatever its state there). A device without old connector
+/// state lists nothing.
+pub(crate) fn old_state_lists(old_state_dir: Option<&Path>, root: &Path) -> Result<bool, String> {
+    let Some(old) = old_state_dir.filter(|d| d.join("connector.sqlite").is_file()) else {
+        return Ok(false);
+    };
+    let state = ConnectorState::open(old).map_err(|e| e.to_string())?;
+    let root = std::fs::canonicalize(root).map_err(|e| format!("{}: {e}", root.display()))?;
+    Ok(state
+        .collections()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .any(|c| std::fs::canonicalize(&c.path).is_ok_and(|p| p == root)))
+}
+
 static ISOLATED_OLD_STATE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// Tests: the old connector state an *isolated* profile takes over, without

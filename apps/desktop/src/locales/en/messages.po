@@ -417,6 +417,7 @@ msgctxt "Connect interface"
 msgid "Background behavior"
 msgstr "Background behavior"
 
+#: src/main/main.ts
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Cancel"
@@ -851,6 +852,11 @@ msgstr "It moves when you join that hosted collection on this computer."
 #: src/renderer/takeover-state.mts
 msgid "It retries when mdbase restarts. If it keeps failing, move again to see the error."
 msgstr "It retries when mdbase restarts. If it keeps failing, move again to see the error."
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged."
+msgstr "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1359,6 +1365,11 @@ msgstr "Remove"
 msgid "Remove {0} from mdbase? Apps stop using it. The folder and its files stay where they are."
 msgstr "Remove {0} from mdbase? Apps stop using it. The folder and its files stay where they are."
 
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Remove and add"
+msgstr "Remove and add"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "Rename"
@@ -1798,6 +1809,11 @@ msgstr "This copy stopped following the collection. Join it again to keep it in 
 #: src/renderer/collections-view.tsx
 msgid "This file is not a note: restore the other version by hand if you need it."
 msgstr "This file is not a note: restore the other version by hand if you need it."
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "This folder has an old mdbase Connect identity"
+msgstr "This folder has an old mdbase Connect identity"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"

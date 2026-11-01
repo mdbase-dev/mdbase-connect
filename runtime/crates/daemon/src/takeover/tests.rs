@@ -584,6 +584,34 @@ fn no_old_state_is_a_no_op() {
 }
 
 #[test]
+fn a_yaml_identity_is_connect_owned_only_where_the_old_state_lists_the_folder() {
+    use crate::server::{FolderClaim, classify_folder};
+    let d = device("tko-classify");
+    let config = format!("spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: {CID}\n");
+    fs::write(d.root.join("mdbase.yaml"), &config).unwrap();
+    let profile = crate::paths::Profile::isolated(&d.state).unwrap();
+    // The old connector's own folder: the takeover reaches it.
+    assert_eq!(
+        classify_folder(&d.root, &profile, Some(&d.old)).unwrap(),
+        FolderClaim::Connect("collection identity in mdbase.yaml")
+    );
+    // A copy of it (same identity), or the folder on a device without that state.
+    let copy = d.state.join("copy");
+    fs::create_dir_all(&copy).unwrap();
+    fs::write(copy.join("mdbase.yaml"), &config).unwrap();
+    assert_eq!(
+        classify_folder(&copy, &profile, Some(&d.old)).unwrap(),
+        FolderClaim::OrphanedIdentity
+    );
+    for old in [None, Some(d.state.join("nothing"))] {
+        assert_eq!(
+            classify_folder(&d.root, &profile, old.as_deref()).unwrap(),
+            FolderClaim::OrphanedIdentity
+        );
+    }
+}
+
+#[test]
 fn unsafe_journal_paths_are_refused() {
     let dir = crate::testutil::TestDir::new("tko-paths");
     for bad in [

@@ -71,6 +71,7 @@ async fn capture_fixture(tag: &str) -> CaptureFixture {
         .add(crate::control::AddCollection {
             path: folder.path().to_path_buf(),
             name: Some("[test] original source".into()),
+            remove_legacy_identity: false,
         })
         .await
         .unwrap();

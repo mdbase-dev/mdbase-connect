@@ -635,6 +635,11 @@ pub struct AddCollection {
     /// Display name (default: the folder name).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub name: Option<String>,
+    /// The user confirmed removing an orphaned `x-mdbase-connect` identity (one no
+    /// Connect on this device manages) from `mdbase.yaml`. Without it such a folder
+    /// is refused as `orphaned_legacy_identity`.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub remove_legacy_identity: bool,
 }
 
 /// `collection.delete` params. The server checks the current shared name.

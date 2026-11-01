@@ -369,6 +369,70 @@ async fn daemon_lifecycle() {
         Err(ClientError::Remote(e)) => assert_eq!(e.reason.as_deref(), Some("migration_pending")),
         other => panic!("{other:?}"),
     }
+    // The Connect identity key in a comment is not an identity.
+    let commented = root.join("commented");
+    std::fs::create_dir_all(&commented).unwrap();
+    std::fs::write(
+        commented.join("mdbase.yaml"),
+        "spec_version: 0.3.0\n# x-mdbase-connect:\n#   collection_id: 4c18af2e-b04a-4b77-b83e-493c3695962e\n",
+    )
+    .unwrap();
+    let st: CollectionStatus = serde_json::from_value(
+        c.call(Method::COLLECTION_ADD, json!({ "path": commented }))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(st.origin, mdbn_daemon::registry::Origin::Adopted);
+    // An identity no old connector state on this device lists (here: none at all) is
+    // orphaned: the folder is added once the user confirms removing only that key.
+    let copied = root.join("copied");
+    std::fs::create_dir_all(&copied).unwrap();
+    let config = "spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: 4c18af2e-b04a-4b77-b83e-493c3695962e\n\n# Keep this comment\nsettings:\n  timezone: UTC\n";
+    std::fs::write(copied.join("mdbase.yaml"), config).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let readable = std::fs::Permissions::from_mode(0o644);
+        std::fs::set_permissions(copied.join("mdbase.yaml"), readable).unwrap();
+    }
+    match c
+        .call(Method::COLLECTION_ADD, json!({ "path": copied }))
+        .await
+    {
+        Err(ClientError::Remote(e)) => {
+            assert_eq!(e.reason.as_deref(), Some("orphaned_legacy_identity"));
+            assert!(e.message.contains("x-mdbase-connect"), "{}", e.message);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        std::fs::read_to_string(copied.join("mdbase.yaml")).unwrap(),
+        config
+    );
+    let st: CollectionStatus = serde_json::from_value(
+        c.call(
+            Method::COLLECTION_ADD,
+            json!({ "path": copied, "remove_legacy_identity": true }),
+        )
+        .await
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(st.origin, mdbn_daemon::registry::Origin::Adopted);
+    assert_ne!(st.id, "4c18af2e-b04a-4b77-b83e-493c3695962e");
+    assert_eq!(
+        std::fs::read_to_string(copied.join("mdbase.yaml")).unwrap(),
+        "spec_version: 0.3.0\n\n# Keep this comment\nsettings:\n  timezone: UTC\n"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(copied.join("mdbase.yaml"))
+            .unwrap()
+            .permissions();
+        assert_eq!(mode.mode() & 0o777, 0o644);
+    }
     // A garbage marker fails closed.
     let bad = root.join("bad");
     std::fs::create_dir_all(bad.join(".mdbase")).unwrap();

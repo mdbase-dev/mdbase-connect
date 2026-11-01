@@ -417,6 +417,7 @@ msgctxt "Connect interface"
 msgid "Background behavior"
 msgstr "后台行为"
 
+#: src/main/main.ts
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Cancel"
@@ -851,6 +852,11 @@ msgstr "当你在此电脑加入该托管集合时，它会迁移。"
 #: src/renderer/takeover-state.mts
 msgid "It retries when mdbase restarts. If it keeps failing, move again to see the error."
 msgstr "mdbase 重启后会重试。如果持续失败，请再次尝试迁移以查看错误。"
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged."
+msgstr "它的 mdbase.yaml 中有一个 x-mdbase-connect 条目，而这台电脑上没有任何 mdbase Connect 在管理它，例如文件夹是复制来的，或已从 Connect 中移除。添加该文件夹会移除此条目，文件的其余部分保持不变。"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1359,6 +1365,11 @@ msgstr "移除"
 msgid "Remove {0} from mdbase? Apps stop using it. The folder and its files stay where they are."
 msgstr "从 mdbase 中移除 {0}？应用将停止使用它。文件夹及其文件会保留在原位置。"
 
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Remove and add"
+msgstr "移除并添加"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "重命名"
@@ -1798,6 +1809,11 @@ msgstr "此副本已停止跟随集合。请重新加入以继续同步。"
 #: src/renderer/collections-view.tsx
 msgid "This file is not a note: restore the other version by hand if you need it."
 msgstr "此文件不是笔记：如有需要，请手动恢复另一版本。"
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "This folder has an old mdbase Connect identity"
+msgstr "此文件夹带有旧的 mdbase Connect 标识"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"

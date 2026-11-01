@@ -417,6 +417,7 @@ msgctxt "Connect interface"
 msgid "Background behavior"
 msgstr "Hintergrundverhalten"
 
+#: src/main/main.ts
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Cancel"
@@ -851,6 +852,11 @@ msgstr "Sie wird verschoben, wenn Sie diese gehostete Sammlung auf diesem Comput
 #: src/renderer/takeover-state.mts
 msgid "It retries when mdbase restarts. If it keeps failing, move again to see the error."
 msgstr "Beim Neustart von mdbase wird es erneut versucht. Falls der Fehler bleibt, wählen Sie erneut „Verschieben“, um ihn zu sehen."
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged."
+msgstr "Seine mdbase.yaml enthält einen x-mdbase-connect-Eintrag, den kein mdbase Connect auf diesem Computer verwaltet, zum Beispiel weil der Ordner kopiert oder aus Connect entfernt wurde. Beim Hinzufügen des Ordners wird dieser Eintrag entfernt; der Rest der Datei bleibt unverändert."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1359,6 +1365,11 @@ msgstr "Entfernen"
 msgid "Remove {0} from mdbase? Apps stop using it. The folder and its files stay where they are."
 msgstr "{0} aus mdbase entfernen? Apps können die Sammlung nicht mehr verwenden. Der Ordner und seine Dateien bleiben an ihrem Ort."
 
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Remove and add"
+msgstr "Entfernen und hinzufügen"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "Umbenennen"
@@ -1798,6 +1809,11 @@ msgstr "Diese Kopie folgt der Sammlung nicht mehr. Übernehmen Sie sie erneut, u
 #: src/renderer/collections-view.tsx
 msgid "This file is not a note: restore the other version by hand if you need it."
 msgstr "Diese Datei ist keine Notiz: Stellen Sie die andere Version bei Bedarf manuell wieder her."
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "This folder has an old mdbase Connect identity"
+msgstr "Dieser Ordner hat eine alte mdbase-Connect-Identität"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"

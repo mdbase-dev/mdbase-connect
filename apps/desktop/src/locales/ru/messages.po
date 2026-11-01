@@ -417,6 +417,7 @@ msgctxt "Connect interface"
 msgid "Background behavior"
 msgstr "Работа в фоновом режиме"
 
+#: src/main/main.ts
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Cancel"
@@ -851,6 +852,11 @@ msgstr "Правка перенесётся, когда вы подключит�
 #: src/renderer/takeover-state.mts
 msgid "It retries when mdbase restarts. If it keeps failing, move again to see the error."
 msgstr "Повторная попытка произойдёт после перезапуска mdbase. Если ошибка повторится, запустите перенос снова, чтобы увидеть причину."
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged."
+msgstr "В её файле mdbase.yaml есть запись x-mdbase-connect, которой не управляет ни один mdbase Connect на этом компьютере, например потому что папку скопировали или удалили из Connect. При добавлении папки эта запись удаляется, остальная часть файла не меняется."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1359,6 +1365,11 @@ msgstr "Убрать"
 msgid "Remove {0} from mdbase? Apps stop using it. The folder and its files stay where they are."
 msgstr "Убрать {0} из mdbase? Приложения больше не смогут использовать эту коллекцию. Папка и файлы останутся на своих местах."
 
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Remove and add"
+msgstr "Удалить и добавить"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "Переименовать"
@@ -1798,6 +1809,11 @@ msgstr "Эта копия перестала получать изменения
 #: src/renderer/collections-view.tsx
 msgid "This file is not a note: restore the other version by hand if you need it."
 msgstr "Этот файл не является заметкой: при необходимости восстановите другую версию вручную."
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "This folder has an old mdbase Connect identity"
+msgstr "У этой папки есть старый идентификатор mdbase Connect"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"

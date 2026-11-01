@@ -220,6 +220,29 @@ async function chooseFolder(title = t(i18n)({ message: "Choose a collection fold
   return result.canceled ? null : result.filePaths[0] ?? null;
 }
 
+// The folder's mdbase.yaml names an mdbase Connect identity that no Connect on this
+// computer manages (a copied folder, or one removed from Connect).
+async function confirmLegacyIdentityRemoval(): Promise<boolean> {
+  const options: Electron.MessageBoxOptions = {
+    type: "question",
+    buttons: [
+      t(i18n)({ message: "Remove and add", context: "Desktop application" }),
+      t(i18n)`Cancel`
+    ],
+    defaultId: 1,
+    cancelId: 1,
+    message: t(i18n)({ message: "This folder has an old mdbase Connect identity", context: "Desktop application" }),
+    detail: t(i18n)({
+      message: "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged.",
+      context: "Desktop application"
+    })
+  };
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  return result.response === 0;
+}
+
 function registerIpc(): void {
   ipcMain.handle("connect:locale:get", (event) => {
     trustedIpc(event);
@@ -265,7 +288,13 @@ function registerIpc(): void {
     trustedIpc(event);
     const path = await chooseFolder(t(i18n)({ message: "Choose a folder to add", context: "Desktop application" }));
     if (!path) return null;
-    return requestReadyAgent("collection.add", { path }, 60_000);
+    try {
+      return await requestReadyAgent("collection.add", { path }, 60_000);
+    } catch (error) {
+      if (!(error instanceof DaemonControlError) || error.reason !== "orphaned_legacy_identity") throw error;
+      if (!await confirmLegacyIdentityRemoval()) return null;
+      return requestReadyAgent("collection.add", { path, remove_legacy_identity: true }, 60_000);
+    }
   });
   ipcMain.handle("connect:collections:choose-create", async (event) => {
     trustedIpc(event);

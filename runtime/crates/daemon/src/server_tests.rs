@@ -863,6 +863,7 @@ async fn added_empty_folder_stays_empty_for_sync_enable_with_the_host_lock() {
         .add(crate::control::AddCollection {
             path: folder.path().to_path_buf(),
             name: None,
+            remove_legacy_identity: false,
         })
         .await
         .unwrap();
@@ -907,6 +908,7 @@ async fn enable_right_after_add_waits_for_the_open() {
         .add(crate::control::AddCollection {
             path: folder.path().to_path_buf(),
             name: None,
+            remove_legacy_identity: false,
         })
         .await
         .unwrap();
@@ -939,6 +941,7 @@ async fn resume_returns_once_the_collection_serves_again() {
         .add(crate::control::AddCollection {
             path: folder.path().to_path_buf(),
             name: None,
+            remove_legacy_identity: false,
         })
         .await
         .unwrap();
@@ -1153,6 +1156,7 @@ async fn update_renames_and_describes_and_persists() {
         .add(crate::control::AddCollection {
             path: folder.path().to_path_buf(),
             name: None,
+            remove_legacy_identity: false,
         })
         .await
         .unwrap();
@@ -1327,6 +1331,7 @@ async fn captured_mirror_edits_are_imported_listed_and_resolvable() {
     d.add(crate::control::AddCollection {
         path: folder.clone(),
         name: Some("Hosted".into()),
+        remove_legacy_identity: false,
     })
     .await
     .unwrap();
@@ -1489,4 +1494,64 @@ fn an_unknown_collection_is_not_found_not_refused() {
     ] {
         assert_eq!(join_refusal(other).reason.as_deref(), Some("sync_refused"));
     }
+}
+
+#[test]
+fn only_the_legacy_identity_entry_is_removed() {
+    let id = "4c18af2e-b04a-4b77-b83e-493c3695962e";
+    for (before, after) in [
+        (
+            format!("a: 1\nx-mdbase-connect:\n  collection_id: {id}\n  # note\nb: 2\n"),
+            "a: 1\nb: 2\n".to_owned(),
+        ),
+        (
+            format!("x-mdbase-connect: {{collection_id: {id}}}\n\nb: 2\n"),
+            "\nb: 2\n".to_owned(),
+        ),
+        (
+            format!("a: 1\n\"x-mdbase-connect\" :\n    collection_id: '{id}'\n"),
+            "a: 1\n".to_owned(),
+        ),
+        (
+            format!("# x-mdbase-connect: old\nx-mdbase-connect:\n  collection_id: {id}\n"),
+            "# x-mdbase-connect: old\n".to_owned(),
+        ),
+    ] {
+        assert_eq!(
+            without_legacy_identity(&before).as_deref(),
+            Some(after.as_str())
+        );
+    }
+    // An entry a line edit cannot remove exactly is left for the user.
+    for unremovable in [
+        format!("{{a: 1, x-mdbase-connect: {{collection_id: {id}}}}}\n"),
+        "x-mdbase-connect-other: 1\n".to_owned(),
+    ] {
+        assert_eq!(without_legacy_identity(&unremovable), None);
+    }
+}
+
+#[test]
+fn a_commented_identity_is_no_claim() {
+    let dir = crate::testutil::TestDir::new("classify-comment");
+    let profile = crate::paths::Profile::isolated(&dir.path().join("state")).unwrap();
+    let folder = dir.path().join("notes");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("mdbase.yaml"),
+        "spec_version: 0.3.0 # x-mdbase-connect\n# x-mdbase-connect:\n#   collection_id: x\n",
+    )
+    .unwrap();
+    assert_eq!(
+        classify_folder(&folder, &profile, None).unwrap(),
+        FolderClaim::Free
+    );
+    std::fs::write(folder.join("mdbase.yaml"), "a: [\n").unwrap();
+    assert_eq!(
+        classify_folder(&folder, &profile, None)
+            .unwrap_err()
+            .reason
+            .as_deref(),
+        Some("invalid_config")
+    );
 }
