@@ -50,3 +50,23 @@ export function fileRequestForRequirements(requirements: ApplicationRequirements
   if ("actions" in files) throw new Error("Semantic v2 requires required/optional file actions.");
   return applicationFileRequest(files);
 }
+
+/**
+ * The file request an application may sign: its declaration in declared order,
+ * narrowed to the optional actions it actually requested. Semantic v1 has no
+ * optional actions, so only the exact declaration is permitted. When `signed`
+ * omits a required action, the full declaration is returned and the exact proof
+ * comparison refuses it; this never widens beyond the declaration.
+ */
+export function signedFileRequestForRequirements(
+  requirements: ApplicationRequirements,
+  signed: ApplicationFileRequest | undefined
+): ApplicationFileRequest | undefined {
+  const declared = fileRequestForRequirements(requirements);
+  const files = requirements.files;
+  if (!declared || !signed || !files || "actions" in files) return declared;
+  const actions = declared.actions.filter((action) => signed.actions.includes(action));
+  return files.required.every((action) => actions.includes(action))
+    ? { actions, scope: declared.scope }
+    : declared;
+}

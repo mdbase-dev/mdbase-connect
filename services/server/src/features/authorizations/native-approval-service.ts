@@ -172,6 +172,7 @@ export async function approveNativeAuthorizationInTransaction(connection: Databa
     const { plan, legacy } = await planFreshNextGrant(connection, input.collectionId, {
       requestedOperations: input.operations,
       applicationOperationCeiling: pending.requested_operations as CollectionOperation[],
+      applicationFileCeiling: pending.application_authorization.binding.requested_files?.actions ?? [],
       requestedFileActions: input.fileActions,
       requestedPeoplePermissions: input.peoplePermissions,
       requirements: pending.requirements,

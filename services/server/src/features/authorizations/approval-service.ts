@@ -217,6 +217,7 @@ export async function approvePortalAuthorization(
       requestedOperations: input.operations,
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
+      applicationFileCeiling: pending.application_authorization.binding.requested_files?.actions ?? [],
       requestedFileActions: input.fileActions,
       requestedPeoplePermissions: input.peoplePermissions,
       requirements: pending.requirements,
@@ -384,6 +385,7 @@ export async function approvePortalAuthorization(
     const finalScope = planCollectionGrant({
       requestedOperations: grant!.operations,
       applicationOperationCeiling: grant!.operations,
+      applicationFileCeiling: grant!.file_capability?.actions ?? [],
       requestedFileActions: grant!.file_capability?.actions,
       requirements,
       access: grantAccess!

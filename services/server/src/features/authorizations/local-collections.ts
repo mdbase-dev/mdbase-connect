@@ -368,6 +368,7 @@ async function approveConnectorAuthorization(
   planCollectionGrant({
     requestedOperations: input.operations,
     applicationOperationCeiling: binding.requested_operations,
+    applicationFileCeiling: binding.requested_files?.actions ?? [],
     requestedFileActions: input.fileActions,
     requestedPeoplePermissions: input.peoplePermissions,
     requirements: selected.requirements,

@@ -5,7 +5,8 @@ import {
   ownerAccess,
   type CollectionAccessContext
 } from "./collection-access.js";
-import { planCollectionGrant, previewCollectionGrant } from "./grant-planner.js";
+import { fileCapabilityPermittedByRequirements, planCollectionGrant, previewCollectionGrant } from "./grant-planner.js";
+import { signedFileRequestForRequirements } from "./application-requirements.js";
 
 const owner = ownerAccess({
   collectionId: "collection",
@@ -279,6 +280,56 @@ describe("membership ceilings with v2 capabilities", () => {
     expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read"], access: {
       ...viewer, scopeCeiling: { access: "contract", contracts: [] }
     } })).toThrow("full-collection access");
+  });
+});
+
+describe("signed optional file-action subsets (#1103)", () => {
+  const read = operationsForApplicationCapabilities({ contract_version: 2, required: ["collection.read"] });
+  const requirements = {
+    access: "full_collection" as const, contracts: [],
+    capabilities: { contract_version: 2 as const, required: ["collection.read"] as const, optional: ["records.create"] as const },
+    files: { required: ["list", "read"] as const, optional: ["add", "delete"] as const, scope: { kind: "collection" as const } }
+  };
+  const scope = { kind: "collection" as const };
+  const input = { requirements, access: owner, requestedOperations: read, applicationOperationCeiling: read,
+    applicationFileCeiling: ["list", "read"] as const };
+
+  it("expects exactly the declared-order selection the application signed", () => {
+    expect(signedFileRequestForRequirements(requirements, { actions: ["list", "read"], scope }))
+      .toEqual({ actions: ["list", "read"], scope });
+    expect(signedFileRequestForRequirements(requirements, { actions: ["list", "read", "delete"], scope }))
+      .toEqual({ actions: ["list", "read", "delete"], scope });
+    // Missing a required action, or no signed files: the full declaration, which the exact proof comparison refuses.
+    expect(signedFileRequestForRequirements(requirements, { actions: ["list"], scope }))
+      .toEqual({ actions: ["list", "read", "add", "delete"], scope });
+    expect(signedFileRequestForRequirements(requirements, undefined))
+      .toEqual({ actions: ["list", "read", "add", "delete"], scope });
+    // Undeclared or reordered actions never match the canonical selection.
+    expect(signedFileRequestForRequirements(requirements, { actions: ["list", "read", "move"], scope }))
+      .toEqual({ actions: ["list", "read"], scope });
+    expect(signedFileRequestForRequirements(requirements, { actions: ["read", "list"], scope }))
+      .toEqual({ actions: ["list", "read"], scope });
+  });
+
+  it("keeps the signed subset as the consent and approval ceiling", () => {
+    expect(previewCollectionGrant(input)).toEqual({ available: true, operations: read, file_actions: ["list", "read"] });
+    expect(planCollectionGrant(input)).toMatchObject({ replicaMode: "read_only", fileCapability: { actions: ["list", "read"] } });
+    expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read", "add"] }))
+      .toThrow("requested by the application");
+  });
+
+  it("treats an approved optional subset as permitted during reconciliation", () => {
+    const capability = (actions: ("list" | "read" | "add" | "delete" | "move")[]) =>
+      ({ kind: "files" as const, protocol_version: 1 as const, actions, scope });
+    expect(fileCapabilityPermittedByRequirements(requirements, capability(["list", "read"]))).toBe(true);
+    expect(fileCapabilityPermittedByRequirements(requirements, capability(["read", "list", "delete"]))).toBe(true);
+    expect(fileCapabilityPermittedByRequirements(requirements, capability(["list"]))).toBe(false);
+    expect(fileCapabilityPermittedByRequirements(requirements, capability(["list", "read", "move"]))).toBe(false);
+    expect(fileCapabilityPermittedByRequirements(requirements, null)).toBe(false);
+    expect(fileCapabilityPermittedByRequirements({ ...requirements, files: undefined }, null)).toBe(true);
+    expect(fileCapabilityPermittedByRequirements(requirements, {
+      ...capability(["list", "read"]), scope: { kind: "selected_folders", folders: ["Assets"] }
+    })).toBe(false);
   });
 });
 

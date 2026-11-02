@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { collectionGrantScope, isCanonicalCollectionGrantScope } from "./application-grant-scope.js";
 import type {
   CollectionOperation,
@@ -32,6 +33,7 @@ export interface GrantPlan {
 /** Consent choices are a preview; approval rechecks the current locked policy. */
 export function previewCollectionGrant(input: {
   applicationOperationCeiling: readonly CollectionOperation[];
+  applicationFileCeiling?: readonly FileAction[];
   requirements: ApplicationRequirements;
   access: CollectionAccessContext;
 }): { available: true; operations: CollectionOperation[]; file_actions: FileAction[] }
@@ -55,7 +57,7 @@ export function previewCollectionGrant(input: {
       ...input,
       requestedOperations: operations,
       ...(files ? {
-        requestedFileActions: files.actions.filter((action) =>
+        requestedFileActions: (input.applicationFileCeiling ?? files.actions).filter((action) =>
           input.access.fileCeiling.actions.includes(action)
         )
       } : {})
@@ -79,6 +81,12 @@ export function previewCollectionGrant(input: {
 export function planCollectionGrant(input: {
   requestedOperations: readonly CollectionOperation[];
   applicationOperationCeiling: readonly CollectionOperation[];
+  /**
+   * The file actions in the application's signed request, already verified as
+   * a selection of its declaration. Omitted only where the declaration itself
+   * is the request.
+   */
+  applicationFileCeiling?: readonly FileAction[];
   requestedFileActions?: readonly FileAction[];
   requestedPeoplePermissions?: readonly string[];
   requirements: ApplicationRequirements;
@@ -88,9 +96,10 @@ export function planCollectionGrant(input: {
   const fileRequirement = input.requirements.files;
   const version = requirementContractVersion(input.requirements);
   const requestedFiles = fileRequestForRequirements(input.requirements);
+  const applicationFileActions = input.applicationFileCeiling ?? requestedFiles?.actions;
   const selectedFileActions = input.requestedFileActions
     ? [...new Set(input.requestedFileActions)]
-    : requestedFiles?.actions;
+    : applicationFileActions && [...applicationFileActions];
   if (operations.length === 0 && !fileRequirement) {
     throw new GrantPlanningError("At least one record operation or file capability must be approved.");
   }
@@ -121,6 +130,9 @@ export function planCollectionGrant(input: {
       throw new GrantPlanningError(
         "Required file actions must be approved and optional file actions must be declared."
       );
+    }
+    if (selectedFileActions.some((action) => !applicationFileActions?.includes(action))) {
+      throw new GrantPlanningError("Approved file actions must be requested by the application.");
     }
   } else if (selectedFileActions?.length) {
     throw new GrantPlanningError(
@@ -223,7 +235,7 @@ function assertFileRequirementWithinCeiling(
   }
 }
 
-export function fileCapabilityForRequirements(
+function fileCapabilityForRequirements(
   requirements: ApplicationRequirements,
   actions?: readonly FileAction[]
 ): FileCapability | undefined {
@@ -236,6 +248,28 @@ export function fileCapabilityForRequirements(
         scope: structuredClone(files.scope)
       }
     : undefined;
+}
+
+/**
+ * Whether an active grant's file capability is still a selection the current
+ * declaration permits: its exact scope, every required action, and only
+ * declared actions. Approved optional actions are a subset by design, so the
+ * full declaration is not the only valid capability.
+ */
+export function fileCapabilityPermittedByRequirements(
+  requirements: ApplicationRequirements,
+  capability: FileCapability | null
+): boolean {
+  const declared = fileCapabilityForRequirements(requirements);
+  if (!declared || !capability) return !declared && !capability;
+  const files = requirements.files!;
+  const required = "actions" in files ? files.actions : files.required;
+  return capability.kind === declared.kind
+    && capability.protocol_version === declared.protocol_version
+    && isDeepStrictEqual(capability.scope, declared.scope)
+    && new Set(capability.actions).size === capability.actions.length
+    && capability.actions.every((action) => declared.actions.includes(action))
+    && required.every((action) => capability.actions.includes(action));
 }
 
 export class GrantPlanningError extends Error {

@@ -23,7 +23,7 @@ import {
   HostedProviderClient,
   HostedProviderResponseError
 } from "../../hosted-provider.js";
-import { fileCapabilityForRequirements } from "../../grant-planner.js";
+import { fileCapabilityPermittedByRequirements } from "../../grant-planner.js";
 import { RelayHub } from "../../relay.js";
 import { audit } from "../../platform/audit-events.js";
 import {
@@ -231,10 +231,9 @@ export async function reconcileApplicationGrants(
       : grant.local_contracts ?? [];
     const availableContracts = contractRequirements(availableDescriptors);
     const desiredScope = collectionGrantScope();
-    const desiredFileCapability = fileCapabilityForRequirements(application.requirements);
-    const fileCapabilityMatches = isDeepStrictEqual(
-      grant.file_capability,
-      desiredFileCapability ?? null
+    const fileCapabilityMatches = fileCapabilityPermittedByRequirements(
+      application.requirements,
+      grant.file_capability
     );
     const collectionKindCompatible = !requiresHostedCollection(application.requirements)
       || grant.template !== null;
