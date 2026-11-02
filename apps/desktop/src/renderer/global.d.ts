@@ -36,7 +36,7 @@ interface DaemonCollection {
   mode: "local" | "synced" | "synced_e2e";
   origin: string;
   log: "none" | "hosted";
-  state: "paused" | "opening" | "ready" | "moving" | "unavailable" | "failed";
+  state: "paused" | "opening" | "ready" | "syncing" | "moving" | "unavailable" | "failed";
   reason?: string;
   sync?: SyncCounters;
   other_devices_online?: number;

@@ -413,14 +413,36 @@ pub enum CollectionState {
     Paused,
     /// Opening its replica (recovery, index warm-up, log catch-up).
     Opening,
-    /// Serving.
+    /// Serving, with nothing left to sync.
     Ready,
+    /// Serving, with known sync work unfinished: unconfirmed changes, disk
+    /// ingestion, an inbound or outbound file transfer, or a resync. Reported
+    /// only in observed status (see [`CollectionState::observed`]); serving
+    /// decisions never see it.
+    Syncing,
     /// Serving, with a log move (sync enable/disable) in progress.
     Moving,
     /// Not served; see `reason` (for example `runtime_pending`, `folder_missing`).
     Unavailable,
     /// Failed; see `reason`. Files are untouched.
     Failed,
+}
+
+impl CollectionState {
+    /// The state to report for one observation of a synced collection's
+    /// counters: a serving collection with unfinished work is `syncing`, never
+    /// `ready`. Derived from the same counters the status carries, so no status
+    /// says `ready` beside `pending > 0`.
+    pub fn observed(self, mode: SyncMode, sync: Option<&SyncCounters>) -> Self {
+        match (self, mode, sync) {
+            (Self::Ready, SyncMode::Synced | SyncMode::SyncedE2e, Some(s))
+                if s.pending > 0 || s.resyncing =>
+            {
+                Self::Syncing
+            }
+            (state, ..) => state,
+        }
+    }
 }
 
 /// Where the log lives.
@@ -862,5 +884,53 @@ mod tests {
             serde_json::to_string(&r).unwrap(),
             r#"{"schema_version":1,"ready":false,"binary_version":"0.0.0","control_protocol":1,"safe_reason":"credential_store_unavailable"}"#
         );
+    }
+
+    fn counters(pending: u64, resyncing: bool, connection: &str) -> SyncCounters {
+        SyncCounters {
+            confirmed_through: 6,
+            head_known: 6,
+            pending,
+            holds: 0,
+            unresolved: 0,
+            connection: connection.into(),
+            head_digest: None,
+            confirmed_record_digest: None,
+            last_error: None,
+            resyncing,
+            unsupported_entries: 0,
+        }
+    }
+
+    /// #1122: a collection caught up to the head it knows, with a known file
+    /// transfer still counted in `pending`, is `syncing`, not `ready`.
+    #[test]
+    fn observed_state_is_never_ready_with_unfinished_sync_work() {
+        use CollectionState as S;
+        for mode in [SyncMode::Synced, SyncMode::SyncedE2e] {
+            for connection in ["online", "connecting", "offline"] {
+                let busy = [
+                    counters(1, false, connection),
+                    counters(0, true, connection),
+                ];
+                for c in &busy {
+                    assert_eq!(S::Ready.observed(mode, Some(c)), S::Syncing);
+                    assert_eq!(
+                        serde_json::to_value(S::Ready.observed(mode, Some(c))).unwrap(),
+                        "syncing"
+                    );
+                }
+                let idle = counters(0, false, connection);
+                assert_eq!(S::Ready.observed(mode, Some(&idle)), S::Ready);
+            }
+            // Without counters nothing is known to be unfinished.
+            assert_eq!(S::Ready.observed(mode, None), S::Ready);
+        }
+        // Other states keep their own meaning; a local collection has nothing to sync.
+        let busy = counters(1, false, "online");
+        for s in [S::Paused, S::Opening, S::Moving, S::Unavailable, S::Failed] {
+            assert_eq!(s.observed(SyncMode::Synced, Some(&busy)), s);
+        }
+        assert_eq!(S::Ready.observed(SyncMode::Local, Some(&busy)), S::Ready);
     }
 }

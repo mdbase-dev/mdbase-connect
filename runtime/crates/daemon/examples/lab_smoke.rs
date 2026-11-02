@@ -247,7 +247,7 @@ async fn main() -> Res<()> {
             .find(|x| x.id == added.id)
             .ok_or("collection vanished")?;
         match col.state {
-            CollectionState::Ready => break col,
+            CollectionState::Ready | CollectionState::Syncing => break col,
             CollectionState::Opening => tokio::time::sleep(Duration::from_millis(50)).await,
             other => return Err(format!("collection {other:?} {:?}", col.reason).into()),
         }

@@ -715,6 +715,8 @@ impl CollectionHost {
 
     /// Read-only live status. Hold the exact opened runtime and captured source
     /// across the actor await; stale/stopped/paused hosts return no counters.
+    /// The reported state follows those counters: `syncing`, not `ready`, while
+    /// any sync work (including a file transfer) is unfinished.
     pub async fn observed_status(&self) -> CollectionStatus {
         let mut status = self.status();
         let Some(source) = self.telemetry_authority.as_ref() else {
@@ -756,6 +758,7 @@ impl CollectionHost {
                     message: format!("Cloud copy turned on by {}", owner.to_uuid_string()),
                 });
             }
+            status.state = status.state.observed(status.mode, Some(&counters));
             status.sync = Some(counters);
             status.approval_code = approval_code;
         }
