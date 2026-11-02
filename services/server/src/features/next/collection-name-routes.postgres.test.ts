@@ -326,7 +326,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     await db.query("UPDATE grants SET user_id=$2,activated_at=now() WHERE id=$1", [grant, f.user]);
     // And a native grant (a web app reaching the collection through a device).
     const native = await localGrantFixture(db);
-    await db.query("UPDATE grants SET user_id=$2,collection_id=NULL,next_collection_id=$3,activated_at=now() WHERE id=$1", [native, f.user, f.collection]);
+    await db.query("UPDATE grants SET user_id=$2,collection_id=NULL,next_collection_id=$3,next_collection_sync=$4,activated_at=now() WHERE id=$1", [native, f.user, f.collection, sync]);
     const tokens = await issueApplicationTokens(db, undefined, grant);
     const catalog = () => app.inject({ method: "GET", url: "/v1/next/apps/collections", headers: { authorization: `Bearer ${tokens.access_token}` } });
     expect((await catalog()).statusCode).toBe(200);

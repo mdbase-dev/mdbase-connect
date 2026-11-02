@@ -395,7 +395,7 @@ export async function buildPolicySnapshot(
          AND nc.runtime = 'next' AND nc.sync = 'private' AND nc.left_sync_at IS NULL
        LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
        LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
-       WHERE g.next_collection_id IS NOT NULL AND g.revoked_at IS NULL
+       WHERE g.next_collection_id IS NOT NULL AND g.next_collection_sync = 'private' AND g.revoked_at IS NULL
          AND g.activated_at IS NOT NULL
          AND g.scope->>'access' = 'full_collection'
          AND g.scope->'contracts' = '[]'::jsonb

@@ -68,7 +68,10 @@ async function grantContext(db: DatabaseQueryable, grantId: string): Promise<Gra
             (binding.grant_id IS NOT NULL) AS next_bound,
             (g.revoked_at IS NULL AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL
              AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)) AS active,
-            COALESCE(col.local_id::text, g.hosted_collection_id::text, g.next_collection_id::text) AS collection, nc.sync,
+            COALESCE(col.local_id::text, g.hosted_collection_id::text, g.next_collection_id::text) AS collection,
+            -- A grant approved for a Private collection keeps needing a device
+            -- approval, whatever the collection's mode is now.
+            CASE WHEN g.next_collection_sync = 'private' THEN 'private' ELSE nc.sync END AS sync,
             g.application_id, g.operations, g.file_capability,
             (g.application_authorization->'binding'->'contracts'->>'semantic_capabilities')::int AS semantic_capabilities,
             k.client_pk

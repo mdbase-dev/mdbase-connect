@@ -30,18 +30,21 @@ export function createNativeApprovalDelivery(
   };
   const safely = (work: () => Promise<void>) => work().catch(onDeferred);
   const deliver = async (grantId: string): Promise<void> => {
-    const grant = (await db.query<{ collection: string; account: string }>(
-      `SELECT g.next_collection_id AS collection, g.user_id AS account
+    const grant = (await db.query<{ collection: string; account: string; sync: "private" | "cloud_copy" }>(
+      `SELECT g.next_collection_id AS collection, g.user_id AS account, g.next_collection_sync AS sync
        FROM grants g JOIN users u ON u.id = g.user_id AND u.suspended_at IS NULL
        JOIN next_grant_bindings b ON b.grant_id = g.id AND b.active
        JOIN next_grant_client_keys k ON k.grant_id = g.id
        WHERE g.id = $1 AND g.activated_at IS NOT NULL AND g.revoked_at IS NULL
          AND g.next_collection_id IS NOT NULL`, [grantId],
     )).rows[0];
-    if (!grant || await nativeGrantStanding(db, grant.collection, grant.account) !== "current") return;
+    if (!grant || await nativeGrantStanding(db, grant.collection, grant.account, grant.sync) !== "current") return;
     // A feed/cache ACK cannot create the request in the replica's log. Wake
     // the canonical producer before asking Native to publish its sealed Approve.
     await publish(grant.collection);
+    // A cloud copy's hosted replica serves the published grant; no device of the
+    // account takes part (the device policy feed carries Private grants only).
+    if (grant.sync !== "private") return;
     // Reuse relay admission's exact consenting-account/key/enrolment/revocation
     // fence; another member's Native and unenrolled devices are not targets.
     const devices = await nativeDevices(db, grant.collection, grant.account);

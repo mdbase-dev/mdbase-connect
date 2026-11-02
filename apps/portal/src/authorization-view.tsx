@@ -240,7 +240,7 @@ export function Authorization({ requestId }: { requestId: string }) {
         error={error}
       />
       <section className="decision-panel authorization-panel">
-        <RequestIdentity request={authorization} showClientKey={!request.collections.some((collection) => collection.kind === "private")} />
+        <RequestIdentity request={authorization} showClientKey={!request.collections.some((collection) => collection.kind === "private" || collection.kind === "cloud_copy")} />
         {status === "pending" && continuingInDesktop ? (
           <DesktopContinuation
             request={authorization}
@@ -510,11 +510,12 @@ function SupportedApprovalForm({
   [allowedFiles, chosenFileActions, jointPermissions, operations, permissionGroups]);
   const existingOperations = useMemo(() => new Set(request.existing_access?.find((access) =>
     access.collection_id === collectionId)?.operations ?? []), [collectionId, request.existing_access]);
-  // A Private collection is end-to-end encrypted: the application sets up its
-  // types itself once connected, and a device of the account approves access.
+  // A synced collection (Private or cloud copy) is not set up at consent: the
+  // application sets up its types itself once connected.
   const privateCollection = selected?.kind === "private";
-  const setup = selected && !privateCollection ? neededProvisions(request, selected) : [];
-  const configurationSetup = privateCollection ? [] : request.provisions.configuration ?? [];
+  const syncedCollection = privateCollection || selected?.kind === "cloud_copy";
+  const setup = selected && !syncedCollection ? neededProvisions(request, selected) : [];
+  const configurationSetup = syncedCollection ? [] : request.provisions.configuration ?? [];
   const hasSetup = setup.length > 0 || configurationSetup.length > 0;
   const requestSetupSummary = [
     ...(request.provisions.type_packs.length > 0
@@ -677,7 +678,7 @@ function SupportedApprovalForm({
             operations: [...operations],
             ...(request.requirements.files ? { file_actions: [...fileActions] } : {}),
             ...(people ? { people_permissions: [...peoplePermissions] } : {}),
-            contract_setups: privateCollection ? [] : contractSetups
+            contract_setups: syncedCollection ? [] : contractSetups
           })
         } : {})
       });

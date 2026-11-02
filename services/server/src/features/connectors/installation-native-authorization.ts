@@ -22,7 +22,7 @@ export async function privateInstallationChoices(db: DatabaseQueryable, user: st
   const choices: {collection_id:string;display_name:string;role:"owner"|"editor"|"viewer";kind:"private"}[] = [];
   for (const collection of await listNativeCollectionsVisibleToUser(db,user)) {
     if (collection.sync !== "private") continue;
-    const access = await resolveNativeCollectionAccess(db,user,collection.id);
+    const access = await resolveNativeCollectionAccess(db,user,collection.id,"private");
     if (!access?.actions.has("application.authorize")) continue;
     choices.push({collection_id:collection.id,display_name:access.collection.displayName,role:collection.access.role,kind:"private"});
   }
@@ -84,7 +84,7 @@ export async function approveInstallationNativeChoice(db: DatabaseConnection, pa
   // Native helper repeats current membership/manifest/capability checks under its
   // canonical collection locks, and publishes the same account-only kind6 grant.
   if (!await approveNativeAuthorizationInTransaction(db,{requestId:link.authorization_request_id,
-      userId:pairing.user_id!,collectionId:collection,installationPairingId:pairing.id,
+      userId:pairing.user_id!,collectionId:collection,sync:"private",installationPairingId:pairing.id,
       fileActions:r.application_authorization!.binding.requested_files?.actions??[],operations:r.requested_operations as Parameters<typeof approveNativeAuthorizationInTransaction>[1]["operations"]})) refuse();
   await db.query(`UPDATE installation_native_authorizations SET selected_collection_id=$2,
     grant_id=(SELECT grant_id FROM authorization_requests WHERE id=$3),approved_at=now() WHERE pairing_id=$1`,

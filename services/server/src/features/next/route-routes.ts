@@ -4,7 +4,8 @@
 // `GET /v1/next/collections/:id/route` with the app's access token returns the targets
 // the app may open a Noise session to: the daemon serving a local collection, or the
 // enrolled desktops of a Private collection, through the relay; the hosted replica of a
-// cloud-copy collection directly. Only grants with a registered client key are routed:
+// cloud-copy collection directly (whether the grant targets the collection itself, a
+// legacy local row or a hosted row). Only grants with a registered client key are routed:
 // without one, the daemon has nothing to authenticate the app against. `availability`
 // says whether the app can open the collection now, and if not, why.
 import type { FastifyInstance } from "fastify";
@@ -169,7 +170,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
       return reply.code(409).send(apiError("application_reauthorization_required", "This grant has no next policy binding; authorize the application again."));
     }
     if (native) {
-      const standing = await nativeGrantStanding(options.db, id, native.user_id);
+      const standing = await nativeGrantStanding(options.db, id, native.user_id, "private");
       if (standing !== "current") return unavailableRoute(id, native, standing);
     }
     const devices = native
@@ -206,14 +207,16 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     if (!self) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired."));
     const grants = await options.db.query<{
       grant_id: string; authorization_grant: string; collection: string; display_name: string; operations: string[];
-      sync: "private" | "cloud_copy" | null; routable: boolean; native: boolean; superseded: boolean; local: boolean;
+      sync: "private" | "cloud_copy" | null; native_sync: "private" | "cloud_copy" | null;
+      routable: boolean; native: boolean; superseded: boolean; local: boolean;
     }>(
       `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
               COALESCE(col.local_id::text, hc.id::text, g.next_collection_id::text) AS collection,
               CASE WHEN nc.runtime='next' AND nc.sync IN ('cloud_copy','private') AND nc.left_sync_at IS NULL THEN COALESCE(nc.display_name,'New collection')
                    ELSE COALESCE(col.display_name, hc.display_name, nc.display_name) END AS display_name, g.operations,
               nc.sync, (k.grant_id IS NOT NULL AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)) AS routable,
-              (g.next_collection_id IS NOT NULL) AS native, (g.collection_id IS NOT NULL) AS local,
+              (g.next_collection_id IS NOT NULL) AS native, g.next_collection_sync AS native_sync,
+              (g.collection_id IS NOT NULL) AS local,
               (g.collection_id IS NOT NULL AND col.authority_state = 'retired') AS superseded
        FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
@@ -240,7 +243,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
       if (unmigrated) availability = { state: "unavailable", reason: "collection_not_yet_migrated" };
       else if (row.superseded) availability = { state: "unavailable", reason: "sync_required" };
       else if (row.native && row.routable) {
-        const standing = await nativeGrantStanding(options.db, row.collection, self.user_id);
+        const standing = await nativeGrantStanding(options.db, row.collection, self.user_id, row.native_sync!);
         // Display and UI gating only; every action is still checked where it lands.
         if (standing === "current") {
           role = await currentMember(options.db, row.collection, self.user_id).catch((error: unknown) => {
@@ -248,11 +251,13 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
             throw error;
           });
         }
-        availability = standing === "current"
-          ? deviceAvailability(await deviceCandidates(options.broker,
+        // A current cloud-copy grant is served by the hosted replica, like a
+        // hosted grant: only a Private grant depends on the account's computers.
+        availability = standing !== "current" ? { state: "unavailable", reason: standing }
+          : row.native_sync === "cloud_copy" ? undefined
+          : deviceAvailability(await deviceCandidates(options.broker,
             (await nativeDevices(options.db, row.collection, self.user_id)).map((device) => ({ ...device, local_id: row.collection })),
-            relayUrl.toString()))
-          : { state: "unavailable", reason: standing };
+            relayUrl.toString()));
       }
       return {
         collection: row.collection,

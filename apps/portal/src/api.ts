@@ -153,8 +153,13 @@ export interface PendingAuthorization {
 export interface AvailableCollection {
   id: string;
   offer_id?: string;
-  /** `private`: an end-to-end encrypted collection; a device approves the grant. */
-  kind?: "local" | "hosted" | "private";
+  /**
+   * `private`: an end-to-end encrypted collection; a device approves the grant.
+   * `cloud_copy`: a synced collection served by its hosted replica, with no
+   * computer online. Neither exposes its types at consent: the app checks them
+   * once connected.
+   */
+  kind?: "local" | "hosted" | "private" | "cloud_copy";
   connector_name: string;
   display_name: string;
   spec_version: string;

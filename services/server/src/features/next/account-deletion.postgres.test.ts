@@ -67,9 +67,9 @@ describePg("account deletion on native collections (dedicated local Postgres)", 
   async function grant(user: Account, policy: CollectionMembershipPolicy) {
     const id = randomUUID(), app = randomUUID();
     await db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1,$2,'App','https://example.test','[]')", [app, app]);
-    await db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,logical_collection_id,membership_id,membership_policy_id,membership_policy_revision,
+    await db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,next_collection_sync,logical_collection_id,membership_id,membership_policy_id,membership_policy_revision,
         operations,application_installation_id,application_authorization)
-      VALUES($1,$2,$3,$4,$4,$5,$6,$7,'["read"]','installation','{"binding":{"protocol_version":4,"contracts":{}}}')`,
+      VALUES($1,$2,$3,$4,'cloud_copy',$4,$5,$6,$7,'["read"]','installation','{"binding":{"protocol_version":4,"contracts":{}}}')`,
     [id, user.id, app, policy.collectionId, policy.membershipId, policy.id, policy.revision]);
     return id;
   }

@@ -61,7 +61,7 @@ import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { createLocalApprovalService, liveAuthorizationCollections } from "./local-collections.js";
 import { approveHostedAuthorization } from "./hosted-approval-service.js";
 import { unmigratedLocalCollection } from "../next/native-grant-target.js";
-import { approveNativeAuthorization, resolveNativeCollectionAccess } from "./native-approval-service.js";
+import { approveNativeAuthorization, currentNativeSync, resolveNativeCollectionAccess } from "./native-approval-service.js";
 import { createNativeApprovalDelivery } from "./native-approval-delivery.js";
 import { PEOPLE_PERMISSIONS } from "@mdbase-dev/connect-protocol";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
@@ -744,20 +744,24 @@ export function registerAuthorizationRoutes(
         })
       };
     }));
-    // Private native collections: end-to-end encrypted, so their types are not
-    // visible here; the app checks them once connected. A device approves the grant.
-    const privateCollections = requiresHostedCollection(authorization.rows[0].requirements)
+    // Synced native collections, Private or cloud copy. The control plane never
+    // reads their types (Private ones are end-to-end encrypted; a cloud copy lives
+    // on its hosted replica): the app checks them once connected. Neither needs
+    // a computer online at consent. A device approves a Private grant before its
+    // replica admits the app; a cloud copy's hosted replica serves the grant.
+    // These collections are runtime "next" ones, which the local and hosted
+    // catalogs above exclude, so no collection is offered twice.
+    const nativeCollections = requiresHostedCollection(authorization.rows[0].requirements)
       || !authorization.rows[0].client_pk ? [] : (await Promise.all(
       (await listNativeCollectionsVisibleToUser(options.db, user.id))
-        .filter((collection) => collection.sync === "private")
         .map(async (collection) => {
-          const access = await resolveNativeCollectionAccess(options.db, user.id, collection.id);
+          const access = await resolveNativeCollectionAccess(options.db, user.id, collection.id, collection.sync);
           if (!access?.actions.has("application.authorize")) return [];
           return [{
             id: collection.id,
             display_name: access.collection.displayName,
-            kind: "private" as const,
-            connector_name: "Private collection",
+            kind: collection.sync,
+            connector_name: collection.sync === "private" ? "Private collection" : "Cloud copy",
             spec_version: "0.3.0",
             contracts: [],
             access: accessView(access),
@@ -771,7 +775,7 @@ export function registerAuthorizationRoutes(
     const availableCollections = [
       ...local.collections,
       ...hostedCollections,
-      ...privateCollections
+      ...nativeCollections
     ];
     return {
       authorization: {
@@ -856,6 +860,7 @@ export function registerAuthorizationRoutes(
       contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
     }).parse(request.body);
     let approved: boolean;
+    const nativeSync = input.offer_id ? null : await currentNativeSync(options.db, input.collection_id);
     if (input.offer_id) {
       approved = await localApprovals.portal({
         source: "portal",
@@ -868,15 +873,18 @@ export function registerAuthorizationRoutes(
         peoplePermissions: input.people_permissions,
         contractSetups: input.contract_setups
       });
-    } else if (await resolveNativeCollectionAccess(options.db, user.id, input.collection_id)
+    } else if ((nativeSync && await resolveNativeCollectionAccess(options.db, user.id, input.collection_id, nativeSync))
       || (options.nextClientKeys && await unmigratedLocalCollection(options.db, input.collection_id, user.id))) {
       if (input.contract_setups.length > 0) {
-        throw new RequestValidationError("Private collections are set up by the application after it connects.");
+        throw new RequestValidationError("Synced collections are set up by the application after it connects.");
       }
       approved = await approveNativeAuthorization(options.db, {
         requestId,
         userId: user.id,
         collectionId: input.collection_id,
+        // An unmigrated local collection has no mode: approval refuses it with
+        // its explanation before any mode check.
+        sync: nativeSync ?? "private",
         operations: input.operations,
         fileActions: input.file_actions,
         peoplePermissions: input.people_permissions
