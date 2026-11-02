@@ -206,6 +206,21 @@ impl Value {
         Value::Text(s.into())
     }
 
+    /// Spec 12A equality that also tells `1` from `1.0`: a write that changes
+    /// a value's type changes the file. Map order still does not matter.
+    pub fn same(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => false,
+            (Value::List(x), Value::List(y)) => {
+                x.len() == y.len() && x.iter().zip(y).all(|(p, q)| p.same(q))
+            }
+            (Value::Map(x), Value::Map(y)) => {
+                x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| v.same(w)))
+            }
+            _ => self == other,
+        }
+    }
+
     /// The number, if this is an integer or a float.
     pub fn as_number(&self) -> Option<Number> {
         match self {
