@@ -3570,7 +3570,7 @@ impl Daemon {
             let now = fsutil::now_ms() as u64;
             match mirror_join::step(&legacy, &id, &mut DaemonJoiner { d: self }, now).await {
                 Ok(mirror_join::Step::Registered(_)) => {}
-                Ok(mirror_join::Step::Removed) => continue,
+                Ok(mirror_join::Step::Removed | mirror_join::Step::NotDue) => continue,
                 Ok(mirror_join::Step::Waiting { reason, .. }) => {
                     tracing::info!(collection = %id, %reason, "hosted collection not joined yet; its unsent edits stay captured");
                     continue;
@@ -4195,17 +4195,21 @@ impl Daemon {
             })
             .map(|(id, _)| id)
             .collect();
-        let unregistered = record
+        let unregistered: Vec<String> = record
             .collections
-            .values()
-            .filter(|c| {
+            .iter()
+            .filter(|(_, c)| {
                 c.state.settled() && !c.registered && c.reason.as_deref() != Some("folder_missing")
             })
-            .count();
+            .map(|(id, c)| format!("{id} ({})", c.reason.as_deref().unwrap_or("pending")))
+            .collect();
+        let overlapping = record.collections.values().any(|c| {
+            !c.registered && c.reason.as_deref() == Some("registration_pending:overlapping_root")
+        });
         let ok = !revived
             && waiting.is_empty()
             && held == 0
-            && unregistered == 0
+            && unregistered.is_empty()
             && incidents.is_empty();
         let mut detail = format!("takeover {:?}", record.state).to_lowercase();
         if self
@@ -4244,9 +4248,10 @@ impl Daemon {
                 "; {held} interrupted legacy write/delete intent(s) held"
             ));
         }
-        if unregistered > 0 {
+        if !unregistered.is_empty() {
             detail.push_str(&format!(
-                "; {unregistered} collection(s) not registered yet"
+                "; not registered yet: {}",
+                unregistered.join(", ")
             ));
         }
         Some(Check {
@@ -4268,11 +4273,63 @@ impl Daemon {
                         .into()
                 } else if revived {
                     "The old mdbase Connect daemon is running again: quit or uninstall it, then run `mdbase migrate start`.".into()
+                } else if overlapping {
+                    "A taken-over folder contains, or sits inside, a registered collection's folder, \
+                     and collections cannot nest. Choose one: keep the registered collection and leave \
+                     the taken-over folder unserved (this check keeps reporting it), or unregister the \
+                     other collection (`mdbase collection remove <id>`, files untouched) or move one \
+                     folder, then run `mdbase migrate start`."
+                        .into()
                 } else {
                     "Run `mdbase migrate status` for details; sign in if collections are waiting to register.".into()
                 }
             }),
         })
+    }
+
+    /// Old hosted mirrors whose captured unsent edits wait because their
+    /// collection could not be joined here (`takeover::mirror_join`).
+    fn mirror_join_checks(&self) -> Vec<Check> {
+        use crate::takeover::{mirror_import::Capture, mirror_join};
+        let legacy = self.takeover_paths().legacy;
+        let ids = crate::takeover::mirror_import::captured(&legacy).unwrap_or_default();
+        ids.into_iter()
+            .filter_map(|id| {
+                let join = mirror_join::JoinState::load(&legacy, &id).ok()?;
+                if join.phase != mirror_join::Phase::Pending {
+                    return None;
+                }
+                let reason = join.last_error?;
+                let capture = Capture::load(&legacy, &id).ok()??;
+                let root = capture.mirror_root.display();
+                let action = match reason.as_str() {
+                    "not_signed_in" => {
+                        "Sign in (`mdbase account sign-in`); the join is retried automatically."
+                            .to_owned()
+                    }
+                    "not_found" => format!(
+                        "Your account has no hosted collection {id}; it may have been deleted. \
+                         The edits are still in {root}, which mdbase never changes: copy what \
+                         you need into another collection. The join is retried every 30 minutes \
+                         in case the collection becomes available again."
+                    ),
+                    _ => format!(
+                        "The join is retried automatically. The edits are still in {root}, \
+                         which mdbase never changes. See `mdbase migrate status --json`."
+                    ),
+                };
+                Some(Check {
+                    id: format!("mirror_import:{id}"),
+                    status: "warn".into(),
+                    detail: format!(
+                        "{} unsent edit(s) from the old hosted mirror at {root} are waiting: \
+                         the hosted collection could not be joined ({reason})",
+                        capture.edits.len()
+                    ),
+                    action: Some(action),
+                })
+            })
+            .collect()
     }
 
     async fn doctor(&self) -> Vec<Check> {
@@ -4395,6 +4452,7 @@ impl Daemon {
             }
         }
         checks.extend(self.takeover_check());
+        checks.extend(self.mirror_join_checks());
         let profile = self.profile.clone();
         checks.push(
             tokio::task::spawn_blocking(move || crate::service::doctor_check(&profile))

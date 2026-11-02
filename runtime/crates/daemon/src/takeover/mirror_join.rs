@@ -156,7 +156,9 @@ pub enum Step {
     Registered(PathBuf),
     /// Joined earlier and since removed by the user: left alone.
     Removed,
-    /// Not joined; retried at `next_attempt_ms`.
+    /// Not joined, and the last attempt's wait has not elapsed: no attempt ran.
+    NotDue,
+    /// An attempt was refused; retried at `next_attempt_ms`.
     Waiting {
         /// Why.
         reason: String,
@@ -230,10 +232,7 @@ pub async fn step(
         return Ok(Step::Removed);
     }
     if now_ms < s.next_attempt_ms() {
-        return Ok(Step::Waiting {
-            reason: s.last_error.clone().unwrap_or_else(|| "retrying".into()),
-            next_attempt_ms: s.next_attempt_ms(),
-        });
+        return Ok(Step::NotDue);
     }
     // The folder: the saved one while still usable, else a new choice, saved
     // before it is created.
