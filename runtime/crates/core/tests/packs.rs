@@ -332,3 +332,44 @@ fn folder_overrides_install_into_configured_definition_folders() {
     // Default folders need no overrides.
     assert!(mdbn_core::packs::folder_target_overrides(&MemState::new(), &pack).is_empty());
 }
+
+#[test]
+fn edited_seed_upgrades_keep_the_publishers_bytes_for_upgraded_entries() {
+    let base = "---\nkind: mdbase.type\nname: note\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    required: [id, digest]\n    properties:\n      id: { type: string, minLength: 1 }\n      digest: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }\ncollection:\n  path:\n    folder: notes\n---\n# Note\n";
+    let desired = base
+        .replace("version: 1", "version: 2")
+        .replace("[id, digest]", "[id, digest, state]")
+        .replace(
+            "      digest:",
+            "      state: { enum: [active, done] }\n      digest:",
+        );
+    let mut pack = load_pack(&manifest(), &|s| (s == "note.md").then(|| TYPE.to_owned())).unwrap();
+    let resource = &mut pack.resources[0];
+    resource.mode = mdbn_core::packs::Mode::Seed;
+    resource.document = desired.clone();
+    resource.digest = revision(&desired);
+    resource.baselines.push(mdbn_core::packs::Baseline {
+        digest: revision(base),
+        document: base.into(),
+        version: Some(1),
+    });
+    let mut state = MemState::new();
+    state.insert_resource(
+        "_types/note.md",
+        &base.replace("folder: notes", "folder: inbox"),
+    );
+    state.insert_resource(
+        "mdbase.lock.yaml",
+        &format!(
+            "kind: mdbase.type-pack-lock\nlock_version: 1\npacks:\n  - id: example.notes\n    version: 1.0.0\n    digest: {base}\n    installed_by: dev.example.tests\n    resources:\n      - kind: type\n        mode: seed\n        source: note.md\n        target: _types/note.md\n        digest: {base}\n        origin_digest: {base}\n",
+            base = revision(base)
+        ),
+    );
+    let a = assess_type_pack(&state, &pack, &opts()).unwrap();
+    assert_eq!(a.resources[0].action, Action::Update);
+    assert_eq!(
+        a.resources[0].document.as_deref(),
+        Some(desired.replace("folder: notes", "folder: inbox").as_str()),
+        "the user's edit survives and every upgraded entry is the publisher's text"
+    );
+}
