@@ -288,14 +288,36 @@ fn attachments_and_the_query_index_pass_through() {
     let inner = SqlStore::open_with_limits(index.clone(), SqlStoreLimits::DESKTOP).unwrap();
     let db = SqlDiskDb::open(index).unwrap();
     let store = FileStore::open(platform, inner, db, Box::new(Clock), FsConfig::default()).unwrap();
-    let (materializes, indexed) = (
+    let (materializes, indexed, projection) = (
         store.materializes_attachments(),
         store.query_index_supported(),
+        store.query_projection_state().unwrap(),
     );
     assert!(materializes, "the native store materializes attachments");
+    let state = projection
+        .clone()
+        .expect("the native store has a raw projection");
     let mut s = KeychainKeyring::new(store, None, &C).unwrap();
     assert_eq!(s.materializes_attachments(), materializes);
     assert_eq!(s.query_index_supported(), indexed);
+    // Bases views read the raw projection (#1130).
+    assert_eq!(s.query_projection_state().unwrap(), projection);
+    let request = mdbn_replica::store_query::QueryProjectionRequest {
+        generation: state.generation,
+        head: state.head,
+        predicate: mdbn_replica::store_query::QueryPredicate::All,
+        bases_candidate: None,
+        bases_records: None,
+        after: None,
+        limit: 1,
+        max_bytes: 4096,
+        fields: Vec::new(),
+        tags: false,
+    };
+    assert_eq!(
+        format!("{:?}", s.query_projection_page(&request)),
+        format!("{:?}", s.inner.query_projection_page(&request)),
+    );
     let source = s.attachment_source("photo.bin", 4096).unwrap();
     assert_eq!(source.map(|src| src.len()), Some(4096));
 }
