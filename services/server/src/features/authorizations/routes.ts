@@ -11,10 +11,10 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { assertFreshApplicationAuthorization, fileRequestForRequirements, requirementContractVersion, type ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, requirementContractVersion, signedFileRequestForRequirements, type ApplicationRequirements } from "../../application-requirements.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { verifyApplicationAuthorization } from "../../application-authorization.js";
+import { parseApplicationAuthorization, verifyApplicationAuthorization } from "../../application-authorization.js";
 import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   accessView,
@@ -183,7 +183,12 @@ export function registerAuthorizationRoutes(
         codeChallenge: input.code_challenge,
         requestedOperations,
         semanticCapabilityContractVersion: requirementContractVersion(application.rows[0].requirements),
-        requestedFiles: fileRequestForRequirements(application.rows[0].requirements),
+        // The application signs the declared file actions it is requesting;
+        // consent and approval keep exactly that subset as their ceiling.
+        requestedFiles: signedFileRequestForRequirements(
+          application.rows[0].requirements,
+          parseApplicationAuthorization(input.application_authorization).binding.requested_files
+        ),
         collectionId: input.collection_id
       }
     );
@@ -524,7 +529,12 @@ export function registerAuthorizationRoutes(
         codeChallenge: input.code_challenge,
         requestedOperations,
         semanticCapabilityContractVersion: requirementContractVersion(application.rows[0].requirements),
-        requestedFiles: fileRequestForRequirements(application.rows[0].requirements),
+        // The application signs the declared file actions it is requesting;
+        // consent and approval keep exactly that subset as their ceiling.
+        requestedFiles: signedFileRequestForRequirements(
+          application.rows[0].requirements,
+          parseApplicationAuthorization(input.application_authorization).binding.requested_files
+        ),
         collectionId: input.collection_id
       }
     );
@@ -661,6 +671,7 @@ export function registerAuthorizationRoutes(
               a.homepage, a.project_url, a.icon,
               a.application_declaration->>'platform' AS platform,
               a.requirements, a.provisions, a.notifications,
+              ar.application_authorization->'binding'->'requested_files'->'actions' AS requested_file_actions,
               ${options.nextClientKeys ? "ck.client_pk" : "NULL::bytea"} AS client_pk
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id
        JOIN users consenting ON consenting.id = ar.user_id
@@ -670,7 +681,7 @@ export function registerAuthorizationRoutes(
       [requestId, user.id]
     );
     if (!authorization.rows[0]) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
-    const {redirect_uri, device_origin, ...pending} = authorization.rows[0];
+    const {redirect_uri, device_origin, requested_file_actions: applicationFileCeiling, ...pending} = authorization.rows[0];
     const applicationOrigin = pending.flow === "device_code" ? device_origin ?? "null" : applicationOriginForRedirect(redirect_uri, pending.homepage);
     const activeGrants = await options.db.query<{
       collection_id: string;
@@ -739,6 +750,7 @@ export function registerAuthorizationRoutes(
         access: accessView(access),
         authorization: previewCollectionGrant({
           applicationOperationCeiling: authorization.rows[0].requested_operations,
+          applicationFileCeiling: applicationFileCeiling ?? undefined,
           requirements: authorization.rows[0].requirements,
           access
         })
@@ -763,6 +775,7 @@ export function registerAuthorizationRoutes(
             access: accessView(access),
             authorization: previewCollectionGrant({
               applicationOperationCeiling: authorization.rows[0].requested_operations,
+              applicationFileCeiling: applicationFileCeiling ?? undefined,
               requirements: authorization.rows[0].requirements,
               access
             })

@@ -1,0 +1,6 @@
+{
+  "reason": "signedFileRequestForRequirements is the one requirements-owned rule for which signed file-action subsets an application may request; both authorization request routes and the planner tests use it. The reconciliation predicate replaces an exact-match check and the now-internal fileCapabilityForRequirements export, so net growth is one declaration.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}

@@ -8,7 +8,6 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { COLLECTION_OPERATIONS } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
-import { fileCapabilityForRequirements } from "../../grant-planner.js";
 import { collectionContractDescriptorSchema } from "../../protocol-schemas.js";
 import type { RelayHub } from "../../relay.js";
 import { localGrantRevocationStatus, queueLocalGrantRevocations } from "../../local-grant-revocation.js";
