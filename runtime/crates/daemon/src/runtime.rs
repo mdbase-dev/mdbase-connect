@@ -1235,7 +1235,11 @@ fn on_log_event<S: mdbn_replica::store::Store>(
                 let _ = reply.send(None);
                 return;
             }
-            let proof = rep.log_hello_proof(nonce, &token).ok().map(|s| s.0);
+            let proof = rep
+                .log_hello_proof(nonce, &token)
+                .inspect_err(|e| tracing::warn!(error = ?e, "log hello proof not signed"))
+                .ok()
+                .map(|s| s.0);
             let _ = reply.send(if generation.check().is_ok() {
                 proof
             } else {

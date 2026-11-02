@@ -389,6 +389,8 @@ pub fn ws_url(log_url: &str, collection: &B16) -> Result<String, String> {
 enum Ended {
     /// Reconnect after a backoff.
     Retry(String),
+    /// The token is about to expire: reconnect with a fresh one at once.
+    Renew,
     /// The token was refused: reconnect with a fresh one.
     Refused,
     /// The collection permanently refuses this device; never renew or reconnect.
@@ -402,6 +404,7 @@ async fn run(
     events: Box<dyn Fn(Event) + Send>,
     current: Arc<std::sync::Mutex<Option<Generation>>>,
 ) {
+    let id = cfg.collection.to_uuid_string();
     let mut backoff = Duration::from_secs(1);
     let total = (cfg.inbound_budget / FRAME_UNIT).max(1);
     let budget = Arc::new(tokio::sync::Semaphore::new(total));
@@ -430,9 +433,15 @@ async fn run(
             }
             Ended::Refused => {
                 tokens.refused();
-                tracing::warn!("log service refused the token; renewing");
+                tracing::warn!(collection = %id, "log service refused the token; renewing");
             }
-            Ended::Retry(why) => tracing::info!(reason = %why, "log transport reconnecting"),
+            Ended::Renew => {
+                tracing::debug!(collection = %id, "log token renewing");
+                continue;
+            }
+            Ended::Retry(why) => {
+                tracing::info!(collection = %id, reason = %why, "log transport reconnecting")
+            }
         }
         // Down: answer calls at once until the next attempt.
         let wake = tokio::time::sleep(backoff);
@@ -542,11 +551,28 @@ async fn session(
     if generation.check().is_err() {
         return (Ended::Retry("stale proof completion".into()), false);
     }
-    let Ok(Ok(Some(sig))) = signed else {
-        return (
-            Ended::Retry("the replica refused the hello proof".into()),
-            false,
-        );
+    let sig = match signed {
+        Ok(Ok(Some(sig))) => sig,
+        Ok(Ok(None)) => {
+            return (
+                Ended::Retry("the replica refused the hello proof".into()),
+                false,
+            );
+        }
+        Ok(Err(_)) => {
+            return (
+                Ended::Retry("the collection runtime stopped before the hello proof".into()),
+                false,
+            );
+        }
+        Err(_) => {
+            return (
+                Ended::Retry(
+                    "the collection runtime did not answer the hello proof in time".into(),
+                ),
+                false,
+            );
+        }
     };
     let (mut sink, mut stream) = ws.split();
     let hello = LsFrame::Request(LsRequest {
@@ -612,7 +638,7 @@ async fn session(
     let mut next_raw = HELLO_ID;
     let ended = loop {
         tokio::select! {
-            _ = &mut renew => break Ended::Retry("token renewal".into()),
+            _ = &mut renew => break Ended::Renew,
             q = calls.recv() => {
                 if generation.check().is_err() { break Ended::Retry("stale queue wake".into()); }
                 let Some(mut q) = q else { break Ended::Retry("stopped".into()) };
