@@ -496,9 +496,10 @@ if (plan.canApply) await app.setup.apply(plan);
 ```
 
 `status` is `current` (nothing to do), `setup` or `conflict`. A conflict that
-`adoptable` lists is an existing definition with different content: if the
-user chooses the app's version, plan again with `adopt` and that definition is
-replaced over exactly the reviewed revision. `staged` holds the definition
+`adoptable` lists is an existing definition with different content, or a type
+the app seeded that was edited in a way no published version can be combined
+with: if the user chooses the app's version, plan again with `adopt` and that
+definition is replaced over exactly the reviewed revision. `staged` holds the definition
 documents setup would write, for a details view.
 
 Starter `records` (at most 32, 256 KiB in total) are created once, in the
@@ -522,8 +523,7 @@ Refusal codes: `setup_forbidden` (no `definitions.manage`),
 `setup_conflict`, `setup_unresolved`, `installed_newer` (a newer app version
 set it up; `setup_downgrade` is its former name) and `setup_records_forbidden`.
 `setup_unresolved` means the collection still lacks what the app needs but
-setup has nothing it may write: a type the app seeded was edited away from
-every published version, so it can't be upgraded, or was removed. The person
+setup has nothing it may write: a type the app seeded was removed. The person
 restores it in the collection; readiness re-checks and the next `plan` reflects it.
 
 `configure()` is plan and apply in one step, for collections with nothing to
