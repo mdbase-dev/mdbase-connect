@@ -292,3 +292,31 @@ test("S3 readiness fixture serves a scoped empty bucket listing", async (context
   assert.match(body, /<Prefix>v1\/<\/Prefix>/);
   assert.match(body, /<KeyCount>0<\/KeyCount>/);
 });
+
+test("rollback read compatibility evidence is exact-pair, dispatch-only and bounded", async () => {
+  const workflow = await readFile(resolve(repoRoot, ".github/workflows/rollback-read-compat.yml"), "utf8");
+  assert.match(workflow, /^on:\n  workflow_dispatch:\n/m);
+  assert.doesNotMatch(workflow, /^\s+(push|pull_request|schedule|workflow_run):/m);
+  // Ops matches this exact title before reading the artifact.
+  assert.match(workflow, /^run-name: Rollback read compatibility \$\{\{ inputs\.predecessor_commit \}\} -> \$\{\{ inputs\.candidate_commit \}\}$/m);
+  assert.match(workflow, /^permissions:\n  contents: read\n/m);
+  assert.match(workflow, /ref: \$\{\{ inputs\.candidate_commit \}\}/);
+  assert.match(workflow, /test "\$\(git rev-parse HEAD\)" = "\$CANDIDATE_COMMIT"/);
+  assert.match(workflow, /org\.opencontainers\.image\.revision"\] == \$revision/);
+  assert.match(workflow, /SKIP_CANDIDATE_BUILD: 'true'\n\s+CANDIDATE_IMAGE: \$\{\{ inputs\.candidate_provider_image \}\}\n\s+run: test\/upgrade\/provider-from-previous --current-upgrade/);
+  assert.match(workflow, />\.github\/previous-release\.env\n/);
+  assert.doesNotMatch(workflow, /git (commit|push)/);
+  // Only the bounded JSON leaves the runner, never the private fixture directory.
+  const uploads = [...workflow.matchAll(/actions\/upload-artifact@[0-9a-f]{40}[^\n]*\n\s+with:\n\s+name: ([^\n]+)\n\s+path: ([^\n]+)/g)];
+  assert.deepEqual(uploads.map(match => [match[1], match[2]]),
+    [["rollback-read-compat", "${{ runner.temp }}/rollback-read-compat/rollback-read-compat.json"]]);
+  for (const field of ["schema_version: 1", 'scenario: "provider-predecessor-read"', "candidate_commit: $candidate",
+    "candidate_provider_image: $candidate_image", "predecessor_release: $release", "predecessor_commit: $predecessor",
+    "predecessor_provider_image: $predecessor_image", "predecessor_migration, candidate_migration",
+    'result: (if .rollback_result == "fixture-compatible" then "compatible" else "incompatible" end)']) {
+    assert.ok(workflow.includes(field), `bounded evidence field ${field}`);
+  }
+  const harness = await readFile(resolve(repoRoot, "test/upgrade/provider-current.sh"), "utf8");
+  assert.match(harness, /rollback_result=refused-unknown-migration/);
+  assert.match(harness, /rollback_result=fixture-compatible/);
+});
