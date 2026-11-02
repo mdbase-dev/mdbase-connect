@@ -1,8 +1,9 @@
 // Approval of an application's access to a synced native collection. A Private
 // grant is an offer published to the collection's policy log; the replica admits
 // the app only after one of the account's devices signs a grant approval for it.
-// A cloud-copy grant is served by the collection's hosted replica under the same
-// published policy grant, with no computer involved.
+// A cloud-copy grant is served under the same published policy grant by the
+// collection's hosted replica, with no computer needed, and by the account's
+// online devices.
 import { randomUUID } from "node:crypto";
 import type { ApplicationAuthorizationProof, ApplicationNotifications, ApplicationProvisions, CollectionOperation, FileAction } from "@mdbase-dev/connect-protocol";
 import { isSupportedOperationTransport } from "@mdbase-dev/connect-protocol";
@@ -139,7 +140,8 @@ export async function approveNativeAuthorizationInTransaction(connection: Databa
     if (pending.collection_id && pending.collection_id !== input.collectionId) {
       throw new RequestValidationError("This authorization request is restricted to a different collection.");
     }
-    if (requiresHostedCollection(pending.requirements)) {
+    // A cloud copy is an mdbase cloud collection; a Private collection is not.
+    if (requiresHostedCollection(pending.requirements) && input.sync !== "cloud_copy") {
       throw new RequestValidationError("This application requires an mdbase cloud collection.");
     }
     if (pending.flow !== "authorization_code" || pending.distribution !== "web") {

@@ -1,9 +1,11 @@
-// Discovery and relay admission for application grants on a Private native
-// collection (grants.next_collection_id with next_collection_sync 'private'), and
-// the standing of any native grant. A cloud-copy grant is routed to its hosted
-// replica (hosted-route-target.ts), never through the relay. Account consent is
-// the only user approval. The serving device materializes the exact signed grant and sealed
-// Private folder scope automatically; these checks locate that account's device.
+// Discovery and relay admission for application grants on a native collection
+// (grants.next_collection_id), and their standing. A Private grant is served only
+// by the account's devices; a cloud-copy grant by the collection's hosted replica
+// (hosted-route-target.ts) and, while one is online, by the account's devices
+// through the relay. Either is served only while the collection is still in the
+// mode the grant was approved for. Account consent is the only user approval. The
+// serving device materializes the exact signed grant and sealed Private folder
+// scope automatically; these checks locate that account's device.
 import type { DatabaseQueryable } from "../../database-types.js";
 import { CreateError, DEVICE_REVOCATIONS, currentMember } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
@@ -15,6 +17,8 @@ export interface NativeGrant {
   user_id: string;
   policy_active: boolean;
   has_client_key: boolean;
+  /** The mode the grant was approved for. */
+  sync: "private" | "cloud_copy";
 }
 
 export interface NativeDevice {
@@ -28,11 +32,12 @@ export interface NativeDevice {
   update_required: boolean;
 }
 
-/** The active Private native grant this access token holds for `collection`, if any. */
+/** The active native grant this access token holds for `collection`, if any. */
 export async function nativeGrant(db: DatabaseQueryable, tokenHash: string, collection: string): Promise<NativeGrant | null> {
   const result = await db.query<NativeGrant>(
     `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant, g.user_id,
-            COALESCE(binding.active, false) AS policy_active, (k.grant_id IS NOT NULL) AS has_client_key
+            COALESCE(binding.active, false) AS policy_active, (k.grant_id IS NOT NULL) AS has_client_key,
+            g.next_collection_sync AS sync
      FROM access_tokens tok
      JOIN grants g ON g.id = tok.grant_id
      JOIN users u ON u.id = g.user_id
@@ -40,7 +45,7 @@ export async function nativeGrant(db: DatabaseQueryable, tokenHash: string, coll
      LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
      WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
        AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL
-       AND g.next_collection_id = $2 AND g.next_collection_sync = 'private'`,
+       AND g.next_collection_id = $2`,
     [tokenHash, collection]
   );
   return result.rows[0] ?? null;
@@ -126,12 +131,13 @@ export async function nativeDevicesByCollection(db: DatabaseQueryable, collectio
 
 /**
  * Relay admission for a native grant: the connector of the requested device when
- * it is a current serving device of the grant's account. Null refuses.
+ * the grant still stands in the mode it was approved for and the device is a
+ * current serving device of the grant's account. Null refuses.
  */
 export async function nativeAdmission(db: DatabaseQueryable, tokenHash: string, collection: string, grant: string, device: string): Promise<string | null> {
   const row = await nativeGrant(db, tokenHash, collection);
   if (!row || row.grant_id !== grant || !row.has_client_key || !row.policy_active) return null;
-  if (await nativeGrantStanding(db, collection, row.user_id, "private") !== "current") return null;
+  if (await nativeGrantStanding(db, collection, row.user_id, row.sync) !== "current") return null;
   if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(device)) return null;
   // Only the pinned device is checked, at admission and on every revalidation.
   const target = (await nativeDevices(db, collection, row.user_id, device)).find((candidate) => candidate.device_id === device);

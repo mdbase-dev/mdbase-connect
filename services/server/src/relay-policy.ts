@@ -356,10 +356,12 @@ export async function buildPolicySnapshot(
        ORDER BY g.id`,
       [connectorId]
     ));
-    // Native Private grants target no legacy collection row, so the inventory
-    // above never sees them. A next-device daemon also needs its account's
-    // native grants: they arrive as pending approvals, and the daemon keeps
-    // only the collections it hosts. Old connectors never receive them.
+    // Native grants target no legacy collection row, so the inventory above
+    // never sees them. A next-device daemon also needs its account's native
+    // grants that still stand in the mode they were approved for: Private ones
+    // arrive as pending approvals, cloud-copy ones are served under the log's
+    // grant, and the daemon keeps only the collections it hosts. Old connectors
+    // never receive them.
     const nativeGrants = nextDevice ? await observeConnectorPolicyStage("grant_inventory", () => connection.query<{
       next_bound: boolean;
       id: string; user_id: string; application_id: string; application_name: string;
@@ -392,10 +394,10 @@ export async function buildPolicySnapshot(
        JOIN connectors con ON con.id = $1 AND con.user_id = g.user_id AND con.revoked_at IS NULL
        JOIN applications a ON a.id = g.application_id
        JOIN next_collections nc ON nc.collection_id = g.next_collection_id
-         AND nc.runtime = 'next' AND nc.sync = 'private' AND nc.left_sync_at IS NULL
+         AND nc.runtime = 'next' AND nc.sync = g.next_collection_sync AND nc.left_sync_at IS NULL
        LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
        LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
-       WHERE g.next_collection_id IS NOT NULL AND g.next_collection_sync = 'private' AND g.revoked_at IS NULL
+       WHERE g.next_collection_id IS NOT NULL AND g.revoked_at IS NULL
          AND g.activated_at IS NOT NULL
          AND g.scope->>'access' = 'full_collection'
          AND g.scope->'contracts' = '[]'::jsonb

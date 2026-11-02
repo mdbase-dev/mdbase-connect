@@ -42,9 +42,8 @@ export function createNativeApprovalDelivery(
     // A feed/cache ACK cannot create the request in the replica's log. Wake
     // the canonical producer before asking Native to publish its sealed Approve.
     await publish(grant.collection);
-    // A cloud copy's hosted replica serves the published grant; no device of the
-    // account takes part (the device policy feed carries Private grants only).
-    if (grant.sync !== "private") return;
+    // A cloud copy's hosted replica serves the published grant; the account's
+    // online devices serve it too, so they get the new feed as for a Private grant.
     // Reuse relay admission's exact consenting-account/key/enrolment/revocation
     // fence; another member's Native and unenrolled devices are not targets.
     const devices = await nativeDevices(db, grant.collection, grant.account);

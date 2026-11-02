@@ -51,12 +51,12 @@ describe("committed Native log publication barrier",()=>{
     expect(f.db.query).toHaveBeenCalledTimes(1);
     expect(f.db.query).toHaveBeenCalledWith(expect.stringContaining("g.revoked_at IS NULL"),[grant]);
   });
-  it("publishes a cloud-copy grant for its hosted replica without pushing to the account's computers",async()=>{
+  it("publishes a cloud-copy grant for its hosted replica and pushes it to the account's computers that also serve it",async()=>{
     const f=fixture("cloud_copy");const publication={publishCommitted:vi.fn(async()=>{})};
     await createNativeApprovalDelivery(f.db,f.relay,f.onDeferred,publication).grant(grant);
     expect(nativeGrantStanding).toHaveBeenCalledWith(f.db,collection,account,"cloud_copy");
     expect(publication.publishCommitted).toHaveBeenCalledWith(collection);
-    expect(nativeDevices).not.toHaveBeenCalled();expect(f.relay.pushPolicy).not.toHaveBeenCalled();
+    expect(f.relay.pushPolicy).toHaveBeenCalledExactlyOnceWith("original-computer");
     expect(f.onDeferred).not.toHaveBeenCalled();
   });
   it("does not publish or push a grant whose original collection/account standing changed",async()=>{

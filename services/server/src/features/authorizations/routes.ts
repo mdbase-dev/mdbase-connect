@@ -694,7 +694,8 @@ export function registerAuthorizationRoutes(
       collection_id,
       operations: [...operations].sort()
     }));
-    const local = requiresHostedCollection(authorization.rows[0].requirements)
+    const hostedRequired = requiresHostedCollection(authorization.rows[0].requirements);
+    const local = hostedRequired
       ? { collections: [], unavailable_connectors: [] }
       : await liveAuthorizationCollections(options.db, relay, user.id, requestId);
     const hosted = options.hostedCollections
@@ -750,10 +751,12 @@ export function registerAuthorizationRoutes(
     // a computer online at consent. A device approves a Private grant before its
     // replica admits the app; a cloud copy's hosted replica serves the grant.
     // These collections are runtime "next" ones, which the local and hosted
-    // catalogs above exclude, so no collection is offered twice.
-    const nativeCollections = requiresHostedCollection(authorization.rows[0].requirements)
-      || !authorization.rows[0].client_pk ? [] : (await Promise.all(
+    // catalogs above exclude, so no collection is offered twice. A cloud copy
+    // satisfies an application's hosted-collection requirement; a Private
+    // collection does not.
+    const nativeCollections = !authorization.rows[0].client_pk ? [] : (await Promise.all(
       (await listNativeCollectionsVisibleToUser(options.db, user.id))
+        .filter((collection) => !hostedRequired || collection.sync === "cloud_copy")
         .map(async (collection) => {
           const access = await resolveNativeCollectionAccess(options.db, user.id, collection.id, collection.sync);
           if (!access?.actions.has("application.authorize")) return [];
@@ -786,8 +789,8 @@ export function registerAuthorizationRoutes(
       },
       hosted_collections_available: options.hostedCollections === true,
       unavailable_connectors: local.unavailable_connectors,
-      collections: requiresHostedCollection(authorization.rows[0].requirements)
-        ? availableCollections.filter((collection) => collection.kind === "hosted")
+      collections: hostedRequired
+        ? availableCollections.filter((collection) => collection.kind === "hosted" || collection.kind === "cloud_copy")
         : availableCollections
     };
   });

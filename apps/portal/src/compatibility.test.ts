@@ -21,7 +21,9 @@ describe("collection compatibility at consent", () => {
     expect(collectionCompatibility(request(), collection("local"))).toMatchObject({ compatible: false, code: "missing_contracts" });
   });
 
-  it("does not offer a cloud copy to an app that requires a hosted collection", () => {
-    expect(collectionCompatibility(request("hosted"), collection("cloud_copy"))).toMatchObject({ compatible: false, code: "collection_kind" });
+  it("treats a cloud copy as a hosted collection, but not a Private or local one", () => {
+    expect(collectionCompatibility(request("hosted"), collection("cloud_copy"))).toEqual({ compatible: true });
+    expect(collectionCompatibility(request("hosted"), collection("private"))).toMatchObject({ compatible: false, code: "collection_kind" });
+    expect(collectionCompatibility(request("hosted"), collection("local"))).toMatchObject({ compatible: false, code: "collection_kind" });
   });
 });

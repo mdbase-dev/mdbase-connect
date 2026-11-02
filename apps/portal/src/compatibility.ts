@@ -28,7 +28,8 @@ export function collectionCompatibility(
       detail: collection.authorization.detail
     };
   }
-  if (request.requirements.collection_kind === "hosted" && collection.kind !== "hosted") {
+  // A cloud copy is a collection hosted by mdbase.
+  if (request.requirements.collection_kind === "hosted" && collection.kind !== "hosted" && collection.kind !== "cloud_copy") {
     return {
       compatible: false,
       code: "collection_kind",
