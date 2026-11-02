@@ -1076,8 +1076,8 @@ fn plan_seed(
 }
 
 /// Three-way merge of type frontmatter (spec 05A seed upgrades): the live
-/// body and unchanged entries keep their bytes; changed top-level entries are
-/// re-emitted.
+/// body and unchanged entries keep their bytes; changed top-level entries
+/// take the desired entry's text, or are re-emitted when they merge both sides.
 fn merge_type(base: &str, live: &str, desired: &str) -> Result<String, String> {
     let fm =
         |s: &str| split_frontmatter(s).ok_or_else(|| "a version has no frontmatter".to_owned());
@@ -1103,10 +1103,17 @@ fn merge_type(base: &str, live: &str, desired: &str) -> Result<String, String> {
     let Some(Value::Map(merged)) = merged else {
         return Err("the merged frontmatter is not a mapping".into());
     };
+    let desired = Document::parse(desired, RecordFormat::Markdown);
     let mut changes = Vec::new();
     for (k, v) in merged.iter() {
         if l.get(k).is_none_or(|x| !same(x, v)) {
-            changes.push((k.to_owned(), crate::writer::Change::Set(v.clone())));
+            // An entry that takes the publisher's value takes the publisher's
+            // text, so app-managed settings keep their published bytes.
+            let change = match crate::writer::entry_copy(&desired, k) {
+                Some(copy) if same(copy.value(), v) => crate::writer::Change::Copy(copy),
+                _ => crate::writer::Change::Set(v.clone()),
+            };
+            changes.push((k.to_owned(), change));
         }
     }
     for k in l.keys() {
