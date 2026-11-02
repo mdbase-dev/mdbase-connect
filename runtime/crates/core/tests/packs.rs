@@ -529,3 +529,55 @@ fn an_inferred_merge_must_still_implement_the_desired_contracts() {
     assert_eq!(p.action, Action::Preserve);
     assert!(p.reason.is_some());
 }
+
+#[test]
+fn an_unmergeable_seed_is_replaced_only_by_a_choice_bound_to_its_digest() {
+    let competing = SEED_V1_REWRITTEN.replace("description: A note.", "description: My notes.");
+    let mut state = legacy_seed(1, &competing);
+    let pack = seed_pack(2);
+    let choose = |digest| AssessOptions {
+        adopt: std::collections::BTreeMap::from([(SEED.to_owned(), digest)]),
+        ..opts()
+    };
+    let chosen = choose(revision(&competing));
+    let a = assess_type_pack(&state, &pack, &chosen).unwrap();
+    let p = a.resources.iter().find(|r| r.target == SEED).unwrap();
+    assert_eq!(p.action, Action::Update);
+    assert_eq!(p.document.as_deref(), Some(SEED_V2));
+    assert_eq!(p.origin, Some(revision(SEED_V2)));
+    let (_, ops) = apply_type_pack(&state, &pack, &chosen, &a.assessment_digest).unwrap();
+    let write = ops
+        .iter()
+        .find_map(|op| match op {
+            mdbn_core::intent::Op::ResourcePut(r) if r.path == SEED => Some(r),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(write.base_revision, Some(revision(&competing)));
+    apply(&mut state, ops);
+    let p = seed_plan(&state);
+    assert_eq!((p.action, p.reason.as_deref()), (Action::Preserve, None));
+}
+
+#[test]
+fn a_stale_seed_adoption_is_refused() {
+    let competing = SEED_V1_REWRITTEN.replace("description: A note.", "description: My notes.");
+    let state = legacy_seed(1, &competing);
+    let stale = AssessOptions {
+        adopt: std::collections::BTreeMap::from([(SEED.to_owned(), revision(SEED_V1))]),
+        ..opts()
+    };
+    let a = assess_type_pack(&state, &seed_pack(2), &stale).unwrap();
+    let p = a.resources.iter().find(|r| r.target == SEED).unwrap();
+    assert_eq!(p.action, Action::Conflict);
+    assert!(p.reason.as_deref().unwrap().contains("stale"));
+    assert!(!a.applicable());
+    let other = AssessOptions {
+        adopt: std::collections::BTreeMap::from([(
+            "_types/other.md".to_owned(),
+            revision(&competing),
+        )]),
+        ..opts()
+    };
+    assert!(assess_type_pack(&state, &seed_pack(2), &other).is_err());
+}

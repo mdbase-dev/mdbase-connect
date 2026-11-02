@@ -47,7 +47,7 @@ fn shared_installer_uses_current_configured_folder_for_new_pack() {
             .map(String::as_str),
         Some("schemas/note.md")
     );
-    let assessment = assess_collection_resources(&state, &setup).unwrap();
+    let assessment = assess_collection_resources(&state, &setup, &Default::default()).unwrap();
     assert!(assessment.applicable);
     assert_eq!(
         assessment.type_packs[0].resources[0].target,
@@ -63,7 +63,7 @@ fn shared_installer_never_moves_recorded_targets_after_folder_change() {
     );
     let mut initial = setup();
     initial.resolve_installer_targets(&state).unwrap();
-    let assessment = assess_collection_resources(&state, &initial).unwrap();
+    let assessment = assess_collection_resources(&state, &initial, &Default::default()).unwrap();
     state.insert_resource(
         mdbn_core::types::LOCK_PATH,
         &assessment.type_packs[0].lock_document,

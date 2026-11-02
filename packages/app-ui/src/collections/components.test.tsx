@@ -351,6 +351,28 @@ describe("setup review without a way forward", () => {
     expect(button("Try again")).toBeTruthy();
   });
 
+  it("offers the app's version for a starter note type no upgrade applies to, never only Try again", async () => {
+    const { mdbase, entry } = fakeMdbase(needsSetup, { status: "setup_required", selectedCollectionId: A });
+    const live = `sha256:${"ab".repeat(32)}`;
+    const message = "One item differs from what this app needs. Choose whether to use this app's version to continue.";
+    mdbase.setup.plan.mockResolvedValueOnce({ ...base, status: "conflict", canApply: false, summary: message, adoptable: { "_types/task.md": live },
+      conflicts: [{ target: "_types/task.md", adoptable: { digest: live },
+        message: "Your note type for this app has changes that can't be combined with the version this app needs. You can replace it with this app's version." }],
+      refusal: { code: "setup_conflict", message } } as never).mockResolvedValueOnce({ ...base, status: "setup", canApply: true,
+      summary: "This app will make 1 change to this collection.", staged: [{ path: "_types/task.md", document: "app's" }],
+      changes: [{ kind: "adopt", target: "_types/task.md", message: "Replace the note type for this app with this app's version. Yours isn't kept." }] } as never);
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    await flush();
+    expect(container.textContent).toContain("can't be combined with the version this app needs");
+    expect(() => button("Try again")).toThrow();
+    expect(() => button("Set up")).toThrow();
+    act(() => button("Use TaskNotes's version").click());
+    await flush();
+    expect(mdbase.setup.plan).toHaveBeenLastCalledWith(expect.objectContaining({ adopt: { "_types/task.md": live } }));
+    expect(container.textContent).toContain("Yours isn't kept.");
+    expect(button("Set up")).toBeTruthy();
+  });
+
   it("plans again quietly when readiness settles after a change, keeping the review on screen", async () => {
     const { mdbase, entry, set } = fakeMdbase(needsSetup, { status: "setup_required", selectedCollectionId: A });
     const stuck = { ...base, status: "current", canApply: false, summary: "Everything this app needs is already set up." };

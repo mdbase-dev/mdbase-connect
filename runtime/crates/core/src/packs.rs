@@ -553,7 +553,8 @@ pub struct AssessOptions {
     pub installed_by: String,
     /// Canonical target → collection target.
     pub target_overrides: BTreeMap<String, String>,
-    /// Explicit adoptions: unmanaged target → its exact current digest.
+    /// Explicit adoptions: target → its exact current digest. An unmanaged
+    /// managed target, or a seed the person chose to replace with the pack's.
     pub adopt: BTreeMap<String, Hash>,
     /// Seed targets intentionally omitted.
     pub preserve_seed_targets: BTreeSet<String>,
@@ -701,14 +702,8 @@ pub fn assess_type_pack(
         }
     }
     for t in opts.adopt.keys() {
-        if !pack
-            .resources
-            .iter()
-            .any(|r| r.mode == Mode::Managed && target_of(r) == *t)
-        {
-            return Err(invalid(format!(
-                "`{t}` is not a managed target of this pack"
-            )));
+        if !pack.resources.iter().any(|r| target_of(r) == *t) {
+            return Err(invalid(format!("`{t}` is not a target of this pack")));
         }
     }
     let lock_src = live_doc(state, LOCK_PATH);
@@ -757,6 +752,7 @@ pub fn assess_type_pack(
                 entry,
                 live.as_deref(),
                 opts.preserve_seed_targets.contains(&target),
+                opts.adopt.get(&target),
                 &|doc| implements_as_desired(&desired_state, &target, &r.document, doc),
                 &mut p,
             ),
@@ -1042,11 +1038,25 @@ fn plan_seed(
     entry: Option<&LockResource>,
     live: Option<&str>,
     preserved: bool,
+    adopt: Option<&Hash>,
     fits: &dyn Fn(&str) -> bool,
     p: &mut PlannedResource,
 ) {
     let previous_origin = entry.and_then(|e| e.origin_digest);
     p.origin = previous_origin;
+    // The person chose the pack's version over the seed they have, at exactly
+    // the revision they reviewed.
+    if let Some(adopt) = adopt {
+        if live.map(revision) == Some(*adopt) {
+            p.action = Action::Update;
+            p.document = Some(r.document.clone());
+            p.origin = Some(r.digest);
+        } else {
+            p.action = Action::Conflict;
+            p.reason = Some(format!("{}: the adoption digest is stale", r.target));
+        }
+        return;
+    }
     let Some(live) = live else {
         if entry.is_none() && !preserved {
             p.action = Action::Create;

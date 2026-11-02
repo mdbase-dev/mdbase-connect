@@ -139,3 +139,60 @@ fn decision_bytes_are_bound_even_if_a_provider_reuses_its_head_token() {
         .is_err()
     );
 }
+#[test]
+fn a_seed_no_baseline_upgrades_is_replaced_only_by_its_reviewed_choice() {
+    let seed = |version: u32, description: &str| {
+        format!(
+            "---\nkind: mdbase.type\nname: note\nversion: {version}\ndescription: {description}\nschema:\n  dialect: json-schema-2020-12\n  value: {{type: object}}\n---\n"
+        )
+    };
+    let (base, desired, mine) = (seed(1, "Base."), seed(2, "Desired."), seed(1, "Mine."));
+    let mut baseline = format!(
+        "    upgrade_from:\n      - digest: {}\n        version: 1\n        document: |\n",
+        revision(&base)
+    );
+    for line in base.lines() {
+        baseline.push_str(&format!("          {line}\n"));
+    }
+    let manifest = format!(
+        "kind: mdbase.type-pack\nid: example.notes\nversion: 2.0.0\nresources:\n  - kind: type\n    mode: seed\n    source: note.md\n    target: {PATH}\n    digest: {}\n{baseline}",
+        revision(&desired)
+    );
+    let (mut view, mut setup, clock, _) = fixture();
+    setup.type_packs[0].pack = load_pack(&manifest, &|_| Some(desired.clone())).unwrap();
+    view.0.insert_resource(PATH, &mine);
+    let original = setup.clone();
+    let kept = assess_collection_setup(&view, &setup, &clock).unwrap();
+    let row = &kept.type_packs[0].resources[0];
+    assert!(row.reason.is_some(), "the seed is kept with a reason");
+
+    let stale = BTreeMap::from([(PATH.into(), revision(&base))]);
+    assert!(assess_reviewed_collection_setup(&view, &setup, &clock, &stale, &[]).is_err());
+
+    let chosen = BTreeMap::from([(PATH.into(), revision(&mine))]);
+    let review = assess_reviewed_collection_setup(&view, &setup, &clock, &chosen, &[]).unwrap();
+    assert!(review.applicable);
+    assert_eq!(review.provision_digest, kept.provision_digest);
+    let (_, ops) = apply_reviewed_collection_setup(
+        &view,
+        &setup,
+        &clock,
+        &chosen,
+        &[],
+        review.collection_revision,
+        review.assessment_digest,
+    )
+    .unwrap();
+    let put = ops
+        .iter()
+        .find_map(|op| match op {
+            Op::ResourcePut(p) if p.path == PATH => Some(p),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        (put.doc.as_str(), put.base_revision),
+        (desired.as_str(), Some(revision(&mine)))
+    );
+    assert_eq!(setup, original);
+}

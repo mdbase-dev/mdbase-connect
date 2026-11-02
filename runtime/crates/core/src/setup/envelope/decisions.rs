@@ -2,8 +2,10 @@
 use super::*;
 use std::collections::BTreeMap;
 
-/// Validate only advertised unmanaged, managed-mode conflicts at exact live bytes.
-/// Installed, seed, missing, changed and undeclared targets always refuse.
+/// Validate only advertised replacements at exact live bytes: an unmanaged
+/// target's conflict, or a seed setup cannot upgrade (a conflict, or kept
+/// with a reason). Installed managed, missing, changed and undeclared targets
+/// always refuse.
 pub fn reviewed_resource_adoptions(
     state: &dyn StateView,
     setup: &CollectionSetup,
@@ -15,7 +17,7 @@ pub fn reviewed_resource_adoptions(
     if requested.len() > 256 || requested.keys().any(|p| p.len() > 1024) {
         return Err(limit());
     }
-    let assessment = assess_collection_resources(state, setup)?;
+    let assessment = assess_collection_resources(state, setup, &BTreeMap::new())?;
     let eligible: BTreeMap<_, _> = assessment
         .type_packs
         .iter()
@@ -25,9 +27,14 @@ pub fn reviewed_resource_adoptions(
                     .current
                     .as_ref()
                     .is_some_and(|c| c.resources.iter().any(|e| e.target == r.target));
-                (r.action == packs::Action::Conflict
-                    && r.mode == packs::Mode::Managed
-                    && !installed)
+                let replaceable = match r.mode {
+                    packs::Mode::Managed => r.action == packs::Action::Conflict && !installed,
+                    packs::Mode::Seed => {
+                        r.action == packs::Action::Conflict
+                            || (r.action == packs::Action::Preserve && r.reason.is_some())
+                    }
+                };
+                replaceable
                     .then_some(r.live.map(|live| (r.target.clone(), live)))
                     .flatten()
             })
@@ -42,50 +49,19 @@ pub fn reviewed_resource_adoptions(
     }
     Ok(requested.clone())
 }
-struct ReviewedView<'a> {
-    raw: &'a dyn SetupStateView,
-    state: Overlay<'a>,
-}
-impl SetupStateView for ReviewedView<'_> {
-    fn state(&self) -> &dyn StateView {
-        &self.state
-    }
-    fn collection_revision(&self) -> Hash {
-        self.raw.collection_revision()
-    }
-    fn file_page(
-        &self,
-        after: Option<crate::ids::FileId>,
-        limit: usize,
-    ) -> Result<Vec<StoredFile>, Box<Issue>> {
-        self.raw.file_page(after, limit)
-    }
-    fn source(&self, file: &StoredFile, max: usize) -> Result<SetupSourceObservation, Box<Issue>> {
-        self.raw.source(file, max)
-    }
-}
-fn reviewed<'a>(
-    view: &'a dyn SetupStateView,
-    setup: &CollectionSetup,
-    adopt: &BTreeMap<String, Hash>,
-) -> Result<ReviewedView<'a>, Box<Issue>> {
-    reviewed_resource_adoptions(view.state(), setup, adopt)?;
-    let mut state = Overlay::new(view.state());
-    for path in adopt.keys() {
-        state.apply_effect(&Effect::RemoveResource { path: path.clone() });
-    }
-    Ok(ReviewedView { raw: view, state })
-}
-/// Choose sources against the complete prospective state AFTER exact reviewed adoptions.
+/// Choose sources against the complete prospective state with exact reviewed adoptions.
 pub fn reviewed_collection_setup_source_requirements(
     view: &dyn SetupStateView,
     setup: &CollectionSetup,
     clock: &OpClock,
     adopt: &BTreeMap<String, Hash>,
 ) -> Result<CollectionSetupSourceRequirements, Box<Issue>> {
-    collection_setup_source_requirements(&reviewed(view, setup, adopt)?, setup, clock)
+    reviewed_resource_adoptions(view.state(), setup, adopt)?;
+    source_requirements(view, setup, clock, adopt)
 }
-/// Assess complete setup with reviewed overwrites, without altering provision identity.
+/// Assess complete setup with reviewed overwrites, without altering provision
+/// identity. Each adoption is a pack option, so its write is guarded by the
+/// reviewed revision and the assessment digest binds it.
 pub fn assess_reviewed_collection_setup(
     view: &dyn SetupStateView,
     setup: &CollectionSetup,
@@ -94,46 +70,9 @@ pub fn assess_reviewed_collection_setup(
     records: &[SetupStarterRecord],
 ) -> Result<CollectionSetupAssessment, Box<Issue>> {
     validate_setup_starter_records(records)?;
-    let staged = reviewed(view, setup, adopt)?;
-    let mut assessment = assess_collection_setup(&staged, setup, clock)?;
-    if assessment.applicable {
-        let mut applied = BTreeMap::new();
-        for op in &mut assessment.operations {
-            if let Op::ResourcePut(put) = op
-                && let Some(digest) = adopt.get(&put.path)
-            {
-                if !put.must_not_exist
-                    || put.base_revision.is_some()
-                    || applied.insert(put.path.clone(), *digest).is_some()
-                {
-                    return Err(stale());
-                }
-                put.must_not_exist = false;
-                put.base_revision = Some(*digest);
-            }
-        }
-        if applied != *adopt {
-            return Err(stale());
-        }
-        // Re-plan the COMPLETE guarded batch against ACTUAL state, not the mask.
-        validate_setup_operations(view.state(), clock, &assessment.operations)?;
-    }
-    if !adopt.is_empty() {
-        assessment.assessment_digest = jcs_digest(&obj(vec![
-            ("assessment", hash_value(assessment.assessment_digest)),
-            (
-                "adopt",
-                Value::Map(
-                    adopt
-                        .iter()
-                        .map(|(p, h)| (p.clone(), hash_value(*h)))
-                        .collect(),
-                ),
-            ),
-        ]));
-    }
+    reviewed_resource_adoptions(view.state(), setup, adopt)?;
+    let mut assessment = assess_setup(view, setup, clock, adopt)?;
     records::append_starters(view, clock, &mut assessment, records)?;
-    assessment.adopted = adopt.clone();
     if view.collection_revision() != assessment.collection_revision {
         return Err(stale());
     }
