@@ -177,6 +177,7 @@ mod tests {
                 account_moved: false,
                 drain: Duration::ZERO,
                 now: "2026-10-08T12:00:00Z".into(),
+                registered: Vec::new(),
             },
         )
         .unwrap();
