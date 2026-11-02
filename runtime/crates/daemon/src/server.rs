@@ -319,6 +319,15 @@ pub async fn run_with(
 /// How long `auth.challenge` waits for a credential retry it started.
 const CREDENTIAL_RETRY_WAIT: Duration = Duration::from_secs(5);
 
+/// Each registered collection's ID and root (the takeover's marker guard).
+fn registered_roots(registry: &Registry) -> Vec<(String, std::path::PathBuf)> {
+    registry
+        .collections
+        .iter()
+        .map(|e| (e.id.clone(), e.root.clone()))
+        .collect()
+}
+
 async fn initialize(d: Arc<Daemon>) {
     let device = loop {
         let e = match load_credentials(&d) {
@@ -3824,6 +3833,7 @@ impl Daemon {
             account_moved: true,
             drain: crate::takeover::DRAIN,
             now: crate::takeover::now_rfc3339(),
+            registered: registered_roots(&self.inner.lock().await.registry),
         };
         let p2 = paths.clone();
         let _own = self.takeover.holding_old_lock();
@@ -4130,7 +4140,7 @@ impl Daemon {
         )
     }
 
-    fn takeover_check(&self) -> Option<Check> {
+    fn takeover_check(&self, registry: &Registry) -> Option<Check> {
         use crate::takeover::record::{CollectionState, Record, State};
         let record = match Record::load(&self.takeover_paths().record) {
             Ok(Some(r)) => r,
@@ -4178,28 +4188,43 @@ impl Daemon {
         let held = record.held_interrupted_writes();
         // Latched incidents, plus a live read (the record is only updated by runs).
         let paths = self.takeover_paths();
+        let registered = registered_roots(registry);
+        let evidence = |id: &str| {
+            crate::takeover::adapter::Evidence::load(&paths.legacy, id)
+                .ok()
+                .flatten()
+        };
+        // Folders the user registered again as another collection: nothing to report.
+        let superseded: std::collections::BTreeSet<&String> = record
+            .collections
+            .keys()
+            .filter(|id| {
+                evidence(id).is_some_and(|e| crate::takeover::superseded(id, &e.root, &registered))
+            })
+            .collect();
         let incidents: Vec<&String> = record
             .collections
             .iter()
+            .filter(|(id, _)| !superseded.contains(id))
             .filter(|(id, c)| {
                 c.marker_incident
                     || (matches!(c.state, CollectionState::Complete | CollectionState::Held)
                         && c.reason.as_deref() != Some("folder_missing")
-                        && crate::takeover::adapter::Evidence::load(&paths.legacy, id)
-                            .ok()
-                            .flatten()
-                            .is_some_and(|e| {
-                                !crate::takeover::marker_is_ours(&e.root, id, &paths.store_ids)
-                                    .unwrap_or(false)
-                            }))
+                        && evidence(id).is_some_and(|e| {
+                            !crate::takeover::marker_is_ours(&e.root, id, &paths.store_ids)
+                                .unwrap_or(false)
+                        }))
             })
             .map(|(id, _)| id)
             .collect();
         let unregistered: Vec<String> = record
             .collections
             .iter()
-            .filter(|(_, c)| {
-                c.state.settled() && !c.registered && c.reason.as_deref() != Some("folder_missing")
+            .filter(|(id, c)| {
+                c.state.settled()
+                    && !c.registered
+                    && c.reason.as_deref() != Some("folder_missing")
+                    && !superseded.contains(id)
             })
             .map(|(id, c)| format!("{id} ({})", c.reason.as_deref().unwrap_or("pending")))
             .collect();
@@ -4451,7 +4476,7 @@ impl Daemon {
                 });
             }
         }
-        checks.extend(self.takeover_check());
+        checks.extend(self.takeover_check(&inner.registry));
         checks.extend(self.mirror_join_checks());
         let profile = self.profile.clone();
         checks.push(

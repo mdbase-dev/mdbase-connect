@@ -79,6 +79,9 @@ pub struct Options {
     pub drain: Duration,
     /// RFC 3339 time of this run (the record and the marker's `claimed_at`).
     pub now: String,
+    /// This daemon's registered collections (ID, root) when the run started,
+    /// for the marker guard ([`superseded`]).
+    pub registered: Vec<(String, PathBuf)>,
 }
 
 /// The default drain bound.
@@ -473,8 +476,9 @@ pub fn run(
     }
     // The marker guard (takeover marker contract): a taken-over folder must still carry this
     // daemon's v2 claim. A missing or altered marker is a sticky incident, reported
-    // and never silently rewritten (an old agent may have been revived).
-    let mut incident = false;
+    // and never silently rewritten (an old agent may have been revived). A folder
+    // the user has since re-registered as another collection is not one.
+    let mut changed = false;
     for (id, c) in record.collections.iter_mut() {
         if !matches!(c.state, CollectionState::Complete | CollectionState::Held)
             || c.reason.as_deref() == Some("folder_missing")
@@ -484,13 +488,19 @@ pub fn run(
         let Some(root) = adapter::Evidence::load(&paths.legacy, id)?.map(|e| e.root) else {
             continue;
         };
-        if !marker_is_ours(&root, id, &paths.store_ids)? && !c.marker_incident {
+        if superseded(id, &root, &opts.registered) {
+            if c.marker_incident {
+                tracing::info!(collection = %id, "marker_incident resolved: the folder is registered as another collection");
+                c.marker_incident = false;
+                changed = true;
+            }
+        } else if !marker_is_ours(&root, id, &paths.store_ids)? && !c.marker_incident {
             tracing::error!(collection = %id, "marker_incident: the takeover's v2 marker is missing or altered");
             c.marker_incident = true;
-            incident = true;
+            changed = true;
         }
     }
-    if incident {
+    if changed {
         record.updated_at = opts.now.clone();
         record.save(&paths.record)?;
     }
@@ -539,6 +549,15 @@ pub fn refence(
         }
         _ => Ok(None),
     }
+}
+
+/// Whether the user replaced taken-over `collection` at `root`: it is no longer
+/// registered here, and another collection is registered at that folder.
+/// `collection.add` takes only a folder no connector claims, so its v2 marker was
+/// gone when the user registered it again; that is not a marker incident.
+pub fn superseded(collection: &str, root: &Path, registered: &[(String, PathBuf)]) -> bool {
+    let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    !registered.iter().any(|(id, _)| id == collection) && registered.iter().any(|(_, r)| *r == root)
 }
 
 /// Whether `root` still carries this daemon's v2 claim for `collection`.

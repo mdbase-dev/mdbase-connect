@@ -474,6 +474,7 @@ async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step(
             account_moved: true,
             drain: Duration::ZERO,
             now: "2026-10-18T09:00:00Z".into(),
+            registered: Vec::new(),
         },
     )
     .unwrap();

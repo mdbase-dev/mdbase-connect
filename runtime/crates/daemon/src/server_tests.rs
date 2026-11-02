@@ -1677,7 +1677,7 @@ fn an_overlapping_taken_over_folder_is_named_with_its_choices() {
     }
     .save(&d.takeover_paths().record)
     .unwrap();
-    let check = d.takeover_check().unwrap();
+    let check = d.takeover_check(&Registry::default()).unwrap();
     assert_eq!(check.status, "warn");
     assert!(
         check.detail.contains(&format!(
@@ -1689,4 +1689,57 @@ fn an_overlapping_taken_over_folder_is_named_with_its_choices() {
     let action = check.action.unwrap();
     assert!(action.contains("cannot nest"), "{action}");
     assert!(action.contains("mdbase collection remove"), "{action}");
+}
+
+/// Doctor's marker check: a taken-over folder that lost its claim fails, until
+/// the user has registered that folder as another collection.
+#[test]
+fn doctor_does_not_fail_a_taken_over_folder_registered_again_as_another_collection() {
+    use crate::takeover::tests::old_agent;
+    let dir = crate::testutil::TestDir::new("doctor-marker-superseded");
+    let d = daemon(&dir);
+    let old = dir.path().join("connect");
+    let notes = dir.path().join("agents-notes");
+    old_agent::build(&old, &notes);
+    let paths = d.takeover_paths();
+    let opts = crate::takeover::Options {
+        stop_mirrors: false,
+        account_moved: false,
+        drain: Duration::ZERO,
+        now: "2026-10-27T21:20:00Z".into(),
+        registered: Vec::new(),
+    };
+    crate::takeover::run(
+        &paths,
+        &old,
+        &mut crate::takeover::IsolatedOldService,
+        &opts,
+    )
+    .unwrap();
+    crate::takeover::mark_registered(&paths, old_agent::CID, "2026-10-27T21:20:30Z").unwrap();
+    std::fs::remove_file(notes.join(".mdbase/connect-role.json")).unwrap();
+    crate::takeover::run(
+        &paths,
+        &old,
+        &mut crate::takeover::IsolatedOldService,
+        &opts,
+    )
+    .unwrap();
+
+    let mut registry = Registry::default();
+    let check = d.takeover_check(&registry).unwrap();
+    assert_eq!(check.status, "fail", "{}", check.detail);
+    assert!(check.detail.contains("marker_incident"), "{}", check.detail);
+
+    let mut entry = d.inner.try_lock().unwrap().registry.collections[0].clone();
+    entry.id = "36be1780-539e-46c9-a99e-04314e84426f".into();
+    entry.root = notes.canonicalize().unwrap();
+    registry.collections.push(entry);
+    let check = d.takeover_check(&registry).unwrap();
+    assert_ne!(check.status, "fail", "{}", check.detail);
+    assert!(
+        !check.detail.contains("marker_incident"),
+        "{}",
+        check.detail
+    );
 }
