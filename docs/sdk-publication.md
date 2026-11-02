@@ -232,10 +232,10 @@ qualification; it never substitutes for staging acceptance, production
 verification or unchanged production trust.
 
 The application pin is 3,736,178 bytes, SHA-256
-`57513f7c4be65621d8f56c187b5f01e7db55549cc073b27d3838160fc53afa9a`,
+`d6205ab86465ae523702b3465ac731ca267fd3192f66601532635cb084926b7b`,
 built with Rust 1.94.0 and the locked Binaryen optimizer from the runtime inputs
-at `25ec1bb5e4b4764db728df136a5d578a7d05c4a8`, including PRs 1099, 1110, 1108,
-1100 and 1119 (beta.149 shipped 3,720,400 bytes, `643eef62…`, from `e161f426`). The build uses
+at `837f3371c97bdc5d7b9dfe67b69bbaaa0ad69bed`, including PRs 1099, 1110, 1108,
+1100, 1119 and 1123 (beta.149 shipped 3,720,400 bytes, `643eef62…`, from `e161f426`). The build uses
 the SDK publication workflow's canonical source and Cargo path remaps. Qualification
 includes canonical verification of all three trust assets, the actual-WASM
 SQLite/backfill smokes and cold installs/typechecks of all three packed variants.
