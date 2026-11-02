@@ -18,6 +18,7 @@ use crate::state::{Overlay, StateView, StoredFile};
 use crate::types::{CONFIG_PATH, LOCK_PATH};
 use crate::validate::{Issue, Severity, Tier};
 use crate::value::Value;
+use std::collections::BTreeMap;
 
 mod decisions;
 mod decode;
@@ -519,16 +520,20 @@ fn stage_provisions<'a>(
     state: &'a dyn StateView,
     setup: &CollectionSetup,
     clock: &OpClock,
+    adopt: &BTreeMap<String, Hash>,
 ) -> Result<StagedProvisions<'a>, Box<Issue>> {
     setup.validate()?;
     if clock.tz.len() > 128 || clock.local_date.len() > 32 {
         return Err(limit());
     }
-    stage_resource_provisions(state, setup)
+    stage_resource_provisions(state, setup, adopt)
 }
+/// Reviewed adoptions join each pack's options for its own targets only here,
+/// so they bind the pack assessments but never the provision identity.
 fn stage_resource_provisions<'a>(
     state: &'a dyn StateView,
     setup: &CollectionSetup,
+    adopt: &BTreeMap<String, Hash>,
 ) -> Result<StagedProvisions<'a>, Box<Issue>> {
     setup.validate()?;
     if state
@@ -557,14 +562,24 @@ fn stage_resource_provisions<'a>(
             stage_resources(&mut overlay, &operations)?;
         }
         for pack in &setup.type_packs {
-            let a =
-                packs::assess_type_pack(&overlay, &pack.pack, &pack.options).map_err(Box::new)?;
+            let mut options = pack.options.clone();
+            options.adopt.extend(
+                adopt
+                    .iter()
+                    .filter(|(target, _)| {
+                        pack.pack.resources.iter().any(|r| {
+                            options.target_overrides.get(&r.target).unwrap_or(&r.target) == *target
+                        })
+                    })
+                    .map(|(target, digest)| (target.clone(), *digest)),
+            );
+            let a = packs::assess_type_pack(&overlay, &pack.pack, &options).map_err(Box::new)?;
             if !a.applicable() {
                 type_packs.push(a);
                 continue;
             }
             let (_, ops) =
-                packs::apply_type_pack(&overlay, &pack.pack, &pack.options, &a.assessment_digest)
+                packs::apply_type_pack(&overlay, &pack.pack, &options, &a.assessment_digest)
                     .map_err(Box::new)?;
             stage_resources(&mut overlay, &ops)?;
             operations.extend(ops);
@@ -607,8 +622,16 @@ pub fn collection_setup_source_requirements(
     setup: &CollectionSetup,
     clock: &OpClock,
 ) -> Result<CollectionSetupSourceRequirements, Box<Issue>> {
+    source_requirements(view, setup, clock, &BTreeMap::new())
+}
+fn source_requirements(
+    view: &dyn SetupStateView,
+    setup: &CollectionSetup,
+    clock: &OpClock,
+    adopt: &BTreeMap<String, Hash>,
+) -> Result<CollectionSetupSourceRequirements, Box<Issue>> {
     let head = view.collection_revision();
-    let staged = stage_provisions(view.state(), setup, clock)?;
+    let staged = stage_provisions(view.state(), setup, clock, adopt)?;
     // Fail malformed contribution metadata before asking the host to read source.
     if let Some(lock) = view.state().resource(PROVISION_LOCK_PATH) {
         ProvisionLock::parse(&lock)?;
@@ -636,6 +659,14 @@ pub fn assess_collection_setup(
     setup: &CollectionSetup,
     clock: &OpClock,
 ) -> Result<CollectionSetupAssessment, Box<Issue>> {
+    assess_setup(view, setup, clock, &BTreeMap::new())
+}
+fn assess_setup(
+    view: &dyn SetupStateView,
+    setup: &CollectionSetup,
+    clock: &OpClock,
+    adopt: &BTreeMap<String, Hash>,
+) -> Result<CollectionSetupAssessment, Box<Issue>> {
     let state = view.state();
     let head = view.collection_revision();
     let StagedProvisions {
@@ -644,7 +675,7 @@ pub fn assess_collection_setup(
         type_packs,
         mut operations,
         applicable,
-    } = stage_provisions(state, setup, clock)?;
+    } = stage_provisions(state, setup, clock, adopt)?;
     let provision_digest = setup.input_digest();
     let (files, file_ops) = if applicable {
         promotions(view, &mut overlay, clock)?
@@ -750,7 +781,7 @@ pub fn assess_collection_setup(
         applicable,
         assessment_digest,
         operations,
-        adopted: Default::default(),
+        adopted: adopt.clone(),
         records: Vec::new(),
     })
 }

@@ -314,112 +314,33 @@ type Assessed = (
 /// Assess (and plan the guarded writes of) the declaration over confirmed
 /// resources, after resolving folder targets and reviewed adoptions.
 ///
-/// An adopted target (an unmanaged definition the user reviewed) is planned as
-/// if absent, then written over exactly the reviewed revision: the write's
-/// `baseRevision` is the reviewed digest, so any edit since review refuses the
-/// whole mutation. Adoption stays out of the pack options, so it does not
-/// change the provision identity later checks compare against.
+/// An adopted target (a definition the user reviewed and chose to replace) is
+/// written over exactly the reviewed revision: the write's `baseRevision` is
+/// the reviewed digest, so any edit since review refuses the whole mutation.
+/// Adoption binds the assessment digest, never the provision identity.
 fn assess(
     resources: &[(String, String)],
     manifest: &Value,
     decisions: &Decisions,
 ) -> Result<Assessed, OpenFailure> {
     let mut setup = setup(manifest)?;
-    let mut full = MemState::new();
-    for (path, source) in resources {
-        full.insert_resource(path, source);
-    }
-    resolve(&full, &mut setup)?;
-    let adopted = envelope::reviewed_resource_adoptions(&full, &setup, &decisions.adopt)
-        .map_err(|_| invalid())?;
     let mut state = MemState::new();
     for (path, source) in resources {
-        if !adopted.contains_key(path) {
-            state.insert_resource(path, source);
-        }
+        state.insert_resource(path, source);
     }
+    resolve(&state, &mut setup)?;
+    let adopted = envelope::reviewed_resource_adoptions(&state, &setup, &decisions.adopt)
+        .map_err(|_| invalid())?;
     let assessment =
-        envelope::assess_collection_resources(&state, &setup).map_err(|_| invalid())?;
-    let mut operations = if assessment.applicable {
-        envelope::apply_collection_resources(&state, &setup, assessment.assessment_digest)
+        envelope::assess_collection_resources(&state, &setup, &adopted).map_err(|_| invalid())?;
+    let operations = if assessment.applicable {
+        envelope::apply_collection_resources(&state, &setup, assessment.assessment_digest, &adopted)
             .map_err(|_| invalid())?
             .1
     } else {
         Vec::new()
     };
-    for op in &mut operations {
-        if let Op::ResourcePut(put) = op
-            && let Some(digest) = adopted.get(&put.path)
-        {
-            if !put.must_not_exist {
-                return Err(invalid());
-            }
-            put.must_not_exist = false;
-            put.base_revision = Some(*digest);
-        }
-    }
-    // An applicable adoption must become exactly one guarded overwrite each.
-    if assessment.applicable
-        && adopted.len()
-            != operations
-                .iter()
-                .filter(|op| matches!(op, Op::ResourcePut(p) if adopted.contains_key(&p.path)))
-                .count()
-    {
-        return Err(invalid());
-    }
-    let mut assessment = assessment;
-    assessment.assessment_digest =
-        review_digest(assessment.assessment_digest, &adopted, &operations);
     Ok((assessment, operations, adopted))
-}
-/// The digest a review binds. Without decisions it is Core's assessment
-/// digest unchanged. With adoptions it also binds every adopted target's
-/// reviewed revision and the exact guards of the converted writes, so the
-/// masked inventory alone can never stand in for the reviewed adoption.
-/// Provision identity is unaffected.
-fn review_digest(assessed: Hash, adopted: &BTreeMap<String, Hash>, ops: &[Op]) -> Hash {
-    if adopted.is_empty() {
-        return assessed;
-    }
-    let guards = ops
-        .iter()
-        .filter_map(|op| {
-            let (kind, path, must_not_exist, base) = match op {
-                Op::ResourcePut(r) => ("put", &r.path, r.must_not_exist, r.base_revision),
-                Op::ResourceDelete(r) => ("delete", &r.path, false, r.base_revision),
-                _ => return None,
-            };
-            Some(object(vec![
-                ("kind", Value::string(kind)),
-                ("path", Value::string(path.clone())),
-                ("mustNotExist", Value::Bool(must_not_exist)),
-                (
-                    "baseRevision",
-                    base.map_or(Value::Null, |b| Value::string(b.to_string())),
-                ),
-            ]))
-        })
-        .collect();
-    jcs_digest(&object(vec![
-        ("domain", Value::string("mdbn-app-setup-review/1")),
-        ("assessmentDigest", Value::string(assessed.to_string())),
-        (
-            "adopted",
-            Value::List(
-                adopted
-                    .iter()
-                    .map(|(t, d)| {
-                        object(vec![
-                            ("target", Value::string(t.clone())),
-                            ("revision", Value::string(d.to_string())),
-                        ])
-                    })
-                    .collect(),
-            ),
-        ),
-        ("guards", Value::List(guards)),
-    ]))
 }
 #[cfg(test)]
 mod tests;
