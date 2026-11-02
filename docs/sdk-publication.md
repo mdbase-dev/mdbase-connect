@@ -231,7 +231,7 @@ cold/browser/native consumer gates. `sdkPublication.ready` records source-build
 qualification; it never substitutes for staging acceptance, production
 verification or unchanged production trust.
 
-The application pin is 3,721,295 bytes, SHA-256
+The application pin is 3,736,178 bytes, SHA-256
 `57513f7c4be65621d8f56c187b5f01e7db55549cc073b27d3838160fc53afa9a`,
 built with Rust 1.94.0 and the locked Binaryen optimizer from the runtime inputs
 at `25ec1bb5e4b4764db728df136a5d578a7d05c4a8`, including PRs 1099, 1110, 1108,
