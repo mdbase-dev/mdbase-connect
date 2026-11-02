@@ -231,11 +231,11 @@ cold/browser/native consumer gates. `sdkPublication.ready` records source-build
 qualification; it never substitutes for staging acceptance, production
 verification or unchanged production trust.
 
-The application pin is 3,721,164 bytes, SHA-256
-`ea684993f7b777642dda9a3287ac5a51928d68fce5f9146298fd4ce5afd554c5`,
+The application pin is 3,721,295 bytes, SHA-256
+`57513f7c4be65621d8f56c187b5f01e7db55549cc073b27d3838160fc53afa9a`,
 built with Rust 1.94.0 and the locked Binaryen optimizer from the runtime inputs
-at `d48907982823cd8462b200cb2c5b8667753da916`, including PRs 1099, 1110, 1108
-and 1100 (beta.149 shipped 3,720,400 bytes, `643eef62…`, from `e161f426`). The build uses
+at `25ec1bb5e4b4764db728df136a5d578a7d05c4a8`, including PRs 1099, 1110, 1108,
+1100 and 1119 (beta.149 shipped 3,720,400 bytes, `643eef62…`, from `e161f426`). The build uses
 the SDK publication workflow's canonical source and Cargo path remaps. Qualification
 includes canonical verification of all three trust assets, the actual-WASM
 SQLite/backfill smokes and cold installs/typechecks of all three packed variants.
