@@ -313,6 +313,7 @@ async fn unsent_mirror_edits_are_captured_at_takeover_and_imported_across_a_cras
             account_moved: true,
             drain: Duration::ZERO,
             now: "2026-10-18T09:00:00Z".into(),
+            registered: Vec::new(),
         },
     )
     .unwrap();
