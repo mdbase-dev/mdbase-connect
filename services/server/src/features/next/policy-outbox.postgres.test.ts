@@ -516,8 +516,8 @@ describePostgres("mdbase-next policy outbox", () => {
       await globalEntered;
       const grant = randomUUID(), installation = randomUUID();
       await database.db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1::uuid,$1::text,'Fixture','https://fixture.example','[]')",[grant]);
-      await database.db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,operations,scope,file_capability,application_installation_id,application_authorization,activated_at)
-        VALUES($1,$2,$1,$3,$4::jsonb,'{"access":"full_collection","contracts":[]}',
+      await database.db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,next_collection_sync,operations,scope,file_capability,application_installation_id,application_authorization,activated_at)
+        VALUES($1,$2,$1,$3,'private',$4::jsonb,'{"access":"full_collection","contracts":[]}',
           '{"kind":"files","protocol_version":1,"actions":["list","read"],"scope":{"kind":"collection"}}',$5,
           '{"binding":{"protocol_version":4,"application_declaration_id":"dev.mdbase.fixture","contracts":{"semantic_capabilities":2}}}',now())`,
         [grant,owner,collection,JSON.stringify(capabilityOperations("collection.read")),installation]);

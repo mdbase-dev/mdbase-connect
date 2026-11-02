@@ -96,6 +96,18 @@ describePg("collection mode capability floor and token drain", () => {
     return app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode/${f.request}/prepare`,headers:f.headers,
       payload:{device_id:f.a,challenge:issued.challenge,sig:hex(sign(null,digest,f.key)),epoch:"1",seq:String(head.seq),chain:hex(head.chain),members}});
   }
+  /** An activated app grant on the collection, approved for `sync`, with a log binding and a token. */
+  async function appGrant(f: Fixture, sync: "private"|"cloud_copy") {
+    const grant=randomUUID(),logGrant=randomUUID();
+    await db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1::uuid,$1::text,'Notes','https://notes.example','[]')",[grant]);
+    await db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,next_collection_sync,operations,scope,application_installation_id,application_authorization,activated_at)
+      VALUES($1,$2,$1,$3,$4,'["read"]','{"access":"full_collection","contracts":[]}','installation-1','{"binding":{"protocol_version":4}}',now())`,[grant,f.user,f.collection,sync]);
+    await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$2,$3,$4)",[grant,f.collection,logGrant,Buffer.alloc(32)]);
+    await db.query("INSERT INTO access_tokens(id,token_hash,grant_id,expires_at) VALUES($1,$2,$3,now()+interval '1 hour')",[randomUUID(),tokenHash(randomUUID()),grant]);
+    const revocations=async()=>(await db.query<{id:string;state:string|null}>(`SELECT o.id,b.state FROM next_policy_outbox o LEFT JOIN next_policy_batches b ON b.id=o.batch_id
+      WHERE o.collection_id=$1 AND o.ops->'ops' @> $2::jsonb`,[f.collection,JSON.stringify([{op:"grant-revoke",grant:logGrant}])])).rows;
+    return {grant,logGrant,revocations};
+  }
   const floor = async (f: Fixture) => (await db.query<{mode_floor_raised_at:Date|null}>("SELECT mode_floor_raised_at FROM next_collections WHERE collection_id=$1",[f.collection])).rows[0].mode_floor_raised_at;
 
   it("refuses the older-writer race at arm: names offline/unadvertised B and publishes no switch", async () => {
@@ -191,6 +203,31 @@ describePg("collection mode capability floor and token drain", () => {
     expect((await mode()).change).toBeNull();
   });
 
+  it("revokes cloud-copy app grants in the log when the collection becomes Private, once across retries", async()=>{
+    const f=await fixture();
+    const {grant,revocations}=await appGrant(f,"cloud_copy");
+    // Publishing the switch does not yet change the collection's mode: the grant stands.
+    await prepare(f);now+=LOG_TOKEN_LIFETIME_MS;await prepare(f);
+    expect((await db.query("SELECT revoked_at FROM grants WHERE id=$1",[grant])).rows[0].revoked_at).toBeNull();
+    expect(await revocations()).toEqual([]);
+    const url=`/v1/next/collections/${f.collection}/mode/${f.request}/abandon`;
+    expect((await app.inject({method:"POST",url,headers:f.otherHeaders})).statusCode).toBe(200);
+    // Leaving cloud copy revokes the grant with its tokens, and queues its log revocation.
+    const row=(await db.query("SELECT revoked_at,reauthorization_reason FROM grants WHERE id=$1",[grant])).rows[0];
+    expect(row.revoked_at).not.toBeNull();expect(row.reauthorization_reason).toBe("collection_mode_changed");
+    expect((await db.query("SELECT revoked_at FROM access_tokens WHERE grant_id=$1",[grant])).rows[0].revoked_at).not.toBeNull();
+    expect((await db.query("SELECT active FROM next_grant_bindings WHERE grant_id=$1",[grant])).rows[0].active).toBe(false);
+    const [queued]=await revocations();expect(queued).toMatchObject({state:null});
+    // The emitter appends it to the log, where the hosted replica reads it.
+    const head=await log.head(f.collection);
+    await emitter.publishCommitted(f.collection);
+    expect(await revocations()).toEqual([{id:queued!.id,state:"appended"}]);
+    expect((await log.head(f.collection)).seq).toBe(head.seq+1);
+    // A retried abandon is idempotent and queues nothing more.
+    expect((await app.inject({method:"POST",url,headers:f.otherHeaders})).json().phase).toBe("abandoned");
+    expect(await revocations()).toHaveLength(1);
+  });
+
   it.each(["before-effect", "lost-ack", "wrong-device", "wrong-challenge", "service-unready"])("service %s never completes early; both directions resume exact receipts after restart", async failure => {
     const f=await fixture();await prepare(f);now+=LOG_TOKEN_LIFETIME_MS;
     expect((await prepare(f)).json().phase).toBe("finishing");
@@ -232,6 +269,9 @@ describePg("collection mode capability floor and token drain", () => {
 
     // Reverse direction: lost readiness must retain the exact generated service
     // identities and publication, not remint replacements on controller restart.
+    // A Private app grant approved meanwhile must not outlive the switch: its log
+    // revocation is queued ahead of the cloud-copy collection state.
+    const privateGrant=await appGrant(f,"private");
     target="cloud_copy";request=randomUUID();uncertain=true;let factories=0;
     const ready=new Set<string>();
     serviceFetch=async(input,init)=>{
@@ -253,6 +293,10 @@ describePg("collection mode capability floor and token drain", () => {
     const digest=collectionModeDigest({challenge:Buffer.from(issued.challenge,"hex"),connector:f.connector,device:f.a,collection:f.collection,request,target,finish:false,epoch:2n,seq:BigInt(proofHead.seq),chain:proofHead.chain,members:[]});
     const published=await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode/${request}/prepare`,headers:f.headers,payload:{device_id:f.a,challenge:issued.challenge,sig:hex(sign(null,digest,f.key)),epoch:"2",seq:String(proofHead.seq),chain:hex(proofHead.chain),members:[]}});
     expect(published.statusCode,published.body).toBe(202);proofHead=await log.head(f.collection);
+    const [revoked]=await privateGrant.revocations();
+    const modeOutbox=(await db.query("SELECT policy_outbox_id FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2",[f.collection,request])).rows[0].policy_outbox_id;
+    expect(revoked).toMatchObject({state:"appended"});expect(BigInt(revoked!.id)).toBeLessThan(BigInt(modeOutbox));
+    expect((await db.query("SELECT revoked_at FROM grants WHERE id=$1",[privateGrant.grant])).rows[0].revoked_at).not.toBeNull();
     const identities=(await db.query("SELECT device_id FROM next_service_devices WHERE collection_id=$1 ORDER BY device_id",[f.collection])).rows;
     expect(factories).toBe(2);const unready=await finish();expect(unready.statusCode,unready.body).toBeGreaterThanOrEqual(500);
     if(failure==="service-unready")expect(unready.statusCode,unready.body).toBe(503);

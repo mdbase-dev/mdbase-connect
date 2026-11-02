@@ -70,6 +70,7 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
       local_id: string | null;
       hosted_collection_id: string | null;
       next_collection_id: string | null;
+      next_collection_sync: "private" | "cloud_copy" | null;
       connector_id: string | null;
       operations: unknown;
       notification_criteria: NotificationCriterion[] | null;
@@ -79,7 +80,7 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
       next_sync: "private" | "cloud_copy" | null;
     }>(
       `SELECT g.id, g.user_id, g.application_id, g.application_origin,
-              g.collection_id, c.local_id, g.hosted_collection_id, g.next_collection_id, c.connector_id,
+              g.collection_id, c.local_id, g.hosted_collection_id, g.next_collection_id, g.next_collection_sync, c.connector_id,
               g.operations, g.notification_criteria, g.revoked_at,
               g.activated_at, u.suspended_at, nc.sync AS next_sync
        FROM grants g
@@ -96,9 +97,11 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
     // Fail closed for private sync (end-to-end): this resolver can't check the
     // device approval that makes such a grant effective (policy.md §5.1), so it
     // reports the grant unusable. The next-aware resolver replaces this.
-    // A native grant targets a Private collection by definition, even after the
-    // collection row changed: it is never usable here.
-    const e2e = row.next_sync === "private" || row.next_collection_id !== null;
+    // A native grant approved for a Private collection stays end-to-end even after
+    // the collection row changed: it is never usable here. A native cloud-copy
+    // grant is a cloud copy only while the collection still is one.
+    const e2e = row.next_sync === "private" || row.next_collection_sync === "private";
+    const nativeCloudCopy = row.next_collection_sync === "cloud_copy";
     return {
       grantId: row.id,
       userId: row.user_id,
@@ -107,8 +110,8 @@ export const legacyTimerGrantResolver: TimerGrantResolver = {
       collectionIds: [row.collection_id, row.local_id, row.hosted_collection_id, row.next_collection_id]
         .filter((id): id is string => id !== null),
       connectorId: row.connector_id,
-      state: e2e ? "e2e" : row.hosted_collection_id ? "cloud_copy" : "local",
-      usable: !e2e && !row.revoked_at && row.activated_at !== null && !row.suspended_at,
+      state: e2e ? "e2e" : row.hosted_collection_id || nativeCloudCopy ? "cloud_copy" : "local",
+      usable: !e2e && (!nativeCloudCopy || row.next_sync === "cloud_copy") && !row.revoked_at && row.activated_at !== null && !row.suspended_at,
       operations: new Set(Array.isArray(row.operations)
         ? row.operations.filter((op): op is string => typeof op === "string")
         : []),

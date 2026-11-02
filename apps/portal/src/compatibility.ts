@@ -28,7 +28,8 @@ export function collectionCompatibility(
       detail: collection.authorization.detail
     };
   }
-  if (request.requirements.collection_kind === "hosted" && collection.kind !== "hosted") {
+  // A cloud copy is a collection hosted by mdbase.
+  if (request.requirements.collection_kind === "hosted" && collection.kind !== "hosted" && collection.kind !== "cloud_copy") {
     return {
       compatible: false,
       code: "collection_kind",
@@ -44,8 +45,9 @@ export function collectionCompatibility(
       detail: t(i18n)`${collection.display_name} uses mdbase ${collection.spec_version}. Upgrade a copy to mdbase 0.3 and verify it before approving access; the original can stay untouched.`
     };
   }
-  // A Private collection's types are end-to-end encrypted; the app checks them once connected.
-  if (collection.kind === "private") return { compatible: true };
+  // A synced collection's types are not read at consent (a Private one's are
+  // end-to-end encrypted); the app checks them once connected.
+  if (collection.kind === "private" || collection.kind === "cloud_copy") return { compatible: true };
   const unavailable = request.requirements.contracts.filter((requirement) =>
     !hasContract(collection.contracts, requirement)
     && !request.provisions.type_packs.some((provision) =>

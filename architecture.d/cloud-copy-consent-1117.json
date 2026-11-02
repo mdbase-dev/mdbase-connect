@@ -1,0 +1,6 @@
+{
+  "reason": "Native consent now covers cloud copies as well as Private collections: the approval service exports the consented mode type, used by token and people routes to check a grant's recorded mode, and the reader of a collection's current mode, used by the approve route.",
+  "growth": {
+    "typeScriptExportDeclarations": 2
+  }
+}

@@ -107,7 +107,7 @@ export interface ApplicationRequirements {
    * diagnosis and reauthorization.
    */
   access?: "contract" | "full_collection";
-  /** Restrict authorization to durable provider-backed collections. */
+  /** Restrict authorization to durable provider-backed collections: hosted collections and cloud copies. */
   collection_kind?: "hosted";
   /** Explicit identity consent. Omission discloses no account metadata. */
   people?: import("./people.js").ApplicationPeopleRequirement;

@@ -11,10 +11,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { LocalRelayBroker, type RelayBrokerReply } from "../../relay-broker.js";
 import { tokenHash } from "../../security.js";
-import { grantApprovalTerms } from "./grant-approval.js";
+import { grantApprovalTerms, grantDeviceApproval } from "./grant-approval.js";
 import { nativeAdmission } from "./native-grant-target.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
+import { hostedRouteTarget } from "./hosted-route-target.js";
+import { parseServiceDevice, storeServiceDevice } from "./service-devices.js";
+import { SERVICE_ACCOUNT } from "./bootstrap-common.js";
 import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
 import { registerConnectorGrantRoutes } from "../grants/connector-routes.js";
 import { registerPeopleRoutes } from "../account/people-routes.js";
@@ -39,10 +42,14 @@ describePostgres("Private native collection grants", () => {
   let db: DatabasePool;
   let schema: string;
   const app = Fastify();
+  /** Route discovery with a hosted replica origin configured. */
+  const hostedApp = Fastify();
   const portal = Fastify();
   const broker = new LocalRelayBroker();
   const pushedPolicies: Array<{ connector: string; grants: string[] }> = [];
   let acknowledgePolicy = async () => {};
+  /** What each of the account's computers offers at consent; throwing means offline. */
+  let offers = async (_connector: string): Promise<{ paused: boolean; collections: Array<Record<string, unknown>> }> => ({ paused: false, collections: [] });
 
   beforeAll(async () => {
     const url = new URL(testUrl!);
@@ -53,12 +60,13 @@ describePostgres("Private native collection grants", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerNextRouteRoutes(app, { db, publicUrl: "https://connect.example", broker });
+    registerNextRouteRoutes(hostedApp, { db, publicUrl: "https://connect.example", broker, hostedClientUrl: "https://hosted.example" });
     registerConnectorGrantRoutes(app, { db, relay: { pushPolicy: async () => {} } as unknown as RelayHub });
     registerPeopleRoutes(app, { db, issuer: "https://connect.example", publicUrl: "https://connect.example" });
     await portal.register(cookie);
     registerErrorHandler(portal);
     const relay = {
-      registerAuthorizationHandler: () => {}, authorizationOffers: async () => ({ paused: false, collections: [] }),
+      registerAuthorizationHandler: () => {}, authorizationOffers: async (connector: string) => offers(connector),
       pushPolicy: async (connector: string) => {
         const snapshot = await buildPolicySnapshot(db, connector, 55_000, undefined, () => true, "lease_v1", true, true, true) as LeasePolicySnapshot;
         pushedPolicies.push({ connector, grants: snapshot.grants.map(g => String(g.id)) });
@@ -70,6 +78,7 @@ describePostgres("Private native collection grants", () => {
 
   afterAll(async () => {
     await app.close();
+    await hostedApp.close();
     await portal.close();
     await broker.close();
     await db?.end();
@@ -117,15 +126,15 @@ describePostgres("Private native collection grants", () => {
   }
 
   /** An activated, keyed native grant with a published binding and an access token. */
-  async function nativeGrant(account: string, collection: string) {
+  async function nativeGrant(account: string, collection: string, sync: "private" | "cloud_copy" = "private") {
     const grant = randomUUID();
     const clientPk = randomBytes(32);
     await db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1::uuid,$1::text,'Journal','https://journal.example','[]')", [grant]);
-    await db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,operations,scope,file_capability,application_installation_id,application_authorization,activated_at)
-      VALUES($1,$2,$1,$3,$4::jsonb,'{"access":"full_collection","contracts":[]}',
+    await db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,next_collection_sync,operations,scope,file_capability,application_installation_id,application_authorization,activated_at)
+      VALUES($1,$2,$1,$3,$5,$4::jsonb,'{"access":"full_collection","contracts":[]}',
       '{"kind":"files","protocol_version":1,"actions":["list","read"],"scope":{"kind":"collection"}}','installation-1',
       '{"binding":{"protocol_version":4,"application_declaration_id":"dev.mdbase.journal","contracts":{"semantic_capabilities":2}}}',now())`,
-    [grant, account, collection, JSON.stringify(OPERATIONS)]);
+    [grant, account, collection, JSON.stringify(OPERATIONS), sync]);
     await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [grant, clientPk]);
     const logGrant = randomUUID();
     await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$2,$3,$4)", [grant, collection, logGrant, Buffer.alloc(32)]);
@@ -173,7 +182,12 @@ describePostgres("Private native collection grants", () => {
     await db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1::uuid,$1::text,'App','https://app.example','[]')", [owner]);
     const insert = (target: string) => db.query(`INSERT INTO grants(id,user_id,application_id,${target},operations,application_installation_id,application_authorization)
       VALUES($1,$2,$2,$3,'["read"]','i','{"binding":{"protocol_version":4}}')`, [randomUUID(), owner, collection]);
-    await expect(insert("next_collection_id")).resolves.toBeDefined();
+    // A native grant records the mode it was approved for, and only a native grant has one.
+    await expect(insert("next_collection_id")).rejects.toThrow(/grants_next_collection_sync_target/);
+    await expect(db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,next_collection_sync,operations,application_installation_id,application_authorization)
+      VALUES($1,$2,$2,$3,'private','["read"]','i','{"binding":{"protocol_version":4}}')`, [randomUUID(), owner, collection])).resolves.toBeDefined();
+    await expect(db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,next_collection_sync,operations,application_installation_id,application_authorization)
+      VALUES($1,$2,$2,$3,'shared','["read"]','i','{"binding":{"protocol_version":4}}')`, [randomUUID(), owner, collection])).rejects.toThrow(/grants_next_collection_sync_target/);
     await expect(db.query(`INSERT INTO grants(id,user_id,application_id,operations) VALUES($1,$2,$2,'["read"]')`, [randomUUID(), owner])).rejects.toThrow(/grants_collection_target_check/);
     // A native grant always carries a signed application authorization.
     await expect(db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,operations) VALUES($1,$2,$2,$3,'["read"]')`,
@@ -393,7 +407,7 @@ describePostgres("Private native collection grants", () => {
     const consent=await (await webApp())(owner,collection);
     // Interleaving: canonical consent has COMMITTED on another request, but its
     // courtesy push has not run. The original status poll can already redirect.
-    expect(await approveNativeAuthorization(db,{requestId:consent.id,userId:owner,collectionId:collection,operations:OPERATIONS as never,fileActions:["list","read"]})).toBe(true);
+    expect(await approveNativeAuthorization(db,{requestId:consent.id,userId:owner,collectionId:collection,sync:"private",operations:OPERATIONS as never,fileActions:["list","read"]})).toBe(true);
     const status=await consent.status();expect(status.statusCode,status.body).toBe(200);
     const code=new URL(status.json().redirect_uri).searchParams.get("code")!;
     const grant=(await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[consent.id])).rows[0].grant_id;
@@ -467,8 +481,8 @@ describePostgres("Private native collection grants", () => {
     expect((await (await request(owner, collection)).approve()).statusCode).toBe(200);
     expect((await db.query("SELECT id FROM grants WHERE next_collection_id = $1 AND revoked_at IS NULL", [collection])).rows).toHaveLength(1);
     const live = (await db.query("SELECT * FROM grants WHERE next_collection_id = $1 AND revoked_at IS NULL", [collection])).rows[0];
-    await expect(db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,operations,application_installation_id,application_authorization)
-      VALUES($1,$2,$3,$4,'["read"]',$5,$6::jsonb)`, [randomUUID(), owner, live.application_id, collection, live.application_installation_id, live.application_authorization]))
+    await expect(db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,next_collection_sync,operations,application_installation_id,application_authorization)
+      VALUES($1,$2,$3,$4,'private','["read"]',$5,$6::jsonb)`, [randomUUID(), owner, live.application_id, collection, live.application_installation_id, live.application_authorization]))
       .rejects.toThrow(/grants_active_next_application_installation_idx/);
   });
 
@@ -510,5 +524,270 @@ describePostgres("Private native collection grants", () => {
     for (const id of [g.grant, g.logGrant]) {
       expect(await legacyTimerGrantResolver.resolve(db, id)).toMatchObject({ grantId: g.grant, state: "e2e", usable: false, collectionIds: [collection] });
     }
+  });
+
+  /** A cloud-copy collection owned by `owner`, enrolling `devices` (and, with
+   * `hosted`, its hosted replica's service device), appended to the log. */
+  async function cloudCopyCollection(owner: string, devices: Device[], hosted = false) {
+    const collection = randomUUID();
+    const service = hosted ? parseServiceDevice({ kind: "hosted", device_id: randomUUID(), sign_pk: randomBytes(32).toString("hex"),
+      kem_pk: randomBytes(32).toString("hex"), noise_pk: randomBytes(32).toString("hex"), wrapped_keys: Buffer.from("synthetic-hosted").toString("base64"),
+      kms_key_arn: "arn:aws:kms:eu-west-1:000000000000:key/hosted" }) : null;
+    await registerNextCollection(db, { collectionId: collection, ownerUserId: owner, runtime: "next", sync: "cloud_copy", rootKeyId: ROOT, displayName: "Notes",
+      ops: [{ op: "genesis", owner, root: ROOT, state: "cloud-copy" }, { op: "member-set", account: owner, role: "owner" }, ...devices.map(enrol),
+        ...(service ? [{ op: "device-enrol" as const, device: service.device_id, account: SERVICE_ACCOUNT, kind: "hosted" as const,
+          signPublicKey: service.sign_pk, kemPublicKey: service.kem_pk, noisePublicKey: service.noise_pk }] : [])] });
+    if (service) await storeServiceDevice(db, collection, service);
+    await appendPending(collection);
+    return collection;
+  }
+  const noOffers = offers;
+  const hostedOrigin = "wss://hosted.example";
+  async function exchange(consent: Awaited<ReturnType<Awaited<ReturnType<typeof webApp>>>>) {
+    const status = await consent.status();
+    expect(status.statusCode, status.body).toBe(200);
+    const tokens = await consent.exchange(new URL(status.json().redirect_uri).searchParams.get("code")!);
+    expect(tokens.statusCode, tokens.body).toBe(200);
+    return tokens.json().access_token as string;
+  }
+
+  it("offers a cloud copy at consent while the owner's computer is offline, and grants it to the hosted replica and the owner's computers", async () => {
+    const owner = await user(), desktop = await device(owner), collection = await cloudCopyCollection(owner, [desktop], true);
+    offers = async () => { throw new Error("offline"); };
+    try {
+      const consent = await (await webApp())(owner, collection);
+      const view = await consent.view();
+      expect(view.statusCode, view.body).toBe(200);
+      expect(view.json().unavailable_connectors).toEqual([expect.objectContaining({ connector_id: desktop.connector, reason: "offline" })]);
+      expect(view.json().collections).toEqual([expect.objectContaining({ id: collection, kind: "cloud_copy", connector_name: "Cloud copy",
+        display_name: "Notes", contracts: [], authorization: expect.objectContaining({ available: true }) })]);
+
+      const before = pushedPolicies.length;
+      const approved = await consent.approve();
+      expect(approved.statusCode, approved.body).toBe(200);
+      const [grant] = (await db.query("SELECT g.id, g.next_collection_sync, b.log_grant_id, b.active FROM grants g JOIN next_grant_bindings b ON b.grant_id = g.id WHERE g.next_collection_id = $1", [collection])).rows;
+      expect(grant).toMatchObject({ next_collection_sync: "cloud_copy", active: true });
+      // The grant is published to the collection's log for the hosted replica.
+      expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb", [collection,
+        JSON.stringify([{ op: "grant", grant: grant.log_grant_id }])])).rows).toHaveLength(1);
+      // No device approval is needed. The owner's computer also serves the grant
+      // under the log's grant, so it gets the grant in its policy feed.
+      expect(await grantDeviceApproval(db, grant.id)).toEqual({ required: false, approved: false, capabilities: null });
+      const snapshot = await buildPolicySnapshot(db, desktop.connector, 55_000, undefined, () => true, "lease_v1", true, true, true) as LeasePolicySnapshot;
+      expect(snapshot.grants.map(row => String(row.id))).toContain(grant.log_grant_id);
+      expect(pushedPolicies.slice(before)).toEqual([{ connector: desktop.connector, grants: [grant.log_grant_id] }]);
+
+      const token = await exchange(consent);
+      const hosted = await hostedRouteTarget(db, tokenHash(token), collection, hostedOrigin);
+      expect(hosted?.grant).toMatchObject({ grant_id: grant.log_grant_id, authorization_grant: grant.id, policy_active: true, has_client_key: true });
+      // The hosted replica comes first and works with the computer offline; the
+      // computer is a relay target behind it.
+      const route = await hostedApp.inject({ method: "GET", url: `/v1/next/collections/${collection}/route`, headers: { authorization: `Bearer ${token}` } });
+      expect(route.statusCode, route.body).toBe(200);
+      expect(route.json()).toMatchObject({ grant: grant.log_grant_id, availability: { state: "available" } });
+      expect(route.json().targets.map((t: { kind: string; device: string; online: boolean }) => [t.kind, t.device, t.online]))
+        .toEqual([["hosted", expect.any(String), false], ["desktop", desktop.id, false]]);
+      expect(await nativeAdmission(db, tokenHash(token), collection, grant.log_grant_id, desktop.id)).toBe(desktop.connector);
+      expect(await legacyTimerGrantResolver.resolve(db, grant.id)).toMatchObject({ state: "cloud_copy", usable: true });
+    } finally { offers = noOffers; }
+  });
+
+  it("offers a cloud copy once while its owner's computer is online", async () => {
+    const owner = await user(), desktop = await device(owner), collection = await cloudCopyCollection(owner, [desktop]);
+    // The computer also holds the collection and would offer it as a local one.
+    await db.query(`INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,present,enabled,authority_state)
+      VALUES($1,$2,$3,$4,'Notes','0.3.0',true,true,'active')`, [randomUUID(), owner, desktop.connector, collection]);
+    offers = async () => ({ paused: false, collections: [{ collection_id: collection, display_name: "Notes", spec_version: "0.3.0", contracts: [], types: [] }] });
+    try {
+      const view = await (await (await webApp())(owner, collection)).view();
+      expect(view.statusCode, view.body).toBe(200);
+      expect(view.json().unavailable_connectors).toEqual([]);
+      expect(view.json().collections).toEqual([expect.objectContaining({ id: collection, kind: "cloud_copy" })]);
+    } finally { offers = noOffers; }
+  });
+
+  it("keeps Private consent served by the account's computer beside a cloud copy", async () => {
+    const owner = await user(), desktop = await device(owner);
+    const journal = await privateCollection(owner, [desktop]), notes = await cloudCopyCollection(owner, [desktop]);
+    const request = await webApp();
+    const view = await (await request(owner, journal)).view();
+    expect(view.json().collections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: journal, kind: "private", connector_name: "Private collection" }),
+      expect.objectContaining({ id: notes, kind: "cloud_copy", connector_name: "Cloud copy" })]));
+    expect(view.json().collections).toHaveLength(2);
+
+    const consent = await request(owner, journal), before = pushedPolicies.length;
+    expect((await consent.approve()).statusCode).toBe(200);
+    const [grant] = (await db.query("SELECT g.id, g.next_collection_sync, b.log_grant_id FROM grants g JOIN next_grant_bindings b ON b.grant_id = g.id WHERE g.next_collection_id = $1", [journal])).rows;
+    expect(grant.next_collection_sync).toBe("private");
+    expect(await grantDeviceApproval(db, grant.id)).toMatchObject({ required: true });
+    expect(pushedPolicies.slice(before)).toEqual([{ connector: desktop.connector, grants: [grant.log_grant_id] }]);
+    // A Private grant is never routed to a hosted replica.
+    const token = await exchange(consent);
+    expect(await hostedRouteTarget(db, tokenHash(token), journal, hostedOrigin)).toBeNull();
+  });
+
+  it("offers a cloud copy only to accounts that may authorize applications on it", async () => {
+    const owner = await user(), member = await user(), collection = await cloudCopyCollection(owner, []);
+    const membership = await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner, userId: member, role: "viewer" });
+    await appendPending(collection);
+    const request = await webApp();
+    const allowed = await (await request(member, collection)).view();
+    expect(allowed.json().collections, allowed.body).toEqual([expect.objectContaining({ id: collection, kind: "cloud_copy" })]);
+
+    await db.query("UPDATE collection_membership_policies SET actions = actions - 'application.authorize' WHERE membership_id = $1", [membership.membershipId]);
+    const consent = await request(member, collection);
+    const view = await consent.view();
+    expect(view.statusCode, view.body).toBe(200);
+    expect(view.json().collections).toEqual([]);
+    expect((await consent.approve()).statusCode).toBe(403);
+    expect((await db.query("SELECT 1 FROM grants WHERE next_collection_id = $1", [collection])).rows).toHaveLength(0);
+    // Nor to someone who is not a member at all.
+    expect((await (await request(await user(), collection)).view()).json().collections).toEqual([]);
+  });
+
+  /** The grant-revoke ops queued for `logGrant`, with whether each has been batched. */
+  const revocations = async (collection: string, logGrant: string) => (await db.query<{ id: string; batched: boolean }>(
+    "SELECT id, batch_id IS NOT NULL AS batched FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb ORDER BY id",
+    [collection, JSON.stringify([{ op: "grant-revoke", grant: logGrant }])])).rows;
+  const grantState = async (grant: string) => (await db.query(
+    `SELECT g.revoked_at IS NOT NULL AS revoked, g.reauthorization_reason, b.active AS binding_active,
+            (SELECT bool_and(t.revoked_at IS NOT NULL) FROM access_tokens t WHERE t.grant_id = g.id) AS tokens_revoked
+     FROM grants g JOIN next_grant_bindings b ON b.grant_id = g.id WHERE g.id = $1`, [grant])).rows[0];
+  const setMode = (collection: string, sync: "private" | "cloud_copy", client: { query: DatabasePool["query"] } = db) =>
+    client.query("UPDATE next_collections SET sync = $2 WHERE collection_id = $1", [collection, sync]);
+
+  it("revokes, in the collection's log, the grants approved for a mode the collection left", async () => {
+    const owner = await user(), desktop = await device(owner), collection = await cloudCopyCollection(owner, [desktop]);
+    const copy = await nativeGrant(owner, collection, "cloud_copy");
+    await setMode(collection, "private");
+    expect(await grantState(copy.grant)).toEqual({ revoked: true, reauthorization_reason: "collection_mode_changed", binding_active: false, tokens_revoked: true });
+    // The revocation goes to the log through the policy outbox, so the hosted
+    // replica and the computers stop admitting the grant, not only this server.
+    expect(await revocations(collection, copy.logGrant)).toEqual([{ id: expect.any(String), batched: false }]);
+    expect(await hostedRouteTarget(db, tokenHash(copy.token), collection, hostedOrigin)).toBeNull();
+    expect((await copy.route()).statusCode).toBe(401);
+
+    // Back to a cloud copy: the Private grants approved meanwhile go the same way,
+    // and the earlier revocation is not queued again.
+    const journal = await nativeGrant(owner, collection, "private");
+    await setMode(collection, "cloud_copy");
+    expect(await grantState(journal.grant)).toMatchObject({ revoked: true, binding_active: false });
+    expect(await revocations(collection, journal.logGrant)).toHaveLength(1);
+    expect(await revocations(collection, copy.logGrant)).toHaveLength(1);
+    // A grant approved for the collection's current mode is kept.
+    const current = await nativeGrant(owner, collection, "cloud_copy");
+    await db.query("UPDATE next_collections SET sync = sync, display_name = 'Renamed' WHERE collection_id = $1", [collection]);
+    expect(await grantState(current.grant)).toMatchObject({ revoked: false, binding_active: true });
+    expect(await revocations(collection, current.logGrant)).toEqual([]);
+  });
+
+  it("revokes on a mode change exactly once across a crash and a retry", async () => {
+    const owner = await user(), collection = await cloudCopyCollection(owner, []);
+    const copy = await nativeGrant(owner, collection, "cloud_copy");
+    // A crash before the mode change commits leaves the grant and the log as they were.
+    const crashed = await db.connect();
+    try {
+      await crashed.query("BEGIN");
+      await setMode(collection, "private", crashed);
+      expect((await crashed.query("SELECT revoked_at IS NOT NULL AS revoked FROM grants WHERE id = $1", [copy.grant])).rows[0].revoked).toBe(true);
+      await crashed.query("ROLLBACK");
+    } finally { crashed.release(); }
+    expect(await grantState(copy.grant)).toMatchObject({ revoked: false, binding_active: true });
+    expect(await revocations(collection, copy.logGrant)).toEqual([]);
+    expect(await hostedRouteTarget(db, tokenHash(copy.token), collection, hostedOrigin)).not.toBeNull();
+
+    // The retried change revokes once; replaying it, or the emitter publishing
+    // after a crash that followed the commit, queues nothing more.
+    await setMode(collection, "private");
+    await setMode(collection, "private");
+    const [queued] = await revocations(collection, copy.logGrant);
+    expect(await revocations(collection, copy.logGrant)).toEqual([{ id: queued!.id, batched: false }]);
+    await appendPending(collection);
+    expect(await revocations(collection, copy.logGrant)).toEqual([{ id: queued!.id, batched: true }]);
+    await setMode(collection, "cloud_copy");
+    await setMode(collection, "private");
+    expect(await revocations(collection, copy.logGrant)).toHaveLength(1);
+  });
+
+  it("never serves a grant in a mode other than the one it was approved for, even if it outlived the change", async () => {
+    const owner = await user(), desktop = await device(owner), collection = await cloudCopyCollection(owner, [desktop]);
+    const g = await nativeGrant(owner, collection, "cloud_copy");
+    expect(await hostedRouteTarget(db, tokenHash(g.token), collection, hostedOrigin)).not.toBeNull();
+    expect(await nativeAdmission(db, tokenHash(g.token), collection, g.logGrant, desktop.id)).toBe(desktop.connector);
+    expect(await g.list()).toEqual([expect.not.objectContaining({ availability: expect.anything() })]);
+    // Defence in depth behind the revocation: every serving path checks the mode.
+    await db.query("ALTER TABLE next_collections DISABLE TRIGGER next_collection_mode_revokes_grants");
+    try { await setMode(collection, "private"); }
+    finally { await db.query("ALTER TABLE next_collections ENABLE TRIGGER next_collection_mode_revokes_grants"); }
+    expect(await grantState(g.grant)).toMatchObject({ revoked: false });
+    expect(await hostedRouteTarget(db, tokenHash(g.token), collection, hostedOrigin)).toBeNull();
+    expect(await nativeAdmission(db, tokenHash(g.token), collection, g.logGrant, desktop.id)).toBeNull();
+    const snapshot = await buildPolicySnapshot(db, desktop.connector, 55_000, undefined, () => true, "lease_v1", true, true, true) as LeasePolicySnapshot;
+    expect(snapshot.grants.map(row => String(row.id))).not.toContain(g.logGrant);
+    expect((await g.route()).json()).toMatchObject({ targets: [], availability: { state: "unavailable", reason: "sync_required" } });
+    expect(await g.list()).toEqual([expect.objectContaining({ collection, availability: { state: "unavailable", reason: "sync_required" } })]);
+    expect(await grantDeviceApproval(db, g.grant)).toMatchObject({ required: true, approved: false });
+    expect(await legacyTimerGrantResolver.resolve(db, g.grant)).toMatchObject({ state: "e2e", usable: false });
+
+    // Likewise a Private grant on a collection that became a cloud copy is neither
+    // hosted-routed, fed to the computer nor admitted through the relay.
+    const journal = await privateCollection(owner, [desktop]);
+    const p = await nativeGrant(owner, journal, "private");
+    expect(await nativeAdmission(db, tokenHash(p.token), journal, p.logGrant, desktop.id)).toBe(desktop.connector);
+    await db.query("ALTER TABLE next_collections DISABLE TRIGGER next_collection_mode_revokes_grants");
+    try { await setMode(journal, "cloud_copy"); }
+    finally { await db.query("ALTER TABLE next_collections ENABLE TRIGGER next_collection_mode_revokes_grants"); }
+    expect(await nativeAdmission(db, tokenHash(p.token), journal, p.logGrant, desktop.id)).toBeNull();
+    expect(await hostedRouteTarget(db, tokenHash(p.token), journal, hostedOrigin)).toBeNull();
+    const fed = await buildPolicySnapshot(db, desktop.connector, 55_000, undefined, () => true, "lease_v1", true, true, true) as LeasePolicySnapshot;
+    expect(fed.grants.map(row => String(row.id))).not.toContain(p.logGrant);
+  });
+
+  it("routes a cloud copy to the owner's online computer through the relay, behind the hosted replica", async () => {
+    const owner = await user(), desktop = await device(owner), other = await device(await user());
+    const collection = await cloudCopyCollection(owner, [desktop], true);
+    const g = await nativeGrant(owner, collection, "cloud_copy");
+    const binding = await online(desktop);
+    try {
+      // Without a hosted replica configured, the computer alone serves it.
+      const direct = await g.route();
+      expect(direct.statusCode, direct.body).toBe(200);
+      expect(direct.json()).toMatchObject({ grant: g.logGrant, availability: { state: "available" },
+        targets: [expect.objectContaining({ kind: "desktop", device: desktop.id, online: true, relay_collection: collection })] });
+      const route = await hostedApp.inject({ method: "GET", url: `/v1/next/collections/${collection}/route`, headers: { authorization: `Bearer ${g.token}` } });
+      expect(route.json().targets.map((t: { kind: string; online: boolean }) => [t.kind, t.online])).toEqual([["hosted", false], ["desktop", true]]);
+    } finally { await binding.close(); }
+    // Only the granting account's enrolled devices are admitted.
+    expect(await nativeAdmission(db, tokenHash(g.token), collection, g.logGrant, desktop.id)).toBe(desktop.connector);
+    expect(await nativeAdmission(db, tokenHash(g.token), collection, g.logGrant, other.id)).toBeNull();
+    await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [g.grant]);
+    expect(await nativeAdmission(db, tokenHash(g.token), collection, g.logGrant, desktop.id)).toBeNull();
+  });
+
+  it("offers cloud copies, and only cloud copies, to an app that requires an mdbase cloud collection", async () => {
+    const owner = await user(), desktop = await device(owner);
+    const journal = await privateCollection(owner, [desktop]), notes = await cloudCopyCollection(owner, [desktop]);
+    const request = await webApp();
+    const hostedOnly = async (collection: string) => {
+      const consent = await request(owner, collection);
+      await db.query(`UPDATE applications SET requirements = requirements || '{"collection_kind":"hosted"}'::jsonb
+        WHERE id = (SELECT application_id FROM authorization_requests WHERE id = $1)`, [consent.id]);
+      return consent;
+    };
+    const consent = await hostedOnly(notes);
+    const view = await consent.view();
+    expect(view.statusCode, view.body).toBe(200);
+    expect(view.json().collections).toEqual([expect.objectContaining({ id: notes, kind: "cloud_copy" })]);
+    const approved = await consent.approve();
+    expect(approved.statusCode, approved.body).toBe(200);
+    expect((await db.query("SELECT next_collection_sync FROM grants WHERE next_collection_id = $1 AND revoked_at IS NULL", [notes])).rows)
+      .toEqual([{ next_collection_sync: "cloud_copy" }]);
+
+    // A Private collection never satisfies the requirement, even if named directly.
+    const refused = await (await hostedOnly(journal)).approve();
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toMatch(/requires an mdbase cloud collection/);
+    expect((await db.query("SELECT 1 FROM grants WHERE next_collection_id = $1", [journal])).rows).toHaveLength(0);
   });
 });

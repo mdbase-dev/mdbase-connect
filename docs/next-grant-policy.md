@@ -25,8 +25,16 @@ Neither side is expanded to match the other. Partial/v1 groups, unapproved file 
 
 Cloud-copy grants publish selected folders in `fileFolders`; private grants carry only `folderScoped: true`. Their folder names remain in sealed device approval. Narrowing or key/scope change invalidates prior private approval and requires approval of the fresh log identity.
 
-## Private collection grants
-A web application can be granted a Private native collection directly: `grants.next_collection_id` (migration 0073) is the grant's only target, and every grant names exactly one of `collection_id`, `hosted_collection_id` or `next_collection_id`. Consent lists the Private collections the user owns or is a current member of (`kind: "private"`); approval inserts the grant, copies the attested Noise key and queues the log grant in one transaction. Approving again from the same installation replaces the earlier grant.
+## Native collection grants (Private and cloud copy)
+A web application can be granted a synced native collection directly: `grants.next_collection_id` (migration 0073) is the grant's only target, and every grant names exactly one of `collection_id`, `hosted_collection_id` or `next_collection_id`. `grants.next_collection_sync` (migration 0095) records the mode the grant was approved for, `private` or `cloud_copy`, and is set exactly when `next_collection_id` is. Consent lists the native collections the user owns or is a current member of and may authorize applications on (`kind: "private"` or `kind: "cloud_copy"`), whether or not any computer is online; the local and hosted catalogs exclude runtime `next` collections, so none is listed twice. A cloud copy satisfies an application's `collection_kind: "hosted"` requirement, so such an application is offered hosted collections and cloud copies, never a Private collection. Approval reads the mode under the collection's authority lock, inserts the grant, copies the attested Noise key and queues the log grant in one transaction. Approving again from the same installation replaces the earlier grant.
+
+When a collection's sync mode changes, its native grants approved for another mode are revoked in the same transaction, with their tokens, and marked for reauthorization (`collection_mode_changed`). A database trigger on `next_collections.sync` (migration 0095) does this on every path that changes the mode; revoking queues each grant's log `grant-revoke` in the policy outbox (the migration 0057 hook), so the hosted replica and the devices stop admitting it as well. A switch to a cloud copy changes the mode before it queues the cloud-copy collection state, so the revocations reach the log first. A switch to Private changes the mode when it finishes or is abandoned. The trigger touches only unrevoked grants, so a retried or repeated change queues nothing twice, and a change that rolls back revokes nothing. A cancelled switch to a cloud copy does not restore the Private grants it revoked.
+
+As a second fence, a grant is served only while the collection is still in the mode it was approved for (token issuance, people metadata, route discovery, relay admission, the device feed and timers all check it); a grant that somehow outlived a change is `sync_required`. A Private grant keeps requiring a device approval whatever the collection's current mode.
+
+A cloud-copy grant is served by the collection's hosted replica: route discovery returns the hosted target first, as for a cloud copy reached through a legacy local or hosted grant, and it works with every computer offline. The granting account's enrolled desktop and CLI devices follow it as relay targets: the grant is in their policy feed, and the relay admits it on such a device under the same checks as a Private grant. No device approval is required.
+
+The rest of this section describes Private grants.
 
 The grant is an offer. The replica admits the app only under the first valid device-signed `grant_approval` for the log grant; the control plane never admits on the grant row alone. Desktops fetch what to show and sign from `GET /v1/next/grants/:grantId/terms` (an ordinary connector credential of a device of the granting account; installation credentials are refused).
 
@@ -49,7 +57,7 @@ A native Private entry of `/v1/next/apps/collections` also carries `role` (`owne
 
 A member's grant is bound to the membership policy it was approved under: removing the member, or changing their role, revokes it (and its log grant). Re-adding the member needs new consent. Token refresh repeats the consent authority check (`application.authorize` on a current Private collection).
 
-**Deploy order.** A server version older than this change refreshes a native grant's tokens without the collection checks (the tokens open nothing on that version, but would on a newer one). Roll the new server out fully before any native grant is created. Any future change that moves a collection from Private to cloud copy must revoke its native grants first.
+**Deploy order.** A server version older than this change refreshes a native grant's tokens without the collection checks (the tokens open nothing on that version, but would on a newer one). Roll the new server out fully before any native grant is created.
 
 ## Consumer mapping
 - `/v1/next/collections/:id/route` and `/v1/next/apps/collections`: `grant` is the log UUID used for Noise. When different, `authorization_grant` is the stable Connect UUID used for control-plane lifecycle.
