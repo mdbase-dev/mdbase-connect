@@ -153,7 +153,7 @@ fn a_refused_join_waits_with_its_reason_and_backs_off() {
         }
     );
     // Not due yet: no attempt.
-    assert_eq!(run(&s, &mut f, 2_000), first);
+    assert_eq!(run(&s, &mut f, 2_000), Step::NotDue);
     assert_eq!(f.refuse.len(), 1);
     let second = run(&s, &mut f, 1_000 + FIRST_BACKOFF_MS);
     assert_eq!(

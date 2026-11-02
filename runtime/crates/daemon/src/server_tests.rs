@@ -1604,3 +1604,89 @@ fn a_commented_identity_is_no_claim() {
         Some("invalid_config")
     );
 }
+
+/// A captured mirror whose hosted collection cannot be joined is reported once
+/// per attempt, and doctor names the waiting edits, the folder and what to do.
+#[tokio::test]
+async fn an_unjoinable_mirror_capture_is_a_doctor_warning_with_an_action() {
+    use crate::takeover::mirror_join::{self, Joiner, Refused, Step};
+    struct Gone;
+    impl Joiner for Gone {
+        async fn registered(&mut self, _: &str) -> Option<std::path::PathBuf> {
+            None
+        }
+        async fn join(&mut self, _: &str, _: &std::path::Path, _: &str) -> Result<(), Refused> {
+            Err(Refused("not_found".into()))
+        }
+    }
+    let dir = crate::testutil::TestDir::new("mi-doctor");
+    let d = daemon(&dir);
+    assert!(d.mirror_join_checks().is_empty());
+    let old = dir.path().join("connect");
+    let mirror = dir.path().join("Hosted notes");
+    let entry = hosted_mirror::build(&old, &mirror);
+    let legacy = d.takeover_paths().legacy;
+    crate::takeover::mirror_import::capture(&legacy, &old, &entry, "2026-10-18T00:00:00Z").unwrap();
+    // Captured but not attempted yet: nothing to report.
+    assert!(d.mirror_join_checks().is_empty());
+
+    let first = mirror_join::step(&legacy, HOSTED, &mut Gone, 1_000)
+        .await
+        .unwrap();
+    assert!(matches!(first, Step::Waiting { ref reason, .. } if reason == "not_found"));
+    // Within the backoff no attempt runs, so the daemon has nothing to log.
+    assert_eq!(
+        mirror_join::step(&legacy, HOSTED, &mut Gone, 2_000)
+            .await
+            .unwrap(),
+        Step::NotDue
+    );
+
+    let checks = d.mirror_join_checks();
+    assert_eq!(checks.len(), 1, "{checks:?}");
+    let c = &checks[0];
+    assert_eq!(c.id, format!("mirror_import:{HOSTED}"));
+    assert_eq!(c.status, "warn");
+    assert!(c.detail.contains("6 unsent edit(s)"), "{}", c.detail);
+    assert!(
+        c.detail.contains(&mirror.display().to_string()),
+        "{}",
+        c.detail
+    );
+    assert!(c.detail.contains("(not_found)"), "{}", c.detail);
+    let action = c.action.as_deref().unwrap();
+    assert!(action.contains("copy what you need"), "{action}");
+}
+
+/// A taken-over folder refused for overlapping a registered collection is named,
+/// with the choices the user has.
+#[test]
+fn an_overlapping_taken_over_folder_is_named_with_its_choices() {
+    use crate::takeover::record::{Collection, CollectionState, Record, State};
+    let dir = crate::testutil::TestDir::new("takeover-overlap");
+    let d = daemon(&dir);
+    let id = "c972b4f2-6ec0-47ae-a0b1-4731135fde0a";
+    let mut c = Collection::new(CollectionState::Complete);
+    c.reason = Some("registration_pending:overlapping_root".into());
+    Record {
+        schema_version: crate::takeover::record::SCHEMA_VERSION,
+        state: State::Complete,
+        updated_at: "2026-11-02T00:00:00Z".into(),
+        old_state_dir: dir.path().join("connect"),
+        collections: [(id.to_owned(), c)].into_iter().collect(),
+    }
+    .save(&d.takeover_paths().record)
+    .unwrap();
+    let check = d.takeover_check().unwrap();
+    assert_eq!(check.status, "warn");
+    assert!(
+        check.detail.contains(&format!(
+            "not registered yet: {id} (registration_pending:overlapping_root)"
+        )),
+        "{}",
+        check.detail
+    );
+    let action = check.action.unwrap();
+    assert!(action.contains("cannot nest"), "{action}");
+    assert!(action.contains("mdbase collection remove"), "{action}");
+}
