@@ -55,6 +55,23 @@ pub enum Change {
     },
 }
 
+/// Changes that turn `from` into `to`, per top-level key, in `to`'s order then
+/// removals.
+pub fn diff(from: &Map, to: &Map) -> Vec<(String, Change)> {
+    let mut out: Vec<(String, Change)> = Vec::new();
+    for (k, v) in to.iter() {
+        if from.get(k).is_none_or(|old| !old.same(v)) {
+            out.push((k.to_owned(), Change::Set(v.clone())));
+        }
+    }
+    for k in from.keys() {
+        if !to.contains_key(k) {
+            out.push((k.to_owned(), Change::Remove));
+        }
+    }
+    out
+}
+
 /// The exact source of one entry, taken from a document (see
 /// [`entry_copy`]), with the value it parses to.
 #[derive(Debug, Clone, PartialEq)]

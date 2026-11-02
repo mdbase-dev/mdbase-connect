@@ -53,38 +53,6 @@ fn write_err(e: &writer::WriteError) -> Rejection {
     }
 }
 
-/// Changes that turn `from` into `to`, per top-level key, in `to`'s order then
-/// removals.
-fn diff_changes(from: &Map, to: &Map) -> Vec<(String, Change)> {
-    let mut out: Vec<(String, Change)> = Vec::new();
-    for (k, v) in to.iter() {
-        if from.get(k).is_none_or(|old| !same(old, v)) {
-            out.push((k.to_owned(), Change::Set(v.clone())));
-        }
-    }
-    for k in from.keys() {
-        if !to.contains_key(k) {
-            out.push((k.to_owned(), Change::Remove));
-        }
-    }
-    out
-}
-
-/// Equality that also tells `1` from `1.0` (a write that changes the type
-/// changes the file).
-fn same(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => false,
-        (Value::List(x), Value::List(y)) => {
-            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same(p, q))
-        }
-        (Value::Map(x), Value::Map(y)) => {
-            x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w)))
-        }
-        _ => a == b,
-    }
-}
-
 fn rewrite(
     path: &str,
     src: &str,
@@ -454,7 +422,7 @@ pub(super) fn create(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, c: &Create) -> Res
     }
     let src = match document {
         Some(d) if fm == original_fm => d,
-        Some(d) => rewrite(&path, &d, &diff_changes(&original_fm, &fm), None)?,
+        Some(d) => rewrite(&path, &d, &writer::diff(&original_fm, &fm), None)?,
         None => {
             writer::render_new(&fm, &body, format, LineEnding::Lf).map_err(|e| write_err(&e))?
         }
@@ -654,8 +622,8 @@ pub(super) fn update(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, u: &Update) -> Res
         for r in &u.unset {
             lifecycle::set_field(&mut s_fm, r, None).map_err(|m| invalid("invalid_request", m))?;
         }
-        let b_src = rewrite(&path, &current, &diff_changes(&cur_fm, &b_fm), None)?;
-        let s_src = rewrite(&path, &b_src, &diff_changes(&b_fm, &s_fm), None)?;
+        let b_src = rewrite(&path, &current, &writer::diff(&cur_fm, &b_fm), None)?;
+        let s_src = rewrite(&path, &b_src, &writer::diff(&b_fm, &s_fm), None)?;
         let merged = merge::merge_records(
             Version {
                 path: &path,
@@ -756,7 +724,7 @@ pub(super) fn update(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, u: &Update) -> Res
             draft.clone(),
             Some(&cur_fm),
         )?;
-        src = rewrite(&path, &src, &diff_changes(&draft, &fm), None)?;
+        src = rewrite(&path, &src, &writer::diff(&draft, &fm), None)?;
     }
 
     if src == current && !resurrected {
@@ -975,7 +943,7 @@ pub(super) fn document(
                 draft.clone(),
                 exists.then_some(&prev),
             )?;
-            target_doc = rewrite(&target_path, &target_doc, &diff_changes(&draft, &fm), None)?;
+            target_doc = rewrite(&target_path, &target_doc, &writer::diff(&draft, &fm), None)?;
         }
     }
     // The path collision rule: api rejects, external takes a suffix.

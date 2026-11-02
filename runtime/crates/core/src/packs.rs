@@ -117,6 +117,21 @@ fn split_frontmatter(doc: &str) -> Option<Map> {
     (d.problem().is_none() && d.has_frontmatter()).then(|| d.frontmatter().clone())
 }
 
+/// Whether two type documents say the same thing: equal frontmatter and body.
+/// Layout, key order, quoting, flow style and anchors are presentation, so a
+/// seed another writer re-serialised still is the version it was.
+fn same_type_document(a: &str, b: &str) -> bool {
+    let (a, b) = (
+        Document::parse(a, RecordFormat::Markdown),
+        Document::parse(b, RecordFormat::Markdown),
+    );
+    [&a, &b]
+        .iter()
+        .all(|d| d.problem().is_none() && d.has_frontmatter())
+        && Value::Map(a.frontmatter().clone()).same(&Value::Map(b.frontmatter().clone()))
+        && a.body() == b.body()
+}
+
 /// Validate a manifest and its resources. `source(path)` returns the bytes
 /// of a pack-relative source path.
 pub fn load_pack(manifest: &str, source: &dyn Fn(&str) -> Option<String>) -> Result<Pack, Issue> {
@@ -707,6 +722,14 @@ pub fn assess_type_pack(
             .as_ref()
             .and_then(|r| r.resources.iter().find(|e| e.target == target))
     };
+    // The pack's own contracts and schemas, for checking an inferred seed merge.
+    let mut desired_state = Overlay::new(state);
+    for r in pack.resources.iter().filter(|r| r.mode == Mode::Managed) {
+        desired_state.apply_effect(&Effect::PutResource {
+            path: target_of(r),
+            doc: r.document.clone(),
+        });
+    }
     let mut planned: Vec<PlannedResource> = Vec::new();
     for r in &pack.resources {
         let target = target_of(r);
@@ -734,6 +757,7 @@ pub fn assess_type_pack(
                 entry,
                 live.as_deref(),
                 opts.preserve_seed_targets.contains(&target),
+                &|doc| implements_as_desired(&desired_state, &target, &r.document, doc),
                 &mut p,
             ),
         }
@@ -1018,6 +1042,7 @@ fn plan_seed(
     entry: Option<&LockResource>,
     live: Option<&str>,
     preserved: bool,
+    fits: &dyn Fn(&str) -> bool,
     p: &mut PlannedResource,
 ) {
     let previous_origin = entry.and_then(|e| e.origin_digest);
@@ -1033,14 +1058,18 @@ fn plan_seed(
         return;
     };
     p.action = Action::Preserve;
-    if live == r.document {
+    if same_type_document(live, &r.document) {
         p.origin = Some(r.digest);
         return;
     }
     if preserved || r.baselines.is_empty() {
         return;
     }
-    if let Some(b) = r.baselines.iter().find(|b| b.document == live) {
+    if let Some(b) = r
+        .baselines
+        .iter()
+        .find(|b| same_type_document(&b.document, live))
+    {
         p.action = Action::Update;
         p.document = Some(r.document.clone());
         p.origin = Some(r.digest);
@@ -1050,29 +1079,117 @@ fn plan_seed(
     if previous_origin == Some(r.digest) {
         return;
     }
-    let Some(b) = r
+    if let Some(b) = r
         .baselines
         .iter()
         .find(|b| Some(b.digest) == previous_origin)
-    else {
-        p.reason = Some(format!(
-            "{}: no upgrade baseline applies to this type's origin",
-            r.target
-        ));
-        return;
-    };
-    match merge_type(&b.document, live, &r.document) {
-        Ok(doc) => {
-            p.action = Action::Update;
-            p.document = Some(doc);
-            p.origin = Some(r.digest);
-            p.upgrade_baseline = Some((b.digest, b.version));
+    {
+        match merge_type(&b.document, live, &r.document) {
+            Ok(doc) => upgrade_seed(r, b, live, doc, p),
+            Err(why) => {
+                p.action = Action::Conflict;
+                p.reason = Some(format!("{}: {why}", r.target));
+            }
         }
-        Err(why) => {
-            p.action = Action::Conflict;
-            p.reason = Some(format!("{}: {why}", r.target));
+        return;
+    }
+    // No known origin (an installer that recorded none, or a baseline the
+    // pack no longer lists): infer it. The baseline nearest the live type
+    // (newest first on a tie) that merges cleanly into a type still
+    // implementing what the desired one does is the merge base. A differing
+    // `version` conflicts, so it must match the live one.
+    let live_fm = split_frontmatter(live).map(Value::Map);
+    let mut candidates: Vec<(usize, &Baseline)> = r
+        .baselines
+        .iter()
+        .map(|b| {
+            let distance = match (&live_fm, split_frontmatter(&b.document)) {
+                (Some(l), Some(fm)) => differences(l, &Value::Map(fm)),
+                _ => usize::MAX,
+            };
+            (distance, b)
+        })
+        .collect();
+    candidates.sort_by_key(|(distance, _)| *distance);
+    for (_, b) in candidates {
+        if let Ok(doc) = merge_type(&b.document, live, &r.document)
+            && fits(&doc)
+        {
+            upgrade_seed(r, b, live, doc, p);
+            return;
         }
     }
+    p.reason = Some(format!(
+        "{}: no upgrade baseline applies to this type's origin",
+        r.target
+    ));
+}
+
+/// How many leaves differ between `a` and `b`, for choosing a merge base.
+fn differences(a: &Value, b: &Value) -> usize {
+    match (a, b) {
+        (Value::Map(x), Value::Map(y)) => {
+            let keys: BTreeSet<&str> = x.keys().chain(y.keys()).collect();
+            keys.into_iter()
+                .map(|k| match (x.get(k), y.get(k)) {
+                    (Some(p), Some(q)) => differences(p, q),
+                    _ => 1,
+                })
+                .sum()
+        }
+        (Value::List(x), Value::List(y)) if x.len() == y.len() => {
+            x.iter().zip(y).map(|(p, q)| differences(p, q)).sum()
+        }
+        _ => usize::from(!a.same(b)),
+    }
+}
+
+/// Record a merge from baseline `b`. A merge that changes nothing leaves the
+/// live type in place, now known to descend from the desired version.
+fn upgrade_seed(r: &PackResource, b: &Baseline, live: &str, doc: String, p: &mut PlannedResource) {
+    p.origin = Some(r.digest);
+    if doc != live {
+        p.action = Action::Update;
+        p.document = Some(doc);
+        p.upgrade_baseline = Some((b.digest, b.version));
+    }
+}
+
+/// Whether `candidate` at `target` validates and implements every contract
+/// version that `desired` would, over the pack's own definitions.
+fn implements_as_desired(
+    state: &dyn StateView,
+    target: &str,
+    desired: &str,
+    candidate: &str,
+) -> bool {
+    let implemented = |doc: &str| {
+        let mut staged = Overlay::new(state);
+        staged.apply_effect(&Effect::PutResource {
+            path: target.to_owned(),
+            doc: doc.to_owned(),
+        });
+        let catalog = staged.catalog();
+        let valid = !catalog
+            .issues()
+            .iter()
+            .any(|i| i.severity == Severity::Error && i.location.as_deref() == Some(target));
+        let names: BTreeSet<&str> = catalog
+            .types()
+            .iter()
+            .filter(|t| t.source_path == target)
+            .map(|t| t.name.as_str())
+            .collect();
+        let contracts: BTreeSet<(String, String)> = catalog
+            .implementations()
+            .iter()
+            .filter(|i| names.contains(i.type_name.as_str()))
+            .map(|i| (i.contract.clone(), i.version.to_string()))
+            .collect();
+        (valid, contracts)
+    };
+    let (valid, contracts) = implemented(candidate);
+    valid && implemented(desired).1.is_subset(&contracts)
 }
 
 /// Three-way merge of type frontmatter (spec 05A seed upgrades): the live
@@ -1104,29 +1221,22 @@ fn merge_type(base: &str, live: &str, desired: &str) -> Result<String, String> {
         return Err("the merged frontmatter is not a mapping".into());
     };
     let desired = Document::parse(desired, RecordFormat::Markdown);
-    let mut changes = Vec::new();
-    for (k, v) in merged.iter() {
-        if l.get(k).is_none_or(|x| !same(x, v)) {
-            // An entry that takes the publisher's value takes the publisher's
-            // text, so app-managed settings keep their published bytes.
-            let change = match crate::writer::entry_copy(&desired, k) {
-                Some(copy) if same(copy.value(), v) => crate::writer::Change::Copy(copy),
-                _ => crate::writer::Change::Set(v.clone()),
-            };
-            changes.push((k.to_owned(), change));
-        }
+    let mut changes = crate::writer::diff(&l, &merged);
+    if changes.is_empty() {
+        return Ok(live.to_owned());
     }
-    for k in l.keys() {
-        if !merged.contains_key(k) {
-            changes.push((k.to_owned(), crate::writer::Change::Remove));
+    // An entry that takes the publisher's value takes the publisher's text, so
+    // app-managed settings keep their published bytes.
+    for (k, change) in &mut changes {
+        if let crate::writer::Change::Set(v) = change
+            && let Some(copy) = crate::writer::entry_copy(&desired, k)
+            && copy.value().same(v)
+        {
+            *change = crate::writer::Change::Copy(copy);
         }
     }
     let doc = Document::parse(live, RecordFormat::Markdown);
     crate::writer::write(&doc, &changes, None).map_err(|e| e.to_string())
-}
-
-fn same(a: &Value, b: &Value) -> bool {
-    a == b && a.to_json() == b.to_json()
 }
 
 fn merge_values(
@@ -1137,7 +1247,7 @@ fn merge_values(
 ) -> Result<Option<Value>, String> {
     let eq = |x: Option<&Value>, y: Option<&Value>| match (x, y) {
         (None, None) => true,
-        (Some(x), Some(y)) => same(x, y),
+        (Some(x), Some(y)) => x.same(y),
         _ => false,
     };
     if eq(live, base) {
@@ -1166,6 +1276,23 @@ fn merge_values(
             }
         }
         return Ok(Some(Value::Map(out)));
+    }
+    // Lists merge item by item only while all three keep the same items.
+    if let (Some(Value::List(bl)), Some(Value::List(ll)), Some(Value::List(dl))) =
+        (base, live, desired)
+        && bl.len() == ll.len()
+        && ll.len() == dl.len()
+    {
+        let mut out = Vec::with_capacity(ll.len());
+        for (i, ((b, l), d)) in bl.iter().zip(ll).zip(dl).enumerate() {
+            out.extend(merge_values(
+                Some(b),
+                Some(l),
+                Some(d),
+                &format!("{path}/{i}"),
+            )?);
+        }
+        return Ok(Some(Value::List(out)));
     }
     Err(format!(
         "competing changes at {}",
