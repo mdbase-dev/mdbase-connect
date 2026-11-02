@@ -4,6 +4,40 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.152
+
+### Fixed
+
+- Consent now offers cloud-copy collections while the owner's computers are offline, and approving one creates a grant served by the collection's hosted copy and, while one is online, by the owner's computers. Applications that require an mdbase cloud collection are offered cloud copies too. Grants on synced collections record the mode they were approved for; changing a collection's mode revokes its grants for the other mode, including in the collection's log. ([#1117](https://github.com/mdbase-dev/mdbase-connect/issues/1117))
+
+- Hosted collections served by the legacy provider no longer re-serialise an
+  edited seed type when upgrading it: the provider image now pins the
+  filesystem engine revision that keeps the app's published text for upgraded
+  settings.
+
+- Bases views of collections served by your computer (local or private, desktop or headless) now load in web apps instead of failing with `view_raw_projection_unavailable`. Thanks to [@Lorite](https://github.com/Lorite) for the report and diagnosis. ([#1130](https://github.com/mdbase-dev/mdbase-connect/issues/1130))
+
+- The daemon's log transport now reconnects at once when its token is renewed every 15 minutes, instead of treating renewal as a failure with a one-second offline backoff and an info line per collection.
+- Log transport reconnect lines now name the collection, and a hello proof that the collection runtime did not answer in time is no longer reported as the replica refusing it.
+- A refused policy snapshot now logs why and how old it was, and a lease that expired while waiting to be applied is reported apart from a malformed one.
+
+- Read-only (`mdbase:read`) MCP authorization no longer fails with HTTP 500 before consent. Connect now accepts a signed application request that selects a subset of its declared optional file actions (every required action, declared order, same scope), and keeps exactly that signed subset as the ceiling for consent, approval and the provider grant, so an approval cannot add file actions the application did not sign. Periodic application reconciliation no longer retires grants whose approved file actions are a permitted subset of the declaration (#1103).
+
+- The daemon no longer logs "hosted collection not joined yet" every 5 seconds while a captured hosted mirror waits for its collection. It logs once per join attempt, and attempts back off to every 30 minutes.
+- `mdbase doctor` now warns about unsent edits from an old hosted mirror whose collection cannot be joined. The warning names the folder and the refusal reason. When the hosted collection is gone (`not_found`), it says the edits are still in the old folder, which mdbase never changes.
+- The doctor takeover check now names each taken-over collection that is not registered yet, with its reason. For a folder refused because it contains, or sits inside, a registered collection, it lists the choices: leave it unserved, unregister the other collection, or move a folder, then run `mdbase migrate start`.
+
+- Report a synced collection as `syncing`, not `ready`, in daemon status while it has unfinished sync work, including an inbound or outbound file transfer, so `ready` means the collection is complete on this computer (#1122).
+
+- Setup no longer stops at "Try again" when an app's starter note type has changes that no published version can be combined with. The review now offers "Use this app's version", which replaces that type only when the person chooses it, and only if it is unchanged since they reviewed it. The review says the existing type isn't kept.
+
+- Upgrade an app's starter note types by content rather than exact bytes. A type that another writer re-serialised (sorted keys, expanded flow style or anchors) is recognised as the published version it matches, so it is current or upgrades normally.
+- Upgrade starter note types in collections whose setup record has no origin for them, as older installers wrote. Setup merges against the published version nearest the live type and keeps the person's customisations, provided the result still implements what the app needs. This fixes TaskNotes setup stopping at "Setup can't finish" for such collections.
+
+- Upgrading an edited seed type now writes each upgraded top-level setting with the app's published text instead of re-emitting it, so app-managed types keep their published flow lists, quoting and anchors and stay byte-stable for later upgrades.
+
+- `mdbase doctor` no longer reports a permanent `marker_incident` failure for a taken-over folder that you unregistered and then registered again as a different collection. Registering a folder requires that no connector claims it, so the missing takeover claim is explained. The takeover clears the latched incident, and doctor stops failing. A taken-over folder that loses its claim in any other way still fails as before.
+
 ## 0.1.0-beta.151
 
 ### Added
