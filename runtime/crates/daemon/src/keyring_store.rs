@@ -453,6 +453,17 @@ impl<S: Store> Store for KeychainKeyring<S> {
     ) -> StoreResult<Option<mdbn_replica::store_query::QueryIndexPage>> {
         self.inner.query_index_page(request)
     }
+    fn query_projection_state(
+        &self,
+    ) -> StoreResult<Option<mdbn_replica::store_query::QueryProjectionState>> {
+        self.inner.query_projection_state()
+    }
+    fn query_projection_page(
+        &self,
+        request: &mdbn_replica::store_query::QueryProjectionRequest,
+    ) -> StoreResult<mdbn_replica::store_query::QueryProjectionPage> {
+        self.inner.query_projection_page(request)
+    }
     fn hydrate_query_at(
         &self,
         ids: &[mdbn_wire::common::Uuid],
