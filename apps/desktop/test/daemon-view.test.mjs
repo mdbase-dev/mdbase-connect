@@ -49,6 +49,13 @@ test("connection follows collection outages even while the account relay is onli
   assert.equal(presentConnection({ account, collections: [{ ...collection, mode: "local" }] }, true).dot, "connected");
   assert.equal(presentConnection({ account, collections: [{ ...collection, state: "failed" }] }, true).dot, "connected");
   assert.equal(presentConnection({ account, collections: [{ ...collection, sync: { ...collection.sync, connection: "online" } }] }, true).dot, "connected");
+  assert.equal(presentConnection({ account, collections: [{ ...collection, state: "syncing" }] }, true).label, "Offline");
+});
+
+test("a daemon-reported syncing collection shows its transfer, never up to date (#1122)", () => {
+  const syncing = presentCollection({ mode: "synced", state: "syncing", sync: { pending: 1, holds: 0, unresolved: 0, connection: "online" } });
+  assert.deepEqual([syncing.status, syncing.dot, syncing.canEnableSync, syncing.paused], ["Syncing…", "connected", false, false]);
+  assert.match(syncing.detail, /1 change to sync/);
 });
 
 test("clock problems have an actionable explanation", () => {

@@ -3332,7 +3332,7 @@ impl Daemon {
     ) -> Result<CollectionStatus, ControlError> {
         let deadline = tokio::time::Instant::now() + wait;
         loop {
-            let status = {
+            {
                 let inner = self.inner.lock().await;
                 let host = inner
                     .hosts
@@ -3341,12 +3341,12 @@ impl Daemon {
                     .ok_or_else(|| {
                         ControlError::not_found(format!("no registered collection {id}"))
                     })?;
-                host.status()
-            };
-            if status.state != crate::control::CollectionState::Opening
-                || tokio::time::Instant::now() >= deadline
-            {
-                return Ok(status);
+                if host.state() != crate::control::CollectionState::Opening
+                    || tokio::time::Instant::now() >= deadline
+                {
+                    // Reported like `status`: syncing, not ready, while work is unfinished.
+                    return Ok(host.observed_status().await);
+                }
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }

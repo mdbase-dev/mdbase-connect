@@ -662,9 +662,23 @@ async fn converge_gone(path: &Path, within: Duration) {
     }
 }
 
-/// Run the whole scenario against the log service at `log` (loopback, pinned to
-/// the `conformance` test control plane), with scratch folders under `dir`.
-pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
+/// One cloud-copy collection on two desktops and the hosted runtime that keys them.
+struct CloudCopy {
+    cp: Arc<ControlPlane>,
+    c: Uuid,
+    b: Dev,
+    rb_id: [u8; 16],
+    pin: [u8; 32],
+    t0: Instant,
+    rh: Runtime,
+    ra: Runtime,
+    rb: Runtime,
+    pa: std::path::PathBuf,
+    pb: std::path::PathBuf,
+}
+
+/// Create a cloud-copy log at `log` and open hosted, A and B on it under `dir`.
+async fn cloud_copy(log: &str, dir: &Path) -> CloudCopy {
     std::fs::create_dir_all(dir).unwrap();
     let cp = Arc::new(ControlPlane::new(CP_LABEL));
     let c = B16(random());
@@ -703,7 +717,50 @@ pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
     let ra = open(dir, log, &cp, c, &a, random(), pin);
     let rb_id: [u8; 16] = random();
     let rb = open(dir, log, &cp, c, &b, rb_id, pin);
-    let (pa, pb) = (dir.join(a.label), dir.join(b.label));
+    CloudCopy {
+        pa: dir.join(a.label),
+        pb: dir.join(b.label),
+        cp,
+        c,
+        b,
+        rb_id,
+        pin,
+        t0,
+        rh,
+        ra,
+        rb,
+    }
+}
+
+/// Incompressible pseudo-random bytes for an attachment of `size`.
+fn noise(size: usize) -> Vec<u8> {
+    let mut bin = vec![0u8; size];
+    let mut seed = u64::from_le_bytes(random());
+    for b in bin.iter_mut() {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        *b = seed as u8;
+    }
+    bin
+}
+
+/// Run the whole scenario against the log service at `log` (loopback, pinned to
+/// the `conformance` test control plane), with scratch folders under `dir`.
+pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
+    let CloudCopy {
+        cp,
+        c,
+        b,
+        rb_id,
+        pin,
+        t0,
+        rh,
+        ra,
+        rb,
+        pa,
+        pb,
+    } = cloud_copy(log, dir).await;
 
     std::fs::write(pa.join("from-a.md"), "written on A\n").unwrap();
     let t = converge(
@@ -763,16 +820,8 @@ pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
     // B; a rename moves it on B without a refetch; a delete removes it on B.
     // Over 1 MiB, sealed chunks use the staged direct transfer
     // (log-service-api §6): `--attach-bytes 52428800` exercises it.
-    let size = attach_bytes;
     std::fs::create_dir_all(pa.join("assets")).unwrap();
-    let mut bin = vec![0u8; size];
-    let mut seed = u64::from_le_bytes(random());
-    for b in bin.iter_mut() {
-        seed ^= seed << 13;
-        seed ^= seed >> 7;
-        seed ^= seed << 17;
-        *b = seed as u8;
-    }
+    let bin = noise(attach_bytes);
     let t = Instant::now();
     std::fs::write(pa.join("assets/drop.bin"), &bin).unwrap();
     converge_bytes(&pb.join("assets/drop.bin"), &bin, Duration::from_secs(300)).await;
@@ -932,6 +981,151 @@ pub async fn run(log: &str, dir: &Path, attach_bytes: usize) {
     println!("A files: {:?}", listing(&pa));
     println!("B files: {:?}", listing(&pb));
     ra.stop().await;
+}
+
+/// One status observation of a desktop runtime, as the daemon reports it.
+#[derive(Debug, Clone)]
+struct Observed {
+    at: Duration,
+    state: mdbn_daemon::control::CollectionState,
+    pending: u64,
+    confirmed_through: u64,
+    head_known: u64,
+    /// The watched file was in place with the expected bytes after the status read.
+    in_place: bool,
+}
+
+/// Observe `rt` as the daemon's status does: the serving gate
+/// ([`mdbn_daemon::runtime::synced_ready`]), reported through the counters
+/// ([`mdbn_daemon::control::CollectionState::observed`]). The file is checked
+/// after the status is read, so `in_place` cannot predate the reported state.
+async fn observe(rt: &Runtime, t0: Instant, file: Option<(&Path, &[u8])>) -> Observed {
+    use mdbn_daemon::control::CollectionState as S;
+    let (status, caught_up, _) = rt.readiness().await.expect("runtime stopped");
+    let serving = match mdbn_daemon::runtime::synced_ready(&status, caught_up, false) {
+        Ok(true) => S::Ready,
+        Ok(false) => S::Opening,
+        Err(reason) => panic!("terminal readiness {reason}"),
+    };
+    let (counters, _) = rt.telemetry().await.expect("runtime stopped");
+    let state = serving.observed(mdbn_daemon::registry::SyncMode::Synced, Some(&counters));
+    let in_place = file.is_some_and(|(path, want)| {
+        std::fs::metadata(path).is_ok_and(|m| m.len() == want.len() as u64)
+            && std::fs::read(path).ok().as_deref() == Some(want)
+    });
+    Observed {
+        at: t0.elapsed(),
+        state,
+        pending: counters.pending,
+        confirmed_through: counters.confirmed_through,
+        head_known: counters.head_known,
+        in_place,
+    }
+}
+
+/// #1122: a large file crosses from A to B over a slow transport (the caller
+/// throttles `log`). Neither desktop may report `ready` while its counters show
+/// unfinished work; once B knows a head that includes the file, B may not
+/// report `ready` until the file is in place byte-identical; and A may not
+/// report `ready` after noticing the file until its upload is confirmed.
+pub async fn run_ready_waits_for_transfers(log: &str, dir: &Path, bytes: usize) {
+    use mdbn_daemon::control::CollectionState as S;
+    let p = cloud_copy(log, dir).await;
+    std::fs::write(p.pa.join("warm.md"), "keyed\n").unwrap();
+    converge(&p.pb.join("warm.md"), "keyed\n", Duration::from_secs(120)).await;
+    let t0 = Instant::now();
+    loop {
+        let (a, b) = (
+            observe(&p.ra, t0, None).await,
+            observe(&p.rb, t0, None).await,
+        );
+        if a.state == S::Ready && b.state == S::Ready && a.confirmed_through == b.confirmed_through
+        {
+            break;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "never idle: A {a:?} B {b:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let bin = noise(bytes);
+    let target = p.pb.join("large.bin");
+    let t0 = Instant::now();
+    std::fs::write(p.pa.join("large.bin"), &bin).unwrap();
+    let (mut seen_a, mut seen_b) = (Vec::new(), Vec::new());
+    loop {
+        let a = observe(&p.ra, t0, None).await;
+        let b = observe(&p.rb, t0, Some((&target, &bin))).await;
+        let done = b.in_place
+            && a.state == S::Ready
+            && b.state == S::Ready
+            && a.confirmed_through == b.confirmed_through;
+        seen_a.push(a);
+        seen_b.push(b);
+        if done {
+            break;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(300),
+            "transfer never finished: A {:?} B {:?}",
+            seen_a.last(),
+            seen_b.last()
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let file_head = seen_a.last().unwrap().confirmed_through;
+
+    for o in seen_a.iter().chain(&seen_b) {
+        assert!(
+            o.state != S::Ready || o.pending == 0,
+            "ready with pending work: {o:?}"
+        );
+    }
+    let noticed = seen_a
+        .iter()
+        .position(|o| o.pending > 0)
+        .expect("A never counted the upload as pending");
+    for o in &seen_a[noticed..] {
+        assert!(
+            o.state != S::Ready || o.confirmed_through >= file_head,
+            "A ready before its upload was confirmed through {file_head}: {o:?}"
+        );
+    }
+    let in_flight: Vec<&Observed> = seen_b
+        .iter()
+        .filter(|o| o.head_known >= file_head && !o.in_place)
+        .collect();
+    for o in &in_flight {
+        assert_ne!(
+            o.state,
+            S::Ready,
+            "B ready before the file was in place: {o:?}"
+        );
+    }
+    // Not vacuous: the slow transfer was observed in flight on both sides.
+    assert!(
+        seen_a[noticed..].iter().any(|o| o.state == S::Syncing),
+        "A's upload was never observed as syncing"
+    );
+    assert!(
+        in_flight
+            .iter()
+            .any(|o| o.state == S::Syncing && o.pending > 0),
+        "B's download was never observed in flight ({} B samples)",
+        seen_b.len()
+    );
+    println!(
+        "PASS: {bytes} bytes A -> B in {:?}; {} A and {} B samples, {} with B's download in flight, none ready early",
+        seen_b.last().unwrap().at,
+        seen_a.len(),
+        seen_b.len(),
+        in_flight.len()
+    );
+    p.ra.stop().await;
+    p.rb.stop().await;
+    p.rh.stop().await;
 }
 
 /// Both conversions over real LS sockets and real daemon actor/SQLite stores.
