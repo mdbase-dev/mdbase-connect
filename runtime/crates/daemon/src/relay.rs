@@ -186,6 +186,12 @@ pub fn check_snapshot(v: &Value, cfg: &CloudConfig, now_ms: u64) -> Result<Snaps
             "account-bound grants require explicit canonical account identities",
         ));
     }
+    if expires <= now_ms && issued < expires && expires - issued <= MAX_LEASE_MS {
+        return Err(refused(
+            "invalid_policy_lease",
+            "lease expired before it was applied",
+        ));
+    }
     if issued > now_ms.saturating_add(5_000)
         || issued >= expires
         || expires - issued > MAX_LEASE_MS
@@ -641,7 +647,11 @@ async fn apply_snapshot<H: RelayHost>(host: &Arc<H>, cfg: &mut CloudConfig, v: &
     let snap = match check_snapshot(v, cfg, now) {
         Ok(s) => s,
         Err(r) => {
-            tracing::warn!(code = r.code, "policy snapshot refused");
+            let age_ms = v
+                .get("lease_issued_at_ms")
+                .and_then(Value::as_u64)
+                .map(|issued| now.saturating_sub(issued));
+            tracing::warn!(code = r.code, reason = %r.message, ?age_ms, "policy snapshot refused");
             return fail(r);
         }
     };
@@ -845,16 +855,15 @@ mod tests {
             "invalid_policy_revision"
         );
 
-        let expired = snap(5, now - 60_000, now - 5_000, vec![]);
-        assert_eq!(
-            check_snapshot(&expired, &cfg, now).unwrap_err().code,
-            "invalid_policy_lease"
-        );
-        let too_long = snap(5, now, now + 120_000, vec![]);
-        assert_eq!(
-            check_snapshot(&too_long, &cfg, now).unwrap_err().code,
-            "invalid_policy_lease"
-        );
+        // A lease that was valid when issued but expired before it was applied
+        // (a backed-up feed) is told apart from a malformed one.
+        let expired =
+            check_snapshot(&snap(5, now - 60_000, now - 5_000, vec![]), &cfg, now).unwrap_err();
+        assert_eq!(expired.code, "invalid_policy_lease");
+        assert_eq!(expired.message, "lease expired before it was applied");
+        let too_long = check_snapshot(&snap(5, now, now + 120_000, vec![]), &cfg, now).unwrap_err();
+        assert_eq!(too_long.code, "invalid_policy_lease");
+        assert_eq!(too_long.message, "lease out of bounds");
 
         let applied = CloudConfig {
             policy_sequence: 7,

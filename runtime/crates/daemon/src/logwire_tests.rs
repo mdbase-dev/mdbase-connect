@@ -24,6 +24,7 @@ struct Tokens {
     issued: AtomicUsize,
     refused: AtomicUsize,
     revoked: AtomicUsize,
+    lifetime_ms: i64,
 }
 
 impl TokenSource for Tokens {
@@ -32,7 +33,7 @@ impl TokenSource for Tokens {
         Box::pin(async move {
             Ok(Token {
                 token: format!("token-{n}").into(),
-                expires_at_ms: now_ms() + 15 * 60_000,
+                expires_at_ms: now_ms() + self.lifetime_ms,
             })
         })
     }
@@ -357,6 +358,7 @@ fn tokens() -> Arc<Tokens> {
         issued: AtomicUsize::new(0),
         refused: AtomicUsize::new(0),
         revoked: AtomicUsize::new(0),
+        lifetime_ms: 15 * 60_000,
     })
 }
 
@@ -449,6 +451,40 @@ async fn a_refused_token_is_dropped_and_renewed() {
     until(&seen, "up").await;
     assert_eq!(t.refused.load(Ordering::SeqCst), 1);
     assert_eq!(hellos.lock().unwrap().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_expiring_token_reconnects_at_once_without_a_backoff() {
+    let hellos = Arc::new(Mutex::new(Vec::new()));
+    let url = peer(vec![Script::Serve, Script::Serve], hellos.clone()).await;
+    let (events, _seen) = sink();
+    // Renewal is due one second after the first hello.
+    let t = Arc::new(Tokens {
+        lifetime_ms: RENEW_BEFORE_MS,
+        ..Arc::into_inner(tokens()).unwrap()
+    });
+    let started = std::time::Instant::now();
+    let _link = Link::spawn(
+        LinkConfig {
+            inbound_budget: INBOUND_BUDGET,
+            ..LinkConfig::new(url, COL, Some(DEV))
+        },
+        t.clone(),
+        events,
+    )
+    .unwrap();
+    while hellos.lock().unwrap().len() < 2 {
+        assert!(started.elapsed() < Duration::from_secs(5), "never renewed");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    // A renewal is not an error: no one-second offline backoff before the new hello.
+    assert!(
+        started.elapsed() < Duration::from_millis(1_800),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(t.issued.load(Ordering::SeqCst), 2);
+    assert_eq!(t.refused.load(Ordering::SeqCst), 0);
 }
 
 #[test]
