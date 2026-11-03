@@ -165,8 +165,28 @@ export async function plan(kind, output, env = process.env) {
   const result = { schema: 1, commit: env.GITHUB_SHA, kind, packages: selected,
     dependencies: Object.fromEntries(inventory.map(item => [item.name, selected.some(value => value.name === item.name) ? item.version : item.baseline])) };
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
+  if (kind === "workspace") result.compatibility = await qualifyWorkspace(output, env);
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `changed=${selected.length > 0}\nversion=${selected[0]?.version ?? ""}\n`);
   console.log(JSON.stringify(result));
+}
+
+export async function qualifyWorkspace(planFile, env = process.env, verify = verifyCompatibility) {
+  const record = readJson(planFile);
+  assert.equal(record.commit, env.GITHUB_SHA);
+  assert.equal(record.kind, "workspace");
+  assert(["true", "false"].includes(env.LIVE_PUBLICATION), "Expected an explicit live-publication mode.");
+  let compatibility;
+  try {
+    compatibility = { status: "passed", evidence: await verify(env) };
+  } catch (error) {
+    compatibility = { status: "blocked", error: error.message };
+  }
+  writeFileSync(planFile, `${JSON.stringify({ ...record, compatibility }, null, 2)}\n`);
+  console.log(JSON.stringify({ compatibility }));
+  if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY,
+    `## Workspace production compatibility: ${compatibility.status}\n\nAll workspace packages require the shared production proof; there are no exemptions.\n\n\`\`\`json\n${JSON.stringify(compatibility, null, 2)}\n\`\`\`\n`);
+  if (env.LIVE_PUBLICATION === "true" && compatibility.status === "blocked") throw new Error(compatibility.error);
+  return compatibility;
 }
 
 export function prepareSource(planFile, env = process.env) {

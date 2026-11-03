@@ -79,6 +79,22 @@ No equality between unrelated package/server
 version numbers is required. Readiness/compatibility and workflow-active state
 are rechecked immediately before every npm publication.
 
+Workspace planning runs this same `verifyCompatibility` proof before packing,
+for **every** public workspace package, including `@mdbase-dev/connect`, protocol,
+sync, devkit, testing, webhooks and pickle. There are no server-independent
+exemptions: i18n, UI and newly added public packages are gated too. The existing
+fail-closed contract-path classification is shared unchanged with the source SDK.
+
+The workspace `npm-release-plan.json` records `compatibility.status` as `passed`
+with the exact Connect/MCP and provider commit evidence, or `blocked` with the
+verifier's error. The Actions job summary also shows the result. A manual
+`dry_run: true` reports incompatibility or unavailable proof without failing the
+plan, so operators can still inspect and pack the proposed versions. A live
+plan fails before packing if this proof is blocked. The protected publisher
+still obtains fresh production proof immediately before **each** npm publish;
+a passed plan is not reusable publication authority. Source-SDK build
+qualification and both publishers' stop switches remain unchanged.
+
 This conservatively waits for production on shared SDK/runtime or otherwise
 unclassified changes; it does not assert semantic compatibility from green CI
 alone. See [the contract matrix](connect-contract-compatibility.md).
