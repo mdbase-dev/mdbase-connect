@@ -300,6 +300,9 @@ test("rollback read compatibility evidence is exact-pair, dispatch-only and boun
   // Ops matches this exact title before reading the artifact.
   assert.match(workflow, /^run-name: Rollback read compatibility \$\{\{ inputs\.predecessor_commit \}\} -> \$\{\{ inputs\.candidate_commit \}\}$/m);
   assert.match(workflow, /^permissions:\n  contents: read\n/m);
+  assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /rollback-tag-identity\.sh" >>test\/upgrade\/lib\.sh/);
+  assert.match(workflow, /GitHub Release metadata was not checked/);
   assert.match(workflow, /ref: \$\{\{ inputs\.candidate_commit \}\}/);
   assert.match(workflow, /test "\$\(git rev-parse HEAD\)" = "\$CANDIDATE_COMMIT"/);
   assert.match(workflow, /org\.opencontainers\.image\.revision"\] == \$revision/);
