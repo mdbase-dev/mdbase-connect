@@ -133,7 +133,9 @@ workflow identity, checksums, and Sigstore bundles. See
 [`headless.md`](headless.md) for the installation and daemon lifecycle.
 
 The `Desktop Release` workflow builds, verifies, signs, and publishes the
-installers on an explicit post-production dispatch from a version tag. To enable trusted macOS output, configure these
+installers through the [continuous desktop procedure](continuous-desktop-release.md),
+using qualified main and an automatically reserved tag. That procedure currently
+fails closed on the repository's immutable-channel policy conflict. To enable trusted macOS output, configure these
 secrets in the `desktop-release` GitHub Actions environment:
 
 - `MACOS_CERTIFICATE_P12_BASE64`: base64-encoded Developer ID Application
@@ -182,19 +184,22 @@ Creating the tag does not publish clients. Complete guarded production promotion
 and independent exact-service verification before dispatching any client workflow.
 Follow the [post-production publication transition](release-contract.md#public-client-release-publication):
 select the existing tag as the workflow ref and supply the exact full
-`production_verified_commit` SHA. Publish npm first, then desktop. The Editor
+`production_verified_commit` SHA for the legacy npm publisher. Desktop no longer
+uses this sequence or input; use [continuous desktop releases](continuous-desktop-release.md).
+The Editor
 is not part of the tag-ref transition: it publishes only through its native
 dispatch path on `release/native-<target>` (see
 [Editor publication](release-contract.md#editor-publication)). Reader is
 excluded from this rollout.
 
-The explicit desktop dispatch starts the full desktop build. The four platform
-builders do not open deployment records; the single publish job enters the
-`desktop-release` environment, checks live production evidence after the build,
+The automatic tag dispatch starts the full desktop build. The four platform
+builders and the publish job enter `desktop-release`, so its signing secrets
+and branch protections apply to both build and publication. The publisher
+checks live production evidence after the build,
 and creates the GitHub release and signed update feed. The website notification
-runs only after successful publication. On a failed run, retry from the same tag
-only after confirming the same candidate is still production-verified. A tag
-push or a bare manual confirmation cannot authorize publication.
+runs only after successful publication. An unfinished automatic tag stops the
+line for owner reconciliation; it is not retried automatically. A tag push or
+a bare manual confirmation cannot authorize publication.
 
 When platform publisher configuration is wholly absent, the workflow publishes
 only explicitly labelled preview artifacts for that platform. Partially
@@ -208,8 +213,11 @@ The publish job creates a strict manifest from those exact artifacts, signs it
 with the same tag-bound workflow identity, verifies it, and only then creates
 the GitHub release.
 
-Set `UPDATE_ROLLOUT_PERCENTAGE` on the `desktop-release` environment to a number
-from 0 through 100; it defaults to 100. Set `UPDATE_BLOCKED_VERSIONS` to a
+The continuous desktop policy replaces `UPDATE_ROLLOUT_PERCENTAGE` with 10%,
+50% after 24 hours, and 100% after 48 hours, with a stop switch. It cannot run
+until the immutable-release policy conflict in the linked procedure is resolved
+by the owner; this change does not disable repository protection.
+Set `UPDATE_BLOCKED_VERSIONS` to a
 comma-separated list of exact versions only when a higher recovery release
 must bypass rollout for affected installations. Both values are captured in
 the signed manifest and require a new immutable tag to change. Every published

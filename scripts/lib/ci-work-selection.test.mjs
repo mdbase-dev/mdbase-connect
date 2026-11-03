@@ -104,7 +104,7 @@ test("native selection retains explicit dispatch checks and includes Rust input 
   for (const job of ["headless-package-smoke", "windows-package-smoke", "cross-platform-release-tests"]) {
     const block = desktop.split(`  ${job}:\n`)[1].split(/\n  [a-z][\w-]+:\n/)[0];
     assert.match(block, /needs: select-tests/);
-    assert.match(block, /!cancelled\(\) && \(github.event_name == 'workflow_dispatch' \|\|/);
+    assert.match(block, /!cancelled\(\) && \(\(github.event_name == 'workflow_dispatch' && startsWith\(github.ref, 'refs\/tags\/v'\) && inputs.operation == 'release'\) \|\|/);
     assert.doesNotMatch(block, /always\(\)/);
     assert.match(block, /needs.select-tests.result == 'success'/);
   }
