@@ -60,6 +60,11 @@ async function originalFixture(target) {
  const uiBytes=await readFile(join(root,uiPath));
  const sri='sha512-'+createHash('sha512').update(uiBytes).digest('base64');
  lock=lock.replace('\npackages:\n', "\npackages:\n\n  '@mdbase-dev/ui@"+uiPin+"':\n    resolution: {integrity: "+sri+"}\n");
+ const ordinarySdk=pkg.dependencies['@mdbase-dev/sdk'].slice('file:vendor/'.length);
+ const ordinaryBytes=await readFile(join(app,'vendor',ordinarySdk));
+ const ordinarySri='sha512-'+createHash('sha512').update(ordinaryBytes).digest('base64');
+ pkg.dependencies['@mdbase-dev/sdk']='file:vendor/'+facts.artifact;
+ lock=lock.replaceAll(ordinarySdk,facts.artifact).replaceAll(ordinarySri,facts.integrity);
  if(target==='staging') {
   const current=pkg.dependencies['@mdbase-dev/sdk'].slice('file:vendor/'.length);
   const staging='sdk-dev-eaa4e697-staging.tgz';

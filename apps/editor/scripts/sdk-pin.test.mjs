@@ -29,18 +29,18 @@ it('pins the Editor npm UI version and registry integrity in both target configs
 
 it('pins the ordinary Editor to the original production SDK with beta.141 trust', async () => {
   const pkg = await json(new URL('package.json', app));
-  const metadata = await json(new URL('vendor/mdbase-next-sdk.json', app));
-  const artifact = 'sdk-eaa4e697-production-beta141.tgz';
+  const metadata = await json(new URL('vendor/sdk-production-beta149.json', app));
+  const artifact = 'sdk-4443fd15-production-beta149.tgz';
   assert.equal(pkg.dependencies['@mdbase-dev/sdk'], `file:vendor/${artifact}`);
   assert.equal(metadata.artifact, artifact);
-  assert.equal(metadata.sourceCommit, 'eaa4e697fc1198f32fc3714f377342a24c56d985');
+  assert.equal(metadata.sourceCommit, '4443fd15c4a591e46538eae24cf8425708e6a7f0');
   const archive = new URL(`vendor/${artifact}`, app);
   const bytes = await readFile(archive);
-  const sha256 = 'e64771a90bed2fb3837d4b65df8930fcd124d3059fcb0bcbaf9d64dbfb148205';
+  const sha256 = 'e573c3c2df74076a868e8422ec4e6cf233ede3007806757a03000aed865dedb6';
   assert.equal(digest(bytes), sha256);
   assert.equal(metadata.sha256, sha256);
   assert.equal(metadata.bytes, bytes.length);
-  assert.equal(metadata.integrity, `sha512-${digest(bytes, 'sha512', 'base64')}`);
+  assert.equal(metadata.sri, `sha512-${digest(bytes, 'sha512', 'base64')}`);
   const factsBytes = await readFile(new URL(`vendor/${metadata.artifactFacts}`, app));
   assert.equal(digest(factsBytes), metadata.artifactFactsSha256);
   const facts = JSON.parse(factsBytes);
@@ -52,7 +52,7 @@ it('pins the ordinary Editor to the original production SDK with beta.141 trust'
     specifier: `file:vendor/${artifact}`, version: pin,
   });
   assert.deepEqual(lock.packages[`@mdbase-dev/sdk@${pin}`].resolution, {
-    integrity: metadata.integrity, tarball: pin,
+    integrity: metadata.sri, tarball: pin,
   });
   const member = path => execFileSync('tar', ['-xOzf', fileURLToPath(archive), `package/${path}`]);
   const module = member('dist/application/packaged-trust.js');
