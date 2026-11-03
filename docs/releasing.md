@@ -134,8 +134,9 @@ workflow identity, checksums, and Sigstore bundles. See
 
 The `Desktop Release` workflow builds, verifies, signs, and publishes the
 installers through the [continuous desktop procedure](continuous-desktop-release.md),
-using qualified main and an automatically reserved tag. That procedure currently
-fails closed on the repository's immutable-channel policy conflict. To enable trusted macOS output, configure these
+using qualified main and an automatically reserved tag. All assets are uploaded
+to a draft before publication at 100% rollout; immutable releases remain enabled.
+To enable trusted macOS output, configure these
 secrets in the `desktop-release` GitHub Actions environment:
 
 - `MACOS_CERTIFICATE_P12_BASE64`: base64-encoded Developer ID Application
@@ -211,12 +212,12 @@ labeling and publishing them. Every downloadable artifact receives a keyless
 Sigstore bundle tied to the workflow's GitHub OIDC identity plus a checksum.
 The publish job creates a strict manifest from those exact artifacts, signs it
 with the same tag-bound workflow identity, verifies it, and only then creates
-the GitHub release.
+the draft GitHub release. After all assets are uploaded, the final compatibility
+and stop checks must pass before that complete draft is published.
 
-The continuous desktop policy replaces `UPDATE_ROLLOUT_PERCENTAGE` with 10%,
-50% after 24 hours, and 100% after 48 hours, with a stop switch. It cannot run
-until the immutable-release policy conflict in the linked procedure is resolved
-by the owner; this change does not disable repository protection.
+The continuous desktop policy replaces `UPDATE_ROLLOUT_PERCENTAGE` with fixed
+100% rollout and a stop switch. It never widens or replaces published release
+assets and leaves repository immutable releases enabled.
 Set `UPDATE_BLOCKED_VERSIONS` to a
 comma-separated list of exact versions only when a higher recovery release
 must bypass rollout for affected installations. Both values are captured in

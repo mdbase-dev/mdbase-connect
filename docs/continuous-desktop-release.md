@@ -6,23 +6,18 @@ or a manual run on **main**. Only a full, exact Server CI qualification can
 start a build. Superseded main commits are skipped. Workflow-run data is never
 used to run PR code with publication credentials.
 
-**Current escalation:** the repository's immutable-releases API reports
-`enabled: true`. The frozen updater bootstrap is a signed release asset, so
-automatic widening cannot coexist with that policy unchanged. The coordinator
-checks the setting and refuses **before creating a tag or publishing anything**.
-The release owner must resolve this design conflict explicitly. This PR does
-not disable immutability, introduce a new trusted channel, change keys, or claim
-that a permanently stuck 10% release is continuous delivery.
-An unreadable immutable-releases settings endpoint also fails closed; resolving
-the channel design must include its read authorization, not an unreviewed
-administration token or a skipped protection check.
+Repository immutable releases stay **enabled**. Desktop releases ship at
+**100% rollout**. All binaries, signed channel documents, Sigstore bundles and
+checksums are uploaded to a **draft** release before it is published. Nothing
+rewrites or replaces a published release asset. No immutable-releases settings
+API access, new signer, trusted channel or policy-key change is required.
 
 ## One release line
 
 The coordinator compares the desktop and its bundled dependencies with the
 last published desktop tag. Server-only, documentation-only and test-only
-changes do not create a release. Releases are at least 24 hours apart, and a
-new release cannot replace an in-progress staged rollout. Before publication,
+changes do not create a release. Releases are at least 24 hours apart, and an
+unfinished automatic release attempt blocks new versions. Before publication,
 all four existing platform builds, signing/provenance steps and platform
 verification remain in place. The Linux build also runs desktop regressions,
 browser UI/accessibility flows and the packaged daemon CLI smoke. The required
@@ -73,43 +68,41 @@ recheck readiness and compatibility without `production_verified_commit`.
 
 ## Rollout and stopping
 
-The signed permanent channel and legacy bootstrap start at **10%** with the
-existing version-tag seed. On later runs the **same** release widens to 50%
-after 24 hours and to 100% after 48 hours, at most one stage per run. No binary
-is rebuilt. The tag worker verifies the existing manifest's original signature,
-preserves every field except `rollout.percentage`, signs both channel documents
-with the same tag-bound identity, and replaces their signatures/checksums.
-Immutable GitHub releases are refused rather than circumvented.
+The signed permanent channel and legacy bootstrap both contain **100%** rollout
+with the existing version-tag seed. There is no widening job or later channel
+replacement. The coordinator still verifies the last published channel's
+original signature before selecting a new release.
 
-There is no machine-readable desktop crash/error aggregation in this repository.
-This is a time-based staged rollout, **not** crash-qualified automatic promotion.
-Fixed production readiness includes the existing provider recovery/failure
-signal; a failed widening or an unknown upload outcome latches
-`Continuous desktop status: stopped` into that release's notes. The coordinator
-will not resume it automatically. Removing that marker requires owner review
-of the failed run and both signed channel assets first.
+The tag worker signs and verifies both manifests, computes their checksums,
+then creates a draft with every release asset. Only after all uploads succeed
+does it recheck production compatibility, the stop switch and the workflow's
+active state, then publish that complete draft. An upload or final-check failure
+leaves an unpublished attempt for owner inspection. An unknown publication
+outcome must be reconciled against the exact tag, run and release; never retry
+blindly. The coordinator refuses any unfinished automatic tag reservation and
+still respects an existing `Continuous desktop status: stopped` notes marker.
 
 Set repository variable **`DESKTOP_RELEASE_STOPPED=true`** for a reported crash,
-error or operational stop. It stops subsequent builds/publication/widening, not
+error or operational stop. It stops subsequent builds/publication, not
 downloads already offered or updates already installed. For an in-flight stop,
 disable **Desktop Release** and cancel its active runs: the workflow's active
-state is also read through the API immediately before publishing/widening.
+state is also read through the API immediately before publication.
 Malformed/unreadable state fails closed. There is no automated rollback or
 user-data deletion, and no token with variable-management authority is needed.
 
 The existing committed minimum and `UPDATE_BLOCKED_VERSIONS` remain in force:
 required updates bypass rollout, and manual downloads/Store submissions are
 not cohort-gated. In particular, installations below the current beta.130
-minimum are required updates even at 10%. Altering that policy is a separate
+minimum remain required updates. Altering that policy is a separate
 owner decision, not part of this PR. `UPDATE_ROLLOUT_PERCENTAGE` is replaced by
-the fixed staged policy and is no longer read.
+fixed 100% rollout and is no longer read.
 
 ## Setup and first release (release owner)
 
-1. `DESKTOP_RELEASE_STOPPED` is optional and defaults to running. To hold the first release until an explicit owner run,
-   set it to `true` **before merging**, then change to `false` when ready.
-   First resolve the immutable-channel escalation above; do not disable the
-   repository's protection as an ad-hoc workaround.
+1. `DESKTOP_RELEASE_STOPPED=true` is already set and remains set during this
+   implementation and review. Keep repository immutable releases enabled.
+   Only the release owner should change the stop switch to `false` when ready
+   to enable publication; the default for an unset switch remains running.
 2. Keep the existing `desktop-release` environment. Its publication job must
    be allowed to run unattended for continuous delivery; required reviewer
    approvals would intentionally pause it. Its branch policy must allow `v*`.
@@ -125,15 +118,28 @@ the fixed staged policy and is no longer read.
    `RELEASE_AUTOMATION_APP_PRIVATE_KEY`. No new secret is required. Workflow
    permissions grant the coordinator contents/actions write and the signing
    jobs OIDC; the built-in token creates tags and dispatches the tagged worker.
-5. After merge and a green full main Server CI, run
+5. After review, merge and a green full main Server CI, the owner may clear the
+   stop switch and either wait for the next six-hour coordinator wake or run
    `gh workflow run desktop-release.yml --repo mdbase-dev/mdbase-connect --ref main`.
    Do not supply a version, server SHA or tag. Review the coordinator and
-   automatic tagged worker runs. Subsequent main events/scheduled runs do this
+   automatic tagged worker runs, including the draft-to-published boundary.
+   The same client-diff and 24-hour gates apply to this first run.
+   Subsequent main events/scheduled runs do this
    without a person. This PR does not dispatch or publish anything itself.
 
 The supervisor must also retire the old tagged desktop dispatch in ops
 `bin/publish-clients`; its `production_verified_commit` input is no longer
 accepted. The website's same-version npm intake needs a separate reviewed
 change for independent desktop/SDK versions. Neither consumer is modified here.
+
+## Follow-up: staged rollout
+
+Serve the channel manifest from a mutable location we own, such as the update
+Worker or R2, signed as today with the existing tag-bound Sigstore identity.
+Widening would rewrite only that owned manifest and its signature, never any
+asset of a published GitHub release. Binary releases, bootstrap assets and
+their provenance remain immutable. A separate reviewed change must wire client
+discovery and verification to that location and define widening/stop authority
+and recovery. This PR does not build that service or change updater trust.
 
 Tests: `node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-desktop-release.test.mjs`.

@@ -27,33 +27,14 @@ export function desktopChanged(paths, contents) {
     })());
 }
 
-export function rolloutPercentage(current, publishedAt, now = Date.now()) {
-  if (![10, 50, 100].includes(current)) throw new Error("Unexpected continuous rollout percentage.");
-  const age = now - Date.parse(publishedAt);
-  if (!Number.isFinite(age) || age < 0) throw new Error("Invalid rollout publication time.");
-  if (current === 10 && age >= day) return 50;
-  if (current === 50 && age >= 2 * day) return 100;
-  return current;
-}
-
-export function requireMutableChannel(settings) {
-  assert.equal(settings?.enabled, false,
-    "Immutable releases prevent signed-channel widening. Stop and ask the release owner to resolve the channel policy; never change repository settings automatically.");
-}
-
-export function desktopPlan({ latest, channel, reservations, changed, now = Date.now() }) {
+export function desktopPlan({ latest, reservations, changed, now = Date.now() }) {
   if (reservations.some(item => !item.published)) throw new Error("An automatic desktop attempt is unfinished; inspect its workflow and tag before recovery.");
   if (latest?.body?.includes(marker)) throw new Error("Desktop line is latched stopped; release-owner review required.");
-  const automated = reservations.find(item => item.tag === latest?.tag_name);
-  if (automated) {
-    assert.equal(channel.tag, latest.tag_name);
-    assert.equal(channel.rollout.seed, latest.tag_name);
-    const current = channel.rollout.percentage;
-    const next = rolloutPercentage(current, latest.published_at, now);
-    if (next !== current) return { operation: "widen", tag: latest.tag_name, percentage: next };
-    if (current !== 100) return { operation: "wait", reason: "observing current rollout" };
+  if (latest) {
+    const age = now - Date.parse(latest.published_at);
+    if (!Number.isFinite(age) || age < 0) throw new Error("Invalid desktop publication time.");
+    if (age < day) return { operation: "wait", reason: "daily limit" };
   }
-  if (latest && now - Date.parse(latest.published_at) < day) return { operation: "wait", reason: "daily limit" };
   return changed ? { operation: "release" } : { operation: "wait", reason: "desktop tree unchanged" };
 }
 
@@ -107,7 +88,7 @@ export async function coordinate(env = process.env) {
   const records = reservations(all);
   const directory = mkdtempSync(join(tmpdir(), "desktop-plan-"));
   try {
-    const channel = latest ? readChannel(latest, directory) : null;
+    if (latest) readChannel(latest, directory);
     const base = latest ? remoteTagCommit(latest.tag_name) : null;
     if (base) git("merge-base", "--is-ancestor", base, env.GITHUB_SHA);
     const paths = base ? git("diff", "--no-renames", "--name-only", "-z", base, env.GITHUB_SHA).split("\0") : ["apps/desktop/"];
@@ -116,26 +97,22 @@ export async function coordinate(env = process.env) {
       catch (error) { if (error.status === 128) return undefined; throw error; }
     };
     const changed = desktopChanged(paths, path => ({ before: base ? readAt(base, path) : undefined, after: readAt(env.GITHUB_SHA, path) }));
-    const plan = desktopPlan({ latest, channel, reservations: records, changed });
+    const plan = desktopPlan({ latest, reservations: records, changed });
     console.log(JSON.stringify(plan));
     if (plan.operation === "wait") return;
-    requireMutableChannel(api("immutable-releases"));
-    if (plan.operation === "release") await verifyCompatibility(env);
+    await verifyCompatibility(env);
     assert.equal(api("actions/workflows/desktop-release.yml").state, "active", "Desktop publication workflow has been stopped.");
-    let tag = plan.tag;
-    if (plan.operation === "release") {
-      const versions = git("tag", "--list", "v*").split("\n").filter(tag => /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)).map(tag => tag.slice(1));
-      versions.push(JSON.parse(readFileSync("package.json", "utf8")).version,
-        ...all.map(release => release.tag_name.slice(1)));
-      assert.match(env.GITHUB_RUN_ID ?? "", /^[1-9][0-9]*$/);
-      versions.push(`0.1.0-beta.${env.GITHUB_RUN_ID}`);
-      tag = `v${nextBetaVersion(versions)}`;
-      const object = writeApi("git/tags", { tag, object: env.GITHUB_SHA, type: "commit",
-        message: JSON.stringify({ schema: "mdbase-desktop-release/1", commit: env.GITHUB_SHA,
-          reserved_at: new Date().toISOString(), run_id: env.GITHUB_RUN_ID }) });
-      writeApi("git/refs", { ref: `refs/tags/${tag}`, sha: object.sha });
-    }
-    gh("workflow", "run", "desktop-release.yml", "--repo", repository, "--ref", tag, "-f", `operation=${plan.operation}`);
+    const versions = git("tag", "--list", "v*").split("\n").filter(tag => /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)).map(tag => tag.slice(1));
+    versions.push(JSON.parse(readFileSync("package.json", "utf8")).version,
+      ...all.map(release => release.tag_name.slice(1)));
+    assert.match(env.GITHUB_RUN_ID ?? "", /^[1-9][0-9]*$/);
+    versions.push(`0.1.0-beta.${env.GITHUB_RUN_ID}`);
+    const tag = `v${nextBetaVersion(versions)}`;
+    const object = writeApi("git/tags", { tag, object: env.GITHUB_SHA, type: "commit",
+      message: JSON.stringify({ schema: "mdbase-desktop-release/1", commit: env.GITHUB_SHA,
+        reserved_at: new Date().toISOString(), run_id: env.GITHUB_RUN_ID }) });
+    writeApi("git/refs", { ref: `refs/tags/${tag}`, sha: object.sha });
+    gh("workflow", "run", "desktop-release.yml", "--repo", repository, "--ref", tag, "-f", "operation=release");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -165,50 +142,12 @@ export function prepareDesktop(env = process.env) {
 export async function compatible(env = process.env) {
   requireRunning(env.DESKTOP_RELEASE_STOPPED);
   assert.equal(api("actions/workflows/desktop-release.yml").state, "active", "Desktop publication workflow has been stopped.");
-  requireMutableChannel(api("immutable-releases"));
   return verifyCompatibility(env);
 }
 
-export async function widen(env = process.env) {
-  requireRunning(env.DESKTOP_RELEASE_STOPPED);
-  const all = releaseList();
-  const latest = all[0];
-  assert.equal(latest.tag_name, env.GITHUB_REF_NAME);
-  assert(!latest.body?.includes(marker), "Desktop line is latched stopped.");
-  assert.notEqual(latest.immutable, true, "An immutable release cannot widen its signed channel.");
-  const directory = mkdtempSync(join(tmpdir(), "desktop-widen-"));
-  try {
-    const channel = readChannel(latest, directory);
-    assert.equal(channel.rollout.seed, latest.tag_name);
-    const percentage = rolloutPercentage(channel.rollout.percentage, latest.published_at);
-    if (percentage === channel.rollout.percentage) return;
-    await verifyCompatibility(env);
-    assert.equal(api("actions/workflows/desktop-release.yml").state, "active", "Desktop publication workflow has been stopped.");
-    channel.rollout.percentage = percentage;
-    const files = [];
-    for (const name of [channelName, "mdbase-connect-update.json"]) {
-      const path = join(directory, name);
-      writeFileSync(path, `${JSON.stringify(channel, null, 2)}\n`);
-      execFileSync("cosign", ["sign-blob", "--yes", "--bundle", `${path}.sigstore.json`, path], { stdio: "inherit" });
-      execFileSync("cosign", ["verify-blob", "--bundle", `${path}.sigstore.json`,
-        "--certificate-identity", `https://github.com/${repository}/.github/workflows/desktop-release.yml@${env.GITHUB_REF}`,
-        "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", path], { stdio: "inherit" });
-      files.push(path, `${path}.sigstore.json`);
-    }
-    const checksums = execFileSync("sha256sum", files.map(path => path.slice(directory.length + 1)), { cwd: directory, encoding: "utf8" });
-    writeFileSync(join(directory, "SHA256SUMS-update"), checksums);
-    gh("release", "upload", latest.tag_name, ...files, join(directory, "SHA256SUMS-update"), "--repo", repository, "--clobber");
-  } catch (error) {
-    gh("release", "edit", latest.tag_name, "--repo", repository, "--notes", `${latest.body ?? ""}\n\n${marker}`);
-    throw error;
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-}
-
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const commands = { coordinate, prepare: prepareDesktop, compatible, widen };
+  const commands = { coordinate, prepare: prepareDesktop, compatible };
   const command = commands[process.argv[2]];
-  if (!command) throw new Error("Expected coordinate, prepare, compatible or widen.");
+  if (!command) throw new Error("Expected coordinate, prepare or compatible.");
   await command();
 }

@@ -188,9 +188,10 @@ release.
 `desktop-release.yml` owns the public desktop channel from qualified green main,
 with CI versions and production-contract compatibility rather than a human-typed
 server SHA. [Continuous desktop releases](continuous-desktop-release.md) is the
-current desktop procedure, including the **blocking immutable-channel policy
-conflict**. The legacy coordinated order below no longer authorizes desktop
-publication. The workflow creates and verifies `mdbase-connect-channel-v1.json`, publishes the
+current desktop procedure: **100% rollout with immutable releases enabled**.
+The legacy coordinated order below no longer authorizes desktop publication.
+The workflow creates and verifies `mdbase-connect-channel-v1.json`, uploads
+every asset to a draft, rechecks compatibility and the stop switch, publishes the
 GitHub release, and only then sends a `connect-client-release-published`
 repository dispatch containing the immutable tag to `mdbase-dev/mdbase.dev`.
 The receiving repository verifies the signed public channel, release assets,

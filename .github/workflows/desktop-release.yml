@@ -12,7 +12,7 @@ on:
       operation:
         description: On main, coordinate the next release; tagged runs are created by the coordinator
         type: choice
-        options: [release, widen]
+        options: [release]
         default: release
   pull_request:
     paths:
@@ -594,7 +594,7 @@ jobs:
           UPDATE_BLOCKED_VERSIONS: ${{ vars.UPDATE_BLOCKED_VERSIONS }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          rollout=10
+          rollout=100
           # Versions below the committed minimum must update (they bypass rollout).
           minimum="$(node -p "require('./config/desktop-update-minimum.json').minimum_version")"
           published="$(git ls-remote --tags --refs origin 'v*' | sed -n 's|.*refs/tags/v||p' \
@@ -634,10 +634,7 @@ jobs:
             release-artifacts/mdbase-connect-update.json.sigstore.json \
             > release-artifacts/SHA256SUMS-update
 
-      - name: Recheck production compatibility and stop switch immediately before publication
-        run: node scripts/continuous-desktop-release.mjs compatible
-
-      - name: Publish prerelease
+      - name: Create draft prerelease with every asset
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -648,34 +645,18 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             release-artifacts/* \
             --repo "$GITHUB_REPOSITORY" \
+            --draft \
             --verify-tag \
             --generate-notes \
             --notes "Files containing **UNSIGNED** are preview builds, not trusted platform releases. Those Windows files may show Unknown Publisher or SmartScreen warnings; those macOS files require a manual Privacy & Security override and have not been notarized. Checksums and GitHub OIDC-backed Sigstore bundles establish build provenance but do not replace platform signing." \
             "${release_type[@]}" \
             --title "mdbase connect $GITHUB_REF_NAME"
 
-  widen:
-    needs: release-policy-tests
-    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'widen'
-    runs-on: ubuntu-24.04
-    environment: desktop-release
-    permissions:
-      contents: write
-      actions: read
-      id-token: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      DESKTOP_RELEASE_STOPPED: ${{ vars.DESKTOP_RELEASE_STOPPED }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
-      - run: node scripts/continuous-desktop-release.mjs prepare
-      - run: node scripts/continuous-desktop-release.mjs widen
+      - name: Recheck production compatibility and stop switch immediately before publication
+        run: node scripts/continuous-desktop-release.mjs compatible
+
+      - name: Publish complete prerelease
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
 
   website-update:
     if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'release'

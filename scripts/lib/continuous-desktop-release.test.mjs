@@ -1,42 +1,104 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
-import { desktopChanged, desktopPlan, requireMutableChannel, rolloutPercentage } from "../continuous-desktop-release.mjs";
+import { desktopChanged, desktopPlan } from "../continuous-desktop-release.mjs";
 
 const day = 86_400_000;
 const now = Date.parse("2026-11-03T12:00:00Z");
 const latest = { tag_name: "v0.1.0-beta.153", published_at: new Date(now - 3 * day).toISOString(), body: "" };
 const reservation = { tag: latest.tag_name, published: true };
-const plan = (percentage, overrides = {}) => desktopPlan({ latest, reservations: [reservation],
-  channel: { tag: latest.tag_name, rollout: { percentage, seed: latest.tag_name } }, changed: true, now, ...overrides });
+const plan = (overrides = {}) => desktopPlan({ latest, reservations: [reservation], changed: true, now, ...overrides });
+const workflow = readFileSync(new URL("../../.github/workflows/desktop-release.yml", import.meta.url), "utf8");
 
-test("rollout advances one stage per run and retains the installation cohort seed", () => {
-  assert.deepEqual(plan(10), { operation: "widen", tag: latest.tag_name, percentage: 50 });
-  assert.deepEqual(plan(50), { operation: "widen", tag: latest.tag_name, percentage: 100 });
-  assert.deepEqual(plan(100), { operation: "release" });
-  assert.equal(rolloutPercentage(10, new Date(now - day + 1).toISOString(), now), 10);
-  assert.equal(rolloutPercentage(50, new Date(now - 2 * day + 1).toISOString(), now), 50);
-  for (const percentage of [-1, 0, 25, 101, "10"]) assert.throws(() => rolloutPercentage(percentage, latest.published_at, now));
-  assert.throws(() => rolloutPercentage(10, "bad-date", now));
-  assert.throws(() => rolloutPercentage(10, new Date(now + 1).toISOString(), now));
+test("changed desktops release at once, including the first and immutable predecessors", () => {
+  assert.deepEqual(plan(), { operation: "release" });
+  assert.deepEqual(plan({ latest: undefined, reservations: [] }), { operation: "release" });
+  assert.deepEqual(plan({ latest: { ...latest, immutable: true } }), { operation: "release" });
+  assert.deepEqual(plan({ latest: { ...latest, published_at: new Date(now - day).toISOString() } }), { operation: "release" });
 });
 
-test("daily, diff and in-flight rollout gates cannot be bypassed by repeated triggers", () => {
-  assert.equal(plan(100, { changed: false }).reason, "desktop tree unchanged");
+test("daily, diff and unfinished-attempt gates cannot be bypassed by repeated triggers", () => {
+  assert.equal(plan({ changed: false }).reason, "desktop tree unchanged");
   const recent = { ...latest, published_at: new Date(now - day + 1).toISOString() };
-  assert.equal(plan(100, { latest: recent }).reason, "daily limit");
-  assert.equal(plan(10, { latest: recent }).reason, "observing current rollout");
-  assert.throws(() => plan(100, { reservations: [{ ...reservation, published: false }] }), /unfinished/);
-  assert.throws(() => plan(100, { latest: { ...latest, body: "Continuous desktop status: stopped" } }), /latched stopped/);
+  assert.equal(plan({ latest: recent }).reason, "daily limit");
+  assert.throws(() => plan({ reservations: [{ ...reservation, published: false }] }), /unfinished/);
+  assert.throws(() => plan({ changed: false, reservations: [{ ...reservation, published: false }] }), /unfinished/);
+  assert.throws(() => plan({ latest: { ...latest, body: "Continuous desktop status: stopped" } }), /latched stopped/);
+  for (const published_at of ["bad-date", new Date(now + 1).toISOString()]) {
+    assert.throws(() => plan({ latest: { ...latest, published_at } }), /Invalid desktop publication time/);
+  }
 });
 
-test("immutable or unknown release settings block publication before allocating a version", () => {
-  requireMutableChannel({ enabled: false });
-  for (const settings of [undefined, {}, { enabled: true }, { enabled: "false" }]) {
-    assert.throws(() => requireMutableChannel(settings), /Immutable releases/);
-  }
+test("immutable release settings are neither queried nor changed and widening is removed", () => {
   const source = readFileSync(new URL("../continuous-desktop-release.mjs", import.meta.url), "utf8");
-  assert(source.indexOf('requireMutableChannel(api("immutable-releases"))') < source.indexOf('writeApi("git/tags"'));
+  assert.doesNotMatch(source, /immutable-releases|requireMutableChannel|rolloutPercentage|\bwiden\b|--clobber/);
+  assert.doesNotMatch(source, /gh\("release", "(?:upload|edit|delete)"/);
+  assert.match(source, /if \(latest\) readChannel\(latest, directory\)/);
+  assert.match(source, /cosign.*\["verify-blob"/);
+  assert.match(workflow, /options: \[release\]/);
+  assert.doesNotMatch(workflow, /\bwiden\b|--clobber|gh release (?:upload|delete)/);
+});
+
+function stepCommand(name) {
+  const start = workflow.indexOf(`      - name: ${name}\n`);
+  assert(start >= 0, name);
+  const step = workflow.slice(start).split(/\n      - /)[0];
+  const command = /        run: (.+)(?:\n([\s\S]*))?/.exec(step);
+  assert(command, name);
+  return command[1] === "|" ? command[2].replace(/^          /gm, "") : command[1];
+}
+
+test("every asset uploads to a draft before the final guard and one-way publication", () => {
+  const create = stepCommand("Create draft prerelease with every asset");
+  const guard = stepCommand("Recheck production compatibility and stop switch immediately before publication");
+  const publish = stepCommand("Publish complete prerelease");
+  assert.match(create, /gh release create[^]*release-artifacts\/\*[^]*--draft\s/);
+  assert.match(publish, /gh release edit[^]*--draft=false$/);
+  assert(workflow.indexOf(create) < workflow.indexOf(guard));
+  assert(workflow.indexOf(guard) < workflow.indexOf(publish));
+  const directory = mkdtempSync(join(tmpdir(), "desktop-publication-test-"));
+  try {
+    mkdirSync(join(directory, "release-artifacts"));
+    const assets = ["desktop.dmg", "desktop.dmg.sigstore.json", "SHA256SUMS-macos", "SHA256SUMS-update",
+      "mdbase-connect-channel-v1.json", "mdbase-connect-channel-v1.json.sigstore.json",
+      "mdbase-connect-update.json", "mdbase-connect-update.json.sigstore.json"];
+    for (const asset of assets) writeFileSync(join(directory, "release-artifacts", asset), "fixture");
+    const commands = `
+gh() {
+  printf '%s\\n' "$*"
+  if [[ "$1 $2" == "release create" ]]; then return "$UPLOAD_STATUS"; fi
+  return "$PUBLISH_STATUS"
+}
+node() {
+  printf '%s\\n' "$*"
+  return "$GUARD_STATUS"
+}
+${create}
+${guard}
+${publish}
+`;
+    for (const [upload, compatible, publication] of [[0, 0, 0], [23, 0, 0], [0, 24, 0], [0, 0, 25]]) {
+      const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", commands], {
+        cwd: directory, encoding: "utf8", env: { ...process.env, GITHUB_REF_NAME: latest.tag_name,
+          GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", UPLOAD_STATUS: String(upload),
+          GUARD_STATUS: String(compatible), PUBLISH_STATUS: String(publication) }
+      });
+      assert.equal(result.status, upload || compatible || publication, result.stderr);
+      const calls = result.stdout.trim().split("\n");
+      for (const asset of assets) assert(calls[0].includes(`release-artifacts/${asset}`), asset);
+      assert(calls[0].includes("--draft"));
+      assert.equal(calls.length, upload ? 1 : compatible ? 2 : 3);
+      if (!upload && !compatible) {
+        assert.equal(calls[1], "scripts/continuous-desktop-release.mjs compatible");
+        assert.equal(calls[2], `release edit ${latest.tag_name} --repo mdbase-dev/mdbase-connect --draft=false`);
+      }
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("desktop changes include bundled clients and native inputs, not unrelated server or documentation edits", () => {
@@ -58,14 +120,14 @@ test("server-only version prep does not create a desktop release", () => {
 });
 
 test("automatic desktop jobs preserve tag-bound signing, full CI, e2e and notarization", () => {
-  const workflow = readFileSync(new URL("../../.github/workflows/desktop-release.yml", import.meta.url), "utf8");
   assert.match(workflow, /workflow_run:[\s\S]*workflows: \[Server CI\]/);
   assert.match(workflow, /group: desktop-release-.*'live'/);
-  assert.match(workflow, /rollout=10/);
+  assert.match(workflow, /rollout=100\n/);
   assert.doesNotMatch(workflow, /production_verified_commit|UPDATE_ROLLOUT_PERCENTAGE/);
   for (const gate of ["verify-qualified-commit", "scripts/continuous-desktop-release.mjs compatible", "pnpm test:accessibility",
     "pnpm --filter @mdbase/connect-desktop test", "cosign sign-blob", "cosign verify-blob", "xcrun stapler validate"]) assert(workflow.includes(gate), gate);
-  assert.match(workflow, /widen:[\s\S]*environment: desktop-release/);
+  assert.match(workflow, /minimum=.*config\/desktop-update-minimum\.json/);
+  assert.match(workflow, /--blocked-versions "\$\{UPDATE_BLOCKED_VERSIONS:-\}"/);
   assert.match(workflow, /needs: \[build, headless-package-smoke, cross-platform-release-tests, windows-package-smoke\]/);
   assert.match(workflow, /if: github.event_name == 'workflow_dispatch' && startsWith\(github.ref, 'refs\/tags\/v'\) && inputs.operation == 'release'/);
 });
