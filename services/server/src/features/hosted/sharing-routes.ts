@@ -185,6 +185,14 @@ export function registerHostedSharingRoutes(
           role
         })
       );
+      // Viewer requests (including retries) and pending provider cleanup both
+      // project read-only native authority. Confirm that fence before success.
+      if ((role === "viewer" || changed.state === "changing") &&
+          !await publishMembershipPolicy(options, collectionId)) {
+        return reply.header("retry-after", "2").code(503).send(
+          apiError("collection_sharing_unavailable", "Member role change is not yet confirmed. Retry the request.")
+        );
+      }
       return reply.code(changed.state === "changing" ? 202 : 200).send({
         membership: {
           id: changed.membershipId,

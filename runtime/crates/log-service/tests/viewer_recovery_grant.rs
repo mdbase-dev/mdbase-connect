@@ -4,15 +4,15 @@ use std::future::Future;
 use std::sync::Arc;
 use std::task::{Context, Poll, Wake, Waker};
 
-use mdbn_log_service::auth::Principal;
+use mdbn_log_service::auth::{Principal, verify_hello};
 use mdbn_log_service::backend::{Backend, Mode, Txn, Write};
 use mdbn_log_service::mem::{MemBackend, MemObjects};
 use mdbn_log_service::testkit::{ControlPlane, Device, id16, sign_digest};
 use mdbn_log_service::{Code, Config, Service, ServiceError};
 use mdbn_wire::cbor::Cbor;
-use mdbn_wire::common::{B16, B32, Bytes, Uuid};
+use mdbn_wire::common::{B16, B32, Bytes, Uuid, Version};
 use mdbn_wire::envelope::{Item, ItemKind, KeyGrantPayload, KeyWrap};
-use mdbn_wire::log_service::{AppendParams, HeadResult};
+use mdbn_wire::log_service::{AppendParams, HeadResult, LsHelloParams};
 use mdbn_wire::policy::{DeviceKind, MemberSet, PolicyOp, Role};
 use mdbn_wire::schema::Wire;
 
@@ -400,4 +400,119 @@ fn existing_writer_key_grant_is_unchanged() {
         f.grant(&f.owner, f.other.id, f.other.id, 1),
     )
     .unwrap();
+}
+
+#[test]
+fn downgrade_fences_queued_edits_and_old_tokens_after_service_restart() {
+    let mut f = Fixture::new();
+    let head = f.head();
+    f.append(
+        &Principal::ControlPlane,
+        f.cp.policy_item(
+            f.collection,
+            head.head + 1,
+            head.head_chain,
+            vec![PolicyOp::MemberSet(MemberSet {
+                account: f.user.account,
+                role: Role::Editor,
+            })],
+            2,
+        ),
+    )
+    .unwrap();
+
+    // Mint while Editor; retain this exact unexpired 15-minute token throughout.
+    let token = f.cp.device_token_for(&f.user, 901_000, Some(f.collection));
+    let nonce = [0x51; 32];
+    let hello = LsHelloParams {
+        version: Version { major: 1, minor: 0 },
+        device: Some(f.user.id),
+        sig: f.user.hello_sig(&nonce, &token),
+        token,
+    };
+    let principal = verify_hello(&hello, &nonce, &[f.cp.issuer_pk()], 1000).unwrap();
+    let head = f.head();
+    f.append(
+        &principal,
+        f.user.entry(
+            f.collection,
+            head.head + 1,
+            head.head_chain,
+            1,
+            B16([0x52; 16]),
+            None,
+            vec![1],
+        ),
+    )
+    .unwrap();
+
+    // An offline edit is signed and queued just before the downgrade lands.
+    let head = f.head();
+    let queued = f.user.entry(
+        f.collection,
+        head.head + 1,
+        head.head_chain,
+        1,
+        B16([0x53; 16]),
+        None,
+        vec![2],
+    );
+    f.append(
+        &Principal::ControlPlane,
+        f.cp.policy_item(
+            f.collection,
+            head.head + 1,
+            head.head_chain,
+            vec![PolicyOp::MemberSet(MemberSet {
+                account: f.user.account,
+                role: Role::Viewer,
+            })],
+            3,
+        ),
+    )
+    .unwrap();
+    let published = f.head();
+    ready(f.service.append(
+        &principal,
+        AppendParams {
+            collection: f.collection,
+            expect_seq: head.head + 1,
+            expect_prev: head.head_chain,
+            items: vec![Bytes(queued)],
+        },
+        1001,
+    ))
+    .unwrap(); // HeadMoved; the original queued bytes were not appended.
+    assert_eq!(f.head(), published);
+
+    for restart in [false, true] {
+        if restart {
+            // Reconstruct the service over retained storage, discarding its
+            // credential/rate caches. This is not a process/disk durability test.
+            f.service = Service::new(
+                Arc::try_unwrap(f.service.backend).unwrap(),
+                Arc::try_unwrap(f.service.objects).unwrap(),
+                f.service.config,
+            );
+        }
+        let reused = verify_hello(&hello, &nonce, &[f.cp.issuer_pk()], 1002).unwrap();
+        assert_eq!(
+            ready(f.service.head(&reused, &f.collection)).unwrap(),
+            published
+        );
+        // Reframe the same edit at the new head as a retrying writer would.
+        let retried = f.user.entry(
+            f.collection,
+            published.head + 1,
+            published.head_chain,
+            1,
+            B16([0x53; 16]),
+            None,
+            vec![2],
+        );
+        let error = f.append(&reused, retried).unwrap_err();
+        assert_eq!(error.code, Code::Forbidden);
+        assert_eq!(error.reason.as_deref(), Some("role"));
+        assert_eq!(f.head(), published);
+    }
 }
