@@ -83,6 +83,33 @@ function deviceAvailability(candidates: readonly Candidate[]): RouteAvailability
   return { state: "unavailable", reason: "device_offline" };
 }
 
+async function unmigratedHostedGrant(db: DatabaseQueryable, tokenDigest: string, collection: string): Promise<boolean> {
+  const result = await db.query(
+    `SELECT g.id FROM access_tokens tok
+     JOIN grants g ON g.id = tok.grant_id
+     JOIN users caller ON caller.id = g.user_id AND caller.suspended_at IS NULL
+     JOIN hosted_collections hc ON hc.id = g.hosted_collection_id
+     JOIN users owner ON owner.id = hc.user_id AND owner.suspended_at IS NULL
+     JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id AND replica.collection_id = hc.id AND replica.revoked_at IS NULL
+     LEFT JOIN next_collections parent ON parent.collection_id = hc.id
+     LEFT JOIN collection_memberships membership ON membership.id = g.membership_id
+       AND membership.user_id = g.user_id AND membership.collection_id = g.logical_collection_id
+       AND membership.state = 'active' AND membership.revoked_at IS NULL
+     LEFT JOIN collection_identities identity ON identity.id = membership.collection_id AND identity.owner_user_id = hc.user_id
+     LEFT JOIN collection_membership_policies policy ON policy.id = membership.current_policy_id
+       AND policy.membership_id = membership.id AND policy.revision = membership.current_policy_revision
+     WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
+       AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+       AND hc.id = $2 AND hc.authority_state = 'active' AND hc.quarantined_at IS NULL
+       AND parent.collection_id IS NULL
+       AND ((g.user_id = hc.user_id AND g.membership_id IS NULL AND g.membership_policy_id IS NULL AND g.membership_policy_revision IS NULL)
+         OR (identity.id IS NOT NULL AND policy.id = g.membership_policy_id AND policy.revision = g.membership_policy_revision))
+     LIMIT 1`,
+    [tokenDigest, collection]
+  );
+  return result.rows.length > 0;
+}
+
 export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string; labPitr?: LabPitrConfig; migrationRouting?: MigrationRouting;
   /** Moves a taken-over collection's eligible legacy grants to it; never throws. */
   carryOver?: (collection: string) => Promise<number> }): void {
@@ -149,6 +176,9 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
       if (!native && superseded) return unavailableRoute(id, superseded, "sync_required");
     }
     const row = grant.rows[0] ?? (native ? { ...native, policy_required: true } : hosted?.grant);
+    if (!row && await unmigratedHostedGrant(options.db, hash, id)) {
+      return reply.code(404).send(apiError("not_found", "This hosted collection uses the legacy authority."));
+    }
     if (!row) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired for this collection."));
     // A valid scoped grant proves visibility, not next readiness. Explain the
     // exact legacy authority before suggesting another key/approval attempt.
