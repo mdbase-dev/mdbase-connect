@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isPermanentCustodyRefusal, withCustodyRetry } from "../src/custody-retry.ts";
+import { DENY_CUSTODY } from "../src/seams.ts";
 
 const clock = () => {
   let t = 0;
@@ -29,6 +30,22 @@ test("a refusal with a verdict is thrown at once, never retried", async () => {
     await assert.rejects(withCustodyRetry(async () => { calls++; throw new Error(code); }, clock()), (e) => e.message === code);
     assert.equal(calls, 1);
   }
+});
+
+const timers = () => process.getActiveResourcesInfo().filter((r) => r === "Timeout").length;
+
+test("a settled attempt leaves no timer behind (a pending one keeps a Durable Object awake)", async () => {
+  const before = timers();
+  assert.equal(await withCustodyRetry(async () => "token", clock()), "token");
+  await assert.rejects(withCustodyRetry(async () => { throw new Error("custody_invalid_record"); }, clock()), /custody_invalid_record/);
+  assert.equal(timers(), before);
+});
+
+test("an unconfigured custody is refused at once, never retried", async () => {
+  let calls = 0;
+  await assert.rejects(withCustodyRetry(async (signal) => { calls++; return DENY_CUSTODY.openSealer("c", signal); }, clock()), /custody_not_configured/);
+  await assert.rejects(withCustodyRetry(async (signal) => { calls++; return DENY_CUSTODY.logToken("c", signal); }, clock()), /custody_not_configured/);
+  assert.equal(calls, 2);
 });
 
 test("the whole budget bounds retries; the last transient refusal is thrown", async () => {

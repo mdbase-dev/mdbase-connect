@@ -5,6 +5,7 @@
  */
 import { AwsClient } from "aws4fetch";
 import { configuredEnvelope, encodeEnvelope } from "./envelope.ts";
+import { deadline } from "../deadline.ts";
 import { KmsAllowlist } from "./kms-allowlist.ts";
 
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
@@ -148,8 +149,9 @@ export class HostedAwsKms {
   }
 
   private async call(operation: "Encrypt" | "Decrypt", body: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
-    const activeSignal = AbortSignal.any([signal, AbortSignal.timeout(8000)]);
-    activeSignal.throwIfAborted();
+    signal.throwIfAborted();
+    const timeout = deadline(8000);
+    const activeSignal = AbortSignal.any([signal, timeout.signal]);
     let client: AwsClient | undefined;
     try {
       const creds = this.credentials();
@@ -186,6 +188,7 @@ export class HostedAwsKms {
       if (error instanceof Error && ["kms_refused", "kms_invalid_response", "kms_aborted", "kms_credentials_unavailable"].includes(error.message)) throw error;
       return fail(activeSignal.aborted ? "kms_aborted" : "kms_unavailable");
     } finally {
+      timeout.clear();
       if (client) {
         for (const key of client.cache.values()) new Uint8Array(key).fill(0);
         client.cache.clear();
