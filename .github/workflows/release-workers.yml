@@ -12,7 +12,7 @@ on:
         description: Exact protected main dispatch SHA (must equal github.sha)
         required: true
       ci_run_id:
-        description: Successful full main CI push or owner dispatch at this SHA
+        description: Successful full main CI push or authorized dispatch at this SHA
         required: true
       ci_run_attempt:
         description: Exact full CI attempt
@@ -44,12 +44,14 @@ env:
   CARGO_NET_RETRY: '10'
 jobs:
   build:
-    if: github.repository == 'mdbase-dev/mdbase-connect' && github.event.repository.private == false && github.ref == 'refs/heads/main' && github.ref_protected == true && github.sha == inputs.source_revision && github.actor == 'callumalpass' && github.triggering_actor == 'callumalpass'
+    if: github.repository == 'mdbase-dev/mdbase-connect' && github.event.repository.private == false && github.ref == 'refs/heads/main' && github.ref_protected == true && github.sha == inputs.source_revision && contains(fromJSON('["callumalpass","mdbase-dev-release-automation[bot]"]'), github.actor) && github.triggering_actor == github.actor
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read
       actions: read
+    env:
+      APPROVED_TRUST_RELEASE: ${{ vars[format('WORKER_BUILD_TRUST_{0}', inputs.environment)] }}
     outputs:
       manifest_sha256: ${{ steps.pack.outputs.manifest_sha256 }}
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
@@ -217,13 +219,15 @@ jobs:
           retention-days: 3
   sign:
     needs: build
-    if: needs.build.result == 'success' && github.repository == 'mdbase-dev/mdbase-connect' && github.event.repository.private == false && github.ref == 'refs/heads/main' && github.ref_protected == true && github.sha == inputs.source_revision && github.actor == 'callumalpass' && github.triggering_actor == 'callumalpass'
+    if: needs.build.result == 'success' && github.repository == 'mdbase-dev/mdbase-connect' && github.event.repository.private == false && github.ref == 'refs/heads/main' && github.ref_protected == true && github.sha == inputs.source_revision && contains(fromJSON('["callumalpass","mdbase-dev-release-automation[bot]"]'), github.actor) && github.triggering_actor == github.actor
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
       actions: read
       id-token: write
+    env:
+      APPROVED_TRUST_RELEASE: ${{ vars[format('WORKER_BUILD_TRUST_{0}', inputs.environment)] }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

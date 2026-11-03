@@ -19,6 +19,22 @@ env:
   CARGO_NET_RETRY: '10'
   WRANGLER_SEND_METRICS: 'false'
 jobs:
+  publication:
+    name: Worker publication contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Verify publisher authorization, trust hold and ops publication contract
+        working-directory: .
+        run: node --test scripts/release-workers.test.mjs
+
   native:
     uses: ./.github/workflows/runtime-native-tests.yml
 

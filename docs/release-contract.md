@@ -14,6 +14,10 @@ workflows run from main, never accept `production_verified_commit`, and do not
 require server/package version equality. Server promotion and other clients'
 existing release procedures remain separate.
 
+Signed runtime Worker bundles use the separate
+[owner/App publication contract](runtime-worker-publication.md), including
+independent approved-trust pins and the ops consumer's identity prerequisite.
+
 `config/release-components.json` is the public, non-secret inventory of every
 product artifact promoted together as an mdbase Connect server release. It owns
 component IDs, GHCR repositories, Dockerfiles, build contexts, runtime
