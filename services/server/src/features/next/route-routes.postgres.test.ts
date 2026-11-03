@@ -8,6 +8,7 @@ import { tokenHash } from "../../security.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
 import { LocalRelayBroker } from "../../relay-broker.js";
+import { createHostedCollectionMembership } from "../../collection-policy.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -18,6 +19,7 @@ describePostgres("mdbase-next route endpoint", () => {
   let db: DatabasePool;
   let schema: string;
   const app = Fastify();
+  const hostedApp = Fastify();
   const broker = new LocalRelayBroker();
 
   beforeAll(async () => {
@@ -30,10 +32,13 @@ describePostgres("mdbase-next route endpoint", () => {
     db = await createDatabase(url.toString());
     registerErrorHandler(app);
     registerNextRouteRoutes(app, { db, publicUrl: "https://connect.example", broker });
+    registerErrorHandler(hostedApp);
+    registerNextRouteRoutes(hostedApp, { db, publicUrl: "https://connect.example", broker, hostedClientUrl: "https://hosted.example" });
   }, 60_000);
 
   afterAll(async () => {
     await app.close();
+    await hostedApp.close();
     await broker.close();
     await db?.end();
     if (admin && schema) await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
@@ -49,6 +54,62 @@ describePostgres("mdbase-next route endpoint", () => {
     const route = () => app.inject({ method: "GET", url: `/v1/next/collections/${id}/route`, headers: { authorization: `Bearer ${token}` } });
     return { id, token, route };
   }
+
+  async function legacyHostedGrant() {
+    const { id, token } = await grantWithToken();
+    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$1,'Legacy hosted','mdbase')", [id]);
+    await db.query("INSERT INTO hosted_replicas(id,collection_id,authorized_user_id,name,purpose,mode) VALUES($1,$1,$1,'Application','application','read_only')", [id]);
+    await db.query("UPDATE grants SET collection_id=NULL,hosted_collection_id=$1,hosted_replica_id=$1,logical_collection_id=$1 WHERE id=$1", [id]);
+    const route = (collection = id, bearer = token) => Promise.all([app, hostedApp].map((server) => server.inject({
+      method: "GET", url: `/v1/next/collections/${collection}/route`, headers: { authorization: `Bearer ${bearer}` }
+    })));
+    return { id, route };
+  }
+
+  it("returns legacy discovery only for a live hosted grant to an unmigrated collection", async () => {
+    const f = await legacyHostedGrant();
+    expect((await f.route()).map((response) => response.statusCode)).toEqual([404, 404]);
+    expect((await f.route(randomUUID())).map((response) => response.statusCode)).toEqual([401, 401]);
+    expect((await f.route(f.id, "invalid-token")).map((response) => response.statusCode)).toEqual([401, 401]);
+    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$1,'shadow','cloud_copy',$2)", [f.id, Buffer.alloc(16)]);
+    expect((await f.route()).map((response) => response.statusCode)).toEqual([401, 401]);
+  });
+
+  it.each([
+    ["expired token", "UPDATE access_tokens SET expires_at=now()-interval '1 hour' WHERE grant_id=$1"],
+    ["revoked token", "UPDATE access_tokens SET revoked_at=now() WHERE grant_id=$1"],
+    ["revoked grant", "UPDATE grants SET revoked_at=now() WHERE id=$1"],
+    ["unactivated grant", "UPDATE grants SET activated_at=NULL WHERE id=$1"],
+    ["revoked replica", "UPDATE hosted_replicas SET revoked_at=now() WHERE id=$1"],
+    ["quarantined collection", "UPDATE hosted_collections SET quarantined_at=now() WHERE id=$1"],
+    ["transferring collection", "UPDATE hosted_collections SET authority_state='transferring' WHERE id=$1"],
+    ["suspended account", "UPDATE users SET suspended_at=now() WHERE id=$1"]
+  ])("does not offer legacy discovery for a %s", async (_name, mutation) => {
+    const f = await legacyHostedGrant();
+    await db.query(mutation, [f.id]);
+    expect((await f.route()).map((response) => response.statusCode)).toEqual([401, 401]);
+  });
+
+  it("requires the current member-policy binding for legacy hosted discovery", async () => {
+    const f = await legacyHostedGrant();
+    const member = randomUUID();
+    await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Member')", [member, `${member}@example.test`]);
+    const policy = await createHostedCollectionMembership(db, { collectionId: f.id, ownerUserId: f.id, userId: member, role: "viewer" });
+    await db.query("UPDATE grants SET hosted_replica_id=NULL WHERE id=$1", [f.id]);
+    await db.query("UPDATE hosted_replicas SET authorized_user_id=$2,membership_id=$3,membership_policy_id=$4,membership_policy_revision=$5 WHERE id=$1", [f.id, member, policy.membershipId, policy.id, policy.revision]);
+    await db.query("UPDATE grants SET hosted_replica_id=$1,user_id=$2,membership_id=$3,membership_policy_id=$4,membership_policy_revision=$5 WHERE id=$1", [f.id, member, policy.membershipId, policy.id, policy.revision]);
+    expect((await f.route()).map((response) => response.statusCode)).toEqual([404, 404]);
+    const nextPolicy = randomUUID();
+    await db.query(`INSERT INTO collection_membership_policies
+      (id,membership_id,revision,role,preset_version,actions,operations,scope_ceiling,file_ceiling)
+      SELECT $2,membership_id,2,role,preset_version,actions,operations,scope_ceiling,file_ceiling
+      FROM collection_membership_policies WHERE id=$1`, [policy.id, nextPolicy]);
+    await db.query("UPDATE collection_memberships SET current_policy_id=$2,current_policy_revision=2 WHERE id=$1", [policy.membershipId, nextPolicy]);
+    expect((await f.route()).map((response) => response.statusCode)).toEqual([401, 401]);
+    await db.query("UPDATE collection_memberships SET current_policy_id=$2,current_policy_revision=$3 WHERE id=$1", [policy.membershipId, policy.id, policy.revision]);
+    await db.query("UPDATE collection_memberships SET state='revoking' WHERE id=$1", [policy.membershipId]);
+    expect((await f.route()).map((response) => response.statusCode)).toEqual([401, 401]);
+  });
 
   it("routes a keyed grant to its daemon through the relay", async () => {
     const { id, route } = await grantWithToken();
