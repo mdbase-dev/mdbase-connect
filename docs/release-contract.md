@@ -6,8 +6,13 @@ assets) and its source-build qualification gate. See [SDK publication](sdk-publi
 No current ops change is required: private promotion readers consume their own
 component mapping and the unchanged OCI bundle, not this public source inventory.
 The OCI component matrix and signed image release
-bundle stay unchanged (bundle schema v1); the SDK uses the same release version
-and verified tag, with separate qualification and attestations.
+bundle stay unchanged (bundle schema v1). SDK packages now use independent
+CI-computed versions and verified main source, with separate qualification and
+attestations. [Continuous SDK publication](continuous-sdk-release.md) replaces
+the historical coordinated npm/tag procedure later in this document: npm
+workflows run from main, never accept `production_verified_commit`, and do not
+require server/package version equality. Server promotion and other clients'
+existing release procedures remain separate.
 
 `config/release-components.json` is the public, non-secret inventory of every
 product artifact promoted together as an mdbase Connect server release. It owns

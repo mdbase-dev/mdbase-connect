@@ -1,7 +1,9 @@
 # Source-built SDK publication
 
-The SDK follows the Connect release version and is published from its exact
-annotated tag only after independent production verification. Existing apps
+The SDK uses an independent CI-computed version and publishes changed qualified
+main source after production-contract compatibility checks. See
+[continuous SDK publication](continuous-sdk-release.md) for triggers, selection,
+stop/recovery controls and required environment-policy setup. Existing apps
 keep their current originals until their guarded npm intake migration lands.
 
 ## Decision: separate package identities, build-time trust (model a)
@@ -81,20 +83,19 @@ separate compatibility work, not an incidental publication cleanup.
 `dist/native/provenance.json` binds the SDK producer commit, environment,
 reviewed trust context and runtime pin. It replaces per-app SDK-original facts,
 not release/grant authority. The GitHub artifact attestation binds the exact
-packed tarball to this version-tag workflow; npm `--provenance` additionally binds
+packed tarball to this exact main-ref workflow; npm `--provenance` additionally binds
 the registry publication. Neither proves deployment, current CP membership or
 per-app operations. Review of the committed pin is the trust authorization for
 this source build; this is not an invented Ops handoff/signature receipt.
 
 Every live publication requires the exact commit's successful full Server CI
-and Runtime CI, `ready: true`, the matching annotated version tag and an explicit
-non-dry-run dispatch with the full `production_verified_commit` SHA.
-The shared `verify-client-publication.mjs` checks the remote annotated tag and
-fixed canonical production health/readiness immediately before each publication.
-The protected `npm-sdk` environment admits only `v0.1.0-beta.*` tags; it has no
-human reviewer, matching the unattended release policy.
-The first release-preparation commit must include the final SDK version/pin
-updates so Runtime CI is triggered for that exact SHA; a documentation-only
+and Runtime CI, `ready: true`, and production-compatible contract axes. Green main
+changes publish automatically; manual dispatches default to dry-run. The shared
+continuous-client gate checks fixed canonical production health/readiness and
+source ancestry/diffs immediately before publication, without a human-typed SHA.
+The owner must allow main in the existing `npm-sdk` environment policy; this PR
+does not change the environment or add a human reviewer/token fallback.
+Source/pin changes must pass Runtime CI for that exact SHA; a documentation-only
 successor without Runtime CI cannot reuse an older commit's qualification.
 The build job has no OIDC permission. The production publisher verifies and
 publishes only the fixed `sdk-production.tgz`, unchanged, with scripts disabled,
@@ -127,7 +128,8 @@ as one run-local transfer artifact. It has no npm setup or credentials.
 `publish-internal` runs only after the verified `npm-sdk` production publish
 succeeds, so a dry or failed run never consumes a
 `sdk-v<version>` tag. It downloads those four fixed files. Its only granted permission
-is `contents: write`: no OIDC, attestation-write, packages permission or npm
+includes `contents: write` and `actions: read` for the stop check: no OIDC,
+attestation-write, packages permission or npm
 credentials. GitHub's contents permission is repository-scoped, not per-release;
 the script limits its writes to one newly created `sdk-v<version>` tag/release
 and its fixed assets. It does not modify any other release or a latest pointer.
@@ -161,14 +163,14 @@ published releases are not retroactively locked. See
 Consumers must still pin the exact URL and lockfile integrity and verify the
 attached attestation against the reviewed producer SHA.
 
-The workflow defaults to `dry_run: true`. PRs and dry-run dispatches build and
-verify all three packages without npm credentials, attestations or publication.
-The live dispatch selects the existing release tag, for example:
+Manual dispatch defaults to `dry_run: true`. PRs and changed-package dry runs
+build and verify all three packages without npm credentials, attestations or
+publication. Healthy main changes publish automatically. The first live owner
+dispatch is on main, for example:
 
 ```sh
 gh workflow run publish-sdk-npm.yml --repo mdbase-dev/mdbase-connect \
-  --ref v0.1.0-beta.149 -f dry_run=false \
-  -f production_verified_commit=<full independently verified product SHA>
+  --ref main -f dry_run=false
 ```
 
 A stale WASM pin or failed consumer test remains a failure, never an
@@ -177,14 +179,16 @@ no production or publication authority.
 
 ## Versioning and consumption
 
-The SDK version is the Connect release version: beta.149 publishes
-`@mdbase-dev/sdk@0.1.0-beta.149`. `pnpm version:set` updates the SDK manifest,
-npm lock and Obsidian runtime's SDK peer/local lock together. The three
-environment packages share that version; their package names distinguish trust.
-Every trust/native/protocol/code change needs a new release version. Provenance
-binds its exact producer SHA. The Obsidian runtime's own version remains
-independent. Stable SDK versions and the first `latest` promotion need a
-separate owner decision.
+CI computes `0.1.0-beta.N` above every published SDK version and the source
+manifest version. It stamps the root and SDK manifests only in the build
+workspace, after frozen installs; no version PR, hand-created tag or human
+version input is needed. Server release-preparation versions are no longer SDK
+publication authority. The three environment packages share the computed
+version; their package names distinguish trust. The internal `sdk-v<version>`
+tag records the original main producer SHA after npm publication; it is not a
+source-version commit. The Obsidian runtime's own version remains independent.
+Stable SDK versions and the first `latest` promotion need a separate owner
+decision. Versions below are illustrative historical pins, not latest selectors.
 
 Production manifest:
 
