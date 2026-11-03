@@ -300,7 +300,8 @@ it("completes read-only (mdbase:read) MCP authorization and consent with exactly
     connectDb,
     { pushPolicy: vi.fn() } as unknown as RelayHub,
     hostedProvider,
-    application.rows[0]
+    application.rows[0],
+    grants.rows[0]!.id
   );
   const retained = await connectDb.query("SELECT revoked_at FROM grants WHERE id = $1", [grants.rows[0]!.id]);
   expect(retained.rows[0].revoked_at).toBeNull();
