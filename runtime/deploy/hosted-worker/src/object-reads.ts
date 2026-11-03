@@ -7,6 +7,7 @@ import type { Engine, AttachmentReadOut } from "./engine.js";
 import { sendCall, StaleAppendStore, type LogFence } from "./log.ts";
 import type { ObjectOriginPolicy } from "./object-origins.ts";
 import { objectMap as map, objectSize as size, streamDirectObject } from "./object-download.ts";
+import { withDeadline } from "./deadline.ts";
 
 const INLINE = 1 << 20;
 const META = INLINE + (32 << 10);
@@ -57,9 +58,9 @@ export async function fetchAttachment(log: Fetcher, engine: Engine, token: strin
       if (!current() || !engine.attachmentReserve(lease.ticket, count)) throw new Error("read allocation refused");
       if (!current() || !engine.attachmentWrite(lease.ticket, bytes)) throw new Error("stale read");
     } else {
-      completedCurrent = await streamDirectObject(log, map(result.get(1)), count, checksum, current, origins,
+      completedCurrent = await withDeadline(15_000, signal => streamDirectObject(log, map(result.get(1)), count, checksum, current, origins,
         () => engine.attachmentReserve(lease.ticket, count),
-        bytes => engine.attachmentWrite(lease.ticket, bytes), AbortSignal.timeout(15_000), directFetch);
+        bytes => engine.attachmentWrite(lease.ticket, bytes), signal, directFetch));
     }
     // Rust checks the full encoded checksum AND manifest/chunk authentication;
     // no plaintext release until both succeed and the current gate still holds.

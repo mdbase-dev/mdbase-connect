@@ -282,7 +282,7 @@ export class ControlClient {
             ...(init.body ? { "content-type": "application/json" } : {}) },
           body: init.body ? JSON.stringify(init.body) : undefined,
           redirect: "manual", cache: "no-store",
-          signal: AbortSignal.any([signal, abort.signal, AbortSignal.timeout(timeoutMs)]),
+          signal: AbortSignal.any([signal, abort.signal]),
         }).then(async result => {
           if (!closed) return result;
           try { if (result.body) await bounded(result.body.cancel()); } catch { /* Best-effort late-body cleanup. */ }

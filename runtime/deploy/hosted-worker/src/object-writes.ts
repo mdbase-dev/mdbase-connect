@@ -6,6 +6,7 @@
 import { decode, type CborValue } from "../../../packages/sdk/src/cbor.ts";
 import type { Engine } from "./engine.js";
 import { sendCall, StaleAppendStore, type LogFence } from "./log.ts";
+import { deadline } from "./deadline.ts";
 import type { ObjectOriginPolicy } from "./object-origins.ts";
 
 const WINDOW = 64 << 10;
@@ -141,7 +142,8 @@ export async function stageSealedObject(log: Fetcher, signer: Pick<Engine, "sign
     const fixed = makeStream(count);
     let offset = 0;
     const abort = new AbortController();
-    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(TIMEOUT)]);
+    const timeout = deadline(TIMEOUT);
+    const signal = AbortSignal.any([abort.signal, timeout.signal]);
     const input = new ReadableStream<Uint8Array>({
       pull(controller) {
         try {
@@ -184,6 +186,7 @@ export async function stageSealedObject(log: Fetcher, signer: Pick<Engine, "sign
       } catch (e) { cancel(); throw e; }
     })();
     const settled = await Promise.allSettled([pipe, upload]);
+    timeout.clear();
     signal.removeEventListener("abort", cancel);
     await cancellation;
     if (settled.some((r) => r.status === "rejected") || !live() || offset !== count)

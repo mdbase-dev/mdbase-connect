@@ -12,6 +12,7 @@ import type { Engine, LogCallOut } from "./engine.js";
 import { appendObservation, type AppendObservation } from "./append-observe.ts";
 import type { ObjectOriginPolicy } from "./object-origins.ts";
 import { completeObjectReply } from "./object-download.ts";
+import { deadline } from "./deadline.ts";
 
 const ORIGIN = "https://log.internal"; // service binding: the host part is ignored
 const MAX_REPLY_BYTES = 16 << 20;
@@ -215,7 +216,8 @@ export async function sendCall(
     if (!isAppend || !fence()) return;
     try { observeAppend?.(call, observation); } catch { /* No transport effects. */ }
   };
-  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  const timeout = deadline(TIMEOUT_MS);
+  const signal = timeout.signal;
   try {
     const nr = await log.fetch(`${ORIGIN}/v1/nonce`, { signal });
     if (!fence()) {
@@ -276,6 +278,7 @@ export async function sendCall(
     engine.logFailed(id, false);
     return httpStatus === 401 || httpStatus === 403 ? "refused" : "failed";
   } finally {
+    timeout.clear();
     if (isAppend) stale.settle(size, kept);
     // The copy is wiped unless the stale custody kept it.
     if (!kept) frame.fill(0);

@@ -1,4 +1,5 @@
 import { labCustodySubCause } from "./custody/hosted-custody.ts";
+import { withDeadline } from "./deadline.ts";
 
 /** Custody refusals that carry no verdict: another scoped call held the custody
  * (it serves one call at a time, with no queue), or the CP/KMS round trips
@@ -38,7 +39,7 @@ export async function withCustodyRetry<T>(fetch: (signal: AbortSignal) => Promis
   const deadline = now() + (options.budgetMs ?? 45_000);
   for (let attempt = 1, delay = 250; ; attempt++, delay = Math.min(delay * 2, 4_000)) {
     const remaining = deadline - now();
-    try { return await fetch(AbortSignal.timeout(Math.max(1, Math.min(attemptMs, remaining)))); }
+    try { return await withDeadline(Math.max(1, Math.min(attemptMs, remaining)), fetch); }
     catch (error) {
       const code = error instanceof Error ? error.message : "";
       if (!TRANSIENT.has(code) || now() + delay >= deadline) throw error;

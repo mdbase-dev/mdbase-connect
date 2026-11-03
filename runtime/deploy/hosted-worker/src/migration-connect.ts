@@ -5,6 +5,7 @@
 
 import type { RollbackScope } from "./migration-rollback-input.ts";
 import { localBuild, localOrigin } from "./local-origin.ts";
+import { withDeadline } from "./deadline.ts";
 
 const MAX_REPLY_BYTES = 16 * 1024;
 /** Two full 1000-UUID vectors plus fixed original receipt fields. */
@@ -43,10 +44,12 @@ export function connectClient(config: { url: string; token: string; environment?
       || url.username || url.password) throw new Error("migration_connect_unconfigured");
   if (config.token.length < 32) throw new Error("migration_connect_unconfigured");
   const base = url.toString().replace(/\/+$/, "");
-  const call = async (path: string, init: { method: "GET" | "POST"; body?: unknown }, signal: AbortSignal, maxReplyBytes = MAX_REPLY_BYTES): Promise<ConnectReply> => {
+  const call = (path: string, init: { method: "GET" | "POST"; body?: unknown }, parent: AbortSignal, maxReplyBytes = MAX_REPLY_BYTES): Promise<ConnectReply> =>
+    withDeadline(TIMEOUT_MS, signal => callOnce(path, init, signal, maxReplyBytes), parent);
+  const callOnce = async (path: string, init: { method: "GET" | "POST"; body?: unknown }, signal: AbortSignal, maxReplyBytes: number): Promise<ConnectReply> => {
     const response = await fetchImpl(`${base}${path}`, {
       method: init.method, redirect: "manual",
-      signal: AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]),
+      signal,
       headers: { authorization: `Bearer ${config.token}`, ...(init.body === undefined ? {} : { "content-type": "application/json" }) },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
     });

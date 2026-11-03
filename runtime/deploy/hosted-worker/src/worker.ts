@@ -30,6 +30,7 @@ import type { MigrationProviderResult } from "./migration-provider-result.js";
 import type { MigrationSourceResult } from "./migration-source-result.js";
 import type { Gen0Result } from "./migration-gen0-input.js";
 import { AlarmLifecycle } from "./alarm-lifecycle.ts";
+import { withDeadline } from "./deadline.ts";
 import { attachmentSlots, ChunkBusy, type ChunkPermit } from "./chunk-slots.ts";
 import { deploymentLog, pumpLog, PumpReport, StaleAppendStore, type CallTimings } from "./log.js";
 import { DENY_ADMISSION, DENY_CUSTODY, DENY_WRAPPER, type Admission, type Custody, type OpenKeys } from "./seams.js";
@@ -687,7 +688,8 @@ export class HostedCollection extends DurableObject<Env> {
     // The executor's own budget (60 s) bounds starting actions; this backstop only
     // fences a stuck one. It must outlast an action started in budget: token/sealer
     // fetches retry for up to 45 s each, and an abort at settlement stops the run.
-    const result = await this.migrationExecutor(this.collection).wake(AbortSignal.timeout(600_000));
+    const collection = this.collection;
+    const result = await withDeadline(600_000, signal => this.migrationExecutor(collection).wake(signal));
     if (result.nextAt !== null) await this.alarms.schedule(result.nextAt, () => this.alarms.current);
   }
 
@@ -1306,7 +1308,7 @@ export class HostedCollection extends DurableObject<Env> {
           return Response.json({ error: "migration_operator_busy" }, { status: 409 });
         }
         await this.ready(collection);
-        await this.operateMigration(input, AbortSignal.timeout(60_000));
+        await withDeadline(60_000, signal => this.operateMigration(input, signal));
         return Response.json(migrationStatus(await storageRunStore(this.ctx.storage).load(), readNativeState(this.ctx.storage.sql)),
           { headers: { "cache-control": "no-store" } });
       } catch (error) {
@@ -1378,7 +1380,7 @@ export class HostedCollection extends DurableObject<Env> {
           }
           this.#migrationOperatorRunning = true;
           try {
-            await this.supersedeMigration(run, input.backupHold, input.pauseBeforeCutover, AbortSignal.timeout(60_000));
+            await withDeadline(60_000, signal => this.supersedeMigration(run, input.backupHold, input.pauseBeforeCutover, signal));
           } catch {
             // Native refused or the outcome is unknown; the stored run is unchanged
             // unless the new run record itself landed, which status shows.
