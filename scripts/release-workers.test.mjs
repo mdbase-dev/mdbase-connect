@@ -6,7 +6,7 @@ import { linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, wr
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256, REPOSITORY, DO_JOB, CI_JOBS, CI_WORKFLOW, IDENTITY, OPS_VERIFIER_COMMIT,
-  PUBLISHERS, authorizedPublisher, check, inputs, publisher, gate, fileInventory } from './release-workers.mjs';
+  PUBLISHERS, MERGE_QUEUE, authorizedPublisher, authorizedRun, check, inputs, publisher, gate, fileInventory } from './release-workers.mjs';
 
 const source = 'a'.repeat(40), connect = 'b'.repeat(40), trustPublisher = 'c'.repeat(40);
 const base = resolve(dirname(fileURLToPath(import.meta.url)), '../target/release-workers-tests');
@@ -168,6 +168,33 @@ test('successful exact-main CI and log owner dispatches qualify with every manda
       assert.throws(() => gate(input, f.api, f.list));
     }
   }
+});
+
+test('the merge queue qualifies only exact Runtime CI main pushes and never publishes', () => {
+  const input = inputs(env());
+  const queued = () => {
+    const f = apiFixture();
+    for (const run of Object.values(f.runs)) { run.actor.login = MERGE_QUEUE; run.triggering_actor.login = MERGE_QUEUE; }
+    return f;
+  };
+  const fixture = queued();
+  gate(input, fixture.api, fixture.list);
+  for (const id of [1, 3]) {
+    for (const mutate of [r => { r.event = 'workflow_dispatch'; }, r => { r.event = 'pull_request'; }, r => { r.event = 'merge_group'; },
+      r => { r.triggering_actor.login = 'callumalpass'; }, r => { r.triggering_actor.login = PUBLISHERS[1]; },
+      r => { r.actor.login = 'callumalpass'; }, r => { r.actor.login = r.triggering_actor.login = 'github-actions[bot]'; },
+      r => { r.path = '.github/workflows/ci.yml'; }]) {
+      const f = queued(); mutate(f.runs[id]);
+      assert.throws(() => gate(input, f.api, f.list));
+    }
+  }
+  const run = { actor: { login: MERGE_QUEUE }, triggering_actor: { login: MERGE_QUEUE }, event: 'push' };
+  assert.equal(authorizedRun(run, CI_WORKFLOW), true);
+  assert.equal(authorizedRun(run, 'release-workers.yml'), false);
+  assert.equal(authorizedPublisher(MERGE_QUEUE, MERGE_QUEUE), false);
+  assert.ok(!PUBLISHERS.includes(MERGE_QUEUE));
+  const e = { ...env(), GITHUB_ACTOR: MERGE_QUEUE, GITHUB_TRIGGERING_ACTOR: MERGE_QUEUE };
+  assert.throws(() => publisher(e, inputs(e)));
 });
 
 test('the release App qualifies exact-main CI without relaxing required jobs, events or attempt identity', () => {
