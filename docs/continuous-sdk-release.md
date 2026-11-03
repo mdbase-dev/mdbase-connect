@@ -56,7 +56,13 @@ require a separate approved source-build/qualification contract.
 
 Each source is an exact successful **full Server CI main-push** qualification;
 the source-built SDK additionally requires exact successful Runtime CI. No PR,
-documentation-only successor or stale qualification can substitute. Workflow-run
+documentation-only successor or stale qualification can substitute.
+
+Runtime CI now qualifies every main push, including documentation-only
+successors, so a newer main commit cannot strand an otherwise changed SDK
+waiting for a qualification that will never be scheduled. Its PR path filter
+is unchanged. This expands main CI coverage; it does not reuse an older SHA.
+Workflow-run
 events are restricted to successful main pushes from this repository, and
 publishers never consume artifacts from the triggering run as arbitrary input.
 All plan/build transfers belong to this run and identify its exact SHA.

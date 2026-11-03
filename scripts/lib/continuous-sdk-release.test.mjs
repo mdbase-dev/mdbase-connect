@@ -132,4 +132,8 @@ test("automatic publishers keep isolated OIDC, source qualification and explicit
     assert.match(workflow, /github\.event\.workflow_run\.event == 'push'/);
     assert.match(workflow, /cancel-in-progress: \$\{\{ github.event_name == 'pull_request' \}\}/);
   }
+  const runtime = readFileSync(new URL("../../.github/workflows/runtime-ci.yml", import.meta.url), "utf8");
+  const mainPush = runtime.split("  push:\n")[1].split("  workflow_dispatch:")[0];
+  assert.match(mainPush, /branches: \[main\]/);
+  assert.doesNotMatch(mainPush, /paths(?:-ignore)?:/);
 });
