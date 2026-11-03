@@ -115,3 +115,8 @@ immutable schema41 successor and is not run on beta95's already-migrated schema.
 The current candidate's atomic migration implementation remains covered by the
 registered real-PostgreSQL atomic-runner tests. Never infer that beta94 is a rollback target
 for the populated v2 fixture.
+
+The exact-pair workflow uses its own ref to override the candidate harness release
+verifier. It checks that the origin annotated tag peels to the pinned predecessor
+commit, and checks both image digest references and source/revision labels. It
+does not check GitHub Release metadata; ordinary upgrade lanes still do.

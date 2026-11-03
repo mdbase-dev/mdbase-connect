@@ -57,6 +57,12 @@ jobs:
           [[ $PREDECESSOR_RELEASE =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]
           [[ $CANDIDATE_PROVIDER_IMAGE =~ $image && $PREDECESSOR_PROVIDER_IMAGE =~ $image ]]
           [[ $CANDIDATE_PROVIDER_IMAGE != "$PREDECESSOR_PROVIDER_IMAGE" ]]
+      # Save the workflow-ref identity override before checking out the candidate.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - run: cp test/upgrade/rollback-tag-identity.sh "$RUNNER_TEMP/rollback-tag-identity.sh"
       # The candidate's own upgrade harness runs against its signed image.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -91,14 +97,15 @@ jobs:
           done
           docker pull --quiet postgres:18-alpine >/dev/null
       - name: Select the exact production predecessor for this runner only
-        # The harness sources this file and verifies the published release,
-        # annotated tag and image label itself. Nothing is committed.
+        # Replace only the candidate harness release verifier with the workflow-ref
+        # annotated-tag verifier; older candidate harnesses cannot opt out themselves.
         run: |
           printf '%s\n' \
             "MDBASE_CONNECT_PREVIOUS_RELEASE=$PREDECESSOR_RELEASE" \
             "MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=$PREDECESSOR_COMMIT" \
             "MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=$PREDECESSOR_PROVIDER_IMAGE" \
             >.github/previous-release.env
+          cat "$RUNNER_TEMP/rollback-tag-identity.sh" >>test/upgrade/lib.sh
       - name: Candidate writes, then the predecessor reads the same storage
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -132,6 +139,10 @@ jobs:
                result: (if .rollback_result == "fixture-compatible" then "compatible" else "incompatible" end)}
           ' "${files[0]}" >"$RUNNER_TEMP/rollback-read-compat/rollback-read-compat.json"
           cat "$RUNNER_TEMP/rollback-read-compat/rollback-read-compat.json"
+          {
+            echo 'Predecessor identity: origin annotated tag peeled to the pinned commit; provider image digest and source/revision labels checked.'
+            echo 'GitHub Release metadata was not checked.'
+          } >>"$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rollback-read-compat
