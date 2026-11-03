@@ -238,6 +238,17 @@ A collection has members (accounts) with roles:
 | `owner` | as editor; the control plane accepts sharing, grant and state changes only from owners |
 
 - **Role changes** take effect at the next position.
+  For the hosted membership API, a Viewer role PATCH (and any role change that
+  temporarily projects Viewer authority during provider cleanup) confirms success
+  only after the committed policy is published to the log, using the same barrier
+  as member removal. Failed or uncertain publication returns the existing
+  `503 collection_sharing_unavailable` error with `Retry-After: 2`; the database
+  change remains committed. A write queued before the change may land before the
+  policy position, but cannot land after it. Existing device log tokens remain
+  valid for reads and renewable; they never override the current policy's write
+  authority. Ordinary upgrades without provider cleanup keep their existing API
+  behavior. See [Sharing synced collections](../../../docs/collection-sharing-policy.md) for
+  response and retry semantics.
 - **`member-remove`** revokes all of that account's devices and grants, and puts the
   log into rekey-required.
 - **Viewers' devices are read-only replicas.** A local edit on a viewer's folder is
