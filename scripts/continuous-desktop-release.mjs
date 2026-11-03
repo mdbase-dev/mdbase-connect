@@ -106,7 +106,6 @@ export async function coordinate(env = process.env) {
     versions.push(JSON.parse(readFileSync("package.json", "utf8")).version,
       ...all.map(release => release.tag_name.slice(1)));
     assert.match(env.GITHUB_RUN_ID ?? "", /^[1-9][0-9]*$/);
-    versions.push(`0.1.0-beta.${env.GITHUB_RUN_ID}`);
     const tag = `v${nextBetaVersion(versions)}`;
     const object = writeApi("git/tags", { tag, object: env.GITHUB_SHA, type: "commit",
       message: JSON.stringify({ schema: "mdbase-desktop-release/1", commit: env.GITHUB_SHA,
