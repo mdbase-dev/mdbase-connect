@@ -65,22 +65,32 @@ test("HTTP, redirect, timeout and malformed JSON failures cannot qualify", async
   }
 });
 const workflow = async (name) => readFile(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8");
-test("npm and desktop cannot publish on a tag push; dispatches retain exact qualification", async () => {
+test("client publishers retain qualified source guards and cannot publish on an unqualified tag push", async () => {
   for (const name of ["publish-npm", "desktop-release"]) {
     const text = await workflow(name);
-    assert.doesNotMatch(text, /^  push:/m);
-    assert.match(text, /workflow_dispatch:\n    inputs:\n      production_verified_commit:/);
-    assert.match(text, /if: github.event_name == 'workflow_dispatch' && startsWith\(github.ref, 'refs\/tags\/v'\)/);
-    assert.match(text, /scripts\/ci\/verify-qualified-commit "\$GITHUB_SHA"/);
-    const mutation = text.indexOf(name === "publish-npm" ? "npm publish " : "gh release create ");
-    const guard = text.indexOf("run: node scripts/verify-client-publication.mjs");
-    assert.ok(guard > 0 && guard < mutation);
-    assert.match(text, /PRODUCTION_VERIFIED_COMMIT: \$\{\{ inputs.production_verified_commit \}\}/);
+    if (text.includes("production_verified_commit:")) {
+      assert.doesNotMatch(text, /^  push:/m);
+      assert.match(text, /workflow_dispatch:\n    inputs:\n      production_verified_commit:/);
+      assert.match(text, /if: github.event_name == 'workflow_dispatch' && startsWith\(github.ref, 'refs\/tags\/v'\)/);
+      assert.match(text, /scripts\/ci\/verify-qualified-commit "\$GITHUB_SHA"/);
+      const mutation = text.indexOf(name === "publish-npm" ? "npm publish " : "gh release create ");
+      const guard = text.indexOf("run: node scripts/verify-client-publication.mjs");
+      assert.ok(guard > 0 && guard < mutation);
+      assert.match(text, /PRODUCTION_VERIFIED_COMMIT: \$\{\{ inputs.production_verified_commit \}\}/);
+    } else {
+      assert.match(text, /continuous-(?:desktop|sdk)-release\.mjs/);
+      assert.match(text, /workflow_run:/);
+      assert.match(text, /workflows: \[Server CI(?:, Runtime CI)?\]/);
+      assert.doesNotMatch(text, /^  push:/m);
+      assert.match(text, /compatible/);
+      const source = await readFile(new URL("./continuous-client-release.mjs", import.meta.url), "utf8");
+      assert.match(source, /scripts\/ci\/verify-qualified-commit/);
+    }
     assert.match(text, /node-version: 24/);
   }
   const desktop = await workflow("desktop-release");
   assert.match(desktop, /website-update:[\s\S]*needs: publish/);
-  assert.match(desktop, /test "v\$package_version" = "\$GITHUB_REF_NAME"/);
+  assert.match(desktop, /(?:test "v\$package_version" = "\$GITHUB_REF_NAME"|continuous-desktop-release\.mjs prepare)/);
 });
 test("Editor publishes only through the native dispatch path; main never deploys", async () => {
   const text = await workflow("editor-pages");

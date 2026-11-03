@@ -140,14 +140,14 @@ test("production dependency admission rejects all aliases, URLs, tarballs and mu
 test("workflow builds all variants once, isolates both publisher credentials and defaults to dry-run", () => {
   const workflow = readFileSync(join(root, ".github/workflows/publish-sdk-npm.yml"), "utf8");
   assert.match(workflow, /dry_run:[\s\S]*?default: true/);
-  assert.match(workflow, /production_verified_commit:/);
-  assert.match(workflow, /group: sdk-publication-\$\{\{ \(github.event_name == 'workflow_dispatch' && !inputs.dry_run\) && 'live' \|\| github.ref \}\}/);
-  assert.match(workflow, /cancel-in-progress: \$\{\{ github.event_name != 'workflow_dispatch' \|\| inputs.dry_run \}\}/);
+  assert.doesNotMatch(workflow, /production_verified_commit:/);
+  assert.match(workflow, /group: sdk-publication-\$\{\{ github.event_name == 'pull_request' && github.ref \|\| 'live' \}\}/);
+  assert.match(workflow, /cancel-in-progress: \$\{\{ github.event_name == 'pull_request' \}\}/);
   for (const path of ["runtime/crates/**", "runtime/Cargo.toml", "runtime/Cargo.lock",
     "runtime/rust-toolchain.toml", "runtime/.cargo/**", "runtime/xtask/**", "runtime/tools/wasm/**"]) {
     assert(workflow.includes(`      - ${path}\n`), `source-build trigger missing ${path}`);
   }
-  assert.equal(workflow.match(/startsWith\(github\.ref, 'refs\/tags\/v0\.1\.0-beta\.'\)/g).length, 3);
+  assert.equal(workflow.match(/needs.plan.outputs.changed == 'true' && \(github.event_name != 'workflow_dispatch' \|\| !inputs.dry_run\)/g).length, 3);
   assert.match(workflow, /cargo build --locked --release -p mdbn-trust/);
   assert.match(workflow, /cargo xtask wasm-app/);
   assert.match(workflow, /verify-qualified-commit/);
@@ -165,8 +165,8 @@ test("workflow builds all variants once, isolates both publisher credentials and
   assert.match(publish, /environment: npm-sdk/);
   assert.match(publish, /sdk-publication.mjs ready/);
   assert.match(publish, /sdk-publication.mjs verify-npm/);
-  assert.match(publish, /scripts\/verify-client-publication.mjs/);
-  assert.match(publish, /PRODUCTION_VERIFIED_COMMIT: \$\{\{ inputs.production_verified_commit \}\}/);
+  assert.match(publish, /continuous-sdk-release.mjs compatible/);
+  assert.match(publish, /continuous-sdk-release.mjs unpublished/);
   assert.match(publish, /id-token: write/);
   assert(!workflow.includes("NODE_AUTH_TOKEN"));
   assert(!workflow.includes("NPM_SDK_BOOTSTRAP_TOKEN"));
@@ -181,7 +181,7 @@ test("workflow builds all variants once, isolates both publisher credentials and
     assert.match(attest, new RegExp(`subject-path: .*sdk-${environment}\\.tgz`));
     assert(attest.includes(`sdk-${environment}.tgz.sigstore.json`));
   }
-  assert.match(release, /needs: \[attest-internal, publish\]/);
+  assert.match(release, /needs: \[attest-internal, publish, plan\]/);
   assert.match(release, /contents: write/);
   assert(!release.includes("id-token:"));
   assert(!release.includes("attestations:"));

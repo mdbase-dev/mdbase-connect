@@ -83,6 +83,16 @@ the status without evidence is itself rejected.
 
 ## Signing and publication
 
+### Continuous SDK publication
+
+For existing SDK/workspace npm packages, use
+[continuous SDK publication](continuous-sdk-release.md). Qualified changes on
+main publish with CI-computed versions; manual main dispatches default to dry
+run. This supersedes the historical npm tag-ref/`production_verified_commit`
+steps below, not the server image or other client procedures. The reviewed
+prebuilt runtime archive workflow is unchanged. No version PR or operator tag
+is needed for these SDK publications.
+
 ### First publication of a new npm package
 
 npm trusted publishing cannot create a package. Before publishing a release that
