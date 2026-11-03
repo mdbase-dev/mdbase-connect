@@ -190,8 +190,13 @@ release.
 
 ## Public client release publication
 
-The explicitly dispatched `desktop-release.yml` workflow owns the public desktop
-channel after production verification. It creates and verifies `mdbase-connect-channel-v1.json`, publishes the
+`desktop-release.yml` owns the public desktop channel from qualified green main,
+with CI versions and production-contract compatibility rather than a human-typed
+server SHA. [Continuous desktop releases](continuous-desktop-release.md) is the
+current desktop procedure: **100% rollout with immutable releases enabled**.
+The legacy coordinated order below no longer authorizes desktop publication.
+The workflow creates and verifies `mdbase-connect-channel-v1.json`, uploads
+every asset to a draft, rechecks compatibility and the stop switch, publishes the
 GitHub release, and only then sends a `connect-client-release-published`
 repository dispatch containing the immutable tag to `mdbase-dev/mdbase.dev`.
 The receiving repository verifies the signed public channel, release assets,
@@ -205,7 +210,7 @@ contents and pull requests. A failed dispatch is recovered by manually running
 the website's **Update Connect release** workflow with the same tag; the public
 release is not republished.
 
-Client publication follows server production promotion; it cannot be triggered
+Legacy npm client publication follows server production promotion; it cannot be triggered
 by creating a tag. `mdbase-cloud-ops` does not trigger, receive, or hold
 credentials for client or website publication.
 
@@ -220,11 +225,11 @@ For coordinated client releases, and for semantic-v2 enablement, use this order:
    verifies the exact enabled candidate on each actual canonical production
    service, including unique service/deployment identity, image digests, hosted
    provider fresh-v2 readiness, and fresh authorization behavior.
-3. Only after that verification, dispatch `publish-npm.yml`, then
-   `desktop-release.yml`, selecting the existing version tag as the workflow ref
-   in each case. The Editor follows its native publication path above. Supply the full
-   verified candidate SHA as `production_verified_commit`. Desktop builds begin
-   on this dispatch; no pre-production desktop build is required. Consumers may
+3. Only after that verification, dispatch the legacy `publish-npm.yml`, selecting
+   the existing version tag as the workflow ref. The Editor follows its native
+   publication path above. Supply the full verified candidate SHA as
+   `production_verified_commit`. Desktop instead follows its continuous procedure
+   above, without that input. Consumers may
    update only after their dependencies are published. Reader remains excluded
    from this enablement rollout.
 

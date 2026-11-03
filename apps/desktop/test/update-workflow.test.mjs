@@ -16,13 +16,19 @@ test("release workflow signs the permanent channel document and legacy bootstrap
     workflow.indexOf("Create and verify permanent update bootstrap")
   );
   const verify = workflow.indexOf("cosign verify-blob", sign);
-  const publish = workflow.indexOf('gh release create "$GITHUB_REF_NAME"');
+  const draft = workflow.indexOf('gh release create "$GITHUB_REF_NAME"');
+  const guard = workflow.indexOf("run: node scripts/continuous-desktop-release.mjs compatible", draft);
+  const publish = workflow.indexOf('gh release edit "$GITHUB_REF_NAME"');
   const appToken = workflow.indexOf("actions/create-github-app-token@", publish);
   const dispatch = workflow.indexOf('"repos/mdbase-dev/mdbase.dev/dispatches"', appToken);
   assert.ok(generate >= 0);
   assert.ok(sign > generate);
   assert.ok(verify > sign);
-  assert.ok(publish > verify);
+  assert.ok(draft > verify);
+  assert.ok(guard > draft);
+  assert.ok(publish > guard);
+  assert.match(workflow.slice(draft, guard), /--draft\s/);
+  assert.match(workflow.slice(publish, appToken), /--draft=false/);
   assert.ok(appToken > publish);
   assert.ok(dispatch > appToken);
   assert.match(workflow, /mdbase-connect-channel-v1\.json/);
