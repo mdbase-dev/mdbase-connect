@@ -1475,6 +1475,10 @@ msgstr "Fechar prévia do arquivo"
 msgid "Close keyboard shortcuts"
 msgstr "Fechar atalhos de teclado"
 
+#: src/App.tsx
+msgid "Close note peek"
+msgstr "Fechar prévia da nota"
+
 #: src/WorkspaceChrome.tsx
 msgid "Close outline"
 msgstr "Fechar estrutura de tópicos"
@@ -1649,10 +1653,6 @@ msgstr "Definir configurações"
 #: src/TypeBrowser.tsx
 msgid "Configured"
 msgstr "Configurado"
-
-#: src/TypeBrowser.tsx
-msgid "Confirm the collection-wide effect before saving."
-msgstr "Confirme o efeito em toda a coleção antes de salvar."
 
 #: src/TypeBrowser.tsx
 msgid "Confirm update"
@@ -1914,6 +1914,11 @@ msgstr "Criar meu registro de pessoa"
 msgid "Create note"
 msgstr "Criar nota"
 
+#. placeholder {0}: row.title
+#: src/QuickOpen.tsx
+msgid "Create note ‘{0}’"
+msgstr "Criar nota ‘{0}’"
+
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
 msgstr "Criar nota (Ctrl ou Command + Enter)"
@@ -1929,10 +1934,6 @@ msgstr "Criar a primeira nota"
 #: src/TypeBrowser.tsx
 msgid "Create the first type"
 msgstr "Criar o primeiro tipo"
-
-#: src/TypeBrowser.tsx
-msgid "Create this type?"
-msgstr "Criar este tipo?"
 
 #: src/TypeBrowser.tsx
 msgid "Create type"
@@ -2056,6 +2057,10 @@ msgstr "Descreva quais propriedades apontam para outros registros e como os dest
 #: src/TypeBrowser.tsx
 msgid "Description"
 msgstr "Descrição"
+
+#: src/TypeBrowser.tsx
+msgid "Description changed"
+msgstr "Descrição alterada"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
@@ -2327,6 +2332,10 @@ msgstr "Valor da entrada {0}"
 #: src/PropertiesPanel.tsx
 msgid "Exact Markdown source, including YAML frontmatter and body."
 msgstr "Código-fonte Markdown exato, incluindo frontmatter YAML e corpo."
+
+#: src/TypeBrowser.tsx
+msgid "Existing note contents and fields stay unchanged."
+msgstr "O conteúdo e os campos das notas existentes permanecem inalterados."
 
 #: src/TypeBrowser.tsx
 msgid "Existing notes need attention"
@@ -3800,6 +3809,10 @@ msgstr "PDF incorporado, {filename}"
 msgid "PDF viewer, {filename}"
 msgstr "Visualizador de PDF, {filename}"
 
+#: src/QuickOpen.tsx
+msgid "Peek at the focused note"
+msgstr "Visualizar a nota em foco"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Persisted null"
 msgstr "Nulo persistido"
@@ -4414,6 +4427,10 @@ msgstr "Revisar recomendações"
 #: src/App.tsx
 msgid "Review recovered text"
 msgstr "Revisar texto recuperado"
+
+#: src/TypeBrowser.tsx
+msgid "Review type changes"
+msgstr "Revisar alterações do tipo"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
@@ -5186,10 +5203,6 @@ msgid "The selected file has an invalid size."
 msgstr "O arquivo selecionado tem tamanho inválido."
 
 #: src/TypeBrowser.tsx
-msgid "The source changed without altering declared fields."
-msgstr "O código-fonte mudou sem alterar os campos declarados."
-
-#: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
 msgstr "O nome estável usado por registros e aplicativos conectados."
 
@@ -5782,10 +5795,6 @@ msgstr "Atualizar definições e continuar"
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
 msgstr "Atualizar o tipo Pessoa?"
-
-#: src/TypeBrowser.tsx
-msgid "Update this type?"
-msgstr "Atualizar este tipo?"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"

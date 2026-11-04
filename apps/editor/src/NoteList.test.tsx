@@ -23,6 +23,7 @@ describe("NoteList search presentation", () => {
     const second = { ...first, path: "Notes/two.md" };
     const notes = [first, second];
     const noop = () => {};
+    const peek = vi.fn();
     const props = {
       entries: notes.map((note) => ({ kind: "note" as const, path: note.path, note })),
       noteCount: 2, fileCount: 0, types: [], selectedPath: first.path, statuses: new Map(),
@@ -31,9 +32,11 @@ describe("NoteList search presentation", () => {
       contentIndexing: false, contentLoaded: 2,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
       onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop,
-      onSelectFile: noop, onPreview: noop, onDismissPreview: noop, onCollections: noop
+      onSelectFile: noop, onPeek: peek, onCollections: noop
     };
     const view = render(<NoteList {...props} />);
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: " " });
+    expect(peek).toHaveBeenCalledWith(first.path);
     const row = screen.getAllByRole("option")[0];
     const timestamp = row.querySelector("time")!.textContent;
     expect(viewport.scrollToIndex).toHaveBeenCalledOnce();

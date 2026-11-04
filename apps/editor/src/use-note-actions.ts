@@ -20,6 +20,7 @@ interface Options {
   noteSessions: RefObject<NoteSessionStore>;
   indexController: CollectionIndexController;
   allNotes: NoteSummary[];
+  noteOrder: string[];
   files: CollectionFile[];
   typeDescriptors: CollectionTypeDescriptor[];
   document?: NoteDocument;
@@ -40,6 +41,7 @@ interface Options {
   forgetNoteHistoryPath(path: string): void;
   remapPin(from: string, to: string): void;
   clearSelection(): void;
+  focusNoteList(): void;
   setDocument(document?: NoteDocument): void;
   setDraft(draft?: Draft): void;
   setSelectedPath(path?: string): void;
@@ -74,10 +76,10 @@ function batchMessage<Value>(verb: BatchVerb, result: BatchResult<Value>): strin
 
 /** Coordinates explicit note actions through the existing collection scope and session queue.
  * This owns transient action/Undo state, not record documents, navigation or a second write pipeline. */
-export function useNoteActions({ gateway, mutationScope, noteSessions, indexController, allNotes, files,
+export function useNoteActions({ gateway, mutationScope, noteSessions, indexController, allNotes, noteOrder, files,
   typeDescriptors, document, pathDraft, canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes,
   createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
-  openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin, clearSelection,
+  openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin, clearSelection, focusNoteList,
   setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths,
   setNotice }: Options) {
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -492,7 +494,8 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     if (mutationScope.current.isFrozen) return;
     const token = mutationScope.current.token();
     const path = session.document.path;
-    const next = allNotes.find((note) => note.path !== path);
+    const position = noteOrder.indexOf(path);
+    const next = position < 0 ? undefined : noteOrder[position + 1] ?? noteOrder[position - 1];
     session.deleted = true;
     indexController.stageRemoval(path);
     forgetNoteHistoryPath(path);
@@ -501,7 +504,8 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       setDocument(undefined);
       setDraft(undefined);
       setSelectedPath(undefined);
-      if (next) void openNote(next.path);
+      clearSelection();
+      if (next) void openNote(next);
     }
       // Acknowledge the delete at once: confirmation can take seconds, and the
       // note has already left the list. Undo becomes available once confirmed.
@@ -586,6 +590,9 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         if (!mutationScope.current.isCurrent(token)) return;
         createSession(restored);
         indexController.create(summaryFromDocument(restored));
+        clearSelection();
+        if (await openNote(restored.path)) focusNoteList();
+        if (!mutationScope.current.isCurrent(token)) return;
         setNotice(t`Restored “${noteTitle(restored, typeDescriptors)}”.`, "success");
       } else {
         const moves = action.kind === "move" ? [...action.paths] : [action];

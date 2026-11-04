@@ -1475,6 +1475,10 @@ msgstr "파일 미리보기 닫기"
 msgid "Close keyboard shortcuts"
 msgstr "키보드 단축키 닫기"
 
+#: src/App.tsx
+msgid "Close note peek"
+msgstr "노트 미리보기 닫기"
+
 #: src/WorkspaceChrome.tsx
 msgid "Close outline"
 msgstr "개요 닫기"
@@ -1649,10 +1653,6 @@ msgstr "설정 구성"
 #: src/TypeBrowser.tsx
 msgid "Configured"
 msgstr "구성됨"
-
-#: src/TypeBrowser.tsx
-msgid "Confirm the collection-wide effect before saving."
-msgstr "저장하기 전에 컬렉션 전체에 미칠 영향을 확인하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Confirm update"
@@ -1914,6 +1914,11 @@ msgstr "내 사람 레코드 만들기"
 msgid "Create note"
 msgstr "노트 만들기"
 
+#. placeholder {0}: row.title
+#: src/QuickOpen.tsx
+msgid "Create note ‘{0}’"
+msgstr "노트 ‘{0}’ 만들기"
+
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
 msgstr "노트 만들기 (Ctrl 또는 Command + Enter)"
@@ -1929,10 +1934,6 @@ msgstr "첫 노트 만들기"
 #: src/TypeBrowser.tsx
 msgid "Create the first type"
 msgstr "첫 유형 만들기"
-
-#: src/TypeBrowser.tsx
-msgid "Create this type?"
-msgstr "이 유형을 만들까요?"
 
 #: src/TypeBrowser.tsx
 msgid "Create type"
@@ -2056,6 +2057,10 @@ msgstr "다른 레코드를 가리키는 속성과 대상을 확인하는 방법
 #: src/TypeBrowser.tsx
 msgid "Description"
 msgstr "설명"
+
+#: src/TypeBrowser.tsx
+msgid "Description changed"
+msgstr "설명 변경됨"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
@@ -2327,6 +2332,10 @@ msgstr "항목 {0} 값"
 #: src/PropertiesPanel.tsx
 msgid "Exact Markdown source, including YAML frontmatter and body."
 msgstr "YAML 프런트매터와 본문을 포함한 정확한 Markdown 원본입니다."
+
+#: src/TypeBrowser.tsx
+msgid "Existing note contents and fields stay unchanged."
+msgstr "기존 노트의 내용과 필드는 변경되지 않습니다."
 
 #: src/TypeBrowser.tsx
 msgid "Existing notes need attention"
@@ -3800,6 +3809,10 @@ msgstr "PDF 삽입, {filename}"
 msgid "PDF viewer, {filename}"
 msgstr "PDF 뷰어, {filename}"
 
+#: src/QuickOpen.tsx
+msgid "Peek at the focused note"
+msgstr "포커스된 노트 미리보기"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Persisted null"
 msgstr "저장된 Null"
@@ -4414,6 +4427,10 @@ msgstr "검토 권장"
 #: src/App.tsx
 msgid "Review recovered text"
 msgstr "복구된 텍스트 검토"
+
+#: src/TypeBrowser.tsx
+msgid "Review type changes"
+msgstr "유형 변경 사항 검토"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
@@ -5186,10 +5203,6 @@ msgid "The selected file has an invalid size."
 msgstr "선택한 파일 크기가 올바르지 않습니다."
 
 #: src/TypeBrowser.tsx
-msgid "The source changed without altering declared fields."
-msgstr "선언된 필드는 변경하지 않고 원본이 변경되었습니다."
-
-#: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
 msgstr "레코드와 연결된 앱에서 사용하는 안정적인 이름입니다."
 
@@ -5782,10 +5795,6 @@ msgstr "정의 업데이트 후 계속"
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
 msgstr "Person 유형을 업데이트할까요?"
-
-#: src/TypeBrowser.tsx
-msgid "Update this type?"
-msgstr "이 유형을 업데이트할까요?"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"
