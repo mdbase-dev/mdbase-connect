@@ -71,7 +71,7 @@ h1 { margin: 0; font-size: var(--font-size-heading); font-weight: var(--font-wei
 .application-grant-group { border-bottom: 1px solid var(--line); }
 .application-grant-group > summary { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto; align-items: center; gap: 20px; min-height: 72px; cursor: pointer; list-style: none; outline: none; }
 .application-grant-group > summary::-webkit-details-marker { display: none; }
-.application-grant-group > summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+.application-grant-group > summary:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: 2px; }
 .application-grant-group > summary > div { display: grid; gap: 3px; min-width: 0; }
 .application-grant-group > summary strong { overflow: hidden; font-size: var(--font-size-ui); font-weight: var(--font-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }
 .application-grant-group > summary code, .application-grant-group > summary > span { overflow: hidden; color: var(--muted); font-size: var(--font-size-caption); text-overflow: ellipsis; white-space: nowrap; }
@@ -117,7 +117,7 @@ h1 { margin: 0; font-size: var(--font-size-heading); font-weight: var(--font-wei
 .mirror-file-settings { min-width: 0; border-top: 1px solid var(--line); }
 .mirror-file-settings > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: 46px; cursor: pointer; list-style: none; outline: none; }
 .mirror-file-settings > summary::-webkit-details-marker { display: none; }
-.mirror-file-settings > summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+.mirror-file-settings > summary:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: 2px; }
 .mirror-file-settings > summary > span { display: grid; gap: 2px; }
 .mirror-file-settings > summary strong { font-size: var(--font-size-caption); }
 .mirror-file-settings > summary small { color: var(--muted); font-size: var(--font-size-caption); }
@@ -452,6 +452,3 @@ fieldset legend { margin-bottom: 6px; }
 .collection-details textarea { min-height: 64px; resize: vertical; }
 .collection-card-main .collection-description { color: var(--ink); }
 .computer-name-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-
-.decision-actions .confirm-action, .portal-connection-actions .confirm-action { justify-content: flex-start; }
-.decision-actions .confirm-action > span, .portal-connection-actions .confirm-action > span { text-align: left; }

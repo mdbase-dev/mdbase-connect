@@ -29,7 +29,7 @@ export function paintFeedbackMarks(context: CanvasRenderingContext2D, image: Can
     context.restore();
   }
 }
-export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: FeedbackScreenshot; onApply(screenshot: FeedbackScreenshot, count: number): void; onClose(): void }) {
+export function FeedbackMarkup({ open, screenshot, onApply, onClose }: { open: boolean; screenshot: FeedbackScreenshot; onApply(screenshot: FeedbackScreenshot, count: number): void; onClose(): void }) {
   useLocaleRevision();
   const canvas = useRef<HTMLCanvasElement>(null);
   const image = useRef<HTMLImageElement | null>(null);
@@ -52,6 +52,8 @@ export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: F
     }
   }
   useEffect(() => {
+    if (!open) return;
+    setReady(false); setTool("draw"); setCount(0); setError("");
     let live = true;
     const decoded = new Image(); decoded.src = screenshotUrl(screenshot);
     void decoded.decode().then(() => {
@@ -60,7 +62,7 @@ export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: F
       paint(); setReady(true);
     }).catch(() => { if (live) setError(t({ message: "The screenshot could not be opened for markup." })); });
     return () => { live = false; image.current = null; marks.current = []; current.current = null; };
-  }, [screenshot]);
+  }, [open, screenshot]);
   function finish() {
     if (current.current && current.current.points.length > 1 && marks.current.length < 100) marks.current.push(current.current);
     current.current = null; setCount(marks.current.length); paint();
@@ -69,7 +71,7 @@ export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: F
     const element = canvas.current!; const rect = element.getBoundingClientRect();
     return { x: Math.max(0, Math.min(element.width, (clientX - rect.left) * element.width / rect.width)), y: Math.max(0, Math.min(element.height, (clientY - rect.top) * element.height / rect.height)) };
   }
-  return <Dialog open onClose={onClose} closeDisabled={busy} title={t({ message: "Mark up screenshot" })} className="mdbase-feedback-markup">
+  return <Dialog open={open} onClose={onClose} closeDisabled={busy} title={t({ message: "Mark up screenshot" })} className="mdbase-feedback-markup">
     <div className="mdbase-feedback-tools" role="group" aria-label={t({ message: "Screenshot tools" })}>
       {(["draw", "highlight", "blackout"] as const).map((value) => <button type="button" key={value} aria-pressed={tool === value} disabled={!ready || busy} onClick={() => { current.current = null; setTool(value); paint(); }}>{value === "draw" ? t({ message: "Draw" }) : value === "highlight" ? t({ message: "Highlight" }) : t({ message: "Blackout" })}</button>)}
       <button type="button" disabled={!count || busy} onClick={() => { current.current = null; marks.current.pop(); setCount(marks.current.length); paint(); }}>{t({ message: "Undo" })}</button>

@@ -1,6 +1,8 @@
+import { flushSync } from "react-dom";
 import { plural, t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Dialog } from "./Dialog.js";
 import { FeedbackMarkup } from "./FeedbackMarkup.js";
 import { FeedbackVerification } from "./FeedbackVerification.js";
 import {
@@ -46,12 +48,10 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
 }) {
   useLocaleRevision();
   const endpoint = resolveFeedbackEndpoint(configuredEndpoint ?? undefined);
-  const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const messageField = useRef<HTMLTextAreaElement>(null);
   const successHeading = useRef<HTMLHeadingElement>(null);
+  const messageField = useRef<HTMLTextAreaElement>(null);
   const body = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLElement | null>(null);
   const events = useRef<FeedbackDiagnosticEvent[]>([]);
   const lastWiggle = useRef(-Infinity);
   const imageOperation = useRef<AbortController | null>(null);
@@ -75,6 +75,7 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<FeedbackTopic | null>(null);
+  useEffect(() => { if (submitted) successHeading.current?.focus(); }, [submitted]);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [verificationAttempt, setVerificationAttempt] = useState(0);
   const [wiggle, setWiggle] = useState(0);
@@ -92,7 +93,6 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
   }, [wiggle]);
   const openFeedback = useCallback((next?: FeedbackTopic) => {
     if (!endpoint) return;
-    trigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (next) setTopic(next);
     setDiagnostics(feedbackDiagnostics(events.current)); setOpen(true);
   }, [endpoint]);
@@ -104,14 +104,6 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
     if (document.visibilityState === "visible" && performance.now() - lastWiggle.current >= 30_000) { lastWiggle.current = performance.now(); setWiggle((value) => value + 1); }
   }, [endpoint]);
   const controls = useMemo(() => ({ enabled: Boolean(endpoint), open: openFeedback, reportError, wiggle }), [endpoint, openFeedback, reportError, wiggle]);
-  useLayoutEffect(() => {
-    if (!dialog.current) return;
-    if (open && !capturing) {
-      if (!dialog.current.open) dialog.current.showModal();
-      if (submitted) successHeading.current?.focus({ preventScroll: true });
-      else messageField.current?.focus({ preventScroll: true });
-    } else if (dialog.current.open) dialog.current.close();
-  }, [open, capturing, submitted]);
   function resetDraft() {
     setTopic("problem"); setMessage(""); setReplyEmail(""); setIncludeCollection(false); setIncludeDiagnostics(false);
     setScreenshot(null); setIncludeScreenshot(true); setSubmitted(null); setSubmitError(""); setScreenshotError(""); setCaptureStatus("");
@@ -123,16 +115,13 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
     setCapturing(false); setImageBusy(false); setMarkup(false); setOpen(false);
     setTurnstileToken(""); setVerificationAttempt((value) => value + 1);
     if (submitted) resetDraft();
-    dialog.current?.close();
-    trigger.current?.focus({ preventScroll: true });
   }
   async function capture() {
     if (imageOperation.current || submitting) return;
     const controller = new AbortController(); imageOperation.current = controller;
     const scroll = body.current?.scrollTop ?? 0;
-    setImageBusy(true); setCapturing(true); setScreenshotError(""); setCaptureStatus("");
-    // Close synchronously, before either the picker or capture stream sees this native modal.
-    dialog.current?.close(); if (content.current) content.current.inert = true;
+    setImageBusy(true); flushSync(() => setCapturing(true)); setScreenshotError(""); setCaptureStatus("");
+    if (content.current) content.current.inert = true;
     try {
       const next = await captureFeedbackScreenshot(controller.signal);
       if (!controller.signal.aborted && live.current) { setScreenshot(next); setIncludeScreenshot(true); setCaptureStatus(t({ message: "Screenshot captured. Sharing has stopped." })); }
@@ -146,7 +135,6 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
       if (content.current) content.current.inert = false;
       if (!controller.signal.aborted && live.current) {
         setCapturing(false); setImageBusy(false);
-        if (dialog.current && !dialog.current.open) dialog.current.showModal();
         if (body.current) body.current.scrollTop = scroll;
       }
     }
@@ -194,12 +182,11 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
   return <FeedbackContext.Provider value={controls}>
     <div className="mdbase-feedback-app" ref={content}>{children}</div>
     <span className="mdbase-feedback-sr-only" role="status">{wiggle ? t({ message: "A problem occurred. You can use Send feedback to report it." }) : ""}</span>
-    {endpoint && <dialog ref={dialog} className="mdbase-feedback-dialog" aria-labelledby={`${id}-title`} onKeyDown={(event) => event.stopPropagation()} onCancel={(event) => { event.preventDefault(); close(); }}>
-      <header className="mdbase-feedback-header"><h2 id={`${id}-title`}>{t({ message: "Send feedback" })}</h2><button type="button" disabled={submitting} onClick={close} aria-label={t({ message: "Close feedback" })}>×</button></header>
+    {endpoint && <Dialog open={open && !capturing && !markup} title={t({ message: "Send feedback" })} onClose={() => { if (!markup) close(); }} closeDisabled={submitting} className={`mdbase-feedback-dialog${capturing ? " is-capturing" : ""}`}>
       {submitted ? <section className="mdbase-feedback-success"><h3 ref={successHeading} tabIndex={-1}>{feedbackTopics[submitted].thanks}</h3><p>{t({ message: "Sent privately to the mdbase team." })}</p><button type="button" className="mdbase-feedback-primary" onClick={close}>{t({ message: "Back to your work" })}</button></section> : <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <div className="mdbase-feedback-body" ref={body}>
           <fieldset className="mdbase-feedback-topics" disabled={submitting}><legend className="mdbase-feedback-sr-only">{t({ message: "Feedback type" })}</legend>{(Object.keys(feedbackTopics) as FeedbackTopic[]).map((value) => <label key={value}><input type="radio" name={`${id}-topic`} checked={topic === value} onChange={() => setTopic(value)} />{feedbackTopics[value].label}</label>)}</fieldset>
-          <label className="mdbase-feedback-field"><span>{config.prompt}</span><textarea ref={messageField} required maxLength={FEEDBACK_MAX_MESSAGE_LENGTH} rows={5} placeholder={config.placeholder} value={message} disabled={submitting} onChange={(event) => setMessage(event.target.value)} /></label>
+          <label className="mdbase-feedback-field"><span>{config.prompt}</span><textarea data-autofocus ref={messageField} required maxLength={FEEDBACK_MAX_MESSAGE_LENGTH} rows={5} placeholder={config.placeholder} value={message} disabled={submitting} onChange={(event) => setMessage(event.target.value)} /></label>
           <label className="mdbase-feedback-field"><span>{t({ message: "Reply email" })} <small>{t({ message: "Optional" })}</small></span><input type="email" maxLength={320} autoComplete="email" placeholder={t({ message: "you@example.com", comment: "Example email address, not user data." })} value={replyEmail} disabled={submitting} onChange={(event) => setReplyEmail(event.target.value)} /></label>
           <div className="mdbase-feedback-screenshot" role="group" aria-label={t({ message: "Screenshot" })}>
             {screenshot && <><button className="mdbase-feedback-preview" type="button" disabled={imageBusy || submitting} onClick={() => { setIncludeScreenshot(false); setMarkup(true); }} aria-label={t({ message: "Mark up screenshot" })}><img src={screenshotUrl(screenshot)} alt={t({ message: "Screenshot attached to your feedback" })} /><span>{t({ message: "Mark up screenshot" })}</span></button><div className="mdbase-feedback-screenshot-actions"><label><input className="mdbase-checkbox" type="checkbox" checked={includeScreenshot} disabled={submitting} onChange={(event) => setIncludeScreenshot(event.target.checked)} />{t({ message: "Include screenshot" })}</label><button type="button" disabled={imageBusy || submitting} onClick={() => { setScreenshot(null); setScreenshotError(""); setCaptureStatus(""); }}>{t({ message: "Remove" })}</button></div></>}
@@ -221,7 +208,7 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
         </div>
         <footer className="mdbase-feedback-actions"><button type="button" disabled={submitting} onClick={close}>{t({ message: "Cancel" })}</button><button type="submit" className="mdbase-feedback-primary" disabled={submitting || imageBusy || !message.trim() || Boolean(turnstileSiteKey && !turnstileToken)}>{submitting ? t({ message: "Sending…" }) : t({ message: "Send feedback" })}</button></footer>
       </form>}
-    </dialog>}
-    {markup && screenshot && <FeedbackMarkup screenshot={screenshot} onClose={() => { setMarkup(false); setCaptureStatus(t({ message: "Markup discarded. Screenshot excluded." })); }} onApply={(next, count) => { setScreenshot(next); setIncludeScreenshot(true); setMarkup(false); setCaptureStatus(plural(count, { one: "# mark applied.", other: "# marks applied." })); }} />}
+    </Dialog>}
+    {screenshot && <FeedbackMarkup open={markup} screenshot={screenshot} onClose={() => { setMarkup(false); setCaptureStatus(t({ message: "Markup discarded. Screenshot excluded." })); }} onApply={(next, count) => { setScreenshot(next); setIncludeScreenshot(true); setMarkup(false); setCaptureStatus(plural(count, { one: "# mark applied.", other: "# marks applied." })); }} />}
   </FeedbackContext.Provider>;
 }

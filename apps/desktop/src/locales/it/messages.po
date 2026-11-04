@@ -70,12 +70,12 @@ msgstr "{0} non può più usare {1} tramite questo computer."
 msgid "{0} can now use {where}."
 msgstr "{0} ora può usare {where}."
 
-#. placeholder {0}: syncTarget.name
+#. placeholder {0}: lastSyncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
 msgstr "{0} ora si sincronizza privatamente."
 
-#. placeholder {0}: syncTarget.name
+#. placeholder {0}: lastSyncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs."
 msgstr "{0} ora si sincronizza."

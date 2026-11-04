@@ -220,7 +220,9 @@ test("turning on sync defaults to private and removal is confirmed; long paths s
     await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
     assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
     await card.getByRole("button", { name: "Remove" }).click();
-    await card.getByRole("group", { name: /^Remove Notes from mdbase/ }).getByRole("button", { name: "Cancel" }).click();
+    const confirmation = page.getByRole("dialog", { name: /^Remove / });
+    await confirmation.getByText(/^Remove Notes from mdbase/).waitFor();
+    await confirmation.getByRole("button", { name: "Cancel" }).click();
     assert.deepEqual(await calls("removeCollection"), [], "cancelling the confirmation keeps the collection");
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
@@ -243,7 +245,7 @@ test("a failed turn-on of sync is explained inside the dialog, which stays open 
     assert.equal(await dialog.isVisible(), true);
     await dialog.getByRole("button", { name: "Turn on sync" }).click();
     await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
-    assert.equal(await page.getByRole("dialog").count(), 0);
+    await dialog.waitFor({ state: "detached" });
     assert.equal((await calls("enableSync")).length, 2);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
@@ -553,8 +555,10 @@ test("a view-only new file can be discarded without a synced version", async () 
     assert.equal(await page.getByRole("button", { name: "Keep both", exact: true }).count(), 1);
     const discard = page.getByRole("button", { name: "Discard local changes", exact: true });
     await discard.click();
-    const confirmation = page.getByRole("group", { name: /new\.md.*haven't been synced/ });
+    const confirmation = page.getByRole("dialog", { name: /^Discard / });
+    await confirmation.getByText(/new\.md.*haven't been synced/).waitFor();
     await confirmation.getByRole("button", { name: "Cancel" }).click();
+    await confirmation.waitFor({ state: "detached" });
     assert.deepEqual(await calls("resolveHold"), []);
     await discard.click();
     await confirmation.getByRole("button", { name: "Discard", exact: true }).click();

@@ -832,7 +832,6 @@ msgstr "Kann diese Sammlung lesen und schreibgeschützte Apps oder Ordner verbin
 msgid "Can view and connect read-only apps"
 msgstr "Kann schreibgeschützte Apps ansehen und verbinden"
 
-#: src/AccountManagement.tsx
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx

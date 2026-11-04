@@ -47,14 +47,14 @@ describe("shared feedback", () => {
 
   it("keeps drafts and request IDs on failure, while a successful close clears the draft", async () => {
     vi.mocked(fetch).mockRejectedValueOnce(new Error("a private infrastructure error"));
-    fixture(); const dialog = await open();
+    fixture(); let dialog = await open();
     await userEvent.type(within(dialog).getByRole("textbox", { name: /What happened/ }), "Please help.");
     await userEvent.click(within(dialog).getByRole("button", { name: "Send feedback" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Check your connection");
     expect(screen.queryByText("a private infrastructure error")).not.toBeInTheDocument();
     const requestId = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body)).request_id;
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await open();
+    dialog = await open();
     expect(screen.getByRole("textbox", { name: /What happened/ })).toHaveValue("Please help.");
     await userEvent.click(within(dialog).getByRole("button", { name: "Send feedback" }));
     expect(await screen.findByText("Thanks for the report.")).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe("shared feedback", () => {
 
   it("closes the native dialog before the picker and restores the draft after cancellation", async () => {
     const picker = vi.fn(async () => {
-      expect(document.querySelector<HTMLDialogElement>(".mdbase-feedback-dialog")?.open).toBe(false);
+      expect(document.querySelector<HTMLDialogElement>(".mdbase-feedback-dialog[open]")).toBeNull();
       expect(document.querySelector<HTMLElement>(".mdbase-feedback-app")?.inert).toBe(true);
       throw new DOMException("The person cancelled", "NotAllowedError");
     });
@@ -110,7 +110,7 @@ describe("shared feedback", () => {
     await userEvent.type(within(dialog).getByRole("textbox", { name: /What happened/ }), "Preserve this draft.");
     await userEvent.click(within(dialog).getByRole("button", { name: "Attach screenshot" }));
     expect(await screen.findByText(/No screenshot taken/)).toBeInTheDocument();
-    expect(dialog).toHaveAttribute("open");
+    expect(screen.getByRole("dialog")).toHaveAttribute("open");
     expect(screen.getByRole("textbox", { name: /What happened/ })).toHaveValue("Preserve this draft.");
     expect(document.querySelector<HTMLElement>(".mdbase-feedback-app")?.inert).toBe(false);
     expect(picker).toHaveBeenCalledOnce(); expect(fetch).not.toHaveBeenCalled();
@@ -135,7 +135,7 @@ describe("shared feedback", () => {
     fixture(); const dialog = await open();
     await userEvent.click(within(dialog).getByRole("button", { name: "Attach screenshot" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("You can attach an image instead");
-    expect(within(dialog).getByLabelText("Choose an image")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByLabelText("Choose an image")).toBeInTheDocument();
   });
 
   it("requires verification and resets consumed tokens on retry", async () => {

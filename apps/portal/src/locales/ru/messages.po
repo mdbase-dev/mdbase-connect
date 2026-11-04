@@ -832,7 +832,6 @@ msgstr "Может читать эту коллекцию и подключат�
 msgid "Can view and connect read-only apps"
 msgstr "Может просматривать и подключать приложения только для чтения"
 
-#: src/AccountManagement.tsx
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx

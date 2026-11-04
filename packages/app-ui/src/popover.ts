@@ -60,10 +60,6 @@ function showInTopLayer(element: HTMLElement): void {
   if (typeof element.showPopover === "function") element.showPopover();
 }
 
-function hideFromTopLayer(element: HTMLElement): void {
-  if (typeof element.hidePopover === "function" && element.matches(":popover-open")) element.hidePopover();
-}
-
 function onScreen(element: HTMLElement): boolean {
   const box = element.getBoundingClientRect();
   return box.width > 0 && box.bottom > 0 && box.top < window.innerHeight
@@ -88,9 +84,6 @@ export function useSelectPopover(
     showInTopLayer(list);
     place(trigger, list, { matchWidth: true });
     list.focus({ preventScroll: true });
-    return () => {
-      hideFromTopLayer(list);
-    };
   }, [open, triggerRef, listRef]);
   useEffect(() => {
     const list = listRef.current;
@@ -120,6 +113,7 @@ export function useSelectPopover(
 }
 
 export interface MenuPopoverOptions {
+  readonly open?: boolean;
   /** Preferred width; narrow viewports shrink it. Omit it to leave the width to CSS. */
   readonly width?: number | undefined;
   /** Which edge of the trigger the menu lines up with. */
@@ -138,23 +132,21 @@ export function useMenuPopover(
   menuRef: RefObject<HTMLElement | null>,
   triggerRef: RefObject<HTMLElement | null>,
   onClose: (refocus: boolean) => void,
-  { width, align = "start", focus = '[aria-checked="true"], [role^="menuitem"]', busy = false }: MenuPopoverOptions
+  { open = true, width, align = "start", focus = '[aria-checked="true"], [role^="menuitem"]', busy = false }: MenuPopoverOptions
 ): void {
   const close = useEffectEvent(onClose);
   const locked = useEffectEvent(() => busy);
   useLayoutEffect(() => {
     const menu = menuRef.current;
     const trigger = triggerRef.current;
-    if (!menu || !trigger) return undefined;
+    if (!menu || !trigger || !open) return undefined;
     showInTopLayer(menu);
     if (width !== undefined) menu.style.width = `${Math.min(width, window.innerWidth - 16)}px`;
     place(trigger, menu, { gap: 6, align, matchWidth: false });
     (menu.querySelector<HTMLElement>(focus) ?? menu).focus({ preventScroll: true });
-    return () => {
-      hideFromTopLayer(menu);
-    };
-  }, [menuRef, triggerRef, width, align, focus]);
+  }, [menuRef, triggerRef, width, align, focus, open]);
   useEffect(() => {
+    if (!open) return;
     const onPointerDown = (event: PointerEvent): void => {
       const target = event.target as Node | null;
       if (target && !locked() && !menuRef.current?.contains(target) && !triggerRef.current?.contains(target)) {
@@ -179,7 +171,7 @@ export function useMenuPopover(
       document.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("resize", onResize);
     };
-  }, [menuRef, triggerRef]);
+  }, [menuRef, triggerRef, open]);
 }
 
 /**
@@ -188,7 +180,7 @@ export function useMenuPopover(
  */
 export function moveMenuFocus(event: KeyboardEvent, menu: HTMLElement | null): void {
   if (!menu || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-  const items = [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)')];
+  const items = [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled):not([aria-disabled="true"])')];
   const inField = document.activeElement instanceof HTMLInputElement && menu.contains(document.activeElement);
   if (inField && (event.key === "Home" || event.key === "End")) return;
   event.preventDefault();

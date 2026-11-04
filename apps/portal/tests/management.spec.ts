@@ -239,8 +239,10 @@ test("keeps application summaries and revoke actions separate at narrow widths",
     }
   }
   await rows.first().getByRole("button", { name: "Revoke", exact: true }).click();
-  await expect(rows.first().getByRole("group", { name: /^Revoke .+ access to Garden notes\?$/ })).toBeVisible();
-  await rows.first().getByRole("button", { name: "Cancel" }).click();
+  const revoke = page.getByRole("dialog", { name: /^Revoke .+ access to Garden notes\?$/ });
+  await expect(revoke).toBeVisible();
+  await revoke.getByRole("button", { name: "Cancel" }).click();
+  await expect(revoke).toBeHidden();
   await expect(rows.first().getByRole("button", { name: "Revoke", exact: true })).toBeVisible();
   await page.getByRole("link", { name: "App access", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Application access", exact: true })).toBeVisible();

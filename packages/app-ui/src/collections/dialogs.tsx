@@ -1,20 +1,24 @@
 import { describeError } from "@mdbase-dev/sdk/describe";
-import { useId, useState, type JSX } from "react";
+import { useEffect, useId, useState, type JSX, type RefObject } from "react";
 
+import { ConfirmDialog } from "../ConfirmDialog.js";
 import type { CollectionRow } from "./model.js";
-import { ActionButton, CollectionDialog, type RowDialog } from "./parts.js";
+import { type RowDialog } from "./parts.js";
 import type { CollectionUi, DeleteCollectionOutcome } from "./use-collection-ui.js";
 
 type Target = Pick<CollectionRow, "id" | "name">;
 
 /** Hide a collection on this device. Nothing is deleted and access stays. */
-export function ForgetCollectionDialog({ ui, collection, onClose }: {
+export function ForgetCollectionDialog({ open = true, ui, collection, onClose, returnFocusRef }: {
+  readonly open?: boolean;
+  readonly returnFocusRef?: RefObject<HTMLElement | null> | undefined;
   readonly ui: CollectionUi;
   readonly collection: Target;
   readonly onClose: () => void;
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => { if (open) { setBusy(false); setError(null); } }, [open]);
   const forget = (): void => {
     setBusy(true);
     setError(null);
@@ -23,17 +27,16 @@ export function ForgetCollectionDialog({ ui, collection, onClose }: {
       setError(describeError(cause)?.message ?? null);
     });
   };
-  return <CollectionDialog title={ui.say("forgetTitle", { collection: collection.name })} busy={busy} onClose={onClose} footer={<>
-    <ActionButton tone="quiet" inert={busy} onClick={onClose}>{ui.copy.cancel}</ActionButton>
-    <ActionButton tone="primary" progress={busy ? ui.copy.forgetConfirm : null} onClick={forget}>{ui.copy.forgetConfirm}</ActionButton>
-  </>}>
-    <p>{ui.say("forgetBody")}</p>
+  return <ConfirmDialog open={open} returnFocusRef={returnFocusRef} title={ui.say("forgetTitle", { collection: collection.name })} consequence={ui.say("forgetBody")}
+    confirmLabel={ui.copy.forgetConfirm} pendingLabel={`${ui.copy.forgetConfirm}…`} busy={busy} onClose={onClose} onConfirm={forget}>
     {error && <p className="mdbase-collections-dialog-error" role="alert">{error}</p>}
-  </CollectionDialog>;
+  </ConfirmDialog>;
 }
 
 /** Owner only: type the name to delete a collection for everyone. The SDK and server check both again. */
-export function DeleteCollectionDialog({ ui, collection, onClose }: {
+export function DeleteCollectionDialog({ open = true, ui, collection, onClose, returnFocusRef }: {
+  readonly open?: boolean;
+  readonly returnFocusRef?: RefObject<HTMLElement | null> | undefined;
   readonly ui: CollectionUi;
   readonly collection: Target;
   readonly onClose: (outcome: DeleteCollectionOutcome) => void;
@@ -43,6 +46,7 @@ export function DeleteCollectionDialog({ ui, collection, onClose }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  useEffect(() => { if (open) { setTyped(""); setBusy(false); setError(null); setFailed(false); } }, [open]);
   const matches = typed.trim() === collection.name.trim();
   const dismiss = (): void => onClose(failed ? "failed" : "cancelled");
   const remove = (): void => {
@@ -55,35 +59,31 @@ export function DeleteCollectionDialog({ ui, collection, onClose }: {
       setError(describeError(cause)?.message ?? null);
     });
   };
-  return <CollectionDialog alert title={ui.say("deleteTitle", { collection: collection.name })} busy={busy} onClose={dismiss} footer={<>
-    <ActionButton tone="quiet" inert={busy} onClick={dismiss}>{ui.copy.cancel}</ActionButton>
-    <ActionButton tone="danger" inert={!matches} progress={busy ? ui.copy.deleting : null} onClick={remove}>{ui.copy.deleteConfirm}</ActionButton>
-  </>}>
-    <p>{ui.copy.deleteBody}</p>
-    <form onSubmit={(event) => { event.preventDefault(); remove(); }}>
-      <label className="mdbase-collections-field-label" htmlFor={id}>{ui.say("deleteTypeName", { collection: collection.name })}</label>
-      <input id={id} className="mdbase-collections-field" value={typed} autoComplete="off" spellCheck={false} disabled={busy}
-        onChange={(event) => setTyped(event.target.value)} data-autofocus />
-    </form>
+  return <ConfirmDialog open={open} returnFocusRef={returnFocusRef} title={ui.say("deleteTitle", { collection: collection.name })} consequence={ui.copy.deleteBody}
+    confirmLabel={ui.copy.deleteConfirm} pendingLabel={ui.copy.deleting} busy={busy} disabled={!matches} onClose={dismiss} onConfirm={remove}>
+    <label className="mdbase-collections-field-label" htmlFor={id}>{ui.say("deleteTypeName", { collection: collection.name })}</label>
+    <input id={id} className="mdbase-collections-field" value={typed} autoComplete="off" spellCheck={false} disabled={busy}
+      onChange={(event) => setTyped(event.target.value)} />
     {error && <p className="mdbase-collections-dialog-error" role="alert">{error}</p>}
-  </CollectionDialog>;
+  </ConfirmDialog>;
 }
 
 /** Sign-out found changes that haven't reached mdbase: wait, or sign out and lose them here. */
 export function SignOutDialog({ ui }: { readonly ui: CollectionUi }): JSX.Element | null {
-  const problem = ui.signOutPrompt;
+  const [last, setLast] = useState(ui.signOutPrompt);
+  useEffect(() => { if (ui.signOutPrompt) setLast(ui.signOutPrompt); }, [ui.signOutPrompt]);
+  const problem = ui.signOutPrompt ?? last;
   if (!problem) return null;
-  return <CollectionDialog alert title={problem.title} onClose={ui.actions.dismissSignOut} footer={<>
-    <ActionButton tone="primary" onClick={ui.actions.dismissSignOut}>{problem.actionLabel ?? ui.copy.cancel}</ActionButton>
-    <ActionButton tone="danger" onClick={ui.actions.confirmSignOut}>{ui.copy.signOutAnyway}</ActionButton>
-  </>}>
-    <p>{problem.message}</p>
-  </CollectionDialog>;
+  return <ConfirmDialog open={Boolean(ui.signOutPrompt)} title={problem.title} consequence={problem.message}
+    confirmLabel={ui.copy.signOutAnyway} pendingLabel={ui.copy.signingOut} onClose={ui.actions.dismissSignOut} onConfirm={ui.actions.confirmSignOut} />;
 }
 
-export function RowDialogs({ ui, dialog, onClose }: { readonly ui: CollectionUi; readonly dialog: RowDialog; readonly onClose: () => void }): JSX.Element | null {
-  if (!dialog) return null;
-  return dialog.kind === "forget"
-    ? <ForgetCollectionDialog ui={ui} collection={dialog.row} onClose={onClose} />
-    : <DeleteCollectionDialog ui={ui} collection={dialog.row} onClose={(outcome) => { onClose(); dialog.onClose?.(outcome); }} />;
+export function RowDialogs({ ui, dialog, onClose, returnFocusRef }: { readonly ui: CollectionUi; readonly dialog: RowDialog; readonly onClose: () => void; readonly returnFocusRef?: RefObject<HTMLElement | null> }): JSX.Element | null {
+  const [last, setLast] = useState(dialog);
+  useEffect(() => { if (dialog) setLast(dialog); }, [dialog]);
+  const target = dialog ?? last;
+  if (!target) return null;
+  return target.kind === "forget"
+    ? <ForgetCollectionDialog key={target.row.id} open={Boolean(dialog)} returnFocusRef={returnFocusRef} ui={ui} collection={target.row} onClose={onClose} />
+    : <DeleteCollectionDialog key={target.row.id} open={Boolean(dialog)} returnFocusRef={returnFocusRef} ui={ui} collection={target.row} onClose={(outcome) => { onClose(); target.onClose?.(outcome); }} />;
 }

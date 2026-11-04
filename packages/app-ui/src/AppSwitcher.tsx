@@ -1,14 +1,11 @@
 import { t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
-import { useId, useRef, useState, type JSX, type RefObject } from "react";
+import { useId, useRef, useState, type JSX } from "react";
 
 import { mdbaseAppHref, withAppUrls, type MdbaseApp, type MdbaseAppId } from "./apps.js";
 import { MdbaseAppMark, Wordmark, type MdbaseMarkMotion } from "./brand.js";
 import { useMdbaseMarkActivity } from "./mark-activity.js";
-import { moveMenuFocus, useMenuPopover } from "./popover.js";
-
-/** The switcher plays its entrance once per page, not every time it remounts. */
-let entrancePlayed = false;
+import { Menu } from "./Menu.js";
 
 /**
  * The product wordmark as a menu for opening the current collection in the other mdbase apps.
@@ -27,11 +24,6 @@ export function AppSwitcher({ current, urls = {}, motion }: {
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [entrance] = useState<MdbaseMarkMotion | undefined>(() => {
-    if (motion || entrancePlayed || typeof window === "undefined") return undefined;
-    entrancePlayed = true;
-    return "keys-first";
-  });
   const activity = useMdbaseMarkActivity();
   const close = (refocus: boolean): void => {
     setOpen(false);
@@ -55,42 +47,31 @@ export function AppSwitcher({ current, urls = {}, motion }: {
         }
       }}
     >
-      <Wordmark app={current} motion={activity.busy ?? motion ?? entrance} signal={activity.signal} progress={activity.progress} />
+      <Wordmark app={current} motion={activity.busy ?? motion ?? "keys-first"} signal={activity.signal} progress={activity.progress} />
       <svg className="mdbase-app-switcher-chevron" viewBox="0 0 24 24" aria-hidden="true">
         <path d="m7 10 5 5 5-5" />
       </svg>
     </button>
-    {open ? <AppMenu id={menuId} apps={withAppUrls(urls)} current={current} triggerRef={triggerRef} onClose={close} /> : null}
+    <Menu open={open} id={menuId} triggerRef={triggerRef} onClose={close} label={t({ message: "mdbase apps" })}>
+      <AppMenu apps={withAppUrls(urls)} current={current} onClose={close} />
+    </Menu>
   </>;
 }
 
-function AppMenu({ id, apps, current, triggerRef, onClose }: {
-  readonly id: string;
+function AppMenu({ apps, current, onClose }: {
   readonly apps: readonly MdbaseApp[];
   readonly current: MdbaseAppId;
-  readonly triggerRef: RefObject<HTMLButtonElement | null>;
   readonly onClose: (refocus: boolean) => void;
 }): JSX.Element {
   useLocaleRevision();
-  const menuRef = useRef<HTMLDivElement>(null);
-  useMenuPopover(menuRef, triggerRef, onClose, { width: 320, focus: 'a[role="menuitem"]' });
   const heading = new URL(location.href).searchParams.has("collection") ? t({ message: "Open this collection in" }) : t({ message: "mdbase apps" });
-  return <div
-    ref={menuRef}
-    id={id}
-    className="mdbase-menu"
-    popover="manual"
-    role="menu"
-    aria-label={heading}
-    tabIndex={-1}
-    onKeyDown={(event) => moveMenuFocus(event, menuRef.current)}
-  >
+  return <>
     <div className="mdbase-menu-heading" role="presentation">{heading}</div>
     <div className="mdbase-menu-list">
       {apps.map((app) => <AppItem key={app.id} app={app} current={app.id === current} onOpen={() => onClose(false)} />)}
     </div>
     <p className="mdbase-menu-note">{t({ message: "Opens in a new tab" })}</p>
-  </div>;
+  </>;
 }
 
 function AppItem({ app, current, onOpen }: {

@@ -70,12 +70,12 @@ msgstr "{0}이(가) 이 컴퓨터를 통해 {1}을(를) 더 이상 사용할 수
 msgid "{0} can now use {where}."
 msgstr "{0}이(가) 이제 {where}을(를) 사용할 수 있습니다."
 
-#. placeholder {0}: syncTarget.name
+#. placeholder {0}: lastSyncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
 msgstr "{0}이(가) 이제 비공개로 동기화됩니다."
 
-#. placeholder {0}: syncTarget.name
+#. placeholder {0}: lastSyncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs."
 msgstr "{0}이(가) 이제 동기화됩니다."

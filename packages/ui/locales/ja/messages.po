@@ -71,10 +71,6 @@ msgctxt "Application permission"
 msgid "Additional operations declared by this application."
 msgstr "このアプリが宣言する追加操作です。"
 
-#: confirm-action.tsx
-msgid "Cancel"
-msgstr "キャンセル"
-
 #: access.ts
 msgctxt "Application permission"
 msgid "Cancel this app's scheduled activity"
@@ -294,6 +290,10 @@ msgstr "2つのフィールドで許可される値が異なります。"
 msgctxt "Collection field mapping"
 msgid "This optional value will not be shared with the application."
 msgstr "この任意の値はアプリと共有されません。"
+
+#: confirm-action.tsx
+msgid "Type {confirmName} to confirm"
+msgstr "確認のため{confirmName}と入力してください"
 
 #: access.ts
 msgctxt "Application permission"

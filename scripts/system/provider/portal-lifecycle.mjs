@@ -111,7 +111,7 @@ export async function portalLifecycleE2E({
     await expect(connectedRow).toContainText("Browser writable mirror");
     await expect(connectedRow).toContainText("Two-way sync");
     await connectedRow.getByRole("button", { name: "Revoke" }).click();
-    await connectedRow.getByRole("button", { name: "Revoke", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Revoke", exact: true }).click();
     await expect(connectedRow.getByText("Browser writable mirror")).toHaveCount(0, {
       timeout: 20_000
     });
@@ -125,7 +125,9 @@ export async function portalLifecycleE2E({
     });
     await expect(renamedRow).toBeVisible({ timeout: 20_000 });
     await renamedRow.getByRole("button", { name: "Delete" }).click();
-    await renamedRow.getByRole("button", { name: "Delete permanently" }).click();
+    const deletion = page.getByRole("dialog");
+    await deletion.getByLabel("Type Browser renamed collection to confirm").fill("Browser renamed collection");
+    await deletion.getByRole("button", { name: "Delete permanently" }).click();
     await expect(page.getByText("Browser renamed collection", { exact: true })).toHaveCount(0, {
       timeout: 20_000
     });
@@ -162,7 +164,8 @@ export async function portalLifecycleE2E({
     assert.equal(accountCollection.usage.collection_id, deletionCollectionId);
     assert.equal(accountCollection.usage.max_content_bytes, 1024 * 1024 * 1024);
     await page.getByRole("button", { name: "Delete account…" }).click();
-    await expect(page.getByText(/Local files are never removed/)).toBeVisible();
+    const accountDeletion = page.getByRole("dialog", { name: "Delete account" });
+    await expect(accountDeletion.getByText(/Local files are never removed/)).toBeVisible();
     await expect(page.getByText(
       "Local collection and mirror files remain on your computers.",
       { exact: true }

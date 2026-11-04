@@ -328,7 +328,7 @@ describe("ConnectApp", () => {
     expect(screen.queryByText(/permissions ·/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Revoke collection access" }));
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
-    await user.click(screen.getByRole("button", { name: "Revoke collection access" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke collection access" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input, init]) => new URL(String(input)).pathname === "/v1/account/applications/registered-app/remove-installation-access" && init?.body === JSON.stringify({ collection_id: "collection", confirm: true }))).toBe(true));
     expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname.startsWith("/v1/grants"))).toBe(false);
   });
@@ -343,7 +343,7 @@ describe("ConnectApp", () => {
     expect(screen.getByText("Can create collections for your account")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Revoke application" }));
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input, init]) => new URL(String(input)).pathname === "/v1/account/installations/installation-connector" && init?.method === "DELETE")).toBe(true));
     expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname.startsWith("/v1/grants"))).toBe(false);
   });
@@ -806,7 +806,7 @@ describe("ConnectApp", () => {
     expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
   });
 
-  it("renames inline and confirms destructive collection actions in the page", async () => {
+  it("renames inline and confirms destructive collection actions in a modal", async () => {
     overview.hosted_collections = [hostedCollection()];
     const user = userEvent.setup();
     render(<ConnectApp />);
@@ -821,7 +821,7 @@ describe("ConnectApp", () => {
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "PATCH" && init.body === JSON.stringify({ display_name: "Shared research" }))).toBe(true);
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    expect(screen.getByRole("group", { name: /Delete Hosted research and all of its hosted data/ })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /^Delete Hosted research and all of its hosted data/ })).toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("button", { name: "Delete permanently" })).not.toBeInTheDocument();
@@ -1108,7 +1108,7 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("link", { name: /Applications/ }));
     await user.click(screen.getByText("Reading list"));
     await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
 
     await waitFor(() => expect(screen.queryByText("Reading list")).not.toBeInTheDocument());
     const batchCalls = vi.mocked(fetch).mock.calls.filter(([input]) =>
@@ -1142,7 +1142,7 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("link", { name: /Applications/ }));
     await user.click(screen.getByText("Reading list"));
     await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    const confirm = screen.getByRole("button", { name: "Revoke application" });
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" });
 
     fireEvent.click(confirm);
     fireEvent.click(confirm);
@@ -1175,7 +1175,7 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("link", { name: /Applications/ }));
     await user.click(screen.getByText("Reading list"));
     await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "1 grants were revoked; 1 changed concurrently. The current state has been refreshed."
@@ -1201,7 +1201,7 @@ describe("ConnectApp", () => {
       return originalFetch(input, init);
     });
     vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Revoke application" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
 
     await act(async () => vi.advanceTimersByTimeAsync(30_000));
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -1230,7 +1230,7 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("link", { name: /Applications/ }));
     await user.click(screen.getByText("Reading list"));
     await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
     await waitFor(() => expect(mutationSignal).toBeDefined());
     const overviewCalls = vi.mocked(fetch).mock.calls.filter(([input]) =>
       new URL(String(input)).pathname === "/v1/me"

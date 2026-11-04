@@ -133,6 +133,7 @@ msgctxt "Collection access interface"
 msgid "Can't open {collection}"
 msgstr "Impossibile aprire {collection}"
 
+#: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "Cancel"
@@ -202,14 +203,6 @@ msgstr "Chiudi"
 msgctxt "Collection access interface"
 msgid "Close"
 msgstr "Chiudi"
-
-#: src/CommandPalette.tsx
-msgid "Close {label}"
-msgstr "Chiudi {label}"
-
-#: src/Feedback.tsx
-msgid "Close feedback"
-msgstr "Chiudi feedback"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

@@ -1,11 +1,74 @@
 import { expect, openScenario, test } from "./review/fixture";
 import { authorizationId, pairingId } from "./review/scenarios.mjs";
 
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const colorScheme of ["light", "dark"] as const) test(`foundation dialogs ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await openScenario(page, "collection-storage");
+    const trigger = page.getByRole("button", { name: "Delete", exact: true }).first();
+    await trigger.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveCount(1);
+    await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    await expect(dialog.getByRole("button", { name: "Delete permanently", exact: true })).toBeDisabled();
+    for (let step = 0; step < 8; step++) {
+      await page.keyboard.press("Tab");
+      expect(await dialog.evaluate(element => element.contains(document.activeElement) || document.activeElement === document.body)).toBe(true);
+    }
+    await dialog.getByRole("textbox").fill("Shared research library");
+    await expect(dialog.getByRole("button", { name: "Delete permanently", exact: true })).toBeEnabled();
+    await page.screenshot({ path: testInfo.outputPath("confirm.png") });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await page.keyboard.press("Control+k");
+    await expect(dialog).toHaveAccessibleName("Commands");
+    await expect(dialog.getByRole("textbox")).toBeFocused();
+    expect(await dialog.evaluate(element => element.getAnimations().length)).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath("palette.png") });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  });
+}
+
+test("closing the palette during entry reverses from the current opacity", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await openScenario(page, "typical-account");
+  const sample = await page.evaluate(async () => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }));
+    const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    await nextFrame();
+    await nextFrame();
+    const dialog = document.querySelector<HTMLDialogElement>("dialog")!;
+    let entering = Number(getComputedStyle(dialog).opacity);
+    for (let frame = 0; entering === 0 && frame < 10; frame++) {
+      await nextFrame();
+      entering = Number(getComputedStyle(dialog).opacity);
+    }
+    dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+    await Promise.resolve();
+    const start = Number(getComputedStyle(dialog).opacity);
+    const mounted = dialog.isConnected;
+    await nextFrame();
+    return { entering, start, leaving: Number(getComputedStyle(dialog).opacity), mounted };
+  });
+  expect(sample.entering).toBeGreaterThan(0);
+  expect(sample.entering).toBeLessThan(1);
+  expect(sample.start).toBeLessThan(1);
+  expect(Math.abs(sample.start - sample.entering)).toBeLessThan(.15);
+  expect(sample.leaving).toBeLessThanOrEqual(sample.start);
+  expect(sample.mounted).toBe(true);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
 test("rename survives navigation and reload", async ({ page }) => {
   await openScenario(page, "collection-storage");
   await page.getByRole("button", { name: "Rename", exact: true }).click();
   await page.getByRole("textbox", { name: "Rename Shared research library" }).fill("Coastal research library");
+  const saved = page.waitForResponse(response => response.request().method() === "PATCH" && new URL(response.url()).pathname === "/v1/hosted/collections/hosted-0");
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  expect((await saved).ok()).toBe(true);
   await expect(page.getByText("Coastal research library", { exact: true }).first()).toBeVisible();
   await page.reload();
   await expect(page.getByText("Coastal research library", { exact: true }).first()).toBeVisible();
@@ -58,15 +121,17 @@ test("account session revocation sticks after reload", async ({ page }) => {
   await expect(page.getByText("Travel Safari", { exact: true })).toHaveCount(0);
 });
 
-test("signup accepts agreements and creates the starter collection", async ({ page }) => {
+test("signup creates the starter collection and hands off to the configured Editor", async ({ page, baseURL }) => {
+  await page.route("http://127.0.0.1:4814/?demo=300", route => route.fulfill({ contentType: "text/html", body: "<h1>Editor handoff</h1>" }));
   await openScenario(page, "signup-agreements");
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("Maya Chen");
   await page.getByLabel("Password", { exact: true }).fill("a-long-local-review-password");
   await page.getByLabel("Confirm password", { exact: true }).fill("a-long-local-review-password");
   await page.getByRole("checkbox", { name: /I agree to the/ }).check();
   await page.getByRole("button", { name: "Create account", exact: true }).click();
-  await expect(page.getByText("My first collection", { exact: true }).first()).toBeVisible();
-  await page.reload();
+  await expect(page).toHaveURL("http://127.0.0.1:4814/?demo=300");
+  await expect(page.getByRole("heading", { name: "Editor handoff" })).toBeVisible();
+  await page.goto(`${baseURL}/collections`);
   await expect(page.getByText("My first collection", { exact: true }).first()).toBeVisible();
 });
 

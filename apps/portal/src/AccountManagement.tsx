@@ -1,3 +1,4 @@
+import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
 import { countLabel } from "./count-label";
 import { formatters } from "@mdbase-dev/i18n";
 import { t, plural } from "@lingui/core/macro";
@@ -175,8 +176,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     }
   }
 
-  async function deleteAccount(event: FormEvent) {
-    event.preventDefault();
+  async function deleteAccount() {
     if (!beginOperation("delete")) return;
     setError("");
     try {
@@ -221,7 +221,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     || Boolean(reauthenticationToken)
     || Boolean(deletionPassword);
   return <Page title={t(i18n)({ message: "Account", context: "Account management" })} intro={t(i18n)({ message: "Manage collections, sign-in methods, and browser sessions." })}>
-    {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
+    {error && !deletionOpen && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
 
     {account.backend === "next" && <section>
       <SectionTitle title={t(i18n)({ message: "Collections", context: "Connect interface" })} count={ownedCollections.length} note={t(i18n)({ message: "Collections you own. Local files remain on your devices." })} />
@@ -328,7 +328,14 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       <SectionTitle title={t(i18n)({ message: "Delete account", context: "Account management" })} note={t(i18n)({ message: "Permanent for hosted data. Local files are never removed from your computers." })} />
       {!account.deletion.available ? <p>{account.deletion.unavailable_reason === "temporarily_disabled"
         ? t(i18n)({ message: "Account deletion is temporarily unavailable while we complete a service correction." })
-        : t(i18n)({ message: "This account is managed by your tailnet and cannot be deleted here." })}</p> : !deletionOpen ? <button className="connect-account-danger mdbase-button is-danger" onClick={() => setDeletionOpen(true)}><Trans>Delete account…</Trans></button> : <form className="connect-account-form" onSubmit={(event) => void deleteAccount(event)}>
+        : t(i18n)({ message: "This account is managed by your tailnet and cannot be deleted here." })}</p> : <>
+        <button className="connect-account-danger mdbase-button is-danger" onClick={() => { setError(""); setDeletionOpen(true); }}><Trans>Delete account…</Trans></button>
+        <ConfirmDialog open={deletionOpen} title={t(i18n)({ message: "Delete account", context: "Account management" })}
+          consequence={t(i18n)({ message: "Permanent for hosted data. Local files are never removed from your computers." })}
+          confirmLabel={t(i18n)({ message: "Delete account permanently" })} pendingLabel={t(i18n)({ message: "Deleting account…", context: "Account management" })}
+          busy={busy.has("delete")} disabled={deletionConfirmation !== "DELETE" || !deletionAuthorized}
+          onClose={() => { setDeletionOpen(false); setDeletionConfirmation(""); setDeletionPassword(""); }} onConfirm={deleteAccount}>
+        {error && <div className="mdbase-message is-error" role="alert">{error}</div>}
         <div className="connect-deletion-effects">
           <p><strong><Trans>This permanently deletes:</Trans></strong></p>
           <ul><li><Trans>{countLabel(account.deletion.owned_collections, "collection")} and their stored data</Trans></li><li><Trans>Application access and {countLabel(account.deletion.computers, "computer")}</Trans></li><li><Trans>Every browser session and sign-in method</Trans></li></ul>
@@ -347,8 +354,8 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         </div>}
         {reauthenticationToken && <p className="connect-current" role="status"><Trans>Identity confirmed for this deletion.</Trans></p>}
         <label><span><Trans>Type DELETE to confirm</Trans></span><input className="mdbase-field" autoComplete="off" spellCheck={false} value={deletionConfirmation} onChange={(event) => setDeletionConfirmation(event.target.value)} /></label>
-        <div className="connect-account-actions"><button type="button" className="mdbase-button" disabled={busy.has("delete")} onClick={() => { setDeletionOpen(false); setDeletionConfirmation(""); setDeletionPassword(""); }}><Trans>Cancel</Trans></button><button className="connect-account-danger mdbase-button is-danger" disabled={busy.has("delete") || deletionConfirmation !== "DELETE" || !deletionAuthorized}>{busy.has("delete") ? t(i18n)({ message: "Deleting account…", context: "Account management" }) : t(i18n)({ message: "Delete account permanently" })}</button></div>
-      </form>}
+        </ConfirmDialog>
+      </>}
     </section>
   </Page>;
 }

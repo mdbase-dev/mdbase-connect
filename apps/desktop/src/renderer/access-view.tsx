@@ -98,7 +98,7 @@ export function AccessView({ groups, names, busy, requireApproval, movedWaiting 
                     </div>
                     <div className="decision-actions">
                       {!entry.acknowledged && <button className="mdbase-button" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.acknowledgeAccess(entry.grant))}><Trans>Mark as seen</Trans></button>}
-                      <ConfirmAction className="mdbase-button is-danger" busy={busy} label={t(i18n)({ message: "Revoke", context: "Connect interface" })} confirmLabel={t(i18n)({ message: "Revoke access", context: "Connect interface" })} question={t(i18n)`Stop ${entry.app_name} from using ${scope(entry, names)} through this computer?`} onConfirm={() => void onAct(async () => {
+                      <ConfirmAction className="mdbase-button is-danger" busy={busy} label={t(i18n)({ message: "Revoke", context: "Connect interface" })} confirmLabel={t(i18n)({ message: "Revoke access", context: "Connect interface" })} question={t(i18n)`Stop ${entry.app_name} from using ${scope(entry, names)} through this computer?`} onConfirm={() => onAct(async () => {
                         await window.mdbaseConnect.revokeAccess(entry.grant);
                         onNotice(t(i18n)`${entry.app_name} can no longer use ${scope(entry, names)} through this computer.`);
                       })} />

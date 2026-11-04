@@ -89,3 +89,13 @@ test("local auth cannot redirect to external providers and applies latency", asy
   const feedback = await fetch(`${origin}/v1/feedback`, { method: "POST", body: JSON.stringify({ message: "The collection picker is useful." }) });
   assert.equal(feedback.status, 201);
 });
+
+test("review configuration and onboarding expose the demo Editor handoff", async context => {
+  const { select, read, request } = await harness(context);
+  const cookie = await select("typical-account");
+  const { editor_url } = await read(cookie, "/v1/ui-configuration");
+  assert.equal(new URL(editor_url).searchParams.get("demo"), "300");
+  assert.equal(new URL(editor_url).hostname, "127.0.0.1");
+  const ready = await request(cookie, "/v1/onboarding/starter-collection", "POST", {});
+  assert.equal((await ready.json()).editor_url, editor_url);
+});

@@ -1,7 +1,7 @@
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { CollectionModeControl } from "@mdbase-dev/ui/collection-mode";
 import { groupedApprovalCode, presentCollection } from "./daemon-view.mjs";
@@ -22,8 +22,9 @@ export function CollectionsView({ collections, busy, onAdd, onCreate, onAct, onN
 }) {
   useLocaleRevision();
   const [syncTarget, setSyncTarget] = useState<DaemonCollection | null>(null);
+  const [lastSyncTarget, setLastSyncTarget] = useState<DaemonCollection | null>(null);
   const [syncFailure, setSyncFailure] = useState<string | null>(null);
-  const openSync = (collection: DaemonCollection | null) => { setSyncFailure(null); setSyncTarget(collection); };
+  const openSync = (collection: DaemonCollection | null) => { setSyncFailure(null); setSyncTarget(collection); if (collection) setLastSyncTarget(collection); };
   const sorted = [...collections].sort((a, b) => a.name.localeCompare(b.name));
   return (
     <div className="workspace-stack">
@@ -38,17 +39,17 @@ export function CollectionsView({ collections, busy, onAdd, onCreate, onAct, onN
             <CollectionCard key={collection.id} collection={collection} busy={busy} onAct={onAct} onNotice={onNotice} onTurnOnSync={() => openSync(collection)} />
           ))}</div>}
       </section>
-      {syncTarget && <TurnOnSyncDialog collection={syncTarget} busy={busy} error={syncFailure} onAct={onAct} onClose={() => openSync(null)} onConfirm={(mode, acceptTakeoverHolds) => onAct(async () => {
+      {lastSyncTarget && <TurnOnSyncDialog key={lastSyncTarget.id} open={syncTarget !== null} collection={lastSyncTarget} busy={busy} error={syncFailure} onAct={onAct} onClose={() => openSync(null)} onConfirm={(mode, acceptTakeoverHolds) => onAct(async () => {
         setSyncFailure(null);
         try {
-          await window.mdbaseConnect.enableSync(syncTarget.id, mode, acceptTakeoverHolds);
+          await window.mdbaseConnect.enableSync(lastSyncTarget.id, mode, acceptTakeoverHolds);
         } catch (error) {
           // Shown in the dialog the user is looking at, not behind it.
           setSyncFailure(syncEnableMessage(error));
           return;
         }
         openSync(null);
-        onNotice(mode === "private" ? t(i18n)`${syncTarget.name} now syncs privately.` : t(i18n)`${syncTarget.name} now syncs.`);
+        onNotice(mode === "private" ? t(i18n)`${lastSyncTarget.name} now syncs privately.` : t(i18n)`${lastSyncTarget.name} now syncs.`);
       })} />}
     </div>
   );
@@ -87,7 +88,7 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
         {view.holds > 0 && <button className="mdbase-button is-tertiary" onClick={() => setHoldsOpen((open) => !open)}>{holdsOpen ? t(i18n)`Hide ${plural(view.holds, { one: "# file", other: "# files" })}` : t(i18n)`Review ${plural(view.holds, { one: "# file", other: "# files" })}`}</button>}
         {view.canEnableSync && <button className="mdbase-button is-tertiary" disabled={busy} onClick={onTurnOnSync}><Trans>Turn on sync</Trans></button>}
         <button className="mdbase-button is-tertiary" disabled={busy || collection.state === "opening"} onClick={() => void onAct(() => window.mdbaseConnect.setCollectionEnabled(collection.id, view.paused))}>{view.paused ? t(i18n)({ message: "Resume", context: "Local collection management" }) : t(i18n)({ message: "Pause", context: "Local collection management" })}</button>
-        <ConfirmAction className="mdbase-button is-tertiary is-danger" busy={busy} label={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} confirmLabel={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} question={t(i18n)`Remove ${collection.name} from mdbase? Apps stop using it. The folder and its files stay where they are.`} onConfirm={() => void onAct(async () => {
+        <ConfirmAction className="mdbase-button is-tertiary is-danger" busy={busy} label={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} confirmLabel={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} question={t(i18n)`Remove ${collection.name} from mdbase? Apps stop using it. The folder and its files stay where they are.`} onConfirm={() => onAct(async () => {
           await window.mdbaseConnect.removeCollection(collection.id);
           onNotice(t(i18n)`${collection.name} was removed. Its files were not touched.`);
         })} />
@@ -204,7 +205,8 @@ function Holds({ collection, busy, onAct, onLoaded }: {
  * older build) still reports them through the takeover status: they are then listed
  * here and must be checked before sync is turned on with them as they are.
  */
-function TurnOnSyncDialog({ collection, busy, error, onAct, onClose, onConfirm }: {
+function TurnOnSyncDialog({ open, collection, busy, error, onAct, onClose, onConfirm }: {
+  open: boolean;
   collection: DaemonCollection;
   busy: boolean;
   /** Why the last attempt to turn on sync failed, in plain words. */
@@ -219,6 +221,7 @@ function TurnOnSyncDialog({ collection, busy, error, onAct, onClose, onConfirm }
   const [holds, setHolds] = useState<HoldSummary[] | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => { if (open) { setMode("private"); setTakeover(null); setHolds(null); setReviewed(false); setFailure(null); } }, [open]);
   // Read with each hold list, so a file resolved through the hold path drops out of both.
   const holdsLoaded = (list: HoldSummary[]) => {
     window.mdbaseConnect.migrationStatus()
@@ -234,7 +237,7 @@ function TurnOnSyncDialog({ collection, busy, error, onAct, onClose, onConfirm }
   const unlisted = takeover && holds ? takeover.held.filter((held) => !holds.some((hold) => hold.path === held.path)) : [];
   const ready = takeover !== null && holds !== null && holds.length === 0 && (unlisted.length === 0 || reviewed);
   return (
-    <Dialog open onClose={() => !busy && onClose()} title={t(i18n)`Turn on sync for ${collection.name}`} className="modal" closeDisabled={busy}>
+    <Dialog open={open} onClose={() => !busy && onClose()} title={t(i18n)`Turn on sync for ${collection.name}`} className="modal" closeDisabled={busy}>
       <p className="eyebrow"><Trans>Sync</Trans></p>
       <p><Trans>Your other devices get a copy and stay up to date. The folder stays where it is{takeover?.takenOver ? t(i18n)({ message: ", and the files already in it become the first synced version" }) : ""}.</Trans></p>
       {failure && <p className="mdbase-message is-error" role="alert">{failure}</p>}
