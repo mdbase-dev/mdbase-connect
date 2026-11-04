@@ -434,3 +434,6 @@
   justify-self: start;
 }
 
+.note-peek { width: min(680px, 100%); max-height: calc(100dvh - 150px); overflow: auto; }
+.note-peek > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.note-peek h2 { margin: 0; font-size: var(--font-size-heading); overflow-wrap: anywhere; }

@@ -22,7 +22,7 @@ const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: tru
 
 import { matchesCommandShortcut } from "./editor-commands";
 
-export function NoteList({ entries: sourceEntries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, search, searchQuery, searchContexts, sort, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onCreate, onCollections }: {
+export function NoteList({ entries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, search, searchQuery, searchContexts, sort, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, onCreate, onCollections }: {
   entries: CollectionBrowserEntry[];
   selection?: NoteSelection;
   onSelection?: (selection: NoteSelection) => void;
@@ -70,6 +70,7 @@ export function NoteList({ entries: sourceEntries, selection, onSelection, selec
   noteActions?: (path: string) => ActionMenuItem[];
   onRename?: (path: string) => void;
   onDelete?: (path: string) => void;
+  onPeek?: (path: string) => void;
   onCreate?: () => void;
   onCollections: () => void;
 }) {
@@ -78,7 +79,6 @@ export function NoteList({ entries: sourceEntries, selection, onSelection, selec
   const revealedEntry = useRef<string | undefined>(undefined);
   const searching = Boolean(searchQuery.trim());
   const pins = useMemo(() => new Set(!searching && !filter ? pinnedPaths : []), [filter, pinnedPaths, searching, i18n.locale]);
-  const entries = useMemo(() => pins.size ? [...sourceEntries.filter((entry) => entry.kind === "note" && pins.has(entry.path)), ...sourceEntries.filter((entry) => entry.kind !== "note" || !pins.has(entry.path))] : sourceEntries, [sourceEntries, pins, i18n.locale]);
   const listItems = useMemo(() => browserListItems(entries, sort, types, undefined, searching, pins), [entries, searching, sort, types, pins, i18n.locale]);
   const currentSelection = selection ?? { paths: selectedPath ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath };
   const selectedPaths = new Set(currentSelection.paths);
@@ -152,6 +152,11 @@ export function NoteList({ entries: sourceEntries, selection, onSelection, selec
         scrollRef.current?.querySelector(`#${selectedItemId}`)?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
         return;
       }
+    }
+    if (event.key === " " && selected?.kind === "note") {
+      event.preventDefault();
+      if (!statuses.get(selected.path)?.disabled) onPeek?.(selected.path);
+      return;
     }
     if (event.key === "Enter" || event.key === " ") {
       if (selectedEntryIndex >= 0 && selectedEntryIndex < entries.length) {

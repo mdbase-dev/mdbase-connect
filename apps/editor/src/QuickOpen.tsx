@@ -15,11 +15,12 @@ import {
 } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
 
-import { commandDefinitions, filterCommands, formatShortcut, rememberCommand, type EditorCommand } from "./editor-commands";
+import { commandDefinitions, filterCommands, formatShortcut, rememberCommand, shortcutModifier, type EditorCommand } from "./editor-commands";
 export type QuickOpenCommand = EditorCommand;
 
 type QuickOpenRow =
   | { kind: "note"; result: NoteSearchResult }
+  | { kind: "create"; title: string }
   | { kind: "command"; command: QuickOpenCommand };
 
 interface QuickOpenSection {
@@ -27,13 +28,14 @@ interface QuickOpenSection {
   row: QuickOpenRow;
 }
 
-export function QuickOpen({ index, recentPaths, types, commands = [], initialCommandMode = false, onSelect, onClose }: {
+export function QuickOpen({ index, recentPaths, types, commands = [], initialCommandMode = false, onSelect, onCreate, onClose }: {
   index: NoteSearchEntry[];
   recentPaths: string[];
   types: CollectionTypeDescriptor[];
   commands?: QuickOpenCommand[];
   initialCommandMode?: boolean;
   onSelect: (path: string) => void;
+  onCreate?: (title: string) => void;
   onClose: () => void;
 }) {
   useLingui();
@@ -46,8 +48,8 @@ export function QuickOpen({ index, recentPaths, types, commands = [], initialCom
     : recentNotes(index, recentPaths).slice(0, 12), [commandMode, commandQuery, index, recentPaths, i18n.locale]);
   const filteredCommands = useMemo(() => filterCommands(commands, commandQuery), [commands, commandQuery, i18n.locale]);
   const showCommands = filteredCommands.length > 0 && (commandMode || !commandQuery || results.length === 0);
-  const sections = useMemo(() => buildSections(results, filteredCommands, commandMode, showCommands),
-    [commandMode, filteredCommands, results, showCommands, i18n.locale]);
+  const sections = buildSections(results, filteredCommands, commandMode, showCommands);
+  if (!commandMode && commandQuery && !results.length && onCreate) sections.unshift({ row: { kind: "create", title: commandQuery } });
   const rows = sections.map((section) => section.row);
   useEffect(() => setActiveIndex(0), [query]);
   useEffect(() => {
@@ -56,6 +58,11 @@ export function QuickOpen({ index, recentPaths, types, commands = [], initialCom
 
   function choose(row: QuickOpenRow | undefined) {
     if (!row) return;
+    if (row.kind === "create") {
+      onClose();
+      onCreate?.(row.title);
+      return;
+    }
     if (row.kind === "command") {
       rememberCommand(row.command.id);
       onClose();
@@ -110,9 +117,9 @@ export function QuickOpen({ index, recentPaths, types, commands = [], initialCom
         {sections.map((section, rowIndex) => {
           const selected = activeIndex === rowIndex;
           const row = section.row;
-          return <Fragment key={row.kind === "command" ? row.command.id : row.result.note.path}>
+          return <Fragment key={row.kind === "command" ? row.command.id : row.kind === "create" ? "create-note" : row.result.note.path}>
             {section.header && <div className="quick-open-section" aria-hidden="true">{section.header}</div>}
-            {row.kind === "command" ? <button
+            {row.kind === "create" ? <button id={`quick-open-${rowIndex}`} role="option" aria-selected={selected} className={selected ? "selected" : ""} onMouseEnter={() => setActiveIndex(rowIndex)} onClick={() => choose(row)}><strong><Trans>Create note ‘{row.title}’</Trans></strong></button> : row.kind === "command" ? <button
               id={`quick-open-${rowIndex}`}
               role="option"
               aria-selected={selected}
@@ -185,7 +192,6 @@ function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSearchResul
   }));
 }
 
-import { shortcutModifier } from "./editor-commands";
 export { shortcutModifier } from "./editor-commands";
 
 export function ShortcutHelp({ onClose }: { onClose: () => void }) {
@@ -205,6 +211,7 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
     ["Alt ← / →", t`Back or forward`],
     ["Alt J / K", t`Next or previous note`],
     ["Shift F10", t`Note actions, in the list`],
+    ["Space", t`Peek at the focused note`],
     ["Esc", t`Exit focus mode`]
   ];
   return <Dialog titleId="shortcut-help-title" className="shortcut-help" onClose={onClose}>

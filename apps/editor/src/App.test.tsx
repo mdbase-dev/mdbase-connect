@@ -476,7 +476,7 @@ describe("mdbase editor", () => {
     const addedField = screen.getByDisplayValue("field").closest<HTMLElement>(".visual-field-row")!;
     await user.click(within(addedField).getByRole("checkbox", { name: "Required" }));
     await user.click(screen.getByRole("button", { name: "Review changes" }));
-    expect(screen.getByRole("heading", { name: "Update this type?" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Review type changes" })).toBeInTheDocument();
     expect(screen.getByText(/1 note is missing required field/)).toHaveTextContent("field");
     await user.click(screen.getByRole("button", { name: "Confirm update" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled());

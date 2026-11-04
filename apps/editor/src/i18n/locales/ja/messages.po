@@ -1475,6 +1475,10 @@ msgstr "ファイルのプレビューを閉じる"
 msgid "Close keyboard shortcuts"
 msgstr "キーボードショートカットを閉じる"
 
+#: src/App.tsx
+msgid "Close note peek"
+msgstr "ノートのプレビューを閉じる"
+
 #: src/WorkspaceChrome.tsx
 msgid "Close outline"
 msgstr "アウトラインを閉じる"
@@ -1649,10 +1653,6 @@ msgstr "設定を構成"
 #: src/TypeBrowser.tsx
 msgid "Configured"
 msgstr "設定済み"
-
-#: src/TypeBrowser.tsx
-msgid "Confirm the collection-wide effect before saving."
-msgstr "保存前にコレクション全体への影響を確認してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Confirm update"
@@ -1914,6 +1914,11 @@ msgstr "自分の人物レコードを作成"
 msgid "Create note"
 msgstr "ノートを作成"
 
+#. placeholder {0}: row.title
+#: src/QuickOpen.tsx
+msgid "Create note ‘{0}’"
+msgstr "ノート「{0}」を作成"
+
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
 msgstr "ノートを作成（Ctrl または Command + Enter）"
@@ -1929,10 +1934,6 @@ msgstr "最初のノートを作成"
 #: src/TypeBrowser.tsx
 msgid "Create the first type"
 msgstr "最初の型を作成"
-
-#: src/TypeBrowser.tsx
-msgid "Create this type?"
-msgstr "この型を作成しますか？"
 
 #: src/TypeBrowser.tsx
 msgid "Create type"
@@ -2056,6 +2057,10 @@ msgstr "どのプロパティがほかのレコードを指し、対象をどう
 #: src/TypeBrowser.tsx
 msgid "Description"
 msgstr "説明"
+
+#: src/TypeBrowser.tsx
+msgid "Description changed"
+msgstr "説明が変更されました"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
@@ -2327,6 +2332,10 @@ msgstr "エントリ {0} の値"
 #: src/PropertiesPanel.tsx
 msgid "Exact Markdown source, including YAML frontmatter and body."
 msgstr "YAML フロントマターと本文を含む、正確な Markdown ソースです。"
+
+#: src/TypeBrowser.tsx
+msgid "Existing note contents and fields stay unchanged."
+msgstr "既存のノートの内容とフィールドは変更されません。"
 
 #: src/TypeBrowser.tsx
 msgid "Existing notes need attention"
@@ -3800,6 +3809,10 @@ msgstr "埋め込まれた PDF、{filename}"
 msgid "PDF viewer, {filename}"
 msgstr "PDF ビューアー、{filename}"
 
+#: src/QuickOpen.tsx
+msgid "Peek at the focused note"
+msgstr "フォーカス中のノートをプレビュー"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Persisted null"
 msgstr "保存された null 値"
@@ -4414,6 +4427,10 @@ msgstr "推奨項目を確認"
 #: src/App.tsx
 msgid "Review recovered text"
 msgstr "復元したテキストを確認"
+
+#: src/TypeBrowser.tsx
+msgid "Review type changes"
+msgstr "タイプの変更を確認"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
@@ -5186,10 +5203,6 @@ msgid "The selected file has an invalid size."
 msgstr "選択したファイルのサイズは無効です。"
 
 #: src/TypeBrowser.tsx
-msgid "The source changed without altering declared fields."
-msgstr "宣言済みのフィールドは変わらず、ソースだけが変更されました。"
-
-#: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
 msgstr "レコードと接続先アプリが使用する、変わらない名前です。"
 
@@ -5782,10 +5795,6 @@ msgstr "定義を更新して続行"
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
 msgstr "Person 型を更新しますか？"
-
-#: src/TypeBrowser.tsx
-msgid "Update this type?"
-msgstr "この型を更新しますか？"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"

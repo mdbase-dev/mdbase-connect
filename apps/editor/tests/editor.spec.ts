@@ -1232,7 +1232,7 @@ test("builds and saves a recursive list-of-objects field", async ({ page }) => {
   await nestedRow.getByRole("checkbox", { name: "Required" }).check();
 
   await page.getByRole("button", { name: "Review changes" }).click();
-  await expect(page.getByRole("heading", { name: "Update this type?" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review type changes" })).toBeVisible();
   await expect(page.locator(".type-change-review dl > div").filter({ hasText: "Fields added" })).toContainText("2");
   await page.getByRole("button", { name: "Confirm update" }).click();
   await expect(page.getByRole("button", { name: "Review changes" })).toBeDisabled();

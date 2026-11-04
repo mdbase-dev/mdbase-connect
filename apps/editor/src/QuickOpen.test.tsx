@@ -3,6 +3,28 @@ import { describe, expect, it, vi } from "vitest";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 
 describe("keyboard discovery", () => {
+  it("offers the trimmed empty-search title for creation by Enter, not in command mode", () => {
+    const create = vi.fn(), close = vi.fn();
+    render(<QuickOpen index={[]} recentPaths={[]} types={[]} onSelect={() => {}} onCreate={create} onClose={close} />);
+    const input = screen.getByRole("combobox");
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "  New idea  " } });
+    expect(screen.getByRole("option", { name: "Create note ‘New idea’" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(create).toHaveBeenCalledWith("New idea");
+    expect(close).toHaveBeenCalledOnce();
+    fireEvent.change(input, { target: { value: ">missing" } });
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+  });
+
+  it("does not offer creation without create permission", () => {
+    render(<QuickOpen index={[]} recentPaths={[]} types={[]} onSelect={() => {}} onClose={() => {}} />);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "New idea" } });
+    expect(screen.getByText("No matching notes.")).toBeInTheDocument();
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+  });
   it.each(["MacIntel", "iPad", "Linux x86_64"])("shows one quick-open chord and link-only K on %s", (platform) => {
     vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
     render(<ShortcutHelp onClose={() => {}} />);

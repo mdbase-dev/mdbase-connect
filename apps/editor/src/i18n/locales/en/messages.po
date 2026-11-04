@@ -1475,6 +1475,10 @@ msgstr "Close file preview"
 msgid "Close keyboard shortcuts"
 msgstr "Close keyboard shortcuts"
 
+#: src/App.tsx
+msgid "Close note peek"
+msgstr "Close note peek"
+
 #: src/WorkspaceChrome.tsx
 msgid "Close outline"
 msgstr "Close outline"
@@ -1649,10 +1653,6 @@ msgstr "Configure settings"
 #: src/TypeBrowser.tsx
 msgid "Configured"
 msgstr "Configured"
-
-#: src/TypeBrowser.tsx
-msgid "Confirm the collection-wide effect before saving."
-msgstr "Confirm the collection-wide effect before saving."
 
 #: src/TypeBrowser.tsx
 msgid "Confirm update"
@@ -1914,6 +1914,11 @@ msgstr "Create my person record"
 msgid "Create note"
 msgstr "Create note"
 
+#. placeholder {0}: row.title
+#: src/QuickOpen.tsx
+msgid "Create note ‘{0}’"
+msgstr "Create note ‘{0}’"
+
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
 msgstr "Create note (Ctrl or Command + Enter)"
@@ -1929,10 +1934,6 @@ msgstr "Create the first note"
 #: src/TypeBrowser.tsx
 msgid "Create the first type"
 msgstr "Create the first type"
-
-#: src/TypeBrowser.tsx
-msgid "Create this type?"
-msgstr "Create this type?"
 
 #: src/TypeBrowser.tsx
 msgid "Create type"
@@ -2056,6 +2057,10 @@ msgstr "Describe which properties point to other records and how targets are val
 #: src/TypeBrowser.tsx
 msgid "Description"
 msgstr "Description"
+
+#: src/TypeBrowser.tsx
+msgid "Description changed"
+msgstr "Description changed"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
@@ -2327,6 +2332,10 @@ msgstr "Entry {0} value"
 #: src/PropertiesPanel.tsx
 msgid "Exact Markdown source, including YAML frontmatter and body."
 msgstr "Exact Markdown source, including YAML frontmatter and body."
+
+#: src/TypeBrowser.tsx
+msgid "Existing note contents and fields stay unchanged."
+msgstr "Existing note contents and fields stay unchanged."
 
 #: src/TypeBrowser.tsx
 msgid "Existing notes need attention"
@@ -3800,6 +3809,10 @@ msgstr "PDF embed, {filename}"
 msgid "PDF viewer, {filename}"
 msgstr "PDF viewer, {filename}"
 
+#: src/QuickOpen.tsx
+msgid "Peek at the focused note"
+msgstr "Peek at the focused note"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Persisted null"
 msgstr "Persisted null"
@@ -4414,6 +4427,10 @@ msgstr "Review recommended"
 #: src/App.tsx
 msgid "Review recovered text"
 msgstr "Review recovered text"
+
+#: src/TypeBrowser.tsx
+msgid "Review type changes"
+msgstr "Review type changes"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
@@ -5186,10 +5203,6 @@ msgid "The selected file has an invalid size."
 msgstr "The selected file has an invalid size."
 
 #: src/TypeBrowser.tsx
-msgid "The source changed without altering declared fields."
-msgstr "The source changed without altering declared fields."
-
-#: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
 msgstr "The stable name used by records and connected apps."
 
@@ -5782,10 +5795,6 @@ msgstr "Update definitions and continue"
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
 msgstr "Update the Person type?"
-
-#: src/TypeBrowser.tsx
-msgid "Update this type?"
-msgstr "Update this type?"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"

@@ -1475,6 +1475,10 @@ msgstr "关闭文件预览"
 msgid "Close keyboard shortcuts"
 msgstr "关闭键盘快捷键"
 
+#: src/App.tsx
+msgid "Close note peek"
+msgstr "关闭笔记预览"
+
 #: src/WorkspaceChrome.tsx
 msgid "Close outline"
 msgstr "关闭大纲"
@@ -1649,10 +1653,6 @@ msgstr "配置设置"
 #: src/TypeBrowser.tsx
 msgid "Configured"
 msgstr "已配置"
-
-#: src/TypeBrowser.tsx
-msgid "Confirm the collection-wide effect before saving."
-msgstr "保存前，请确认对整个集合的影响。"
 
 #: src/TypeBrowser.tsx
 msgid "Confirm update"
@@ -1914,6 +1914,11 @@ msgstr "创建我的人员记录"
 msgid "Create note"
 msgstr "创建笔记"
 
+#. placeholder {0}: row.title
+#: src/QuickOpen.tsx
+msgid "Create note ‘{0}’"
+msgstr "创建笔记“{0}”"
+
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
 msgstr "创建笔记（Ctrl 或 Command + Enter）"
@@ -1929,10 +1934,6 @@ msgstr "创建第一篇笔记"
 #: src/TypeBrowser.tsx
 msgid "Create the first type"
 msgstr "创建第一个类型"
-
-#: src/TypeBrowser.tsx
-msgid "Create this type?"
-msgstr "创建此类型？"
 
 #: src/TypeBrowser.tsx
 msgid "Create type"
@@ -2056,6 +2057,10 @@ msgstr "描述哪些属性指向其他记录，以及如何验证目标。"
 #: src/TypeBrowser.tsx
 msgid "Description"
 msgstr "描述"
+
+#: src/TypeBrowser.tsx
+msgid "Description changed"
+msgstr "描述已更改"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
@@ -2327,6 +2332,10 @@ msgstr "条目 {0} 的值"
 #: src/PropertiesPanel.tsx
 msgid "Exact Markdown source, including YAML frontmatter and body."
 msgstr "完整的 Markdown 源码，包含 YAML 前置元数据和正文。"
+
+#: src/TypeBrowser.tsx
+msgid "Existing note contents and fields stay unchanged."
+msgstr "现有笔记的内容和字段保持不变。"
 
 #: src/TypeBrowser.tsx
 msgid "Existing notes need attention"
@@ -3800,6 +3809,10 @@ msgstr "嵌入的 PDF，{filename}"
 msgid "PDF viewer, {filename}"
 msgstr "PDF 查看器，{filename}"
 
+#: src/QuickOpen.tsx
+msgid "Peek at the focused note"
+msgstr "预览当前聚焦的笔记"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Persisted null"
 msgstr "已持久化的 null"
@@ -4414,6 +4427,10 @@ msgstr "建议审阅"
 #: src/App.tsx
 msgid "Review recovered text"
 msgstr "审阅恢复的文本"
+
+#: src/TypeBrowser.tsx
+msgid "Review type changes"
+msgstr "检查类型更改"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
@@ -5186,10 +5203,6 @@ msgid "The selected file has an invalid size."
 msgstr "所选文件的大小无效。"
 
 #: src/TypeBrowser.tsx
-msgid "The source changed without altering declared fields."
-msgstr "源码已更改，但声明的字段未变。"
-
-#: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
 msgstr "记录和已连接应用使用的固定名称。"
 
@@ -5782,10 +5795,6 @@ msgstr "更新定义并继续"
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
 msgstr "要更新 Person 类型吗？"
-
-#: src/TypeBrowser.tsx
-msgid "Update this type?"
-msgstr "要更新此类型吗？"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"

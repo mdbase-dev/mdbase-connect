@@ -27,6 +27,7 @@ export function isMobileHistoryState(value: unknown): value is MobileHistoryStat
 }
 
 export interface CreationContext {
+  title?: string;
   folder?: string;
   tag?: string;
   type?: string;
