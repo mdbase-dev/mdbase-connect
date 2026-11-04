@@ -1,0 +1,6 @@
+.mdbase-toaster { position: fixed; bottom: 24px; left: 24px; z-index: 1000; max-width: min(440px, calc(100vw - 48px)); }
+.mdbase-toast { display: flex; align-items: center; gap: 16px; padding: 16px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); box-shadow: var(--elevation-high); animation: mdbase-toast-in var(--motion-base) var(--ease-out); }
+.mdbase-toast span { flex: 1; }
+@keyframes mdbase-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 640px) { .mdbase-toaster { top: max(16px, env(safe-area-inset-top)); bottom: auto; left: 16px; right: 16px; max-width: none; } }
+@media (prefers-reduced-motion: reduce) { .mdbase-toast { animation: none; } }

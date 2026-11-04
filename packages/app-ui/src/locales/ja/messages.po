@@ -304,6 +304,10 @@ msgstr "削除中…"
 msgid "Details"
 msgstr "詳細"
 
+#: src/Toaster.tsx
+msgid "Dismiss"
+msgstr "閉じる"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "ドラッグしてマークします。キーボード：矢印キーで移動、スペースキーで開始または完了します。黒塗りはピクセルを消去します。"
@@ -890,6 +894,7 @@ msgid "Unchanged lines"
 msgstr "変更されていない行"
 
 #: src/FeedbackMarkup.tsx
+#: src/Toaster.tsx
 msgid "Undo"
 msgstr "元に戻す"
 

@@ -867,6 +867,10 @@ msgstr "Cancelar transferencia"
 msgid "Change"
 msgstr "Cambiar"
 
+#: src/ConnectApp.tsx
+msgid "Change could not be saved. Your previous value was restored."
+msgstr "No se pudo guardar el cambio. Se restauró el valor anterior."
+
 #: src/authorization-review.tsx
 msgid "Change notifications"
 msgstr "Cambiar notificaciones"
@@ -880,6 +884,11 @@ msgstr "Cambiar contraseña"
 msgctxt "Account sign-in"
 msgid "Change password"
 msgstr "Cambiar contraseña"
+
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgid "Change saved."
+msgstr "Cambio guardado."
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename existing records."
@@ -923,6 +932,10 @@ msgstr "Consulta tu correo"
 #: src/AccountManagement.tsx
 msgid "Checking active sessions…"
 msgstr "Comprobando sesiones activas…"
+
+#: src/ConnectPrimitives.tsx
+msgid "Checking the latest account details…"
+msgstr "Comprobando los datos más recientes de la cuenta…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1848,6 +1861,10 @@ msgstr "Conserva tus registros actuales e indica qué campos significan lo mismo
 msgid "Language"
 msgstr "Idioma"
 
+#: src/ConnectPrimitives.tsx
+msgid "Last known details"
+msgstr "Últimos datos conocidos"
+
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
 msgid "Last used {0}"
@@ -1883,10 +1900,6 @@ msgstr "Cargando el inicio de sesión con Google…"
 #: src/ConnectApp.tsx
 msgid "Loading people…"
 msgstr "Cargando personas…"
-
-#: src/ConnectApp.tsx
-msgid "Loading your account and collections…"
-msgstr "Cargando tu cuenta y tus colecciones…"
 
 #: src/AccountManagement.tsx
 msgid "Local collection and mirror files remain on your computers."
@@ -1994,10 +2007,6 @@ msgstr "mdbase connect no pudo acceder al servicio. Comprueba tu conexión e int
 #: src/authority-workflows.tsx
 msgid "mdbase connect is checking the latest hosted changes, registering the folder, and making it the main copy."
 msgstr "mdbase connect está comprobando los últimos cambios alojados, registrando la carpeta y convirtiéndola en la copia principal."
-
-#: src/ConnectApp.tsx
-msgid "mdbase connect is unavailable"
-msgstr "mdbase connect no está disponible"
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
@@ -2403,12 +2412,6 @@ msgctxt "Account sign-in"
 msgid "Opening mdbase connect"
 msgstr "Abriendo mdbase connect"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Opening mdbase connect"
-msgstr "Abriendo mdbase connect"
-
-#: src/main.tsx
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect…"
@@ -3336,6 +3339,10 @@ msgstr "Cambió la cuenta con la sesión iniciada. Vuelve a iniciar sesión desd
 msgid "The synced Markdown folder becomes the main copy."
 msgstr "La carpeta Markdown sincronizada pasa a ser la copia principal."
 
+#: src/ConnectApp.tsx
+msgid "The value has changed again. Undo is no longer available."
+msgstr "El valor ha vuelto a cambiar. Ya no se puede deshacer."
+
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
 msgstr "Esta cuenta aprueba los dispositivos nuevos desde la aplicación de escritorio de mdbase. Añade este dispositivo desde la aplicación de escritorio y vuelve a iniciar sesión en {app}."
@@ -3482,6 +3489,7 @@ msgstr "Prueba con otro nombre, ID de registro o estado. Filtrar no revoca el ac
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
+#: src/ConnectPrimitives.tsx
 #: src/onboarding-view.tsx
 #: src/portal-ui.tsx
 msgid "Try again"

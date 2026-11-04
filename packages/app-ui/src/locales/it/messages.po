@@ -304,6 +304,10 @@ msgstr "Eliminazione…"
 msgid "Details"
 msgstr "Dettagli"
 
+#: src/Toaster.tsx
+msgid "Dismiss"
+msgstr "Ignora"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "Trascina per annotare. Tastiera: le frecce spostano il cursore; Spazio avvia o termina l'annotazione. Oscura rimuove i pixel."
@@ -890,6 +894,7 @@ msgid "Unchanged lines"
 msgstr "Righe invariate"
 
 #: src/FeedbackMarkup.tsx
+#: src/Toaster.tsx
 msgid "Undo"
 msgstr "Annulla"
 

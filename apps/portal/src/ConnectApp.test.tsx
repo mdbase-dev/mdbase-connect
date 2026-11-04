@@ -7,11 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectApp } from "./ConnectApp";
 import { chooseOption } from "./test/select";
 import { runtime } from "./i18n";
+import { Toaster } from "@mdbase-dev/ui/toast";
+import { writeOverviewPreview } from "./overview-cache";
 
 let overview: ManagementOverview;
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   history.replaceState(null, "", "/?collection=collection");
   overview = overviewFixture();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -34,6 +37,142 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it("renders the sidebar and stable rows before the first overview", () => {
+    vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
+    render(<ConnectApp />);
+    expect(screen.getByRole("complementary", { name: "mdbase connect navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Computers" })).toBeInTheDocument();
+    expect(screen.getByText("Checking the latest account details…")).toBeInTheDocument();
+    expect(document.querySelectorAll(".connect-row[aria-hidden]")).toHaveLength(3);
+  });
+
+  it("shows cached names immediately, excludes authority and revalidates", async () => {
+    writeOverviewPreview(overview);
+    const stored = localStorage.getItem("connect-overview-v1:person")!;
+    expect(stored).not.toMatch(/grants|pending_authorizations|email|local_id|access|token/);
+    let resolveOverview!: (response: Response) => void;
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => new URL(String(input)).pathname === "/v1/me"
+      ? new Promise(resolve => { resolveOverview = resolve; }) : original(input, init));
+    render(<ConnectApp />);
+    expect(screen.getByText("Garden notes")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Revoke|Approve|Delete/ })).not.toBeInTheDocument();
+    overview.collections[0].display_name = "Fresh notes";
+    await act(async () => resolveOverview(Response.json(overview)));
+    expect(await screen.findByRole("heading", { name: "Fresh notes" })).toBeInTheDocument();
+    expect(localStorage.getItem("connect-overview-v1:person")).toContain("Fresh notes");
+  });
+
+  it("renames immediately and rolls back a failed request", async () => {
+    history.replaceState(null, "", "/computers");
+    let rejectRename!: (error: Error) => void;
+    vi.spyOn(ConnectManagementClient.prototype, "renameConnector").mockImplementation(() => new Promise((_, reject) => { rejectRename = reject; }));
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Rename" }));
+    await user.clear(screen.getByRole("textbox", { name: "Rename Home computer" }));
+    await user.type(screen.getByRole("textbox", { name: "Rename Home computer" }), "Desk computer");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByText("Desk computer")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Saving…" })).not.toBeInTheDocument();
+    await act(async () => rejectRename(new Error("Cannot save name")));
+    expect(await screen.findByText("Home computer", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Change could not be saved. Your previous value was restored.")).toBeInTheDocument();
+  });
+
+  it("undoes a confirmed rename with a real inverse request", async () => {
+    history.replaceState(null, "", "/computers");
+    const rename = vi.spyOn(ConnectManagementClient.prototype, "renameConnector").mockImplementation(async (_, name) => { overview.connectors[0].name = name; });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Rename" }));
+    await user.clear(screen.getByRole("textbox", { name: "Rename Home computer" }));
+    await user.type(screen.getByRole("textbox", { name: "Rename Home computer" }), "Desk computer");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(rename).toHaveBeenLastCalledWith("computer", "Home computer", expect.any(Object));
+    expect(await screen.findByText("Home computer", { exact: true })).toBeInTheDocument();
+  });
+
+  it("does not optimistically remove a computer while revocation is pending", async () => {
+    history.replaceState(null, "", "/computers");
+    let resolveRevoke!: () => void;
+    vi.spyOn(ConnectManagementClient.prototype, "revokeConnector").mockImplementation(() => new Promise(resolve => { resolveRevoke = () => { overview.connectors = []; resolve(); }; }));
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Revoke" }));
+    await user.click(screen.getByRole("button", { name: "Revoke computer" }));
+    expect(screen.getByText("Home computer", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revoking…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+    await act(async () => resolveRevoke());
+    await waitFor(() => expect(screen.queryByText("Home computer", { exact: true })).not.toBeInTheDocument());
+  });
+
+  it("clears the account preview after signing out", async () => {
+    history.replaceState(null, "", "/account");
+    vi.spyOn(ConnectManagementClient.prototype, "logout").mockResolvedValue();
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Sign out of this browser" }));
+    expect(localStorage.getItem("connect-overview-v1:person")).toBeNull();
+    expect(sessionStorage.getItem("connect-overview-account")).toBeNull();
+  });
+
+  it("clears a cached account when the session expires", async () => {
+    writeOverviewPreview(overview);
+    vi.mocked(fetch).mockResolvedValue(Response.json({ error: { message: "Session expired" } }, { status: 401 }));
+    render(<ConnectApp />);
+    await waitFor(() => expect(localStorage.getItem("connect-overview-v1:person")).toBeNull());
+    expect(sessionStorage.getItem("connect-overview-account")).toBeNull();
+    expect(screen.queryByText("Garden notes")).not.toBeInTheDocument();
+  });
+
+  it("never restores an expired pending authorization from the preview", async () => {
+    overview.pending_authorizations = [{
+      id: "expired", flow: "authorization_code", requested_operations: ["read"], collection_id: "collection",
+      expires_at: new Date(Date.now() - 60_000).toISOString(), application_id: "reader", application_name: "Reader",
+      distribution: "web", homepage: "https://reader.example", project_url: null, icon: null
+    }];
+    writeOverviewPreview(overview);
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Garden notes" });
+    expect(screen.queryByRole("link", { name: /Review request/ })).not.toBeInTheDocument();
+  });
+
+  it("prefetches account details on navigation intent", async () => {
+    const account = vi.spyOn(ConnectManagementClient.prototype, "account").mockResolvedValue(accountFixture());
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Garden notes" });
+    const accountLink = screen.getByRole("link", { name: "Account & sessions" });
+    await user.hover(accountLink);
+    expect(account).toHaveBeenCalledTimes(1);
+    await user.click(accountLink);
+    await screen.findByRole("button", { name: "Sign out of this browser" });
+    expect(account).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefetches storage mode on navigation intent without starting a switch", async () => {
+    history.replaceState(null, "", "/?collection=native");
+    Object.assign(overview, { native_collections: [{ id: "native", display_name: "Native notes", sync: "private", access: { relationship: "owner", role: "owner", can_manage_members: false } }] });
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => new URL(String(input)).pathname === "/v1/next/collections/native/mode"
+      ? Promise.resolve(Response.json({ current_mode: "private", execution_available: true, change: null })) : original(input, init));
+    const mode = vi.spyOn(ConnectManagementClient.prototype, "collectionModeStatus");
+    const change = vi.spyOn(ConnectManagementClient.prototype, "requestCollectionMode");
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Native notes" });
+    const storage = screen.getByRole("link", { name: "Storage & sync" });
+    await user.hover(storage);
+    expect(mode).toHaveBeenCalledTimes(1);
+    await user.click(storage);
+    await screen.findByRole("heading", { name: "Storage mode" });
+    expect(mode).toHaveBeenCalledTimes(1);
+    expect(change).not.toHaveBeenCalled();
+  });
+
   it("opens Hosted first-collection setup for a newly flipped next account without a computer", async () => {
     history.replaceState(null, "", "/");
     overview.collections = [];
@@ -144,7 +283,7 @@ describe("ConnectApp", () => {
     ];
     const client = new ConnectManagementClient(location.origin);
     vi.spyOn(client, "account").mockResolvedValue(account);
-    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={async () => {}} onDeleted={() => {}} />);
+    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={async () => {}} onSignedOut={() => {}} onDeleted={() => {}} />);
     const heading = await screen.findByRole("heading", { name: "Collections" });
     const collections = within(heading.closest("section")!);
     expect(collections.getByText("Cloud notes")).toBeInTheDocument();
@@ -212,7 +351,7 @@ describe("ConnectApp", () => {
   it("opens Reader's existing manage-access route on Applications", async () => {
     history.replaceState(null, "", "/account/applications");
     render(<ConnectApp />);
-    expect(await screen.findByRole("heading", { name: "Applications" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument());
     expect(screen.queryByRole("heading", { name: "Browser sessions" })).not.toBeInTheDocument();
   });
 
@@ -225,19 +364,10 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
   });
 
-  it("orbits the mark while Connect is opening", () => {
-    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(() => {}));
-    const { container } = render(<ConnectApp />);
-
-    expect(screen.getByText("Opening mdbase connect")).toBeInTheDocument();
-    expect(container.querySelector(".connect-loading .mdbase-mark")).toBeInTheDocument();
-    expect(container.querySelector(".connect-loading .mdbase-motion-orbit")).toBeInTheDocument();
-  });
-
   it("clears password inputs after success even when the following overview refresh fails", async () => {
     const user = userEvent.setup();
     const onOverviewRefresh = vi.fn().mockRejectedValue(new Error("Overview offline"));
-    render(<AccountManagement client={new ConnectManagementClient("http://127.0.0.1:8787")} overview={overview} onOverviewRefresh={onOverviewRefresh} onDeleted={() => {}} />);
+    render(<><AccountManagement client={new ConnectManagementClient("http://127.0.0.1:8787")} overview={overview} onOverviewRefresh={onOverviewRefresh} onSignedOut={() => {}} onDeleted={() => {}} /><Toaster /></>);
     await user.click(await screen.findByRole("button", { name: "Change password" }));
     await user.type(screen.getByLabelText("Current password"), "old password");
     await user.type(screen.getByLabelText("New password"), "a sufficiently long password");
@@ -328,7 +458,7 @@ describe("ConnectApp", () => {
       sessions={[{id:"current",client_name:"This test browser",provider:"password",
         created_at:"2026-01-01T12:00:00Z",last_seen_at:"2026-01-01T12:00:00Z",
         expires_at:"2027-01-01T12:00:00Z",current:true}]}
-      onOverviewRefresh={refresh} onDeleted={vi.fn()} />);
+      onOverviewRefresh={refresh} onSignedOut={vi.fn()} onDeleted={vi.fn()} />);
     const signOut = await screen.findByRole("button", { name: "Sign out of this browser" });
     expect(signOut.compareDocumentPosition(container.querySelector(".connect-row")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(signOut);
@@ -345,7 +475,7 @@ describe("ConnectApp", () => {
   it("keeps sign-out available without session results and makes failure retryable", async () => {
     const client = new ConnectManagementClient("http://127.0.0.1:8787");
     const logout = vi.spyOn(client, "logout").mockRejectedValue(new Error("Sign-out failed. Try again."));
-    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={vi.fn()} onDeleted={vi.fn()} />);
+    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={vi.fn()} onSignedOut={vi.fn()} onDeleted={vi.fn()} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Sign out of this browser" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Sign-out failed. Try again.");
@@ -505,7 +635,8 @@ describe("ConnectApp", () => {
       .mockRejectedValueOnce(new Error("The management request timed out."))
       .mockResolvedValue(overview);
     render(<ConnectApp />);
-    await screen.findByText("mdbase connect is unavailable");
+    await screen.findByText("The management request timed out.");
+    expect(screen.getByRole("link", { name: "Computers" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     expect(read).toHaveBeenCalledTimes(2);
@@ -530,7 +661,7 @@ describe("ConnectApp", () => {
     expect(read).toHaveBeenCalledTimes(2);
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(read).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole("button", { name: "Creating…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Creating…" })).not.toBeInTheDocument();
     await act(async () => finishOld(overview));
     expect(await screen.findByText("Created while loading")).toBeInTheDocument();
     expect(read).toHaveBeenCalledTimes(3);
@@ -583,6 +714,8 @@ describe("ConnectApp", () => {
     await waitFor(() => expect(overviewCall).toBe(1));
 
     fireEvent(document, new Event("visibilitychange"));
+    fireEvent(window, new Event("focus"));
+    fireEvent(window, new Event("online"));
     expect(overviewCall).toBe(1);
     await act(async () => resolveOlder?.(Response.json(older)));
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
@@ -824,7 +957,7 @@ describe("ConnectApp", () => {
     const now = new Date().toISOString();
     overview.pending_authorizations = [{
       id: "request", flow: "authorization_code", requested_operations: ["read", "update"],
-      collection_id: "collection", expires_at: now, application_id: "reading-list",
+      collection_id: "collection", expires_at: new Date(Date.now() + 60_000).toISOString(), application_id: "reading-list",
       application_name: "Reading list", distribution: "web", homepage: "https://reading.example",
       project_url: null, icon: null
     }];
@@ -1216,6 +1349,8 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("button", { name: "Delete account permanently" }));
 
     expect(await screen.findByRole("heading", { name: "Your account has been deleted." })).toBeInTheDocument();
+    expect(localStorage.getItem("connect-overview-v1:person")).toBeNull();
+    expect(sessionStorage.getItem("connect-overview-account")).toBeNull();
     expect(location.pathname).toBe("/account-deleted");
     expect(screen.getByText(/local collection and mirror files remain/i)).toBeInTheDocument();
   });
