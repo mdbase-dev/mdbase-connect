@@ -129,6 +129,16 @@ test("server-only version prep does not create a desktop release", () => {
   assert.equal(desktopChanged(["Cargo.toml", "Cargo.lock", "runtime/packages/obsidian-runtime/package.json"]), false);
 });
 
+test("publication reaches a skipped test selector only through explicit job results", () => {
+  const job = name => workflow.split(`\n  ${name}:\n`)[1].split(/\n  [a-z-]+:\n/)[0];
+  const publish = job("publish");
+  assert.match(publish, /if: >-\s+\$\{\{ !cancelled\(\)/);
+  for (const need of ["build", "headless-package-smoke", "cross-platform-release-tests", "windows-package-smoke"]) {
+    assert.match(publish, new RegExp(`needs\\.${need}\\.result == 'success'`));
+  }
+  assert.match(job("website-update"), /if: \$\{\{ !cancelled\(\) && .*needs\.publish\.result == 'success' \}\}/);
+});
+
 test("automatic desktop jobs preserve tag-bound signing, full CI, e2e and notarization", () => {
   assert.match(workflow, /workflow_run:[\s\S]*workflows: \[Server CI\]/);
   assert.match(workflow, /group: desktop-release-.*'live'/);

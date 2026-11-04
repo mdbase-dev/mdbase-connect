@@ -557,7 +557,10 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'release'
+    if: >-
+      ${{ !cancelled() && github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'release' &&
+      needs.build.result == 'success' && needs.headless-package-smoke.result == 'success' &&
+      needs.cross-platform-release-tests.result == 'success' && needs.windows-package-smoke.result == 'success' }}
     name: Publish GitHub release
     needs: [build, headless-package-smoke, cross-platform-release-tests, windows-package-smoke]
     runs-on: ubuntu-24.04
@@ -662,7 +665,7 @@ jobs:
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
 
   website-update:
-    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'release'
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'release' && needs.publish.result == 'success' }}
     name: Request website release update
     needs: publish
     runs-on: ubuntu-24.04
