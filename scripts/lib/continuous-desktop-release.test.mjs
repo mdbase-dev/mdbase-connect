@@ -20,12 +20,22 @@ test("changed desktops release at once, including the first and immutable predec
   assert.deepEqual(plan({ latest: { ...latest, published_at: new Date(now - day).toISOString() } }), { operation: "release" });
 });
 
+test("the qualification gate runs through bash so Windows can spawn it", () => {
+  const source = readFileSync(new URL("./continuous-client-release.mjs", import.meta.url), "utf8");
+  assert.match(source, /execFileSync\("bash", \["scripts\/ci\/verify-qualified-commit"/);
+});
+
 test("daily, diff and unfinished-attempt gates cannot be bypassed by repeated triggers", () => {
   assert.equal(plan({ changed: false }).reason, "desktop tree unchanged");
   const recent = { ...latest, published_at: new Date(now - day + 1).toISOString() };
   assert.equal(plan({ latest: recent }).reason, "daily limit");
   assert.throws(() => plan({ reservations: [{ ...reservation, published: false }] }), /unfinished/);
   assert.throws(() => plan({ changed: false, reservations: [{ ...reservation, published: false }] }), /unfinished/);
+  const failed = { tag: "v0.1.0-beta.154", published: false };
+  assert.deepEqual(plan({ reservations: [failed], acknowledged: failed.tag }), { operation: "release" });
+  assert.throws(() => plan({ reservations: [failed], acknowledged: "v0.1.0-beta.153" }), /unfinished/);
+  assert.throws(() => plan({ reservations: [failed, { tag: "v0.1.0-beta.155", published: false }], acknowledged: failed.tag }), /unfinished/);
+  assert.throws(() => plan({ reservations: [failed], acknowledged: "154" }), /Invalid desktop release tag/);
   assert.throws(() => plan({ latest: { ...latest, body: "Continuous desktop status: stopped" } }), /latched stopped/);
   for (const published_at of ["bad-date", new Date(now + 1).toISOString()]) {
     assert.throws(() => plan({ latest: { ...latest, published_at } }), /Invalid desktop publication time/);

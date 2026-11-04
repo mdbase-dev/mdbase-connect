@@ -46,6 +46,13 @@ to skip to another version. The line stops until the owner inspects its exact
 run. No side-effecting operation is retried automatically. The coordinator and
 tag workers share one non-cancelling live concurrency group.
 
+Tags cannot be moved, and a tag worker runs the code at its tag, so a failed
+attempt cannot be fixed in place. Once the owner has confirmed that the attempt
+published nothing, they set repository variable
+**`DESKTOP_RELEASE_ACKNOWLEDGED_TAG`** to that exact tag. The coordinator then
+ignores unfinished reservations up to and including it and takes the next
+number. Acknowledgement is not a retry command and changes no tag or release.
+
 ## Compatibility, not a human-typed server SHA
 
 `scripts/lib/continuous-client-release.mjs` uses the existing fixed production
