@@ -235,13 +235,44 @@ async fn terminal_capture_sync_enable_retains_original_paused_source_without_bas
     let saved = Registry::load(&f.daemon.profile.registry_file()).unwrap();
     let persisted = saved.get(&f.id).unwrap().clone();
     assert!(persisted.paused, "stop must survive a process restart");
+    let status = f
+        .daemon
+        .inner
+        .lock()
+        .await
+        .hosts
+        .iter()
+        .find(|host| host.entry().id == f.id)
+        .unwrap()
+        .status();
+    let failure = status
+        .last_sync_failure
+        .expect("failed local capture must retain its terminal diagnostic");
+    assert_eq!(failure.kind, crate::sync_failure::Kind::Integrity);
+    assert_eq!(failure.stage, crate::sync_failure::Stage::ResourceIngestion);
+    assert_eq!(
+        failure.cause,
+        Some(crate::sync_failure::Cause::ResourceIngestDeferred)
+    );
+    assert_eq!(failure.paths, vec!["mdbase.yaml"]);
+    assert_eq!(failure.persisted, Some(true));
+    let recovered = crate::sync_failure::Failure::load(
+        &f.daemon.profile.state_dir.join("collections").join(&f.id),
+    )
+    .unwrap()
+    .expect("capture diagnostic must survive restart");
+    assert_eq!(recovered.kind, failure.kind);
+    assert_eq!(recovered.cause, failure.cause);
+    assert_eq!(recovered.paths, failure.paths);
+    assert_eq!(recovered.persisted, None);
     assert_eq!(persisted.id, original.id);
     assert_eq!(persisted.replica_id, original.replica_id);
     assert_eq!(persisted.owner_account, original.owner_account);
     // Explicitly narrower than a full daemon restart: production host
     // reconstruction from the actual disk registry must not initialize an actor.
-    let mut restarted = crate::collections::CollectionHost::open(persisted, None);
+    let mut restarted = crate::collections::CollectionHost::open(persisted, f.daemon.host_ctx());
     assert_eq!(restarted.state(), crate::control::CollectionState::Paused);
+    assert_eq!(restarted.status().last_sync_failure, Some(recovered));
     assert!(restarted.runtime().is_none());
     assert!(!restarted.is_serving());
     restarted.refresh();
@@ -292,6 +323,7 @@ async fn stopped_original_actor_none_cannot_silently_restart_during_sync_enable(
     assert!(host.entry().paused);
     assert!(!host.is_serving());
     assert!(host.runtime().is_none());
+    assert!(host.status().last_sync_failure.is_none());
     drop(inner);
     close_fixture(&f).await;
 }
@@ -314,7 +346,7 @@ async fn capture_stop_registry_save_failure_fences_memory_and_original_writers()
     let evidence = registry.with_extension("original-evidence.json");
     std::fs::rename(&registry, &evidence).unwrap();
     std::fs::create_dir(&registry).unwrap();
-    assert!(f.daemon.retain_failed_capture(&f.id).await.is_err());
+    assert!(f.daemon.retain_failed_capture(&f.id, None).await.is_err());
     assert_retained_capture(&f, &original).await;
     assert!(
         f.daemon.authority.incarnation().is_none(),

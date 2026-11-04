@@ -2639,15 +2639,26 @@ impl Daemon {
     /// Close and retain the original entry paused before returning, without any
     /// journal/enrolment/Base. Even a registry write failure stays stopped in
     /// memory; save_registry also invalidates authority on uncertain durability.
-    async fn retain_failed_capture(&self, id: &str) -> Result<(), ControlError> {
+    async fn retain_failed_capture(
+        &self,
+        id: &str,
+        failure: Option<crate::sync_failure::Failure>,
+    ) -> Result<(), ControlError> {
         let mut inner = self.inner.lock().await;
-        inner
+        let host = inner
             .hosts
             .iter_mut()
             .find(|h| h.entry().id == id)
-            .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?
-            .close()
+            .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?;
+        if let Some(failure) = failure {
+            host.close_with_failure(
+                &self.profile.state_dir.join("collections").join(id),
+                failure,
+            )
             .await;
+        } else {
+            host.close().await;
+        }
         let mut stopped = inner.registry.clone();
         let paused = stopped
             .get_mut(id)
@@ -2826,12 +2837,15 @@ impl Daemon {
                     "the collection must be serving to turn sync on; resume it and run again",
                 )
             })?;
-            let Some(frozen) = rt.freeze().await else {
-                self.retain_failed_capture(&entry.id).await?;
-                return Err(ControlError::invalid(
-                    "source_capture_incomplete",
-                    "Source capture did not complete; the original collection remains paused. Resolve the incident or original pending outcome before resuming.",
-                ));
+            let frozen = match rt.freeze().await {
+                Ok(frozen) => frozen,
+                Err(failure) => {
+                    self.retain_failed_capture(&entry.id, failure).await?;
+                    return Err(ControlError::invalid(
+                        "source_capture_incomplete",
+                        "Source capture did not complete; the original collection remains paused. Resolve the incident or original pending outcome before resuming.",
+                    ));
+                }
             };
             let refused = adopt_holds_refusal(
                 &self.profile.state_dir,
