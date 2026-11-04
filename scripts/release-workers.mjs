@@ -13,6 +13,7 @@ export const REPOSITORY = 'mdbase-dev/mdbase-connect';
 export const WORKFLOW = 'release-workers.yml';
 export const CI_WORKFLOW = 'runtime-ci.yml';
 export const PUBLISHERS = Object.freeze(['callumalpass', 'mdbase-dev-release-automation[bot]']);
+export const MERGE_QUEUE = 'github-merge-queue[bot]';
 export const IDENTITY = 'https://github.com/mdbase-dev/mdbase-connect/.github/workflows/release-workers.yml@refs/heads/main';
 export const OPS_VERIFIER_COMMIT = 'eaaab7cafd6d58af18bbb4f316dbe349392c5cdb';
 export const DO_JOB = 'logsvc DO (wasm32, local conformance, restart replay)';
@@ -34,12 +35,18 @@ function positive(value) {
 export function authorizedPublisher(actor, triggeringActor) {
   return PUBLISHERS.includes(actor) && triggeringActor === actor;
 }
+// A merge-queue main push qualifies Runtime CI only; publishers stay the owner and release App.
+export function authorizedRun(run, workflow) {
+  return authorizedPublisher(run.actor?.login, run.triggering_actor?.login)
+    || (workflow === CI_WORKFLOW && run.event === 'push'
+      && run.actor?.login === MERGE_QUEUE && run.triggering_actor?.login === MERGE_QUEUE);
+}
 export function verifyRun(run, expected, workflow) {
   if (run.id !== expected.id || run.run_attempt !== expected.attempt
       || run.head_sha !== expected.source || run.head_branch !== 'main'
       || !['push', 'workflow_dispatch'].includes(run.event) || run.status !== 'completed' || run.conclusion !== 'success'
       || run.repository?.full_name !== REPOSITORY || run.repository?.private !== false
-      || !authorizedPublisher(run.actor?.login, run.triggering_actor?.login)
+      || !authorizedRun(run, workflow)
       || run.path !== `.github/workflows/${workflow}`) {
     fail('exact successful main push or dispatch workflow identity required');
   }
