@@ -18,18 +18,21 @@ import {
   ConnectSectionTitle as SectionTitle
 } from "./ConnectPrimitives";
 import { GoogleIdentityButton } from "./GoogleIdentityButton";
+import { clearOverviewPreview } from "./overview-cache";
+import { toast } from "@mdbase-dev/ui/toast";
+import { clearPagePrefetch, takeAccountPrefetch } from "./page-prefetch";
 
-export function AccountManagement({ client, overview, sessions, onOverviewRefresh, onDeleted }: {
+export function AccountManagement({ client, overview, sessions, onOverviewRefresh, onDeleted, onSignedOut }: {
   client: ConnectManagementClient;
   overview: ManagementOverview;
   sessions?: AccountSession[];
   onOverviewRefresh(): Promise<void>;
   onDeleted(): void;
+  onSignedOut(): void;
 }) {
   useLocaleRevision();
   const [account, setAccount] = useState<AccountData>();
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const busyRef = useRef(new Set<string>());
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -46,19 +49,24 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     expiresAt: string;
   }>();
 
+  const handleError = useCallback((reason: unknown) => {
+    if (reason instanceof ManagementApiError && reason.status === 401) {
+      clearOverviewPreview();
+      onSignedOut();
+      location.href = loginUrl(client);
+    } else setError(errorMessage(reason));
+  }, [client, onSignedOut]);
+
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      setAccount(await client.account({ signal }));
-      setError("");
+      const next = await (takeAccountPrefetch(client) ?? client.account({ signal }));
+      if (signal?.aborted) return;
+      setAccount(next);
     } catch (reason) {
       if (signal?.aborted) return;
-      if (reason instanceof ManagementApiError && reason.status === 401) {
-        location.href = loginUrl(client);
-        return;
-      }
-      setError(errorMessage(reason));
+      handleError(reason);
     }
-  }, [client]);
+  }, [client, handleError]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -69,7 +77,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   useEffect(() => {
     const linked = new URLSearchParams(location.search).get("linked");
     if (linked !== "github" && linked !== "google") return;
-    setNotice(t(i18n)`${providerLabel(linked)} is now connected.`);
+    toast(t(i18n)`${providerLabel(linked)} is now connected.`);
     const url = new URL(location.href);
     url.searchParams.delete("linked");
     history.replaceState(history.state, "", `${url.pathname}${url.search}${url.hash}`);
@@ -78,18 +86,19 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   async function run(id: string, action: () => Promise<void>, success?: string): Promise<boolean> {
     if (!beginOperation(id)) return false;
     setError("");
-    setNotice("");
     let saved = false;
+    clearPagePrefetch();
     try {
       await action();
       saved = true;
-      if (success) setNotice(success);
-      await refresh();
+      if (success || id !== "password") toast(success ?? t(i18n)`Change saved.`);
+      void refresh();
       return true;
     } catch (reason) {
-      setError(errorMessage(reason));
+      handleError(reason);
       return false;
     } finally {
+      clearPagePrefetch();
       finishOperation(id);
       // Refresh failure must not reinterpret an acknowledged mutation as failure.
       if (saved) void onOverviewRefresh().catch(() => {
@@ -113,12 +122,13 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   async function signOutCurrentBrowser() {
     if (!beginOperation("logout")) return;
     setError("");
-    setNotice("");
     try {
       await client.logout();
+      clearOverviewPreview();
+      onSignedOut();
       location.href = loginUrl(client);
     } catch (reason) {
-      setError(errorMessage(reason));
+      handleError(reason);
       finishOperation("logout");
     }
   }
@@ -132,9 +142,9 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         code: created.invitation_code,
         expiresAt: created.expires_at
       });
-      setNotice(t(i18n)({ message: "A new one-use sharing code is ready." }));
+      toast(t(i18n)({ message: "A new one-use sharing code is ready." }));
     } catch (reason) {
-      setError(errorMessage(reason));
+      handleError(reason);
     } finally {
       finishOperation("sharing-code");
     }
@@ -161,7 +171,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       setNewPassword("");
       setPasswordConfirmation("");
       setPasswordOpen(false);
-      setNotice(t(i18n)({ message: "Password changed. Other browser sessions were signed out." }));
+      toast(t(i18n)({ message: "Password changed. Other browser sessions were signed out." }));
     }
   }
 
@@ -183,16 +193,16 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       history.replaceState(null, "", `${url.pathname}${url.search}`);
       onDeleted();
     } catch (reason) {
-      setError(errorMessage(reason));
+      handleError(reason);
       finishOperation("delete");
     }
   }
 
   const googleCompleted = useCallback(() => undefined, []);
   const googleFailed = useCallback((reason: unknown) => {
-    setError(errorMessage(reason));
+    handleError(reason);
     setGoogleAction(null);
-  }, []);
+  }, [handleError]);
 
   if (!account) {
     return <Page title={t(i18n)({ message: "Account", context: "Account management" })} intro={t(i18n)({ message: "Manage collections, sign-in methods, and browser sessions." })}>
@@ -212,7 +222,6 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     || Boolean(deletionPassword);
   return <Page title={t(i18n)({ message: "Account", context: "Account management" })} intro={t(i18n)({ message: "Manage collections, sign-in methods, and browser sessions." })}>
     {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
-    {notice && <div className="mdbase-message is-boxed is-success" role="status">{notice}</div>}
 
     {account.backend === "next" && <section>
       <SectionTitle title={t(i18n)({ message: "Collections", context: "Connect interface" })} count={ownedCollections.length} note={t(i18n)({ message: "Collections you own. Local files remain on your devices." })} />

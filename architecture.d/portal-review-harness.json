@@ -1,0 +1,8 @@
+{
+  "reason": "The standalone portal Playwright config isolates the stateful review server and serial interaction budgets from the editor runner. All fake backend code and fixtures remain under tests; no product UI, protocol, package, or public API is added.",
+  "growth": {
+    "productionFiles": 1,
+    "typeScriptExportDeclarations": 1,
+    "apps/portal": 1
+  }
+}

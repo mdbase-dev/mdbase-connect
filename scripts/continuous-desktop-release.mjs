@@ -27,8 +27,15 @@ export function desktopChanged(paths, contents) {
     })());
 }
 
-export function desktopPlan({ latest, reservations, changed, now = Date.now() }) {
-  if (reservations.some(item => !item.published)) throw new Error("An automatic desktop attempt is unfinished; inspect its workflow and tag before recovery.");
+const betaNumber = tag => {
+  const match = /^v0\.1\.0-beta\.([1-9][0-9]*)$/.exec(tag);
+  if (!match) throw new Error("Invalid desktop release tag.");
+  return BigInt(match[1]);
+};
+
+export function desktopPlan({ latest, reservations, changed, acknowledged = "", now = Date.now() }) {
+  const reconciled = acknowledged ? betaNumber(acknowledged) : 0n;
+  if (reservations.some(item => !item.published && betaNumber(item.tag) > reconciled)) throw new Error("An automatic desktop attempt is unfinished; inspect its workflow and tag before recovery.");
   if (latest?.body?.includes(marker)) throw new Error("Desktop line is latched stopped; release-owner review required.");
   if (latest) {
     const age = now - Date.parse(latest.published_at);
@@ -97,7 +104,7 @@ export async function coordinate(env = process.env) {
       catch (error) { if (error.status === 128) return undefined; throw error; }
     };
     const changed = desktopChanged(paths, path => ({ before: base ? readAt(base, path) : undefined, after: readAt(env.GITHUB_SHA, path) }));
-    const plan = desktopPlan({ latest, reservations: records, changed });
+    const plan = desktopPlan({ latest, reservations: records, changed, acknowledged: env.DESKTOP_RELEASE_ACKNOWLEDGED_TAG });
     console.log(JSON.stringify(plan));
     if (plan.operation === "wait") return;
     await verifyCompatibility(env);

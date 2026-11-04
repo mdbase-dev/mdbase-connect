@@ -9,6 +9,10 @@ use std::path::Path;
 /// The arguments after the binary: run the daemon in the foreground.
 pub const RUN_ARGS: [&str; 2] = ["daemon", "run"];
 
+/// What the scheduled task executes: the console host, with no window, around the
+/// daemon. Run directly, a console program opens a terminal that stops it when closed.
+const TASK_CONSOLE_HOST: &str = r"%SystemRoot%\System32\conhost.exe";
+
 /// systemd user unit.
 pub fn systemd_unit(exe: &Path) -> String {
     let exec = std::iter::once(systemd_quote(&exe.to_string_lossy()))
@@ -126,9 +130,14 @@ pub fn launchd_binary(plist: &str) -> Option<String> {
 
 /// Task Scheduler task: at logon of this user only, in the user's interactive
 /// session (the Credential Manager is unavailable elsewhere), least privilege,
-/// restarted after a failure, never stopped for running long or on battery.
+/// retried if it fails to start, never stopped for running long or on battery.
+/// Task Scheduler does not restart a task whose process later dies.
 pub fn task_xml(user_sid: &str, exe: &Path) -> String {
-    let args = RUN_ARGS.join(" ");
+    let args = format!(
+        "--headless \"{}\" {}",
+        exe.to_string_lossy(),
+        RUN_ARGS.join(" ")
+    );
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n\
          <Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n\
@@ -178,20 +187,27 @@ pub fn task_xml(user_sid: &str, exe: &Path) -> String {
          \x20 </Actions>\r\n\
          </Task>\r\n",
         sid = xml_escape(user_sid),
-        cmd = xml_escape(&exe.to_string_lossy()),
+        cmd = xml_escape(TASK_CONSOLE_HOST),
         args = xml_escape(&args),
     )
 }
 
-/// `(command, enabled)` from a task's XML (ours, or as `schtasks /Query /XML` prints it).
-pub fn task_command_and_enabled(xml: &str) -> Option<(String, bool)> {
-    let cmd = between(xml, "<Command>", "</Command>").map(xml_unescape)?;
+/// `(binary, enabled)` from a task's XML (ours, or as `schtasks /Query /XML` prints it).
+/// `None` for any other shape, including tasks that run the daemon in a terminal, so
+/// that they read as stale and `service install` replaces them.
+pub fn task_binary_and_enabled(xml: &str) -> Option<(String, bool)> {
+    let args = between(xml, "<Arguments>", "</Arguments>").map(xml_unescape)?;
+    let binary = args
+        .trim()
+        .strip_prefix("--headless \"")?
+        .strip_suffix(&format!("\" {}", RUN_ARGS.join(" ")))?
+        .to_string();
     // The task-level <Enabled> is the last one in <Settings>; triggers have their own.
     let settings = between(xml, "<Settings>", "</Settings>").unwrap_or("");
     let enabled = between(settings, "<Enabled>", "</Enabled>")
         .map(|v| v.trim() == "true")
         .unwrap_or(true);
-    Some((cmd.trim().to_string(), enabled))
+    Some((binary, enabled))
 }
 
 /// UTF-16LE with a BOM: what `schtasks /XML` reliably accepts for non-ASCII paths.
@@ -273,19 +289,24 @@ mod tests {
         );
         assert!(xml.contains("<LogonType>InteractiveToken</LogonType>"));
         assert!(xml.contains("<RunLevel>LeastPrivilege</RunLevel>"));
-        assert!(xml.contains("<Arguments>daemon run</Arguments>"));
+        assert!(xml.contains(r"<Command>%SystemRoot%\System32\conhost.exe</Command>"));
+        assert!(xml.contains("<Arguments>--headless &quot;C:"));
+        assert!(xml.contains("mdbase.exe&quot; daemon run</Arguments>"));
         assert!(xml.contains("A &amp; B"));
-        let (cmd, enabled) = task_command_and_enabled(&xml).expect("parse");
-        assert_eq!(PathBuf::from(cmd), exe);
+        let (binary, enabled) = task_binary_and_enabled(&xml).expect("parse");
+        assert_eq!(PathBuf::from(binary), exe);
         assert!(enabled);
         let disabled = xml.replace(
             "<Enabled>true</Enabled>\r\n    <Hidden>",
             "<Enabled>false</Enabled>\r\n    <Hidden>",
         );
-        assert_eq!(
-            task_command_and_enabled(&disabled).map(|t| t.1),
-            Some(false)
-        );
+        assert_eq!(task_binary_and_enabled(&disabled).map(|t| t.1), Some(false));
+    }
+
+    #[test]
+    fn a_task_running_the_daemon_in_a_terminal_reads_as_stale() {
+        let xml = "<Exec><Command>C:\\mdbase.exe</Command><Arguments>daemon run</Arguments></Exec>";
+        assert_eq!(task_binary_and_enabled(xml), None);
     }
 
     #[test]

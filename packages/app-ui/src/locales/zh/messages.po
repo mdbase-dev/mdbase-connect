@@ -304,6 +304,10 @@ msgstr "正在删除…"
 msgid "Details"
 msgstr "详情"
 
+#: src/Toaster.tsx
+msgid "Dismiss"
+msgstr "关闭"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "拖动以标记。键盘操作：使用方向键移动；按空格键开始或完成。遮盖会移除像素。"
@@ -890,6 +894,7 @@ msgid "Unchanged lines"
 msgstr "未更改的行"
 
 #: src/FeedbackMarkup.tsx
+#: src/Toaster.tsx
 msgid "Undo"
 msgstr "撤销"
 

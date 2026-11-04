@@ -304,6 +304,10 @@ msgstr "삭제 중…"
 msgid "Details"
 msgstr "세부 정보"
 
+#: src/Toaster.tsx
+msgid "Dismiss"
+msgstr "닫기"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "드래그하여 표시하세요. 키보드: 화살표 키로 이동하고 스페이스바로 시작하거나 완료합니다. 가리기는 픽셀을 제거합니다."
@@ -890,6 +894,7 @@ msgid "Unchanged lines"
 msgstr "변경되지 않은 줄"
 
 #: src/FeedbackMarkup.tsx
+#: src/Toaster.tsx
 msgid "Undo"
 msgstr "실행 취소"
 

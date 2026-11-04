@@ -304,6 +304,10 @@ msgstr "Удаление…"
 msgid "Details"
 msgstr "Подробности"
 
+#: src/Toaster.tsx
+msgid "Dismiss"
+msgstr "Закрыть"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "Перетаскивайте, чтобы сделать пометку. С клавиатуры: стрелки перемещают курсор, пробел начинает или завершает пометку. Инструмент «Закрасить» удаляет пиксели."
@@ -890,6 +894,7 @@ msgid "Unchanged lines"
 msgstr "Неизменённые строки"
 
 #: src/FeedbackMarkup.tsx
+#: src/Toaster.tsx
 msgid "Undo"
 msgstr "Отменить"
 

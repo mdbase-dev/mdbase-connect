@@ -566,7 +566,8 @@ function asObject(value: unknown, message: string): Record<string, unknown> {
 
 
 function registerDeepLinks(): void {
-  if (!shouldRegisterDeepLinks()) return;
+  // The Store package declares the protocol in its manifest.
+  if (process.windowsStore || !shouldRegisterDeepLinks()) return;
   if (process.defaultApp && process.argv[1]) {
     app.setAsDefaultProtocolClient("mdbase-connect", process.execPath, [resolve(process.argv[1])]);
   } else {
@@ -588,7 +589,8 @@ function showRoute(route: string): void {
 }
 
 async function getLaunchAtLogin(): Promise<{ enabled: boolean; available: boolean }> {
-  if (!app.isPackaged) return { enabled: false, available: false };
+  // A registry login item would point at a versioned WindowsApps path.
+  if (!app.isPackaged || process.windowsStore) return { enabled: false, available: false };
   if (process.platform === "linux") {
     const path = join(app.getPath("appData"), "autostart", "mdbase-connect.desktop");
     try {
@@ -602,7 +604,7 @@ async function getLaunchAtLogin(): Promise<{ enabled: boolean; available: boolea
 }
 
 async function setLaunchAtLogin(enabled: boolean): Promise<{ enabled: boolean; available: boolean }> {
-  if (!app.isPackaged) return { enabled: false, available: false };
+  if (!app.isPackaged || process.windowsStore) return { enabled: false, available: false };
   if (process.platform === "linux") {
     const directory = join(app.getPath("appData"), "autostart");
     const path = join(directory, "mdbase-connect.desktop");

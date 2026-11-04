@@ -7,6 +7,8 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "portal:review": "node apps/portal/tests/review/server.mjs",
+    "test:portal-review": "playwright test --config apps/portal/playwright.config.ts",
     "build": "pnpm i18n:check && pnpm -r build",
     "build:packages": "pnpm --filter \"./packages/**\" -r --if-present build",
     "check:architecture": "node scripts/check-architecture.mjs",

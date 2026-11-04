@@ -18,21 +18,23 @@ import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
 import { readRememberedCollection, rememberCollection } from "./portal-model";
-import { MdbaseMark } from "@mdbase-dev/ui/brand";
 import { CommandPalette, shortcutLabel, type Command } from "@mdbase-dev/ui/command-palette";
 import { signalMdbaseMark, useMdbaseMarkActivity } from "@mdbase-dev/ui/mark-activity";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { useNavPill } from "@mdbase/connect-ui/nav-pill";
 import { StatusGlyph, type StatusGlyphState } from "@mdbase/connect-ui/status-glyph";
-import { transitionState } from "@mdbase/connect-ui/state-transition";
-import { flushSync } from "react-dom";
+import { Toaster, toast } from "@mdbase-dev/ui/toast";
+import "@mdbase-dev/ui/toast.css";
+import { clearOverviewPreview, readOverviewPreview, writeOverviewPreview } from "./overview-cache";
+import { applyOptimisticAction, type OptimisticAction } from "./optimistic-action";
+import { clearPagePrefetch, prefetchAccount, prefetchSharing, takeSharingPrefetch, prefetchMode, takeModePrefetch } from "./page-prefetch";
 import { CollectionModeControl } from "@mdbase-dev/ui/collection-mode";
-
 import {
   ConnectEmpty as Empty,
   ConnectPage as Page,
   ConnectSectionTitle as SectionTitle,
-  InlineRename
+  InlineRename,
+  ConnectPreview
 } from "./ConnectPrimitives";
 import { FeedbackPage } from "./FeedbackPage";
 import { FeedbackButton, FeedbackProvider, feedbackApplication, useFeedback, resolveFeedbackEndpoint, type FeedbackFailure } from "@mdbase-dev/ui/feedback";
@@ -54,11 +56,7 @@ const memberRoles: ReadonlyArray<{ value: MemberRole; label: string }> = [{ valu
 type ConnectView = "overview" | "storage" | "access" | "collections" | "applications" | "computers" | "account" | "feedback";
 type Grant = ManagementOverview["grants"][number];
 type BusyOperations = ReadonlySet<string>;
-type PerformOperation = (
-  id: string,
-  action: (options: ManagementRequestOptions) => Promise<void>,
-  inlineErrors?: boolean
-) => Promise<boolean>;
+type PerformOperation = (id: string, action: (options: ManagementRequestOptions) => Promise<void>, inlineErrors?: boolean, optimistic?: OptimisticAction) => Promise<boolean>;
 
 const management = new ConnectManagementClient(location.origin);
 const desktopReleaseUrl = "https://mdbase.dev/downloads/";
@@ -69,7 +67,7 @@ export function ConnectApp() {
     setContext((previous) => previous.view === view && previous.collectionName === collectionName ? previous : { view, collectionName });
   }, []);
   return <FeedbackProvider endpoint={resolveFeedbackEndpoint(import.meta.env.VITE_MDBASE_FEEDBACK_URL, import.meta.env.DEV)} turnstileSiteKey={import.meta.env.VITE_MDBASE_TURNSTILE_SITE_KEY?.trim() || null} application={feedbackApplication("mdbase connect", context.view, import.meta.env.VITE_MDBASE_REVISION, import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "development" : "production"))} collectionName={context.collectionName}>
-    <ManagementErrorBoundary><ConnectWorkspace onFeedbackContext={updateContext} /></ManagementErrorBoundary>
+    <ManagementErrorBoundary><ConnectWorkspace onFeedbackContext={updateContext} /><Toaster /></ManagementErrorBoundary>
   </FeedbackProvider>;
 }
 
@@ -87,6 +85,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const [accountDeleted, setAccountDeleted] = useState(location.pathname === "/account-deleted");
   const [view, setView] = useState<ConnectView>(viewFromPath);
   const [data, setData] = useState<ManagementOverview>();
+  const [preview, setPreview] = useState(readOverviewPreview);
   const [editorOrigin, setEditorOrigin] = useState<string>();
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof management.sessions>>["sessions"]>();
   const [refreshError, setRefreshError] = useState("");
@@ -97,12 +96,20 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const busyRef = useRef(new Set<string>());
   const refreshGenerationRef = useRef(0);
   const refreshInFlightRef = useRef<{ promise: Promise<void>; signal?: AbortSignal } | null>(null);
-  const settlingMutationRef = useRef(false);
+  const mutationRevisionRef = useRef(0);
+  const optimisticRef = useRef(new Map<string, OptimisticAction>());
+  const actionVersionsRef = useRef(new Map<string, number>());
   const [commandsOpen, setCommandsOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const navPillRef = useRef<HTMLSpanElement>(null);
   const lifecycleRef = useRef<AbortController | null>(null);
-
+  const endSession = useCallback(() => { lifecycleRef.current?.abort(); setPreview(undefined); setData(undefined); }, []);
+  useEffect(() => {
+    const expiry = Math.min(...(data?.pending_authorizations ?? []).map(request => Date.parse(request.expires_at)));
+    if (!Number.isFinite(expiry)) return;
+    const timer = window.setTimeout(() => setData(current => current && { ...current, pending_authorizations: current.pending_authorizations.filter(request => Date.parse(request.expires_at) > Date.now()) }), Math.max(0, expiry - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [data?.pending_authorizations]);
   useEffect(() => {
     const lifecycle = new AbortController();
     lifecycleRef.current = lifecycle;
@@ -114,14 +121,13 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     const pending = refreshInFlightRef.current;
     if (pending && !pending.signal?.aborted) return pending.promise;
     const generation = ++refreshGenerationRef.current;
+    const mutationRevision = mutationRevisionRef.current;
     const request = (async () => {
       try {
         const next = await management.overview({ signal });
-        if (generation !== refreshGenerationRef.current) return;
-        if (settlingMutationRef.current) {
-          settlingMutationRef.current = false;
-          transitionState(() => flushSync(() => setData(next)));
-        } else setData(next);
+        if (signal?.aborted || lifecycleRef.current?.signal.aborted || generation !== refreshGenerationRef.current || mutationRevision !== mutationRevisionRef.current) return;
+        writeOverviewPreview(next); setPreview(readOverviewPreview());
+        setData([...optimisticRef.current.values()].reduce(applyOptimisticAction, next));
         setRefreshError("");
         const configuration = await management.uiConfiguration({ signal });
         if (generation !== refreshGenerationRef.current) return;
@@ -134,6 +140,9 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       } catch (reason) {
         if (signal?.aborted || generation !== refreshGenerationRef.current) return;
         if (reason instanceof ManagementApiError && reason.status === 401) {
+          clearOverviewPreview();
+          setPreview(undefined);
+          setData(undefined);
           location.href = new URL("/login", management.baseUrl).href;
           return;
         }
@@ -156,9 +165,13 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     };
     const timer = window.setInterval(refreshWhenVisible, 15_000);
     document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", refreshWhenVisible);
+    window.addEventListener("online", refreshWhenVisible);
     return () => {
       controller.abort();
       document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", refreshWhenVisible);
+      window.removeEventListener("online", refreshWhenVisible);
       window.clearInterval(timer);
     };
   }, [refresh]);
@@ -169,11 +182,13 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     return () => window.removeEventListener("popstate", update);
   }, []);
 
-  async function perform(
-    id: string,
-    action: (options: ManagementRequestOptions) => Promise<void>,
-    inlineErrors = false
-  ): Promise<boolean> {
+  function perform(id: string, action: (options: ManagementRequestOptions) => Promise<void>, inlineErrors = false, optimistic?: OptimisticAction): Promise<boolean> {
+    if (busyRef.current.has(id)) return Promise.resolve(false);
+    const result = performRequest(id, action, inlineErrors, optimistic);
+    return optimistic ? Promise.resolve(true) : result;
+  }
+
+  const performRequest: PerformOperation = async (id, action, inlineErrors = false, optimistic) => {
     if (busyRef.current.has(id)) return false;
     const lifecycle = lifecycleRef.current?.signal;
     if (!lifecycle) return false;
@@ -184,31 +199,50 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     busyRef.current.add(id);
     setBusy(new Set(busyRef.current));
     setMutationError("");
+    clearPagePrefetch();
+    const version = (actionVersionsRef.current.get(id) ?? 0) + 1;
+    actionVersionsRef.current.set(id, version);
+    mutationRevisionRef.current++;
+    if (optimistic) {
+      optimisticRef.current.set(id, optimistic);
+      setData(current => current && applyOptimisticAction(current, optimistic));
+    }
     let succeeded = false;
     try {
       await action({ signal: controller.signal });
       succeeded = true;
       signalMdbaseMark("saved");
+      if (!lifecycle.aborted) toast(t(i18n)`Change saved.`, optimistic ? () => {
+        if (actionVersionsRef.current.get(id) !== version || busyRef.current.has(id)) { toast(t(i18n)`The value has changed again. Undo is no longer available.`); return; }
+        const inverse = { ...optimistic, name: optimistic.previous, previous: optimistic.name };
+        void perform(id, options => inverse.kind === "rename-computer"
+          ? management.renameConnector(inverse.id, inverse.name, options)
+          : management.renameHostedCollection(inverse.id, inverse.name, options), false, inverse);
+      } : undefined);
     } catch (reason) {
       if (!lifecycle.aborted) {
         signalMdbaseMark("error");
         reportError(feedbackFailure(reason));
         if (!inlineErrors) setMutationError(errorMessage(reason));
+        if (optimistic) {
+          setData(current => current && applyOptimisticAction(current, { ...optimistic, name: optimistic.previous }));
+          toast(t(i18n)`Change could not be saved. Your previous value was restored.`);
+        }
+        if (reason instanceof ManagementApiError && reason.status === 401) {
+          clearOverviewPreview();
+          location.href = new URL("/login", management.baseUrl).href;
+        }
       }
     } finally {
       lifecycle.removeEventListener("abort", abort);
-      // A pre-mutation overview cannot confirm this operation. Let that read
-      // settle, then request a fresh snapshot without overlapping inventory scans.
-      if (!lifecycle.aborted) {
-        await refreshInFlightRef.current?.promise;
-        settlingMutationRef.current = succeeded;
-        if (!lifecycle.aborted) await refresh(lifecycle);
-      }
+      optimisticRef.current.delete(id); clearPagePrefetch();
+      mutationRevisionRef.current++;
       busyRef.current.delete(id);
       if (!lifecycle.aborted) setBusy(new Set(busyRef.current));
+      if (!lifecycle.aborted) void (refreshInFlightRef.current?.promise ?? Promise.resolve()).then(() => refresh(lifecycle));
     }
     return succeeded;
-  }
+  };
 
   async function acceptSharedCollection() {
     if (!invitationToken) return;
@@ -240,7 +274,6 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     setView(next);
     setNavigationOpen(false);
   }
-
 
   const collections = data ? collectionRows(data) : [];
   const requestedCollectionId = new URLSearchParams(location.search).get("collection");
@@ -286,24 +319,23 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   useNavPill(navRef, navPillRef);
 
   if (accountDeleted) return <DeletedAccount client={management} />;
-  if (!data) return <ConnectLoading error={refreshError} onRetry={() => { setRefreshError(""); void refresh(); }} />;
 
   const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
-  const freshlyAuthorized = new Set(data.grants
+  const freshlyAuthorized = new Set(data?.grants
     .filter((grant) => grant.revocation_status === "active"
       && grant.scope.access === "full_collection"
       && grant.scope.contracts.length === 0)
     .map((grant) => `${grant.application_id}\0${grant.collection_id}`));
-  const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked"
+  const activeGrants = data?.grants.filter((grant) => grant.revocation_status !== "revoked"
     || (typeof grant.reauthorization_required_at === "string"
-      && !freshlyAuthorized.has(`${grant.application_id}\0${grant.collection_id}`)));
-  const installations = data.installation_access ?? [];
+      && !freshlyAuthorized.has(`${grant.application_id}\0${grant.collection_id}`))) ?? [];
+  const installations = data?.installation_access ?? [];
   const applications = applicationGroups(activeGrants, installations);
   const selectedGrants = selectedCollection
     ? activeGrants.filter((grant) => grant.collection_id === selectedCollection.id)
     : [];
   const selectedApplications = applicationGroups(selectedGrants, installations.filter((entry) => entry.collection_id === selectedCollection?.id));
-  const pendingRequest = data.pending_authorizations[0];
+  const pendingRequest = !refreshError ? data?.pending_authorizations.find(request => Date.parse(request.expires_at) > Date.now()) : undefined;
   const pendingCollection = pendingRequest?.collection_id
     ? collections.find((collection) => collection.id === pendingRequest.collection_id)
     : undefined;
@@ -322,23 +354,24 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         {selectedCollection && <section className="connect-nav-group" aria-labelledby="current-collection-navigation">
           <p id="current-collection-navigation">{selectedCollection.name}</p>
           <NavLink label={t(i18n)({ message: "Overview", context: "Connect interface" })} selected={activeView === "overview"} view="overview" collectionId={selectedCollection.id} navigate={navigate} />
-          <NavLink label={t(i18n)({ message: "Storage & sync", context: "Connect interface" })} selected={activeView === "storage"} view="storage" collectionId={selectedCollection.id} navigate={navigate} />
-          <NavLink label={t(i18n)({ message: "App access", context: "Connect interface" })} selected={activeView === "access"} view="access" collectionId={selectedCollection.id} navigate={navigate} />
+          <NavLink label={t(i18n)({ message: "Storage & sync", context: "Connect interface" })} selected={activeView === "storage"} view="storage" collectionId={selectedCollection.id} navigate={navigate} prefetch={() => { if (selectedCollection.kind === "native") prefetchMode(management, selectedCollection.id); }} />
+          <NavLink label={t(i18n)({ message: "App access", context: "Connect interface" })} selected={activeView === "access"} view="access" collectionId={selectedCollection.id} navigate={navigate} prefetch={() => { if (selectedCollection.kind !== "local" && selectedCollection.source.access.can_manage_members) prefetchSharing(management, selectedCollection.id); }} />
         </section>}
         <section className="connect-nav-group" aria-labelledby="account-navigation">
           <p id="account-navigation"><Trans>Account</Trans></p>
           <NavLink label={t(i18n)({ message: "All collections", context: "Connect interface" })} selected={activeView === "collections"} view="collections" collectionId={selectedCollection?.id} navigate={navigate} />
           <NavLink label={t(i18n)({ message: "Applications", context: "Connect interface" })} selected={activeView === "applications"} view="applications" collectionId={selectedCollection?.id} navigate={navigate} />
           <NavLink label={t(i18n)({ message: "Computers", context: "Connect interface" })} selected={activeView === "computers"} view="computers" collectionId={selectedCollection?.id} navigate={navigate} />
-          <NavLink label={t(i18n)({ message: "Account & sessions", context: "Connect interface" })} selected={activeView === "account"} view="account" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label={t(i18n)({ message: "Account & sessions", context: "Connect interface" })} selected={activeView === "account"} view="account" collectionId={selectedCollection?.id} navigate={navigate} prefetch={() => prefetchAccount(management)} />
           <FeedbackButton className="connect-feedback-mobile-link" />
         </section>
       </nav>
-      <footer className="connect-nav-footer"><ThemeMenu /><FeedbackButton /><RouteLink view="account" navigate={navigate}><strong title={data.user.name}>{data.user.name}</strong><small title={data.user.email ?? undefined}>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink></footer>
+      <footer className="connect-nav-footer"><ThemeMenu /><FeedbackButton />{data && <RouteLink view="account" navigate={navigate}><strong title={data.user.name}>{data.user.name}</strong><small title={data.user.email ?? undefined}>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink>}</footer>
     </aside>
     <main className="connect-main">
       {(mutationError || refreshError) && <div className="connect-notice error" role="alert"><Warning aria-hidden="true" />{mutationError || refreshError}<button className="mdbase-button is-tertiary" onClick={() => mutationError ? setMutationError("") : setRefreshError("")}><Trans>Dismiss</Trans></button></div>}
-      {invitationToken && <CollectionInvitationBanner
+      {(!data || refreshError) && <ConnectPreview title={viewLabel(view)} rows={view === "computers" ? preview?.computers : isCollectionView(view) || view === "collections" ? preview?.collections : undefined} error={refreshError} retry={() => void refresh()} />}
+      {data && !refreshError && <>{invitationToken && <CollectionInvitationBanner
         busy={busy.has("accept-collection-invitation")}
         onAccept={() => void acceptSharedCollection()}
         onDismiss={dismissSharedCollection}
@@ -348,16 +381,17 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         ? <CollectionOverview editorOrigin={editorOrigin} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} />
         : <Collections key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />)}
       {activeView === "storage" && selectedCollection && <Storage editorOrigin={editorOrigin} collection={selectedCollection} busy={busy} perform={perform} />}
-      {activeView === "access" && selectedCollection && <AppAccess collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform}>
+      {activeView === "access" && !refreshError && selectedCollection && <AppAccess collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform}>
         <section><SectionTitle title={t(i18n)({ message: "Your person record", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Use an existing person or create a note</Trans></strong><small><Trans>Link your account to an editable record in this collection. Collection access is approved separately.</Trans></small></div>{editorOrigin && <a href={`${editorSurfaceUrls(selectedCollection.id, editorOrigin).settings}#your-person`}><Trans>Choose or create my person record</Trans></a>}</div></section>
         {selectedCollection.kind !== "local" && selectedCollection.source.access.can_manage_members && <CollectionSharingPanel key={selectedCollection.id} sharingAvailable={data.collection_sharing_available === true} collection={selectedCollection.source} busy={busy} perform={perform} />}
       </AppAccess>}
       {activeView === "collections" && <Collections key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />}
-      {activeView === "applications" && <AppAccess editorOrigin={editorOrigin} groups={applications} client={management} busy={busy} perform={perform} />}
+      {activeView === "applications" && !refreshError && <AppAccess editorOrigin={editorOrigin} groups={applications} client={management} busy={busy} perform={perform} />}
       {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
-      {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onDeleted={() => setAccountDeleted(true)} />}
+      {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onSignedOut={endSession} onDeleted={() => { clearOverviewPreview(); lifecycleRef.current?.abort(); setAccountDeleted(true); }} />}
       {activeView === "feedback" && feedbackEnabled && <FeedbackPage onDone={() => navigate("overview", selectedCollection?.id)} />}
       {activeView === "feedback" && !feedbackEnabled && <Page title={t(i18n)({ message: "Feedback unavailable", context: "Connect interface" })} intro={t(i18n)({ message: "This deployment has not configured a feedback destination." })}><section><Empty title={t(i18n)({ message: "Feedback is unavailable", context: "Connect interface" })} body={t(i18n)({ message: "Contact the person who operates this mdbase connect deployment." })} /></section></Page>}
+      </>}
     </main>
     <CommandPalette open={commandsOpen} commands={commands} onClose={() => setCommandsOpen(false)} showAll={["commands"]} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)({ message: "Type a command", context: "Connect interface" })} />
   </div>;
@@ -436,10 +470,10 @@ function CollectionSharingPanel({ collection, busy, perform, sharingAvailable }:
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const [memberResult, invitationResult] = await Promise.all([
+      const [memberResult, invitationResult] = await (takeSharingPrefetch(management, collection.id) ?? Promise.all([
         management.collectionMembers(collection.id, { signal }),
         management.collectionInvitations(collection.id, { signal })
-      ]);
+      ]));
       if (signal?.aborted) return;
       setMembers(memberResult.members);
       setInvitations(invitationResult.invitations);
@@ -543,7 +577,7 @@ function Storage({ collection, busy, perform, editorOrigin }: {
   if (collection.kind === "native") {
     return <Page title={t(i18n)({ message: "Storage & sync", context: "Connect interface" })} intro={t(i18n)`${collection.name} is stored in mdbase replicas on your devices.`}>
       <p>{collection.detail}</p>
-      <CollectionModeControl key={collection.id} collectionId={collection.id} load={() => management.collectionModeStatus(collection.id)} change={(targetMode, requestId) => management.requestCollectionMode(collection.id, {targetMode, requestId})} cancel={(_target, requestId) => management.cancelCollectionMode(collection.id, requestId)} />
+      <CollectionModeControl key={collection.id} collectionId={collection.id} load={() => takeModePrefetch(management, collection.id) ?? management.collectionModeStatus(collection.id)} change={(targetMode, requestId) => management.requestCollectionMode(collection.id, {targetMode, requestId})} cancel={(_target, requestId) => management.cancelCollectionMode(collection.id, requestId)} />
       <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection replicas</Trans></strong><small><Trans>Replicas sync between your devices. Application access is managed separately.</Trans></small></div></div></section>
     </Page>;
   }
@@ -666,7 +700,7 @@ function HostedCollectionRow({ collection, busy, perform, manage, showReplicas =
       {manage && <RouteLink view="overview" collectionId={manage.collectionId} navigate={manage.navigate}>{t(i18n)({ message: "Manage", context: "Connect interface" })}</RouteLink>}
       {editorId && editorOrigin && <a href={editorCollectionUrl(editorId, editorOrigin)}><Trans>Open</Trans></a>}
       {active && <a href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.id)}`}><Trans>Sync folder</Trans></a>}
-      {active && collection.access.can_rename_collection && <InlineRename value={collection.display_name} inputLabel={t(i18n)`Rename ${collection.display_name}`} busy={busy.has(`collection-${collection.id}`)} onSubmit={(name) => perform(`collection-${collection.id}`, (options) => management.renameHostedCollection(collection.id, name, options))} />}
+      {active && collection.access.can_rename_collection && <InlineRename value={collection.display_name} inputLabel={t(i18n)`Rename ${collection.display_name}`} busy={busy.has(`collection-${collection.id}`)} onSubmit={(name) => perform(`collection-${collection.id}`, (options) => management.renameHostedCollection(collection.id, name, options), false, { kind: "rename-collection", id: collection.id, name, previous: collection.display_name })} />}
       {collection.access.can_delete_collection && <ConfirmAction className="mdbase-button is-tertiary is-danger" label={t(i18n)({ message: "Delete", context: "Connect interface" })} question={t(i18n)`Delete ${collection.display_name} and all of its hosted data? This cannot be undone.`} confirmLabel={t(i18n)({ message: "Delete permanently", context: "Connect interface" })} busy={busy.has(`collection-${collection.id}`)} onConfirm={() => void perform(`collection-${collection.id}`, (options) => management.deleteHostedCollection(collection.id, options))} />}
     </div>
     {showReplicas && replicas.length > 0 && <details className="connect-row-detail"><summary><Trans>Synced folders</Trans></summary>{replicas.map((replica) => <div key={replica.id}>
@@ -712,7 +746,7 @@ function Computers({ data, busy, perform }: {
           <span className="connect-status"><StatusGlyph state={upgradeRequired ? "attention" : online ? "online" : connector.last_seen_at ? "offline" : "idle"} />{upgradeRequired ? t(i18n)({ message: "Update required", context: "Connect interface" }) : online ? t(i18n)({ message: "Online", context: "Connect interface" }) : connector.last_seen_at ? t(i18n)({ message: "Offline", context: "Connect interface" }) : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</span>
           {upgradeRequired && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Install {connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })}</Trans></a>}
           {!upgradeRequired && updateRecommended && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Update recommended for current policy protection</Trans></a>}
-          <div className="connect-row-actions"><InlineRename value={connector.name} inputLabel={t(i18n)`Rename ${connector.name}`} busy={busy.has(`computer-${connector.id}`)} onSubmit={(name) => perform(`computer-${connector.id}`, (options) => management.renameConnector(connector.id, name, options))} /><ConfirmAction className="mdbase-button is-tertiary is-danger" label={t(i18n)({ message: "Revoke", context: "Connect interface" })} question={t(i18n)`Revoke ${connector.name} and the application grants routed through it?`} confirmLabel={t(i18n)({ message: "Revoke computer", context: "Connect interface" })} busy={busy.has(`computer-${connector.id}`)} onConfirm={() => void perform(`computer-${connector.id}`, (options) => management.revokeConnector(connector.id, options))} /></div>
+          <div className="connect-row-actions"><InlineRename value={connector.name} inputLabel={t(i18n)`Rename ${connector.name}`} busy={busy.has(`computer-${connector.id}`) || busy.has(`rename-computer-${connector.id}`)} onSubmit={(name) => perform(`rename-computer-${connector.id}`, (options) => management.renameConnector(connector.id, name, options), false, { kind: "rename-computer", id: connector.id, name, previous: connector.name })} /><ConfirmAction className="mdbase-button is-tertiary is-danger" label={busy.has(`computer-${connector.id}`) ? t(i18n)({ message: "Revoking…", context: "Connect interface" }) : t(i18n)({ message: "Revoke", context: "Connect interface" })} question={t(i18n)`Revoke ${connector.name} and the application grants routed through it?`} confirmLabel={t(i18n)({ message: "Revoke computer", context: "Connect interface" })} busy={busy.has(`computer-${connector.id}`) || busy.has(`rename-computer-${connector.id}`)} onConfirm={() => void perform(`computer-${connector.id}`, (options) => management.revokeConnector(connector.id, options))} /></div>
         </div>;
       })}
       {data.connectors.length > 0 && visible.length === 0 && <Empty title={t(i18n)({ message: "No computers match", context: "Connect interface" })} body={t(i18n)({ message: "Try a different name, registration ID or status. Filtering does not revoke access." })} />}
@@ -813,24 +847,26 @@ function isConnectorOnline(lastSeenAt: string | null): boolean {
   return lastSeenAt !== null && Date.now() - new Date(lastSeenAt).getTime() < 45_000;
 }
 
-function NavLink({ label, selected, view, collectionId, navigate }: {
+function NavLink({ label, selected, view, collectionId, navigate, prefetch }: {
   label: string;
   selected: boolean;
   view: ConnectView;
   collectionId?: string;
   navigate(view: ConnectView, collectionId?: string): void;
+  prefetch?(): void;
 }) {
   useLocaleRevision();
-  return <RouteLink className={selected ? "selected" : ""} ariaCurrent={selected ? "page" : undefined} view={view} collectionId={collectionId} navigate={navigate}><strong>{label}</strong></RouteLink>;
+  return <RouteLink className={selected ? "selected" : ""} ariaCurrent={selected ? "page" : undefined} view={view} collectionId={collectionId} navigate={navigate} prefetch={prefetch}><strong>{label}</strong></RouteLink>;
 }
 
-function RouteLink({ view, collectionId, navigate, children, className = "", ariaCurrent }: {
+function RouteLink({ view, collectionId, navigate, children, className = "", ariaCurrent, prefetch }: {
   view: ConnectView;
   collectionId?: string;
   navigate(view: ConnectView, collectionId?: string): void;
   children: ReactNode;
   className?: string;
   ariaCurrent?: "page";
+  prefetch?(): void;
 }) {
   useLocaleRevision();
   function activate(event: MouseEvent<HTMLAnchorElement>) {
@@ -838,19 +874,7 @@ function RouteLink({ view, collectionId, navigate, children, className = "", ari
     event.preventDefault();
     navigate(view, collectionId);
   }
-  return <a className={className} href={connectViewUrl(view, collectionId)} aria-current={ariaCurrent} onClick={activate}>{children}</a>;
-}
-
-const connectLoadingFailed = { kind: "error", id: 1 } as const;
-
-function ConnectLoading({ error, onRetry }: { error: string; onRetry(): void }) {
-  useLocaleRevision();
-  const { reportError } = useFeedback();
-  const reportedInitialFailure = useRef(false);
-  useEffect(() => {
-    if (error && !reportedInitialFailure.current) { reportedInitialFailure.current = true; reportError({ code: "unknown_error" }); }
-  }, [error, reportError]);
-  return <div className="connect-loading" aria-busy={!error}><MdbaseMark motion="orbit" signal={error ? connectLoadingFailed : null} className="wordmark-mark" /><strong>{error ? t(i18n)({ message: "mdbase connect is unavailable" }) : t(i18n)({ message: "Opening mdbase connect", context: "Connect interface" })}</strong><p>{error || t(i18n)({ message: "Loading your account and collections…" })}</p>{error && <button className="mdbase-button is-tertiary" onClick={onRetry}><Trans>Try again</Trans></button>}<FeedbackButton topic={error ? "problem" : undefined} /></div>;
+  return <a className={className} href={connectViewUrl(view, collectionId)} aria-current={ariaCurrent} onClick={activate} onMouseEnter={prefetch} onFocus={prefetch}>{children}</a>;
 }
 
 function DesktopRecoveryHelp({ action }: { action: string }) {
