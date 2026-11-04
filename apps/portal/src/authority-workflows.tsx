@@ -368,7 +368,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                 ) : (
                   <>
                     <p><Trans>We couldn't identify your account. Sign in again to continue.</Trans></p>
-                    <a className="button secondary link-button installation-account-action" href={`/login?return_to=${encodeURIComponent(location.href)}`}><Trans>Sign in again</Trans></a>
+                    <a className="mdbase-button installation-account-action" href={`/login?return_to=${encodeURIComponent(location.href)}`}><Trans>Sign in again</Trans></a>
                   </>
                 )}
                 {pairing.account_selection_confirmed && !pairing.attested && <p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>}
@@ -382,7 +382,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     />
                     {selectedCollectionId === NEW_COLLECTION && <div className="installation-choice">
                       <label htmlFor="installation-collection-name"><Trans>New collection name</Trans></label>
-                      <input id="installation-collection-name" aria-describedby="installation-collection-note" value={newCollectionName} maxLength={200} disabled={busy} readOnly={!!pairing.creation} onChange={event=>setNewCollectionName(event.target.value)} />
+                      <input className="mdbase-field" id="installation-collection-name" aria-describedby="installation-collection-note" value={newCollectionName} maxLength={200} disabled={busy} readOnly={!!pairing.creation} onChange={event=>setNewCollectionName(event.target.value)} />
                       <small id="installation-collection-note"><Trans>Approve will create this collection and open it in {literal(pairing.connector_name)}.</Trans></small>
                       {pairing.creation && <small role="status"><Trans>Creation hasn't finished. Approve continues the same named collection.</Trans></small>}
                     </div>}
@@ -396,10 +396,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                             <Checkbox checked={collection.collection_id===selectedCollectionId || collectionIds.includes(collection.collection_id)} disabled={collection.collection_id===selectedCollectionId || pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...new Set([...ids,collection.collection_id])]:ids.filter(id=>id!==collection.collection_id))}>
                               {collection.display_name}{pairing.retained_collection_ids?.includes(collection.collection_id) ? t(i18n)` (already allowed)` : ""}
                             </Checkbox>
-                            {pairing.scope_only && pairing.retained_collection_ids?.includes(collection.collection_id) && <button type="button" className="button secondary installation-account-action" onClick={()=>setRemovingId(collection.collection_id)}><Trans>Remove access</Trans></button>}
+                            {pairing.scope_only && pairing.retained_collection_ids?.includes(collection.collection_id) && <button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(collection.collection_id)}><Trans>Remove access</Trans></button>}
                           </div>
                         ))}
-                        {(pairing.retained_collection_ids??[]).filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><div key={id}><p><Trans>Already allowed collection (currently unavailable)</Trans></p><button type="button" className="button secondary installation-account-action" onClick={()=>setRemovingId(id)}><Trans>Remove access</Trans></button></div>)}
+                        {(pairing.retained_collection_ids??[]).filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><div key={id}><p><Trans>Already allowed collection (currently unavailable)</Trans></p><button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(id)}><Trans>Remove access</Trans></button></div>)}
                         {(pairing.requested_create_collections || pairing.retained_create_collections) && <Checkbox checked={createCollections} disabled={pairing.retained_create_collections} onChange={event=>setCreateCollections(event.target.checked)}>
                            <Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans> </Checkbox>}
                       </CheckboxGroup>
@@ -413,8 +413,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     </div>}
                     {removingId && <div role="group" aria-label={t(i18n)({ message: "Confirm removal", context: "Collection connection" })}>
                       <p><Trans>{literal(pairing.connector_name)} will lose access to {literal(pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))} on all its devices. Previously downloaded data cannot be erased.</Trans></p>
-                      <button className="button secondary installation-account-action" disabled={busy} onClick={()=>setRemovingId("")}><Trans>Keep access</Trans></button>
-                      <button className="button primary installation-account-action" disabled={busy} onClick={()=>void act("remove-access")}><Trans>Remove access</Trans></button>
+                      <button className="mdbase-button installation-account-action" disabled={busy} onClick={()=>setRemovingId("")}><Trans>Keep access</Trans></button>
+                      <button className="mdbase-button is-primary installation-account-action" disabled={busy} onClick={()=>void act("remove-access")}><Trans>Remove access</Trans></button>
                     </div>}
                     {revokingId && <p role="status"><Trans>Removing access to {literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))}…</Trans></p>}
                     <p className="mdbase-connect-footnote"><Trans>Access includes the notes and files in the collection you pick.{literal(createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : "")}{pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""}</Trans></p>
@@ -460,11 +460,11 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               application requests, but not local folder paths.
             </Trans></p>
             <div className="decision-actions">
-              <a className="button secondary link-button" href="/"><Trans>
+              <a className="mdbase-button" href="/"><Trans>
                 Cancel
               </Trans></a>
               <button
-                className="button primary"
+                className="mdbase-button is-primary"
                 disabled={busy}
                 onClick={() => void act("approve")}
               ><Trans>
@@ -474,7 +474,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
           </>
         )}
         {error && (
-          <div className="message error" role="alert">
+          <div className="mdbase-message is-error" role="alert">
             {error}
             {retry && !busy && <button className="mdbase-button installation-account-action" onClick={() => void act(retry)}><Trans>Try again</Trans></button>}
           </div>
@@ -567,9 +567,9 @@ export function MirrorPairing({ pairingId }: { pairingId: string }) {
     (collection) => collection.id === collectionId,
   );
   return (
-    <main className="center-page">
+    <main className="mdbase-page">
       <PageBrand label={t(i18n)({ message: "Folder sync", context: "Collection connection" })} busy={busy} error={error} />
-      <section className="decision-panel">
+      <section className="mdbase-page-panel">
         {approved ? (
           <>
             <p className="eyebrow outcome-label"><Trans>Folder approved</Trans></p>
@@ -589,7 +589,7 @@ export function MirrorPairing({ pairingId }: { pairingId: string }) {
                 : t(i18n)({ message: "This folder will receive Markdown from mdbase and will not upload local edits." })}
             </p>
             {error && (
-              <div className="message error" role="alert">
+              <div className="mdbase-message is-error" role="alert">
                 {error}
               </div>
             )}
@@ -612,11 +612,11 @@ export function MirrorPairing({ pairingId }: { pairingId: string }) {
                   and device credentials stay off the control plane.
                 </Trans></p>
                 <div className="decision-actions">
-                  <a className="button secondary link-button" href="/"><Trans>
+                  <a className="mdbase-button" href="/"><Trans>
                     Cancel
                   </Trans></a>
                   <button
-                    className="button primary"
+                    className="mdbase-button is-primary"
                     disabled={busy || !collectionId}
                     onClick={() => void approve()}
                   >
@@ -626,10 +626,10 @@ export function MirrorPairing({ pairingId }: { pairingId: string }) {
               </>
             ) : (
               <>
-                <div className="message">
+                <div className="mdbase-message">
                    {t(i18n)({ message: "Create a hosted collection before approving this folder." })} </div>
                 <div className="decision-actions">
-                  <a className="button primary link-button" href="/"><Trans>
+                  <a className="mdbase-button is-primary" href="/"><Trans>
                     Open your collections
                   </Trans></a>
                 </div>
@@ -706,9 +706,9 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
   const inactive =
     adoption.state === "cancelled" || adoption.state === "expired";
   return (
-    <main className="center-page">
+    <main className="mdbase-page">
       <PageBrand label={t(i18n)({ message: "Move collection online", context: "Collection connection" })} busy={busy} error={error} />
-      <section className="decision-panel authority-decision">
+      <section className="mdbase-page-panel authority-decision">
         {adoption.state === "completed" ? (
           <>
             <p className="eyebrow outcome-label"><Trans>Move complete</Trans></p>
@@ -723,7 +723,7 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
               <StatusGlyph state="online" />
               <span><Trans>Main copy hosted by mdbase</Trans></span>
             </div>
-            <a className="button primary link-button" href="/"><Trans>
+            <a className="mdbase-button is-primary" href="/"><Trans>
               Return to your account
             </Trans></a>
           </>
@@ -733,11 +733,11 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
             <h1><Trans>Your local collection was kept.</Trans></h1>
             <p><Trans>The main copy was not moved to mdbase.</Trans></p>
             {error && (
-              <div className="message error" role="alert">
+              <div className="mdbase-message is-error" role="alert">
                 {error}
               </div>
             )}
-            <a className="button primary link-button" href="/"><Trans>
+            <a className="mdbase-button is-primary" href="/"><Trans>
               Return to your account
             </Trans></a>
           </>
@@ -758,7 +758,7 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
               </span>
             </div>
             {error && (
-              <div className="message error" role="alert">
+              <div className="mdbase-message is-error" role="alert">
                 {error}
               </div>
             )}
@@ -772,22 +772,22 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
               {literal(adoption.source_name)}, validates it as one snapshot, and then
               makes the hosted version the main copy.
             </Trans></p>
-            <div className="message">
+            <div className="mdbase-message">
               {adoption.retain_mirror
                 ? t(i18n)`After the move, ${adoption.mirror_name ?? adoption.source_name} stays as a synced folder. It will not be a second main copy.`
                 : t(i18n)({ message: "After the move, the original local files are no longer the main copy." })}
             </div>
             {error && (
-              <div className="message error" role="alert">
+              <div className="mdbase-message is-error" role="alert">
                 {error}
               </div>
             )}
             <div className="decision-actions">
-              <a className="button secondary link-button" href="/"><Trans>
+              <a className="mdbase-button" href="/"><Trans>
                 Cancel
               </Trans></a>
               <button
-                className="button primary"
+                className="mdbase-button is-primary"
                 disabled={busy}
                 onClick={() => void approve()}
               >
@@ -865,9 +865,9 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
   const inactive =
     transfer.state === "cancelled" || transfer.state === "expired";
   return (
-    <main className="center-page">
+    <main className="mdbase-page">
       <PageBrand label={t(i18n)({ message: "Move main copy", context: "Collection connection" })} busy={busy} error={error} />
-      <section className="decision-panel authority-decision">
+      <section className="mdbase-page-panel authority-decision">
         {transfer.state === "completed" ? (
           <>
             <p className="eyebrow outcome-label"><Trans>Transfer complete</Trans></p>
@@ -877,7 +877,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
               <StatusGlyph state="online" />
               <span>{t(i18n)`Main copy on ${mirrorName}`}</span>
             </div>
-            <a className="button primary link-button" href="/"><Trans>
+            <a className="mdbase-button is-primary" href="/"><Trans>
               Return to your account
             </Trans></a>
           </>
@@ -887,11 +887,11 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
             <h1><Trans>The main copy stayed hosted.</Trans></h1>
             <p>{t(i18n)`${collectionName} remains hosted. Its main copy did not move.`}</p>
             {error && (
-              <div className="message error" role="alert">
+              <div className="mdbase-message is-error" role="alert">
                 {error}
               </div>
             )}
-            <a className="button primary link-button" href="/"><Trans>
+            <a className="mdbase-button is-primary" href="/"><Trans>
               Return to your account
             </Trans></a>
           </>
@@ -912,13 +912,13 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
               </span>
             </div>
             {error && (
-              <div className="message error" role="alert">
+              <div className="mdbase-message is-error" role="alert">
                 {error}
               </div>
             )}
             <div className="decision-actions">
               <button
-                className="quiet-danger"
+                className="mdbase-button is-tertiary is-danger"
                 disabled={busy}
                 onClick={() => void cancel()}
               ><Trans>
@@ -959,20 +959,20 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
               </div>
             </dl>
             {error && (
-              <div className="message error" role="alert">
+              <div className="mdbase-message is-error" role="alert">
                 {error}
               </div>
             )}
             <div className="decision-actions">
               <button
-                className="button secondary"
+                className="mdbase-button"
                 disabled={busy}
                 onClick={() => void cancel()}
               ><Trans>
                 Keep it hosted
               </Trans></button>
               <button
-                className="button primary"
+                className="mdbase-button is-primary"
                 disabled={busy}
                 onClick={() => void approve()}
               >

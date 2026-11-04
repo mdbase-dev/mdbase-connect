@@ -225,9 +225,9 @@ function App() {
           </header>
 
           <div aria-live="polite">
-            {error && <div className="message error-message" role="alert"><span>{error}</span> <button className="quiet-action" onClick={() => setError(null)}><Trans>Dismiss</Trans></button></div>}
-            {checked && !status && <div className="message error-message" role="status">{t(i18n)({ message: "mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect." })}</div>}
-            {notice && <div className="message notice-message">{notice}</div>}
+            {error && <div className="mdbase-message is-error" role="alert"><span>{error}</span> <button className="mdbase-button is-tertiary" onClick={() => setError(null)}><Trans>Dismiss</Trans></button></div>}
+            {checked && !status && <div className="mdbase-message is-error" role="status">{t(i18n)({ message: "mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect." })}</div>}
+            {notice && <div className="mdbase-message is-success">{notice}</div>}
           </div>
 
           <TakeoverPanel names={names} />
@@ -326,7 +326,7 @@ function Overview({ cloud, connectionLabel, collections, attention, busy, onNavi
 
 function OverviewRow({ label, value, detail, action, onClick }: { label: string; value: string; detail: string; action: string; onClick(): void }) {
   useLocaleRevision();
-  return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="quiet-action" onClick={onClick}>{action}</button></div>;
+  return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="mdbase-button is-tertiary" onClick={onClick}>{action}</button></div>;
 }
 
 function CreateCollectionDialog({ busy, onClose, onCreate }: {
@@ -341,10 +341,10 @@ function CreateCollectionDialog({ busy, onClose, onCreate }: {
   return (
     <Dialog open onClose={() => !busy && onClose()} title={t(i18n)({ message: "Create a collection", context: "Connect interface" })} className="modal" closeDisabled={busy}>
       <p className="eyebrow"><Trans>New collection</Trans></p>
-      {failure && <div className="message error-message" role="alert">{failure}</div>}
+      {failure && <div className="mdbase-message is-error" role="alert">{failure}</div>}
       <p><Trans>mdbase creates a new folder with this name and keeps it on this computer. You can turn on sync later.</Trans></p>
-      <label><span><Trans>Collection name</Trans></span><input autoFocus disabled={busy} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder={t(i18n)`Workouts`} /></label>
-      <label><span><Trans>Create the folder in</Trans></span><button className="folder-picker" disabled={busy} onClick={() => void window.mdbaseConnect.chooseCreateFolder().then((chosen) => { if (chosen) setParent(chosen); }).catch((reason) => setFailure(message(reason)))}>{parent || t(i18n)({ message: "Choose a location…", context: "Connect interface" })}</button></label>
+      <label><span><Trans>Collection name</Trans></span><input className="mdbase-field" autoFocus disabled={busy} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder={t(i18n)`Workouts`} /></label>
+      <label><span><Trans>Create the folder in</Trans></span><button className="mdbase-field folder-picker" disabled={busy} onClick={() => void window.mdbaseConnect.chooseCreateFolder().then((chosen) => { if (chosen) setParent(chosen); }).catch((reason) => setFailure(message(reason)))}>{parent || t(i18n)({ message: "Choose a location…", context: "Connect interface" })}</button></label>
       <div className="modal-actions">
         <button className="mdbase-button" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
         <button className="mdbase-button is-primary" disabled={busy || !name.trim() || !parent} onClick={() => { setFailure(null); void onCreate({ parent, name: name.trim() }).catch((reason) => setFailure(message(reason))); }}><Trans>Create collection</Trans></button>
@@ -377,7 +377,7 @@ function Settings({ cloud, connectionLabel, connectionDetail, requireApproval, s
           </div>
           <div className="portal-connection-actions">
             <button className="mdbase-button" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}><Trans>Manage in mdbase</Trans></button>
-            <ConfirmAction className="quiet-action danger disconnect-button" busy={busy} label={t(i18n)({ message: "Sign out on this computer…", context: "Connect interface" })} confirmLabel={t(i18n)({ message: "Sign out", context: "Connect interface" })} question={t(i18n)({ message: "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected." })} onConfirm={() => void onAct(() => window.mdbaseConnect.signOut())} />
+            <ConfirmAction className="mdbase-button is-tertiary is-danger disconnect-button" busy={busy} label={t(i18n)({ message: "Sign out on this computer…", context: "Connect interface" })} confirmLabel={t(i18n)({ message: "Sign out", context: "Connect interface" })} question={t(i18n)({ message: "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected." })} onConfirm={() => void onAct(() => window.mdbaseConnect.signOut())} />
           </div>
         </section>
       )}
@@ -448,13 +448,13 @@ function ComputerNameRow({ name, busy, onAct, onNotice }: {
   useLocaleRevision();
   const [draft, setDraft] = useState<string | null>(null);
   if (draft === null) {
-    return <div className="setting-row"><span><Trans>This computer</Trans></span><div><strong>{name ?? t(i18n)({ message: "Unnamed", context: "Connect interface" })}</strong><small><Trans>How this computer appears in your mdbase account</Trans></small></div><button className="quiet-action" disabled={busy} onClick={() => setDraft(name ?? "")}><Trans>Rename</Trans></button></div>;
+    return <div className="setting-row"><span><Trans>This computer</Trans></span><div><strong>{name ?? t(i18n)({ message: "Unnamed", context: "Connect interface" })}</strong><small><Trans>How this computer appears in your mdbase account</Trans></small></div><button className="mdbase-button is-tertiary" disabled={busy} onClick={() => setDraft(name ?? "")}><Trans>Rename</Trans></button></div>;
   }
   return (
     <div className="setting-row">
       <span><Trans>This computer</Trans></span>
       <div className="computer-name-form">
-        <input aria-label={t(i18n)({ message: "Computer name", context: "Connect interface" })} autoFocus value={draft} maxLength={100} disabled={busy} onChange={(event) => setDraft(event.target.value)} />
+        <input className="mdbase-field" aria-label={t(i18n)({ message: "Computer name", context: "Connect interface" })} autoFocus value={draft} maxLength={100} disabled={busy} onChange={(event) => setDraft(event.target.value)} />
         <button className="mdbase-button" disabled={busy} onClick={() => setDraft(null)}><Trans>Cancel</Trans></button>
         <button className="mdbase-button is-primary" disabled={busy || !draft.trim()} onClick={() => void onAct(async () => {
           const renamed = await window.mdbaseConnect.renameComputer(draft.trim());
@@ -482,7 +482,7 @@ function UpdateRow({ status, busy, onAct }: {
       <span><Trans>Application</Trans></span>
       <div><strong>{status?.current_version ? t(i18n)`Version ${status.current_version}` : t(i18n)`Checking version…`}</strong><small>{status?.message ?? t(i18n)({ message: "Reading update status…", context: "Connect interface" })}</small></div>
       {status && status.phase !== "unavailable" ? (
-        <button className="quiet-action" disabled={busy || !enabled} onClick={() => void onAct(() =>
+        <button className="mdbase-button is-tertiary" disabled={busy || !enabled} onClick={() => void onAct(() =>
           install ? window.mdbaseConnect.installUpdate() : window.mdbaseConnect.checkForUpdates())}>{label}</button>
       ) : null}
     </div>

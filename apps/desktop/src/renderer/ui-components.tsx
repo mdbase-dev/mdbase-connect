@@ -83,7 +83,7 @@ export function SectionHeading({ title, note, count, children }: { title: string
 
 export function Empty({ title, text, action, onAction }: { title: string; text: string; action?: string; onAction?(): void }) {
   useLocaleRevision();
-  return <div className="empty-state"><div className="empty-folder" aria-hidden="true"><span /></div><h3>{title}</h3><p>{text}</p>{action && onAction && <button className="text-action" onClick={onAction}>{action}</button>}</div>;
+  return <div className="empty-state"><div className="empty-folder" aria-hidden="true"><span /></div><h3>{title}</h3><p>{text}</p>{action && onAction && <button className="mdbase-button is-tertiary" onClick={onAction}>{action}</button>}</div>;
 }
 
 const glyphForDot: Record<ConnectionDotState, StatusGlyphState> = {

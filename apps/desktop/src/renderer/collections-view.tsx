@@ -82,12 +82,12 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
         </div>
       </div>
       <div className="collection-config-actions">
-        <button className="quiet-action" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id))}><Trans>Open folder</Trans></button>
-        <button className="quiet-action" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><Trans>Details</Trans></button>
-        {view.holds > 0 && <button className="quiet-action" onClick={() => setHoldsOpen((open) => !open)}>{holdsOpen ? t(i18n)`Hide ${plural(view.holds, { one: "# file", other: "# files" })}` : t(i18n)`Review ${plural(view.holds, { one: "# file", other: "# files" })}`}</button>}
-        {view.canEnableSync && <button className="quiet-action" disabled={busy} onClick={onTurnOnSync}><Trans>Turn on sync</Trans></button>}
-        <button className="quiet-action" disabled={busy || collection.state === "opening"} onClick={() => void onAct(() => window.mdbaseConnect.setCollectionEnabled(collection.id, view.paused))}>{view.paused ? t(i18n)({ message: "Resume", context: "Local collection management" }) : t(i18n)({ message: "Pause", context: "Local collection management" })}</button>
-        <ConfirmAction className="quiet-action danger" busy={busy} label={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} confirmLabel={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} question={t(i18n)`Remove ${collection.name} from mdbase? Apps stop using it. The folder and its files stay where they are.`} onConfirm={() => void onAct(async () => {
+        <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id))}><Trans>Open folder</Trans></button>
+        <button className="mdbase-button is-tertiary" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><Trans>Details</Trans></button>
+        {view.holds > 0 && <button className="mdbase-button is-tertiary" onClick={() => setHoldsOpen((open) => !open)}>{holdsOpen ? t(i18n)`Hide ${plural(view.holds, { one: "# file", other: "# files" })}` : t(i18n)`Review ${plural(view.holds, { one: "# file", other: "# files" })}`}</button>}
+        {view.canEnableSync && <button className="mdbase-button is-tertiary" disabled={busy} onClick={onTurnOnSync}><Trans>Turn on sync</Trans></button>}
+        <button className="mdbase-button is-tertiary" disabled={busy || collection.state === "opening"} onClick={() => void onAct(() => window.mdbaseConnect.setCollectionEnabled(collection.id, view.paused))}>{view.paused ? t(i18n)({ message: "Resume", context: "Local collection management" }) : t(i18n)({ message: "Pause", context: "Local collection management" })}</button>
+        <ConfirmAction className="mdbase-button is-tertiary is-danger" busy={busy} label={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} confirmLabel={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} question={t(i18n)`Remove ${collection.name} from mdbase? Apps stop using it. The folder and its files stay where they are.`} onConfirm={() => void onAct(async () => {
           await window.mdbaseConnect.removeCollection(collection.id);
           onNotice(t(i18n)`${collection.name} was removed. Its files were not touched.`);
         })} />
@@ -118,9 +118,9 @@ function Details({ collection, onDone }: { collection: DaemonCollection; onDone(
   }
   return (
     <div className="collection-details">
-      {failure && <p className="message error-message" role="alert">{failure}</p>}
-      <label><span><Trans>Name</Trans></span><input value={name} maxLength={100} disabled={saving} onChange={(event) => setName(event.target.value)} /></label>
-      <label><span><Trans>Description</Trans></span><textarea value={description} maxLength={500} disabled={saving} onChange={(event) => setDescription(event.target.value)} placeholder={t(i18n)({ message: "What this collection is for" })} /></label>
+      {failure && <p className="mdbase-message is-error" role="alert">{failure}</p>}
+      <label><span><Trans>Name</Trans></span><input className="mdbase-field" value={name} maxLength={100} disabled={saving} onChange={(event) => setName(event.target.value)} /></label>
+      <label><span><Trans>Description</Trans></span><textarea className="mdbase-field" value={description} maxLength={500} disabled={saving} onChange={(event) => setDescription(event.target.value)} placeholder={t(i18n)({ message: "What this collection is for" })} /></label>
       <small><Trans>The folder is not renamed. The description stays on this computer.</Trans></small>
       {["synced", "synced_e2e"].includes(collection.mode) && <CollectionModeControl collectionId={collection.id} native load={() => window.mdbaseConnect.collectionModeStatus(collection.id)} change={(target) => window.mdbaseConnect.changeCollectionMode(collection.id, target, false)} cancel={(target) => window.mdbaseConnect.changeCollectionMode(collection.id, target, false, true)} />}
       <div className="row-actions">
@@ -161,34 +161,34 @@ function Holds({ collection, busy, onAct, onLoaded }: {
   return (
     <div className="collection-holds">
       <p><Trans>mdbase kept these files instead of overwriting them. Choose which version to keep.</Trans></p>
-      {failure && <p className="message error-message" role="alert">{failure}</p>}
+      {failure && <p className="mdbase-message is-error" role="alert">{failure}</p>}
       {holds === null ? <small><Trans>Loading…</Trans></small> : holds.length === 0 ? <small><Trans>Nothing is waiting.</Trans></small> : (
         <ul>{holds.map((hold) => (
           <li key={hold.id}>
             <div><code>{hold.path}</code><small><Trans>{HOLD_REASONS[hold.reason] ?? hold.reason} · since {relativeTime(new Date(hold.since).toISOString())}</Trans></small></div>
             {hold.binary && hold.reason === "taken_over"
               ? <div className="row-actions">
-                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
+                <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
                 <small><Trans>This file is not a note: restore the other version by hand if you need it.</Trans></small>
               </div>
               : hold.binary
               ? <small><Trans>Resolve this file in the app that uses it.</Trans></small>
               : hold.reason === "unsent_edit"
               ? <div className="row-actions">
-                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep current</Trans></button>
-                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Use my unsent edit</Trans></button>
-                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
+                <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep current</Trans></button>
+                <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Use my unsent edit</Trans></button>
+                <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
               </div>
               : hold.reason === "read_only"
               ? <div className="row-actions">
-                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
-                <ConfirmAction className="quiet-action" busy={busy} label={t(i18n)({ message: "Discard local changes" })} confirmLabel={t(i18n)({ message: "Discard" })} question={t(i18n)`Discard local changes to ${hold.path}? They haven't been synced. Copy the file first if you want to keep them.`} onConfirm={() => resolve(hold, "take_theirs")} />
-                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
+                <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
+                <ConfirmAction className="mdbase-button is-tertiary" busy={busy} label={t(i18n)({ message: "Discard local changes" })} confirmLabel={t(i18n)({ message: "Discard" })} question={t(i18n)`Discard local changes to ${hold.path}? They haven't been synced. Copy the file first if you want to keep them.`} onConfirm={() => resolve(hold, "take_theirs")} />
+                <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
               </div>
               : <div className="row-actions">
-                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
-                {hold.has_theirs && <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Take the other version</Trans></button>}
-                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
+                <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
+                {hold.has_theirs && <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Take the other version</Trans></button>}
+                <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
               </div>}
           </li>
         ))}</ul>
@@ -237,8 +237,8 @@ function TurnOnSyncDialog({ collection, busy, error, onAct, onClose, onConfirm }
     <Dialog open onClose={() => !busy && onClose()} title={t(i18n)`Turn on sync for ${collection.name}`} className="modal" closeDisabled={busy}>
       <p className="eyebrow"><Trans>Sync</Trans></p>
       <p><Trans>Your other devices get a copy and stay up to date. The folder stays where it is{takeover?.takenOver ? t(i18n)({ message: ", and the files already in it become the first synced version" }) : ""}.</Trans></p>
-      {failure && <p className="message error-message" role="alert">{failure}</p>}
-      {error && <p className="message error-message" role="alert">{error}</p>}
+      {failure && <p className="mdbase-message is-error" role="alert">{failure}</p>}
+      {error && <p className="mdbase-message is-error" role="alert">{error}</p>}
       {holds !== null && holds.length > 0 && <p><Trans>Choose a version for each of these files before turning on sync.</Trans></p>}
       <div hidden={holds !== null && holds.length === 0}>
         <Holds collection={collection} busy={busy} onAct={onAct} onLoaded={holdsLoaded} />
@@ -248,7 +248,7 @@ function TurnOnSyncDialog({ collection, busy, error, onAct, onClose, onConfirm }
           <p>{t(i18n)`When this folder moved to the new sync engine, mdbase kept another version of ${plural(unlisted.length, { one: "# file", other: "# files" })}. The folder has this computer's version; check it before sync starts from it.`}</p>
           <ul>{unlisted.map((hold) => <li key={hold.path}><code>{hold.path}</code></li>)}</ul>
           <label className="takeover-option"><Trans>
-            <input type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => setReviewed(event.target.checked)} />
+            <input className="mdbase-checkbox" type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => setReviewed(event.target.checked)} />
             I have checked these files
           </Trans></label>
         </div>

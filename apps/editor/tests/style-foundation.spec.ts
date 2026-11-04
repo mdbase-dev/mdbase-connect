@@ -6,7 +6,7 @@ for (const theme of ["light", "dark"] as const) {
     await page.goto("?demo=12");
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     expect(await page.locator("body").evaluate((element) => getComputedStyle(element).fontSize)).toBe("13px");
-    expect(await page.locator("body").evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Atkinson Hyperlegible Next Variable");
+    expect(await page.locator("body").evaluate((element) => getComputedStyle(element).fontFamily)).toContain("IBM Plex Sans");
     const toggle = page.getByRole("switch", { name: "Vim key bindings" });
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await expect(toggle).toHaveClass("mdbase-switch");

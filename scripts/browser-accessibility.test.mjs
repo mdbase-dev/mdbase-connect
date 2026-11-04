@@ -181,15 +181,15 @@ async function assertAuthDesign(page, label, { divider = true } = {}) {
         const style = getComputedStyle(element);
         return { size: style.fontSize, weight: style.fontWeight };
       });
-    const primary = [...shell.querySelectorAll(".auth-panel .is-primary")].filter(visible);
-    const actions = [...shell.querySelectorAll(".auth-panel button, .auth-panel a")].filter(visible);
+    const primary = [...shell.querySelectorAll(".mdbase-page-panel .is-primary")].filter(visible);
+    const actions = [...shell.querySelectorAll(".mdbase-page-panel button, .mdbase-page-panel a")].filter(visible);
     return {
       sizes, weights,
       copy: copy.map((element) => ({ tag: element.tagName, size: getComputedStyle(element).fontSize, weight: getComputedStyle(element).fontWeight })),
       heading: styles("h1"),
-      body: styles(".auth-panel > p:not(.auth-footnote)"),
-      fields: styles('.auth-panel input:not([type="checkbox"]):not([type="hidden"])'),
-      labels: styles(".auth-panel label:not(.auth-agreement) > span:not(.auth-field-error)"),
+      body: styles(".mdbase-page-panel > p:not(.auth-footnote)"),
+      fields: styles('.mdbase-page-panel input:not([type="checkbox"]):not([type="hidden"])'),
+      labels: styles(".mdbase-page-panel label:not(.auth-agreement) > span:not(.auth-field-error)"),
       primary: primary.map((element) => ({ filled: getComputedStyle(element).backgroundColor === accent, onAccent: getComputedStyle(element).color === onAccent })),
       filledActions: actions.filter((element) => getComputedStyle(element).backgroundColor === accent).length,
       dividers: [...shell.querySelectorAll(".provider-divider")].filter(visible).map((element) => element.textContent.trim())
@@ -838,7 +838,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     const copy = elements[0].querySelectorAll("h1, h2, p, small, strong, label, button, summary, li, span, code");
     return [...new Set([...copy].map((element) => getComputedStyle(element).fontWeight))].sort();
   });
-  assert.deepEqual(approvalFontWeights, ["400", "700"], "portal authorization: copy uses only regular and bold weights");
+  assert.deepEqual(approvalFontWeights, ["400", "500", "700"], "portal authorization: copy and shared controls use regular, medium and bold weights");
   const cardTreatment = await page.locator(".authorization-panel").evaluate((element) => {
     const style = getComputedStyle(element);
     return { shadow: style.boxShadow, border: style.borderTopWidth };

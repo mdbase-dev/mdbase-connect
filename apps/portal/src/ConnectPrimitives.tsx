@@ -86,10 +86,10 @@ export function InlineRename({ value, label, inputLabel, busy = false, onSubmit 
     if (!next || next === value) return;
     if (await onSubmit(next)) setOpen(false);
   }
-  if (!open) return <button disabled={busy} onClick={() => { setDraft(value); setOpen(true); }}>{label ?? t(i18n)({ message: "Rename", context: "Connect interface" })}</button>;
+  if (!open) return <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => { setDraft(value); setOpen(true); }}>{label ?? t(i18n)({ message: "Rename", context: "Connect interface" })}</button>;
   return <form className="connect-inline-rename" onSubmit={(event) => void submit(event)}>
-    <label><span className="sr-only">{inputLabel}</span><input autoFocus maxLength={200} value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
-    <button type="button" disabled={busy} onClick={() => setOpen(false)}><Trans>Cancel</Trans></button>
+    <label><span className="mdbase-visually-hidden">{inputLabel}</span><input className="mdbase-field" autoFocus maxLength={200} value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
+    <button className="mdbase-button is-tertiary" type="button" disabled={busy} onClick={() => setOpen(false)}><Trans>Cancel</Trans></button>
     <button className="connect-primary-action mdbase-button is-primary" disabled={busy || !draft.trim() || draft.trim() === value}>{busy ? t(i18n)({ message: "Saving…", context: "Connect interface" }) : t(i18n)({ message: "Save", context: "Connect interface" })}</button>
   </form>;
 }

@@ -11,6 +11,6 @@ export function FeedbackPage({ onDone }: { onDone(): void }) {
   const { open } = useFeedback();
   useEffect(() => { open(); }, [open]);
   return <ConnectPage title={t(i18n)({ message: "Send feedback", context: "Connect interface" })} intro={t(i18n)({ message: "Feedback goes privately to the mdbase team." })}>
-    <section><FeedbackButton /><button type="button" onClick={onDone}><Trans>Back to Connect</Trans></button></section>
+    <section><FeedbackButton /><button className="mdbase-button is-tertiary" type="button" onClick={onDone}><Trans>Back to Connect</Trans></button></section>
   </ConnectPage>;
 }

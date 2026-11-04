@@ -58,7 +58,7 @@ for (const width of [1440, 390]) {
     });
     expect(notice.gap).toBeLessThan(25);
     expect(notice.width).toBeLessThan(90);
-    expect(await page.locator(".visual-field-name input").first().evaluate((input) => getComputedStyle(input).fontFamily)).toContain("Atkinson");
+    expect(await page.locator(".visual-field-name input").first().evaluate((input) => getComputedStyle(input).fontFamily)).toContain("IBM Plex Sans");
     const options = page.getByRole("button", { name: "title field options" });
     await options.focus();
     await page.keyboard.press("ArrowDown");
@@ -111,8 +111,7 @@ test.describe("responsive themed view readiness", () => {
         sessionStorage.clear();
         localStorage.setItem("mdbase:theme", theme);
       }, mode.theme);
-      // Connect builds against the workspace UI package; the Editor's pinned one still carries Atkinson.
-      const checkView = async (view: string, family = "Atkinson") => test.step(`${view} is ready and fits the viewport`, async () => {
+      const checkView = async (view: string, family = "IBM Plex Sans") => test.step(`${view} is ready and fits the viewport`, async () => {
         await expect(page.locator("html")).toHaveAttribute("data-theme", mode.theme);
         await expectReadyLayout(page, family);
       });
@@ -170,7 +169,7 @@ test.describe("responsive themed view readiness", () => {
       await page.keyboard.press("Control+p");
       await page.getByRole("combobox", { name: "Find a note or action" }).fill(">");
       await expect(page.getByRole("option").first()).toContainText("New note");
-      await expect(page.locator(".quick-open-command small").first()).toHaveCSS("font-family", /Atkinson/);
+      await expect(page.locator(".quick-open-command small").first()).toHaveCSS("font-family", /IBM Plex Sans/);
       await checkView("Quick open");
       await page.keyboard.press("Escape");
 
