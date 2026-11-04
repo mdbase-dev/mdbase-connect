@@ -16,11 +16,15 @@ test("unknown, authorization, transport, trust and policy sources are contract-s
     "runtime/packages/sdk/src/index.ts", "config/next-trust/production.json", "services/server/src/main.ts",
     "deploy/docker/mdbase-rs-revision", "new-contract/source.ts", "scripts/build-release-trust-bundle.mts",
     "apps/desktop/src/main/main.ts", "apps/editor/src/gateway.ts", "packages/ui/src/button.tsx",
-    "packages/sync/src/index.ts", "packages/webhooks/src/index.ts", "packages/pickle/src/index.ts"]) {
+    "packages/sync/src/index.ts", "packages/webhooks/src/index.ts", "packages/pickle/src/index.ts",
+    "packages/ui/locales/de/index.ts", "pnpm-lock.yaml"]) {
     assert.equal(contractSensitive(path), true, path);
   }
   for (const path of ["apps/desktop/assets/icon.png", "apps/editor/src/styles.css", "docs/releasing.md",
-    "runtime/crates/wire/tests/protocol.rs", "packages/client/src/grants.test.ts"]) {
+    "runtime/crates/wire/tests/protocol.rs", "packages/client/src/grants.test.ts", "DESIGN.md", "apps/editor/DESIGN.md",
+    "apps/desktop/src/locales/de/messages.po", "apps/portal/src/locales/de/messages.po",
+    "apps/editor/src/i18n/locales/de/messages.po", "packages/app-ui/src/locales/de/messages.po",
+    "packages/ui/locales/de/messages.po"]) {
     assert.equal(contractSensitive(path), false, path);
   }
 });
