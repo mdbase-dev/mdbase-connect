@@ -166,7 +166,9 @@ test("workflow builds all variants once, isolates both publisher credentials and
   assert.match(publish, /sdk-publication.mjs ready/);
   assert.match(publish, /sdk-publication.mjs verify-npm/);
   assert.match(publish, /continuous-sdk-release.mjs compatible/);
-  assert.match(publish, /continuous-sdk-release.mjs unpublished/);
+  assert.match(publish, /continuous-sdk-release.mjs publication-state/);
+  assert.match(publish, /if: steps\.publication\.outputs\.state == 'absent'\n\s+run: npm publish/);
+  assert.match(release, /needs\.publish\.outputs\.state == 'absent'/);
   assert.match(publish, /id-token: write/);
   assert(!workflow.includes("NODE_AUTH_TOKEN"));
   assert(!workflow.includes("NPM_SDK_BOOTSTRAP_TOKEN"));

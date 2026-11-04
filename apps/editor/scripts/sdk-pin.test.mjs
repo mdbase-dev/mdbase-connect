@@ -29,14 +29,14 @@ it('pins the Editor npm UI version and registry integrity in both target configs
 
 it('pins the ordinary Editor to the original production SDK with beta.141 trust', async () => {
   const pkg = await json(new URL('package.json', app));
-  const metadata = await json(new URL('vendor/sdk-production-beta153.json', app));
-  const artifact = 'sdk-45b12064-production-beta153.tgz';
+  const metadata = await json(new URL('vendor/sdk-production-beta154.json', app));
+  const artifact = 'sdk-091d912b-production-beta154.tgz';
   assert.equal(pkg.dependencies['@mdbase-dev/sdk'], `file:vendor/${artifact}`);
   assert.equal(metadata.artifact, artifact);
-  assert.equal(metadata.sourceCommit, '45b120644deed3525b8182be081110478adaa397');
+  assert.equal(metadata.sourceCommit, '091d912babeacbba88661f7ce4b96081658376af');
   const archive = new URL(`vendor/${artifact}`, app);
   const bytes = await readFile(archive);
-  const sha256 = 'cb0d08603890ec7d3848352245b1a50572ae61f19199a305632b804fe3545f2e';
+  const sha256 = 'bb9539cb457c99fe48c4413f0da9b2a39f2a274a8a3441d1fe343110eb29f0ca';
   assert.equal(digest(bytes), sha256);
   assert.equal(metadata.sha256, sha256);
   assert.equal(metadata.bytes, bytes.length);
