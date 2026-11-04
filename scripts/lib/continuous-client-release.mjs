@@ -80,7 +80,8 @@ export async function verifyCompatibility(env = process.env) {
 
 export function requireGreenMain(commit) {
   if (!/^[a-f0-9]{40}$/.test(commit ?? "")) throw new Error("Expected a full main commit.");
-  execFileSync("scripts/ci/verify-qualified-commit", [commit], { stdio: "inherit" });
+  // Windows cannot spawn an extensionless script directly.
+  execFileSync("bash", ["scripts/ci/verify-qualified-commit", commit], { stdio: "inherit" });
 }
 
 export function remoteTagCommit(tag) {
