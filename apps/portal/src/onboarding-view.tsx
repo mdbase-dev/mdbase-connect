@@ -60,16 +60,16 @@ export function GettingStarted() {
   }, []);
 
   return (
-    <main className="center-page">
+    <main className="mdbase-page">
       <PageBrand label="connect" markMotion="sort" error={error} />
-      <section className="auth-panel onboarding-panel" aria-live="polite">
+      <section className="mdbase-page-panel onboarding-panel" aria-live="polite">
         <p className="eyebrow"><Trans>Your first collection</Trans></p>
         <h1><Trans>Preparing a place to start.</Trans></h1>
         <p><Trans>We’re creating a small private Markdown collection, then we’ll open it in the editor.</Trans></p>
         {!error && <div className="onboarding-progress" aria-hidden="true"><span /></div>}
         {error && <>
-          <div className="message error" role="alert">{error}</div>
-          <button className="button primary" type="button" onClick={prepare}><Trans>Try again</Trans></button>
+          <div className="mdbase-message is-error" role="alert">{error}</div>
+          <button className="mdbase-button is-primary" type="button" onClick={prepare}><Trans>Try again</Trans></button>
           <a className="quiet-auth-link" href="/"><Trans>Open mdbase Connect without it</Trans></a>
         </>}
       </section>

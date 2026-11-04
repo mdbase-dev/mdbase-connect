@@ -18,7 +18,7 @@ describe("EmbedPdfViewer", () => {
           wasmUrl: new URL("/assets/pdfium-local.wasm", globalThis.location.href).href,
           fonts: {
             ui: {
-              family: '"Atkinson Hyperlegible", system-ui, sans-serif',
+              family: '"IBM Plex Sans", system-ui, sans-serif',
               stylesheetUrl: null
             },
             signature: null

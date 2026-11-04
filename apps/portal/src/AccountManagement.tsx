@@ -211,8 +211,8 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     || Boolean(reauthenticationToken)
     || Boolean(deletionPassword);
   return <Page title={t(i18n)({ message: "Account", context: "Account management" })} intro={t(i18n)({ message: "Manage collections, sign-in methods, and browser sessions." })}>
-    {error && <div className="connect-account-message error" role="alert">{error}</div>}
-    {notice && <div className="connect-account-message success" role="status">{notice}</div>}
+    {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
+    {notice && <div className="mdbase-message is-boxed is-success" role="status">{notice}</div>}
 
     {account.backend === "next" && <section>
       <SectionTitle title={t(i18n)({ message: "Collections", context: "Connect interface" })} count={ownedCollections.length} note={t(i18n)({ message: "Collections you own. Local files remain on your devices." })} />
@@ -243,22 +243,22 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
           return <div className="connect-account-row" key={provider}>
             <div><strong>{providerLabel(provider)}</strong><small>{identity ? identityDescription(identity) : t(i18n)({ message: "Not connected", context: "Account management" })}{identity?.current ? t(i18n)({ message: " · current session", context: "Account management" }) : ""}</small></div>
             <div className="connect-account-actions">
-              {!identity && provider === "github" && <a className="connect-account-action" href={client.githubAccountFlowUrl("link")}>Connect</a>}
-              {!identity && provider === "google" && googleAction !== "link" && <button className="connect-account-action" onClick={() => setGoogleAction("link")}>Connect</button>}
+              {!identity && provider === "github" && <a className="mdbase-button" href={client.githubAccountFlowUrl("link")}>Connect</a>}
+              {!identity && provider === "google" && googleAction !== "link" && <button className="mdbase-button" onClick={() => setGoogleAction("link")}>Connect</button>}
               {!identity && provider === "google" && googleAction === "link" && <GoogleIdentityButton client={client} purpose="link" onComplete={googleCompleted} onError={googleFailed} />}
-              {identity && <button className="connect-account-action" disabled={!identity.removable || busy.has(`disconnect-${provider}`)} title={!identity.removable ? identity.current ? t(i18n)({ message: "This method is used by the current session." }) : t(i18n)({ message: "This is your only sign-in method." }) : undefined} onClick={() => void run(`disconnect-${provider}`, () => client.disconnectIdentity(provider), t(i18n)`${providerLabel(provider)} disconnected.`)}>{busy.has(`disconnect-${provider}`) ? t(i18n)({ message: "Disconnecting…", context: "Account management" }) : t(i18n)({ message: "Disconnect", context: "Account management" })}</button>}
+              {identity && <button className="mdbase-button" disabled={!identity.removable || busy.has(`disconnect-${provider}`)} title={!identity.removable ? identity.current ? t(i18n)({ message: "This method is used by the current session." }) : t(i18n)({ message: "This is your only sign-in method." }) : undefined} onClick={() => void run(`disconnect-${provider}`, () => client.disconnectIdentity(provider), t(i18n)`${providerLabel(provider)} disconnected.`)}>{busy.has(`disconnect-${provider}`) ? t(i18n)({ message: "Disconnecting…", context: "Account management" }) : t(i18n)({ message: "Disconnect", context: "Account management" })}</button>}
             </div>
           </div>;
         })}
         {(account.authentication.available_providers.password || account.authentication.password.configured) && <div className="connect-account-row connect-account-row-stack">
           <div className="connect-account-row-main"><div><strong><Trans>Email and password</Trans></strong><small>{account.authentication.password.configured ? account.authentication.password.email ?? t(i18n)({ message: "Configured", context: "Account management" }) : t(i18n)({ message: "Not configured", context: "Account management" })}{account.authentication.password.current ? t(i18n)({ message: " · current session", context: "Account management" }) : ""}</small></div>
-            {account.authentication.password.change_available && <button className="connect-account-action" onClick={() => setPasswordOpen((open) => !open)}>{passwordOpen ? t(i18n)({ message: "Cancel", context: "Account management" }) : t(i18n)({ message: "Change password", context: "Account management" })}</button>}
+            {account.authentication.password.change_available && <button className="mdbase-button" onClick={() => setPasswordOpen((open) => !open)}>{passwordOpen ? t(i18n)({ message: "Cancel", context: "Account management" }) : t(i18n)({ message: "Change password", context: "Account management" })}</button>}
           </div>
           {passwordOpen && <form className="connect-account-form" onSubmit={(event) => void changePassword(event)}>
-            <label><span><Trans>Current password</Trans></span><input type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
-            <label><span><Trans>New password</Trans></span><input type="password" autoComplete="new-password" minLength={15} required aria-describedby="account-password-guidance" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+            <label><span><Trans>Current password</Trans></span><input className="mdbase-field" type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
+            <label><span><Trans>New password</Trans></span><input className="mdbase-field" type="password" autoComplete="new-password" minLength={15} required aria-describedby="account-password-guidance" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
             <p className="connect-muted" id="account-password-guidance"><Trans>Use at least 15 characters. Spaces are welcome.</Trans></p>
-            <label><span><Trans>Confirm new password</Trans></span><input type="password" autoComplete="new-password" minLength={15} required value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label>
+            <label><span><Trans>Confirm new password</Trans></span><input className="mdbase-field" type="password" autoComplete="new-password" minLength={15} required value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label>
             <button className="connect-primary-action mdbase-button is-primary" disabled={busy.has("password")}>{busy.has("password") ? t(i18n)({ message: "Changing password…", context: "Account management" }) : t(i18n)({ message: "Change password", context: "Account management" })}</button>
           </form>}
         </div>}
@@ -269,20 +269,20 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       <SectionTitle title={t(i18n)({ message: "Sharing code", context: "Account management" })} note={t(i18n)({ message: "Use this when someone cannot invite your verified email address." })} />
       <div className="connect-account-row">
         <div><strong>{sharingCode?.code ?? t(i18n)({ message: "No active code shown", context: "Account management" })}</strong><small>{sharingCode ? t(i18n)`One use · expires ${relativeTime(sharingCode.expiresAt)}` : t(i18n)({ message: "Generate a private code, then send it to the collection owner." })}</small></div>
-        <button className="connect-account-action" disabled={busy.has("sharing-code")} onClick={() => void createSharingCode()}>{busy.has("sharing-code") ? t(i18n)({ message: "Generating…", context: "Account management" }) : sharingCode ? t(i18n)({ message: "Generate a new code", context: "Account management" }) : t(i18n)({ message: "Generate code", context: "Account management" })}</button>
+        <button className="mdbase-button" disabled={busy.has("sharing-code")} onClick={() => void createSharingCode()}>{busy.has("sharing-code") ? t(i18n)({ message: "Generating…", context: "Account management" }) : sharingCode ? t(i18n)({ message: "Generate a new code", context: "Account management" }) : t(i18n)({ message: "Generate code", context: "Account management" })}</button>
       </div>
     </section>}
 
     {account.authentication.managed && <section>
-      <SectionTitle title={t(i18n)({ message: "Browser sessions", context: "Account management" })} count={sessions?.length} action={otherSessions.length > 0 && <button className="danger" disabled={busy.has("sessions-others")} onClick={() => void run("sessions-others", () => client.revokeOtherSessions())}><Trans>Sign out other sessions</Trans></button>} />
+      <SectionTitle title={t(i18n)({ message: "Browser sessions", context: "Account management" })} count={sessions?.length} action={otherSessions.length > 0 && <button className="mdbase-button is-tertiary is-danger" disabled={busy.has("sessions-others")} onClick={() => void run("sessions-others", () => client.revokeOtherSessions())}><Trans>Sign out other sessions</Trans></button>} />
       <div className="connect-row-actions connect-session-actions" role="group" aria-label={t(i18n)({ message: "Browser session actions", context: "Account management" })}>
-        <button className="danger" disabled={busy.has("logout")} aria-busy={busy.has("logout") || undefined} onClick={() => void signOutCurrentBrowser()}>{busy.has("logout") ? t(i18n)({ message: "Signing out…", context: "Account management" }) : t(i18n)({ message: "Sign out of this browser", context: "Account management" })}</button>
+        <button className="mdbase-button is-tertiary is-danger" disabled={busy.has("logout")} aria-busy={busy.has("logout") || undefined} onClick={() => void signOutCurrentBrowser()}>{busy.has("logout") ? t(i18n)({ message: "Signing out…", context: "Account management" }) : t(i18n)({ message: "Sign out of this browser", context: "Account management" })}</button>
       </div>
       {!sessions && <p className="connect-muted"><Trans>Checking active sessions…</Trans></p>}
       {sessions?.map((session) => <div className="connect-row" key={session.id}>
         <div><strong>{session.client_name}</strong><small>{session.current ? t(i18n)({ message: "This browser, active now", context: "Account management" }) : t(i18n)`Last used ${relativeTime(session.last_seen_at)}`}</small><small><Trans>Signed in <time dateTime={session.created_at}>{formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })}</time> · ID {session.id.slice(-8)}</Trans></small></div>
         <span>{providerLabel(session.provider)}</span>
-        {session.current ? <span className="connect-current"><Trans context="Browser session status">Current</Trans></span> : <button className="danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}><Trans>Sign out</Trans></button>}
+        {session.current ? <span className="connect-current"><Trans context="Browser session status">Current</Trans></span> : <button className="mdbase-button is-tertiary is-danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}><Trans>Sign out</Trans></button>}
       </div>)}
     </section>}
 
@@ -319,7 +319,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       <SectionTitle title={t(i18n)({ message: "Delete account", context: "Account management" })} note={t(i18n)({ message: "Permanent for hosted data. Local files are never removed from your computers." })} />
       {!account.deletion.available ? <p>{account.deletion.unavailable_reason === "temporarily_disabled"
         ? t(i18n)({ message: "Account deletion is temporarily unavailable while we complete a service correction." })
-        : t(i18n)({ message: "This account is managed by your tailnet and cannot be deleted here." })}</p> : !deletionOpen ? <button className="connect-account-danger" onClick={() => setDeletionOpen(true)}><Trans>Delete account…</Trans></button> : <form className="connect-account-form" onSubmit={(event) => void deleteAccount(event)}>
+        : t(i18n)({ message: "This account is managed by your tailnet and cannot be deleted here." })}</p> : !deletionOpen ? <button className="connect-account-danger mdbase-button is-danger" onClick={() => setDeletionOpen(true)}><Trans>Delete account…</Trans></button> : <form className="connect-account-form" onSubmit={(event) => void deleteAccount(event)}>
         <div className="connect-deletion-effects">
           <p><strong><Trans>This permanently deletes:</Trans></strong></p>
           <ul><li><Trans>{countLabel(account.deletion.owned_collections, "collection")} and their stored data</Trans></li><li><Trans>Application access and {countLabel(account.deletion.computers, "computer")}</Trans></li><li><Trans>Every browser session and sign-in method</Trans></li></ul>
@@ -328,17 +328,17 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         </div>
         {!account.deletion.development_confirmation && !reauthenticationToken && <div className="connect-account-reauthentication">
           <strong><Trans>Confirm your identity</Trans></strong>
-          {canPasswordDelete && <label><span><Trans>Current password</Trans></span><input type="password" autoComplete="current-password" value={deletionPassword} onChange={(event) => setDeletionPassword(event.target.value)} /></label>}
+          {canPasswordDelete && <label><span><Trans>Current password</Trans></span><input className="mdbase-field" type="password" autoComplete="current-password" value={deletionPassword} onChange={(event) => setDeletionPassword(event.target.value)} /></label>}
           {canExternalDelete && <div className="connect-account-actions">
-            {account.authentication.identities.some(({ provider }) => provider === "github") && <a className="connect-account-action" href={client.githubAccountFlowUrl("reauth_delete")}><Trans>Verify with GitHub</Trans></a>}
-            {account.authentication.identities.some(({ provider }) => provider === "google") && googleAction !== "delete" && <button type="button" className="connect-account-action" onClick={() => setGoogleAction("delete")}><Trans>Verify with Google</Trans></button>}
+            {account.authentication.identities.some(({ provider }) => provider === "github") && <a className="mdbase-button" href={client.githubAccountFlowUrl("reauth_delete")}><Trans>Verify with GitHub</Trans></a>}
+            {account.authentication.identities.some(({ provider }) => provider === "google") && googleAction !== "delete" && <button type="button" className="mdbase-button" onClick={() => setGoogleAction("delete")}><Trans>Verify with Google</Trans></button>}
           </div>}
           {googleAction === "delete" && <GoogleIdentityButton client={client} purpose="reauth_delete" onComplete={googleCompleted} onError={googleFailed} />}
           {!canPasswordDelete && !canExternalDelete && <p className="connect-muted"><Trans>No supported reauthentication method is connected.</Trans></p>}
         </div>}
         {reauthenticationToken && <p className="connect-current" role="status"><Trans>Identity confirmed for this deletion.</Trans></p>}
-        <label><span><Trans>Type DELETE to confirm</Trans></span><input autoComplete="off" spellCheck={false} value={deletionConfirmation} onChange={(event) => setDeletionConfirmation(event.target.value)} /></label>
-        <div className="connect-account-actions"><button type="button" className="connect-account-action" disabled={busy.has("delete")} onClick={() => { setDeletionOpen(false); setDeletionConfirmation(""); setDeletionPassword(""); }}><Trans>Cancel</Trans></button><button className="connect-account-danger" disabled={busy.has("delete") || deletionConfirmation !== "DELETE" || !deletionAuthorized}>{busy.has("delete") ? t(i18n)({ message: "Deleting account…", context: "Account management" }) : t(i18n)({ message: "Delete account permanently" })}</button></div>
+        <label><span><Trans>Type DELETE to confirm</Trans></span><input className="mdbase-field" autoComplete="off" spellCheck={false} value={deletionConfirmation} onChange={(event) => setDeletionConfirmation(event.target.value)} /></label>
+        <div className="connect-account-actions"><button type="button" className="mdbase-button" disabled={busy.has("delete")} onClick={() => { setDeletionOpen(false); setDeletionConfirmation(""); setDeletionPassword(""); }}><Trans>Cancel</Trans></button><button className="connect-account-danger mdbase-button is-danger" disabled={busy.has("delete") || deletionConfirmation !== "DELETE" || !deletionAuthorized}>{busy.has("delete") ? t(i18n)({ message: "Deleting account…", context: "Account management" }) : t(i18n)({ message: "Delete account permanently" })}</button></div>
       </form>}
     </section>
   </Page>;
@@ -346,7 +346,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
 export function DeletedAccount({ client }: { client: ConnectManagementClient }) {
   useLocaleRevision();
-  return <main className="connect-deleted-account"><div><h1><Trans>Your account has been deleted.</Trans></h1><span><Trans>Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers.</Trans></span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}><Trans>Return to sign in</Trans></a></div></main>;
+  return <main className="connect-deleted-account"><div><h1><Trans>Your account has been deleted.</Trans></h1><span><Trans>Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers.</Trans></span><a className="mdbase-button" href={new URL("/login", client.baseUrl).href}><Trans>Return to sign in</Trans></a></div></main>;
 }
 
 function EmailPreferenceRow({ title, description, checked, busy, onChange }: {

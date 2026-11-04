@@ -24,6 +24,35 @@
   white-space: nowrap;
 }
 
+.mdbase-message {
+  margin: 1.2rem 0 0;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--color-border-strong);
+  color: var(--color-text-soft);
+  font-size: var(--font-size-ui);
+}
+
+.mdbase-message.is-error {
+  border-color: color-mix(in oklch, var(--color-danger) 35%, var(--color-border));
+  color: var(--color-danger);
+}
+
+.mdbase-message.is-success {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.mdbase-message.is-boxed {
+  padding: var(--space-3) 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.mdbase-message.is-boxed.is-error {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
 /* Fields: native text inputs and textareas. */
 .mdbase-field,
 .mdbase-select {
@@ -437,8 +466,11 @@ textarea.mdbase-field {
 }
 
 .mdbase-button.is-danger {
-  border-color: var(--color-danger);
   color: var(--color-danger);
+}
+
+.mdbase-button.is-danger:not(.is-tertiary) {
+  border-color: var(--color-danger);
 }
 
 .mdbase-button.is-danger:hover:not(:disabled) {

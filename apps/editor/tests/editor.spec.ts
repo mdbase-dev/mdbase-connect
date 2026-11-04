@@ -240,9 +240,10 @@ async function expectSharedSelectControls(scope: Locator) {
   const audit = await controls.evaluateAll((selects) => selects.map((select) => ({
     hasCaret: Boolean(select.querySelector(".mdbase-select-chevron")),
     listbox: select.getAttribute("aria-haspopup") === "listbox",
+    minHeight: getComputedStyle(select).minHeight,
     height: select.getBoundingClientRect().height
   })));
-  expect(audit.every((control) => control.hasCaret && control.listbox && control.height === 34)).toBe(true);
+  expect(audit.every((control) => control.hasCaret && control.listbox && control.minHeight === "28px" && control.height >= 28)).toBe(true);
 }
 
 test("shows an explicit status while a collection opens", async ({ page }) => {
@@ -731,8 +732,8 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   expect(appearance.rowHeight).toBeGreaterThanOrEqual(40);
   expect(appearance.listHeight).toBeLessThanOrEqual(252);
   expect(appearance.listScrollHeight).toBeGreaterThan(appearance.listHeight);
-  expect(appearance.listFont).toContain("Atkinson Hyperlegible");
-  expect(appearance.labelFont).toContain("Atkinson Hyperlegible");
+  expect(appearance.listFont).toContain("IBM Plex Sans");
+  expect(appearance.labelFont).toContain("IBM Plex Sans");
   expect(appearance.labelWeight).toBe("700");
   expect(appearance.detailFont).toContain("Azeret Mono");
 

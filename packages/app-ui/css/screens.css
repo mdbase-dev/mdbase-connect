@@ -1,3 +1,22 @@
+.mdbase-page {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  min-height: 100vh;
+  padding: 3rem 2rem;
+  background: var(--color-canvas);
+}
+
+.mdbase-page-panel {
+  width: min(32rem, 100%);
+  padding: 0;
+  background: var(--color-canvas);
+}
+
+@media (max-width: 760px) {
+  .mdbase-page { padding: 2rem 1.25rem; }
+}
+
 /* Opening a collection: the wordmark, scanning, over one quiet line. */
 .mdbase-opening {
   width: 100%;

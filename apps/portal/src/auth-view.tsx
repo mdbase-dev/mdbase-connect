@@ -16,7 +16,7 @@ import { PageBrand } from "./portal-ui";
 function MinimalAuthPage({ children }: { children: React.ReactNode }) {
   useLocaleRevision();
   return <div className="minimal-auth-shell">
-    <main className="center-page minimal-auth-page">
+    <main className="mdbase-page minimal-auth-page">
       <PageBrand label="connect" />
       {children}
     </main>
@@ -63,7 +63,7 @@ function AuthInput({ label, matchValue, maxCharacters, onChange, onBlur, ...prop
 
 function Loading({ error }: { error: string }) {
   useLocaleRevision();
-  return <MinimalAuthPage><section className="auth-panel" aria-busy={!error}>
+  return <MinimalAuthPage><section className="mdbase-page-panel" aria-busy={!error}>
     <h1>{error ? t(i18n)({ message: "Couldn’t connect", context: "Account sign-in" }) : t(i18n)({ message: "Opening mdbase connect", context: "Account sign-in" })}</h1>
     <p role={error ? "alert" : "status"}>{error || t(i18n)({ message: "Just a moment…", context: "Account sign-in" })}</p>
     {error && <button className="mdbase-button is-primary" onClick={() => location.reload()}><Trans>Try again</Trans></button>}
@@ -118,10 +118,10 @@ export function Login() {
   if (!config) return <Loading error={error} />;
   if (config.provider === "tailscale") return (
     <MinimalAuthPage>
-      <section className="auth-panel">
+      <section className="mdbase-page-panel">
         <h1><Trans>Open this through Tailscale</Trans></h1>
         <p><Trans>Connect this device to your tailnet, then reload the page.</Trans></p>
-        {error && <div className="message error" role="alert">{error}</div>}
+        {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         <button className="mdbase-button is-primary" onClick={() => location.reload()}><Trans>Try again</Trans></button>
       </section>
     </MinimalAuthPage>
@@ -133,14 +133,14 @@ export function Login() {
       : [];
   if (providers.length > 0 || config.password_login) return (
     <MinimalAuthPage>
-      <section className="auth-panel">
+      <section className="mdbase-page-panel">
         <h1>{continuingAuthorization ? t(i18n)({ message: "Sign in to continue", context: "Account sign-in" }) : t(i18n)({ message: "Sign in", context: "Account sign-in" })}</h1>
         <p>{continuingAuthorization
           ? t(i18n)({ message: "Sign in, review the request, and return to the application." })
           : config.registration === "open"
             ? t(i18n)({ message: "Your collections and account, in one place." })
             : t(i18n)({ message: "Sign in with the method connected to your invited account." })}</p>
-        {error && <div className="message error" role="alert">{error}</div>}
+        {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         {config.password_login && (
           <PasswordLoginForm
             recoveryAvailable={config.password_recovery === true}
@@ -166,10 +166,10 @@ export function Login() {
 
   return (
     <MinimalAuthPage>
-      <form className="auth-panel" aria-busy={busy} onSubmit={(event) => void signIn(event)}>
+      <form className="mdbase-page-panel" aria-busy={busy} onSubmit={(event) => void signIn(event)}>
         <h1><Trans>Open your account</Trans></h1>
         <p><Trans>Development authentication is enabled.</Trans></p>
-        {error && <div className="message error" role="alert">{error}</div>}
+        {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         <AuthInput label={t(i18n)({ message: "Name", context: "Account sign-in" })} autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
         <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })} type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
         <button className="mdbase-button is-primary" type="submit" disabled={busy}><Trans>Continue</Trans></button>
@@ -275,14 +275,14 @@ export function ForgotPassword() {
   const available = config.password_recovery === true;
   return (
     <MinimalAuthPage>
-      <section className="auth-panel">
+      <section className="mdbase-page-panel">
         <h1>{submitted ? t(i18n)({ message: "Check your email", context: "Account sign-in" }) : t(i18n)({ message: "Reset your password", context: "Account sign-in" })}</h1>
         <p role={submitted ? "status" : undefined} aria-live={submitted ? "polite" : undefined}>{submitted
           ? t(i18n)({ message: "If an mdbase connect account uses that address, its one-time reset link is on the way." })
           : available
             ? t(i18n)({ message: "We’ll email you a reset link. It expires in one hour." })
             : t(i18n)({ message: "Password recovery is temporarily unavailable. You can still return to sign in." })}</p>
-        {error && <div className="message error" role="alert">{error}</div>}
+        {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         {!submitted && available && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void requestReset(event)}>
             <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
@@ -332,7 +332,7 @@ export function Unsubscribe({ unsubscribeToken }: { unsubscribeToken: string }) 
 
   return (
     <MinimalAuthPage>
-      <section className="auth-panel">
+      <section className="mdbase-page-panel">
         <h1>{unsubscribed ? t(i18n)({ message: "You’re unsubscribed", context: "Account sign-in" }) : unsubscribeToken ? t(i18n)({ message: "Unsubscribe from mdbase email" }) : t(i18n)({ message: "This unsubscribe link can’t be opened" })}</h1>
         <p role={unsubscribed ? "status" : undefined} aria-live={unsubscribed ? "polite" : undefined}>
           {unsubscribed
@@ -344,7 +344,7 @@ export function Unsubscribe({ unsubscribeToken }: { unsubscribeToken: string }) 
               ? t(i18n)({ message: "Stop receiving the kind of email this link came in. Messages about your account are still sent." })
               : t(i18n)({ message: "Open the link from the email again, or change email preferences in your account settings." })}
         </p>
-        {error && <div className="message error" role="alert">{error}</div>}
+        {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         {unsubscribeToken && !unsubscribed && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void unsubscribe(event)}>
             <button className="mdbase-button is-primary" disabled={busy} type="submit">
@@ -397,7 +397,7 @@ export function ResetPassword({ resetToken }: { resetToken: string }) {
   const ready = Boolean(resetToken && config.password_login);
   return (
     <MinimalAuthPage>
-      <section className="auth-panel">
+      <section className="mdbase-page-panel">
         <h1>{completed
           ? t(i18n)({ message: "Password changed", context: "Account sign-in" })
           : ready
@@ -410,7 +410,7 @@ export function ResetPassword({ resetToken }: { resetToken: string }) {
             : resetToken
               ? t(i18n)({ message: "The link is invalid, expired, already used, or password sign-in is temporarily unavailable." })
               : t(i18n)({ message: "Open the complete password reset link from your email." })}</p>
-        {error && <div className="message error" role="alert">{error}</div>}
+        {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         {!completed && ready && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void resetPassword(event)}>
             <AuthInput label={t(i18n)({ message: "New password", context: "Account sign-in" })}
@@ -591,7 +591,7 @@ export function Signup({
   );
   if (canRequest) return (
     <MinimalAuthPage>
-      <section className="auth-panel">
+      <section className="mdbase-page-panel">
         <h1>{requestSubmitted ? t(i18n)({ message: "Check your email", context: "Account sign-in" }) : t(i18n)({ message: "Create an account", context: "Account sign-in" })}</h1>
         <p role={requestSubmitted ? "status" : undefined} aria-live={requestSubmitted ? "polite" : undefined}>
           {requestSubmitted
@@ -600,7 +600,7 @@ export function Signup({
               ? config.password_public_registration ? t(i18n)({ message: "Use a connected account, or verify your email to get started." }) : t(i18n)({ message: "Use a connected account to get started." })
               : t(i18n)({ message: "We’ll email you a link to verify your address. Then you can choose a password." })}
         </p>
-        {error && <div className="message error" role="alert">{error}</div>}
+        {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         {!requestSubmitted && config.password_public_registration && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void requestVerification(event)}>
             <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
@@ -626,7 +626,7 @@ export function Signup({
   );
   return (
     <MinimalAuthPage>
-      <section className="auth-panel">
+      <section className="mdbase-page-panel">
         <h1>{ready ? t(i18n)({ message: "Create an account", context: "Account sign-in" }) : t(i18n)({ message: "This account setup link can’t be opened" })}</h1>
         <p>{ready
           ? externalSignup
@@ -635,7 +635,7 @@ export function Signup({
           : isInvitation || hasVerification || externalSignup
             ? t(i18n)({ message: "The link is invalid, expired, already used, or account setup is temporarily unavailable." })
             : t(i18n)({ message: "Public account creation is temporarily unavailable." })}</p>
-        {error && <div className="message error" role="alert" tabIndex={-1} ref={errorSummary}>{error}</div>}
+        {error && <div className="mdbase-message is-boxed is-error" role="alert" tabIndex={-1} ref={errorSummary}>{error}</div>}
         {ready && config.agreements && (
           <form className="password-auth-form signup-form" aria-busy={busy} onSubmit={(event) => void createAccount(event)}>
             <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
@@ -908,7 +908,7 @@ export function GoogleIdentityButton({ startUrl, onComplete, onError }: {
       {!failed && <span className="auth-spinner" aria-hidden="true" />}
       {failed ? t(i18n)({ message: "Retry Google sign-in", context: "Account sign-in" }) : t(i18n)({ message: "Continue with Google", context: "Account sign-in" })}
     </button>}
-    <span className="sr-only" role="status">{busy ? t(i18n)({ message: "Signing in with Google…", context: "Account sign-in" }) : !ready && !failed ? t(i18n)({ message: "Loading Google sign-in…", context: "Account sign-in" }) : ""}</span>
+    <span className="mdbase-visually-hidden" role="status">{busy ? t(i18n)({ message: "Signing in with Google…", context: "Account sign-in" }) : !ready && !failed ? t(i18n)({ message: "Loading Google sign-in…", context: "Account sign-in" }) : ""}</span>
   </div>;
 }
 

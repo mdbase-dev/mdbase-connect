@@ -94,9 +94,9 @@ export function DeviceAuthorization() {
   }, [initialCode]);
 
   return (
-    <main className="center-page">
+    <main className="mdbase-page">
       <PageBrand label={t(i18n)({ message: "Application connection", context: "Application access approval" })} busy={busy} error={error} />
-      <form className="decision-panel device-panel" onSubmit={(event) => {
+      <form className="mdbase-page-panel device-panel" onSubmit={(event) => {
         event.preventDefault();
         void openRequest(code);
       }}>
@@ -105,7 +105,7 @@ export function DeviceAuthorization() {
         <p><Trans>Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed.</Trans></p>
         <label className="device-code-field">
           <span><Trans>Approval code</Trans></span>
-          <input
+          <input className="mdbase-field"
             autoFocus={!initialCode}
             autoComplete="one-time-code"
             inputMode="text"
@@ -116,8 +116,8 @@ export function DeviceAuthorization() {
           />
         </label>
         <p className="field-note"><Trans>Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application.</Trans></p>
-        {error && <div className="message error" role="alert">{error}</div>}
-        <button className="button primary" disabled={busy || code.replace("-", "").length !== 8}>
+        {error && <div className="mdbase-message is-error" role="alert">{error}</div>}
+        <button className="mdbase-button is-primary" disabled={busy || code.replace("-", "").length !== 8}>
           {busy ? t(i18n)({ message: "Checking…", context: "Application access approval" }) : t(i18n)({ message: "Review request", context: "Application access approval" })}
         </button>
       </form>
@@ -211,9 +211,9 @@ export function Authorization({ requestId }: { requestId: string }) {
   if (!request) {
     if (status !== "expired") return <Loading error={error} />;
     return (
-      <main className="center-page approval-page">
+      <main className="mdbase-page approval-page">
         <PageBrand label={t(i18n)({ message: "Application request", context: "Application access approval" })} />
-        <section className="decision-panel authorization-panel">
+        <section className="mdbase-page-panel authorization-panel">
           <RequestOutcome status="expired" applicationName={t(i18n)({ message: "the application", context: "Application access approval" })} standalone />
         </section>
       </main>
@@ -234,13 +234,13 @@ export function Authorization({ requestId }: { requestId: string }) {
     setContinuingInDesktop(value);
   }
   return (
-    <main className="center-page approval-page">
+    <main className="mdbase-page approval-page">
       <PageBrand
         label={t(i18n)({ message: "Application request", context: "Application access approval" })}
         markMotion={setupMotionActive ? (preparingStructure ? "sort" : "stream") : undefined}
         error={error}
       />
-      <section className="decision-panel authorization-panel">
+      <section className="mdbase-page-panel authorization-panel">
         <RequestIdentity request={authorization} showClientKey={!request.collections.some((collection) => collection.kind === "private" || collection.kind === "cloud_copy")} />
         {status === "pending" && continuingInDesktop ? (
           <DesktopContinuation
@@ -248,7 +248,7 @@ export function Authorization({ requestId }: { requestId: string }) {
             onReviewHere={() => continueInDesktop(false)}
           />
         ) : status === "pending" ? <>
-          {(decisionError || error) && <div className="message error" role="alert">{decisionError || error}</div>}
+          {(decisionError || error) && <div className="mdbase-message is-error" role="alert">{decisionError || error}</div>}
           <ApprovalForm
             request={authorization}
             canCreateHosted={request.hosted_collections_available !== false}
@@ -299,7 +299,7 @@ export function RequestOutcome({ status, applicationName, portable = false, retu
     return () => window.clearTimeout(timer);
   }, [status]);
   const returnLink = late && returnUrl
-    ? <a className="button secondary link-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>
+    ? <a className="mdbase-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>
     : null;
   if (status === "expired") return <div className="request-outcome" role="status">
     <p className="eyebrow outcome-label"><Trans>Request unavailable</Trans></p>
@@ -369,8 +369,8 @@ function DesktopContinuation({ request, onReviewHere }: {
         <div><strong><Trans>Waiting for mdbase connect</Trans></strong><small><Trans>The page will notice when the request is approved.</Trans></small></div>
       </div>
       <div className="approval-actions">
-        <button className="button secondary" type="button" onClick={onReviewHere}><Trans>Review in this browser</Trans></button>
-        <a className="button primary link-button" href={desktopUrl}><Trans>Open mdbase connect</Trans></a>
+        <button className="mdbase-button" type="button" onClick={onReviewHere}><Trans>Review in this browser</Trans></button>
+        <a className="mdbase-button is-primary" href={desktopUrl}><Trans>Open mdbase connect</Trans></a>
       </div>
       <p className="field-note"><Trans>If the desktop app does not open, <a href="https://mdbase.dev/downloads/" target="_blank" rel="noreferrer">install the current Connect release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</Trans></p>
     </section>
@@ -381,7 +381,7 @@ export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprova
   useLocaleRevision();
   const error = authorizationRequirementsError(props.request.requirements)
     ?? (props.request.account_backend === "next" ? nextAuthorizationGroups(props.request.requirements, props.request.requested_operations).error : undefined);
-  if (error) return <div className="message error" role="alert">{error}</div>;
+  if (error) return <div className="mdbase-message is-error" role="alert">{error}</div>;
   return <SupportedApprovalForm {...props} />;
 }
 
@@ -729,7 +729,7 @@ function SupportedApprovalForm({
     }
   }
 
-  const denyButton = <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? t(i18n)({ message: "Denying…", context: "Application access approval" }) : t(i18n)({ message: "Deny", context: "Application access approval" })}</button>;
+  const denyButton = <button className="mdbase-button is-tertiary" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? t(i18n)({ message: "Denying…", context: "Application access approval" }) : t(i18n)({ message: "Deny", context: "Application access approval" })}</button>;
 
   return (
     <div className="approval-form" aria-busy={submitting !== null}>
@@ -740,20 +740,20 @@ function SupportedApprovalForm({
       </section>}
       <section className="approval-section" aria-labelledby={`collection-${request.id}`}>
         <h2 className="approval-section-title" id={`collection-${request.id}`}>{reviewing ? t(i18n)({ message: "Collection", context: "Application access approval" }) : t(i18n)({ message: "Choose a collection", context: "Application access approval" })}</h2>
-        {lostCollection && <p className="message error compact" role="alert">{lostCollection}</p>}
+        {lostCollection && <p className="mdbase-message is-error compact" role="alert">{lostCollection}</p>}
         {reviewing && selected ? <div className="selected-collection-summary">
           <div>
             <strong>{selected.display_name}</strong>
             <small>{collectionLocations.get(selected.id)}</small>
           </div>
           {existingOperations.size > 0 && <span className="collection-status"><Trans><i aria-hidden="true" />Already connected</Trans></span>}
-          {!request.collection_id && <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => {
+          {!request.collection_id && <button className="mdbase-button is-tertiary" type="button" disabled={submitting !== null} onClick={() => {
             focusCollectionOnReturn.current = true;
             setReviewing(false);
           }}><Trans>Change</Trans></button>}
         </div> : <>
           {compatible.length > 0 && <fieldset className="collection-choice-field" ref={collectionChoicesRef}>
-            <legend className="sr-only"><Trans>Collection</Trans></legend>
+            <legend className="mdbase-visually-hidden"><Trans>Collection</Trans></legend>
             <div className="collection-choice-list">
               {compatible.map(({ collection }) => {
                 const connected = request.existing_access?.some((access) => access.collection_id === collection.id);
@@ -811,7 +811,7 @@ function SupportedApprovalForm({
                     <small><Trans>Open the desktop app to connect this computer, add a folder, and continue this same request.</Trans></small>
                   </div>
                   <a
-                    className="button secondary link-button"
+                    className="mdbase-button"
                     href={`mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`}
                     onClick={onContinueInDesktop}
                   ><Trans>Use a local folder</Trans></a>
@@ -824,7 +824,7 @@ function SupportedApprovalForm({
                 >
                   <label>
                     <span><Trans>New collection name</Trans></span>
-                    <input
+                    <input className="mdbase-field"
                       autoFocus
                       maxLength={200}
                       value={collectionName}
@@ -836,7 +836,7 @@ function SupportedApprovalForm({
                   <small><Trans>Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately.</Trans></small>
                   <div>
                     <button
-                      className="quiet-action"
+                      className="mdbase-button is-tertiary"
                       type="button"
                       disabled={submitting !== null}
                       onClick={() => {
@@ -846,7 +846,7 @@ function SupportedApprovalForm({
                         setError("");
                       }}
                     ><Trans>Cancel</Trans></button>
-                    <button className="button secondary" disabled={submitting !== null || !collectionName.trim()}>
+                    <button className="mdbase-button" disabled={submitting !== null || !collectionName.trim()}>
                       {submitting === "creating" ? t(i18n)({ message: "Creating…", context: "Application access approval" }) : t(i18n)({ message: "Create collection", context: "Application access approval" })}
                     </button>
                   </div>
@@ -858,7 +858,7 @@ function SupportedApprovalForm({
                     <small><Trans>A new collection stored by mdbase, available from any computer.</Trans></small>
                   </div>
                   <button
-                    className="button secondary"
+                    className="mdbase-button"
                     type="button"
                     ref={createHostedTriggerRef}
                     aria-controls={`create-hosted-${request.id}`}
@@ -872,7 +872,7 @@ function SupportedApprovalForm({
               ))}
             </div>
           </details>}
-          {error && <div className="message error compact" role="alert">{error}</div>}
+          {error && <div className="mdbase-message is-error compact" role="alert">{error}</div>}
           <footer className="approval-footer">
             <p className="approval-receipt" id={`collection-selection-help-${request.id}`}>
               {!collectionId && compatible.length > 0 ? t(i18n)({ message: "Select a collection to continue." }) : t(i18n)({ message: "Nothing is allowed until you review access." })}
@@ -880,7 +880,7 @@ function SupportedApprovalForm({
             <div className="approval-actions">
               {denyButton}
               <button
-                className="button primary"
+                className="mdbase-button is-primary"
                 type="button"
                 aria-describedby={`collection-selection-help-${request.id}`}
                 disabled={submitting !== null || !collectionId || !collectionConfirmed}
@@ -954,7 +954,7 @@ function SupportedApprovalForm({
         </div>
       </section>}
       {reviewing && <NotificationAccess applicationName={request.application_name} notifications={request.notifications} />}
-      {reviewing && error && <div className="message error compact" role="alert">{error}</div>}
+      {reviewing && error && <div className="mdbase-message is-error compact" role="alert">{error}</div>}
       {reviewing && <footer className="approval-footer">
         <div className="approval-receipt">
           <p>{request.distribution === "portable"
@@ -967,7 +967,7 @@ function SupportedApprovalForm({
         <div className="approval-actions">
           {denyButton}
           <button
-            className="button primary"
+            className="mdbase-button is-primary"
             type="button"
             aria-describedby={approvalBlocker ? blockerId : undefined}
             disabled={submitting !== null || !collectionId || !collectionConfirmed || Boolean(approvalBlocker)}

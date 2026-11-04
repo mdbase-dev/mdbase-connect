@@ -71,8 +71,8 @@ export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSign
             : t(i18n)({ message: "Sign in before adding collections, so your apps can reach them through this computer. Your folders stay on this computer and their locations stay private." })}</p>
       </div>
       <div>
-        {reason && !waiting && <div className="message notice-message" role="status">{reason}</div>}
-        {problem && <div className="message error-message" role="alert">{problem}</div>}
+        {reason && !waiting && <div className="mdbase-message is-success" role="status">{reason}</div>}
+        {problem && <div className="mdbase-message is-error" role="alert">{problem}</div>}
         {waiting ? (
           <div className="pairing-wait" role="status" aria-live="polite">
             <StatusDot state="connecting" />
@@ -81,8 +81,8 @@ export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSign
               <code>{waiting}</code>
             </div>
             <div>
-              <button className="quiet-action" onClick={() => void window.mdbaseConnect.reopenSignIn().catch((error) => setFailure(message(error)))}><Trans>Open browser again</Trans></button>
-              <button className="quiet-action" disabled={starting} onClick={() => void begin()}><Trans>Start again</Trans></button>
+              <button className="mdbase-button is-tertiary" onClick={() => void window.mdbaseConnect.reopenSignIn().catch((error) => setFailure(message(error)))}><Trans>Open browser again</Trans></button>
+              <button className="mdbase-button is-tertiary" disabled={starting} onClick={() => void begin()}><Trans>Start again</Trans></button>
             </div>
           </div>
         ) : (

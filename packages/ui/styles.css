@@ -162,7 +162,6 @@ code,
   font-weight: 600;
 }
 
-
 .view-tabs {
   flex: 0 0 auto;
   border-bottom: 1px solid var(--line);
@@ -352,20 +351,6 @@ code,
   color: var(--ink);
   text-align: right;
 }
-
-.confirm-action > button {
-  min-height: 28px;
-  padding: 0;
-  border: 0;
-  color: var(--muted);
-  background: transparent;
-  font: inherit;
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-}
-
-.confirm-action > button:hover:not(:disabled) { color: var(--ink); }
-.confirm-action > button.is-commit { color: var(--danger); }
 
 .product-sidebar-status,
 .product-sidebar-account {

@@ -234,9 +234,9 @@ Target WCAG 2.2 AA, as set out in `PRODUCT.md`.
 This section records where the product differs from the spec. Delete each item
 as it ships, and delete the section when it is empty.
 
-- **Editor:** the Plex, neutral, accent, radius and control tokens in
-  `@mdbase-dev/ui` reach it only when it repins from the published
-  `0.1.0-beta.147`. It keeps its grouped quick open, and its rail status has no
-  shared status glyph, because that component lives in `@mdbase/connect-ui`.
+- **Editor:** it uses the published `@mdbase-dev/ui@0.1.0-beta.154` Plex,
+  neutral, accent, radius and control tokens. It keeps its grouped quick open,
+  and its rail status has no shared status glyph, because that component lives
+  in `@mdbase/connect-ui`.
 - **Not yet built:** `Review versions` for conflicts and `Pause remote access`
   remain in `core-flows.md` without an implementation.

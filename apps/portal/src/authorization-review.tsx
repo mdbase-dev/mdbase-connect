@@ -71,7 +71,7 @@ export function RequestedAccessSummary({ groups, files, people }: {
     <ul className="requested-access" aria-label={t(i18n)({ message: "Requested access", context: "Application access approval" })}>
       {items.map((item) => <li className={item.higherImpact ? "higher-impact" : undefined} key={item.id}>
         {item.label}
-        {item.higherImpact && <span className="sr-only"><Trans> (higher impact)</Trans></span>}
+        {item.higherImpact && <span className="mdbase-visually-hidden"><Trans> (higher impact)</Trans></span>}
       </li>)}
     </ul>
   );
@@ -95,7 +95,7 @@ function PermissionRow({ id, label, description, locked, required, checked, high
   const content = <>
     {locked
       ? <span className="permission-fixed" aria-hidden="true">✓</span>
-      : <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />}
+      : <input className="mdbase-checkbox" type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />}
     <span className="permission-copy">
       <strong>{label}</strong>
       {description && <small>{description}</small>}
@@ -379,7 +379,7 @@ function SchemaInput({ field, required, value, disabled, onChange }: {
       placeholder={t(i18n)({ message: "Choose", context: "Application access approval" })}
       options={options.map((option) => ({ value: String(option), label: String(option) }))}
       onChange={(chosen) => onChange(options.find((option) => String(option) === chosen))}
-    /> : field.kind === "boolean" ? <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input
+    /> : field.kind === "boolean" ? <input className="mdbase-checkbox" type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input className="mdbase-field"
       type={field.kind === "number" || field.kind === "integer" ? "number" : "text"}
       value={typeof value === "string" || typeof value === "number" ? value : ""}
       disabled={disabled}

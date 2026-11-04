@@ -45,7 +45,7 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
 
   return <div className="collection-picker">
     <label id={`${id}-label`} htmlFor={`${id}-input`}>{label}</label>
-    <input
+    <input className="mdbase-field"
       ref={input} id={`${id}-input`} role="combobox" type="search" autoComplete="off" data-value={value}
       aria-labelledby={`${id}-label`} aria-autocomplete="list" aria-expanded="true"
       aria-controls={`${id}-list`} aria-activedescendant={active >= 0 ? `${id}-option-${active}` : undefined}
@@ -67,7 +67,7 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
         }
       }}
     />
-    <span id={`${id}-help`} className="sr-only"><Trans>Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice.</Trans></span>
+    <span id={`${id}-help`} className="mdbase-visually-hidden"><Trans>Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice.</Trans></span>
     <div ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} aria-disabled={disabled} className="collection-picker-list">
       {filtered.map((collection, index) => <div
         key={collection.id} id={`${id}-option-${index}`} role="option" aria-label={collection.name} data-value={collection.id}
@@ -86,6 +86,6 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
     {filtered.length === 0 && <p className="field-note" role="status">{collections.length ? t(i18n)({ message: "No collections match. Try another name." }) : t(i18n)({ message: "No collections are available." })}</p>}
     {onCreate && <button className="mdbase-button is-tertiary collection-picker-create" type="button" disabled={disabled} aria-pressed={creationSelected}
       onClick={() => { setHighlighted(null); onCreate(); }}><Trans>Create a new collection…</Trans></button>}
-    {selected && <p className="sr-only" aria-live="polite"><Trans>Selected: <strong>{literal(selected.name)}</strong></Trans></p>}
+    {selected && <p className="mdbase-visually-hidden" aria-live="polite"><Trans>Selected: <strong>{literal(selected.name)}</strong></Trans></p>}
   </div>;
 }

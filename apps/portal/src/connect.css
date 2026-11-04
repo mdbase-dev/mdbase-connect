@@ -3,7 +3,7 @@
   height: 100dvh;
   display: grid;
   grid-template-columns: 224px minmax(480px, 1fr);
-  background: var(--canvas);
+  background: var(--color-canvas);
   color: var(--ink);
 }
 
@@ -12,7 +12,7 @@
   display: flex;
   flex-direction: column;
   padding: 18px 16px;
-  background: var(--white);
+  background: var(--color-surface);
 }
 
 .connect-nav > header {
@@ -127,79 +127,6 @@
 .connect-nav > nav > .connect-nav-group > a.selected {
   color: var(--ink);
 }
-
-.connect-avatar {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-medium);
-}
-
-.connect-shell .collection-rail .connection-footer {
-  display: grid;
-  gap: 10px;
-  padding-top: var(--space-3);
-}
-
-.connect-shell .collection-rail .wordmark-label strong {
-  display: inline;
-  opacity: 1;
-  transform: none;
-}
-
-.connect-shell .collection-rail .connection-footer > p {
-  width: 100%;
-}
-
-.connect-rail-account {
-  width: 100%;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-2);
-  padding: 5px 3px;
-  border-radius: var(--radius-sm);
-  color: inherit;
-  text-align: left;
-  text-decoration: none;
-}
-
-.connect-rail-account:hover {
-  background: var(--hover);
-}
-
-.connect-rail-account .connect-avatar {
-  width: 30px;
-  height: 30px;
-}
-
-.connect-rail-account > span:last-child {
-  min-width: 0;
-  display: grid;
-}
-
-.connect-rail-account strong,
-.connect-rail-account small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.connect-rail-account strong { font-size: var(--font-size-ui); }
-.connect-rail-account small { color: var(--muted); font-size: var(--font-size-caption); }
-
-.connect-rail-feedback {
-  padding: 3px;
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-  text-decoration: none;
-}
-
-.connect-rail-feedback:hover { color: var(--accent-strong); }
 .connect-feedback-mobile-link { display: none !important; }
 
 .connect-pending-banner,
@@ -227,13 +154,13 @@
 .connect-pending-banner > span:first-of-type { min-width: 0; flex: 1; }
 .connect-pending-banner strong { font-weight: var(--font-weight-medium); }
 .connect-pending-banner small { display: block; color: var(--muted); font-size: var(--font-size-ui); }
-.connect-pending-banner b { flex: none; color: var(--accent-strong); font-weight: var(--font-weight-medium); white-space: nowrap; }
+.connect-pending-banner b { flex: none; color: var(--color-accent-strong); font-weight: var(--font-weight-medium); white-space: nowrap; }
 .connect-pending-banner > .connect-banner-actions { flex: none; display: flex; align-items: center; gap: var(--space-2); }
 
 .connect-main {
   min-width: 0;
   overflow: auto;
-  background: var(--white);
+  background: var(--color-surface);
   font: var(--font-size-ui)/20px var(--sans);
 }
 
@@ -318,26 +245,23 @@
   text-align: right;
 }
 
-.connect-section-title button:not(.mdbase-button),
-.connect-row-actions button:not(.mdbase-button) {
-  background: transparent;
-  border: 0;
-}
-
-.connect-section-title button,
-.connect-row-actions button,
-.connect-row-actions a,
-.connect-section-title a,
-.connect-row > a {
+.connect-row-actions a:where(:not(.mdbase-button)),
+.connect-section-title a:where(:not(.mdbase-button)),
+.connect-row > a:where(:not(.mdbase-button)) {
   min-height: var(--control-height);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   padding: 6px 2px;
-  color: var(--accent-strong);
+  color: var(--color-accent-strong);
   text-decoration: none;
   font-size: var(--font-size-ui);
+}
+
+.connect-section-title .mdbase-button,
+.connect-row-actions .mdbase-button {
+  padding: 5px 2px;
 }
 
 .connect-section-title svg,
@@ -429,47 +353,15 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 
 .connect-inline-rename input {
   width: min(220px, 38vw);
-  min-height: var(--control-height);
   padding: 7px 9px;
-  border: 1px solid var(--line-strong);
-  color: var(--ink);
-  font: inherit;
-}
-
-.connect-row-actions .danger,
-.connect-section-title .danger,
-button.danger {
-  color: var(--danger);
-}
-
-button.danger:not(.mdbase-button) {
-  min-height: var(--control-height);
-  padding: 6px 2px;
-  border: 0;
-  background: transparent;
-  font-size: var(--font-size-ui);
-}
-
-.connect-row-actions button:disabled,
-.connect-section-title button:disabled,
-button.danger:disabled {
-  opacity: 0.45;
 }
 
 .connect-application-row button {
-  min-height: 28px;
   padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-weight: var(--font-weight-medium);
   transition: color var(--motion-quick) var(--ease-standard);
 }
 
 .connect-application-row > button { justify-self: end; }
-.connect-application-row > button:hover:not(:disabled) { color: var(--danger); }
-
 
 .connect-application-row:has(.confirm-action) > span:not(.confirm-action) { display: none; }
 .connect-application-row > .confirm-action { grid-column: 2 / -1; max-width: none; justify-self: end; }
@@ -484,13 +376,7 @@ button.danger:disabled {
 }
 
 .connect-primary-action {
-  min-height: var(--control-height);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   padding: 6px var(--space-3);
-  text-decoration: none;
-
 }
 
 .connect-muted {
@@ -528,13 +414,7 @@ button.danger:disabled {
 .connect-inline-form input,
 .connect-inline-form .mdbase-select,
 .connect-role-select .mdbase-select {
-  min-height: var(--control-height);
   padding: 7px 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--white);
-  color: var(--ink);
-  font: inherit;
 }
 
 .connect-sharing-form {
@@ -562,8 +442,7 @@ button.danger:disabled {
 }
 .connect-sharing-link > div { display: grid; gap: 2px; }
 .connect-sharing-link small { color: var(--muted); font-size: var(--font-size-caption); line-height: 1.4; }
-.connect-sharing-link input { min-width: 0; min-height: var(--control-height); padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--soft); color: var(--muted); }
-.connect-sharing-link button { min-height: var(--control-height); color: var(--accent-strong); font-size: var(--font-size-ui); }
+.connect-sharing-link input { min-width: 0; padding: 7px 10px; }
 .connect-role-select .mdbase-select { min-width: 104px; }
 .connect-member-row { grid-template-columns: minmax(190px, 1fr) auto auto; }
 
@@ -586,7 +465,7 @@ button.danger:disabled {
 
 .connect-row-detail summary {
   width: max-content;
-  color: var(--accent-strong);
+  color: var(--color-accent-strong);
 }
 
 .connect-row-detail > div {
@@ -769,19 +648,6 @@ button.danger:disabled {
   padding-block: var(--space-3);
 }
 
-.connect-account-message {
-  padding: var(--space-3) 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-ui);
-}
-
-.connect-account-message.error {
-  border-color: var(--color-warning-border);
-  background: var(--warning-soft);
-  color: var(--warning);
-}
-
 .connect-account-list {
   border-top: 1px solid var(--line);
 }
@@ -853,27 +719,7 @@ button.danger:disabled {
   flex-wrap: wrap;
   gap: var(--space-3);
 }
-
-.connect-account-action,
-.connect-account-danger {
-  min-height: var(--control-height);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  color: var(--accent-strong);
-  background: var(--white);
-  text-decoration: none;
-  font-size: var(--font-size-ui);
-}
-
-.connect-account-action:hover { background: var(--hover); }
-.connect-account-danger { margin-top: 18px; color: var(--danger); }
-
-.connect-account-danger:disabled,
-.connect-account-action:disabled { opacity: 0.45; }
+.connect-account-danger { --control-height: 34px; margin-top: 18px; }
 
 .connect-account-row-stack {
   display: block;
@@ -907,12 +753,7 @@ button.danger:disabled {
 
 .connect-account-form input,
 .connect-account-reauthentication input {
-  min-height: var(--control-height);
   padding: var(--space-2) 10px;
-  border: 1px solid var(--line-strong);
-  color: var(--ink);
-  font: inherit;
-  font-weight: var(--font-weight-regular);
 }
 
 .connect-storage-progress {
@@ -939,7 +780,7 @@ button.danger:disabled {
 .connect-deletion-effects {
   padding: 14px;
   border: 1px solid color-mix(in oklch, var(--danger) 28%, var(--line));
-  background: var(--danger-soft);
+  background: var(--color-danger-soft);
   color: var(--muted);
   font-size: var(--font-size-ui);
 }
@@ -969,14 +810,6 @@ button.danger:disabled {
 .connect-provider-loading {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  background: var(--white);
-  font-family: var(--sans);
-  font-size: var(--font-size-ui);
 }
 
 .connect-deleted-account {
@@ -985,14 +818,14 @@ button.danger:disabled {
   display: grid;
   place-items: center;
   padding: var(--space-8);
-  background: var(--canvas);
+  background: var(--color-canvas);
 }
 
 .connect-deleted-account > div {
   width: min(520px, 100%);
   padding: 42px;
   border: 1px solid var(--line);
-  background: var(--white);
+  background: var(--color-surface);
 }
 
 .connect-deleted-account h1 { margin: 0; font-size: var(--font-size-heading); }
@@ -1036,7 +869,7 @@ button.danger:disabled {
 
 .connect-empty-actions a,
 .connect-desktop-help a {
-  color: var(--accent-strong);
+  color: var(--color-accent-strong);
 }
 
 .connect-desktop-help {
@@ -1056,7 +889,7 @@ button.danger:disabled {
   gap: 10px;
   padding: 10px 18px;
   border-bottom: 1px solid var(--color-warning-border);
-  background: var(--warning-soft);
+  background: var(--color-warning-surface);
   color: var(--warning);
   font-size: var(--font-size-ui);
 }
@@ -1078,7 +911,7 @@ button.danger:disabled {
   justify-items: center;
   gap: var(--space-2);
   padding: 30px;
-  background: var(--canvas);
+  background: var(--color-canvas);
   text-align: center;
 }
 
@@ -1159,9 +992,6 @@ button.danger:disabled {
 
   .connect-nav-footer { padding: 0 10px 18px; }
 
-  button.danger:not(.mdbase-button),
-  .confirm-action > button { min-height: 44px; }
-
   .connect-nav > header {
     min-height: 54px;
     display: flex;
@@ -1184,7 +1014,7 @@ button.danger:disabled {
     justify-items: end;
     align-content: center;
     padding: var(--space-1) 0;
-    color: var(--accent-strong);
+    color: var(--color-accent-strong);
     text-align: right;
   }
 
@@ -1270,8 +1100,6 @@ button.danger:disabled {
   .connect-sharing-form > div { grid-column: 1; grid-row: auto; }
   .connect-sharing-link { grid-template-columns: 1fr; }
   .connect-member-row { grid-template-columns: 1fr; gap: var(--space-2); }
-  .connect-role-select .mdbase-select { min-height: 44px; }
-
 
   .connect-account-details > div {
     grid-template-columns: 1fr;
@@ -1302,6 +1130,7 @@ button.danger:disabled {
   }
 
   .connect-row-actions button,
+  .connect-application-row button,
   .connect-row-actions a,
   .connect-section-title button,
   .connect-section-title a,
@@ -1313,15 +1142,6 @@ button.danger:disabled {
   }
 }
 
-/* On the narrowest phones the app switcher drops its chevron, as it does in a tight rail,
-   so the mark, the way back and the account still fit on one line. */
-@media (max-width: 360px) {
-  .connect-shell > .collection-rail .mdbase-app-switcher-chevron {
-    display: none;
-  }
-}
-
-
 @media (prefers-reduced-motion: reduce) {
   .connect-shell *,
   .connect-shell *::before,
@@ -1332,24 +1152,6 @@ button.danger:disabled {
 }
 
 /* Quiet-instrument treatment for account management. */
-.connect-nav > nav > .connect-nav-group > a,
-.connect-rail-account,
-.connect-inline-rename input,
-.connect-inline-form input,
-.connect-account-action,
-.connect-account-danger,
-.connect-account-form input,
-.connect-account-reauthentication input,
-.connect-provider-loading {
-  border-radius: var(--radius-sm);
-}
-
-.connect-account-message,
-.connect-pending-banner,
-.connect-deletion-effects,
-.connect-account-reauthentication {
-  border-radius: var(--radius-sm);
-}
 
 .connect-deleted-account > div {
   padding-inline: 0;
