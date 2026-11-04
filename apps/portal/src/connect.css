@@ -1159,7 +1159,7 @@ button.danger:disabled {
 
   .connect-nav-footer { padding: 0 10px 18px; }
 
-  .connect-application-row > button,
+  button.danger:not(.mdbase-button),
   .confirm-action > button { min-height: 44px; }
 
   .connect-nav > header {
