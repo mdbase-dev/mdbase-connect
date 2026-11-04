@@ -2,6 +2,13 @@
 @import "@mdbase-dev/ui/brand.css";
 @import "@mdbase-dev/ui/controls.css";
 
+/* Connect pages are forms and lists, so they use the smaller end of the type scale. */
+:root {
+  --font-size-heading: 20px;
+  --font-size-section: 13px;
+  --font-size-prose: 15px;
+}
+
 :root {
   color: var(--ink);
   background: var(--paper);
@@ -49,17 +56,6 @@ select {
   color: inherit;
   font: inherit;
 }
-
-
-
-
-
-
-
-
-
-
-
 
 button:focus-visible,
 input:focus-visible,
@@ -166,18 +162,6 @@ code,
   font-weight: 600;
 }
 
-.status-dot {
-  display: inline-block;
-  width: 0.4rem;
-  height: 0.4rem;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--faint);
-}
-
-.status-dot.connected { background: var(--connected); }
-.status-dot.paused { background: var(--warning); }
-.status-dot.danger { background: var(--danger); }
 
 .view-tabs {
   flex: 0 0 auto;
@@ -251,7 +235,7 @@ code,
   width: 100%;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
+  grid-template-columns: 224px minmax(0, 1fr);
   background: var(--paper);
 }
 
@@ -263,8 +247,7 @@ code,
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 22px 10px 14px;
-  border-right: 1px solid var(--line);
+  padding: 18px 16px;
   background: var(--paper);
 }
 
@@ -272,60 +255,51 @@ code,
   min-width: 0;
   display: flex;
   align-items: center;
-  padding: 0 9px;
+  margin-bottom: 18px;
+  padding: 0 8px;
 }
 
 .product-sidebar-nav {
+  position: relative;
   display: grid;
-  gap: 2px;
-  margin-top: 35px;
 }
 
 .product-sidebar-link {
+  position: relative;
   width: 100%;
-  min-height: 36px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 7px 9px;
+  padding: 0 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   background: transparent;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1.25;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
   text-align: left;
   text-decoration: none;
   cursor: pointer;
-  transition: color 160ms var(--ease), background-color 160ms var(--ease);
+  transition: color var(--motion-base) var(--ease-standard);
 }
 
-.product-sidebar-link:hover {
+.product-sidebar-link:hover,
+.product-sidebar-link[aria-current="page"] {
   color: var(--ink);
-  background: var(--hover);
-}
-
-.product-sidebar-link.active,
-.product-sidebar-link[aria-current="page"],
-.product-sidebar-link[aria-current="location"] {
-  color: var(--ink);
-  background: var(--selected);
-  font-weight: 700;
 }
 
 .product-sidebar-count {
   flex: 0 0 auto;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 500;
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
   font-variant-numeric: tabular-nums;
 }
 
 .product-sidebar-count.attention {
-  color: var(--action);
+  color: var(--warning);
 }
 
 .product-sidebar-footer {
@@ -334,10 +308,64 @@ code,
   margin-top: auto;
 }
 
-.product-sidebar-footer-nav {
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--line);
+.nav-pill {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--selected);
+  transition: transform var(--motion-base) var(--ease-out);
 }
+
+.sidebar-search {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.sidebar-search:hover { background: var(--hover); color: var(--ink); }
+.sidebar-search kbd { color: var(--muted); font: inherit; font-size: var(--font-size-caption); font-weight: var(--font-weight-regular); }
+
+.confirm-action {
+  max-width: 420px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+}
+
+.confirm-action > span {
+  flex-basis: 100%;
+  color: var(--ink);
+  text-align: right;
+}
+
+.confirm-action > button {
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.confirm-action > button:hover:not(:disabled) { color: var(--ink); }
+.confirm-action > button.is-commit { color: var(--danger); }
 
 .product-sidebar-status,
 .product-sidebar-account {
@@ -535,3 +563,120 @@ code,
 
 /* The theme control is chrome, not a form field: its border shows only when it is used. */
 .theme-select.mdbase-select:not(:hover, [aria-expanded="true"]) { border-color: transparent; }
+
+.status-glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  overflow: visible;
+  color: var(--muted);
+  transition: color var(--motion-base) var(--ease-standard);
+}
+
+.status-glyph circle,
+.status-glyph rect {
+  transition: opacity var(--motion-base) var(--ease-standard), stroke-dashoffset var(--motion-base) linear;
+}
+
+.status-glyph-dot { fill: currentColor; opacity: 0; }
+.status-glyph-ring { fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0; }
+.status-glyph-bar { fill: currentColor; opacity: 0; }
+.status-glyph-mark { fill: var(--paper); opacity: 0; }
+
+.status-glyph-pie {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 6;
+  stroke-dasharray: 100;
+  stroke-dashoffset: var(--status-remaining, 0);
+  opacity: 0;
+  transform: rotate(-90deg);
+  transform-origin: 7px 7px;
+}
+
+.status-glyph[data-state="online"] { color: var(--connected); }
+.status-glyph[data-state="online"] .status-glyph-dot { opacity: 1; }
+.status-glyph[data-state="syncing"] { color: var(--accent); }
+.status-glyph[data-state="syncing"] .status-glyph-ring { opacity: 1; }
+.status-glyph[data-state="syncing"] .status-glyph-pie { opacity: 1; stroke-width: 5; }
+.status-glyph[data-state="paused"] :is(.status-glyph-ring, .status-glyph-bar) { opacity: 1; }
+.status-glyph[data-state="idle"] .status-glyph-ring { opacity: 1; }
+.status-glyph[data-state="offline"] .status-glyph-ring { opacity: 1; stroke-dasharray: 2.6 2.2; }
+.status-glyph[data-state="attention"] { color: var(--warning); }
+.status-glyph[data-state="attention"] :is(.status-glyph-pie, .status-glyph-mark) { opacity: 1; }
+
+.status-glyph[data-state="connecting"] .status-glyph-ring {
+  opacity: 1;
+  stroke-dasharray: 9 27;
+  transform-origin: 7px 7px;
+  animation: status-glyph-turn 900ms linear infinite;
+}
+
+@keyframes status-glyph-turn {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-glyph[data-state="connecting"] .status-glyph-ring { animation: none; }
+}
+
+/* Rows and attention lines opt in with `view-transition-name: match-element`. */
+::view-transition-group(*) {
+  animation-duration: var(--motion-slow);
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: var(--motion-base);
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+/* Connect's short command list needs no groups or hints; the footer stays as the listbox description. */
+dialog.mdbase-command-backdrop { background: var(--color-scrim); }
+
+.mdbase-command-backdrop .mdbase-command-palette {
+  width: min(520px, 100%);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-canvas);
+  box-shadow: var(--elevation-high), 0 0 0 1px var(--color-border);
+}
+
+.mdbase-command-backdrop .mdbase-command-search {
+  height: 44px;
+  display: block;
+  padding: 0;
+}
+
+.mdbase-command-backdrop .mdbase-command-search svg,
+.mdbase-command-backdrop .mdbase-command-group,
+.mdbase-command-backdrop .mdbase-command-footer { display: none; }
+
+dialog.mdbase-command-backdrop .mdbase-command-palette .mdbase-command-search input {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--font-size-ui);
+}
+
+.mdbase-command-backdrop .mdbase-command-results { padding: 6px; }
+
+.mdbase-command-backdrop .mdbase-command-results > button {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+}
+
+.mdbase-command-backdrop .mdbase-command-results strong { font-weight: var(--font-weight-regular); }

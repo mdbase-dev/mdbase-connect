@@ -692,7 +692,6 @@ msgid "App key <0>{0}</0>. Your computer will show this key when you approve the
 msgstr "Chiave dell'app <0>{0}</0>. Il computer mostrerà questa chiave quando l'app verrà approvata."
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Application access"
 msgstr "Accesso delle applicazioni"
@@ -774,6 +773,11 @@ msgstr "Approvazione in corso…"
 msgctxt "Connect interface"
 msgid "Apps"
 msgstr "App"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Apps with access to the entire collection"
+msgstr "App con accesso all'intera raccolta"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -1066,6 +1070,11 @@ msgstr "Raccolte"
 msgid "Collections you own. Local files remain on your devices."
 msgstr "Raccolte di tua proprietà. I file locali rimangono sui tuoi dispositivi."
 
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Commands"
+msgstr "Comandi"
+
 #: src/authority-workflows.tsx
 msgid "Computer approved"
 msgstr "Computer approvato"
@@ -1157,11 +1166,6 @@ msgstr "Connesso"
 msgctxt "Connect interface"
 msgid "Connected applications"
 msgstr "Applicazioni connesse"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Connection"
-msgstr "Connessione"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
@@ -1633,6 +1637,10 @@ msgstr "Generazione in corso…"
 msgid "GitHub account @{login}"
 msgstr "Account GitHub @{login}"
 
+#: src/ConnectApp.tsx
+msgid "Go to {label}"
+msgstr "Vai a {label}"
+
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
@@ -1898,10 +1906,6 @@ msgid "Location"
 msgstr "Posizione"
 
 #: src/ConnectApp.tsx
-msgid "Main copy"
-msgstr "Copia principale"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "Copia principale"
@@ -1960,10 +1964,6 @@ msgstr "gestire i timer"
 msgctxt "Connect interface"
 msgid "manage types"
 msgstr "gestire i tipi"
-
-#: src/ConnectApp.tsx
-msgid "Manage where this collection lives and which applications can use it."
-msgstr "Gestisci dove risiede questa raccolta e quali applicazioni possono usarla."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2310,10 +2310,6 @@ msgstr "Apri un'app, poi scegli a quali raccolte può accedere."
 msgid "Open desktop app"
 msgstr "Apri l'app desktop"
 
-#: src/ConnectApp.tsx
-msgid "Open editor"
-msgstr "Apri l'editor"
-
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
 msgstr "Apri l'editor <0>↗</0>"
@@ -2324,6 +2320,11 @@ msgid "Open in {0}"
 msgstr "Apri in {0}"
 
 #: src/ConnectApp.tsx
+msgid "Open in editor"
+msgstr "Apri nell'editor"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "Apri nell'editor"
 
@@ -2789,7 +2790,6 @@ msgid "Returning to {applicationName}…"
 msgstr "Ritorno a {applicationName}…"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
 msgstr "Verifica"
@@ -2807,11 +2807,6 @@ msgstr "Verifica la richiesta di {0} per {collectionName}."
 #: src/authorization-view.tsx
 msgid "Review access"
 msgstr "Verifica accesso"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Review all"
-msgstr "Verifica tutto"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
@@ -2857,6 +2852,12 @@ msgstr "Revoca"
 msgid "Revoke {0} access to {1} across all its installations?"
 msgstr "Revocare l'accesso di {0} a {1} in tutte le sue installazioni?"
 
+#. placeholder {0}: application.applicationName
+#. placeholder {1}: collection.name
+#: src/ConnectApp.tsx
+msgid "Revoke {0} access to {1}?"
+msgstr "Revocare l'accesso di {0} a {1}?"
+
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
@@ -2873,6 +2874,7 @@ msgid "Revoke {0}?"
 msgstr "Revocare {0}?"
 
 #: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
 msgstr "Revoca accesso"
@@ -2945,6 +2947,10 @@ msgstr "Pianifica attività in background"
 #: src/ApplicationAccess.tsx
 msgid "Scope"
 msgstr "Ambito"
+
+#: src/ConnectApp.tsx
+msgid "Search"
+msgstr "Cerca"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
@@ -3155,28 +3161,8 @@ msgstr "Interrompi la ricezione del tipo di email contenuto in questo link. I me
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Storage"
-msgstr "Spazio di archiviazione"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Storage & sync"
 msgstr "Spazio di archiviazione e sincronizzazione"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored by mdbase"
-msgstr "Memorizzata da mdbase"
-
-#. placeholder {0}: collection.detail
-#: src/ConnectApp.tsx
-msgid "Stored on {0}"
-msgstr "Memorizzata su {0}"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored on your devices"
-msgstr "Memorizzata sui dispositivi"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3505,6 +3491,11 @@ msgstr "Riprova"
 msgctxt "Connect interface"
 msgid "Two-way sync"
 msgstr "Sincronizzazione bidirezionale"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "Digita un comando"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"

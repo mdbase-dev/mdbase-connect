@@ -2,15 +2,18 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./auth-portal";
 
 async function chooseItalian(page: Page, picker: Locator, storageKey: string, marker: string) {
-  await expect(picker).toHaveValue("en");
-  await expect(picker.locator("option")).toHaveCount(10);
-  await expect(picker.locator('option[value="it"]')).toHaveText("Italiano");
+  await expect(picker).toHaveAttribute("data-value", "en");
+  await picker.click();
+  const list = page.locator(`[id="${await picker.getAttribute("aria-controls")}"]`);
+  await expect(list.getByRole("option")).toHaveCount(10);
+  const italian = list.locator('[role="option"][data-value="it"]');
+  await expect(italian).toHaveText("Italiano");
   // This response must arrive after the explicit choice, not on English startup.
   const chunk = page.waitForResponse(async (response) =>
     new URL(response.url()).origin === new URL(page.url()).origin &&
     /\/assets\/messages-[^/]+\.js$/.test(new URL(response.url()).pathname) &&
     response.ok() && (await response.text()).includes(marker));
-  await picker.selectOption("it");
+  await italian.click();
   await chunk;
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), storageKey)).toBe("it");
   await expect(page.locator("html")).toHaveAttribute("lang", "it");
@@ -57,7 +60,7 @@ test("Italian portal picker loads its own chunk and renders singular/plural coll
   await expect(page.getByText(/1 raccolta ·/)).toBeVisible();
   await expect(page.getByText(/2 raccolte ·/)).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("combobox", { name: "Lingua", exact: true })).toHaveValue("it");
+  await expect(page.getByRole("combobox", { name: "Lingua", exact: true })).toHaveAttribute("data-value", "it");
   await expect(page.getByText(/2 raccolte ·/)).toBeVisible();
   expect(errors).toEqual([]);
 });

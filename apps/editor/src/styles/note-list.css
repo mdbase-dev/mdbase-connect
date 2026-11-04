@@ -96,7 +96,7 @@
 .note-group-header span {
   color: var(--faint);
   font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -149,8 +149,7 @@
   min-width: 0;
   overflow: hidden;
   font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.008em;
+  font-weight: var(--font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -1,3 +1,4 @@
+import { StatusGlyph } from "@mdbase/connect-ui/status-glyph";
 import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
@@ -719,7 +720,7 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
                 : t(i18n)({ message: " The original local files are no longer the main copy." }))}
             </Trans></p>
             <div className="transfer-status" role="status">
-              <span className="status-dot connected" aria-hidden="true" />
+              <StatusGlyph state="online" />
               <span><Trans>Main copy hosted by mdbase</Trans></span>
             </div>
             <a className="button primary link-button" href="/"><Trans>
@@ -749,7 +750,7 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
               main copy will move only after that exact snapshot is complete.
             </Trans></p>
             <div className="transfer-status" role="status">
-              <span className="status-dot paused" aria-hidden="true" />
+              <StatusGlyph state="connecting" />
               <span>
                 {adoption.state === "activating"
                   ? t(i18n)({ message: "Finishing the move", context: "Collection connection" })
@@ -873,7 +874,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
             <h1>{t(i18n)`${collectionName} now lives on your computer.`}</h1>
             <p>{t(i18n)`The folder on ${mirrorName} is now the main copy. Hosted access has stopped and previous application connections were revoked.`}</p>
             <div className="transfer-status" role="status">
-              <span className="status-dot connected" aria-hidden="true" />
+              <StatusGlyph state="online" />
               <span>{t(i18n)`Main copy on ${mirrorName}`}</span>
             </div>
             <a className="button primary link-button" href="/"><Trans>
@@ -903,7 +904,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
               the folder, and making it the main copy.
             </Trans></p>
             <div className="transfer-status" role="status">
-              <span className="status-dot paused" aria-hidden="true" />
+              <StatusGlyph state="connecting" />
               <span>
                 {transfer.state === "prepared"
                   ? t(i18n)({ message: "Hosted writes are paused", context: "Collection connection" })

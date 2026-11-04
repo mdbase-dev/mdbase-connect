@@ -5,6 +5,7 @@ import React, { useState } from "react";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { CollectionModeControl } from "@mdbase-dev/ui/collection-mode";
 import { groupedApprovalCode, presentCollection } from "./daemon-view.mjs";
+import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { Empty, SectionHeading, StatusDot } from "./ui-components";
 import { message, relativeTime, syncEnableMessage } from "./view-model";
 import type { TakeoverHold } from "./takeover-state.mjs";
@@ -28,8 +29,8 @@ export function CollectionsView({ collections, busy, onAdd, onCreate, onAct, onN
     <div className="workspace-stack">
       <section>
         <SectionHeading title={t(i18n)({ message: "On this computer", context: "Local collection management" })} note={t(i18n)({ message: "Each folder stays where it is. Sync is optional." })}>
-          <button className="button secondary" disabled={busy} onClick={onAdd}><Trans>Add existing</Trans></button>
-          <button className="button primary" disabled={busy} onClick={onCreate}><Trans>Create</Trans></button>
+          <button className="mdbase-button" disabled={busy} onClick={onAdd}><Trans>Add existing</Trans></button>
+          <button className="mdbase-button is-primary" disabled={busy} onClick={onCreate}><Trans>Create</Trans></button>
         </SectionHeading>
         {sorted.length === 0
           ? <Empty title={t(i18n)({ message: "No collections yet", context: "Local collection management" })} text={t(i18n)({ message: "Add a folder of Markdown notes or create a new collection." })} />
@@ -86,13 +87,10 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
         {view.holds > 0 && <button className="quiet-action" onClick={() => setHoldsOpen((open) => !open)}>{holdsOpen ? t(i18n)`Hide ${plural(view.holds, { one: "# file", other: "# files" })}` : t(i18n)`Review ${plural(view.holds, { one: "# file", other: "# files" })}`}</button>}
         {view.canEnableSync && <button className="quiet-action" disabled={busy} onClick={onTurnOnSync}><Trans>Turn on sync</Trans></button>}
         <button className="quiet-action" disabled={busy || collection.state === "opening"} onClick={() => void onAct(() => window.mdbaseConnect.setCollectionEnabled(collection.id, view.paused))}>{view.paused ? t(i18n)({ message: "Resume", context: "Local collection management" }) : t(i18n)({ message: "Pause", context: "Local collection management" })}</button>
-        <button className="quiet-action danger" disabled={busy} onClick={() => {
-          if (!window.confirm(t(i18n)`Remove ${collection.name} from mdbase? Apps stop using it. The folder and its files stay where they are.`)) return;
-          void onAct(async () => {
-            await window.mdbaseConnect.removeCollection(collection.id);
-            onNotice(t(i18n)`${collection.name} was removed. Its files were not touched.`);
-          });
-        }}><Trans context="Remove a local collection connection">Remove</Trans></button>
+        <ConfirmAction className="quiet-action danger" busy={busy} label={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} confirmLabel={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} question={t(i18n)`Remove ${collection.name} from mdbase? Apps stop using it. The folder and its files stay where they are.`} onConfirm={() => void onAct(async () => {
+          await window.mdbaseConnect.removeCollection(collection.id);
+          onNotice(t(i18n)`${collection.name} was removed. Its files were not touched.`);
+        })} />
       </div>
       {detailsOpen && <Details collection={collection} onDone={(saved) => { setDetailsOpen(false); if (saved) onNotice(t(i18n)`${saved.name} was saved.`); }} />}
       {holdsOpen && <Holds collection={collection} busy={busy} onAct={onAct} />}
@@ -126,8 +124,8 @@ function Details({ collection, onDone }: { collection: DaemonCollection; onDone(
       <small><Trans>The folder is not renamed. The description stays on this computer.</Trans></small>
       {["synced", "synced_e2e"].includes(collection.mode) && <CollectionModeControl collectionId={collection.id} native load={() => window.mdbaseConnect.collectionModeStatus(collection.id)} change={(target) => window.mdbaseConnect.changeCollectionMode(collection.id, target, false)} cancel={(target) => window.mdbaseConnect.changeCollectionMode(collection.id, target, false, true)} />}
       <div className="row-actions">
-        <button className="button secondary" disabled={saving} onClick={() => onDone(null)}><Trans>Cancel</Trans></button>
-        <button className="button primary" disabled={saving || !name.trim()} onClick={() => void save()}>{saving ? t(i18n)({ message: "Saving…", context: "Local collection management" }) : t(i18n)({ message: "Save details", context: "Local collection management" })}</button>
+        <button className="mdbase-button" disabled={saving} onClick={() => onDone(null)}><Trans>Cancel</Trans></button>
+        <button className="mdbase-button is-primary" disabled={saving || !name.trim()} onClick={() => void save()}>{saving ? t(i18n)({ message: "Saving…", context: "Local collection management" }) : t(i18n)({ message: "Save details", context: "Local collection management" })}</button>
       </div>
     </div>
   );
@@ -158,8 +156,6 @@ function Holds({ collection, busy, onAct, onLoaded }: {
     .catch((reason) => setFailure(message(reason)));
   React.useEffect(() => { void load(); }, [collection.id, collection.sync?.holds]);
   const resolve = (hold: HoldSummary, how: "keep_mine" | "take_theirs" | "keep_both") => {
-    if (hold.reason === "read_only" && how === "take_theirs" && !hold.has_theirs
-      && !window.confirm(t(i18n)`Discard local changes to ${hold.path}? They haven't been synced. Copy the file first if you want to keep them.`)) return;
     void onAct(async () => { await window.mdbaseConnect.resolveHold(collection.id, hold.id, how); await load(); });
   };
   return (
@@ -186,7 +182,7 @@ function Holds({ collection, busy, onAct, onLoaded }: {
               : hold.reason === "read_only"
               ? <div className="row-actions">
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>
-                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}><Trans>Discard local changes</Trans></button>
+                <ConfirmAction className="quiet-action" busy={busy} label={t(i18n)({ message: "Discard local changes" })} confirmLabel={t(i18n)({ message: "Discard" })} question={t(i18n)`Discard local changes to ${hold.path}? They haven't been synced. Copy the file first if you want to keep them.`} onConfirm={() => resolve(hold, "take_theirs")} />
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_both")}><Trans>Keep both</Trans></button>
               </div>
               : <div className="row-actions">
@@ -269,8 +265,8 @@ function TurnOnSyncDialog({ collection, busy, error, onAct, onClose, onConfirm }
         </label>
       </fieldset>
       <div className="modal-actions">
-        <button className="button secondary" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
-        <button className="button primary" disabled={busy || !ready} onClick={() => void onConfirm(mode, unlisted.length > 0 && reviewed)}>{busy ? t(i18n)({ message: "Turning on…", context: "Local collection management" }) : t(i18n)({ message: "Turn on sync", context: "Local collection management" })}</button>
+        <button className="mdbase-button" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
+        <button className="mdbase-button is-primary" disabled={busy || !ready} onClick={() => void onConfirm(mode, unlisted.length > 0 && reviewed)}>{busy ? t(i18n)({ message: "Turning on…", context: "Local collection management" }) : t(i18n)({ message: "Turn on sync", context: "Local collection management" })}</button>
       </div>
     </Dialog>
   );

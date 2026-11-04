@@ -25,9 +25,9 @@
   overflow: hidden;
   margin: 0 auto 18px;
   font-size: var(--font-size-title);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-semibold);
   line-height: 1.2;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.02em;
 }
 
 .note-title-measure,

@@ -132,7 +132,8 @@ grants were deleted.
 
 - The control lives in desktop, where local authority is enforced.
 - The label is `Pause remote access`.
-- Paused state uses amber plus the text `Remote access paused`.
+- Paused state uses the paused status glyph plus the text
+  `Remote access paused`.
 - Existing grants remain visible and unchanged.
 - Resume is available from the same control.
 - The activity log records requests denied by the paused policy.

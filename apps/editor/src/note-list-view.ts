@@ -35,7 +35,7 @@ export const noteSortOptions: ReadonlyArray<{
   label: string;
   summary: string;
 }> = [
-  { value: "modified-desc", get label() { return t`Modified newest`; }, get summary() { return t`modified newest`; } },
+  { value: "modified-desc", get label() { return t`Modified newest`; }, summary: "" },
   { value: "modified-asc", get label() { return t`Modified oldest`; }, get summary() { return t`modified oldest`; } },
   { value: "title-asc", get label() { return t`Title A–Z`; }, summary: "title A–Z" },
   { value: "path-asc", get label() { return t`Path A–Z`; }, summary: "path A–Z" }
@@ -61,6 +61,7 @@ export function saveNoteSort(value: NoteSort): void {
   }
 }
 
+/** Empty for the default order, which the list does not need to mention. */
 export function noteSortSummary(value: NoteSort): string {
   return noteSortOptions.find((option) => option.value === value)?.summary ?? noteSortOptions[0].summary;
 }

@@ -318,14 +318,6 @@
     margin-bottom: 6px;
   }
 
-  .type-heading h1 {
-    font-size: var(--font-size-heading);
-  }
-
-  .settings-document h1 {
-    font-size: var(--font-size-heading);
-  }
-
   .type-heading-title {
     gap: var(--space-2);
   }

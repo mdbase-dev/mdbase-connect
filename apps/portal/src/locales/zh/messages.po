@@ -692,7 +692,6 @@ msgid "App key <0>{0}</0>. Your computer will show this key when you approve the
 msgstr "应用密钥 <0>{0}</0>。你批准应用时，电脑会显示此密钥。"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Application access"
 msgstr "应用访问权限"
@@ -774,6 +773,11 @@ msgstr "正在批准…"
 msgctxt "Connect interface"
 msgid "Apps"
 msgstr "应用"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Apps with access to the entire collection"
+msgstr "可访问整个集合的应用"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -1066,6 +1070,11 @@ msgstr "集合"
 msgid "Collections you own. Local files remain on your devices."
 msgstr "您拥有的集合。本地文件会保留在您的设备上。"
 
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Commands"
+msgstr "命令"
+
 #: src/authority-workflows.tsx
 msgid "Computer approved"
 msgstr "电脑已获批准"
@@ -1157,11 +1166,6 @@ msgstr "已连接"
 msgctxt "Connect interface"
 msgid "Connected applications"
 msgstr "已连接的应用"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Connection"
-msgstr "连接"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
@@ -1633,6 +1637,10 @@ msgstr "正在生成…"
 msgid "GitHub account @{login}"
 msgstr "GitHub 账户 @{login}"
 
+#: src/ConnectApp.tsx
+msgid "Go to {label}"
+msgstr "前往 {label}"
+
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
@@ -1898,10 +1906,6 @@ msgid "Location"
 msgstr "位置"
 
 #: src/ConnectApp.tsx
-msgid "Main copy"
-msgstr "主副本"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "主副本"
@@ -1960,10 +1964,6 @@ msgstr "管理定时任务"
 msgctxt "Connect interface"
 msgid "manage types"
 msgstr "管理类型"
-
-#: src/ConnectApp.tsx
-msgid "Manage where this collection lives and which applications can use it."
-msgstr "管理此集合的存储位置及可使用它的应用。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2310,10 +2310,6 @@ msgstr "打开应用，然后选择它可以访问的集合。"
 msgid "Open desktop app"
 msgstr "打开桌面应用"
 
-#: src/ConnectApp.tsx
-msgid "Open editor"
-msgstr "打开编辑器"
-
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
 msgstr "打开编辑器 <0>↗</0>"
@@ -2324,6 +2320,11 @@ msgid "Open in {0}"
 msgstr "在 {0} 中打开"
 
 #: src/ConnectApp.tsx
+msgid "Open in editor"
+msgstr "在编辑器中打开"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "在编辑器中打开"
 
@@ -2789,7 +2790,6 @@ msgid "Returning to {applicationName}…"
 msgstr "正在返回 {applicationName}…"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
 msgstr "审查"
@@ -2807,11 +2807,6 @@ msgstr "审查 {0} 对 {collectionName} 的请求。"
 #: src/authorization-view.tsx
 msgid "Review access"
 msgstr "审查访问权限"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Review all"
-msgstr "全部审查"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
@@ -2857,6 +2852,12 @@ msgstr "撤销"
 msgid "Revoke {0} access to {1} across all its installations?"
 msgstr "撤销 {0} 所有安装实例对 {1} 的访问权限？"
 
+#. placeholder {0}: application.applicationName
+#. placeholder {1}: collection.name
+#: src/ConnectApp.tsx
+msgid "Revoke {0} access to {1}?"
+msgstr "要撤销 {0} 对 {1} 的访问权限吗？"
+
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
@@ -2873,6 +2874,7 @@ msgid "Revoke {0}?"
 msgstr "撤销 {0}？"
 
 #: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
 msgstr "撤销访问权限"
@@ -2945,6 +2947,10 @@ msgstr "安排后台任务"
 #: src/ApplicationAccess.tsx
 msgid "Scope"
 msgstr "范围"
+
+#: src/ConnectApp.tsx
+msgid "Search"
+msgstr "搜索"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
@@ -3155,28 +3161,8 @@ msgstr "停止接收此链接对应类别的电子邮件。与你账户有关的
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Storage"
-msgstr "存储空间"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Storage & sync"
 msgstr "存储与同步"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored by mdbase"
-msgstr "由 mdbase 存储"
-
-#. placeholder {0}: collection.detail
-#: src/ConnectApp.tsx
-msgid "Stored on {0}"
-msgstr "存储于 {0}"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored on your devices"
-msgstr "存储在你的设备上"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3505,6 +3491,11 @@ msgstr "重试"
 msgctxt "Connect interface"
 msgid "Two-way sync"
 msgstr "双向同步"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "输入命令"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"

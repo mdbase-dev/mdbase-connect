@@ -3115,10 +3115,6 @@ msgid "Modified"
 msgstr "Modificado"
 
 #: src/note-list-view.ts
-msgid "modified newest"
-msgstr "modificação mais recente"
-
-#: src/note-list-view.ts
 msgid "Modified newest"
 msgstr "Modificação mais recente"
 

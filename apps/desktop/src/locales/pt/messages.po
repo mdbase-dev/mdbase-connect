@@ -593,6 +593,11 @@ msgstr "Tema de cores"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
+msgid "Commands"
+msgstr "Comandos"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Computer name"
 msgstr "Nome do computador"
 
@@ -728,6 +733,10 @@ msgid "Differed when mdbase took over from the old app; this computer's version 
 msgstr "Diferia quando o mdbase assumiu o controle do aplicativo antigo; a versão deste computador está na pasta"
 
 #: src/renderer/collections-view.tsx
+msgid "Discard"
+msgstr "Descartar"
+
+#: src/renderer/collections-view.tsx
 msgid "Discard local changes"
 msgstr "Descartar alterações locais"
 
@@ -797,6 +806,10 @@ msgstr "Os locais das pastas nunca são enviados."
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "Pastas neste computador que seus aplicativos podem usar e como cada uma sincroniza."
+
+#: src/renderer/main.tsx
+msgid "Go to {label}"
+msgstr "Ir para {label}"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
@@ -1398,8 +1411,14 @@ msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "Revisar {0, plural, one {# arquivo} other {# arquivos}}"
 
 #: src/renderer/access-view.tsx
+msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "Revogar"
+
+#: src/renderer/access-view.tsx
+msgctxt "Connect interface"
+msgid "Revoke access"
+msgstr "Revogar acesso"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1428,6 +1447,11 @@ msgstr "O acesso salvo dos aplicativos ainda funciona neste computador"
 msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Salvando…"
+
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Search"
+msgstr "Pesquisar"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1500,10 +1524,16 @@ msgid "Sign in with your browser"
 msgstr "Entre pelo navegador"
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Sign out"
+msgstr "Sair"
+
+#: src/renderer/main.tsx
 msgid "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected."
 msgstr "Sair neste computador? Os aplicativos não poderão mais acessar suas coleções locais por meio deste computador. Seus arquivos não serão afetados."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Sign out on this computer…"
 msgstr "Sair neste computador…"
 
@@ -1881,6 +1911,11 @@ msgstr "Ativando sincronização: enviando os arquivos da pasta…"
 msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Ativando…"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "Digite um comando"
 
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx

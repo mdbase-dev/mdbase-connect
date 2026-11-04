@@ -692,7 +692,6 @@ msgid "App key <0>{0}</0>. Your computer will show this key when you approve the
 msgstr "App key <0>{0}</0>. Your computer will show this key when you approve the app."
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Application access"
 msgstr "Application access"
@@ -774,6 +773,11 @@ msgstr "Approving…"
 msgctxt "Connect interface"
 msgid "Apps"
 msgstr "Apps"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Apps with access to the entire collection"
+msgstr "Apps with access to the entire collection"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -1066,6 +1070,11 @@ msgstr "Collections"
 msgid "Collections you own. Local files remain on your devices."
 msgstr "Collections you own. Local files remain on your devices."
 
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Commands"
+msgstr "Commands"
+
 #: src/authority-workflows.tsx
 msgid "Computer approved"
 msgstr "Computer approved"
@@ -1157,11 +1166,6 @@ msgstr "Connected"
 msgctxt "Connect interface"
 msgid "Connected applications"
 msgstr "Connected applications"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Connection"
-msgstr "Connection"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
@@ -1633,6 +1637,10 @@ msgstr "Generating…"
 msgid "GitHub account @{login}"
 msgstr "GitHub account @{login}"
 
+#: src/ConnectApp.tsx
+msgid "Go to {label}"
+msgstr "Go to {label}"
+
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
@@ -1898,10 +1906,6 @@ msgid "Location"
 msgstr "Location"
 
 #: src/ConnectApp.tsx
-msgid "Main copy"
-msgstr "Main copy"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "Main copy"
@@ -1960,10 +1964,6 @@ msgstr "manage timers"
 msgctxt "Connect interface"
 msgid "manage types"
 msgstr "manage types"
-
-#: src/ConnectApp.tsx
-msgid "Manage where this collection lives and which applications can use it."
-msgstr "Manage where this collection lives and which applications can use it."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2310,10 +2310,6 @@ msgstr "Open an app, then choose which collections it can access."
 msgid "Open desktop app"
 msgstr "Open desktop app"
 
-#: src/ConnectApp.tsx
-msgid "Open editor"
-msgstr "Open editor"
-
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
 msgstr "Open editor <0>↗</0>"
@@ -2324,6 +2320,11 @@ msgid "Open in {0}"
 msgstr "Open in {0}"
 
 #: src/ConnectApp.tsx
+msgid "Open in editor"
+msgstr "Open in editor"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "Open in editor"
 
@@ -2789,7 +2790,6 @@ msgid "Returning to {applicationName}…"
 msgstr "Returning to {applicationName}…"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
 msgstr "Review"
@@ -2807,11 +2807,6 @@ msgstr "Review {0}’s request for {collectionName}."
 #: src/authorization-view.tsx
 msgid "Review access"
 msgstr "Review access"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Review all"
-msgstr "Review all"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
@@ -2857,6 +2852,12 @@ msgstr "Revoke"
 msgid "Revoke {0} access to {1} across all its installations?"
 msgstr "Revoke {0} access to {1} across all its installations?"
 
+#. placeholder {0}: application.applicationName
+#. placeholder {1}: collection.name
+#: src/ConnectApp.tsx
+msgid "Revoke {0} access to {1}?"
+msgstr "Revoke {0} access to {1}?"
+
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
@@ -2873,6 +2874,7 @@ msgid "Revoke {0}?"
 msgstr "Revoke {0}?"
 
 #: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
 msgstr "Revoke access"
@@ -2945,6 +2947,10 @@ msgstr "Schedule background work"
 #: src/ApplicationAccess.tsx
 msgid "Scope"
 msgstr "Scope"
+
+#: src/ConnectApp.tsx
+msgid "Search"
+msgstr "Search"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
@@ -3155,28 +3161,8 @@ msgstr "Stop receiving the kind of email this link came in. Messages about your 
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Storage"
-msgstr "Storage"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Storage & sync"
 msgstr "Storage & sync"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored by mdbase"
-msgstr "Stored by mdbase"
-
-#. placeholder {0}: collection.detail
-#: src/ConnectApp.tsx
-msgid "Stored on {0}"
-msgstr "Stored on {0}"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored on your devices"
-msgstr "Stored on your devices"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3505,6 +3491,11 @@ msgstr "Try again"
 msgctxt "Connect interface"
 msgid "Two-way sync"
 msgstr "Two-way sync"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "Type a command"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"

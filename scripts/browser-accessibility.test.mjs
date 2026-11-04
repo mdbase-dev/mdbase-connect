@@ -627,7 +627,7 @@ async function auditPortalManagement() {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: /Account & sessions.*Open menu/ }).click();
-  await page.getByRole("link", { name: "Open editor" }).waitFor();
+  await page.getByRole("link", { name: "Applications", exact: true }).waitFor();
   await auditPage(page, "portal management mobile navigation", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();

@@ -593,6 +593,11 @@ msgstr "색상 테마"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
+msgid "Commands"
+msgstr "명령"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Computer name"
 msgstr "컴퓨터 이름"
 
@@ -728,6 +733,10 @@ msgid "Differed when mdbase took over from the old app; this computer's version 
 msgstr "mdbase가 이전 앱으로부터 제어권을 넘겨받을 때 내용이 달랐습니다. 이 컴퓨터의 버전은 다음 폴더에 있습니다"
 
 #: src/renderer/collections-view.tsx
+msgid "Discard"
+msgstr "버리기"
+
+#: src/renderer/collections-view.tsx
 msgid "Discard local changes"
 msgstr "로컬 변경 사항 버리기"
 
@@ -797,6 +806,10 @@ msgstr "폴더 위치는 업로드되지 않습니다."
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "앱에서 사용할 수 있는 이 컴퓨터의 폴더와 각 동기화 방법입니다."
+
+#: src/renderer/main.tsx
+msgid "Go to {label}"
+msgstr "{label}(으)로 이동"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
@@ -1398,8 +1411,14 @@ msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "{0, plural, other {파일 #개 검토}}"
 
 #: src/renderer/access-view.tsx
+msgctxt "Connect interface"
 msgid "Revoke"
-msgstr "철회"
+msgstr "취소"
+
+#: src/renderer/access-view.tsx
+msgctxt "Connect interface"
+msgid "Revoke access"
+msgstr "접근 권한 취소"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1428,6 +1447,11 @@ msgstr "이 컴퓨터에서 저장된 앱 액세스 권한은 계속 작동합�
 msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "저장 중…"
+
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Search"
+msgstr "검색"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1500,10 +1524,16 @@ msgid "Sign in with your browser"
 msgstr "브라우저에서 로그인"
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Sign out"
+msgstr "로그아웃"
+
+#: src/renderer/main.tsx
 msgid "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected."
 msgstr "이 컴퓨터에서 로그아웃할까요? 앱은 이 컴퓨터를 통해 로컬 컬렉션에 접근할 수 없게 됩니다. 파일은 변경되지 않습니다."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Sign out on this computer…"
 msgstr "이 컴퓨터에서 로그아웃…"
 
@@ -1881,6 +1911,11 @@ msgstr "동기화 켜는 중: 폴더의 파일 업로드 중…"
 msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "켜는 중…"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "명령 입력"
 
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx

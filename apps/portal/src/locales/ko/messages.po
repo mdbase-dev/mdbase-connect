@@ -692,7 +692,6 @@ msgid "App key <0>{0}</0>. Your computer will show this key when you approve the
 msgstr "앱 키 <0>{0}</0>. 앱을 승인할 때 컴퓨터에 이 키가 표시됩니다."
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Application access"
 msgstr "애플리케이션 액세스"
@@ -774,6 +773,11 @@ msgstr "승인하는 중…"
 msgctxt "Connect interface"
 msgid "Apps"
 msgstr "앱"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Apps with access to the entire collection"
+msgstr "컬렉션 전체에 접근할 수 있는 앱"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -1066,6 +1070,11 @@ msgstr "컬렉션"
 msgid "Collections you own. Local files remain on your devices."
 msgstr "소유한 컬렉션입니다. 로컬 파일은 기기에 남아 있습니다."
 
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Commands"
+msgstr "명령"
+
 #: src/authority-workflows.tsx
 msgid "Computer approved"
 msgstr "컴퓨터 승인됨"
@@ -1157,11 +1166,6 @@ msgstr "연결됨"
 msgctxt "Connect interface"
 msgid "Connected applications"
 msgstr "연결된 애플리케이션"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Connection"
-msgstr "연결"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
@@ -1633,6 +1637,10 @@ msgstr "생성하는 중…"
 msgid "GitHub account @{login}"
 msgstr "GitHub 계정 @{login}"
 
+#: src/ConnectApp.tsx
+msgid "Go to {label}"
+msgstr "{label}(으)로 이동"
+
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
@@ -1898,10 +1906,6 @@ msgid "Location"
 msgstr "위치"
 
 #: src/ConnectApp.tsx
-msgid "Main copy"
-msgstr "기본 사본"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "기본 사본"
@@ -1960,10 +1964,6 @@ msgstr "타이머 관리"
 msgctxt "Connect interface"
 msgid "manage types"
 msgstr "유형 관리"
-
-#: src/ConnectApp.tsx
-msgid "Manage where this collection lives and which applications can use it."
-msgstr "이 컬렉션의 저장 위치와 사용할 수 있는 애플리케이션을 관리합니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2310,10 +2310,6 @@ msgstr "앱을 연 다음 접근을 허용할 컬렉션을 선택하세요."
 msgid "Open desktop app"
 msgstr "데스크톱 앱 열기"
 
-#: src/ConnectApp.tsx
-msgid "Open editor"
-msgstr "편집기 열기"
-
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
 msgstr "편집기 열기 <0>↗</0>"
@@ -2324,6 +2320,11 @@ msgid "Open in {0}"
 msgstr "{0}에서 열기"
 
 #: src/ConnectApp.tsx
+msgid "Open in editor"
+msgstr "편집기에서 열기"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "편집기에서 열기"
 
@@ -2789,7 +2790,6 @@ msgid "Returning to {applicationName}…"
 msgstr "{applicationName}(으)로 돌아가는 중…"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
 msgstr "검토"
@@ -2807,11 +2807,6 @@ msgstr "{collectionName}에 대한 {0}의 요청을 검토하세요."
 #: src/authorization-view.tsx
 msgid "Review access"
 msgstr "접근 권한 검토"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Review all"
-msgstr "모두 검토"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
@@ -2857,6 +2852,12 @@ msgstr "철회"
 msgid "Revoke {0} access to {1} across all its installations?"
 msgstr "모든 설치에서 {1}에 대한 {0}의 액세스를 철회할까요?"
 
+#. placeholder {0}: application.applicationName
+#. placeholder {1}: collection.name
+#: src/ConnectApp.tsx
+msgid "Revoke {0} access to {1}?"
+msgstr "{0}의 {1} 접근 권한을 취소할까요?"
+
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
@@ -2873,6 +2874,7 @@ msgid "Revoke {0}?"
 msgstr "{0}을(를) 철회할까요?"
 
 #: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
 msgstr "액세스 철회"
@@ -2945,6 +2947,10 @@ msgstr "백그라운드 작업 예약"
 #: src/ApplicationAccess.tsx
 msgid "Scope"
 msgstr "범위"
+
+#: src/ConnectApp.tsx
+msgid "Search"
+msgstr "검색"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
@@ -3155,28 +3161,8 @@ msgstr "이 링크가 포함된 종류의 이메일 수신을 중단합니다. �
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Storage"
-msgstr "저장 공간"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Storage & sync"
 msgstr "저장 공간 및 동기화"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored by mdbase"
-msgstr "mdbase에 저장됨"
-
-#. placeholder {0}: collection.detail
-#: src/ConnectApp.tsx
-msgid "Stored on {0}"
-msgstr "{0}에 저장됨"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored on your devices"
-msgstr "내 기기에 저장됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3505,6 +3491,11 @@ msgstr "다시 시도"
 msgctxt "Connect interface"
 msgid "Two-way sync"
 msgstr "양방향 동기화"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "명령 입력"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"

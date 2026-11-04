@@ -86,7 +86,7 @@ export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSign
             </div>
           </div>
         ) : (
-          <button className="button primary" disabled={starting} onClick={() => void begin()}>{starting ? t(i18n)({ message: "Opening browser…", context: "Connect interface" }) : t(i18n)({ message: "Sign in with your browser" })}</button>
+          <button className="mdbase-button is-primary" disabled={starting} onClick={() => void begin()}>{starting ? t(i18n)({ message: "Opening browser…", context: "Connect interface" }) : t(i18n)({ message: "Sign in with your browser" })}</button>
         )}
       </div>
     </section>

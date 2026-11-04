@@ -6,9 +6,13 @@ import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import "@mdbase-dev/ui/fonts.css";
 import "@mdbase/connect-ui/styles.css";
+import "@mdbase-dev/ui/palette.css";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { CommandPalette, type Command } from "@mdbase-dev/ui/command-palette";
 import { Dialog } from "@mdbase-dev/ui/dialog";
+import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
+import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { AccessView } from "./access-view";
 import { ActivityView } from "./activity-view";
 import { CollectionsView } from "./collections-view";
@@ -61,6 +65,7 @@ const POLL_MS = 5_000;
 function App() {
   useLocaleRevision();
   const [route, setRoute] = useState<Route>("overview");
+  const [commandsOpen, setCommandsOpen] = useState(false);
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [checked, setChecked] = useState(false);
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
@@ -127,6 +132,17 @@ function App() {
   }, [refresh]);
 
   useEffect(() => {
+    const toggle = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandsOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", toggle);
+    return () => window.removeEventListener("keydown", toggle);
+  }, []);
+
+  useEffect(() => {
     if (cloud?.configured && consumePairingCompleted(localStorage)) setRoute("collections");
   }, [cloud?.configured]);
 
@@ -137,7 +153,9 @@ function App() {
     try {
       await action();
       await refresh();
+      signalMdbaseMark("saved");
     } catch (reason) {
+      signalMdbaseMark("error");
       setError(message(reason));
     } finally {
       setBusy(false);
@@ -178,6 +196,13 @@ function App() {
     setNavigationOpen(false);
   };
 
+  const commands: Command[] = [
+    ...([["overview", t(i18n)({ message: "Overview", context: "Connect interface" })], ["collections", t(i18n)({ message: "Collections", context: "Connect interface" })], ["access", t(i18n)({ message: "App access", context: "Connect interface" })], ["activity", t(i18n)({ message: "Activity", context: "Connect interface" })], ["settings", t(i18n)({ message: "Settings", context: "Connect interface" })]] as const)
+      .map(([id, label]) => ({ id, label: t(i18n)`Go to ${label}`, group: "commands", run: () => selectRoute(id) })),
+    { id: "add", label: t(i18n)({ message: "Add existing folder" }), group: "commands", run: addExisting },
+    { id: "create", label: t(i18n)({ message: "Create collection" }), group: "commands", run: openCreate }
+  ];
+
   return (
     <div className={`shell product-shell ${navigationOpen ? "navigation-open" : ""}`}>
       <ProductSidebar
@@ -188,7 +213,9 @@ function App() {
         connection={connection}
         computerName={t(i18n)`This computer · ${plural(collections.length, { one: "# collection", other: "# collections" })}`}
         onSelect={selectRoute}
+        onSearch={() => setCommandsOpen(true)}
       />
+      <CommandPalette open={commandsOpen} commands={commands} onClose={() => setCommandsOpen(false)} showAll={["commands"]} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)({ message: "Type a command", context: "Connect interface" })} />
       <button className="product-sidebar-backdrop" aria-label={t(i18n)({ message: "Close navigation", context: "Connect interface" })} onClick={() => setNavigationOpen(false)} />
       <div className="product-canvas desktop-canvas">
         <MobileProductBar open={navigationOpen} onOpen={() => setNavigationOpen(true)} />
@@ -281,8 +308,8 @@ function Overview({ cloud, connectionLabel, collections, attention, busy, onNavi
       {collections.length === 0 && <section>
         <Empty title={t(i18n)({ message: "Add your first collection" })} text={t(i18n)({ message: "Choose a folder of Markdown notes, or create a new one. It stays on this computer; your apps reach it through mdbase." })} />
         <div className="collection-config-actions">
-          <button className="button primary" disabled={busy} onClick={onAdd}><Trans>Add existing folder</Trans></button>
-          <button className="button secondary" disabled={busy} onClick={onCreate}><Trans>Create collection</Trans></button>
+          <button className="mdbase-button is-primary" disabled={busy} onClick={onAdd}><Trans>Add existing folder</Trans></button>
+          <button className="mdbase-button" disabled={busy} onClick={onCreate}><Trans>Create collection</Trans></button>
         </div>
       </section>}
       <section>
@@ -319,8 +346,8 @@ function CreateCollectionDialog({ busy, onClose, onCreate }: {
       <label><span><Trans>Collection name</Trans></span><input autoFocus disabled={busy} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder={t(i18n)`Workouts`} /></label>
       <label><span><Trans>Create the folder in</Trans></span><button className="folder-picker" disabled={busy} onClick={() => void window.mdbaseConnect.chooseCreateFolder().then((chosen) => { if (chosen) setParent(chosen); }).catch((reason) => setFailure(message(reason)))}>{parent || t(i18n)({ message: "Choose a location…", context: "Connect interface" })}</button></label>
       <div className="modal-actions">
-        <button className="button secondary" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
-        <button className="button primary" disabled={busy || !name.trim() || !parent} onClick={() => { setFailure(null); void onCreate({ parent, name: name.trim() }).catch((reason) => setFailure(message(reason))); }}><Trans>Create collection</Trans></button>
+        <button className="mdbase-button" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
+        <button className="mdbase-button is-primary" disabled={busy || !name.trim() || !parent} onClick={() => { setFailure(null); void onCreate({ parent, name: name.trim() }).catch((reason) => setFailure(message(reason))); }}><Trans>Create collection</Trans></button>
       </div>
     </Dialog>
   );
@@ -349,12 +376,8 @@ function Settings({ cloud, connectionLabel, connectionDetail, requireApproval, s
             <ComputerNameRow name={cloud.computerName ?? null} busy={busy} onAct={onAct} onNotice={onNotice} />
           </div>
           <div className="portal-connection-actions">
-            <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}><Trans>Manage in mdbase</Trans></button>
-            <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => {
-              if (window.confirm(t(i18n)({ message: "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected." }))) {
-                void onAct(() => window.mdbaseConnect.signOut());
-              }
-            }}><Trans>Sign out on this computer…</Trans></button>
+            <button className="mdbase-button" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}><Trans>Manage in mdbase</Trans></button>
+            <ConfirmAction className="quiet-action danger disconnect-button" busy={busy} label={t(i18n)({ message: "Sign out on this computer…", context: "Connect interface" })} confirmLabel={t(i18n)({ message: "Sign out", context: "Connect interface" })} question={t(i18n)({ message: "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected." })} onConfirm={() => void onAct(() => window.mdbaseConnect.signOut())} />
           </div>
         </section>
       )}
@@ -432,8 +455,8 @@ function ComputerNameRow({ name, busy, onAct, onNotice }: {
       <span><Trans>This computer</Trans></span>
       <div className="computer-name-form">
         <input aria-label={t(i18n)({ message: "Computer name", context: "Connect interface" })} autoFocus value={draft} maxLength={100} disabled={busy} onChange={(event) => setDraft(event.target.value)} />
-        <button className="button secondary" disabled={busy} onClick={() => setDraft(null)}><Trans>Cancel</Trans></button>
-        <button className="button primary" disabled={busy || !draft.trim()} onClick={() => void onAct(async () => {
+        <button className="mdbase-button" disabled={busy} onClick={() => setDraft(null)}><Trans>Cancel</Trans></button>
+        <button className="mdbase-button is-primary" disabled={busy || !draft.trim()} onClick={() => void onAct(async () => {
           const renamed = await window.mdbaseConnect.renameComputer(draft.trim());
           setDraft(null);
           onNotice(t(i18n)`This computer is now called ${renamed.name}.`);

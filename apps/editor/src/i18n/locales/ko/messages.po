@@ -3115,10 +3115,6 @@ msgid "Modified"
 msgstr "수정됨"
 
 #: src/note-list-view.ts
-msgid "modified newest"
-msgstr "최근 수정순"
-
-#: src/note-list-view.ts
 msgid "Modified newest"
 msgstr "최근 수정순"
 

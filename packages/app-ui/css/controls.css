@@ -6,9 +6,13 @@
  * and --control-font-size; action hierarchy and focus treatment stay shared.
  */
 :root {
-  --control-height: 34px;
+  --control-height: 28px;
   --control-font-size: var(--font-size-ui);
   --control-radius: var(--radius-sm);
+}
+
+@media (pointer: coarse) {
+  :root { --control-height: 40px; }
 }
 
 .mdbase-visually-hidden {
@@ -33,7 +37,7 @@
   background: transparent;
   font: inherit;
   font-size: var(--control-font-size);
-  transition: border-color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard);
+  transition: border-color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard), transform var(--motion-quick) var(--ease-standard);
 }
 
 .mdbase-field {
@@ -385,23 +389,27 @@ textarea.mdbase-field {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 0 12px;
-  border: 1px solid transparent;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--control-radius);
   color: var(--color-text);
-  background: var(--color-surface-subtle);
+  background: var(--color-canvas);
   font: inherit;
   font-size: var(--control-font-size);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
   transition: color var(--motion-quick) var(--ease-standard), border-color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard);
 }
 
 .mdbase-button:hover:not(:disabled) {
-  border-color: var(--color-text-soft);
   color: var(--color-text);
   background: var(--color-surface-subtle);
+}
+
+.mdbase-button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .mdbase-button.is-primary {
@@ -417,6 +425,7 @@ textarea.mdbase-field {
 }
 
 .mdbase-button.is-tertiary {
+  border-color: transparent;
   color: var(--color-text-soft);
   background: transparent;
 }
@@ -516,7 +525,7 @@ textarea.mdbase-field {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--color-text-soft);
+  background: var(--color-text-muted);
   pointer-events: none;
   transition: transform var(--motion-base) var(--ease-out), background var(--motion-base) var(--ease-out);
 }

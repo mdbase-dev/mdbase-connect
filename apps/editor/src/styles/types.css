@@ -34,6 +34,7 @@
 .type-pack-entry strong {
   color: var(--ink);
   font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
 }
 
 .type-pack-entry small {
@@ -107,6 +108,7 @@
 
 .type-row strong {
   font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
 }
 
 .type-row small {
@@ -189,8 +191,9 @@
 .type-heading h1,
 .settings-document h1 {
   margin: 0;
-  font-size: var(--font-size-title);
-  letter-spacing: -0.035em;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
 }
 
 .type-heading-title {

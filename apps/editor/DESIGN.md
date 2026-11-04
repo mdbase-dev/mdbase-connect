@@ -25,14 +25,16 @@ success, warning, and danger roles rather than fixed palette values.
 
 ## Typography
 
-Locally packaged Atkinson Hyperlegible Next Variable carries prose and controls,
-with real regular/medium/semibold/bold weights (400/500/600/700). Azeret Mono is
+Locally packaged IBM Plex Sans carries prose and controls, with real
+regular/medium/semibold/bold weights (400/500/600/700) and italics. Row names and
+section labels use medium, and titles use semibold. Azeret Mono is
 reserved for paths, source/code and the canonical lowercase mdbase wordmark,
 not field names, types or state labels. Counts, dates, sizes and versions use
 tabular numerals in the primary family. The shared six-step type scale is
 12/13/15/17/24/34px: interface chrome defaults to 13px, captions are 12px, and
 nothing is smaller. Mobile document titles use the 24px heading step instead
-of introducing a seventh size. Note content is 17px with a relaxed 1.7 line
+of introducing a seventh size. Settings and Types titles use the same 24px step;
+34px belongs to the note being written. Note content is 17px with a relaxed 1.7 line
 height and a maximum readable measure. Labels use sentence case without uppercase tracking
 or CSS capitalization; CodeMirror search labels use phrases such as “Replace all”.
 Quick-open action hints use the primary family; only actual path results use mono.
@@ -40,13 +42,13 @@ Quick-open action hints use the primary family; only actual path results use mon
 ## Controls
 
 Use `@mdbase-dev/ui/controls.css`: `.mdbase-button.is-primary` is the filled
-accent committing action; the default button is tonal secondary;
+accent committing action; the default button is outlined secondary;
 `.is-tertiary` is quiet text; `.is-danger` carries destructive intent. Disabled
 buttons visibly lose their accent. Fields and menus use the shared corner,
 elevation and motion tokens, not local values. Trigger and context menus share one
-surface and row treatment. Persistent list selection is neutral with an edge cue;
-keyboard-active note/type/quick-open rows use the accent tint and edge. Counts
-and dates remain tabular primary-family text.
+surface and row treatment. List selection is neutral with an edge cue, and
+keyboard focus turns that edge accent; note/type/quick-open rows never use an
+accent fill. Counts and dates remain tabular primary-family text.
 
 Settings use `.mdbase-switch` with native button activation, `role="switch"`
 and `aria-checked`. Native property/type checkboxes use `.mdbase-checkbox`;

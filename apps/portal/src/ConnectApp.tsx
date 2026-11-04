@@ -12,17 +12,23 @@ import {
   type NativeCollection,
   type ManagementRequestOptions
 } from "@mdbase/connect-management";
-import { AppAccess, applicationGroups } from "./ApplicationAccess";
+import { AppAccess, applicationGroups, revokeApplicationGroup } from "./ApplicationAccess";
 import { useCallback, useEffect, useRef, useState, Component, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
 import { readRememberedCollection, rememberCollection } from "./portal-model";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
+import { CommandPalette, shortcutLabel, type Command } from "@mdbase-dev/ui/command-palette";
+import { signalMdbaseMark, useMdbaseMarkActivity } from "@mdbase-dev/ui/mark-activity";
+import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
+import { useNavPill } from "@mdbase/connect-ui/nav-pill";
+import { StatusGlyph, type StatusGlyphState } from "@mdbase/connect-ui/status-glyph";
+import { transitionState } from "@mdbase/connect-ui/state-transition";
+import { flushSync } from "react-dom";
 import { CollectionModeControl } from "@mdbase-dev/ui/collection-mode";
 
 import {
-  ConfirmAction,
   ConnectEmpty as Empty,
   ConnectPage as Page,
   ConnectSectionTitle as SectionTitle,
@@ -31,17 +37,10 @@ import {
 import { FeedbackPage } from "./FeedbackPage";
 import { FeedbackButton, FeedbackProvider, feedbackApplication, useFeedback, resolveFeedbackEndpoint, type FeedbackFailure } from "@mdbase-dev/ui/feedback";
 import {
-  DesktopIcon as Desktop,
-  FolderIcon as Folder,
-  HardDrivesIcon as HardDrives,
-  InfoIcon as Info,
-  KeyIcon as Key,
-  NotebookIcon as Notebook,
-  PackageIcon as Package,
   PlusIcon as Plus,
-  UserCircleIcon as Account,
   WarningCircleIcon as Warning
 } from "@phosphor-icons/react";
+import "@mdbase-dev/ui/palette.css";
 import "./connect.css";
 import "@mdbase-dev/ui/feedback.css";
 import { Select } from "@mdbase-dev/ui/select";
@@ -98,6 +97,10 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const busyRef = useRef(new Set<string>());
   const refreshGenerationRef = useRef(0);
   const refreshInFlightRef = useRef<{ promise: Promise<void>; signal?: AbortSignal } | null>(null);
+  const settlingMutationRef = useRef(false);
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
+  const navPillRef = useRef<HTMLSpanElement>(null);
   const lifecycleRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -115,7 +118,10 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       try {
         const next = await management.overview({ signal });
         if (generation !== refreshGenerationRef.current) return;
-        setData(next);
+        if (settlingMutationRef.current) {
+          settlingMutationRef.current = false;
+          transitionState(() => flushSync(() => setData(next)));
+        } else setData(next);
         setRefreshError("");
         const configuration = await management.uiConfiguration({ signal });
         if (generation !== refreshGenerationRef.current) return;
@@ -182,8 +188,10 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     try {
       await action({ signal: controller.signal });
       succeeded = true;
+      signalMdbaseMark("saved");
     } catch (reason) {
       if (!lifecycle.aborted) {
+        signalMdbaseMark("error");
         reportError(feedbackFailure(reason));
         if (!inlineErrors) setMutationError(errorMessage(reason));
       }
@@ -193,6 +201,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       // settle, then request a fresh snapshot without overlapping inventory scans.
       if (!lifecycle.aborted) {
         await refreshInFlightRef.current?.promise;
+        settlingMutationRef.current = succeeded;
         if (!lifecycle.aborted) await refresh(lifecycle);
       }
       busyRef.current.delete(id);
@@ -263,6 +272,19 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     }
   }, [accountDeleted, data, requestedCollectionId, selectedCollectionId, view]);
 
+  useEffect(() => {
+    const toggle = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandsOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", toggle);
+    return () => window.removeEventListener("keydown", toggle);
+  }, []);
+
+  useNavPill(navRef, navPillRef);
+
   if (accountDeleted) return <DeletedAccount client={management} />;
   if (!data) return <ConnectLoading error={refreshError} onRetry={() => { setRefreshError(""); void refresh(); }} />;
 
@@ -285,26 +307,34 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const pendingCollection = pendingRequest?.collection_id
     ? collections.find((collection) => collection.id === pendingRequest.collection_id)
     : undefined;
+  const commands: Command[] = [
+    ...(selectedCollection ? ([["overview", t(i18n)({ message: "Overview", context: "Connect interface" })], ["storage", t(i18n)({ message: "Storage & sync", context: "Connect interface" })], ["access", t(i18n)({ message: "App access", context: "Connect interface" })]] as const) : []),
+    ...([["collections", t(i18n)({ message: "All collections", context: "Connect interface" })], ["applications", t(i18n)({ message: "Applications", context: "Connect interface" })], ["computers", t(i18n)({ message: "Computers", context: "Connect interface" })], ["account", t(i18n)({ message: "Account & sessions", context: "Connect interface" })]] as const)
+  ].map(([id, label]) => ({ id, label: t(i18n)`Go to ${label}`, group: "commands", run: () => navigate(id, selectedCollection?.id) }));
+  if (selectedCollection && editorOrigin) commands.push({ id: "editor", label: t(i18n)({ message: "Open in editor", context: "Connect interface" }), group: "commands", run: () => location.assign(editorCollectionUrl(selectedCollection.id, editorOrigin)) });
+  if (pendingRequest) commands.push({ id: "review", label: t(i18n)({ message: "Review request", context: "Connect interface" }), group: "commands", run: () => location.assign(new URL(`/authorize/${pendingRequest.id}`, management.baseUrl).href) });
   return <div className="connect-shell">
     <aside className="connect-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
-      <header><Brand productLabel /><button className="connect-mobile-nav-toggle" aria-expanded={navigationOpen} aria-controls="connect-section-navigation" onClick={() => setNavigationOpen((open) => !open)}><span>{viewLabel(activeView)}</span><small>{navigationOpen ? t(i18n)({ message: "Close menu", context: "Connect interface" }) : t(i18n)({ message: "Open menu", context: "Connect interface" })}</small></button></header>
-      <nav id="connect-section-navigation" className={navigationOpen ? "open" : ""}>
+      <header><ActivityBrand /><button className="connect-mobile-nav-toggle" aria-expanded={navigationOpen} aria-controls="connect-section-navigation" onClick={() => setNavigationOpen((open) => !open)}><span>{viewLabel(activeView)}</span><small>{navigationOpen ? t(i18n)({ message: "Close menu", context: "Connect interface" }) : t(i18n)({ message: "Open menu", context: "Connect interface" })}</small></button></header>
+      <button className="sidebar-search" onClick={() => setCommandsOpen(true)}><span><Trans>Search</Trans></span><kbd>{shortcutLabel("mod+k")}</kbd></button>
+      <nav ref={navRef} id="connect-section-navigation" className={navigationOpen ? "open" : ""}>
+        <span ref={navPillRef} className="nav-pill" aria-hidden="true" hidden />
         {selectedCollection && <section className="connect-nav-group" aria-labelledby="current-collection-navigation">
           <p id="current-collection-navigation">{selectedCollection.name}</p>
-          <NavLink label={t(i18n)({ message: "Overview", context: "Connect interface" })} icon={<Info />} selected={activeView === "overview"} view="overview" collectionId={selectedCollection.id} navigate={navigate} />
-          <NavLink label={t(i18n)({ message: "Storage & sync", context: "Connect interface" })} icon={<HardDrives />} selected={activeView === "storage"} view="storage" collectionId={selectedCollection.id} navigate={navigate} />
-          <NavLink label={t(i18n)({ message: "App access", context: "Connect interface" })} icon={<Key />} selected={activeView === "access"} view="access" collectionId={selectedCollection.id} navigate={navigate} />
+          <NavLink label={t(i18n)({ message: "Overview", context: "Connect interface" })} selected={activeView === "overview"} view="overview" collectionId={selectedCollection.id} navigate={navigate} />
+          <NavLink label={t(i18n)({ message: "Storage & sync", context: "Connect interface" })} selected={activeView === "storage"} view="storage" collectionId={selectedCollection.id} navigate={navigate} />
+          <NavLink label={t(i18n)({ message: "App access", context: "Connect interface" })} selected={activeView === "access"} view="access" collectionId={selectedCollection.id} navigate={navigate} />
         </section>}
         <section className="connect-nav-group" aria-labelledby="account-navigation">
           <p id="account-navigation"><Trans>Account</Trans></p>
-          <NavLink label={t(i18n)({ message: "All collections", context: "Connect interface" })} icon={<Folder />} selected={activeView === "collections"} view="collections" collectionId={selectedCollection?.id} navigate={navigate} />
-          <NavLink label={t(i18n)({ message: "Applications", context: "Connect interface" })} icon={<Package />} selected={activeView === "applications"} view="applications" collectionId={selectedCollection?.id} navigate={navigate} />
-          <NavLink label={t(i18n)({ message: "Computers", context: "Connect interface" })} icon={<Desktop />} selected={activeView === "computers"} view="computers" collectionId={selectedCollection?.id} navigate={navigate} />
-          <NavLink label={t(i18n)({ message: "Account & sessions", context: "Connect interface" })} icon={<Account />} selected={activeView === "account"} view="account" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label={t(i18n)({ message: "All collections", context: "Connect interface" })} selected={activeView === "collections"} view="collections" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label={t(i18n)({ message: "Applications", context: "Connect interface" })} selected={activeView === "applications"} view="applications" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label={t(i18n)({ message: "Computers", context: "Connect interface" })} selected={activeView === "computers"} view="computers" collectionId={selectedCollection?.id} navigate={navigate} />
+          <NavLink label={t(i18n)({ message: "Account & sessions", context: "Connect interface" })} selected={activeView === "account"} view="account" collectionId={selectedCollection?.id} navigate={navigate} />
           <FeedbackButton className="connect-feedback-mobile-link" />
         </section>
       </nav>
-      <footer className="connect-nav-footer"><ThemeMenu /><FeedbackButton />{editorOrigin && <a href={editorCollectionUrl(selectedCollection?.id, editorOrigin)}><Trans>Open editor</Trans></a>}<RouteLink view="account" navigate={navigate}><strong>{data.user.name}</strong><small>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink></footer>
+      <footer className="connect-nav-footer"><ThemeMenu /><FeedbackButton /><RouteLink view="account" navigate={navigate}><strong title={data.user.name}>{data.user.name}</strong><small title={data.user.email ?? undefined}>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink></footer>
     </aside>
     <main className="connect-main">
       {(mutationError || refreshError) && <div className="connect-notice error" role="alert"><Warning aria-hidden="true" />{mutationError || refreshError}<button onClick={() => mutationError ? setMutationError("") : setRefreshError("")}><Trans>Dismiss</Trans></button></div>}
@@ -315,10 +345,13 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       />}
       {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={data.pending_authorizations.length} />}
       {activeView === "overview" && (selectedCollection
-        ? <CollectionOverview editorOrigin={editorOrigin} sharingAvailable={data.collection_sharing_available === true} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} navigate={navigate} />
+        ? <CollectionOverview editorOrigin={editorOrigin} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} />
         : <Collections key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />)}
       {activeView === "storage" && selectedCollection && <Storage editorOrigin={editorOrigin} collection={selectedCollection} busy={busy} perform={perform} />}
-      {activeView === "access" && selectedCollection && <AppAccess collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform} />}
+      {activeView === "access" && selectedCollection && <AppAccess collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform}>
+        <section><SectionTitle title={t(i18n)({ message: "Your person record", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Use an existing person or create a note</Trans></strong><small><Trans>Link your account to an editable record in this collection. Collection access is approved separately.</Trans></small></div>{editorOrigin && <a href={`${editorSurfaceUrls(selectedCollection.id, editorOrigin).settings}#your-person`}><Trans>Choose or create my person record</Trans></a>}</div></section>
+        {selectedCollection.kind !== "local" && selectedCollection.source.access.can_manage_members && <CollectionSharingPanel key={selectedCollection.id} sharingAvailable={data.collection_sharing_available === true} collection={selectedCollection.source} busy={busy} perform={perform} />}
+      </AppAccess>}
       {activeView === "collections" && <Collections key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />}
       {activeView === "applications" && <AppAccess editorOrigin={editorOrigin} groups={applications} client={management} busy={busy} perform={perform} />}
       {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
@@ -326,7 +359,13 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       {activeView === "feedback" && feedbackEnabled && <FeedbackPage onDone={() => navigate("overview", selectedCollection?.id)} />}
       {activeView === "feedback" && !feedbackEnabled && <Page title={t(i18n)({ message: "Feedback unavailable", context: "Connect interface" })} intro={t(i18n)({ message: "This deployment has not configured a feedback destination." })}><section><Empty title={t(i18n)({ message: "Feedback is unavailable", context: "Connect interface" })} body={t(i18n)({ message: "Contact the person who operates this mdbase connect deployment." })} /></section></Page>}
     </main>
+    <CommandPalette open={commandsOpen} commands={commands} onClose={() => setCommandsOpen(false)} showAll={["commands"]} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)({ message: "Type a command", context: "Connect interface" })} />
   </div>;
+}
+
+function ActivityBrand() {
+  const { signal, busy } = useMdbaseMarkActivity();
+  return <Brand productLabel markMotion={busy ?? "keys-first"} markSignal={signal} />;
 }
 
 function CollectionInvitationBanner({ busy, onAccept, onDismiss }: {
@@ -336,7 +375,7 @@ function CollectionInvitationBanner({ busy, onAccept, onDismiss }: {
 }) {
   useLocaleRevision();
   return <div className="connect-pending-banner connect-sharing-banner" role="status">
-    <Notebook aria-hidden="true" />
+    <StatusGlyph state="attention" />
     <span><strong><Trans>A collection was shared with you</Trans></strong><small><Trans>Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access.</Trans></small></span>
     <span className="connect-banner-actions"><button disabled={busy} onClick={onDismiss}><Trans>Not now</Trans></button><button className="connect-primary-action mdbase-button is-primary" disabled={busy} onClick={onAccept}>{busy ? t(i18n)({ message: "Accepting…", context: "Connect interface" }) : t(i18n)({ message: "Accept", context: "Connect interface" })}</button></span>
   </div>;
@@ -353,37 +392,27 @@ function PendingRequestBanner({ request, collectionName, count }: {
     ? t(i18n)`Review ${request.application_name}’s request for ${collectionName}.`
     : t(i18n)`Review ${request.application_name}’s collection access request.`;
   return <a className="connect-pending-banner" href={new URL(`/authorize/${request.id}`, management.baseUrl).href}>
-    <Warning aria-hidden="true" />
+    <StatusGlyph state="attention" />
     <span><strong>{title}</strong><small>{detail}</small></span>
     <b>{count === 1 ? t(i18n)({ message: "Review request", context: "Connect interface" }) : t(i18n)({ message: "Review next request", context: "Connect interface" })}</b>
   </a>;
 }
 
-function CollectionOverview({ collection, applications, busy, perform, navigate, sharingAvailable, editorOrigin }: {
+function CollectionOverview({ collection, applications, busy, perform, editorOrigin }: {
   editorOrigin?: string;
-  sharingAvailable: boolean;
   collection: CollectionRow;
   applications: ReturnType<typeof applicationGroups>;
   busy: BusyOperations;
   perform: PerformOperation;
-  navigate(view: ConnectView, collectionId?: string): void;
 }) {
   useLocaleRevision();
-  return <Page title={collection.name} intro={t(i18n)({ message: "Manage where this collection lives and which applications can use it." })}>
+  const place = collection.kind === "hosted" ? collection.detail : `${collection.status} · ${collection.detail}`;
+  return <Page reading title={collection.name} status={<span className="connect-status"><StatusGlyph state={collection.glyph} />{place}</span>} action={editorOrigin && <a className="mdbase-button is-primary" href={editorCollectionUrl(collection.id, editorOrigin)}><Trans>Open in editor</Trans></a>}>
+    {collection.glyph !== "online" && collection.kind !== "native" && <p className="connect-attention"><StatusGlyph state={collection.glyph} /><span>{connectionDescription(collection)}</span></p>}
     <section>
-      <SectionTitle title={t(i18n)({ message: "Storage", context: "Connect interface" })} action={<RouteLink view="storage" collectionId={collection.id} navigate={navigate}>{t(i18n)({ message: "Manage", context: "Connect interface" })}</RouteLink>} />
-      <div className="connect-row connect-storage-summary"><div><strong><Trans>Main copy</Trans></strong><small>{collection.kind === "native" ? t(i18n)({ message: "Stored on your devices", context: "Connect interface" }) : collection.kind === "hosted" ? t(i18n)({ message: "Stored by mdbase", context: "Connect interface" }) : t(i18n)`Stored on ${collection.detail}`}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span></div>
-    </section>
-    <section>
-      <SectionTitle title={t(i18n)({ message: "Application access", context: "Connect interface" })} count={applications.length} action={<RouteLink view="access" collectionId={collection.id} navigate={navigate}>{t(i18n)({ message: "Review all", context: "Connect interface" })}</RouteLink>} />
-      {applications.map((application) => <div className="connect-row connect-application-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0]?.homepage ?? application.installations[0].application_origin)}</small></div><span>{application.installations.length ? t(i18n)({ message: "Access as your account", context: "Connect interface" }) : permissionSummary(application.grants)}</span><RouteLink view="access" collectionId={collection.id} navigate={navigate}>{t(i18n)({ message: "Review", context: "Connect interface" })}</RouteLink></div>)}
+      <SectionTitle title={t(i18n)({ message: "Apps with access to the entire collection", context: "Connect interface" })} />
+      {applications.map((application) => <div className="connect-row connect-application-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0]?.homepage ?? application.installations[0].application_origin)}</small></div><span>{application.installations.length ? t(i18n)({ message: "Access as your account", context: "Connect interface" }) : permissionSummary(application.grants)}</span><ConfirmAction className="danger" label={t(i18n)({ message: "Revoke", context: "Connect interface" })} question={t(i18n)`Revoke ${application.applicationName} access to ${collection.name}?`} confirmLabel={t(i18n)({ message: "Revoke access", context: "Connect interface" })} busy={busy.has(`application-${application.applicationId}`)} onConfirm={() => void perform(`application-${application.applicationId}`, (options) => revokeApplicationGroup(application, management, true, options))} /></div>)}
       {applications.length === 0 && <Empty title={t(i18n)({ message: "No connected applications" })} body={t(i18n)({ message: "Applications appear after you approve access to this collection." })} />}
-    </section>
-    <section><SectionTitle title={t(i18n)({ message: "Your person record", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Use an existing person or create a note</Trans></strong><small><Trans>Link your account to an editable record in this collection. Collection access is approved separately.</Trans></small></div>{editorOrigin && <a href={`${editorSurfaceUrls(collection.id, editorOrigin).settings}#your-person`}><Trans>Choose or create my person record</Trans></a>}</div></section>
-    {collection.kind !== "local" && collection.source.access.can_manage_members && <CollectionSharingPanel key={collection.id} sharingAvailable={sharingAvailable} collection={collection.source} busy={busy} perform={perform} />}
-    <section>
-      <SectionTitle title={t(i18n)({ message: "Connection", context: "Connect interface" })} />
-      <div className="connect-row connect-connection-summary"><div><small>{connectionDescription(collection)}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span></div>
     </section>
   </Page>;
 }
@@ -536,7 +565,7 @@ function Storage({ collection, busy, perform, editorOrigin }: {
   return <Page title={t(i18n)({ message: "Storage & sync", context: "Connect interface" })} intro={t(i18n)`${collection.name} keeps its main copy in a folder on a connected computer.`}>
     <section>
       <SectionTitle title={t(i18n)({ message: "Main copy", context: "Connect interface" })} />
-      <div className="connect-row"><div><strong>{collection.detail}</strong><small><Trans>The folder remains the authority for this collection.</Trans></small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span><a href="mdbase-connect://open"><Trans>Open desktop app</Trans></a></div>
+      <div className="connect-row"><div><strong>{collection.detail}</strong><small><Trans>The folder remains the authority for this collection.</Trans></small></div><span className="connect-status"><StatusGlyph state={collection.glyph} />{collection.status}</span><a href="mdbase-connect://open"><Trans>Open desktop app</Trans></a></div>
       <DesktopRecoveryHelp action={t(i18n)({ message: "open this collection", context: "Connect interface" })} />
     </section>
   </Page>;
@@ -632,7 +661,7 @@ function HostedCollectionRow({ collection, busy, perform, manage, showReplicas =
   const replicas = collection.replicas.filter((replica) => replica.revocation_status !== "revoked");
   return <div className="connect-row connect-collection-row">
     <div><strong>{collection.display_name}</strong><small>{active ? t(i18n)`Hosted by mdbase · ${countLabel(replicas.length, "folder")}` : collection.authority_state === "transferring" ? t(i18n)({ message: "Moving to a computer", context: "Connect interface" }) : t(i18n)({ message: "Main copy moved to a computer" })}</small></div>
-    <span className={`connect-status ${active ? "online" : "idle"}`}><i />{active ? t(i18n)({ message: "Hosted", context: "Connect interface" }) : t(i18n)({ message: "Moved", context: "Connect interface" })}</span>
+    <span className="connect-status"><StatusGlyph state={active ? "online" : "idle"} />{active ? t(i18n)({ message: "Hosted", context: "Connect interface" }) : t(i18n)({ message: "Moved", context: "Connect interface" })}</span>
     <div className="connect-row-actions">
       {manage && <RouteLink view="overview" collectionId={manage.collectionId} navigate={manage.navigate}>{t(i18n)({ message: "Manage", context: "Connect interface" })}</RouteLink>}
       {editorId && editorOrigin && <a href={editorCollectionUrl(editorId, editorOrigin)}><Trans>Open</Trans></a>}
@@ -680,7 +709,7 @@ function Computers({ data, busy, perform }: {
         const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
         return <div className="connect-row" key={connector.id}>
           <div><strong>{connector.name}</strong><small>{countLabel(collections.length, "collection")} · {connector.last_seen_at ? t(i18n)`Seen ${relativeTime(connector.last_seen_at)}` : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</small><small><Trans>Registered {new Date(connector.created_at).toLocaleString()} · ID {connector.id.slice(-8)}</Trans></small></div>
-          <span className={`connect-status ${online ? "online" : "idle"}`}><i />{upgradeRequired ? t(i18n)({ message: "Update required", context: "Connect interface" }) : online ? t(i18n)({ message: "Online", context: "Connect interface" }) : connector.last_seen_at ? t(i18n)({ message: "Offline", context: "Connect interface" }) : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</span>
+          <span className="connect-status"><StatusGlyph state={upgradeRequired ? "attention" : online ? "online" : connector.last_seen_at ? "offline" : "idle"} />{upgradeRequired ? t(i18n)({ message: "Update required", context: "Connect interface" }) : online ? t(i18n)({ message: "Online", context: "Connect interface" }) : connector.last_seen_at ? t(i18n)({ message: "Offline", context: "Connect interface" }) : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</span>
           {upgradeRequired && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Install {connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })}</Trans></a>}
           {!upgradeRequired && updateRecommended && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Update recommended for current policy protection</Trans></a>}
           <div className="connect-row-actions"><InlineRename value={connector.name} inputLabel={t(i18n)`Rename ${connector.name}`} busy={busy.has(`computer-${connector.id}`)} onSubmit={(name) => perform(`computer-${connector.id}`, (options) => management.renameConnector(connector.id, name, options))} /><ConfirmAction className="danger" label={t(i18n)({ message: "Revoke", context: "Connect interface" })} question={t(i18n)`Revoke ${connector.name} and the application grants routed through it?`} confirmLabel={t(i18n)({ message: "Revoke computer", context: "Connect interface" })} busy={busy.has(`computer-${connector.id}`)} onConfirm={() => void perform(`computer-${connector.id}`, (options) => management.revokeConnector(connector.id, options))} /></div>
@@ -693,6 +722,7 @@ function Computers({ data, busy, perform }: {
 }
 
 interface CollectionRowBase {
+  glyph: StatusGlyphState;
   id: string;
   name: string;
   detail: string;
@@ -718,6 +748,7 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
       detail: collection.connector_name,
       status: collection.unavailable_reason === "claimed_by_newer_runtime" ? t(i18n)({ message: "Moved to newer runtime", context: "Connect interface" }) : !collection.enabled ? t(i18n)({ message: "Paused", context: "Connect interface" }) : upgradeRequired ? t(i18n)({ message: "Update required", context: "Connect interface" }) : online ? t(i18n)({ message: "Connected", context: "Connect interface" }) : t(i18n)({ message: "Offline", context: "Connect interface" }),
       available: collection.enabled && online,
+      glyph: (!collection.enabled ? "paused" : upgradeRequired ? "attention" : online ? "online" : "offline") as StatusGlyphState,
       paused: !collection.enabled,
       upgradeRequired,
       kind: "local" as const
@@ -729,6 +760,7 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
     detail: collection.authority_state === "active" ? t(i18n)({ message: "Hosted by mdbase", context: "Connect interface" }) : t(i18n)({ message: "Main copy moved to a computer" }),
     status: collection.authority_state === "active" ? t(i18n)({ message: "Hosted", context: "Connect interface" }) : t(i18n)({ message: "Moved", context: "Connect interface" }),
     available: collection.authority_state === "active",
+    glyph: (collection.authority_state === "active" ? "online" : "idle") as StatusGlyphState,
     kind: "hosted" as const,
     source: collection
   }));
@@ -748,6 +780,7 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
       status,
       // Computer presence is not content readiness, Effective, or an app grant.
       available: false,
+      glyph: (collection.sync !== "cloud_copy" && computer ? isConnectorOnline(computer.last_seen_at) ? "online" : "offline" : "idle") as StatusGlyphState,
       kind: "native" as const,
       source: collection
     };
@@ -757,7 +790,7 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
 
 function CollectionSummary({ collection, navigate, editorOrigin }: { editorOrigin?: string; collection: CollectionRow; navigate(view: ConnectView, collectionId?: string): void }) {
   useLocaleRevision();
-  return <div className="connect-row"><div><strong>{collection.name}</strong><small>{collection.detail}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span><div className="connect-row-actions"><RouteLink view="overview" collectionId={collection.id} navigate={navigate}>{t(i18n)({ message: "Manage", context: "Connect interface" })}</RouteLink>{editorOrigin && <a href={editorCollectionUrl(collection.id, editorOrigin)}><Trans>Open in editor</Trans></a>}</div></div>;
+  return <div className="connect-row"><div><strong>{collection.name}</strong><small>{collection.detail}</small></div><span className="connect-status"><StatusGlyph state={collection.glyph} />{collection.status}</span><div className="connect-row-actions"><RouteLink view="overview" collectionId={collection.id} navigate={navigate}>{t(i18n)({ message: "Manage", context: "Connect interface" })}</RouteLink>{editorOrigin && <a href={editorCollectionUrl(collection.id, editorOrigin)}><Trans>Open in editor</Trans></a>}</div></div>;
 }
 
 function connectionDescription(collection: CollectionRow): string {
@@ -780,16 +813,15 @@ function isConnectorOnline(lastSeenAt: string | null): boolean {
   return lastSeenAt !== null && Date.now() - new Date(lastSeenAt).getTime() < 45_000;
 }
 
-function NavLink({ label, icon, selected, view, collectionId, navigate }: {
+function NavLink({ label, selected, view, collectionId, navigate }: {
   label: string;
-  icon: ReactNode;
   selected: boolean;
   view: ConnectView;
   collectionId?: string;
   navigate(view: ConnectView, collectionId?: string): void;
 }) {
   useLocaleRevision();
-  return <RouteLink className={selected ? "selected" : ""} ariaCurrent={selected ? "page" : undefined} view={view} collectionId={collectionId} navigate={navigate}><span aria-hidden="true">{icon}</span><strong>{label}</strong></RouteLink>;
+  return <RouteLink className={selected ? "selected" : ""} ariaCurrent={selected ? "page" : undefined} view={view} collectionId={collectionId} navigate={navigate}><strong>{label}</strong></RouteLink>;
 }
 
 function RouteLink({ view, collectionId, navigate, children, className = "", ariaCurrent }: {

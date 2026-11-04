@@ -1,3 +1,4 @@
+import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
@@ -96,14 +97,11 @@ export function AccessView({ groups, names, busy, requireApproval, movedWaiting 
                       <small><Trans>Connected {relativeTime(new Date(entry.first_seen_ms).toISOString())}{entry.legacy_only ? t(i18n)({ message: " · older app version", context: "Connect interface" }) : ""}</Trans></small>
                     </div>
                     <div className="decision-actions">
-                      {!entry.acknowledged && <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.acknowledgeAccess(entry.grant))}><Trans>Mark as seen</Trans></button>}
-                      <button className="button secondary danger-text" disabled={busy} onClick={() => {
-                        if (!window.confirm(t(i18n)`Stop ${entry.app_name} from using ${scope(entry, names)} through this computer?`)) return;
-                        void onAct(async () => {
-                          await window.mdbaseConnect.revokeAccess(entry.grant);
-                          onNotice(t(i18n)`${entry.app_name} can no longer use ${scope(entry, names)} through this computer.`);
-                        });
-                      }}><Trans>Revoke</Trans></button>
+                      {!entry.acknowledged && <button className="mdbase-button" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.acknowledgeAccess(entry.grant))}><Trans>Mark as seen</Trans></button>}
+                      <ConfirmAction className="mdbase-button is-danger" busy={busy} label={t(i18n)({ message: "Revoke", context: "Connect interface" })} confirmLabel={t(i18n)({ message: "Revoke access", context: "Connect interface" })} question={t(i18n)`Stop ${entry.app_name} from using ${scope(entry, names)} through this computer?`} onConfirm={() => void onAct(async () => {
+                        await window.mdbaseConnect.revokeAccess(entry.grant);
+                        onNotice(t(i18n)`${entry.app_name} can no longer use ${scope(entry, names)} through this computer.`);
+                      })} />
                     </div>
                   </article>
                 ))}</div>

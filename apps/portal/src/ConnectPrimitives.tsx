@@ -4,9 +4,12 @@ import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { InfoIcon as Info } from "@phosphor-icons/react/Info";
 
-export function ConnectPage({ title, intro, children }: {
+export function ConnectPage({ title, intro, status, action, reading = false, children }: {
   title: string;
-  intro: string;
+  intro?: string;
+  status?: ReactNode;
+  action?: ReactNode;
+  reading?: boolean;
   children: ReactNode;
 }) {
   useLocaleRevision();
@@ -17,8 +20,8 @@ export function ConnectPage({ title, intro, children }: {
     if (main instanceof HTMLElement) main.scrollTo?.({ top: 0 });
     heading.current?.focus({ preventScroll: true });
   }, [title]);
-  return <div className="connect-page">
-    <header><h1 ref={heading} tabIndex={-1}>{title}</h1><span>{intro}</span></header>
+  return <div className={reading ? "connect-page is-reading" : "connect-page"}>
+    <header><div><h1 ref={heading} tabIndex={-1}>{title}</h1>{intro && <span>{intro}</span>}{status}</div>{action}</header>
     {children}
   </div>;
 }
@@ -48,24 +51,6 @@ export function ConnectEmpty({ title, body, action, icon = true }: {
     {icon && <Info aria-hidden="true" />}
     <div><strong>{title}</strong><p>{body}</p>{action}</div>
   </div>;
-}
-
-export function ConfirmAction({ label, question, confirmLabel, busy = false, onConfirm, className = "" }: {
-  label: string;
-  question: string;
-  confirmLabel: string;
-  busy?: boolean;
-  onConfirm(): void;
-  className?: string;
-}) {
-  useLocaleRevision();
-  const [open, setOpen] = useState(false);
-  if (!open) return <button className={className} disabled={busy} onClick={() => setOpen(true)}>{label}</button>;
-  return <span className="connect-confirm-action" role="group" aria-label={question}>
-    <span>{question}</span>
-    <button disabled={busy} onClick={() => setOpen(false)}><Trans>Cancel</Trans></button>
-    <button className={className} disabled={busy} onClick={() => { onConfirm(); setOpen(false); }}>{busy ? `${confirmLabel}…` : confirmLabel}</button>
-  </span>;
 }
 
 export function InlineRename({ value, label, inputLabel, busy = false, onSubmit }: {

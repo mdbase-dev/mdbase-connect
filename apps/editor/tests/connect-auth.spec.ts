@@ -31,7 +31,7 @@ test("Connect opens one themed, accessible auth column at desktop and 390px", as
   await expect(page.locator("h1")).toHaveText("Sign in");
   await expect(page.getByLabel("Email", { exact: true })).toHaveAttribute("autocomplete", "username");
   await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("autocomplete", "current-password");
-  expect(await page.locator(".minimal-auth-shell").evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Atkinson Hyperlegible Next Variable");
+  expect(await page.locator(".minimal-auth-shell").evaluate((element) => getComputedStyle(element).fontFamily)).toContain("IBM Plex Sans");
   await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveClass(/mdbase-button is-primary/);
   for (const theme of ["light", "dark"] as const) {
     await chooseOption(page.getByRole("combobox", { name: "Color theme" }), theme);

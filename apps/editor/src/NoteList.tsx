@@ -225,7 +225,7 @@ function browserCountLabel(noteCount: number, fileCount: number, resultCount: nu
   const notes = plural(noteCount, { one: "# note", other: "# notes" });
   const files = plural(fileCount, { one: "# file", other: "# files" });
   const order = noteSortSummary(sort);
-  return t`${notes} · ${files} · ${order}`;
+  return order ? t`${notes} · ${files} · ${order}` : t`${notes} · ${files}`;
 }
 
 function fileTimestamp(file: CollectionFile): string {

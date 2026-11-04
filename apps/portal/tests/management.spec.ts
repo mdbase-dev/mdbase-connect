@@ -40,7 +40,7 @@ test("manages collections on the portal and links to the configured Editor witho
   await expect(page.getByRole("complementary", { name: "Collection navigation" })).toHaveCount(0);
   await expect(page.getByRole("complementary", { name: "mdbase connect navigation" })).toBeVisible();
   await expect(page.getByText("Account", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open editor" })).toHaveAttribute("href", `http://editor.test/?server=${encodeURIComponent(portalOrigin)}&collection=collection`);
+  await expect(page.getByRole("link", { name: "Open in editor" })).toHaveAttribute("href", `http://editor.test/?server=${encodeURIComponent(portalOrigin)}&collection=collection`);
   await page.getByRole("link", { name: "Storage & sync" }).click();
   expect(new URL(page.url()).pathname).toBe("/storage");
   await expect(page.getByRole("heading", { name: "Storage & sync" })).toBeVisible();
@@ -59,8 +59,8 @@ test("styles footer links and separates account details on desktop and mobile", 
         return { decoration: style.textDecorationLine, display: style.display, font: style.fontFamily,
           separateLines: !name || !email || email.getBoundingClientRect().top >= name.getBoundingClientRect().bottom };
       }));
-      expect(styles).toHaveLength(2);
-      for (const style of styles) { expect(style.decoration).toBe("none"); expect(style.display).toBe("grid"); expect(style.font).toMatch(/Atkinson/); expect(style.separateLines).toBe(true); }
+      expect(styles).toHaveLength(1);
+      for (const style of styles) { expect(style.decoration).toBe("none"); expect(style.display).toBe("grid"); expect(style.font).toMatch(/IBM Plex Sans/); expect(style.separateLines).toBe(true); }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     }
   }
@@ -72,22 +72,16 @@ test("opens Reader's manage-access route on Applications", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Browser sessions" })).toHaveCount(0);
 });
 
-test("gives Connect navigation distinct icons and section counts the UI face", async ({ page }) => {
-  await page.goto(`${portalOrigin}/?collection=collection`);
-  await expect(page.getByRole("heading", { name: "Garden notes" })).toBeVisible();
-  const navigation = page.getByRole("complementary", { name: "mdbase connect navigation" });
-  const icons = await navigation.locator("nav a svg").evaluateAll((elements) => elements.map((element) => element.innerHTML));
-  expect(icons).toHaveLength(7);
-  expect(new Set(icons).size).toBe(7);
-  expect(await navigation.getByRole("link", { name: "Computers", exact: true }).locator("svg").innerHTML()).not.toBe(await navigation.getByRole("link", { name: "Applications", exact: true }).locator("svg").innerHTML());
-  expect(await navigation.getByRole("link", { name: "Account & sessions", exact: true }).locator("svg").innerHTML()).not.toBe(await navigation.getByRole("link", { name: "All collections", exact: true }).locator("svg").innerHTML());
+test("uses the UI face for section counts", async ({ page }) => {
+  await page.goto(`${portalOrigin}/access?collection=collection`);
+  await expect(page.getByRole("heading", { name: "Application access", exact: true })).toBeVisible();
   const count = page.locator(".connect-section-title")
-    .filter({ has: page.getByRole("heading", { name: "Application access", exact: true }) })
+    .filter({ has: page.getByRole("heading", { name: "Connected applications", exact: true }) })
     .locator(":scope > div > span");
   await expect(count).toHaveText("0");
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
-    await expect(count).toHaveCSS("font-family", /Atkinson Hyperlegible Next Variable/);
+    await expect(count).toHaveCSS("font-family", /IBM Plex Sans/);
     await expect(count).toHaveCSS("font-variant-numeric", "tabular-nums");
   }
 });
@@ -97,7 +91,7 @@ test("condenses portal navigation on mobile", async ({ page }) => {
   await page.goto(`${portalOrigin}/?collection=collection`);
 
   await expect(page.getByRole("heading", { name: "Garden notes" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open editor" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open in editor" })).toBeVisible();
   const menu = page.getByRole("button", { name: /Overview.*Open menu/ });
   await expect(menu).toBeVisible();
   await expect(page.getByRole("link", { name: "All collections" })).toBeHidden();
@@ -118,7 +112,7 @@ test("condenses portal navigation on mobile", async ({ page }) => {
   expect(alignment.linkTop).toBeGreaterThanOrEqual(alignment.identityBottom);
 });
 
-test("keeps application summaries and review links separate at narrow widths", async ({ page }) => {
+test("keeps application summaries and revoke actions separate at narrow widths", async ({ page }) => {
   await page.route(`${portalOrigin}/v1/me`, (route) => route.fulfill({
     json: {
       ...overview,
@@ -161,7 +155,7 @@ test("keeps application summaries and review links separate at narrow widths", a
           expect(margin).toBe(32);
         }
       }
-      await expect(page.locator(".connect-connection-summary").getByText("Connected", { exact: true })).toHaveCount(1);
+      await expect(page.locator(".connect-page > header .connect-status")).toHaveText(/^Connected/);
       for (const row of await rows.all()) {
         const layout = await row.evaluate((element) => {
           const rect = element.getBoundingClientRect();
@@ -188,7 +182,11 @@ test("keeps application summaries and review links separate at narrow widths", a
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${colorScheme}/${width}`).toBe(true);
     }
   }
-  await rows.first().getByRole("link", { name: "Review", exact: true }).click();
+  await rows.first().getByRole("button", { name: "Revoke", exact: true }).click();
+  await expect(rows.first().getByRole("group", { name: /^Revoke .+ access to Garden notes\?$/ })).toBeVisible();
+  await rows.first().getByRole("button", { name: "Cancel" }).click();
+  await expect(rows.first().getByRole("button", { name: "Revoke", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "App access", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Application access", exact: true })).toBeVisible();
 });
 
@@ -207,9 +205,8 @@ test("discovers registry-only native collections and reuses the normal invitatio
       : path === "/v1/account/sessions" ? { sessions: [] } : nativeOverview;
     await route.fulfill({ status: route.request().method() === "POST" ? 202 : 200, json });
   });
-  await page.goto(`${portalOrigin}/?collection=${id}`);
+  await page.goto(`${portalOrigin}/access?collection=${id}`);
   await expect(page).not.toHaveURL(/\/collections/);
-  await expect(page.getByRole("heading", { name: "Native garden", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "People & sharing" })).toBeVisible();
   await page.getByRole("button", { name: "Invite person" }).click();
   await page.getByLabel("Email address", { exact: true }).fill("member@example.test");

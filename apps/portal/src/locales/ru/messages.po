@@ -692,7 +692,6 @@ msgid "App key <0>{0}</0>. Your computer will show this key when you approve the
 msgstr "Ключ приложения <0>{0}</0>. При одобрении доступа компьютер покажет вам этот ключ."
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Application access"
 msgstr "Доступ приложений"
@@ -774,6 +773,11 @@ msgstr "Одобрение…"
 msgctxt "Connect interface"
 msgid "Apps"
 msgstr "Приложения"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Apps with access to the entire collection"
+msgstr "Приложения с доступом ко всей коллекции"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -1066,6 +1070,11 @@ msgstr "Коллекции"
 msgid "Collections you own. Local files remain on your devices."
 msgstr "Коллекции, которыми вы владеете. Локальные файлы остаются на ваших устройствах."
 
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Commands"
+msgstr "Команды"
+
 #: src/authority-workflows.tsx
 msgid "Computer approved"
 msgstr "Компьютер одобрен"
@@ -1157,11 +1166,6 @@ msgstr "Подключено"
 msgctxt "Connect interface"
 msgid "Connected applications"
 msgstr "Подключённые приложения"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Connection"
-msgstr "Подключение"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
@@ -1633,6 +1637,10 @@ msgstr "Создание…"
 msgid "GitHub account @{login}"
 msgstr "Учётная запись GitHub @{login}"
 
+#: src/ConnectApp.tsx
+msgid "Go to {label}"
+msgstr "Перейти: {label}"
+
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
@@ -1898,10 +1906,6 @@ msgid "Location"
 msgstr "Расположение"
 
 #: src/ConnectApp.tsx
-msgid "Main copy"
-msgstr "Основная копия"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "Основная копия"
@@ -1960,10 +1964,6 @@ msgstr "управлять таймерами"
 msgctxt "Connect interface"
 msgid "manage types"
 msgstr "управлять типами"
-
-#: src/ConnectApp.tsx
-msgid "Manage where this collection lives and which applications can use it."
-msgstr "Управляйте размещением этой коллекции и доступом приложений к ней."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2310,10 +2310,6 @@ msgstr "Откройте приложение и выберите коллекц
 msgid "Open desktop app"
 msgstr "Открыть настольное приложение"
 
-#: src/ConnectApp.tsx
-msgid "Open editor"
-msgstr "Открыть редактор"
-
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
 msgstr "Открыть редактор <0>↗</0>"
@@ -2324,6 +2320,11 @@ msgid "Open in {0}"
 msgstr "Открыть в {0}"
 
 #: src/ConnectApp.tsx
+msgid "Open in editor"
+msgstr "Открыть в редакторе"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "Открыть в редакторе"
 
@@ -2789,7 +2790,6 @@ msgid "Returning to {applicationName}…"
 msgstr "Возврат в {applicationName}…"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
 msgstr "Проверить"
@@ -2807,11 +2807,6 @@ msgstr "Проверьте запрос {0} для {collectionName}."
 #: src/authorization-view.tsx
 msgid "Review access"
 msgstr "Проверить доступ"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Review all"
-msgstr "Проверить все"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
@@ -2857,6 +2852,12 @@ msgstr "Отозвать"
 msgid "Revoke {0} access to {1} across all its installations?"
 msgstr "Отозвать для {0} доступ к {1} во всех его установках?"
 
+#. placeholder {0}: application.applicationName
+#. placeholder {1}: collection.name
+#: src/ConnectApp.tsx
+msgid "Revoke {0} access to {1}?"
+msgstr "Отозвать доступ {0} к {1}?"
+
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
@@ -2873,6 +2874,7 @@ msgid "Revoke {0}?"
 msgstr "Отозвать доступ для {0}?"
 
 #: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
 msgstr "Отозвать доступ"
@@ -2945,6 +2947,10 @@ msgstr "Планировать фоновую работу"
 #: src/ApplicationAccess.tsx
 msgid "Scope"
 msgstr "Область действия"
+
+#: src/ConnectApp.tsx
+msgid "Search"
+msgstr "Поиск"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
@@ -3155,28 +3161,8 @@ msgstr "Отписаться от писем того типа, к которо�
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Storage"
-msgstr "Хранилище"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Storage & sync"
 msgstr "Хранилище и синхронизация"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored by mdbase"
-msgstr "Хранится в mdbase"
-
-#. placeholder {0}: collection.detail
-#: src/ConnectApp.tsx
-msgid "Stored on {0}"
-msgstr "Хранится на {0}"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored on your devices"
-msgstr "Хранится на ваших устройствах"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3505,6 +3491,11 @@ msgstr "Повторить попытку"
 msgctxt "Connect interface"
 msgid "Two-way sync"
 msgstr "Двусторонняя синхронизация"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "Введите команду"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"

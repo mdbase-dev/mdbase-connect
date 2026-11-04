@@ -233,17 +233,10 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-async function expectSharedSelectControls(scope: Locator, languagePicker = false) {
-  // Product choices use the shared Select. The kit language primitive is native.
+async function expectSharedSelectControls(scope: Locator) {
   const controls = scope.locator('button[role="combobox"].mdbase-select');
   await expect(controls.first()).toBeVisible();
-  await expect(scope.locator("select")).toHaveCount(languagePicker ? 1 : 0);
-  if (languagePicker) {
-    const language = scope.getByRole("combobox", { name: "Interface language", exact: true });
-    await expect(language).toHaveJSProperty("tagName", "SELECT");
-    await expect(language.locator("option")).toHaveCount(10);
-    await expect(language.locator('option[value="it"]')).toHaveText("Italiano");
-  }
+  await expect(scope.locator("select")).toHaveCount(0);
   const audit = await controls.evaluateAll((selects) => selects.map((select) => ({
     hasCaret: Boolean(select.querySelector(".mdbase-select-chevron")),
     listbox: select.getAttribute("aria-haspopup") === "listbox",
@@ -343,7 +336,7 @@ test("uses one fixed-choice control across settings, note creation, and type edi
   await page.goto("?demo=12");
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expectSharedSelectControls(page.locator(".settings-view"), true);
+  await expectSharedSelectControls(page.locator(".settings-view"));
 
   await page.getByRole("button", { name: /^All notes, / }).click();
   await page.getByRole("button", { name: "New note" }).click();
@@ -865,7 +858,7 @@ test("shows the matching note text in sidebar and quick-open search results", as
 
 test("sorts notes and clears the active scope from view options", async ({ page }) => {
   await page.goto("?demo=4");
-  await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files · modified newest");
+  await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files");
 
   await page.getByRole("button", { name: "View options" }).click();
   const menu = page.getByRole("menu", { name: "Note view options" });

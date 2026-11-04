@@ -877,7 +877,7 @@
 
 .approval-page .button.deny-button {
   border-color: transparent;
-  color: var(--danger);
+  color: var(--ink-soft);
   background: transparent;
 }
 
@@ -942,9 +942,8 @@
   border-bottom: 1px solid var(--line);
 }
 
-.desktop-continuation-status .status-dot {
-  margin-top: 0.35rem;
-  background: var(--warning);
+.desktop-continuation-status .status-glyph {
+  margin-top: 0.2rem;
 }
 
 .desktop-continuation-status > div {
