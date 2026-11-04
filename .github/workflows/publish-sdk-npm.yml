@@ -158,6 +158,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && needs.plan.outputs.changed == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
     runs-on: ubuntu-24.04
     environment: npm-sdk
+    outputs:
+      state: ${{ steps.publication.outputs.state }}
     permissions:
       contents: read
       actions: read
@@ -187,15 +189,17 @@ jobs:
         with:
           subject-path: ${{ runner.temp }}/sdk-packages/sdk-production.tgz
       - run: npm install --global npm@11
-      - name: Recheck qualified source, production compatibility and version absence
+      - name: Recheck qualified source, production compatibility and publication state
+        id: publication
         env:
           GH_TOKEN: ${{ github.token }}
           SDK_VERSION: ${{ needs.plan.outputs.version }}
         run: |
           scripts/ci/verify-qualified-commit "$GITHUB_SHA"
           node scripts/continuous-sdk-release.mjs compatible
-          node scripts/continuous-sdk-release.mjs unpublished @mdbase-dev/sdk "$SDK_VERSION"
+          node scripts/continuous-sdk-release.mjs publication-state @mdbase-dev/sdk "$SDK_VERSION"
       - name: Publish the verified production archive with provenance
+        if: steps.publication.outputs.state == 'absent'
         run: npm publish "$RUNNER_TEMP/sdk-packages/sdk-production.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org/ --tag next --provenance
 
   attest-internal:
@@ -240,7 +244,7 @@ jobs:
     # Only after the verified production publish, so a dry or failed
     # run never consumes a prerelease tag.
     needs: [attest-internal, publish, plan]
-    if: github.ref == 'refs/heads/main' && needs.plan.outputs.changed == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
+    if: github.ref == 'refs/heads/main' && needs.plan.outputs.changed == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run) && needs.publish.outputs.state == 'absent'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

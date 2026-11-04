@@ -10,6 +10,7 @@ import { api, gh, git, nextBetaVersion, repository, requireGreenMain, requireRun
 const registry = "https://registry.npmjs.org";
 const readJson = file => JSON.parse(readFileSync(file, "utf8"));
 const sdk = { name: "@mdbase-dev/sdk", directory: "runtime/packages/sdk" };
+const publisherWorkflow = env => env.GITHUB_WORKFLOW === "Publish source-built SDK" ? "publish-sdk-npm.yml" : "publish-npm.yml";
 
 async function registryJson(path) {
   const response = await fetch(`${registry}/${path}`, { redirect: "error", cache: "no-store",
@@ -55,18 +56,25 @@ export function provenanceSource(bundle, baseline, name) {
     identity: `https://github.com/${repository}/.github/workflows/${baseline.workflow}@${workflow.ref}` };
 }
 
-async function published(item, workflow) {
-  const metadata = await registryJson(encodeURIComponent(item.name));
-  const baseline = publicationBaseline(metadata, item, workflow);
-  const attestations = await registryJson(`-/npm/v1/attestations/${encodeURIComponent(item.name)}@${baseline.version}`);
+async function provenSource(name, baseline) {
+  const attestations = await registryJson(`-/npm/v1/attestations/${encodeURIComponent(name)}@${baseline.version}`);
   const proofs = attestations.attestations.filter(item => item.predicateType === "https://slsa.dev/provenance/v1");
   assert.equal(proofs.length, 1, "Exactly one npm provenance attestation is required.");
   const bundle = proofs[0].bundle;
-  const source = provenanceSource(bundle, baseline, item.name);
-  const { verify } = createRequire(new URL("../apps/desktop/package.json", import.meta.url))("sigstore");
+  const source = provenanceSource(bundle, baseline, name);
+  // Publish jobs install no workspace dependencies, so use the sigstore npm signs with.
+  const npm = join(execFileSync("npm", ["root", "--global"], { encoding: "utf8" }).trim(), "npm/package.json");
+  const { verify } = createRequire(npm)("sigstore");
   await verify(bundle, undefined, { certificateIssuer: "https://token.actions.githubusercontent.com",
     certificateIdentityURI: source.identity, tlogThreshold: 1, ctLogThreshold: 1, timeout: 15_000,
     retry: { retries: 0 } });
+  return source;
+}
+
+async function published(item, workflow) {
+  const metadata = await registryJson(encodeURIComponent(item.name));
+  const baseline = publicationBaseline(metadata, item, workflow);
+  const source = await provenSource(item.name, baseline);
   git("fetch", "--no-tags", "origin", source.commit);
   git("merge-base", "--is-ancestor", source.commit, "HEAD");
   return { ...item, ...baseline, commit: source.commit };
@@ -235,8 +243,7 @@ export function packWorkspace(planFile, input, output, env = process.env) {
 export async function compatible(env = process.env) {
   requireRunning(env.SDK_RELEASE_STOPPED);
   assert(["Publish source-built SDK", "Publish npm packages"].includes(env.GITHUB_WORKFLOW));
-  const workflow = env.GITHUB_WORKFLOW === "Publish source-built SDK" ? "publish-sdk-npm.yml" : "publish-npm.yml";
-  assert.equal(api(`actions/workflows/${workflow}`).state, "active", "Client publication workflow has been stopped.");
+  assert.equal(api(`actions/workflows/${publisherWorkflow(env)}`).state, "active", "Client publication workflow has been stopped.");
   return verifyCompatibility(env);
 }
 
@@ -246,7 +253,7 @@ export async function publishWorkspace(planFile, directory, env = process.env) {
   assert.equal(record.kind, "workspace");
   for (const item of record.packages) {
     await compatible(env);
-    await requireUnpublished(item.name, item.version);
+    if (await publicationState(item.name, item.version, env) === "published") continue;
     const filename = `${item.name.replace(/^@/, "").replace("/", "-")}-${item.version}.tgz`;
     const archive = resolve(directory, filename);
     const manifest = JSON.parse(execFileSync("tar", ["-xOf", archive, "package/package.json"], { encoding: "utf8" }));
@@ -257,12 +264,23 @@ export async function publishWorkspace(planFile, directory, env = process.env) {
   }
 }
 
-export async function requireUnpublished(name, version) {
+// A run queued behind another for the same commit can plan while npm still
+// hides the version. Only 404 may publish, and only this commit's verified
+// provenance may stand down; anything else stays for owner review.
+export async function publicationState(name, version, env = process.env, prove = provenSource) {
   assert.match(name, /^@mdbase-dev\/[a-z0-9-]+$/);
   assert.match(version, /^0\.1\.0-beta\.[1-9][0-9]*$/);
+  assert.match(env.GITHUB_SHA ?? "", /^[a-f0-9]{40}$/);
   const response = await fetch(`${registry}/${encodeURIComponent(name)}/${version}`, {
     redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30_000) });
-  assert.equal(response.status, 404, `Expected proven npm version absence; HTTP ${response.status} requires owner review.`);
+  if (response.status === 404) return "absent";
+  assert.equal(response.status, 200, `Expected npm version absence or proven publication; HTTP ${response.status} requires owner review.`);
+  const entry = await response.json();
+  assert.equal(entry.name, name);
+  assert.equal(entry.version, version);
+  const source = await prove(name, { version, entry, workflow: publisherWorkflow(env) });
+  assert.equal(source.commit, env.GITHUB_SHA, `${name}@${version} came from another commit; owner review required.`);
+  return "published";
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
@@ -272,6 +290,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   else if (command === "pack-workspace") packWorkspace(...args);
   else if (command === "publish-workspace") await publishWorkspace(...args);
   else if (command === "compatible") await compatible();
-  else if (command === "unpublished") await requireUnpublished(...args);
-  else throw new Error("Expected plan, prepare-source, pack-workspace, publish-workspace, compatible or unpublished.");
+  else if (command === "publication-state") {
+    const state = await publicationState(...args);
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `state=${state}\n`);
+    console.log(`${args[0]}@${args[1]}: ${state}`);
+  } else throw new Error("Expected plan, prepare-source, pack-workspace, publish-workspace, compatible or publication-state.");
 }

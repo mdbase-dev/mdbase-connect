@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { contentChanged, dependentPackages, failedPublisherRuns, packageInputs, publicationBaseline, provenanceSource, qualifyWorkspace } from "../continuous-sdk-release.mjs";
+import { contentChanged, dependentPackages, failedPublisherRuns, packageInputs, publicationBaseline, publicationState, provenanceSource, qualifyWorkspace } from "../continuous-sdk-release.mjs";
 import { publicPackages } from "../public-packages.mjs";
 
 const name = "@mdbase-dev/sdk";
@@ -247,4 +247,32 @@ test("automatic publishers keep isolated OIDC, source qualification and explicit
   const mainPush = runtime.split("  push:\n")[1].split("  workflow_dispatch:")[0];
   assert.match(mainPush, /branches: \[main\]/);
   assert.doesNotMatch(mainPush, /paths(?:-ignore)?:/);
+});
+
+test("a run queued behind the same commit's publication stands down; other outcomes stay for review", async t => {
+  const name = "@mdbase-dev/sdk";
+  const version = "0.1.0-beta.154";
+  const commit = "091d912babeacbba88661f7ce4b96081658376af";
+  const env = { GITHUB_SHA: commit, GITHUB_WORKFLOW: "Publish source-built SDK" };
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  const registry = status => { globalThis.fetch = async () => ({ status, json: async () => ({ name, version }) }); };
+  const proving = source => async (_, baseline) => {
+    assert.equal(baseline.workflow, "publish-sdk-npm.yml");
+    return { commit: source };
+  };
+
+  // Run 41902147578 planned on a 404, then its recheck read 200 for run 41901606853's publication.
+  registry(200);
+  assert.equal(await publicationState(name, version, env, proving(commit)), "published");
+  registry(404);
+  assert.equal(await publicationState(name, version, env, async () => assert.fail("absence needs no proof")), "absent");
+
+  registry(200);
+  await assert.rejects(publicationState(name, version, env, proving("a".repeat(40))), /another commit/);
+  await assert.rejects(publicationState(name, version, env, async () => { throw new Error("Exactly one npm provenance attestation is required."); }), /provenance/);
+  for (const status of [401, 403, 429, 500, 503]) {
+    registry(status);
+    await assert.rejects(publicationState(name, version, env, proving(commit)), new RegExp(`HTTP ${status} requires owner review`));
+  }
 });
