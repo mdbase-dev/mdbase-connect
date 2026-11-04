@@ -54,6 +54,7 @@ export async function readProductionRelease(fetchImpl = globalThis.fetch) {
   }
   const provider = await get(providerOrigin, "/ready");
   if (provider?.status !== "ready" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(provider.provider?.version ?? "") ||
+      !/^[0-9a-f]{40}$/.test(provider.provider?.revision ?? "") ||
       provider.notifications?.recovery !== "ok" || provider.notifications?.consecutive_failures !== 0 ||
       !Array.isArray(provider.provider?.capabilities) ||
       !provider.provider.capabilities.every((item) => typeof item === "string") ||
@@ -64,7 +65,7 @@ export async function readProductionRelease(fetchImpl = globalThis.fetch) {
   if (mcp?.ok !== true || mcp.service !== "mdbase-mcp" || mcp.revision !== connect.revision) {
     throw new Error("Canonical production MCP identity is absent or mismatched.");
   }
-  return { sha: connect.revision, version: provider.provider.version };
+  return { sha: connect.revision, version: provider.provider.version, providerSha: provider.provider.revision };
 }
 
 export function verifyRemotePublicationTag({ ref, version, sha }, api) {

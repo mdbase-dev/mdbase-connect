@@ -69,7 +69,7 @@ All plan/build transfers belong to this run and identify its exact SHA.
 
 `continuous-client-release.mjs` retains the fixed production Connect/MCP and
 provider readiness observations. It proves compatibility independently against
-Connect/MCP's revision and the provider version's protected annotated server tag:
+Connect/MCP's revision and the revision the provider reports in `/ready`:
 each must contain the client commit, or its exact tree diff to the client must
 be off the contract axis. Unknown paths, authorization/protocol, server, shared
 runtime, dependency-lock and trust changes fail closed. Only documentation/tests,
