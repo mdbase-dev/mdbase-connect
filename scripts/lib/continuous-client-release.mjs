@@ -65,7 +65,7 @@ export async function verifyCompatibility(env = process.env) {
   git("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main");
   git("merge-base", "--is-ancestor", candidate, "origin/main");
   const production = await readProductionRelease();
-  const provider = remoteTagCommit(`v${production.version}`);
+  const provider = production.providerSha;
   git("fetch", "--no-tags", "origin", production.sha);
   git("fetch", "--no-tags", "origin", provider);
   const evidence = proveCompatibility(candidate, production.sha);

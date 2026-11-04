@@ -8,7 +8,7 @@ const source = { event: "workflow_dispatch", ref: "refs/tags/v0.1.0-beta.96", sh
 const responses = [
   { ok: true, service: "mdbase-connect", revision: sha, environment: "production", public_origin: "https://connect.mdbase.dev", protocol_version: 1, capabilities: ["application-authorization-v2-issuance"] },
   { ok: true, service: "mdbase-connect" },
-  { status: "ready", provider: { version: source.version, capabilities: ["application-authorization-v2-issuance"] }, notifications: { recovery: "ok", consecutive_failures: 0 } },
+  { status: "ready", provider: { version: source.version, revision: "c".repeat(40), capabilities: ["application-authorization-v2-issuance"] }, notifications: { recovery: "ok", consecutive_failures: 0 } },
   { ok: true, service: "mdbase-mcp", revision: sha }
 ];
 function fakeFetch(values = structuredClone(responses)) {

@@ -36,6 +36,7 @@ async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
         "status": "ready",
         "provider": {
             "version": env!("CARGO_PKG_VERSION"),
+            "revision": std::env::var("RENDER_GIT_COMMIT").ok(),
             "capabilities": capabilities,
             "contract_support": mdbase_connect_protocol::ConnectContractSupport::default(),
         },
