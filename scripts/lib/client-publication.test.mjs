@@ -97,6 +97,10 @@ test("client release GitHub reads can hold the full paginated release list", asy
   assert.match(source, /execFileSync\("gh", args, \{ encoding: "utf8", maxBuffer: 256 \* 1024 \* 1024 \}\)/);
 });
 
+test("contract-sensitive commits get images of their own", async () => {
+  assert.match(await workflow("publish-images"), /&& ! node scripts\/client-contract-changed\.mjs "\$parent" "\$SOURCE_COMMIT"/);
+});
+
 test("Editor publishes only through the native dispatch path; main never deploys", async () => {
   const text = await workflow("editor-pages");
   // Main's Editor is the native one: the legacy main/tag Pages jobs are gone, so no

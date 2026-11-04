@@ -136,7 +136,8 @@ jobs:
             services/server \
             scripts/deploy-editor-dev.mjs \
             scripts/lib/upgrade-release-identity.test.mjs \
-            scripts/lib/upgrade-test-contract.test.mjs
+            scripts/lib/upgrade-test-contract.test.mjs \
+            && ! node scripts/client-contract-changed.mjs "$parent" "$SOURCE_COMMIT"
           then
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
