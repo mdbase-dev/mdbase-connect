@@ -124,6 +124,7 @@ pub fn type_def(t: &TypeDef) -> Value {
         "merge": t.merge,
         "link_fields": t.link_fields.keys().collect::<Vec<_>>(),
         "path_pattern": t.path_pattern,
+        "path_fields": t.path_policy.as_ref().map(|p| &p.fields),
         "raw": from_core(&CoreValue::Map(t.raw.clone())),
     })
 }

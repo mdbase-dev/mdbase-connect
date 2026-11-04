@@ -145,7 +145,8 @@ fn record_types(catalog: &Catalog, record: RecordSource<'_>) -> (Map, Vec<String
     let doc = crate::doc::Document::parse_at(record.path, record.source);
     let frontmatter = doc.frontmatter().clone();
     let types = catalog.membership(record.path, &frontmatter).types;
-    (frontmatter, types)
+    let values = catalog.record_values(record.path, &types, &frontmatter);
+    (values, types)
 }
 
 fn invalid_view(issues: Vec<Issue>) -> Rejection {
@@ -169,7 +170,7 @@ pub fn contract_record(
 ) -> Result<ContractRecord, Rejection> {
     let (frontmatter, types) = record_types(catalog, record);
     let (contract, implementation) = select(catalog, selector, Some(&types))?;
-    let effective = catalog.effective_frontmatter(&types, &frontmatter);
+    let effective = catalog.effective_values(record.path, &types, &frontmatter);
     let fields = implementation
         .view(contract, &effective)
         .map_err(invalid_view)?;
@@ -394,13 +395,33 @@ pub fn contract_write_promoting(
         }
     }
     for rf in removals {
+        if let Some(field) = crate::types::top_level_field(rf)
+            && catalog
+                .type_named(&implementation.type_name)
+                .and_then(|t| t.path_policy.as_ref())
+                .is_some_and(|p| p.fields.contains(&field))
+        {
+            let mut r = reject(
+                RejectCode::InvalidRequest,
+                "path_value_missing",
+                "a path-stored field cannot be unset",
+            );
+            r.details = Some(Value::Map(
+                [("field".into(), Value::string(field))]
+                    .into_iter()
+                    .collect(),
+            ));
+            return Err(r);
+        }
         crate::lifecycle::set_field(&mut after, rf, None).map_err(field_error)?;
         note_nested(rf, &mut merged);
     }
     // Validate the contract view the write would leave.
     let types = match (&current, record) {
-        (Some(_), Some(r)) => {
-            let types = catalog.membership(r.path, &after).types;
+        (Some((_, before_types)), Some(r)) => {
+            let mut raw_after = after.clone();
+            super::records::strip_path_fields(catalog, before_types, &mut raw_after);
+            let types = catalog.membership(r.path, &raw_after).types;
             if !types.contains(&implementation.type_name) {
                 return Err(reject(
                     RejectCode::InvalidRequest,

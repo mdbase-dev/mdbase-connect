@@ -102,6 +102,7 @@ mod bases;
 mod client_versions;
 mod cloud_copy_transition;
 mod collection_setup;
+mod path_fields;
 mod private_switch;
 mod private_switch_crypto;
 mod receipt_fanout;

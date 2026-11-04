@@ -222,6 +222,8 @@ pub struct TypeDef {
     pub read_defaults: Map,
     /// `collection.path.pattern`.
     pub path_pattern: Option<String>,
+    /// Checked reversible path policy (including stored field names).
+    pub path_policy: Option<crate::paths::fields::PathPolicy>,
     /// `lifecycle.on_create` / `on_update`.
     pub lifecycle: BTreeMap<LifecycleEvent, Vec<LifecycleAction>>,
     /// The whole type-file frontmatter.
@@ -765,6 +767,85 @@ impl Catalog {
         out
     }
 
+    /// Persisted record values: raw frontmatter overlaid by the current path.
+    /// Membership MUST be computed from raw frontmatter before calling this.
+    pub fn record_values(&self, path: &str, types: &[String], raw: &Map) -> Map {
+        self.record_values_with_issues(path, types, raw).0
+    }
+
+    /// Persisted values plus path-storage diagnostics.
+    pub fn record_values_with_issues(
+        &self,
+        path: &str,
+        types: &[String],
+        raw: &Map,
+    ) -> (Map, Vec<Issue>) {
+        let mut out = raw.clone();
+        let mut issues = Vec::new();
+        let mut seen: BTreeMap<String, Option<Value>> = BTreeMap::new();
+        for t in types.iter().filter_map(|n| self.type_named(n)) {
+            let Some(policy) = &t.path_policy else {
+                continue;
+            };
+            let decoded = policy.decode(path);
+            for field in &policy.fields {
+                if raw.contains_key(field) && !seen.contains_key(field) {
+                    issues.push(
+                        Issue::new(
+                            "path_field_in_frontmatter",
+                            Severity::Warning,
+                            Tier::SingleRecord,
+                            format!("path-stored field `{field}` is also in frontmatter"),
+                        )
+                        .at(format!("/{field}"))
+                        .with_type(&t.name),
+                    );
+                }
+                if decoded
+                    .as_ref()
+                    .is_some_and(|d| d.inconsistent.contains(field))
+                {
+                    issues.push(
+                        Issue::new(
+                            "path_value_inconsistent",
+                            Severity::Warning,
+                            Tier::SingleRecord,
+                            format!("path occurrences of `{field}` are inconsistent"),
+                        )
+                        .at(format!("/{field}"))
+                        .with_type(&t.name),
+                    );
+                }
+                let value = decoded.as_ref().and_then(|d| d.values.get(field)).cloned();
+                if let Some(first) = seen.get(field) {
+                    if first != &value {
+                        issues.push(
+                            Issue::new(
+                                "type_conflict",
+                                Severity::Error,
+                                Tier::Request,
+                                format!("types disagree on path-stored field `{field}`"),
+                            )
+                            .with_type(&t.name),
+                        );
+                    }
+                    continue;
+                }
+                seen.insert(field.clone(), value.clone());
+                out.remove(field);
+                if let Some(value) = value {
+                    out.insert(field, value);
+                }
+            }
+        }
+        (out, issues)
+    }
+
+    /// Read values, with defaults layered only after persisted path values.
+    pub fn effective_values(&self, path: &str, types: &[String], raw: &Map) -> Map {
+        self.effective_frontmatter(types, &self.record_values(path, types, raw))
+    }
+
     /// Whether every one of `types` (at least one) declares `format:
     /// date-time` for the frontmatter location `location` (object keys, `"[]"`
     /// for an array item). CEL binds such strings as timestamps (spec 10
@@ -1235,6 +1316,24 @@ fn load_type(
             );
         }
     }
+    if let Some(Value::Map(policy)) = fm.get("collection").and_then(|c| c.get("path")) {
+        for key in policy
+            .keys()
+            .filter(|k| !matches!(*k, "pattern" | "fields") && !k.starts_with("x-"))
+        {
+            issues.push(
+                Issue::new(
+                    "unknown_path_key",
+                    Severity::Warning,
+                    Tier::Request,
+                    format!("unknown collection.path key `{key}`"),
+                )
+                .at(path)
+                .with_type(name)
+                .with_details(map([("key", Value::string(key))])),
+            );
+        }
+    }
     match parse_type_body(path, name, fm, resources) {
         Ok(t) => Some(t),
         Err((code, msg)) => {
@@ -1369,11 +1468,66 @@ fn parse_type_body(
         Some(Value::Map(m)) => m.clone(),
         _ => Map::new(),
     };
+    if let Some(path) = coll.get("path") {
+        if !matches!(path, Value::Map(_)) {
+            return Err(bad("collection.path must be a mapping"));
+        }
+        if path.get("pattern").is_some_and(|v| v.as_str().is_none()) {
+            return Err(bad("collection.path.pattern must be a string"));
+        }
+    }
     let path_pattern = coll
         .get("path")
         .and_then(|p| p.get("pattern"))
         .and_then(Value::as_str)
         .map(str::to_owned);
+    let path_fields = match coll.get("path").and_then(|p| p.get("fields")) {
+        None => Vec::new(),
+        Some(Value::List(fields)) => {
+            let mut names = Vec::new();
+            for field in fields {
+                let f = field
+                    .as_str()
+                    .filter(|f| !f.is_empty())
+                    .ok_or_else(|| bad("path.fields must contain top-level field names"))?;
+                if names.iter().any(|n| n == f) {
+                    return Err(bad("duplicate path field"));
+                }
+                if schema_at(&schema_document, &schema_entry, &[f])
+                    .and_then(|s| s.get("type"))
+                    .and_then(Value::as_str)
+                    != Some("string")
+                {
+                    return Err(bad(format!("path field `{f}` must declare type: string")));
+                }
+                names.push(f.to_owned());
+            }
+            names
+        }
+        Some(_) => return Err(bad("path.fields must be a list")),
+    };
+    if !path_fields.is_empty() && path_pattern.is_none() {
+        return Err(bad("path.fields requires a pattern"));
+    }
+    let path_policy = path_pattern
+        .as_ref()
+        .map(|pattern| {
+            let policy = crate::paths::fields::PathPolicy::new(pattern, path_fields)
+                .map_err(|_| bad("invalid path pattern"))?;
+            for f in policy.formatted_fields() {
+                if schema_at(&schema_document, &schema_entry, &[f])
+                    .and_then(|s| s.get("format"))
+                    .and_then(Value::as_str)
+                    != Some("date")
+                {
+                    return Err(bad(format!(
+                        "formatted path field `{f}` must declare format: date"
+                    )));
+                }
+            }
+            Ok(policy)
+        })
+        .transpose()?;
     let mut lifecycle = BTreeMap::new();
     if let Some(l) = fm.get("lifecycle") {
         let Value::Map(l) = l else {
@@ -1403,6 +1557,7 @@ fn parse_type_body(
         link_fields,
         read_defaults,
         path_pattern,
+        path_policy,
         lifecycle,
         raw: fm.clone(),
     })

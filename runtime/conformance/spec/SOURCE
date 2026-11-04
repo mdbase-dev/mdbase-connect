@@ -1,13 +1,14 @@
 # Vendored by scripts/sync-spec-fixtures.sh. Do not edit the files by hand.
 repository: mdbase-dev/mdbase-spec (MIT License)
 branch: main
-commit: 2be70152c0d966d87e40d0a2ddca14de361f7a97
+commit: 329c8b41e2292b3798556b489430d7bf50d2dc59
 files:
-  968909b719bc468fa80a10952304f80cd0f89312e98576f0c4e78116c074bfec  tests/v0.3/README.md
+  d5b0111b29dd942f4676da01eba3ac0caa27fcbd82350b11154300f301073115  tests/v0.3/README.md
   55eef234a2265d09331ce422d0522cad958531e5c90b514e628c28fdb94bb030  tests/v0.3/merge/merge.yaml
   36766a317ba96d2091761d36f0c1660bb957f602e6422d94bf20fccd048bc3a6  tests/v0.3/merge/body-edits.yaml
   ed4a1f968838bab41ff43be7d02a8ca1254cd569535c7b56b845577c6c015ba8  tests/v0.3/cel/regex-profile.yaml
   5a3a1ebdfcc0670d8bf0134f4bb0f81c902037a18866c9e0f9159c98a6687e12  tests/v0.3/core/paths.yaml
+  7e854f571857c675e173bb48e40a840a352319451a904117d17ce7ffe3f03a23  tests/v0.3/core/path-fields.yaml
   83690fae688ddefbb4f2bbe5544534d80f7ff58b00a7b19c294ff7683c70ec99  tests/v0.3/core/link-ambiguity.yaml
   81b0b6eee42d3b4cfe6a870a33e477a8aaeaa1002d70fcba6c2b7b36abdf1d70  tests/v0.3/core/rename-references.yaml
   313edf263d6f1daa7cbd9e35d21f4126cfd328c395fa982779ea54c8e1275d54  tests/v0.3/core/links-and-discovery.yaml

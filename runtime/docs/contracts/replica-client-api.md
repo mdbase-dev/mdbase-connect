@@ -124,7 +124,7 @@ record-view = {
   0: uuid,               ; id
   1: path,
   2: hash,               ; revision of the exact bytes
-  3: fm-map,             ; frontmatter (persisted)
+  3: fm-map,             ; frontmatter (persisted logical values, including decoded path fields)
   ? 4: fm-map,           ; effective_frontmatter (spec 03; on request)
   ? 5: tstr,             ; body (on request)
   ? 6: tstr,             ; document: exact source (on request)

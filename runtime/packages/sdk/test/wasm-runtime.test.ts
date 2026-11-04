@@ -21,6 +21,41 @@ if (!WebAssembly.Module.exports(mod).some(e => e.name === "rt_info") ||
 }
 
 describe("runtime.wasm", () => {
+  it("creates and moves path-stored values through the real SDK and WASM planner", async () => {
+    const rt = await WasmRuntime.instantiate(readFileSync(path));
+    rt.open({collection: uuidv7(), replicaId: uuidv7(), deviceId: uuidv7(), mode: "local_only", signSecretKey: crypto.getRandomValues(new Uint8Array(32)), kemSecretKey: crypto.getRandomValues(new Uint8Array(32))});
+    const c = await connect({app: {name: "path-fields", version: "1"}, connector: inProcessConnector(rt), reconnect: false});
+    try {
+      await c.resources.put("_types/task.md", `---
+kind: mdbase.type
+name: task
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [title]
+    properties:
+      title: {type: string}
+collection:
+  path:
+    pattern: 'tasks/{title}.md'
+    fields: [title]
+---
+`);
+      const created = await c.create({type: "task", frontmatter: {title: "Old?"}});
+      expect(created.records).toHaveLength(1);
+      const seen = await c.get(created.records[0]!.id, {document: true});
+      expect(seen.path).toBe("tasks/Old.md");
+      expect(seen.frontmatter.get("title")).toBe("Old");
+      expect(seen.document).not.toContain("title:");
+      const updated = await c.update(seen, {patch: {title: "New"}, updateRefs: false});
+      expect(updated.records[0]!.path).toBe("tasks/New.md");
+      const after = await c.get(seen.id, {document: true});
+      expect(after.frontmatter.get("title")).toBe("New");
+      expect(after.document).not.toContain("title:");
+    } finally {c.close(); rt.dispose();}
+  });
+
   it("reports info for the shared-runtime registry", async () => {
     const rt = await WasmRuntime.instantiate(readFileSync(path));
     const info = rt.info();

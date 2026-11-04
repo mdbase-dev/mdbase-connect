@@ -181,7 +181,9 @@ describe("writes", () => {
     const rec = replica.seed({ path: "n.md", frontmatter: { status: "open", n: 1 }, body: "hello world" });
     const c = await client();
     const seen = await c.get(rec.id, { body: true });
-    const op = c.updateOp(seen, { patch: { status: "done", n: 1 }, body: "hello brave world" });
+    const op = c.updateOp(seen, { patch: { status: "done", n: 1 }, body: "hello brave world", updateRefs: false });
+    expect(op.updateRefs).toBe(false);
+    expect(c.updateOp(seen, {patch: {status: "done"}}).updateRefs).toBeUndefined();
     expect(op.base).toEqual([{ key: "status", observed: "open" }]);
     expect([...op.patch!.keys()]).toEqual(["status"]); // unchanged n dropped
     expect(op.bodyEdits).toEqual([[6, 6, "brave "]]);

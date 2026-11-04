@@ -362,6 +362,7 @@ pub fn corpus_ops(spec: &Spec, config: Option<&str>) -> CorpusOps {
 /// A field update op.
 pub fn set_field(id: B16, key: &str, value: &str) -> Op {
     Op::Update(Update {
+        update_refs: None,
         id,
         patch: Some(DataMap(
             [(key.to_string(), Value::Text(value.into()))]

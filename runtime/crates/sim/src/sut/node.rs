@@ -795,6 +795,7 @@ impl Node {
                 let status = ["open", "doing", "done"][w.rng.index(3)];
                 (
                     Op::Update(Update {
+                        update_refs: None,
                         id: r.id,
                         patch: Some(DataMap(vec![(tag("status"), Value::Text(status.into()))])),
                         unset: None,

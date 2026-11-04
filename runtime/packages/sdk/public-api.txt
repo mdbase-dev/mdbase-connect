@@ -4871,7 +4871,7 @@ OfflineShellManifest@offline-shell-worker.ts
   version: string
 
 Op@wire.ts
-  = { kind: 'create'; id: Uuid; path?: string; type?: string; frontmatter?: FmMap; body?: string; document?: string; } | { kind: 'update'; id: Uuid; patch?: FmMap; unset?: string[]; add?: Map<string, Value[]>; remove?: Map<string, Value[]>; body?: string; bodyEdits?: BodyEdit[]; bodyBase?: Hash; bodyBaseText?: string; base?: BaseField[]; ifRevision?: Hash; } | { kind: 'document'; id: Uuid; base?: DocVersion; new?: DocVersion; ifRevision?: Hash; } | { kind: 'delete'; id: Uuid; baseRevision?: Hash; ifRevision?: Hash; } | { kind: 'rename'; id: Uuid; from: string; to: string; updateRefs: boolean; ifRevision?: Hash; } | { kind: 'resource_put'; path: string; doc: string; baseRevision?: Hash; mustNotExist?: boolean; } | { kind: 'resource_delete'; path: string; baseRevision?: Hash; } | { kind: 'file_put'; id: Uuid; path: string; blob: BlobRef; ifRevision?: Hash; base?: Hash; } | { kind: 'file_delete'; id: Uuid; ifRevision?: Hash; base?: Hash; } | { kind: 'file_move'; id: Uuid; from: string; to: string; updateRefs: boolean; ifRevision?: Hash; } | { kind: 'conflict_dismiss'; mutation: Uuid; record: Uuid; } | { kind: 'sync_settings'; inclusion: FileInclusion; }
+  = { kind: 'create'; id: Uuid; path?: string; type?: string; frontmatter?: FmMap; body?: string; document?: string; } | { kind: 'update'; id: Uuid; patch?: FmMap; unset?: string[]; add?: Map<string, Value[]>; remove?: Map<string, Value[]>; body?: string; bodyEdits?: BodyEdit[]; bodyBase?: Hash; bodyBaseText?: string; base?: BaseField[]; ifRevision?: Hash; updateRefs?: boolean; } | { kind: 'document'; id: Uuid; base?: DocVersion; new?: DocVersion; ifRevision?: Hash; } | { kind: 'delete'; id: Uuid; baseRevision?: Hash; ifRevision?: Hash; } | { kind: 'rename'; id: Uuid; from: string; to: string; updateRefs: boolean; ifRevision?: Hash; } | { kind: 'resource_put'; path: string; doc: string; baseRevision?: Hash; mustNotExist?: boolean; } | { kind: 'resource_delete'; path: string; baseRevision?: Hash; } | { kind: 'file_put'; id: Uuid; path: string; blob: BlobRef; ifRevision?: Hash; base?: Hash; } | { kind: 'file_delete'; id: Uuid; ifRevision?: Hash; base?: Hash; } | { kind: 'file_move'; id: Uuid; from: string; to: string; updateRefs: boolean; ifRevision?: Hash; } | { kind: 'conflict_dismiss'; mutation: Uuid; record: Uuid; } | { kind: 'sync_settings'; inclusion: FileInclusion; }
 
 OpenConfig@runtime/wasm.ts
   collection: string
@@ -5788,6 +5788,7 @@ UpdateInput@client.ts
   promote?: boolean | undefined
   remove?: { [field: string]: PlainValue[]; } | undefined
   unset?: string[] | undefined
+  updateRefs?: boolean | undefined
 
 UpdateKind@wire.ts
   = 'snapshot' | 'diff' | 'reset'

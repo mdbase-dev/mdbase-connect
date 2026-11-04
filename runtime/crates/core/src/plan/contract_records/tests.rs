@@ -49,6 +49,44 @@ fn record() -> RecordSource<'static> {
 }
 
 #[test]
+fn path_stored_contract_fields_are_read_and_mapped_as_persisted_values() {
+    let source = "---\nkind: mdbase.type\nname: card\nmatch: {path_glob: 'cards/*.md'}\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    required: [title]\n    properties:\n      title: {type: string}\ncollection:\n  path:\n    pattern: 'cards/{title}.md'\n    fields: [title]\nimplements:\n  - contract: acme.card\n    version: '^1.0.0'\n    fields: {'/name': '/title'}\n---\n";
+    let c = Catalog::load([
+        ("mdbase.yaml", "spec_version: '0.3.0'\n"),
+        ("_contracts/card.md", CONTRACT),
+        ("_types/card.md", source),
+    ]);
+    assert!(c.issues().is_empty(), "{:?}", c.issues());
+    let record = RecordSource {
+        path: "cards/Old.md",
+        source: "body",
+    };
+    assert_eq!(
+        contract_record(&c, &selector(None), record).unwrap().fields,
+        fields("{name: Old}")
+    );
+    let w = contract_write(
+        &c,
+        &selector(None),
+        Some(record),
+        &fields("{name: New}"),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(w.patch, fields("{title: New}"));
+    assert!(w.unset.is_empty());
+    let err = contract_write(
+        &c,
+        &selector(None),
+        Some(record),
+        &Map::new(),
+        &["/name".into()],
+    )
+    .unwrap_err();
+    assert_eq!(err.reason.as_deref(), Some("path_value_missing"));
+}
+
+#[test]
 fn reads_and_writes_through_the_mapping_merging_nested_fields() {
     let c = catalog(&["card"]);
     let view = contract_record(&c, &selector(None), record()).unwrap();

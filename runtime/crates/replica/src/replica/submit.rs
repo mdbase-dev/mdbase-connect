@@ -606,13 +606,16 @@ pub(crate) fn record_view(
 ) -> RecordView {
     let doc = mdbn_core::doc::Document::parse_at(path, source);
     let types = catalog.membership(path, doc.frontmatter()).types;
+    let values = catalog.record_values(path, &types, doc.frontmatter());
     RecordView {
         id: *id,
         path: path.to_string(),
         revision: mdbn_wire::hash::sha256(source.as_bytes()),
-        frontmatter: convert::wmap(doc.frontmatter()),
+        frontmatter: convert::wmap(&values),
         effective: if include.effective == Some(true) {
-            Some(convert::wmap(doc.frontmatter()))
+            Some(convert::wmap(
+                &catalog.effective_frontmatter(&types, &values),
+            ))
         } else {
             None
         },

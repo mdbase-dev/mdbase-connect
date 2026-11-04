@@ -1413,6 +1413,7 @@ fn cloud_copy_grants_use_the_grant_op() {
     let r = s.check_entry_payload_by(&payload(Some(g), vec![fput("img/x.png", 4)], 1), &ctx);
     assert!(r.is_err(), "{r:?}");
     let upd = Op::Update(Update {
+        update_refs: None,
         id: B16([3; 16]),
         patch: None,
         unset: None,

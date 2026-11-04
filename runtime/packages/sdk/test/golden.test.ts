@@ -30,6 +30,15 @@ const formats = readdirSync(root).filter((f) => statSync(join(root, f)).isDirect
 // those codecs below, which also covers the untyped profile round trip.
 const TYPED_FORMATS = new Set(["client", "mutation", "value"]);
 
+describe("path-stored update wire option", () => {
+  it.each([true, false, undefined])("round-trips optional updateRefs: %s", updateRefs => {
+    const op: w.Op = {kind: "update", id: "0192f3a4-6000-7abc-8def-0123456789ab", patch: new Map([["title", "New"]])};
+    if (updateRefs !== undefined) op.updateRefs = updateRefs;
+    const decoded = w.op.dec(decode(encode(w.op.enc(op))));
+    expect(decoded).toEqual(op);
+  });
+});
+
 describe("profile: every positive fixture round-trips", () => {
   for (const fmt of formats.filter((f) => !TYPED_FORMATS.has(f))) {
     for (const file of readdirSync(join(root, fmt))) {

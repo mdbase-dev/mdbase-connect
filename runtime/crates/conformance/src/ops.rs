@@ -46,6 +46,7 @@ pub fn run(operation: &str, group: Group<'_>, input: &Value) -> Result<Value, Un
         "path_equivalence" => Ok(path_equivalence(input)),
         "allocate_path" => Ok(allocate_path(input)),
         "derive_path" => Ok(derive_path(input)),
+        "decode_path" => Ok(decode_path(input)),
         // core/link-ambiguity.yaml, core/rename-references.yaml (Chapters 08, 12)
         "resolve_link" => crate::ops_b::resolve_link(group, input),
         "rename" => crate::ops_b::write(group, "rename", input),
@@ -234,9 +235,10 @@ fn evaluate_cel(group: Group<'_>, input: &Value) -> Value {
     } else {
         let catalog = state.catalog();
         let types = catalog.membership(path, doc.frontmatter()).types;
-        let effective = catalog.effective_frontmatter(&types, doc.frontmatter());
+        let values = catalog.record_values(path, &types, doc.frontmatter());
+        let effective = catalog.effective_frontmatter(&types, &values);
         let file = links.file_value(path, doc.frontmatter(), doc.body());
-        record_activation(doc.frontmatter(), &effective, CelValue::from_value(&file))
+        record_activation(&values, &effective, CelValue::from_value(&file))
     };
     act.with_links(&links);
     act.with_clock(captured_clock(input));
@@ -332,9 +334,49 @@ fn derive_path(input: &Value) -> Value {
         CoreValue::Map(m) => m,
         _ => CoreMap::new(),
     };
-    match mdbn_core::paths::derive_path(pattern, &fm) {
+    let policy = match mdbn_core::paths::fields::PathPolicy::new(
+        pattern,
+        str_list(&input["fields"])
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+    ) {
+        Ok(p) => p,
+        Err(e) => return json!({"error": {"code": e.code(), "field": e.field()}}),
+    };
+    let mut fm = fm;
+    if let Err(e) = policy.normalize(&mut fm) {
+        return json!({"error": {"code": e.code(), "field": e.field()}});
+    }
+    match policy.derive(&fm) {
+        Ok(path) if input.get("fields").is_some() => {
+            let values: CoreMap = policy
+                .fields
+                .iter()
+                .filter_map(|f| fm.get(f).map(|v| (f.clone(), v.clone())))
+                .collect();
+            json!({ "path": path, "values": from_core(&CoreValue::Map(values)) })
+        }
         Ok(path) => json!({ "path": path }),
         Err(e) => json!({ "error": { "code": e.code(), "field": e.field() } }),
+    }
+}
+
+fn decode_path(input: &Value) -> Value {
+    let policy = match mdbn_core::paths::fields::PathPolicy::new(
+        input["pattern"].as_str().unwrap_or(""),
+        str_list(&input["fields"])
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+    ) {
+        Ok(p) => p,
+        Err(e) => return json!({"error": {"code": e.code()}}),
+    };
+    match policy.decode(input["path"].as_str().unwrap_or("")) {
+        None => json!({"matched": false, "values": {}, "issues": []}),
+        Some(d) => json!({"matched": true, "values": from_core(&CoreValue::Map(d.values)),
+            "issues": d.inconsistent.iter().map(|f| json!({"code": "path_value_inconsistent", "field": f})).collect::<Vec<_>>() }),
     }
 }
 
@@ -383,9 +425,15 @@ pub fn from_core(v: &CoreValue) -> Value {
 /// as `f64` when either side is not an integer.
 pub fn matches(expect: &Value, actual: &Value) -> bool {
     match (expect, actual) {
-        (Value::Object(e), Value::Object(a)) => e
-            .iter()
-            .all(|(k, ev)| a.get(k).is_some_and(|av| matches(ev, av))),
+        (Value::Object(e), Value::Object(a)) => e.iter().all(|(k, ev)| {
+            a.get(k).is_some_and(|av| match (k.as_str(), ev, av) {
+                // Issue and diagnostic lists compare as sets (tests/v0.3/README.md).
+                ("issues" | "diagnostics", Value::Array(e), Value::Array(a)) => {
+                    e.len() == a.len() && matches_unordered(e, &mut vec![false; a.len()], a)
+                }
+                _ => matches(ev, av),
+            })
+        }),
         (Value::Array(e), Value::Array(a)) => {
             e.len() == a.len() && e.iter().zip(a).all(|(ev, av)| matches(ev, av))
         }
@@ -395,6 +443,23 @@ pub fn matches(expect: &Value, actual: &Value) -> bool {
         },
         _ => expect == actual,
     }
+}
+
+/// Whether each of `expect` matches a distinct unused entry of `actual`.
+fn matches_unordered(expect: &[Value], used: &mut Vec<bool>, actual: &[Value]) -> bool {
+    let Some((first, rest)) = expect.split_first() else {
+        return true;
+    };
+    for i in 0..actual.len() {
+        if !used[i] && matches(first, &actual[i]) {
+            used[i] = true;
+            if matches_unordered(rest, used, actual) {
+                return true;
+            }
+            used[i] = false;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
