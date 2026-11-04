@@ -23,3 +23,16 @@ to accept the intended baselines explicitly.
 surface; the current portal has no separate replica-conflict UI.
 Pending onboarding stays pending; failed onboarding can
 be retried successfully. These fixtures do not claim to implement sync or custody.
+
+The fake UI configuration and onboarding handoff point to
+`http://127.0.0.1:4814/?demo=300`. Start the Editor there with
+`pnpm --filter mdbase-editor build:e2e` then
+`pnpm --filter mdbase-editor preview --port 4814 --strictPort`, or set
+`REVIEW_EDITOR_URL` to your own local Editor URL. Onboarding hands off to this full demo URL, not a real collection grant.
+Collection Open links use its origin with the normal server/collection parameters;
+they do not pretend a demo record is a hosted collection. Use an unused `PORT` for this review server too.
+
+Before either server, run `pnpm install --frozen-lockfile`, then build
+`@mdbase-dev/i18n`, `@mdbase-dev/connect-protocol`, `@mdbase-dev/connect`, and
+`@mdbase-dev/ui`. The Editor intentionally uses its exact published UI pin;
+reviewing portal workspace UI does not silently substitute it in the Editor.

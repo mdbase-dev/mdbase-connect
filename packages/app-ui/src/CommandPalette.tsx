@@ -1,5 +1,6 @@
 import { t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
+import { Dialog } from "./Dialog.js";
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
 
 export interface Command {
@@ -80,10 +81,13 @@ export function CommandPalette({ open, commands, onClose, label = t({ message: "
   readonly groupLabel?: ((group: string) => string) | undefined;
 }): JSX.Element | null {
   useLocaleRevision();
-  return open ? <OpenCommandPalette commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} groupLabel={groupLabel} /> : null;
+  return <Dialog open={open} title={label} onClose={onClose} className="mdbase-command-palette">
+    <OpenCommandPalette open={open} commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} groupLabel={groupLabel} />
+  </Dialog>;
 }
 
-function OpenCommandPalette({ commands, onClose, label, placeholder, showAll, groupLabel }: {
+function OpenCommandPalette({ open, commands, onClose, label, placeholder, showAll, groupLabel }: {
+  readonly open: boolean;
   readonly commands: readonly Command[];
   readonly onClose: () => void;
   readonly label: string;
@@ -95,35 +99,14 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll, gr
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const paletteRef = useRef<HTMLElement>(null);
   const matches = useMemo(() => matchingCommands(commands, query, showAll), [commands, query, showAll]);
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    globalThis.setTimeout(() => inputRef.current?.focus(), 0);
-    return () => previous?.focus();
-  }, []);
+  useEffect(() => { if (open) { setQuery(""); setActive(0); } }, [open]);
   const run = (command: Command, alternate = false): void => {
     onClose();
     (alternate && command.alternate ? command.alternate.run : command.run)();
   };
   const hintId = useId();
-  return <dialog className="mdbase-command-backdrop" open>
-    <button className="mdbase-command-dismiss" type="button" aria-label={t`Close ${label}`} onClick={onClose} />
-    <section
-      ref={paletteRef}
-      className="mdbase-command-palette"
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          onClose();
-        } else if (event.key === "Tab") {
-          trapFocus(event, paletteRef.current);
-        }
-      }}
-    >
+  return <>
       <label className="mdbase-command-search">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6">
           <circle cx="11" cy="11" r="6.5" />
@@ -132,6 +115,7 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll, gr
         <span className="mdbase-visually-hidden">{placeholder}</span>
         <input
           ref={inputRef}
+          data-autofocus
           value={query}
           placeholder={placeholder}
           onChange={(event) => {
@@ -159,23 +143,7 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll, gr
           : null}
         <span><kbd>{t({ message: "Esc" })}</kbd>  {t({ message: "to close" })}</span>
       </footer>
-    </section>
-  </dialog>;
-}
-
-function trapFocus(event: KeyboardEvent<HTMLElement>, container: HTMLElement | null): void {
-  if (!container) return;
-  const items = [...container.querySelectorAll<HTMLElement>("input, button, [tabindex]:not([tabindex='-1'])")];
-  const first = items[0];
-  const last = items.at(-1);
-  if (!first || !last) return;
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
+  </>;
 }
 
 function CommandRow({ command, active, onRun }: {

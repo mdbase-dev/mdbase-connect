@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import "../../test/dialog.js";
 import type { Mdbase, MdbasePhase, MdbaseSnapshot } from "@mdbase-dev/sdk";
 import { describeError } from "@mdbase-dev/sdk/describe";
 import { readFileSync, readdirSync } from "node:fs";
@@ -523,7 +524,7 @@ describe("controlled switcher", () => {
     expect(document.activeElement).toBe(anchorRef.current);
   });
 
-  it("opens the bottom sheet on narrow screens with variant none, and closes back to the anchor", () => {
+  it("opens the shared modal on narrow screens with variant none, and closes back to the anchor", () => {
     const { entry } = ready();
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
     try {
@@ -531,7 +532,7 @@ describe("controlled switcher", () => {
       document.body.append(anchor);
       const onOpenChange = vi.fn();
       render(<CollectionSwitcher mdbase={entry} app={app} variant="none" anchorRef={{ current: anchor }} open onOpenChange={onOpenChange} />);
-      const sheet = document.querySelector("dialog.mdbase-collections-sheet");
+      const sheet = document.querySelector("dialog.mdbase-collections-switcher-dialog");
       expect(sheet).not.toBeNull();
       expect(document.activeElement?.getAttribute("aria-checked")).toBe("true");
       act(() => button("Close").click());
@@ -774,9 +775,11 @@ describe("section item actions", () => {
 describe("styles", () => {
   it("suppresses only noninteractive heading outlines and retains control focus-visible rings", () => {
     const css = readFileSync(join(import.meta.dirname, "../../css/collections.css"), "utf8");
+    expect(css).toContain('@import "./tokens.css";');
+    expect(css).toContain('@import "./controls.css";');
     expect(css).toMatch(/:is\(h1, h2\)\.mdbase-collections-heading\[tabindex="-1"\]:focus,\s*:is\(h1, h2\)\.mdbase-collections-visually-hidden\[tabindex="-1"\]:focus\s*\{\s*outline: none;/);
     expect(css).not.toMatch(/\.mdbase-collections-heading:focus-visible/);
-    expect(css).toMatch(/\.mdbase-collections-button:focus-visible,[\s\S]*?\.mdbase-collections-field:focus-visible\s*\{\s*outline: 2px solid var\(--_accent\);/);
+    expect(css).toMatch(/\.mdbase-collections-button:focus-visible,[\s\S]*?\.mdbase-collections-field:focus-visible\s*\{\s*outline: var\(--focus-ring\);/);
   });
 
   it("defines every collections class the components use", () => {

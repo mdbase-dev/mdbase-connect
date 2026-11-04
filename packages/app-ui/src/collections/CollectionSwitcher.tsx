@@ -1,6 +1,6 @@
-import { useId, useLayoutEffect, useEffect, useRef, useState, useSyncExternalStore, type JSX, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useId, useRef, useState, type JSX, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 
-import { anchoredPlacement } from "../popover.js";
+import { Dialog } from "../Dialog.js";
 import { RowDialogs, SignOutDialog } from "./dialogs.js";
 import type { CollectionRow } from "./model.js";
 import { AccountLine, ActionButton, CollectionMark, ItemCopy, ItemMore, NoticeBlock, PrivateMark, RowCopy, RowMore, type RowDialog } from "./parts.js";
@@ -8,7 +8,6 @@ import { useCollectionUi, type CollectionSection, type CollectionUi, type Collec
 
 /** Collections worth a filter box; fewer fit at a glance. */
 const FILTER_THRESHOLD = 7;
-const NARROW = "(max-width: 639.98px)";
 
 export type CollectionSwitcherProps = CollectionUiOptions & {
   readonly className?: string;
@@ -36,8 +35,7 @@ export type CollectionSwitcherProps = CollectionUiOptions & {
   readonly variant: "none";
   /**
    * The app's element the switcher belongs to, such as the button of the menu
-   * that offered it. The wide-screen popover is placed against it and focus
-   * returns to it on close. It must stay mounted while the switcher is open.
+   * that offered it. Focus returns to it on close. It must stay mounted while the switcher is open.
    */
   readonly anchorRef: RefObject<HTMLElement | null>;
 });
@@ -45,7 +43,7 @@ export type CollectionSwitcherProps = CollectionUiOptions & {
 /**
  * The in-app collection switcher: a trigger that opens the approved collections
  * (one click switches, no Connect window), "Add a collection…", "Manage access"
- * and the account. A popover on wide screens, a bottom sheet on narrow ones.
+ * and the account in a modal collection chooser.
  *
  * Pass `open` and `onOpenChange` to control it. With `variant="none"` it has no
  * trigger, so an app can open it from its own control and pass that control's
@@ -62,10 +60,8 @@ export function CollectionSwitcher({ variant = "full", className, icon, open: op
   };
   const [dialog, setDialog] = useState<RowDialog>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  // The element the panel is placed against and hands focus back to.
   const anchor = anchorRef ?? trigger;
   const panelId = useId();
-  const narrow = useNarrow();
   const { view, copy, say, busy } = ui;
   const app = ui.appOpen?.item ?? null;
   const current = app ? null : view.current;
@@ -78,14 +74,6 @@ export function CollectionSwitcher({ variant = "full", className, icon, open: op
     if (refocus) anchor.current?.focus();
   };
   const toDialog = (next: NonNullable<RowDialog>): void => { setOpen(false); setDialog(next); };
-  // The popover that held the row is gone: a closed row dialog hands focus to the anchor.
-  const returnFocus = useRef(false);
-  useEffect(() => {
-    if (dialog || !returnFocus.current) return;
-    returnFocus.current = false;
-    const active = document.activeElement;
-    if (!active || active === document.body) anchor.current?.focus();
-  }, [dialog, anchor]);
   const content = <SwitcherContent ui={ui} onDone={() => close(false)} onDialog={toDialog} />;
   return <span className={["mdbase-collections", "mdbase-collections-switcher", className].filter(Boolean).join(" ")} data-variant={variant}>
     {variant !== "none" && <button
@@ -108,10 +96,10 @@ export function CollectionSwitcher({ variant = "full", className, icon, open: op
       {variant === "full" && current && <span className="mdbase-collections-trigger-role">{current.roleLabel}</span>}
       <svg className="mdbase-collections-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
     </button>}
-    {open && (narrow
-      ? <SwitcherSheet id={panelId} ui={ui} onClose={close}>{content}</SwitcherSheet>
-      : <SwitcherPopover id={panelId} ui={ui} anchorRef={anchor} onClose={close}>{content}</SwitcherPopover>)}
-    <RowDialogs ui={ui} dialog={dialog} onClose={() => { returnFocus.current = true; setDialog(null); }} />
+    <Dialog open={open} returnFocusRef={anchor} title={copy.collectionsLabel} onClose={() => close(true)} className="mdbase-collections mdbase-collections-switcher-dialog">
+      {content}
+    </Dialog>
+    <RowDialogs ui={ui} dialog={dialog} returnFocusRef={anchor} onClose={() => setDialog(null)} />
     <SignOutDialog ui={ui} />
   </span>;
 }
@@ -197,6 +185,7 @@ export function SwitcherContent({ ui, onDone, onDialog }: {
                 type="button"
                 role="radio"
                 aria-checked={checked}
+                data-autofocus={sdkKey(row) === rovingId || undefined}
                 aria-disabled={!row.available || undefined}
                 aria-describedby={detailId}
                 tabIndex={sdkKey(row) === rovingId ? 0 : -1}
@@ -258,6 +247,7 @@ function SwitcherSection({ ui, section, matches, focused, onFocusItem, onDone, o
             type="button"
             role="radio"
             aria-checked={item.current === true}
+            data-autofocus={key(item.id) === roving || undefined}
             aria-disabled={item.disabled || undefined}
             tabIndex={key(item.id) === roving ? 0 : -1}
             className="mdbase-collections-row"
@@ -304,122 +294,10 @@ function moveAmongRadios(event: KeyboardEvent<HTMLDivElement>): void {
 }
 
 /** Where focus starts in the list: the open collection, else the first group's row. */
-function firstRadio(root: HTMLElement): HTMLElement | null {
-  return root.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') ?? root.querySelector<HTMLElement>('[role="radio"][tabindex="0"]');
-}
-
 function CheckGlyph(): JSX.Element {
   return <svg className="mdbase-collections-check" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>;
 }
 
-/**
- * Wide screens: a non-modal dialog anchored to the trigger (or the app's
- * anchor), in the top layer where supported. Pointer presses and focus on the
- * anchor count as inside, so the trigger can toggle it.
- */
-function SwitcherPopover({ id, ui, anchorRef, onClose, children }: {
-  id: string;
-  ui: CollectionUi;
-  anchorRef: RefObject<HTMLElement | null>;
-  onClose: (refocus: boolean) => void;
-  children: ReactNode;
-}): JSX.Element {
-  const ref = useRef<HTMLDivElement>(null);
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  useLayoutEffect(() => {
-    const panel = ref.current;
-    const anchor = anchorRef.current;
-    if (!panel || !anchor) return undefined;
-    if (typeof panel.showPopover === "function") panel.showPopover();
-    const box = anchor.getBoundingClientRect();
-    const width = Math.min(340, window.innerWidth - 16);
-    panel.style.width = `${width}px`;
-    const place = anchoredPlacement(box, { width, height: panel.scrollHeight }, { width: window.innerWidth, height: window.innerHeight }, { gap: 6 });
-    panel.style.top = `${place.top}px`;
-    panel.style.left = `${place.left}px`;
-    panel.style.maxHeight = `${place.maxHeight}px`;
-    (firstRadio(panel) ?? panel.querySelector<HTMLElement>("button") ?? panel).focus({ preventScroll: true });
-    return () => {
-      if (typeof panel.hidePopover === "function" && panel.matches(":popover-open")) panel.hidePopover();
-    };
-  }, [anchorRef]);
-  useEffect(() => {
-    const outside = (event: PointerEvent): void => {
-      const target = event.target as Node | null;
-      if (target && !ref.current?.contains(target) && !anchorRef.current?.contains(target)) closeRef.current(false);
-    };
-    const resize = (): void => closeRef.current(false);
-    document.addEventListener("pointerdown", outside, true);
-    window.addEventListener("resize", resize);
-    return () => {
-      document.removeEventListener("pointerdown", outside, true);
-      window.removeEventListener("resize", resize);
-    };
-  }, [anchorRef]);
-  return <div
-    ref={ref}
-    id={id}
-    className="mdbase-collections-popover"
-    popover="manual"
-    role="dialog"
-    aria-label={ui.copy.collectionsLabel}
-    tabIndex={-1}
-    onKeyDown={(event) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      onClose(true);
-    }}
-    onBlur={(event) => {
-      const next = event.relatedTarget as Node | null;
-      if (next && !ref.current?.contains(next) && !anchorRef.current?.contains(next)) onClose(false);
-    }}
-  >{children}</div>;
-}
-
-/** Narrow screens: a modal bottom sheet on the native <dialog>. */
-function SwitcherSheet({ id, ui, onClose, children }: { id: string; ui: CollectionUi; onClose: (refocus: boolean) => void; children: ReactNode }): JSX.Element {
-  const ref = useRef<HTMLDialogElement>(null);
-  useLayoutEffect(() => {
-    const sheet = ref.current;
-    if (!sheet) return undefined;
-    if (!sheet.open) {
-      if (typeof sheet.showModal === "function") sheet.showModal(); else sheet.setAttribute("open", "");
-    }
-    firstRadio(sheet)?.focus({ preventScroll: true });
-    return () => { if (sheet.open && typeof sheet.close === "function") sheet.close(); };
-  }, []);
-  return <dialog
-    ref={ref}
-    id={id}
-    className="mdbase-collections mdbase-collections-sheet"
-    aria-label={ui.copy.collectionsLabel}
-    onCancel={(event) => { event.preventDefault(); onClose(true); }}
-    onClick={(event) => { if (event.target === event.currentTarget) onClose(true); }}
-  >
-    <div className="mdbase-collections-sheet-body">
-    <div className="mdbase-collections-sheet-header">
-      <span className="mdbase-collections-sheet-title">{ui.copy.collectionsLabel}</span>
-      <button type="button" className="mdbase-collections-more" aria-label={ui.copy.close} onClick={() => onClose(true)}>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg>
-      </button>
-    </div>
-    {children}
-    </div>
-  </dialog>;
-}
-
 function CollectionsGlyph(): JSX.Element {
   return <svg className="mdbase-collections-glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h4l1.2 1.5h5.8v6.5h-11z" /></svg>;
-}
-
-function subscribeNarrow(listener: () => void): () => void {
-  const query = typeof window.matchMedia === "function" ? window.matchMedia(NARROW) : null;
-  query?.addEventListener("change", listener);
-  return () => query?.removeEventListener("change", listener);
-}
-
-function useNarrow(): boolean {
-  return useSyncExternalStore(subscribeNarrow, () => typeof window.matchMedia === "function" && window.matchMedia(NARROW).matches, () => false);
 }

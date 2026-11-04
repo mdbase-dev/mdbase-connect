@@ -832,7 +832,6 @@ msgstr "可以读取此集合，并连接只读应用或文件夹。"
 msgid "Can view and connect read-only apps"
 msgstr "可以查看和连接只读应用"
 
-#: src/AccountManagement.tsx
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx

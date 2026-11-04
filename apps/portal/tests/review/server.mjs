@@ -21,7 +21,7 @@ const google = `window.google = { accounts: { id: {
   }
 } } };`;
 
-export function reviewServer() {
+export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "http://127.0.0.1:4814/?demo=300" } = {}) {
   const sessions = new Map();
   const feedback = [];
   return createServer(async (request, response) => {
@@ -92,7 +92,7 @@ export function reviewServer() {
         if (!state.signedIn) return send(error("Your session expired. Sign in again."), 401);
         if (path === "/v1/me" && method === "GET") return state.name === "server-500"
           ? send(error("The review server could not load your account. Try again."), 500) : send(data);
-        if (path === "/v1/ui-configuration" && method === "GET") return send({ editor_url: null });
+        if (path === "/v1/ui-configuration" && method === "GET") return send({ editor_url: editorUrl });
         if (path === "/v1/account/sessions" && method === "GET") return send({ sessions: state.sessions });
         if (path === "/v1/account/sessions/revoke-others" && method === "POST") { state.sessions = state.sessions.filter(session => session.current); return send({ ok: true }); }
         if (path.startsWith("/v1/account/sessions/") && method === "DELETE") { state.sessions = state.sessions.filter(session => session.id !== path.split("/").at(-1)); return send({ ok: true }); }
@@ -118,7 +118,7 @@ export function reviewServer() {
           if (state.onboarding === "failed") { state.onboarding = "ready"; return send(error("Starter collection could not be created. Try again."), 500); }
           if (state.onboarding === "pending") return send({ status: "pending" });
           if (!data.hosted_collections.length) createCollection("My first collection");
-          return send({ status: "ready", collection_id: data.hosted_collections[0].id, editor_url: "/collections" });
+          return send({ status: "ready", collection_id: data.hosted_collections[0].id, editor_url: editorUrl });
         }
         if (["/v1/hosted/collections", "/v1/account/collections"].includes(path) && method === "POST") return send({ collection: createCollection(body.display_name, body.request_id) }, 201);
         const sharing = path.match(/^\/v1\/hosted\/collections\/([^/]+)\/(members|invitations)(?:\/([^/]+))?$/);

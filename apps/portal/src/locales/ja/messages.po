@@ -832,7 +832,6 @@ msgstr "このコレクションの読み取りと、読み取り専用アプリ
 msgid "Can view and connect read-only apps"
 msgstr "読み取り専用アプリの表示と接続ができます"
 
-#: src/AccountManagement.tsx
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx

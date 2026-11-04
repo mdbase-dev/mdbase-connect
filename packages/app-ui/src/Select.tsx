@@ -19,6 +19,7 @@ import {
   type FlatSelectOption,
   type SelectItems,
 } from "./select-model.js";
+import { useOverlay } from "./overlay.js";
 import { SelectList } from "./SelectList.js";
 
 export type { SelectItems, SelectOption, SelectOptionGroup } from "./select-model.js";
@@ -60,10 +61,10 @@ export function Select<Value extends string>({
   const id = useId();
   const { "aria-label": ariaLabel, "aria-labelledby": ariaLabelledBy } = trigger;
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
   const options = flattenOptions(items);
   const selected = options.findIndex((option) => option.value === value);
   const state = useSelectState(options, selected, value, onChange, disabled, triggerRef);
+  const { ref: listRef, present } = useOverlay<HTMLDivElement>(state.open);
   useSelectPopover(state.open, triggerRef, listRef, () => state.close(false));
   useLayoutEffect(() => {
     if (state.open && listRef.current) {
@@ -108,7 +109,7 @@ export function Select<Value extends string>({
           <path d="m7 10 5 5 5-5" />
         </svg>
       </button>
-      <SelectList
+      {present && <SelectList
         id={id}
         listRef={listRef}
         items={items}
@@ -120,7 +121,7 @@ export function Select<Value extends string>({
         onActivate={state.setActive}
         onChoose={state.choose}
         onKeyDown={state.onListKey}
-      />
+      />}
     </>
   );
 }

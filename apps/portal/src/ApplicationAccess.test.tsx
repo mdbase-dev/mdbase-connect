@@ -42,7 +42,7 @@ describe("native installation display scopes", () => {
     const buttons = screen.getAllByRole("button", {name:"Revoke collection access"});
     expect(buttons).toHaveLength(1);
     fireEvent.click(buttons[0]!);expect(remove).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", {name:"Revoke collection access"}));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", {name:"Revoke collection access"}));
     await vi.waitFor(() => expect(remove).toHaveBeenCalledTimes(2));
     expect(remove).toHaveBeenCalledWith("app-a","collection-a",{});
     expect(remove).toHaveBeenCalledWith("app-b","collection-a",{});
@@ -52,7 +52,7 @@ describe("native installation display scopes", () => {
     expect(screen.queryByRole("button", {name:"Revoke collection access"})).not.toBeInTheDocument();
     expect(screen.queryByText("1 collection")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name:"Revoke access"}));
-    fireEvent.click(screen.getByRole("button", {name:"Revoke access"}));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke access" }));
     await vi.waitFor(()=>expect(remove).toHaveBeenCalledTimes(2));
     expect(remove).toHaveBeenCalledWith("app-a","collection-a",{});expect(remove).toHaveBeenCalledWith("app-b","collection-a",{});
     expect(revoke).not.toHaveBeenCalled();
@@ -65,7 +65,7 @@ describe("native installation display scopes", () => {
     expect(screen.queryByRole("button", {name:"Revoke collection access"})).not.toBeInTheDocument();
     const details=screen.getByText("Installation details").closest("details")!;
     expect(within(details).getByText(/Mobile app/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", {name:"Revoke application"}));fireEvent.click(screen.getByRole("button", {name:"Revoke application"}));
+    fireEvent.click(screen.getByRole("button", {name:"Revoke application"}));fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
     await vi.waitFor(()=>expect(revoke).toHaveBeenCalledTimes(2));
     expect(revoke).toHaveBeenCalledWith("connector-a",{});expect(revoke).toHaveBeenCalledWith("connector-b",{});
   });

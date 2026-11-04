@@ -1,3 +1,5 @@
+@import "./motion.css";
+
 /*
  * Shared controls. Text fields stay native and take Editor's field treatment;
  * Select, menus and the app switcher are the components from ./select,
@@ -91,7 +93,7 @@ textarea.mdbase-field {
 
 .mdbase-field:focus-visible,
 .mdbase-select:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: var(--focus-ring);
   outline-offset: 1px;
 }
 
@@ -220,7 +222,7 @@ textarea.mdbase-field {
 }
 
 .mdbase-select-list:focus-visible .mdbase-select-option.is-active {
-  outline: 1px solid var(--color-accent);
+  outline: var(--focus-ring);
   outline-offset: -1px;
 }
 
@@ -301,8 +303,7 @@ textarea.mdbase-field {
 
 /* One focus mark inside the row, instead of an outline around it. */
 .mdbase-menu .mdbase-menu-item:focus-visible {
-  outline: 0;
-  outline: 1px solid var(--color-accent);
+  outline: var(--focus-ring);
   outline-offset: -1px;
 }
 
@@ -533,8 +534,8 @@ textarea.mdbase-field {
 
 .mdbase-button:focus-visible,
 .mdbase-icon-button:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 /* Switch: native button semantics (role="switch", aria-checked), one track and thumb. */
@@ -635,8 +636,8 @@ textarea.mdbase-field {
 
 .mdbase-checkbox:focus-visible,
 .mdbase-switch:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 /* Checkbox row: the label is the 44px target; the box keeps its size. */
@@ -703,16 +704,8 @@ textarea.mdbase-field {
   box-shadow: none;
 }
 
-.mdbase-dialog[open] {
-  animation: mdbase-dialog-in var(--motion-base) var(--ease-out);
-}
-
 .mdbase-dialog::backdrop {
   background: var(--color-scrim);
-}
-
-@keyframes mdbase-dialog-in {
-  from { opacity: 0; transform: translateY(6px); }
 }
 
 .mdbase-dialog-body {
@@ -735,15 +728,6 @@ textarea.mdbase-field {
   font-size: var(--font-size-prose);
   letter-spacing: -0.01em;
   text-transform: none;
-}
-
-/* Popovers arrive quickly and settle into place. Apps mark their own with .mdbase-popover. */
-:is(.mdbase-select-list, .mdbase-menu, .mdbase-popover):popover-open {
-  animation: mdbase-popover-in var(--motion-quick) var(--ease-out);
-}
-
-@keyframes mdbase-popover-in {
-  from { transform: translateY(-3px); }
 }
 
 /* Save notices: small, quiet, and gone once there is nothing to act on. */
@@ -801,14 +785,6 @@ textarea.mdbase-field {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(.mdbase-select-list, .mdbase-menu, .mdbase-popover):popover-open {
-    animation: none;
-  }
-
-  .mdbase-dialog[open] {
-    animation: none;
-  }
-
   /* Without the fade, a confirmation still shows for the same time, then goes. */
   .mdbase-settle {
     animation-timing-function: steps(1, end);
@@ -834,3 +810,11 @@ textarea.mdbase-field {
 .mdbase-collection-mode h3 { font-size: var(--font-size-section); font-weight: var(--font-weight-medium); }
 .mdbase-collection-mode > div:last-child { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .mdbase-collection-mode code { overflow-wrap: anywhere; }
+
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+[role="radio"][aria-checked="true"]:focus-visible { outline: var(--focus-ring); }
+.mdbase-dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-6); }
+.mdbase-confirm-dialog { width: min(440px, calc(100vw - 32px)); }

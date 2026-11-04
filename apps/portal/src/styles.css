@@ -269,8 +269,8 @@ h1 {
 
 .collection-picker input:focus-visible,
 .collection-picker-create:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 /* Short lists sit in the page; long ones scroll so Create and Open stay near. */
@@ -299,7 +299,7 @@ h1 {
 .collection-picker-option strong { font-weight: var(--font-weight-semibold); }
 .collection-picker-option small { color: var(--color-text-muted); font-size: var(--font-size-caption); }
 .collection-picker-option:hover { background: var(--color-surface-subtle); }
-.collection-picker-option.is-highlighted { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.collection-picker-option.is-highlighted { outline: var(--focus-ring); outline-offset: -2px; }
 .collection-picker-option.is-selected { background: var(--color-accent-soft); }
 .collection-picker-option[aria-disabled="true"] { cursor: default; }
 .collection-picker-check { position: absolute; right: var(--space-3); top: 50%; translate: 0 -50%; color: var(--color-accent); font-weight: var(--font-weight-semibold); }
@@ -637,8 +637,8 @@ h1 {
 }
 
 .minimal-auth-shell a:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 3px;
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 .minimal-auth-page .quiet-auth-link {

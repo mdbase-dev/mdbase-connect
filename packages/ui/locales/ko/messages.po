@@ -71,10 +71,6 @@ msgctxt "Application permission"
 msgid "Additional operations declared by this application."
 msgstr "이 애플리케이션에서 선언한 추가 작업입니다."
 
-#: confirm-action.tsx
-msgid "Cancel"
-msgstr "취소"
-
 #: access.ts
 msgctxt "Application permission"
 msgid "Cancel this app's scheduled activity"
@@ -294,6 +290,10 @@ msgstr "두 필드에서 허용하는 값이 서로 다릅니다."
 msgctxt "Collection field mapping"
 msgid "This optional value will not be shared with the application."
 msgstr "이 선택 값은 애플리케이션과 공유되지 않습니다."
+
+#: confirm-action.tsx
+msgid "Type {confirmName} to confirm"
+msgstr "확인하려면 {confirmName}을(를) 입력하세요."
 
 #: access.ts
 msgctxt "Application permission"

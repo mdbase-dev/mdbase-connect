@@ -832,7 +832,6 @@ msgstr "이 컬렉션 읽기 및 읽기 전용 앱 또는 폴더 연결 가능"
 msgid "Can view and connect read-only apps"
 msgstr "읽기 전용 앱 확인 및 연결 가능"
 
-#: src/AccountManagement.tsx
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx

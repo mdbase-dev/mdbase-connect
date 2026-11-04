@@ -1,0 +1,9 @@
+{
+  "reason": "The shared overlay lifecycle, confirmation and menu replace the duplicate collection dialog/popover and inline confirmation mechanisms. Three production files provide the four requested reusable exports; affected CSS and component code shrink overall.",
+  "growth": {
+    "productionFiles": 3,
+    "relativeImports": 10,
+    "typeScriptExportDeclarations": 2,
+    "packages/app-ui": 3
+  }
+}

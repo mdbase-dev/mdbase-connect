@@ -363,9 +363,6 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 
 .connect-application-row > button { justify-self: end; }
 
-.connect-application-row:has(.confirm-action) > span:not(.confirm-action) { display: none; }
-.connect-application-row > .confirm-action { grid-column: 2 / -1; max-width: none; justify-self: end; }
-
 .connect-status {
   display: inline-flex;
   align-items: center;
@@ -560,14 +557,7 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
   padding-top: var(--space-3);
   border-top: 1px solid var(--line);
 }
-.connect-application-body > .connect-revoke-application,
-.connect-application-body > .confirm-action { justify-self: start; }
-.connect-application-body > .confirm-action {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  max-width: none;
-}
-.connect-application-body > .confirm-action > span { text-align: left; }
+.connect-application-body > .connect-revoke-application { justify-self: start; }
 
 .connect-grant-body {
   display: grid;
@@ -946,9 +936,6 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
   }
 
   .connect-application-row > button { justify-self: start; }
-  .connect-application-row > .confirm-action { grid-column: 1; justify-self: start; justify-content: flex-start; }
-  .connect-application-row > .confirm-action > span { text-align: left; }
-  .connect-application-row:has(.confirm-action) > span:not(.confirm-action) { display: inline; }
 
   .connect-row > a {
     grid-column: 1 / -1;
@@ -1120,13 +1107,8 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 
   .connect-account-actions { justify-content: flex-start; }
 
-  .connect-row-actions,
-  .confirm-action {
+  .connect-row-actions {
     justify-content: flex-start;
-  }
-
-  .confirm-action > span:first-child {
-    text-align: left;
   }
 
   .connect-row-actions button,

@@ -271,7 +271,7 @@ function App() {
           )}
         </main>
 
-        {createOpen && <CreateCollectionDialog busy={busy} onClose={() => setCreateOpen(false)} onCreate={async (input) => {
+        <CreateCollectionDialog open={createOpen} busy={busy} onClose={() => setCreateOpen(false)} onCreate={async (input) => {
           // Failures stay in the dialog with the draft, not behind it.
           setBusy(true);
           try {
@@ -284,7 +284,7 @@ function App() {
           } finally {
             setBusy(false);
           }
-        }} />}
+        }} />
       </div>
     </div>
   );
@@ -329,7 +329,8 @@ function OverviewRow({ label, value, detail, action, onClick }: { label: string;
   return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="mdbase-button is-tertiary" onClick={onClick}>{action}</button></div>;
 }
 
-function CreateCollectionDialog({ busy, onClose, onCreate }: {
+function CreateCollectionDialog({ open, busy, onClose, onCreate }: {
+  open: boolean;
   busy: boolean;
   onClose(): void;
   onCreate(input: { parent: string; name: string }): Promise<void>;
@@ -338,8 +339,9 @@ function CreateCollectionDialog({ busy, onClose, onCreate }: {
   const [name, setName] = useState("");
   const [parent, setParent] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => { if (open) { setName(""); setParent(""); setFailure(null); } }, [open]);
   return (
-    <Dialog open onClose={() => !busy && onClose()} title={t(i18n)({ message: "Create a collection", context: "Connect interface" })} className="modal" closeDisabled={busy}>
+    <Dialog open={open} onClose={() => !busy && onClose()} title={t(i18n)({ message: "Create a collection", context: "Connect interface" })} className="modal" closeDisabled={busy}>
       <p className="eyebrow"><Trans>New collection</Trans></p>
       {failure && <div className="mdbase-message is-error" role="alert">{failure}</div>}
       <p><Trans>mdbase creates a new folder with this name and keeps it on this computer. You can turn on sync later.</Trans></p>
@@ -377,7 +379,7 @@ function Settings({ cloud, connectionLabel, connectionDetail, requireApproval, s
           </div>
           <div className="portal-connection-actions">
             <button className="mdbase-button" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}><Trans>Manage in mdbase</Trans></button>
-            <ConfirmAction className="mdbase-button is-tertiary is-danger disconnect-button" busy={busy} label={t(i18n)({ message: "Sign out on this computer…", context: "Connect interface" })} confirmLabel={t(i18n)({ message: "Sign out", context: "Connect interface" })} question={t(i18n)({ message: "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected." })} onConfirm={() => void onAct(() => window.mdbaseConnect.signOut())} />
+            <ConfirmAction className="mdbase-button is-tertiary is-danger disconnect-button" busy={busy} label={t(i18n)({ message: "Sign out on this computer…", context: "Connect interface" })} confirmLabel={t(i18n)({ message: "Sign out", context: "Connect interface" })} question={t(i18n)({ message: "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected." })} onConfirm={() => onAct(() => window.mdbaseConnect.signOut())} />
           </div>
         </section>
       )}

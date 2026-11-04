@@ -2,13 +2,6 @@
 @import "@mdbase-dev/ui/brand.css";
 @import "@mdbase-dev/ui/controls.css";
 
-/* Connect pages are forms and lists, so they use the smaller end of the type scale. */
-:root {
-  --font-size-heading: 20px;
-  --font-size-section: 13px;
-  --font-size-prose: 15px;
-}
-
 :root {
   color: var(--ink);
   background: var(--paper);
@@ -62,8 +55,8 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 a:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 code,
@@ -334,23 +327,6 @@ code,
 
 .sidebar-search:hover { background: var(--hover); color: var(--ink); }
 .sidebar-search kbd { color: var(--muted); font: inherit; font-size: var(--font-size-caption); font-weight: var(--font-weight-regular); }
-
-.confirm-action {
-  max-width: 420px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-}
-
-.confirm-action > span {
-  flex-basis: 100%;
-  color: var(--ink);
-  text-align: right;
-}
 
 .product-sidebar-status,
 .product-sidebar-account {

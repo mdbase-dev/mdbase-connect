@@ -81,7 +81,7 @@ Re-render with the current locale's callback to update the presentation.
 ## Collections
 
 Import `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`.
-`tokens.css` is optional: without it every value falls back to a built-in one.
+The stylesheet includes the shared tokens, controls and dialog styles; no separate imports are needed.
 Every component takes the SDK front door from `createMdbase` (an optional peer
 dependency) and `app: { name, mark? }`.
 

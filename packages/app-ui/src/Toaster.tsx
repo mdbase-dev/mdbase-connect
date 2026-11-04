@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useOverlay } from "./overlay.js";
 import { t } from "@lingui/core/macro";
 import { i18n, useLocaleRevision } from "./i18n.js";
 
@@ -17,6 +18,10 @@ export function toast(message: string, undo?: () => void): void {
 export function Toaster() {
   useLocaleRevision();
   const [current, setCurrent] = useState<Toast | undefined>(queue[0]);
+  const last = useRef(current);
+  if (current) last.current = current;
+  const { ref, present } = useOverlay<HTMLDivElement>(Boolean(current));
+  const shown = current ?? last.current;
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const remaining = useRef(0);
@@ -40,8 +45,8 @@ export function Toaster() {
   return <div className="mdbase-toaster" role="status" aria-live="polite" aria-atomic="true"
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocus={() => setFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
-    {current && <div key={current.id} className="mdbase-toast"><span>{current.message}</span>
-      {current.undo && <button onClick={() => { dismiss(); current.undo?.(); }}>{t(i18n)`Undo`}</button>}
+    {present && shown && <div ref={ref} data-open={Boolean(current)} className="mdbase-toast mdbase-overlay"><span>{shown.message}</span>
+      {shown.undo && <button onClick={() => { dismiss(); shown.undo?.(); }}>{t(i18n)`Undo`}</button>}
       <button onClick={dismiss}>{t(i18n)`Dismiss`}</button>
     </div>}
   </div>;

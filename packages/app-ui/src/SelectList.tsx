@@ -62,7 +62,8 @@ export function SelectList<Value extends string>({
     <div
       ref={listRef}
       id={`${id}-list`}
-      className="mdbase-select-list"
+      className="mdbase-select-list mdbase-overlay"
+      data-open={open}
       popover="manual"
       role="listbox"
       tabIndex={-1}

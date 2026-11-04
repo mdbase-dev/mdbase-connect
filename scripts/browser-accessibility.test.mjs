@@ -624,6 +624,8 @@ async function auditPortalManagement() {
   await page.getByRole("button", { name: "Change password" }).click();
   await page.getByRole("button", { name: "Delete account…" }).click();
   await auditPage(page, "portal management account forms", { keyboard: true });
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: /Account & sessions.*Open menu/ }).click();
@@ -1203,7 +1205,7 @@ async function assertKeyboardReachability(page, label) {
         && bounds.height > 0;
     };
     return [
-      ...document.querySelectorAll(
+      ...(document.querySelector("dialog:modal") ?? document).querySelectorAll(
         "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary"
       )
     ].filter(visible).map((element, index) => {
