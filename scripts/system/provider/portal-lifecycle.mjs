@@ -164,7 +164,8 @@ export async function portalLifecycleE2E({
     assert.equal(accountCollection.usage.collection_id, deletionCollectionId);
     assert.equal(accountCollection.usage.max_content_bytes, 1024 * 1024 * 1024);
     await page.getByRole("button", { name: "Delete account…" }).click();
-    await expect(page.getByText(/Local files are never removed/)).toBeVisible();
+    const accountDeletion = page.getByRole("dialog", { name: "Delete account" });
+    await expect(accountDeletion.getByText(/Local files are never removed/)).toBeVisible();
     await expect(page.getByText(
       "Local collection and mirror files remain on your computers.",
       { exact: true }
