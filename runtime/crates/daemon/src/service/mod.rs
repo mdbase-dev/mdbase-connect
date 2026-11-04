@@ -1,12 +1,12 @@
 //! `mdbase service`: register the daemon with the OS service manager, so it starts
-//! at login and restarts after a failure (packaging note
+//! at login and, on Linux and macOS, restarts after a failure (packaging note
 //! desktop service packaging).
 //!
 //! | OS | registration | runs |
 //! |---|---|---|
 //! | Linux | systemd user unit `~/.config/systemd/user/mdbase.service` | at login of the user manager |
 //! | macOS | LaunchAgent `~/Library/LaunchAgents/dev.mdbase.daemon.plist` | at login, in the GUI session |
-//! | Windows | scheduled task `\mdbase\daemon` | at logon, interactive token, least privilege |
+//! | Windows | scheduled task `\mdbase\daemon` | at logon, interactive token, least privilege, no console window |
 //!
 //! **What is registered** is never the binary that ran `install` (a download or a
 //! package path), but a private copy at `<state>/runtime/mdbase[.exe]`, so updating or
@@ -835,9 +835,9 @@ mod platform {
                 return Ok(None);
             }
             let xml = decode_console(&out.stdout);
-            Ok(Some(match templates::task_command_and_enabled(&xml) {
-                Some((cmd, enabled)) => Registration {
-                    binary: Some(PathBuf::from(cmd)),
+            Ok(Some(match templates::task_binary_and_enabled(&xml) {
+                Some((binary, enabled)) => Registration {
+                    binary: Some(PathBuf::from(binary)),
                     enabled,
                 },
                 None => Registration {
@@ -869,7 +869,7 @@ mod platform {
 
         pub fn stop(&self) -> Result<(), ServiceError> {
             // The control `shutdown` that follows stops it gracefully; `/End` would
-            // terminate it. Restart-on-failure doesn't fire for a clean exit.
+            // end only the console host and orphan it.
             Ok(())
         }
 

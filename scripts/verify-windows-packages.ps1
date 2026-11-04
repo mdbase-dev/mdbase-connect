@@ -67,6 +67,13 @@ foreach ($file in @($application, $connector, $installer)) {
   }
 }
 
+$connectorImage = [Text.Encoding]::ASCII.GetString(
+  [IO.File]::ReadAllBytes($connector.FullName)
+)
+if ($connectorImage -match "(?i)(vcruntime|msvcp)\d+\S*\.dll") {
+  throw "mdbase.exe imports the Visual C++ runtime ($($Matches[0])); link it statically"
+}
+
 if ($PreviewOnly) {
   $storePackages = @(
     Get-ChildItem (Join-Path $OutPath "make") -Recurse -File -Filter "*.appx"
