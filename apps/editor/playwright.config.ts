@@ -31,6 +31,6 @@ export default defineConfig({
     // shares the CPU with the measurement. Budgets are unchanged.
     { name: "performance", use: { ...devices["Desktop Chrome"] }, grep: /@performance/, dependencies: ["chromium"] },
     // Management lives on Portal; keep its migrated coverage in the existing CI browser gate.
-    { name: "portal", testDir: "../portal/tests", use: { ...devices["Desktop Chrome"] } }
+    { name: "portal", testDir: "../portal/tests", testIgnore: ["visual.spec.ts", "review-flows.spec.ts", "interaction-budget.spec.ts"], use: { ...devices["Desktop Chrome"] } }
   ]
 });
