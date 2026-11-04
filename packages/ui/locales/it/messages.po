@@ -71,6 +71,10 @@ msgctxt "Application permission"
 msgid "Additional operations declared by this application."
 msgstr "Operazioni aggiuntive dichiarate da questa applicazione."
 
+#: confirm-action.tsx
+msgid "Cancel"
+msgstr "Annulla"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Cancel this app's scheduled activity"

@@ -593,6 +593,11 @@ msgstr "Tema de color"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
+msgid "Commands"
+msgstr "Comandos"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Computer name"
 msgstr "Nombre del ordenador"
 
@@ -728,6 +733,10 @@ msgid "Differed when mdbase took over from the old app; this computer's version 
 msgstr "Era diferente cuando mdbase sustituyó a la aplicación anterior; la versión de este ordenador está en la carpeta"
 
 #: src/renderer/collections-view.tsx
+msgid "Discard"
+msgstr "Descartar"
+
+#: src/renderer/collections-view.tsx
 msgid "Discard local changes"
 msgstr "Descartar cambios locales"
 
@@ -797,6 +806,10 @@ msgstr "Las ubicaciones de las carpetas nunca se cargan."
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "Carpetas de este ordenador que pueden usar tus aplicaciones y forma de sincronización de cada una."
+
+#: src/renderer/main.tsx
+msgid "Go to {label}"
+msgstr "Ir a {label}"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
@@ -1398,8 +1411,14 @@ msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "Revisar {0, plural, one {# archivo} other {# archivos}}"
 
 #: src/renderer/access-view.tsx
+msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "Revocar"
+
+#: src/renderer/access-view.tsx
+msgctxt "Connect interface"
+msgid "Revoke access"
+msgstr "Revocar acceso"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1428,6 +1447,11 @@ msgstr "El acceso guardado de las aplicaciones sigue funcionando en este ordenad
 msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Guardando…"
+
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Search"
+msgstr "Buscar"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1500,10 +1524,16 @@ msgid "Sign in with your browser"
 msgstr "Iniciar sesión desde el navegador"
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Sign out"
+msgstr "Cerrar sesión"
+
+#: src/renderer/main.tsx
 msgid "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected."
 msgstr "¿Cerrar sesión en este ordenador? Las aplicaciones ya no podrán acceder a tus colecciones locales a través de él. Tus archivos no se verán afectados."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Sign out on this computer…"
 msgstr "Cerrar sesión en este ordenador…"
 
@@ -1881,6 +1911,11 @@ msgstr "Activando la sincronización: cargando los archivos de la carpeta…"
 msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Activando…"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "Escribe un comando"
 
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx

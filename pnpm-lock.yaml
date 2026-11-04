@@ -374,10 +374,10 @@ importers:
 
   packages/app-ui:
     dependencies:
-      '@fontsource-variable/atkinson-hyperlegible-next':
+      '@fontsource/azeret-mono':
         specifier: ^5.3.0
         version: 5.3.0
-      '@fontsource/azeret-mono':
+      '@fontsource/ibm-plex-sans':
         specifier: ^5.3.0
         version: 5.3.0
     devDependencies:
@@ -644,6 +644,12 @@ importers:
       '@mdbase-dev/i18n':
         specifier: workspace:*
         version: link:../i18n
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+      react:
+        specifier: ^19.3.0
+        version: 19.3.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1812,6 +1818,9 @@ packages:
 
   '@fontsource/azeret-mono@5.3.0':
     resolution: {integrity: sha512-Ag/+gN67fUry7i1yLlTnk16Rr1nnTQI2YefA/G7tYcCSr/+TC/ayMrE8Km7O0OKRgI/B5Mfel46Gq9IGY50Uaw==}
+
+  '@fontsource/ibm-plex-sans@5.3.0':
+    resolution: {integrity: sha512-CbE4CbbEEZJX860XyUiRpsksXIQR8Rp2XDva2VO53NJox9tVNtusrysd2x5YkUEY3ErQ66W1IiiQL8/wihhw5w==}
 
   '@gar/promise-retry@1.0.3':
     resolution: {integrity: sha512-GmzA9ckNokPypTg10pgpeHNQe7ph+iIKKmhKu3Ob9ANkswreCx7R3cKmY781K8QK3AqVL3xVh9A42JvIAbkkSA==}
@@ -7631,6 +7640,8 @@ snapshots:
   '@fontsource-variable/atkinson-hyperlegible-next@5.3.0': {}
 
   '@fontsource/azeret-mono@5.3.0': {}
+
+  '@fontsource/ibm-plex-sans@5.3.0': {}
 
   '@gar/promise-retry@1.0.3': {}
 

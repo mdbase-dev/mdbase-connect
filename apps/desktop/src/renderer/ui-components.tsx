@@ -1,6 +1,10 @@
 import { t } from "@lingui/core/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
+import { shortcutLabel } from "@mdbase-dev/ui/command-palette";
+import { useMdbaseMarkActivity } from "@mdbase-dev/ui/mark-activity";
+import { useNavPill } from "@mdbase/connect-ui/nav-pill";
+import { StatusGlyph, type StatusGlyphState } from "@mdbase/connect-ui/status-glyph";
 import {
   applyThemePreference,
   loadThemePreference,
@@ -19,7 +23,8 @@ export function ProductSidebar({
   deviceCount,
   connection,
   computerName,
-  onSelect
+  onSelect,
+  onSearch
 }: {
   route: Route;
   collectionCount: number;
@@ -29,20 +34,24 @@ export function ProductSidebar({
   connection: { dot: ConnectionDotState; label: string };
   computerName: string;
   onSelect(route: Route): void;
+  onSearch(): void;
 }) {
   useLocaleRevision();
+  const nav = useRef<HTMLElement>(null);
+  const pill = useRef<HTMLSpanElement>(null);
+  useNavPill(nav, pill);
   return <aside id="product-navigation" className="product-sidebar">
     <div className="product-sidebar-brand"><Brand /></div>
-    <nav className="product-sidebar-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
+    <button className="sidebar-search" onClick={onSearch}><span>{t(i18n)({ message: "Search", context: "Connect interface" })}</span><kbd>{shortcutLabel("mod+k")}</kbd></button>
+    <nav ref={nav} className="product-sidebar-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
+      <span ref={pill} className="nav-pill" aria-hidden="true" hidden />
       <NavButton route="overview" current={route} label={t(i18n)({ message: "Overview", context: "Connect interface" })} onSelect={onSelect} />
       <NavButton route="collections" current={route} label={t(i18n)({ message: "Collections", context: "Connect interface" })} count={collectionCount} attention={deviceCount} onSelect={onSelect} />
       <NavButton route="access" current={route} label={t(i18n)({ message: "App access", context: "Connect interface" })} attention={pendingCount} onSelect={onSelect} />
       <NavButton route="activity" current={route} label={t(i18n)({ message: "Activity", context: "Connect interface" })} onSelect={onSelect} />
+      <NavButton route="settings" current={route} label={t(i18n)({ message: "Settings", context: "Connect interface" })} onSelect={onSelect} />
     </nav>
     <footer className="product-sidebar-footer">
-      <div className="product-sidebar-footer-nav">
-        <NavButton route="settings" current={route} label={t(i18n)({ message: "Settings", context: "Connect interface" })} onSelect={onSelect} />
-      </div>
       <div className="product-sidebar-status" role="status" aria-live="polite">
         <StatusDot state={connection.dot} />
         <span className="product-sidebar-status-copy">
@@ -77,14 +86,22 @@ export function Empty({ title, text, action, onAction }: { title: string; text: 
   return <div className="empty-state"><div className="empty-folder" aria-hidden="true"><span /></div><h3>{title}</h3><p>{text}</p>{action && onAction && <button className="text-action" onClick={onAction}>{action}</button>}</div>;
 }
 
+const glyphForDot: Record<ConnectionDotState, StatusGlyphState> = {
+  connected: "online",
+  connecting: "connecting",
+  paused: "paused",
+  danger: "attention",
+  idle: "idle"
+};
+
 export function StatusDot({ state }: { state: ConnectionDotState }) {
-  useLocaleRevision();
-  return <span className={`status-dot ${state}`} aria-hidden="true" />;
+  return <StatusGlyph state={glyphForDot[state]} />;
 }
 
 export function Brand() {
   useLocaleRevision();
-  return <div className="product-brand"><MdbaseMark className="product-brand-mark" /><strong>mdbase</strong><span className="product-brand-label">connect</span></div>;
+  const { signal, busy } = useMdbaseMarkActivity();
+  return <div className="product-brand"><MdbaseMark className="product-brand-mark" motion={busy ?? "keys-first"} signal={signal} /><strong>mdbase</strong><span className="product-brand-label">connect</span></div>;
 }
 
 export function SettingSwitch({ className, label, description, checked, disabled, stateLabel, onChange }: {
@@ -102,14 +119,15 @@ export function SettingSwitch({ className, label, description, checked, disabled
       <span className="toggle-copy"><strong>{label}</strong><small>{description}</small></span>
       <span className="toggle-action">
         <span className="toggle-state" aria-hidden="true">{stateLabel}</span>
-        <input
-          type="checkbox"
+        <button
+          type="button"
+          className="mdbase-switch"
           role="switch"
           aria-label={label}
-          checked={checked}
+          aria-checked={checked}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.checked)}
-        />
+          onClick={() => onChange(!checked)}
+        ><span aria-hidden="true" /></button>
       </span>
     </label>
   );

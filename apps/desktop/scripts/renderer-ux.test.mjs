@@ -219,9 +219,9 @@ test("turning on sync defaults to private and removal is confirmed; long paths s
     await dialog.getByRole("button", { name: "Turn on sync" }).click();
     await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
     assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
-    page.once("dialog", (prompt) => prompt.dismiss());
     await card.getByRole("button", { name: "Remove" }).click();
-    assert.deepEqual(await calls("removeCollection"), [], "dismissing the confirmation keeps the collection");
+    await card.getByRole("group", { name: /^Remove Notes from mdbase/ }).getByRole("button", { name: "Cancel" }).click();
+    assert.deepEqual(await calls("removeCollection"), [], "cancelling the confirmation keeps the collection");
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
@@ -323,8 +323,8 @@ test("access: pending approvals, new-access notices and revocation reach the dae
     await reader.getByText("Notes", { exact: true }).waitFor();
     await reader.getByRole("button", { name: "Mark as seen" }).click();
     assert.deepEqual(await calls("acknowledgeAccess"), [["new"]]);
-    page.once("dialog", (prompt) => prompt.accept());
     await reader.getByRole("button", { name: "Revoke" }).click();
+    await reader.getByRole("button", { name: "Revoke access" }).click();
     await page.getByText("Reader can no longer use Notes through this computer.", { exact: true }).waitFor();
     assert.deepEqual(await calls("revokeAccess"), [["new"]]);
     await screenshot(page, "access");
@@ -429,7 +429,7 @@ test("a stopped daemon never leaves a stale connected indicator, and recovery is
     await page.clock.runFor(5_000);
     await page.getByRole("status").filter({ hasText: "mdbase is not running on this computer." }).waitFor();
     assert.equal(await page.getByText("Connected securely", { exact: true }).count(), 0);
-    assert.equal(await page.locator(".product-sidebar-status .status-dot").evaluate((element) => getComputedStyle(element).animationName), "none");
+    assert.equal(await page.locator(".product-sidebar-status .status-glyph").getAttribute("data-state"), "attention");
     await page.evaluate(() => { window.mdbaseConnect.status = async () => window.fixture.status(); });
     await page.clock.runFor(5_000);
     await page.getByText("Connected securely", { exact: true }).first().waitFor();
@@ -552,13 +552,12 @@ test("a view-only new file can be discarded without a synced version", async () 
     await page.getByText("new.md", { exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: "Keep both", exact: true }).count(), 1);
     const discard = page.getByRole("button", { name: "Discard local changes", exact: true });
-    let prompt;
-    page.once("dialog", (dialog) => { prompt = dialog.message(); void dialog.dismiss(); });
     await discard.click();
-    assert.match(prompt, /new\.md.*haven't been synced/);
+    const confirmation = page.getByRole("group", { name: /new\.md.*haven't been synced/ });
+    await confirmation.getByRole("button", { name: "Cancel" }).click();
     assert.deepEqual(await calls("resolveHold"), []);
-    page.once("dialog", (dialog) => void dialog.accept());
     await discard.click();
+    await confirmation.getByRole("button", { name: "Discard", exact: true }).click();
     await page.getByText("Nothing is waiting.", { exact: true }).waitFor();
     assert.deepEqual(await calls("resolveHold"), [["c-notes", "viewer:1", "take_theirs"]]);
     assert.deepEqual(errors, []);

@@ -593,6 +593,11 @@ msgstr "Farbschema"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
+msgid "Commands"
+msgstr "Befehle"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Computer name"
 msgstr "Computername"
 
@@ -728,6 +733,10 @@ msgid "Differed when mdbase took over from the old app; this computer's version 
 msgstr "Unterschied sich beim Übergang von der alten App zu mdbase; die Version dieses Computers liegt im Ordner"
 
 #: src/renderer/collections-view.tsx
+msgid "Discard"
+msgstr "Verwerfen"
+
+#: src/renderer/collections-view.tsx
 msgid "Discard local changes"
 msgstr "Lokale Änderungen verwerfen"
 
@@ -797,6 +806,10 @@ msgstr "Ordnerpfade werden niemals hochgeladen."
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "Ordner auf diesem Computer, die Ihre Apps verwenden können, und ihre jeweilige Synchronisierung."
+
+#: src/renderer/main.tsx
+msgid "Go to {label}"
+msgstr "Gehe zu {label}"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
@@ -1398,8 +1411,14 @@ msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "{0, plural, one {# Datei prüfen} other {# Dateien prüfen}}"
 
 #: src/renderer/access-view.tsx
+msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "Widerrufen"
+
+#: src/renderer/access-view.tsx
+msgctxt "Connect interface"
+msgid "Revoke access"
+msgstr "Zugriff widerrufen"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1428,6 +1447,11 @@ msgstr "Gespeicherter App-Zugriff funktioniert auf diesem Computer weiterhin"
 msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Wird gespeichert…"
+
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Search"
+msgstr "Suchen"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1500,10 +1524,16 @@ msgid "Sign in with your browser"
 msgstr "Im Browser anmelden"
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Sign out"
+msgstr "Abmelden"
+
+#: src/renderer/main.tsx
 msgid "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected."
 msgstr "Auf diesem Computer abmelden? Apps können dann über diesen Computer nicht mehr auf Ihre lokalen Sammlungen zugreifen. Ihre Dateien bleiben unberührt."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Sign out on this computer…"
 msgstr "Auf diesem Computer abmelden…"
 
@@ -1881,6 +1911,11 @@ msgstr "Synchronisierung wird aktiviert: Dateien im Ordner werden hochgeladen…
 msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Wird aktiviert…"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "Befehl eingeben"
 
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx

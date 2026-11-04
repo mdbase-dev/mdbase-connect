@@ -31,8 +31,8 @@ export function ApprovalPrompt({ title, can, check, note, approveLabel, declineL
         {note && <small>{note}</small>}
       </div>
       <div className="decision-actions">
-        <button className="button secondary" disabled={busy} onClick={onDecline}>{declineLabel ?? <Trans>Decline</Trans>}</button>
-        <button className="button primary" disabled={busy || approveDisabled} onClick={onApprove}>{approveLabel}</button>
+        <button className="mdbase-button" disabled={busy} onClick={onDecline}>{declineLabel ?? <Trans>Decline</Trans>}</button>
+        <button className="mdbase-button is-primary" disabled={busy || approveDisabled} onClick={onApprove}>{approveLabel}</button>
       </div>
     </article>
   );

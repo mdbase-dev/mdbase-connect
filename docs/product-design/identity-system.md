@@ -88,9 +88,9 @@ rendering, localization flexibility for product labels, and accessibility.
 
 ## Use in the product
 
-The mark identifies mdbase. It does not indicate sync, connectivity, approval,
-or collection health. Pair those states with their own text labels and status
-indicators.
+The mark identifies mdbase. Its motion can show that work is running, but it
+never replaces the status of sync, connectivity, approval or collection health.
+Pair those states with their own text labels and status glyphs.
 
 Good placements include:
 
@@ -105,7 +105,7 @@ or permission controls. Repetition turns a precise identity into decoration.
 The adopted loading and transition behaviors, their semantic assignments, and
 live production previews are documented in the
 [icon motion system](icon-motion-system.html). Product implementations consume
-the shared motion classes from `packages/ui/motion.css`.
+the shared motion classes from `packages/app-ui/css/motion.css`.
 
 ## Assets
 

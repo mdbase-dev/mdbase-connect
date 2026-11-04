@@ -1,5 +1,10 @@
-/* Next provides real intermediate weights (200–800), served locally under font-src 'self'. */
-@import "@fontsource-variable/atkinson-hyperlegible-next/wght.css";
+/* Served locally under font-src 'self'. Bold and italic exist for note text. */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
+@import "@fontsource/ibm-plex-sans/400-italic.css";
+@import "@fontsource/ibm-plex-sans/700-italic.css";
 @import "@fontsource/azeret-mono/latin-400.css";
 @import "@fontsource/azeret-mono/latin-500.css";
 @import "@fontsource/azeret-mono/latin-600.css";

@@ -393,7 +393,7 @@ describe("ConnectApp", () => {
     expect(navigation).toHaveTextContent("All collections");
     expect(navigation).toHaveTextContent("Account & sessions");
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
-    const editor = new URL((await screen.findByRole("link", { name: "Open editor" })).getAttribute("href")!);
+    const editor = new URL((await screen.findByRole("link", { name: "Open in editor" })).getAttribute("href")!);
     expect(editor.origin).toBe("https://editor.example.test");
     expect(editor.pathname).toBe("/");
     expect(editor.searchParams.get("collection")).toBe("collection");
@@ -410,7 +410,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname === "/v1/account/sessions")).toBe(true));
-    expect(screen.queryByRole("link", { name: "Open editor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open in editor" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Choose or create my person record" })).not.toBeInTheDocument();
   });
 
@@ -448,7 +448,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
-    expect(screen.getAllByText("Offline").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^Offline/).length).toBeGreaterThan(0);
     expect(screen.getByText("Open mdbase connect on Home computer to make this collection available.")).toBeInTheDocument();
     expect(screen.queryByText("The editor can reach this collection now.")).not.toBeInTheDocument();
   });
@@ -462,7 +462,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
-    expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^Update required/).length).toBeGreaterThan(0);
     expect(screen.getByText("Update mdbase connect on Home computer before using this collection."))
       .toBeInTheDocument();
     expect(screen.queryByText("The editor can reach this collection now.")).not.toBeInTheDocument();
@@ -694,10 +694,10 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("button", { name: "Delete permanently" })).not.toBeInTheDocument();
   });
 
-  it("invites and manages collection members from the collection overview", async () => {
+  it("invites and manages collection members from app access", async () => {
     overview.collections = [];
     overview.hosted_collections = [hostedCollection()];
-    history.replaceState(null, "", "/?collection=hosted");
+    history.replaceState(null, "", "/access?collection=hosted");
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation(async (input, init) => {
       const path = new URL(String(input)).pathname;

@@ -593,6 +593,11 @@ msgstr "Color theme"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
+msgid "Commands"
+msgstr "Commands"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Computer name"
 msgstr "Computer name"
 
@@ -728,6 +733,10 @@ msgid "Differed when mdbase took over from the old app; this computer's version 
 msgstr "Differed when mdbase took over from the old app; this computer's version is in the folder"
 
 #: src/renderer/collections-view.tsx
+msgid "Discard"
+msgstr "Discard"
+
+#: src/renderer/collections-view.tsx
 msgid "Discard local changes"
 msgstr "Discard local changes"
 
@@ -797,6 +806,10 @@ msgstr "Folder locations are never uploaded."
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "Folders on this computer that your apps can use, and how each one syncs."
+
+#: src/renderer/main.tsx
+msgid "Go to {label}"
+msgstr "Go to {label}"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
@@ -1398,8 +1411,14 @@ msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "Review {0, plural, one {# file} other {# files}}"
 
 #: src/renderer/access-view.tsx
+msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "Revoke"
+
+#: src/renderer/access-view.tsx
+msgctxt "Connect interface"
+msgid "Revoke access"
+msgstr "Revoke access"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1428,6 +1447,11 @@ msgstr "Saved app access still works on this computer"
 msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Saving…"
+
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Search"
+msgstr "Search"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1500,10 +1524,16 @@ msgid "Sign in with your browser"
 msgstr "Sign in with your browser"
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Sign out"
+msgstr "Sign out"
+
+#: src/renderer/main.tsx
 msgid "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected."
 msgstr "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Sign out on this computer…"
 msgstr "Sign out on this computer…"
 
@@ -1881,6 +1911,11 @@ msgstr "Turning on sync: uploading the files in the folder…"
 msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Turning on…"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "Type a command"
 
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx

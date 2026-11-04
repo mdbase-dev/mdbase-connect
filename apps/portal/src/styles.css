@@ -45,24 +45,7 @@ body,
   margin-left: auto;
 }
 
-/* The native language picker matches the quiet theme menu beside it. */
-.page-brand-controls .language-setting select {
-  min-height: var(--control-height);
-  padding: 0 var(--space-2);
-  border: 1px solid transparent;
-  border-radius: var(--control-radius);
-  color: var(--color-text);
-  background: transparent;
-  font: inherit;
-  font-size: var(--control-font-size);
-  width: auto;
-  field-sizing: content;
-  cursor: pointer;
-}
-
-.page-brand-controls .language-setting select:hover:not(:disabled) {
-  border-color: var(--color-border);
-}
+.connect-nav-footer .language-setting .mdbase-select { width: 100%; }
 
 .account-shell {
   min-height: 100vh;

@@ -11,7 +11,7 @@
   border-radius: var(--radius-sm);
 }
 
-/* Persistent selection is neutral; a keyboard-active selection uses the accent. */
+/* Selection is always neutral; keyboard focus adds the accent edge. */
 .collection-rail nav button.selected,
 .collection-rail nav .editor-rail-link.selected,
 .note-scroll .note-row.selected,
@@ -34,14 +34,7 @@
 .type-list:focus-within .type-row.selected,
 .type-resource-nav:focus-within .type-pack-entry.selected,
 .quick-open:focus-within .quick-open-results > button.selected {
-  background: var(--accent-soft);
   border-left-color: var(--accent);
-}
-
-.note-row.selected .note-title,
-.type-row.selected strong,
-.type-pack-entry.selected strong {
-  font-weight: var(--font-weight-semibold);
 }
 
 .search-field,

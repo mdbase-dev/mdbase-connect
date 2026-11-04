@@ -1,3 +1,4 @@
+import { StatusGlyph } from "@mdbase/connect-ui/status-glyph";
 import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
@@ -364,7 +365,7 @@ function DesktopContinuation({ request, onReviewHere }: {
       <h2><Trans>Choose the folder in mdbase connect.</Trans></h2>
       <p><Trans>This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {literal(request.application_name)}.</Trans></p>
       <div className="desktop-continuation-status">
-        <span className="status-dot connecting" aria-hidden="true" />
+        <StatusGlyph state="connecting" />
         <div><strong><Trans>Waiting for mdbase connect</Trans></strong><small><Trans>The page will notice when the request is approved.</Trans></small></div>
       </div>
       <div className="approval-actions">

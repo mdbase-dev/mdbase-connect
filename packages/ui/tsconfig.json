@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext",
-    "strict": true, "declaration": true, "resolveJsonModule": true, "outDir": "dist", "skipLibCheck": true
+    "jsx": "react-jsx", "strict": true, "declaration": true, "resolveJsonModule": true, "outDir": "dist", "skipLibCheck": true
   },
-  "include": ["access.ts", "contract-setup.ts", "provider-button.ts", "i18n.ts"]
+  "include": ["access.ts", "contract-setup.ts", "provider-button.ts", "status-glyph.tsx", "state-transition.ts", "confirm-action.tsx", "nav-pill.ts", "i18n.ts"]
 }

@@ -91,7 +91,7 @@
   padding: var(--space-2) 9px var(--space-1);
   color: var(--faint);
   font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
 }
 
 .quick-open-command > span {
@@ -108,7 +108,7 @@
 
 .quick-open-results > button {
   width: 100%;
-  min-height: 48px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   padding: 7px 9px 7px 6px;
@@ -137,6 +137,7 @@
 .quick-open-results strong {
   color: var(--ink);
   font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
 }
 
 .quick-open-results small {

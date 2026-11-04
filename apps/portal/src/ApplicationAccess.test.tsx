@@ -49,6 +49,8 @@ describe("native installation display scopes", () => {
   });
   it("also retains every application ID when revoking from the collection page", async () => {
     const { remove, revoke } = show([installation(),installation({application_id:"app-b",connector_id:"connector-b",installation_id:"installation-22222222"})], "Garden notes");
+    expect(screen.queryByRole("button", {name:"Revoke collection access"})).not.toBeInTheDocument();
+    expect(screen.queryByText("1 collection")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name:"Revoke access"}));
     fireEvent.click(screen.getByRole("button", {name:"Revoke access"}));
     await vi.waitFor(()=>expect(remove).toHaveBeenCalledTimes(2));

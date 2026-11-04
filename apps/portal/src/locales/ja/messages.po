@@ -692,7 +692,6 @@ msgid "App key <0>{0}</0>. Your computer will show this key when you approve the
 msgstr "アプリのキー <0>{0}</0>。アプリを承認する際、コンピューターにこのキーが表示されます。"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Application access"
 msgstr "アプリケーションへのアクセス"
@@ -774,6 +773,11 @@ msgstr "承認中…"
 msgctxt "Connect interface"
 msgid "Apps"
 msgstr "アプリ"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Apps with access to the entire collection"
+msgstr "コレクション全体にアクセスできるアプリ"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -1066,6 +1070,11 @@ msgstr "コレクション"
 msgid "Collections you own. Local files remain on your devices."
 msgstr "所有しているコレクションです。ローカルファイルはデバイス上に残ります。"
 
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Commands"
+msgstr "コマンド"
+
 #: src/authority-workflows.tsx
 msgid "Computer approved"
 msgstr "コンピューターを承認しました"
@@ -1157,11 +1166,6 @@ msgstr "接続済み"
 msgctxt "Connect interface"
 msgid "Connected applications"
 msgstr "接続済みアプリケーション"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Connection"
-msgstr "接続"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
@@ -1633,6 +1637,10 @@ msgstr "生成中…"
 msgid "GitHub account @{login}"
 msgstr "GitHub アカウント @{login}"
 
+#: src/ConnectApp.tsx
+msgid "Go to {label}"
+msgstr "{label} に移動"
+
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
@@ -1898,10 +1906,6 @@ msgid "Location"
 msgstr "場所"
 
 #: src/ConnectApp.tsx
-msgid "Main copy"
-msgstr "正本"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "正本"
@@ -1960,10 +1964,6 @@ msgstr "タイマーを管理"
 msgctxt "Connect interface"
 msgid "manage types"
 msgstr "型を管理"
-
-#: src/ConnectApp.tsx
-msgid "Manage where this collection lives and which applications can use it."
-msgstr "このコレクションの保存場所と、利用できるアプリケーションを管理します。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2310,10 +2310,6 @@ msgstr "アプリを開き、アクセスを許可するコレクションを選
 msgid "Open desktop app"
 msgstr "デスクトップアプリを開く"
 
-#: src/ConnectApp.tsx
-msgid "Open editor"
-msgstr "エディターを開く"
-
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
 msgstr "エディターを開く <0>↗</0>"
@@ -2324,6 +2320,11 @@ msgid "Open in {0}"
 msgstr "{0} で開く"
 
 #: src/ConnectApp.tsx
+msgid "Open in editor"
+msgstr "エディターで開く"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "エディターで開く"
 
@@ -2789,7 +2790,6 @@ msgid "Returning to {applicationName}…"
 msgstr "{applicationName} に戻っています…"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
 msgstr "確認"
@@ -2807,11 +2807,6 @@ msgstr "{collectionName} に対する {0} の要求を確認してください�
 #: src/authorization-view.tsx
 msgid "Review access"
 msgstr "アクセスを確認"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Review all"
-msgstr "すべて確認"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
@@ -2857,6 +2852,12 @@ msgstr "取り消す"
 msgid "Revoke {0} access to {1} across all its installations?"
 msgstr "すべてのインストールで {0} の {1} へのアクセスを取り消しますか？"
 
+#. placeholder {0}: application.applicationName
+#. placeholder {1}: collection.name
+#: src/ConnectApp.tsx
+msgid "Revoke {0} access to {1}?"
+msgstr "{0} の {1} へのアクセスを取り消しますか？"
+
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
@@ -2873,6 +2874,7 @@ msgid "Revoke {0}?"
 msgstr "{0} を取り消しますか？"
 
 #: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
 msgstr "アクセスを取り消す"
@@ -2945,6 +2947,10 @@ msgstr "バックグラウンド作業を予定"
 #: src/ApplicationAccess.tsx
 msgid "Scope"
 msgstr "対象範囲"
+
+#: src/ConnectApp.tsx
+msgid "Search"
+msgstr "検索"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
@@ -3155,28 +3161,8 @@ msgstr "このリンクが届いた種類のメールの受信を停止します
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Storage"
-msgstr "ストレージ"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Storage & sync"
 msgstr "ストレージと同期"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored by mdbase"
-msgstr "mdbase に保存"
-
-#. placeholder {0}: collection.detail
-#: src/ConnectApp.tsx
-msgid "Stored on {0}"
-msgstr "{0} に保存"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Stored on your devices"
-msgstr "デバイス上に保存"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3505,6 +3491,11 @@ msgstr "再試行"
 msgctxt "Connect interface"
 msgid "Two-way sync"
 msgstr "双方向同期"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "コマンドを入力"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"

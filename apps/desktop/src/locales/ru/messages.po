@@ -593,6 +593,11 @@ msgstr "Цветовая тема"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
+msgid "Commands"
+msgstr "Команды"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Computer name"
 msgstr "Имя компьютера"
 
@@ -728,6 +733,10 @@ msgid "Differed when mdbase took over from the old app; this computer's version 
 msgstr "Версии различались при переходе mdbase со старого приложения; версия этого компьютера находится в папке"
 
 #: src/renderer/collections-view.tsx
+msgid "Discard"
+msgstr "Отменить изменения"
+
+#: src/renderer/collections-view.tsx
 msgid "Discard local changes"
 msgstr "Отменить локальные изменения"
 
@@ -797,6 +806,10 @@ msgstr "Пути к папкам никогда не загружаются."
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "Папки на этом компьютере, доступные приложениям, и способ синхронизации каждой из них."
+
+#: src/renderer/main.tsx
+msgid "Go to {label}"
+msgstr "Перейти: {label}"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
@@ -1398,7 +1411,13 @@ msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "Проверить {0, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}"
 
 #: src/renderer/access-view.tsx
+msgctxt "Connect interface"
 msgid "Revoke"
+msgstr "Отозвать"
+
+#: src/renderer/access-view.tsx
+msgctxt "Connect interface"
+msgid "Revoke access"
 msgstr "Отозвать доступ"
 
 #: src/renderer/access-view.tsx
@@ -1428,6 +1447,11 @@ msgstr "Ранее разрешённый доступ приложений на
 msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Сохранение…"
+
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Search"
+msgstr "Поиск"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1500,12 +1524,18 @@ msgid "Sign in with your browser"
 msgstr "Войти через браузер"
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Sign out"
+msgstr "Выйти"
+
+#: src/renderer/main.tsx
 msgid "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected."
 msgstr "Выйти из учётной записи на этом компьютере? Приложения больше не смогут получать доступ к вашим локальным коллекциям через него. Файлы не изменятся."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Sign out on this computer…"
-msgstr "Выйти из учётной записи на этом компьютере…"
+msgstr "Выйти на этом компьютере…"
 
 #: src/renderer/daemon-view.mts
 msgid "Sign-in did not finish. Try again."
@@ -1881,6 +1911,11 @@ msgstr "Включение синхронизации: отправка файл
 msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Включение…"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Type a command"
+msgstr "Введите команду"
 
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx
