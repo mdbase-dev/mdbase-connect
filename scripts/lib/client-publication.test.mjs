@@ -92,6 +92,11 @@ test("client publishers retain qualified source guards and cannot publish on an 
   assert.match(desktop, /website-update:[\s\S]*needs: publish/);
   assert.match(desktop, /(?:test "v\$package_version" = "\$GITHUB_REF_NAME"|continuous-desktop-release\.mjs prepare)/);
 });
+test("client release GitHub reads can hold the full paginated release list", async () => {
+  const source = await readFile(new URL("./continuous-client-release.mjs", import.meta.url), "utf8");
+  assert.match(source, /execFileSync\("gh", args, \{ encoding: "utf8", maxBuffer: 256 \* 1024 \* 1024 \}\)/);
+});
+
 test("Editor publishes only through the native dispatch path; main never deploys", async () => {
   const text = await workflow("editor-pages");
   // Main's Editor is the native one: the legacy main/tag Pages jobs are gone, so no
