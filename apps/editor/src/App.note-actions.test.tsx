@@ -25,6 +25,57 @@ async function openRowMenu(name = /Garden notes 2/) {
 }
 
 describe("Note actions", () => {
+  it.each([0, 1, 3])("selects the adjacent displayed note after deleting row %s and restores selection and focus on Undo", async (position) => {
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    const rows = screen.getAllByRole("option").filter((row) => !row.classList.contains("file-row"));
+    const title = rows[position].querySelector(".note-title")!.textContent!;
+    const nextTitle = rows[position + 1 < rows.length ? position + 1 : position - 1].querySelector(".note-title")!.textContent!;
+    await user.click(rows[position]);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(title));
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(nextTitle));
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(title));
+    const list = screen.getByRole("listbox", { name: "Collection notes and files" });
+    await waitFor(() => expect(list).toHaveFocus());
+    expect(window.document.getElementById(list.getAttribute("aria-activedescendant")!)).toHaveTextContent(title);
+    expect(screen.getByRole("option", { selected: true })).toHaveTextContent(title);
+  });
+
+  it("peeks with Space without leaving or scrolling the list, then returns focus on Escape", async () => {
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    const list = screen.getByRole("listbox", { name: "Collection notes and files" });
+    const active = list.getAttribute("aria-activedescendant");
+    list.scrollTop = 76;
+    await user.click(list);
+    fireEvent.keyDown(list, { key: " " });
+    const peek = await screen.findByRole("dialog", { name: "The shape of useful tools" });
+    expect(within(peek).getByRole("region", { name: "Read-only Markdown preview" })).toBeInTheDocument();
+    expect(list.scrollTop).toBe(76);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(list).toHaveFocus());
+    expect(list).toHaveAttribute("aria-activedescendant", active);
+    expect(list.scrollTop).toBe(76);
+  });
+
+  it("uses the existing note composer with the empty quick-open search as its title", async () => {
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await user.keyboard("{Control>}p{/Control}");
+    const input = await screen.findByRole("combobox", { name: "Find a note or action" });
+    await user.type(input, "A newly imagined note");
+    await user.keyboard("{Enter}");
+    expect(await screen.findByDisplayValue("A newly imagined note")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Create note/ })).toBeInTheDocument();
+  });
+
   it("keeps the mobile rename-path action independent of its translated label", async () => {
     vi.stubGlobal("innerWidth", 600);
     await editorLocaleRuntime.initialize();

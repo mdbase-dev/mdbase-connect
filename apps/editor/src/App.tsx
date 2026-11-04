@@ -17,7 +17,8 @@ import {
   PencilSimpleIcon as Pencil,
   TrashIcon as Trash2,
   TagIcon as Tag,
-  PushPinIcon as Pin
+  PushPinIcon as Pin,
+  XIcon as X
 } from "./icons";
 import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MdbaseRecordSessionSnapshot } from "@mdbase-dev/connect";
 import {
@@ -51,7 +52,8 @@ import type { EditorCollectionSwitcher } from "./editor-collections";
 import { ConflictResolver } from "./ConflictResolver";
 import { DraftRecovery, frontmatterPatch, recoveryDraftMatchesRecord } from "./draft-recovery";
 import { connectServerUrl } from "./connect-endpoint";
-import { ConfirmDialog } from "./Dialog";
+import { ConfirmDialog, Dialog } from "./Dialog";
+import { ReadOnlyMarkdown } from "./read-only-markdown";
 import {
   loadContractCatalog,
   type ContractCatalogPack
@@ -82,6 +84,7 @@ import type {
 } from "./model";
 import {
   editableNote,
+  persistedBody,
   noteHeadings,
   noteWordCount,
   noteTags,
@@ -253,6 +256,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [renamePlan, setRenamePlan] = useState<RenamePlan>();
   const [quickOpen, setQuickOpen] = useState(false);
+  const [peekNote, setPeekNote] = useState<NoteDocument>();
   const [quickOpenCommandMode, setQuickOpenCommandMode] = useState(false);
   const [editorAutoFocus, setEditorAutoFocus] = useState(true);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -876,8 +880,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           : searchedNotes.filter((note) => note.types.includes(noteFilter.value));
     return deferredSearch.trim() ? filtered : sortNotes(filtered, noteSort, typeDescriptors);
   }, [deferredSearch, noteFilter, noteSort, searchedNotes, typeDescriptors, i18n.locale]);
-  const { visibleFiles, entries: visibleBrowserEntries } = useCollectionBrowserEntries(
+  const { visibleFiles, entries: browserEntries } = useCollectionBrowserEntries(
     visibleNotes, fileInventory.files, noteFilter, deferredSearch, noteSort, typeDescriptors);
+  const visibleBrowserEntries = useMemo(() => {
+    const pins = new Set(!deferredSearch.trim() && !noteFilter ? pinnedPaths : []);
+    return pins.size ? [...browserEntries.filter((entry) => entry.kind === "note" && pins.has(entry.path)), ...browserEntries.filter((entry) => entry.kind !== "note" || !pins.has(entry.path))] : browserEntries;
+  }, [browserEntries, deferredSearch, noteFilter, pinnedPaths]);
   const visibleNotePaths = useMemo(() => new Set(visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path)), [visibleBrowserEntries, i18n.locale]);
   const listSelection = useMemo(() => selectedCollectionFile || creationMode ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [creationMode, selectedCollectionFile, selectedPath, selection, visibleNotePaths, i18n.locale]);
   const selectionFields = useMemo(() => {
@@ -934,10 +942,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     bulkBusy, recoveryAction, setRecoveryAction, recoveryBusy, setRecoveryBusy, linkingMention,
     clearRenameRequest, resetNoteActions } = useNoteActions({
     gateway, mutationScope, noteSessions, indexController, allNotes, files: fileInventory.files,
+    noteOrder: visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path),
     typeDescriptors, document, pathDraft, canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes,
     createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
     openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin,
     clearSelection: () => { setSelection(undefined); setBulkPropertyKind(undefined); },
+    focusNoteList: () => {
+      setEditorAutoFocus(false);
+      setMobilePane("notes");
+      window.requestAnimationFrame(() => window.document.querySelector<HTMLElement>(".note-scroll")?.focus());
+    },
     setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths, setNotice
   });
 
@@ -1025,6 +1039,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setRenamePlan(undefined);
     setQuickOpen(false);
     setConfirmation(undefined);
+    setPeekNote(undefined);
     setSelectedTypeName(undefined);
     resetTypeLifecycle();
     setSaveState("saved");
@@ -1891,6 +1906,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onFilter={setNoteFilter}
         noteActions={(path) => listSelection.paths.length > 1 && listSelection.paths.includes(path) ? bulkActions(listSelection.paths) : noteActions(path)}
         onRename={(path) => void renameNote(path)}
+        onPeek={async (path) => {
+          const epoch = collectionEpoch.current, generation = documentGeneration.current;
+          try {
+            const session = noteSessions.current.get(path);
+            const note = session ? { ...session.document, body: persistedBody(session.draft.title, session.draft.body, session.draft.source) } : await gateway.read(path);
+            if (epoch === collectionEpoch.current && generation === documentGeneration.current) setPeekNote(note);
+          } catch (error) { if (epoch === collectionEpoch.current) setNotice(gatewayError(error)); }
+        }}
         onDelete={(path) => { if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
         onCreate={canCreateNotes ? beginCreate : undefined}
         onCollections={() => returnToMobilePane("collections")}
@@ -1908,6 +1931,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         defaultFolder={creationContext.folder}
         defaultTag={creationContext.tag}
         defaultType={creationContext.type}
+        initialTitle={creationContext.title}
         purpose={creationMode}
         preferences={preferences}
         recordPaths={allNotes.map((note) => note.path)}
@@ -2149,6 +2173,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       recentPaths={[...pinnedPaths, ...recentPaths.filter((path) => !pinnedPaths.includes(path))]}
       types={typeDescriptors}
       commands={quickOpenCommands}
+      onCreate={canCreateNotes && !mutationsFrozen ? (title) => { beginCreate(); setCreationContext((current) => ({ ...current, title })); } : undefined}
       onSelect={(path) => {
         setSearch("");
         setNoteFilter(undefined);
@@ -2158,6 +2183,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       onClose={() => setQuickOpen(false)}
     />}
     {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
+    {peekNote && <Dialog titleId="note-peek-title" className="confirm-dialog note-peek" onClose={() => setPeekNote(undefined)}>
+      <header><h2 id="note-peek-title">{noteTitle(peekNote, typeDescriptors)}</h2><button className="icon-button" aria-label={t`Close note peek`} onClick={() => setPeekNote(undefined)}><X aria-hidden="true" /></button></header>
+      <ReadOnlyMarkdown source={peekNote.body ?? ""} byteLength={new TextEncoder().encode(peekNote.body ?? "").length} />
+    </Dialog>}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {confirmation && <ConfirmDialog
       title={confirmation.title}

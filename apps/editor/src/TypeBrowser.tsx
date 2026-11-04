@@ -291,7 +291,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
     </section>
     <section className="type-source">
       {reviewing ? <div className="type-source-context reviewing">
-        <div className="type-source-intro"><h2><Trans>Review changes</Trans></h2><p><Trans>Confirm the collection-wide effect before saving.</Trans></p></div>
+        <div className="type-source-intro"><h2><Trans>Review type changes</Trans></h2></div>
       </div> : <div className="type-source-context">
           <div className="type-source-intro"><h2><Trans>Definition</Trans></h2><p><Trans>Design the note shape or work with its complete YAML source.</Trans></p></div>
           {!readOnly && <><div className="type-view-switch" role="group" aria-label={t`Type editor view`}>
@@ -1929,12 +1929,13 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
   onConfirm: () => void;
 }) {
   useLingui();
-  const diff = compareLines(previousSource ?? "", source);
   const changeCount = impact.addedFields.length + impact.removedFields.length + impact.changedFields.length + impact.newlyRequired.length;
+  const descriptionChanged = previousSource !== undefined && readVisualType(previousSource).description !== readVisualType(source).description;
+  const descriptionOnly = descriptionChanged && impact.definitionChanges.length === 1 && changeCount === 0 && impact.collectionChanges.length === 0;
   return <div className="type-change-review">
-    <p className="eyebrow"><Trans>Review changes</Trans></p>
-    <h2>{creating ? t`Create this type?` : t`Update this type?`}</h2>
-    <p>{changeCount ? plural(changeCount, { one: `# field-level change detected.`, other: `# field-level changes detected.` }) : t`The source changed without altering declared fields.`}</p>
+    {descriptionChanged && <p><strong><Trans>Description changed</Trans></strong></p>}
+    {descriptionOnly && <p><Trans>Existing note contents and fields stay unchanged.</Trans></p>}
+    {changeCount > 0 && <p>{plural(changeCount, { one: `# field-level change detected.`, other: `# field-level changes detected.` })}</p>}
     <dl>
       <div><dt><Trans>Matching notes</Trans></dt><dd>{impact.affectedNotes.toLocaleString(displayLocale())}</dd></div>
       <div><dt><Trans>Fields added</Trans></dt><dd>{impact.addedFields.length}</dd></div>
@@ -1942,7 +1943,7 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
       <div><dt><Trans>Fields changed</Trans></dt><dd>{impact.changedFields.length}</dd></div>
     </dl>
     <TypeMembershipPreview impact={impact.membership} afterUpdate />
-    {impact.definitionChanges.length > 0 && <div className="type-definition-changes"><strong><Trans>Definition changes</Trans></strong><p>{impact.definitionChanges.join(" · ")}</p></div>}
+    {!descriptionOnly && impact.definitionChanges.length > 0 && <div className="type-definition-changes"><strong><Trans>Definition changes</Trans></strong><p>{impact.definitionChanges.join(" · ")}</p></div>}
     {impact.collectionChanges.length > 0 && <div className="type-collection-changes">
       <strong><Trans>Collection behaviour</Trans></strong>
       <p>{impact.collectionChanges.join(" · ")}</p>
@@ -1960,7 +1961,7 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
       <div><strong><Trans>Existing notes need attention</Trans></strong>{impact.missingRequired.map(({ field, count }) => <p key={field}>{plural(count, { one: `# note is missing required field ${field}.`, other: `# notes are missing required field ${field}.` })}</p>)}</div>
     </div>}
     <p className="type-review-scope"><Trans>Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm.</Trans></p>
-    <details><summary><Trans>Review YAML diff</Trans></summary><div className="line-diff" role="table" aria-label={t`Type source differences`}>{diff.map((line, index) => <div className={`diff-line ${line.kind}`} role="row" key={`${line.kind}:${index}`}><span className="diff-marker" aria-hidden="true">{line.kind === "local" ? "−" : line.kind === "remote" ? "+" : line.kind === "omitted" ? "···" : " "}</span><span className="diff-line-number" aria-hidden="true">{line.localLine ?? line.remoteLine ?? ""}</span><code role="cell">{line.text || " "}</code></div>)}</div></details>
+    <details><summary><Trans>Review YAML diff</Trans></summary><div className="line-diff" role="table" aria-label={t`Type source differences`}>{compareLines(previousSource ?? "", source).map((line, index) => <div className={`diff-line ${line.kind}`} role="row" key={`${line.kind}:${index}`}><span className="diff-marker" aria-hidden="true">{line.kind === "local" ? "−" : line.kind === "remote" ? "+" : line.kind === "omitted" ? "···" : " "}</span><span className="diff-line-number" aria-hidden="true">{line.localLine ?? line.remoteLine ?? ""}</span><code role="cell">{line.text || " "}</code></div>)}</div></details>
     <div className="type-review-actions"><button className="mdbase-button is-tertiary" onClick={onBack}><Trans>Back to editing</Trans></button><button className="confirm-type-button mdbase-button is-primary" disabled={saving} onClick={onConfirm}>{saving ? t`Saving…` : creating ? t`Create type` : t`Confirm update`}</button></div>
   </div>;
 }
