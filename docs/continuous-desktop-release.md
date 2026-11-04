@@ -62,6 +62,11 @@ are off-axis; application JavaScript/TypeScript is not automatically classified
 as UI-only. Package-version equality is
 not a compatibility test. See [the contract matrix](connect-contract-compatibility.md).
 
+Services report the commit their image was built from, so `publish-images.yml`
+also rebuilds images for any commit `contractSensitive` flags, even if the
+services' own inputs are unchanged. Otherwise a release that reuses images could
+never prove that production contains the commit.
+
 This is deliberately conservative: a shared runtime or SDK source change may
 wait for production even when a reviewer considers it compatible. Do not widen
 the allowlist as a release workaround. Each build and the final publication
