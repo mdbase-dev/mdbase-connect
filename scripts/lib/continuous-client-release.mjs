@@ -28,11 +28,12 @@ export function requireRunning(value) {
 
 export function contractSensitive(path) {
   if (/(?:^|\/)(?:test|tests|__tests__|examples)\//.test(path) || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)) return false;
-  if (/^(?:docs|changelog\.d|architecture\.d)\//.test(path) || /(?:^|\/)(?:README|CHANGELOG)\.md$/.test(path)) return false;
+  if (/^(?:docs|changelog\.d|architecture\.d)\//.test(path) || /(?:^|\/)(?:README|CHANGELOG|DESIGN)\.md$/.test(path)) return false;
   if (/^(?:apps\/(?:desktop|editor|portal)|packages\/(?:app-ui|connect-ui|ui))\//.test(path)
       && /\.(?:css|scss|png|jpe?g|webp|gif|ico|icns|svg|woff2?|ttf)$/.test(path)) return false;
   if (/^(?:apps\/(?:desktop|editor|portal)\/src\/i18n|packages\/i18n\/src\/locales)\//.test(path)
       && /\.(?:po|json)$/.test(path)) return false;
+  if (/^(?:apps\/(?:desktop|portal)\/src|packages\/app-ui\/src|packages\/ui)\/locales\/[^/]+\/messages\.po$/.test(path)) return false;
   if (/^\.github\/workflows\/(?:desktop-release|publish-sdk-npm|publish-npm)\.yml$/.test(path)) return false;
   if (/^scripts\/(?:lib\/)?(?:continuous-(?:client|desktop|sdk)-release|generate-update-manifest|write-update-input|package-headless-cli|public-packages)(?:[./-]|$)/.test(path)) return false;
   if (path === "config/desktop-update-minimum.json") return false;
