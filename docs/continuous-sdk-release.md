@@ -110,9 +110,13 @@ already on npm or automatically rolls back consumers.
 
 An attempted publisher in a failed/cancelled/unknown prior main run latches its
 line. Existing Actions run/job history is the attempt journal; there is no new
-release database. Authorization failures, timeouts and version-conflict HTTP 200
-are not absence proof. An exact npm-version **404** is required before publishing.
-Concurrency is non-cancelling and global per existing publishing workflow.
+release database. Authorization failures and timeouts are not absence proof. An
+exact npm-version **404** is required before publishing. Concurrency is
+non-cancelling and global per existing publishing workflow, so a run can queue
+behind another for the same commit and plan while npm still hides the version.
+When the recheck then reads HTTP 200 with verified provenance for this exact
+commit and publisher workflow, the run publishes nothing and ends successfully.
+Any other HTTP 200 still fails for owner review.
 
 The owner must inspect all outcomes, immutable package provenance and internal
 release assets before acknowledging a failed attempt. Only then set repository
