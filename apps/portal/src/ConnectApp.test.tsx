@@ -821,7 +821,7 @@ describe("ConnectApp", () => {
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "PATCH" && init.body === JSON.stringify({ display_name: "Shared research" }))).toBe(true);
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    expect(within(screen.getByRole("dialog", { name: "Delete" })).getByText(/Delete Hosted research and all of its hosted data/)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /^Delete Hosted research and all of its hosted data/ })).toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("button", { name: "Delete permanently" })).not.toBeInTheDocument();
