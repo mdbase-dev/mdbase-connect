@@ -176,6 +176,11 @@ the GitHub release. Upload it to the matching Partner Center submission. The
 Store replaces its build-time development signature with Microsoft's
 certificate after certification.
 
+Follow [Microsoft Store distribution](windows-store.md) for the reserved
+product identity and first publication. `WINDOWS_STORE_LIVE=true` separately
+enables the Store link in future signed update feeds; packaging alone never
+claims the listing is live.
+
 Before creating a release tag, require Server CI and `Publish Server Images` to
 pass for the main commit that will be tagged. That publisher builds each managed
 `linux/amd64` image once, attaches BuildKit SBOM and provenance attestations,
