@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use crate::unicode::{case_fold, nfc};
-use crate::value::{Value, format_float_es};
+pub mod fields;
 
 /// The path key of `path` (spec 02): NFC, full case folding, NFC.
 ///
@@ -120,44 +120,7 @@ pub fn derive_path(
     pattern: &str,
     frontmatter: &crate::value::Map,
 ) -> Result<String, PathPatternError> {
-    let mut out = String::with_capacity(pattern.len());
-    let mut rest = pattern;
-    while let Some(open) = rest.find('{') {
-        let close = rest[open..]
-            .find('}')
-            .map(|i| open + i)
-            .ok_or(PathPatternError::MalformedPattern)?;
-        out.push_str(&rest[..open]);
-        let field = &rest[open + 1..close];
-        if field.is_empty() {
-            return Err(PathPatternError::MalformedPattern);
-        }
-        let text = match frontmatter.get(field) {
-            None | Some(Value::Null) => {
-                return Err(PathPatternError::Missing {
-                    field: field.to_owned(),
-                });
-            }
-            Some(Value::List(_) | Value::Map(_)) => {
-                return Err(PathPatternError::Invalid {
-                    field: field.to_owned(),
-                });
-            }
-            Some(Value::Bool(b)) => b.to_string(),
-            Some(Value::Int(i)) => i.to_string(),
-            Some(Value::Float(f)) => format_float_es(*f),
-            Some(Value::Text(s)) => s.clone(),
-        };
-        if text.is_empty() || text.starts_with('.') || text.contains(['/', '\\', '\0']) {
-            return Err(PathPatternError::Invalid {
-                field: field.to_owned(),
-            });
-        }
-        out.push_str(&text);
-        rest = &rest[close + 1..];
-    }
-    out.push_str(rest);
-    Ok(out)
+    fields::PathPolicy::new(pattern, Vec::new())?.derive(frontmatter)
 }
 
 /// A compiled mdbase path glob (spec 02 "Path Globs").
@@ -404,6 +367,7 @@ pub fn media_type(path: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
     use crate::value::Map;
+    use crate::value::Value;
 
     #[test]
     fn media_types_by_extension() {

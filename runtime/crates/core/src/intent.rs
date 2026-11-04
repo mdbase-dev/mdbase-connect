@@ -224,6 +224,8 @@ pub struct BodyEdit {
 /// `update` (§3.2).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Update {
+    /// Rewrite inbound links when a stored-field change moves the record (default true).
+    pub update_refs: Option<bool>,
     /// Record ID.
     pub id: RecordId,
     /// Set these top-level keys.

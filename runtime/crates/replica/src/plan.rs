@@ -79,6 +79,8 @@ pub fn record_meta(catalog: &Catalog, path: &str, doc: &str) -> RecordMeta {
     let parsed = mdbn_core::doc::Document::parse_at(path, doc);
     let fm = parsed.frontmatter();
     let membership = catalog.membership(path, fm);
+    let values = catalog.record_values(path, &membership.types, fm);
+    let fm = &values;
     let mut links: Vec<String> = mdbn_core::links::index_keys(catalog, path, doc)
         .into_iter()
         .map(|k| format!("{LINK_PREFIX}{}", k.0))
@@ -170,7 +172,7 @@ fn project_record_fields(
 
 /// The projection algorithm identity, independent of log position and key codec.
 /// Bump whenever membership/default/atom projection semantics change.
-pub const QUERY_PROJECTION_VERSION: u64 = 1;
+pub const QUERY_PROJECTION_VERSION: u64 = 2;
 
 /// Convert the supported configured fields to neutral store identities, preserving
 /// declared order. Duplicate or unsupported fields fail, never silently deduplicate.

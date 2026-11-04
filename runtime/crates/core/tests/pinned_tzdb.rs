@@ -136,7 +136,8 @@ fn aliases_and_full_history_are_retained() {
 
 #[test]
 fn semantics_registry_names_the_embedded_release() {
-    assert_eq!(SEM, Sem { major: 1, minor: 1 });
+    assert_eq!(SEM, Sem { major: 1, minor: 2 });
+    assert_eq!(SEMANTICS[1].sem, Sem { major: 1, minor: 1 });
     assert_eq!(SEMANTICS[0].sem, Sem { major: 1, minor: 0 });
     assert_eq!(SEMANTICS[0].tzdb, None);
     assert_eq!(SEMANTICS.last().unwrap().tzdb, Some(tzdb::RELEASE));

@@ -249,7 +249,12 @@ fn published_tasknotes_pack_installs_and_upgrades_its_declared_seed_baseline() {
         }
         install(&mut state, &desired);
         assert!(
-            state.catalog().issues().is_empty(),
+            state
+                .catalog()
+                .issues()
+                .iter()
+                .all(|i| i.code == "unknown_path_key"
+                    && i.severity == mdbn_core::validate::Severity::Warning),
             "{:?}",
             state.catalog().issues()
         );

@@ -253,6 +253,8 @@ wire_struct! {
         10 opt1 base: Vec<BaseField>,
         /// Opt-in CAS.
         11 opt if_revision: Hash,
+        /// Rewrite inbound references on stored-field moves (default true).
+        12 opt update_refs: bool,
     }
 }
 

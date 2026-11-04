@@ -641,6 +641,7 @@ impl Collection {
                     let id = self.resolve(&u.target)?;
                     written.push(RecordId::from_wire(id));
                     wire_ops.push(wire::Op::Update(wire::Update {
+                        update_refs: None,
                         id,
                         patch: (!u.set.is_empty()).then(|| pairs_to_wire(&u.set)),
                         unset: (!u.unset.is_empty()).then(|| u.unset.clone()),

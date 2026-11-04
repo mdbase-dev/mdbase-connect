@@ -376,7 +376,8 @@ pub fn frontmatter_links(catalog: &Catalog, types: &[String], frontmatter: &Map)
 pub fn record_links(catalog: &Catalog, path: &str, source: &str) -> Vec<Link> {
     let doc = Document::parse_at(path, source);
     let types = catalog.membership(path, doc.frontmatter()).types;
-    let mut out = frontmatter_links(catalog, &types, doc.frontmatter());
+    let values = catalog.record_values(path, &types, doc.frontmatter());
+    let mut out = frontmatter_links(catalog, &types, &values);
     out.extend(parse_body(doc.body()));
     out
 }
@@ -515,8 +516,10 @@ fn resolve_simple(
             .into_iter()
             .filter_map(|id| state.record(&id).map(|r| (r, id)))
             .filter(|(r, _)| {
-                Document::parse_at(&r.path, &*r.source)
-                    .frontmatter()
+                let doc = Document::parse_at(&r.path, &*r.source);
+                let types = catalog.membership(&r.path, doc.frontmatter()).types;
+                catalog
+                    .record_values(&r.path, &types, doc.frontmatter())
                     .get(field)
                     .and_then(Value::as_str)
                     == Some(target)
@@ -603,14 +606,17 @@ pub fn target_keys(catalog: &Catalog, path: &str, source: Option<&str>) -> Vec<L
         catalog,
         basename(path),
     )))];
-    if let (Some(field), Some(src)) = (&catalog.settings().id_field, source)
-        && let Some(id) = Document::parse_at(path, src)
-            .frontmatter()
+    if let (Some(field), Some(src)) = (&catalog.settings().id_field, source) {
+        let doc = Document::parse_at(path, src);
+        let types = catalog.membership(path, doc.frontmatter()).types;
+        let values = catalog.record_values(path, &types, doc.frontmatter());
+        if let Some(id) = values
             .get(field)
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-    {
-        keys.push(id_key(id));
+        {
+            keys.push(id_key(id));
+        }
     }
     keys.sort();
     keys
@@ -784,9 +790,10 @@ pub fn plan_reference_updates(
         let (Some(before), Some(after)) = (pre.record(&rid), post.record(&rid)) else {
             continue;
         };
-        let doc = Document::parse_at(&before.path, &*before.source);
-        let types = catalog.membership(&before.path, doc.frontmatter()).types;
-        let fm_links = frontmatter_links(&catalog, &types, doc.frontmatter());
+        let doc = Document::parse_at(&after.path, &*after.source);
+        let types = catalog.membership(&after.path, doc.frontmatter()).types;
+        let values = catalog.record_values(&after.path, &types, doc.frontmatter());
+        let fm_links = frontmatter_links(&catalog, &types, &values);
         let body_links = parse_body(doc.body());
         let mut field_changes: BTreeMap<String, Value> = BTreeMap::new();
         let mut rewritten = Vec::new();
@@ -807,7 +814,7 @@ pub fn plan_reference_updates(
             let current = field_changes
                 .get(field)
                 .cloned()
-                .or_else(|| doc.frontmatter().get(field).cloned());
+                .or_else(|| values.get(field).cloned());
             let new_value = match (current, idx) {
                 (Some(Value::List(mut items)), Some(i)) => {
                     if let Some(slot) = usize::try_from(*i).ok().and_then(|i| items.get_mut(i)) {
@@ -1021,7 +1028,7 @@ impl<'a> CelLinks<'a> {
         let doc = Document::parse_at(&rec.path, &*rec.source);
         let fm = doc.frontmatter();
         let types = self.catalog.membership(&rec.path, fm).types;
-        let effective = self.catalog.effective_frontmatter(&types, fm);
+        let effective = self.catalog.effective_values(&rec.path, &types, fm);
         let mut m = CelMap::new().with_origin(&rec.path);
         let key = |s: &str| Key::String(std::sync::Arc::from(s));
         for (k, v) in effective.iter() {
@@ -1031,10 +1038,14 @@ impl<'a> CelLinks<'a> {
             key("record"),
             CelValue::from_value(&Value::Map(effective.clone())),
         );
-        m.insert(key("raw"), CelValue::from_value(&Value::Map(fm.clone())));
+        let values = self.catalog.record_values(&rec.path, &types, fm);
+        m.insert(
+            key("raw"),
+            CelValue::from_value(&Value::Map(values.clone())),
+        );
         m.insert(
             key("file"),
-            CelValue::from_value(&self.file_value(&rec.path, fm, doc.body())),
+            CelValue::from_value(&self.file_value(&rec.path, &values, doc.body())),
         );
         Some(CelValue::Map(std::sync::Arc::new(m)))
     }

@@ -12,6 +12,64 @@ and what the core does. Where the model and the prose disagree, the core follows
 the prose, as the model's own docstring says. Items marked **(spec change?)**
 probably deserve normative text before 0.3.0 stable.
 
+## Path-stored fields (rc.6, chapters 07/12)
+
+The canonical persisted-value boundary is `Catalog::record_values`: decide
+membership from physical frontmatter and path first, then overlay decoded values.
+`effective_values` layers read defaults afterward. Physical frontmatter/document
+bytes remain distinct. Query `raw` means persisted logical values, so it includes
+path values but not read defaults. Client RecordView.frontmatter likewise exposes
+persisted logical values (SDK observed bases must see them); the document and
+parser's frontmatter remain the exact physical representation. Validation,
+uniqueness, link indexing, CEL and contract views use this same boundary. External observations never sanitize,
+relocate or remove duplicate YAML keys; decoding wins and reports a warning.
+
+Create lifecycle runs before final pattern derivation even for patterns without
+stored fields. For a non-storing pattern that can already derive from the request,
+a provisional path is used only to freeze membership, preserving on_create for
+path-only matched types. If values are not available until lifecycle, membership
+uses the explicit input and selected type instead; the final path is still derived
+after lifecycle and checked for membership. Storing patterns never derive a
+provisional path. Explicit create paths supply missing stored values without
+normalizing decoded text. Only request/document assignments and values changed by
+lifecycle are normalized. If a supplied normalized value disagrees with an explicit
+create path, reject `invalid_request` with `path_value_mismatch`, rather than
+silently losing an assignment. Unrelated writes leave even non-decoding paths
+unchanged; stored updates replace only changed fields' spans (falling back to
+whole-pattern derivation only when an assigned value changes on a non-matching
+path). Engine assignments must round-trip through shortest-first decoding, or fail
+with `path_value_invalid` and the field. Portable device-name checks apply to
+the resulting segment, not an isolated placeholder value.
+Update/document moves preserve frozen type membership; rename instead checks
+decodability against target membership. Resurrect collision allocation happens
+after assignment validation: acknowledged creates and moves take the Chapter 02
+suffix, whose decoded value may differ from the original assignment. A stale
+stored-field base in resurrection merges and reports conflicts instead of skipping
+the whole write.
+API document replacements assign supplied stored keys but do not rewrite links
+(the document intent has no update_refs option).
+API document stored-key assignments are projected to path versions before the
+three-way merge, so concurrent assignments use path conflicts, not YAML-field
+conflicts; final lifecycle still runs before admission/derivation and can supply
+or replace initially unencodable values. Reference rewrites use the same storage
+rules, including moving a referring record when its link field is path-stored.
+If rewriting a self-reference would demand a different primary path from the
+explicitly assigned target, reject `type_conflict` instead of losing either assignment.
+A stored field is written either plain or formatted; a mix, or formatted
+occurrences that together lack YYYY, MM or DD, is `invalid_type` at load (spec 07),
+so every decodable date names all three components. Normalization is idempotent:
+whitespace becomes a space, the listed characters are removed, runs of spaces
+collapse, then edge dots and spaces are trimmed.
+
+SEM advances from [1,1] to [1,2], a minor. A major would ratchet every log on its
+first entry from a new build, whether or not the collection uses path storage, and
+void all older writers' entries. Collections that declare no stored fields plan as
+before apart from the lifecycle/path order on create. In a collection that does, an
+older planner ignores path storage: a stored field it writes lands in frontmatter,
+where the path value wins with `path_field_in_frontmatter`. Historical [1,0]/[1,1]
+rows remain registered; the query projection identity advances to 2 so existing
+materializations rebuild.
+
 ## Query ordering change (chapter 11)
 
 The new shared device/DO index uses a deterministic total kind order:

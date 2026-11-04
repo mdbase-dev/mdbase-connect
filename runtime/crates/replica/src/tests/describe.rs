@@ -584,6 +584,7 @@ fn contract_records_read_and_map_writes_through_the_local_catalog() {
             a.s,
             mdbn_wire::client::SubmitParams {
                 ops: vec![mdbn_wire::intent::Op::Update(mdbn_wire::intent::Update {
+                    update_refs: None,
                     id: view.id,
                     patch: Some(plan.patch),
                     unset: None,

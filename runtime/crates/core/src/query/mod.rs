@@ -418,6 +418,8 @@ pub struct QueryPlan {
     /// Read defaults per type (lower-case name), captured from the catalog at
     /// compile time so the residual sees effective values.
     pub read_defaults: Vec<(String, Map)>,
+    /// Captured catalog for canonical persisted path values.
+    pub value_catalog: crate::types::Catalog,
     /// Matched-type schema documents and entry pointers, captured at compile
     /// time for spec 10 date-time typing: (lower-case type name, document, entry).
     /// Persisted and effective frontmatter remain unchanged.
@@ -628,6 +630,7 @@ pub fn compile(query: &Query, catalog: &Catalog) -> Result<QueryPlan, QueryError
             context: query.context_path.is_some(),
             time_dependent: calls("now") || calls("today"),
         },
+        value_catalog: catalog.clone(),
         read_defaults: catalog
             .types()
             .iter()
@@ -684,7 +687,9 @@ impl QueryPlan {
     /// Effective frontmatter of a record: persisted values plus the read
     /// defaults of its types (spec 07).
     pub fn effective(&self, record: &QueryRecord<'_>) -> Map {
-        let mut out = record.frontmatter.clone();
+        let mut out =
+            self.value_catalog
+                .record_values(record.path, record.types, record.frontmatter);
         for t in record.types {
             let lower = t.to_lowercase();
             if let Some((_, d)) = self.read_defaults.iter().find(|(n, _)| *n == lower) {
@@ -734,7 +739,10 @@ impl QueryPlan {
                 other => other,
             }
         };
-        let mut act = crate::cel::record_activation(record.frontmatter, effective, file);
+        let values =
+            self.value_catalog
+                .record_values(record.path, record.types, record.frontmatter);
+        let mut act = crate::cel::record_activation(&values, effective, file);
         let effective = typed(effective);
         if let CelValue::Map(m) = &effective {
             for (key, value) in m.iter() {
@@ -746,7 +754,7 @@ impl QueryPlan {
             }
         }
         act.bind("record", effective);
-        act.bind("raw", typed(record.frontmatter));
+        act.bind("raw", typed(&values));
         act
     }
 
@@ -780,6 +788,15 @@ impl QueryPlan {
         links: Option<&dyn crate::cel::LinkHost>,
     ) -> Evaluated {
         use crate::cel::{CelMap, CelValue, Key};
+        let values =
+            self.value_catalog
+                .record_values(record.path, record.types, record.frontmatter);
+        let record = &QueryRecord {
+            path: record.path,
+            types: record.types,
+            frontmatter: &values,
+            body: record.body,
+        };
         let mut out = Evaluated {
             verdict: Verdict::NoMatch,
             projections: Map::new(),
@@ -1120,7 +1137,12 @@ impl QueryPlan {
                     .collect(),
             )),
             FieldRef::Effective(p) => walk(&self.effective(record), p),
-            FieldRef::Persisted(p) => walk(record.frontmatter, p),
+            FieldRef::Persisted(p) => walk(
+                &self
+                    .value_catalog
+                    .record_values(record.path, record.types, record.frontmatter),
+                p,
+            ),
             FieldRef::Projection(_) => None,
         }
     }
