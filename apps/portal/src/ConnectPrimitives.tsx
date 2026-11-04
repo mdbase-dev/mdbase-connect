@@ -4,6 +4,23 @@ import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { InfoIcon as Info } from "@phosphor-icons/react/Info";
 
+export function ConnectPreview({ title, rows, error, retry }: {
+  title: string;
+  rows?: ReadonlyArray<{ id: string; name: string }>;
+  error: string;
+  retry(): void;
+}) {
+  return <ConnectPage title={title}><section aria-busy={!error}>
+    <p role="status"><Trans>Checking the latest account details…</Trans></p>
+    {rows?.map(row => <div className="connect-row" key={row.id}><div><strong>{row.name}</strong><small><Trans>Last known details</Trans></small></div></div>)}
+    {!rows && [0, 1, 2].map(row => <div className="connect-row" key={row} aria-hidden="true"><div>
+      <strong style={{ display: "block", width: "12rem", background: "var(--color-skeleton)" }}>{"\u00a0"}</strong>
+      <small style={{ display: "block", width: "8rem", background: "var(--color-skeleton)" }}>{"\u00a0"}</small>
+    </div><span style={{ width: "6rem", background: "var(--color-skeleton)" }}>{"\u00a0"}</span></div>)}
+    {error && <button onClick={retry}><Trans>Try again</Trans></button>}
+  </section></ConnectPage>;
+}
+
 export function ConnectPage({ title, intro, status, action, reading = false, children }: {
   title: string;
   intro?: string;

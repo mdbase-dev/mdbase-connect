@@ -15,6 +15,11 @@
     "./dist/i18n.js"
   ],
   "exports": {
+    "./toast": {
+      "types": "./dist/Toaster.d.ts",
+      "import": "./dist/Toaster.js"
+    },
+    "./toast.css": "./css/toast.css",
     "./i18n": {
       "types": "./dist/i18n.d.ts",
       "import": "./dist/i18n.js"

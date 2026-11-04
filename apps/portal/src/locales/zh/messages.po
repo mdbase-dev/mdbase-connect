@@ -867,6 +867,10 @@ msgstr "取消迁移"
 msgid "Change"
 msgstr "更改"
 
+#: src/ConnectApp.tsx
+msgid "Change could not be saved. Your previous value was restored."
+msgstr "无法保存更改。已恢复之前的值。"
+
 #: src/authorization-review.tsx
 msgid "Change notifications"
 msgstr "更改通知设置"
@@ -880,6 +884,11 @@ msgstr "更改密码"
 msgctxt "Account sign-in"
 msgid "Change password"
 msgstr "更改密码"
+
+#: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
+msgid "Change saved."
+msgstr "更改已保存。"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename existing records."
@@ -923,6 +932,10 @@ msgstr "检查你的电子邮箱"
 #: src/AccountManagement.tsx
 msgid "Checking active sessions…"
 msgstr "正在检查活动会话…"
+
+#: src/ConnectPrimitives.tsx
+msgid "Checking the latest account details…"
+msgstr "正在检查最新的账户信息…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1848,6 +1861,10 @@ msgstr "保留当前记录，并说明哪些字段表达相同的含义。"
 msgid "Language"
 msgstr "语言"
 
+#: src/ConnectPrimitives.tsx
+msgid "Last known details"
+msgstr "上次已知信息"
+
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
 msgid "Last used {0}"
@@ -1883,10 +1900,6 @@ msgstr "正在加载 Google 登录…"
 #: src/ConnectApp.tsx
 msgid "Loading people…"
 msgstr "正在加载成员…"
-
-#: src/ConnectApp.tsx
-msgid "Loading your account and collections…"
-msgstr "正在加载你的账户和集合…"
 
 #: src/AccountManagement.tsx
 msgid "Local collection and mirror files remain on your computers."
@@ -1994,10 +2007,6 @@ msgstr "mdbase connect 无法连接服务。请检查网络连接后重试。"
 #: src/authority-workflows.tsx
 msgid "mdbase connect is checking the latest hosted changes, registering the folder, and making it the main copy."
 msgstr "mdbase connect 正在检查最新的托管更改、注册文件夹，并将其设为主副本。"
-
-#: src/ConnectApp.tsx
-msgid "mdbase connect is unavailable"
-msgstr "mdbase connect 不可用"
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
@@ -2403,12 +2412,6 @@ msgctxt "Account sign-in"
 msgid "Opening mdbase connect"
 msgstr "正在打开 mdbase connect"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Opening mdbase connect"
-msgstr "正在打开 mdbase connect"
-
-#: src/main.tsx
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect…"
@@ -3336,6 +3339,10 @@ msgstr "已登录的账户发生更改。请从应用重新开始登录。"
 msgid "The synced Markdown folder becomes the main copy."
 msgstr "同步的 Markdown 文件夹会成为主副本。"
 
+#: src/ConnectApp.tsx
+msgid "The value has changed again. Undo is no longer available."
+msgstr "该值已再次更改，无法撤销。"
+
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
 msgstr "此账户从 mdbase 桌面应用批准新设备。请在桌面应用中添加此设备，然后在 {app} 中重新登录。"
@@ -3482,6 +3489,7 @@ msgstr "请尝试其他名称、注册 ID 或状态。筛选不会撤销访问�
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
+#: src/ConnectPrimitives.tsx
 #: src/onboarding-view.tsx
 #: src/portal-ui.tsx
 msgid "Try again"

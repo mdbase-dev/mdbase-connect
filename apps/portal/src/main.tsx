@@ -29,7 +29,8 @@ import { GettingStarted } from "./onboarding-view";
 import "./styles.css";
 import "./authorization.css";
 
-const ConnectApp = React.lazy(() => import("./ConnectApp").then(module => ({ default: module.ConnectApp })));
+import { ConnectApp } from "./ConnectApp";
+import { clearOverviewPreview } from "./overview-cache";
 
 function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets }) {
   useLocaleRevision();
@@ -53,7 +54,7 @@ function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets
   if (authorityAdoptionId) return <AuthorityAdoption adoptionId={authorityAdoptionId} />;
   if (authorityTransferId) return <AuthorityTransfer transferId={authorityTransferId} />;
   if (authorizationId) return <Authorization requestId={authorizationId} />;
-  return <React.Suspense fallback={<main className="portal-redirect" aria-live="polite">{t(i18n)({ message: "Opening mdbase connect…", context: "Connect interface" })}</main>}><ConnectApp /></React.Suspense>;
+  return <ConnectApp />;
 }
 
 function LocalizedPortal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets }) {
@@ -68,6 +69,7 @@ function LocalizedPortal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstr
 }
 
 const bootstrapSecrets = capturePortalBootstrapSecrets();
+if (location.pathname === "/login" || location.pathname === "/signup") clearOverviewPreview();
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode><LocalizedPortal bootstrapSecrets={bootstrapSecrets} /></React.StrictMode>
 );

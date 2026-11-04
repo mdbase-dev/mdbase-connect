@@ -46,6 +46,62 @@ test("manages collections on the portal and links to the configured Editor witho
   await expect(page.getByRole("heading", { name: "Storage & sync" })).toBeVisible();
 });
 
+test("opens the shell before the network and reuses names without cached authority", async ({ page }) => {
+  await page.goto(`${portalOrigin}/collections`);
+  await expect(page.getByText("Garden notes", { exact: true }).first()).toBeVisible();
+  let release!: () => void;
+  const delayed = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`${portalOrigin}/v1/me`, async route => { await delayed; await route.fulfill({ json: overview }); });
+  try {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("complementary", { name: "mdbase connect navigation" })).toBeVisible();
+    await expect(page.getByText("Last known details", { exact: true })).toBeVisible();
+    await expect(page.getByText("Garden notes", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Revoke|Delete|Approve/ })).toHaveCount(0);
+    const preview = await page.evaluate(() => localStorage.getItem("connect-overview-v1:person"));
+    expect(preview).not.toMatch(/grants|local_id|email|pending_authorizations/);
+  } finally { release(); }
+  await expect(page.getByText("Last known details", { exact: true })).toHaveCount(0);
+});
+
+test("renames before the server responds, rolls back failures, and offers real Undo", async ({ page }) => {
+  let name = "Home computer";
+  let finish: (() => void) | undefined;
+  async function complete() {
+    await expect.poll(() => Boolean(finish)).toBe(true);
+    const pending = finish!;
+    finish = undefined;
+    pending();
+  }
+  let fail = true;
+  await page.route(`${portalOrigin}/v1/me`, route => route.fulfill({ json: { ...overview, connectors: [{ ...overview.connectors[0], name }] } }));
+  await page.route(`${portalOrigin}/v1/connectors/computer`, async route => {
+    await new Promise<void>(resolve => { finish = resolve; });
+    if (fail) return route.fulfill({ status: 503, json: { error: { message: "Cannot save name" } } });
+    name = route.request().postDataJSON().name;
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto(`${portalOrigin}/computers`);
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.getByRole("textbox", { name: "Rename Home computer" }).fill("Desk computer");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Desk computer", { exact: true })).toBeVisible();
+  await complete();
+  await expect(page.getByText("Home computer", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "previous value was restored" })).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss", exact: true }).last().click();
+  fail = false;
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.getByRole("textbox", { name: "Rename Home computer" }).fill("Desk computer");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Desk computer", { exact: true })).toBeVisible();
+  await complete();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByText("Home computer", { exact: true })).toBeVisible();
+  await complete();
+  await expect(page.getByRole("button", { name: "Rename", exact: true })).toBeEnabled();
+});
+
 test("styles footer links and separates account details on desktop and mobile", async ({ page }) => {
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 844 });

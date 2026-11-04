@@ -36,6 +36,14 @@ applyThemePreference(loadThemePreference());
   collection in another app. Lab and local builds pass their own URLs to
   `withAppUrls`.
 
+## Toasts
+
+Mount one `Toaster` from `@mdbase-dev/ui/toast` inside the app's locale provider
+and import `@mdbase-dev/ui/toast.css`. Call `toast(message, undo?)` with localized
+copy and, when applicable, a real inverse mutation. The toast stays for five
+seconds (eight with Undo), pauses on hover or focus, and queues up to three
+more messages. Unmounting the owner clears the queue.
+
 ## Languages
 
 The `/i18n` entry exports `uiCatalogues: CatalogueSource` with synchronous

@@ -304,6 +304,10 @@ msgstr "Wird gelöscht…"
 msgid "Details"
 msgstr "Details"
 
+#: src/Toaster.tsx
+msgid "Dismiss"
+msgstr "Schließen"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "Ziehen Sie, um zu markieren. Tastatur: Pfeiltasten bewegen; Leertaste beginnt oder beendet eine Markierung. „Schwärzen“ entfernt Pixel."
@@ -890,6 +894,7 @@ msgid "Unchanged lines"
 msgstr "Unveränderte Zeilen"
 
 #: src/FeedbackMarkup.tsx
+#: src/Toaster.tsx
 msgid "Undo"
 msgstr "Rückgängig"
 

@@ -304,6 +304,10 @@ msgstr "Deleting…"
 msgid "Details"
 msgstr "Details"
 
+#: src/Toaster.tsx
+msgid "Dismiss"
+msgstr "Dismiss"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
@@ -890,6 +894,7 @@ msgid "Unchanged lines"
 msgstr "Unchanged lines"
 
 #: src/FeedbackMarkup.tsx
+#: src/Toaster.tsx
 msgid "Undo"
 msgstr "Undo"
 
