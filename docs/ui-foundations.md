@@ -2,7 +2,7 @@
 
 `@mdbase-dev/ui/dialog`: `Dialog({open, title, onClose, children})`. Native modal semantics, Escape/backdrop dismissal, focus return and exit retention. `closeDisabled` locks consequential pending work; `returnFocusRef` names a surviving invoker when a chooser's row disappears.
 
-`@mdbase-dev/ui/confirm-dialog`: `ConfirmDialog({open, title, consequence, confirmLabel, pendingLabel, onConfirm, onClose, children?})`. Cancel takes initial focus; an awaited callback keeps the modal pending. The caller closes only after acknowledged success. `disabled` gates validation and `busy` reflects externally owned work.
+`@mdbase-dev/ui/confirm-dialog`: `ConfirmDialog({open, title, consequence?, confirmLabel, pendingLabel, onConfirm, onClose, children?})`. Cancel takes initial focus; an awaited callback keeps the modal pending. The caller closes only after acknowledged success. `disabled` gates validation and `busy` reflects externally owned work.
 
 `@mdbase-dev/ui/menu`: `Menu({open, triggerRef, id, onClose, children})`; `onClose(refocus)` distinguishes Escape from an outside pointer. Existing menu item roles and arrow navigation remain.
 

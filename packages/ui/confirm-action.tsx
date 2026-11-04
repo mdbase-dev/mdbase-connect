@@ -17,7 +17,7 @@ export function ConfirmAction({ label, question, confirmLabel, busy = false, onC
   const [typed, setTyped] = useState("");
   return <>
     <button className={className} disabled={busy} onClick={() => { setTyped(""); setOpen(true); }}>{label}</button>
-    <ConfirmDialog open={open} title={label} consequence={question} confirmLabel={confirmLabel}
+    <ConfirmDialog open={open} title={question} confirmLabel={confirmLabel}
       pendingLabel={`${confirmLabel}…`} busy={busy} disabled={confirmName !== undefined && typed !== confirmName}
       onClose={() => setOpen(false)} onConfirm={async () => { await onConfirm(); setOpen(false); }}>
       {confirmName !== undefined && <label><span>{t(i18n)`Type ${confirmName} to confirm`}</span>

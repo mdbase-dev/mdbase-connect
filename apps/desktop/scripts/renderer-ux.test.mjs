@@ -220,7 +220,7 @@ test("turning on sync defaults to private and removal is confirmed; long paths s
     await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
     assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
     await card.getByRole("button", { name: "Remove" }).click();
-    const confirmation = page.getByRole("dialog", { name: "Remove", exact: true });
+    const confirmation = page.getByRole("dialog", { name: /^Remove / });
     await confirmation.getByText(/^Remove Notes from mdbase/).waitFor();
     await confirmation.getByRole("button", { name: "Cancel" }).click();
     assert.deepEqual(await calls("removeCollection"), [], "cancelling the confirmation keeps the collection");
@@ -555,7 +555,7 @@ test("a view-only new file can be discarded without a synced version", async () 
     assert.equal(await page.getByRole("button", { name: "Keep both", exact: true }).count(), 1);
     const discard = page.getByRole("button", { name: "Discard local changes", exact: true });
     await discard.click();
-    const confirmation = page.getByRole("dialog", { name: "Discard local changes", exact: true });
+    const confirmation = page.getByRole("dialog", { name: /^Discard / });
     await confirmation.getByText(/new\.md.*haven't been synced/).waitFor();
     await confirmation.getByRole("button", { name: "Cancel" }).click();
     await confirmation.waitFor({ state: "detached" });
