@@ -110,3 +110,9 @@ test("renders the first collection setup diagnostic with its path", () => {
     "Required property 'title' is missing. (broken.md)"
   );
 });
+
+test("server status errors stay distinct from offline and request failures", () => {
+  for (const status of [500, 503]) assert.equal(message(Object.assign(new Error("Backend diagnostics"), { status })), "Something went wrong on mdbase. Try again.");
+  assert.equal(message(new TypeError("Failed to fetch")), "mdbase Connect could not reach the service. Check your connection and try again.");
+  assert.equal(message(Object.assign(new Error("Choose a collection"), { status: 400 })), "Choose a collection");
+});

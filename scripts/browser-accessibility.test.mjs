@@ -390,7 +390,7 @@ async function auditPortalRecovery() {
     configFails = true;
     await page.reload();
     await page.getByRole("alert").waitFor();
-    assert.match(await page.getByRole("alert").innerText(), /Request failed with HTTP 500\./, "configuration failure remains visible");
+    assert.match(await page.getByRole("alert").innerText(), /Something went wrong on mdbase\. Try again\./, "configuration failure remains visible");
     await page.close();
   }
   for (const [path, endpoint, data, heading] of [

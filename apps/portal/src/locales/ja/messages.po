@@ -176,8 +176,8 @@ msgstr "{0} はオフラインです。"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
-msgid "{0} is stored in mdbase replicas on your devices."
-msgstr "{0} はデバイス上の mdbase レプリカに保存されています。"
+msgid "{0} is stored on your computers."
+msgstr "{0}はお使いのコンピューターに保存されています。"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
@@ -923,10 +923,6 @@ msgstr "再確認"
 msgid "Check the app."
 msgstr "アプリケーションを確認してください。"
 
-#: src/ConnectPrimitives.tsx
-msgid "Check your connection and try again."
-msgstr "接続を確認して、もう一度お試しください。"
-
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
@@ -1044,6 +1040,10 @@ msgstr "コレクション"
 msgid "Collection changes"
 msgstr "コレクションの変更"
 
+#: src/ConnectApp.tsx
+msgid "Collection copies"
+msgstr "コレクションのコピー"
+
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
 msgstr "コレクション ID"
@@ -1065,10 +1065,6 @@ msgstr "コレクションの所有者"
 msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "コレクションの権限"
-
-#: src/ConnectApp.tsx
-msgid "Collection replicas"
-msgstr "コレクションのレプリカ"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
@@ -1204,6 +1200,10 @@ msgstr "作成せずに続行"
 msgctxt "Connect interface"
 msgid "Copied"
 msgstr "コピーしました"
+
+#: src/ConnectApp.tsx
+msgid "Copies sync between your computers. App access is managed separately."
+msgstr "コピーはお使いのコンピューター間で同期されます。アプリのアクセスは個別に管理されます。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2368,9 +2368,15 @@ msgstr "エディターでコレクションを開くか、正本の場所を管
 msgid "Open an app, then choose which collections it can access."
 msgstr "アプリを開き、アクセスを許可するコレクションを選択します。"
 
+#: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
 msgstr "デスクトップアプリを開く"
+
+#. placeholder {0}: collection.detail
+#: src/ConnectApp.tsx
+msgid "Open desktop app on {0} to make this collection available."
+msgstr "このコレクションを利用可能にするには、{0}でデスクトップアプリを開いてください。"
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
@@ -2389,16 +2395,6 @@ msgstr "エディターで開く"
 msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "エディターで開く"
-
-#: src/authorization-view.tsx
-#: src/ConnectApp.tsx
-msgid "Open mdbase Connect"
-msgstr "mdbase Connect を開く"
-
-#. placeholder {0}: collection.detail
-#: src/ConnectApp.tsx
-msgid "Open mdbase Connect on {0} to make this collection available."
-msgstr "このコレクションを利用できるようにするには、{0} で mdbase Connect を開いてください。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2721,10 +2717,6 @@ msgstr "既存のファイルを置換"
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
 msgstr "パスワードを変更すると、このアカウントのほかのブラウザーセッションはすべてログアウトします。"
-
-#: src/ConnectApp.tsx
-msgid "Replicas sync between your devices. App access is managed separately."
-msgstr "レプリカはデバイス間で同期されます。アプリケーションのアクセス権は個別に管理されます。"
 
 #. placeholder {0}: response.status
 #: src/api.ts
@@ -3212,6 +3204,11 @@ msgstr "ログアウト中…"
 msgctxt "Account management"
 msgid "Signing out…"
 msgstr "ログアウト中…"
+
+#: src/ConnectPrimitives.tsx
+#: src/portal-model.ts
+msgid "Something went wrong on mdbase. Try again."
+msgstr "mdbaseで問題が発生しました。もう一度お試しください。"
 
 #: src/auth-view.tsx
 msgid "Start signup again"

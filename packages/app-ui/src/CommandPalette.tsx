@@ -1,7 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
 import { Dialog } from "./Dialog.js";
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject, type ReactNode } from "react";
 
 export interface Command {
   readonly id: string;
@@ -115,8 +115,22 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   const [query, setQuery] = useState(initialQuery);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
   const matches = useMemo(() => getResults ? getResults(query) : matchingCommands(commands, query, showAll), [commands, query, showAll, getResults]);
-  const resultHeight = Math.min(380, Math.max(152, Math.ceil((matches.length * 38 + new Set(matches.map(command => command.group)).size * 30 + 12) / 76) * 76));
+  useLayoutEffect(() => {
+    const results = resultsRef.current!;
+    const current = results.offsetHeight;
+    results.style.transition = "none";
+    results.style.height = "auto";
+    const height = results.offsetHeight;
+    results.style.height = `${current}px`;
+    results.getBoundingClientRect();
+    results.style.removeProperty("transition");
+    results.style.height = `${height}px`;
+  }, [matches]);
+  useLayoutEffect(() => {
+    resultsRef.current!.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [active, matches]);
   useEffect(() => { if (open) { setQuery(initialQuery); setActive(0); } }, [open, initialQuery]);
   const run = (command: Command, alternate = false): void => {
     inputRef.current?.closest("dialog")?.close();
@@ -149,7 +163,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
           onKeyDown={(event) => { if (!event.nativeEvent.isComposing) handleKeys(event, matches, active, setActive, run, onClose); }}
         />
       </label>
-      <div id={`${hintId}-results`} className="mdbase-command-results" style={{ height: resultHeight }} role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
+      <div ref={resultsRef} id={`${hintId}-results`} className="mdbase-command-results" role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
             {command.group !== matches[index - 1]?.group
@@ -178,14 +192,10 @@ function CommandRow({ id, command, query, active, onRun }: {
   readonly onRun: (command: Command, alternate?: boolean) => void;
 }): JSX.Element {
   useLocaleRevision();
-  const ref = useRef<HTMLButtonElement>(null);
   const pattern = query.trim().split(/\s+/u).filter(Boolean).map(term => term.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|");
   const label = pattern ? command.label.split(new RegExp(`(${pattern})`, "giu"))
     .map((part, index) => index % 2 ? <mark key={index}>{part}</mark> : part) : command.label;
-  useEffect(() => {
-    if (active) ref.current?.scrollIntoView({ block: "nearest" });
-  }, [active]);
-  return <button id={id} ref={ref} tabIndex={-1} type="button" role="option" aria-selected={active} onMouseDown={event => event.preventDefault()} onClick={(event) => onRun(command, event.shiftKey)}>
+  return <button id={id} tabIndex={-1} type="button" role="option" aria-selected={active} onMouseDown={event => event.preventDefault()} onClick={(event) => onRun(command, event.shiftKey)}>
     {command.icon && <span className="mdbase-command-icon" aria-hidden="true">{command.icon}</span>}
     <span className="mdbase-command-copy">
       {command.content ?? <><strong>{label}</strong>{command.detail ? <small>{command.detail}</small> : null}</>}

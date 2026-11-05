@@ -176,8 +176,8 @@ msgstr "{0} 已离线。"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
-msgid "{0} is stored in mdbase replicas on your devices."
-msgstr "{0} 存储在你设备上的 mdbase 副本中。"
+msgid "{0} is stored on your computers."
+msgstr "{0}存储在你的电脑上。"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
@@ -923,10 +923,6 @@ msgstr "再次检查"
 msgid "Check the app."
 msgstr "检查应用。"
 
-#: src/ConnectPrimitives.tsx
-msgid "Check your connection and try again."
-msgstr "请检查连接后重试。"
-
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
@@ -1044,6 +1040,10 @@ msgstr "集合"
 msgid "Collection changes"
 msgstr "集合更改"
 
+#: src/ConnectApp.tsx
+msgid "Collection copies"
+msgstr "集合副本"
+
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
 msgstr "集合 ID"
@@ -1065,10 +1065,6 @@ msgstr "集合所有者"
 msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "集合权限"
-
-#: src/ConnectApp.tsx
-msgid "Collection replicas"
-msgstr "集合副本"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
@@ -1204,6 +1200,10 @@ msgstr "暂不创建，继续"
 msgctxt "Connect interface"
 msgid "Copied"
 msgstr "已复制"
+
+#: src/ConnectApp.tsx
+msgid "Copies sync between your computers. App access is managed separately."
+msgstr "副本在你的电脑之间同步。应用访问权限单独管理。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2368,9 +2368,15 @@ msgstr "在编辑器中打开集合，或管理其主副本的存储位置。"
 msgid "Open an app, then choose which collections it can access."
 msgstr "打开应用，然后选择它可以访问的集合。"
 
+#: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
 msgstr "打开桌面应用"
+
+#. placeholder {0}: collection.detail
+#: src/ConnectApp.tsx
+msgid "Open desktop app on {0} to make this collection available."
+msgstr "在{0}上打开桌面应用，使此集合可用。"
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
@@ -2389,16 +2395,6 @@ msgstr "在编辑器中打开"
 msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "在编辑器中打开"
-
-#: src/authorization-view.tsx
-#: src/ConnectApp.tsx
-msgid "Open mdbase Connect"
-msgstr "打开 mdbase Connect"
-
-#. placeholder {0}: collection.detail
-#: src/ConnectApp.tsx
-msgid "Open mdbase Connect on {0} to make this collection available."
-msgstr "在 {0} 上打开 mdbase Connect，使此集合可用。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2721,10 +2717,6 @@ msgstr "替换现有文件"
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
 msgstr "更换密码会让连接此账户的所有其他浏览器会话退出登录。"
-
-#: src/ConnectApp.tsx
-msgid "Replicas sync between your devices. App access is managed separately."
-msgstr "副本在你的设备之间同步。应用的访问权限单独管理。"
 
 #. placeholder {0}: response.status
 #: src/api.ts
@@ -3212,6 +3204,11 @@ msgstr "正在退出…"
 msgctxt "Account management"
 msgid "Signing out…"
 msgstr "正在退出登录…"
+
+#: src/ConnectPrimitives.tsx
+#: src/portal-model.ts
+msgid "Something went wrong on mdbase. Try again."
+msgstr "mdbase出现了问题。请重试。"
 
 #: src/auth-view.tsx
 msgid "Start signup again"

@@ -18,6 +18,8 @@ it("waits for confirmed approval before counting down and cancels return on unmo
   expect(screen.getByRole("link", { name: "Return to Reader" })).toHaveAttribute("href", "/reader");
   expect(document.querySelector("output")).toHaveTextContent("3 seconds");
   expect(document.querySelector("output")).toHaveAttribute("aria-live", "polite");
+  expect(document.querySelector("output")).toHaveClass("mdbase-visually-hidden");
+  expect(document.querySelector(".request-return-countdown")).toHaveAttribute("aria-hidden", "true");
   expect(screen.getByRole("heading", { name: "Reader can now use Field notes" })).toHaveFocus();
   act(() => vi.advanceTimersByTime(1_000));
   expect(document.querySelector("output")).toHaveTextContent("2 seconds");

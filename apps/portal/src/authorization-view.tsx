@@ -334,7 +334,7 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
     {approved && collectionName ? <GrantMoment applicationName={applicationName} collectionName={collectionName} collectionKind={collectionKind} />
       : <h1 tabIndex={-1}>{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</h1>}
     {approved && collectionName && <p className="mdbase-visually-hidden"><Trans>Access approved</Trans></p>}
-    {approved && !portable && returnUrl && <p>{t(i18n)`Returning to ${applicationName}…`}<output className="request-return-countdown" aria-live="polite">{i18n.number(seconds, { style: "unit", unit: "second", unitDisplay: "long" })}</output></p>}
+    {approved && !portable && returnUrl && <p>{t(i18n)`Returning to ${applicationName}…`}<span className="request-return-countdown" aria-hidden="true" /><output className="mdbase-visually-hidden" aria-live="polite">{i18n.number(seconds, { style: "unit", unit: "second", unitDisplay: "long" })}</output></p>}
     {approved && returnUrl && <a className="mdbase-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>}
     <p>{portable
       ? approved
@@ -400,7 +400,7 @@ function DesktopContinuation({ request, onReviewHere }: {
       </div>
       <div className="approval-actions">
         <button className="mdbase-button" type="button" onClick={onReviewHere}><Trans>Review in this browser</Trans></button>
-        <a className="mdbase-button is-primary" href={desktopUrl}><Trans>Open mdbase Connect</Trans></a>
+        <a className="mdbase-button is-primary" href={desktopUrl}><Trans>Open desktop app</Trans></a>
       </div>
       <p className="field-note"><Trans>If the desktop app does not open, <a href="https://mdbase.dev/downloads/" target="_blank" rel="noreferrer">install the current Connect release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</Trans></p>
     </section>

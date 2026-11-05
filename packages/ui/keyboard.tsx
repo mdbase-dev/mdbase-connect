@@ -40,16 +40,18 @@ export function useConnectKeyboard({ commands, enabled, root, filter, listFocus,
       if (!enabled || event.defaultPrevented || event.isComposing || event.repeat || event.altKey
         || document.querySelector("dialog[open], [role=dialog], [role=menu], [role=listbox]")) { prefixUntil = 0; return; }
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.matches(`${root} ${filter}`) && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+      if (target?.matches(`${root} ${filter}`) && target instanceof HTMLInputElement && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
         prefixUntil = 0;
-        const key = event.key;
-        if (key === "ArrowDown" || key === "Enter" || key === "Escape" && !(target as HTMLInputElement).value) {
+        if (event.key === "Escape" && target.value) {
+          event.preventDefault();
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(target, "");
+          target.dispatchEvent(new Event("input", { bubbles: true }));
+        } else if (event.key === "Escape" || event.key === "ArrowDown" || event.key === "Enter") {
+          event.preventDefault();
           const row = target.closest("section")!.querySelector<HTMLElement>("[data-list-item]");
-          if (row) {
-            event.preventDefault();
-            const focus = row.querySelector<HTMLElement>(listFocus) ?? row;
-            focus.focus(); focus.scrollIntoView({ block: "nearest" });
-          }
+          const focus = row?.querySelector<HTMLElement>(listFocus) ?? row;
+          focus?.focus();
+          focus?.scrollIntoView({ block: "nearest" });
         }
         return;
       }

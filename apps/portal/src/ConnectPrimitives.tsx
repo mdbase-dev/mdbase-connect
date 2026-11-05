@@ -18,7 +18,7 @@ export function ConnectPreview({ title, rows, pending, error, retry }: {
     return () => window.clearTimeout(timer);
   }, [pending]);
   return <ConnectPage title={title}><section aria-busy={pending}>
-    {error && !pending ? <div className="connect-load-error" role="alert"><Info aria-hidden="true" /><div><strong><Trans>We couldn't load {title}</Trans></strong><p><Trans>Check your connection and try again.</Trans></p><button className="mdbase-button is-secondary" onClick={retry}><Trans>Try again</Trans></button></div></div> : <>
+    {error && !pending ? <div className="connect-load-error" role="alert"><Info aria-hidden="true" /><div><strong><Trans>We couldn't load {title}</Trans></strong><p>{error}</p><button className="mdbase-button is-secondary" onClick={retry}><Trans>Try again</Trans></button></div></div> : <>
     {delayed && <p className="connect-muted" role="status"><Trans>Loading {title}…</Trans></p>}
     {rows?.map(row => <div className="connect-row" key={row.id}><div><strong>{row.name}</strong><small><Trans>Last known details</Trans></small></div></div>)}
     {pending && delayed && !rows && <div className="connect-skeleton" aria-hidden="true">{[0, 1, 2].map(row => <div key={row}><i /><span><b /><small /></span><b /></div>)}</div>}
@@ -103,7 +103,7 @@ export function ConnectEmpty({ title, body, action, icon = true }: {
 export function ListFilter({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {
   useLocaleRevision();
   const input = useRef<HTMLInputElement>(null);
-  return <div className="connect-list-filter"><label><span className="mdbase-visually-hidden">{label}</span><input ref={input} className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} /></label><kbd>/</kbd><button type="button" className="mdbase-icon-button" hidden={!value} aria-label={t(i18n)`Clear search`} onClick={() => { onChange(""); input.current!.focus(); }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>;
+  return <div className="connect-list-filter"><label><span className="mdbase-visually-hidden">{label}</span><input ref={input} className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} /><kbd aria-hidden="true">/</kbd></label><button type="button" className="mdbase-icon-button" hidden={!value} aria-label={t(i18n)`Clear search`} onClick={() => { onChange(""); input.current!.focus(); }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>;
 }
 
 export function DesktopLink({ href, role, children }: { href: string; role?: "menuitem"; children: ReactNode }) {
@@ -133,6 +133,7 @@ export function relativeTime(value: string): string {
 }
 
 export function errorMessage(value: unknown): string {
+  if (value instanceof Error && "status" in value && typeof value.status === "number" && value.status >= 500) return t(i18n)`Something went wrong on mdbase. Try again.`;
   const detail = value instanceof Error ? value.message : String(value);
   return /failed to fetch|networkerror|network request failed/i.test(detail)
     ? t(i18n)({ message: "mdbase Connect could not be reached. Check your connection and try again." })

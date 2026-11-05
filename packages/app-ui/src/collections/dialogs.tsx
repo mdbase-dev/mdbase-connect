@@ -62,7 +62,7 @@ export function DeleteCollectionDialog({ open = true, ui, collection, onClose, r
   return <ConfirmDialog open={open} returnFocusRef={returnFocusRef} title={ui.say("deleteTitle", { collection: collection.name })} consequence={ui.copy.deleteBody}
     confirmLabel={ui.copy.deleteConfirm} pendingLabel={ui.copy.deleting} busy={busy} disabled={!matches} onClose={dismiss} onConfirm={remove}>
     <label className="mdbase-collections-field-label" htmlFor={id}>{ui.say("deleteTypeName", { collection: collection.name })}</label>
-    <input id={id} className="mdbase-collections-field" value={typed} autoComplete="off" spellCheck={false} disabled={busy}
+    <input id={id} className="mdbase-collections-field" data-autofocus value={typed} autoComplete="off" spellCheck={false} disabled={busy}
       onChange={(event) => setTyped(event.target.value)} />
     {error && <p className="mdbase-collections-dialog-error" role="alert">{error}</p>}
   </ConfirmDialog>;

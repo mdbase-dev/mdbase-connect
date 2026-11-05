@@ -37,6 +37,20 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it.each([500, 503])("describes HTTP %s as a server failure", async status => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({ error: { message: "Backend diagnostics" } }, { status }));
+    render(<ConnectApp />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Check your connection");
+  });
+
+  it("keeps network failures distinct from server failures", async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<ConnectApp />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Check your connection and try again.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Something went wrong on mdbase");
+  });
+
   it("delays row skeletons until the overview has been pending for 150ms", async () => {
     vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
     render(<ConnectApp />);
@@ -173,6 +187,9 @@ describe("ConnectApp", () => {
     expect(mode).toHaveBeenCalledTimes(1);
     await user.click(storage);
     await screen.findByRole("heading", { name: "Storage mode" });
+    expect(screen.getByText("Native notes is stored on your computers.")).toBeInTheDocument();
+    expect(screen.getByText("Collection copies")).toBeInTheDocument();
+    expect(screen.queryByText(/replicas/i)).not.toBeInTheDocument();
     expect(mode).toHaveBeenCalledTimes(1);
     expect(change).not.toHaveBeenCalled();
   });
@@ -211,7 +228,7 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("button", { name: "New hosted collection" })).not.toBeInTheDocument();
     await user.click(add);
     await user.click(screen.getByRole("button", { name: /A folder on this computer/ }));
-    expect(screen.getByRole("link", { name: "Open mdbase Connect" })).toHaveAttribute("href", "mdbase-connect://open");
+    expect(screen.getByRole("link", { name: "Open desktop app" })).toHaveAttribute("href", "mdbase-connect://open");
     expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
   });
@@ -225,7 +242,7 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("button", { name: "Add collection" }));
     expect(screen.getByRole("button", { name: /Hosted by mdbase/ })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /A folder on this computer/ }));
-    expect(screen.getByRole("link", { name: "Open mdbase Connect" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open desktop app" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
   });
@@ -565,7 +582,7 @@ describe("ConnectApp", () => {
 
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     expect(screen.getAllByText(/^Offline/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Open mdbase Connect on Home computer to make this collection available.")).toBeInTheDocument();
+    expect(screen.getByText("Open desktop app on Home computer to make this collection available.")).toBeInTheDocument();
     expect(screen.queryByText("The editor can reach this collection now.")).not.toBeInTheDocument();
   });
 
@@ -768,7 +785,7 @@ describe("ConnectApp", () => {
     await user.type(input, "Field notes");
     await user.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Storage is temporarily unavailable.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
     expect(input).toHaveValue("Field notes");
     expect(input).toBeDisabled();
     expect(screen.getByRole("button", { name: "Retry creation" })).toBeInTheDocument();
@@ -779,7 +796,7 @@ describe("ConnectApp", () => {
     expect(second).toEqual(first);
     expect(Object.keys(second).sort()).toEqual(["account_id","display_name","request_id","timezone"]);
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Open mdbase Connect" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open desktop app" })).not.toBeInTheDocument();
   });
 
   it("restores an uncertain original creation after reload and has one Add action even without hosted availability",async()=>{
@@ -793,7 +810,7 @@ describe("ConnectApp", () => {
     expect(screen.getByLabelText("Collection name")).toBeDisabled();
     expect(screen.getByRole("button",{name:"Retry creation"})).toBeDisabled();
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Open mdbase Connect" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open desktop app" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
   });
@@ -942,7 +959,7 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("link", { name: "Computers" }));
 
     expect(await screen.findByText("No computers connected")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open mdbase Connect" })).toHaveAttribute("href", "mdbase-connect://open");
+    expect(screen.getByRole("link", { name: "Open desktop app" })).toHaveAttribute("href", "mdbase-connect://open");
     expect(screen.getByRole("link", { name: "Install the latest release" })).toHaveAttribute("href", "https://mdbase.dev/downloads/");
   });
 
@@ -1338,6 +1355,7 @@ describe("ConnectApp", () => {
     expect(screen.getByText("Local collection files stay on your computers and are not measured here.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Delete account…" }));
+    expect(screen.getByLabelText("Type DELETE to confirm")).toHaveFocus();
     await user.type(screen.getByLabelText("Type DELETE to confirm"), "DELETE");
     await user.click(screen.getByRole("button", { name: "Delete account permanently" }));
 

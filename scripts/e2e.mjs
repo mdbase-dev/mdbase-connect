@@ -199,7 +199,7 @@ try {
   });
   await localFolder.click();
   await onboardingPage.getByRole("heading", {
-    name: "Choose the folder in mdbase connect."
+    name: "Choose the folder in mdbase Connect."
   }).waitFor();
   if (new URL(onboardingPage.url()).searchParams.get("continue_in_desktop") !== "1") {
     throw new Error("The browser did not retain the desktop continuation state");

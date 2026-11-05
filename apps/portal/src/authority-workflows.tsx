@@ -43,6 +43,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const accountSelectionSucceeded = useRef(false);
   const cancelPreparation = useRef<(() => void) | null>(null);
   const handBack = useRef(false);
+  const approvalTarget = useRef<HTMLDivElement>(null);
   const inspectionPath = pairingInspectionPath(pairingId, location.search);
 
   useEffect(() => {
@@ -126,6 +127,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     if (dispatching.current || !pairing) return;
     const current = generation.current;
     dispatching.current = true;
+    if (action === "approve") approvalTarget.current?.focus();
     setBusy(true);
     setError("");
     setRetry(null);
@@ -404,7 +406,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     {revokingId && <p role="status"><Trans>Revoking access to {literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))}…</Trans></p>}
                     {details}
                     <footer className="approval-footer">
-                      <div className="approval-receipt approval-target" id={`pairing-target-${pairingId}`}>
+                      <div className="approval-receipt approval-target" id={`pairing-target-${pairingId}`} ref={approvalTarget} tabIndex={-1}>
                         {selectedName && <div className="collection-identity-copy"><strong className="collection-name">{selectedName}</strong><small>{privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`}</small></div>}
                         <p><Trans>This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased.</Trans></p>
                         {createCollections && !privateChoice && <p><Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans></p>}

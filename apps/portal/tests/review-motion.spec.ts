@@ -58,6 +58,7 @@ test("built palette exits and reopens continuously, and results resize in stable
   await observe(page, ".mdbase-command-results");
   await query.fill("Sign out");
   const resized = await frames(page);
+  await testInfo.attach("palette-result-resize", { body: JSON.stringify(resized, null, 2), contentType: "application/json" });
   expect(resized.some(frame => frame.animations.some(animation => animation.property === "height" && animation.duration === 160))).toBe(true);
   expect(new Set(resized.map(frame => frame.height)).size).toBeGreaterThan(2);
   await expect(query).toHaveAttribute("aria-activedescendant", (await palette.getByRole("option", { selected: true }).getAttribute("id"))!);
@@ -116,9 +117,16 @@ test("grant identity and countdown follow confirmed approval in both motion mode
     await openScenario(page, "authorization-return");
     await expect(page.locator(".grant-moment .request-identity-mark")).toHaveText("T");
     await expect(page.locator(".grant-collection-glyph svg")).toBeVisible();
-    await expect(page.locator(".request-return-countdown")).toHaveText("3 seconds");
+    const countdown = page.locator(".request-return-countdown");
+    await expect(countdown).toBeVisible();
+    await expect(countdown).toHaveAttribute("aria-hidden", "true");
+    await expect(countdown).toHaveCSS("height", "2px");
+    expect(await countdown.evaluate(element => getComputedStyle(element, "::after").animationName)).toBe(reducedMotion === "reduce" ? "none" : "request-return");
+    const announcement = page.locator("output.mdbase-visually-hidden");
+    await expect(announcement).toHaveAttribute("aria-live", "polite");
+    await expect(announcement).toHaveText("3 seconds");
     await expect(page.getByRole("link", { name: "Return to TaskNotes", exact: true })).toBeVisible();
-    await expect(page.locator(".request-return-countdown")).toHaveText("2 seconds");
+    await expect(announcement).toHaveText("2 seconds");
     await expect(page).toHaveURL(/\/__review\/return$/);
   }
 });

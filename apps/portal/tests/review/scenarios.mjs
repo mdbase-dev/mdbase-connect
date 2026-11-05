@@ -130,7 +130,7 @@ const definitions = [
   ["empty-account", "/collections", "No collections", 0],
   ["single-collection", "/?collection=collection-0", "Field research", 1],
   ["typical-account", "/collections", "Collections", 5],
-  ["sync-conflict", "/access?collection=hosted-0", "Sync conflict", 5],
+  ["sync-conflict", "/access?collection=hosted-0", "Resolve the conflicting changes in the desktop app", 5],
   ["computer-connected", "/collections", "Connected", 5, state => { state.overview.connectors[0].last_seen_at = new Date().toISOString(); }],
   ["heavy-account", "/collections", "Collections", 64],
   ["pairing-fresh", pair, "Open in Reader", 5, state => { state.pairing.account_selection_confirmed = false; }],
@@ -154,7 +154,7 @@ const definitions = [
   ["feedback", "/feedback", "Send feedback", 5],
   ["computer-offline", "/storage?collection=collection-2", "Storage", 5],
   ["revoking", "/storage?collection=hosted-0", "Disconnecting…", 5, state => { state.overview.hosted_collections[0].replicas[0].revocation_status = "revoking"; state.overview.grants[0].revocation_status = "revoking"; }],
-  ["provider-unavailable", "/access?collection=hosted-0", "The hosted provider is unavailable. Try again shortly.", 5],
+  ["provider-unavailable", "/access?collection=hosted-0", "Something went wrong on mdbase. Try again.", 5],
   ["server-500", "/collections", "We couldn't load Collections", 5],
   ["session-expired", "/account", "Sign in", 5, state => { state.signedIn = false; }]
 ];

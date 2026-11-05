@@ -59,6 +59,7 @@ export function rememberCollection(collectionId: string): void {
 
 export function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 export function message(value: unknown) {
+  if (value instanceof Error && "status" in value && typeof value.status === "number" && value.status >= 500) return t(i18n)`Something went wrong on mdbase. Try again.`;
   let detail = value instanceof Error ? value.message : String(value);
   if (value && typeof value === "object" && "details" in value) {
     const diagnostics = (value.details as { diagnostics?: unknown } | undefined)?.diagnostics;

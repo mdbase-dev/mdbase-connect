@@ -176,8 +176,8 @@ msgstr "{0}이(가) 오프라인 상태입니다."
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
-msgid "{0} is stored in mdbase replicas on your devices."
-msgstr "{0}은(는) 기기의 mdbase 복제본에 저장됩니다."
+msgid "{0} is stored on your computers."
+msgstr "{0}은(는) 사용자의 컴퓨터에 저장됩니다."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
@@ -923,10 +923,6 @@ msgstr "다시 확인"
 msgid "Check the app."
 msgstr "애플리케이션을 확인하세요."
 
-#: src/ConnectPrimitives.tsx
-msgid "Check your connection and try again."
-msgstr "연결을 확인하고 다시 시도하세요."
-
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
@@ -1044,6 +1040,10 @@ msgstr "컬렉션"
 msgid "Collection changes"
 msgstr "컬렉션 변경 사항"
 
+#: src/ConnectApp.tsx
+msgid "Collection copies"
+msgstr "컬렉션 사본"
+
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
 msgstr "컬렉션 ID"
@@ -1065,10 +1065,6 @@ msgstr "컬렉션 소유자"
 msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "컬렉션 권한"
-
-#: src/ConnectApp.tsx
-msgid "Collection replicas"
-msgstr "컬렉션 복제본"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
@@ -1204,6 +1200,10 @@ msgstr "만들지 않고 계속"
 msgctxt "Connect interface"
 msgid "Copied"
 msgstr "복사됨"
+
+#: src/ConnectApp.tsx
+msgid "Copies sync between your computers. App access is managed separately."
+msgstr "사본은 사용자의 컴퓨터 간에 동기화됩니다. 앱 접근은 별도로 관리됩니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2368,9 +2368,15 @@ msgstr "편집기에서 컬렉션을 열거나 기본 사본의 저장 위치를
 msgid "Open an app, then choose which collections it can access."
 msgstr "앱을 연 다음 접근을 허용할 컬렉션을 선택하세요."
 
+#: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
 msgstr "데스크톱 앱 열기"
+
+#. placeholder {0}: collection.detail
+#: src/ConnectApp.tsx
+msgid "Open desktop app on {0} to make this collection available."
+msgstr "이 컬렉션을 사용할 수 있도록 {0}에서 데스크톱 앱을 여세요."
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
@@ -2389,16 +2395,6 @@ msgstr "편집기에서 열기"
 msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "편집기에서 열기"
-
-#: src/authorization-view.tsx
-#: src/ConnectApp.tsx
-msgid "Open mdbase Connect"
-msgstr "mdbase Connect 열기"
-
-#. placeholder {0}: collection.detail
-#: src/ConnectApp.tsx
-msgid "Open mdbase Connect on {0} to make this collection available."
-msgstr "이 컬렉션을 사용하려면 {0}에서 mdbase Connect를 여세요."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2721,10 +2717,6 @@ msgstr "기존 파일 교체"
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
 msgstr "비밀번호를 바꾸면 계정에 연결된 다른 모든 브라우저 세션에서 로그아웃됩니다."
-
-#: src/ConnectApp.tsx
-msgid "Replicas sync between your devices. App access is managed separately."
-msgstr "복제본은 기기 간에 동기화됩니다. 앱 접근 권한은 별도로 관리됩니다."
 
 #. placeholder {0}: response.status
 #: src/api.ts
@@ -3212,6 +3204,11 @@ msgstr "로그아웃 중…"
 msgctxt "Account management"
 msgid "Signing out…"
 msgstr "로그아웃 중…"
+
+#: src/ConnectPrimitives.tsx
+#: src/portal-model.ts
+msgid "Something went wrong on mdbase. Try again."
+msgstr "mdbase에서 문제가 발생했습니다. 다시 시도하세요."
 
 #: src/auth-view.tsx
 msgid "Start signup again"
