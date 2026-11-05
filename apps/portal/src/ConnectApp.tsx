@@ -417,9 +417,11 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
 function ActivityBrand() {
   const { signal, busy } = useMdbaseMarkActivity();
   const [entry] = useState(() => {
-    const seen = sessionStorage.getItem("mdbase-connect-mark-seen");
-    sessionStorage.setItem("mdbase-connect-mark-seen", "1");
-    return seen ? undefined : "keys-first" as const;
+    try {
+      if (sessionStorage.getItem("mdbase-connect-mark-seen")) return undefined;
+      sessionStorage.setItem("mdbase-connect-mark-seen", "1");
+    } catch { return undefined; }
+    return "keys-first" as const;
   });
   return <Brand productLabel markMotion={busy ?? entry} markSignal={signal} />;
 }
