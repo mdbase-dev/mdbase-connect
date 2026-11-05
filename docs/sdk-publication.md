@@ -79,7 +79,13 @@ The rebuilt `runtime.wasm` must match both length and SHA-256 in
 `runtime/packages/sdk/src/application/asset-pins.json`. SQLite WASM and
 initializer keep their existing committed pins and package-lock integrity.
 A source change producing different WASM fails until reviewed pins are
-updated; CI must not auto-bless its output. No WASM ABI, wire protocol, bundled
+updated; CI must not auto-bless its output. When updating pins, match the
+workflow's Rust path remapping as well as its pinned tools and optimizer flags:
+map the compiler host's checkout root to `/source` and Cargo home to `/cargo`.
+Source paths can survive WASM stripping, so builds without these mappings do not
+produce publication-compatible bytes. Verify the corrected pins with the actual
+`scripts/sdk-publication.mjs pack-all` cold-consumer and archive checks.
+No WASM ABI, wire protocol, bundled
 `connect-protocol` dependency or protocol version is changed here. Keep that
 exact bundled protocol and its archive for cold consumers; removing it needs
 separate compatibility work, not an incidental publication cleanup.
