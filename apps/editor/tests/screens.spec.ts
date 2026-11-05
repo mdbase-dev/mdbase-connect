@@ -192,7 +192,7 @@ test.describe("responsive themed view readiness", () => {
       await page.goto(`${authPortal}/login`);
       await expect(page).toHaveURL(`${authPortal}/login`);
       await expect(page.getByRole("button", { name: "Continue with Google" })).toBeEnabled();
-      await expect(page.locator(".provider-divider")).toHaveCount(1);
+      await expect(page.locator(".provider-divider")).toHaveCount(0);
       await checkView("Connect sign-in", "IBM Plex Sans");
     });
   }

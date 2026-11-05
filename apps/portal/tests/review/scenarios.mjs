@@ -112,7 +112,7 @@ function state(count = 5) {
     pairing: {
       connector_name: "Reader", approved_at: null, installation_device: true, kind: "app-runtime",
       account_selection_confirmed: true, attested: true, fingerprint: "8b73-c91e-24af-60d2", account_email: user.email, signed_in_account_email: user.email,
-      app_origin: "https://reader.mdbase.dev", can_create_collection: true,
+      app_origin: "https://reader.mdbase.dev", expires_at: expires, can_create_collection: true,
       collections: data.collections.map(collection => ({ collection_id: collection.id, display_name: collection.display_name, role: "owner" }))
     }
   };
@@ -125,8 +125,8 @@ const definitions = [
   ["signup", "/signup", "Create an account", 0, state => { state.signedIn = false; }],
   ["signup-agreements", "/signup#verification=review-email", "Create an account", 0, state => { state.signedIn = false; }],
   ["forgot-password", "/forgot-password", "Reset your password", 0, state => { state.signedIn = false; }],
-  ["onboarding-pending", "/getting-started", "Preparing a place to start.", 0, state => { state.onboarding = "pending"; }],
-  ["onboarding-failed", "/getting-started", "Starter collection could not be created. Try again.", 0, state => { state.onboarding = "failed"; }],
+  ["onboarding-pending", "/getting-started", "Creating your first collection", 0, state => { state.onboarding = "pending"; }],
+  ["onboarding-failed", "/getting-started", "We couldn't create your collection", 0, state => { state.onboarding = "failed"; }],
   ["empty-account", "/collections", "No collections", 0],
   ["single-collection", "/?collection=collection-0", "Field research", 1],
   ["typical-account", "/collections", "Collections", 5],
@@ -138,7 +138,8 @@ const definitions = [
   ["pairing-signed-out", pair, "Sign in", 5, state => { state.signedIn = false; }],
   ["authorization", consent, "TaskNotes", 5],
   ["authorization-review", consent, "Allow access", 1],
-  ["authorization-approved", consent, "Access approved", 5, state => { state.authorizationStatus = "approved"; state.overview.pending_authorizations = []; }],
+  ["authorization-required", consent, "All permissions listed below are required", 1, state => { state.authorization.requirements.capabilities.optional = []; }],
+  ["authorization-approved", consent, "TaskNotes can now use Field research", 5, state => { state.authorizationStatus = "approved"; state.authorization.collection_id = "collection-0"; state.overview.pending_authorizations = []; }],
   ["authorization-denied", consent, "Access denied", 5, state => { state.authorizationStatus = "denied"; state.overview.pending_authorizations = []; }],
   ["collection-overview", "/?collection=hosted-0", "Shared research library", 5],
   ["collection-storage", "/storage?collection=hosted-0", "Storage", 5],

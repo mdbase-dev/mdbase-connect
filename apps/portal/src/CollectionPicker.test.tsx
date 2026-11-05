@@ -1,9 +1,9 @@
 import { useState, type ComponentProps } from "react";
 import { fireEvent, render, screen, within } from "./test/render";
 import { describe, expect, it, vi } from "vitest";
-import { CollectionPicker } from "./CollectionPicker";
+import { CollectionPicker } from "./authorization-review";
 
-const choices = [{ id: "beta", name: "Beta notes", hint: "Shared with you" }, { id: "alpha", name: "Alpha", hint: "Owner" }, { id: "zeta", name: "Zeta" }];
+const choices = [{ location: "Hosted by mdbase", id: "beta", name: "Beta notes", hint: "Shared with you" }, { location: "Hosted by mdbase", id: "alpha", name: "Alpha", hint: "Owner" }, { location: "Hosted by mdbase", id: "zeta", name: "Zeta" }];
 function show(extra: Partial<ComponentProps<typeof CollectionPicker>> = {}) {
   const change = vi.fn();
   function Fixture() {
@@ -28,12 +28,12 @@ describe("manual collection consent combobox", () => {
     localStorage.setItem(`mdbase-connect:last-collection:${location.origin}`, "beta");
     const f = show();
     expect(within(f.list).getAllByRole("option").map(option => option.getAttribute("aria-label"))).toEqual(["Beta notes", "Alpha", "Zeta"]);
-    expect(screen.getByRole("option", { name: "Beta notes" })).toHaveAccessibleDescription("Recently used · Shared with you");
-    expect(screen.getByRole("option", { name: "Alpha" })).toHaveAccessibleDescription("Owner");
+    expect(screen.getByRole("option", { name: "Beta notes" })).toHaveAccessibleDescription("Hosted by mdbase · Recently used · Shared with you");
+    expect(screen.getByRole("option", { name: "Alpha" })).toHaveAccessibleDescription("Hosted by mdbase · Owner");
     expect(screen.queryAllByRole("option", { selected: true })).toEqual([]);
   });
   it("filters 150+ names live by case-insensitive substring, never selecting from typing or bare Enter", () => {
-    const collections = Array.from({ length: 160 }, (_, i) => ({ id: `notes-${i}`, name: `Notes ${i}` }));
+    const collections = Array.from({ length: 160 }, (_, i) => ({ id: `notes-${i}`, name: `Notes ${i}`, location: "Hosted by mdbase" }));
     const f = show({ collections });
     expect(within(f.list).getAllByRole("option")).toHaveLength(160);
     fireEvent.change(f.input, { target: { value: "nOtEs 159" } });

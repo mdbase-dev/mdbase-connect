@@ -20,11 +20,6 @@ msgstr " (già consentito)"
 msgid " (higher impact)"
 msgstr " (impatto maggiore)"
 
-#. placeholder {0}: pairing.connector_name
-#: src/authority-workflows.tsx
-msgid " {0} can also create new collections for you."
-msgstr " {0} può anche creare nuove raccolte per conto dell'utente."
-
 #. placeholder {0}: literal(host(request.project_url))
 #: src/authorization-view.tsx
 msgid " {0} does not verify its origin."
@@ -44,18 +39,9 @@ msgstr " e mostra <0>{0}</0>"
 msgid " File actions are included in the collection permissions above."
 msgstr " Le operazioni sui file sono incluse nelle autorizzazioni della raccolta riportate sopra."
 
-#. placeholder {0}: literal(pairing.app_origin)
-#: src/authority-workflows.tsx
-msgid " from <0>{0}</0>"
-msgstr " da <0>{0}</0>"
-
 #: src/authorization-view.tsx
 msgid " Permissions this application does not already have are marked New."
 msgstr " Le autorizzazioni che l'applicazione non possiede già sono contrassegnate come Nuove."
-
-#: src/authority-workflows.tsx
-msgid " Previously approved collections stay available."
-msgstr " Le raccolte approvate in precedenza rimangono disponibili."
 
 #: src/authority-workflows.tsx
 msgid " The original local files are no longer the main copy."
@@ -294,6 +280,10 @@ msgstr "{app} comunica: {0}"
 msgid "{app} was not given this file access in {collection}. Return to {app}; everything else works as before."
 msgstr "A {app} non è stato concesso questo accesso ai file in {collection}. Torna a {app}; tutto il resto continua a funzionare come prima."
 
+#: src/authorization-review.tsx
+msgid "{applicationName} can now use {collectionName}"
+msgstr "{applicationName} può ora usare {collectionName}"
+
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "{applicationName} needs a {0} type"
@@ -432,6 +422,10 @@ msgctxt "Connect interface"
 msgid "Accept"
 msgstr "Accetta"
 
+#: src/auth-view.tsx
+msgid "Accept the agreement to create your account."
+msgstr "Accetta l’accordo per creare il tuo account."
+
 #: src/ConnectApp.tsx
 msgid "Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access."
 msgstr "Accetta per aggiungerla alle raccolte. L'invito è legato a questo account. Il nome dell'account e l'identificatore stabile possono essere condivisi con le app degli altri membri quando approvano l'accesso alle persone."
@@ -448,6 +442,7 @@ msgid "Access"
 msgstr "Accesso"
 
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
 msgid "Access approved"
 msgstr "Accesso approvato"
 
@@ -470,11 +465,9 @@ msgctxt "Application access approval"
 msgid "Access denied"
 msgstr "Accesso negato"
 
-#. placeholder {0}: literal(createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : "")
-#. placeholder {1}: pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""
 #: src/authority-workflows.tsx
-msgid "Access includes the notes and files in the collection you pick.{0}{1}"
-msgstr "L'accesso include le note e i file della raccolta scelta.{0}{1}"
+msgid "Access lasts until you remove it in mdbase Connect."
+msgstr "L’accesso dura finché non lo rimuovi in mdbase Connect."
 
 #: src/ConnectApp.tsx
 msgid "Access to this collection is paused on its computer."
@@ -616,6 +609,11 @@ msgstr "Tutte le raccolte"
 msgid "All hosted data in {0} will be permanently deleted. This cannot be undone."
 msgstr "Tutti i dati ospitati in {0} verranno eliminati definitivamente. L'operazione non può essere annullata."
 
+#. placeholder {0}: literal(request.application_name)
+#: src/authorization-view.tsx
+msgid "All permissions listed below are required by {0}. You can allow them together or deny this request."
+msgstr "Tutte le autorizzazioni elencate qui sotto sono richieste da {0}. Puoi concederle insieme o rifiutare questa richiesta."
+
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Allow"
@@ -670,6 +668,10 @@ msgstr "Autorizzazione in corso…"
 msgid "Already allowed collection (currently unavailable)"
 msgstr "Raccolta già autorizzata (attualmente non disponibile)"
 
+#: src/authorization-view.tsx
+msgid "Already connected"
+msgstr "Già connesso"
+
 #: src/auth-view.tsx
 msgid "Already have an account? <0>Sign in</0>"
 msgstr "Hai già un account? <0>Accedi</0>"
@@ -711,20 +713,10 @@ msgstr "Chiave dell'app <0>{0}</0>. Il computer mostrerà questa chiave quando l
 msgid "Application access and {0}"
 msgstr "Accesso delle applicazioni e {0}"
 
-#: src/authorization-view.tsx
-msgctxt "Application access approval"
-msgid "Application connection"
-msgstr "Connessione dell'applicazione"
-
 #. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
 msgstr "Identità dell’applicazione non verificata. Questa app si presenta come {0}. Continua solo se hai avviato intenzionalmente questa connessione."
-
-#: src/authorization-view.tsx
-msgctxt "Application access approval"
-msgid "Application request"
-msgstr "Richiesta dell'applicazione"
 
 #: src/authorization-view.tsx
 msgid "Application using a device code"
@@ -806,7 +798,7 @@ msgctxt "Account management"
 msgid "Beta"
 msgstr "Beta"
 
-#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
 msgctxt "Collection connection"
 msgid "browser extension"
 msgstr "estensione del browser"
@@ -1108,11 +1100,6 @@ msgctxt "Connect interface"
 msgid "Computer not connected"
 msgstr "Computer non connesso"
 
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Computer pairing"
-msgstr "Associazione del computer"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computers"
@@ -1150,6 +1137,10 @@ msgstr "Conferma la tua identità"
 msgid "Connect an app"
 msgstr "Collega un’app"
 
+#: src/auth-view.tsx
+msgid "Connect apps to your Markdown files, on your computers or hosted by mdbase."
+msgstr "Collega le app ai tuoi file Markdown, sui tuoi computer o ospitati da mdbase."
+
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
 msgstr "Gestione di Connect chiusa"
@@ -1184,6 +1175,14 @@ msgstr "Contatta chi gestisce questa installazione di mdbase connect."
 msgid "Continue"
 msgstr "Continua"
 
+#: src/authorization-view.tsx
+msgid "Continue only if you started this connection intentionally."
+msgstr "Continua solo se hai avviato intenzionalmente questa connessione."
+
+#: src/auth-view.tsx
+msgid "Continue with email"
+msgstr "Continua con e-mail"
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Continue with GitHub"
@@ -1198,6 +1197,10 @@ msgstr "Continua con Google"
 msgctxt "Connect interface"
 msgid "Continue with Google"
 msgstr "Continua con Google"
+
+#: src/onboarding-view.tsx
+msgid "Continue without it"
+msgstr "Continua senza"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1233,7 +1236,7 @@ msgstr "Crea una raccolta ospitata"
 msgid "Create a hosted collection before approving this folder."
 msgstr "Crea una raccolta ospitata prima di approvare questa cartella."
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "Create a new collection…"
 msgstr "Crea una nuova raccolta…"
 
@@ -1308,6 +1311,10 @@ msgstr "Crea una semplice raccolta mdbase ospitata da mdbase. L'accesso dell'app
 msgctxt "Account sign-in"
 msgid "Creating account…"
 msgstr "Creazione dell'account…"
+
+#: src/onboarding-view.tsx
+msgid "Creating your first collection"
+msgstr "Creazione della tua prima raccolta"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1540,9 +1547,18 @@ msgstr "Email e password"
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
 msgstr "Verifica che <0>{0}</0> includa <1>{1}</1>"
 
+#. placeholder {0}: label.toLocaleLowerCase()
+#: src/auth-view.tsx
+msgid "Enter {0}."
+msgstr "Inserisci {0}."
+
 #: src/ConnectApp.tsx
 msgid "Enter a collection name."
 msgstr "Inserisci un nome per la raccolta."
+
+#: src/auth-view.tsx
+msgid "Enter a valid email address."
+msgstr "Inserisci un indirizzo e-mail valido."
 
 #: src/authorization-view.tsx
 msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
@@ -1725,6 +1741,7 @@ msgstr "Ospitata"
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "L'accesso alla raccolta ospitata è stato rimosso immediatamente. L'eliminazione dei dati ospitati prosegue automaticamente in background. Le raccolte locali e i file delle copie speculari rimangono sui computer."
 
+#: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Hosted by mdbase"
@@ -1946,6 +1963,11 @@ msgstr "Caricamento dell'accesso con Google…"
 msgid "Loading people…"
 msgstr "Caricamento delle persone…"
 
+#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+msgid "Loading the request…"
+msgstr "Caricamento della richiesta…"
+
 #: src/AccountManagement.tsx
 msgid "Local collection and mirror files remain on your computers."
 msgstr "Le raccolte locali e i file delle copie speculari rimangono sui computer."
@@ -2061,7 +2083,7 @@ msgctxt "Connect interface"
 msgid "Missing required types"
 msgstr "Tipi obbligatori mancanti"
 
-#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
 msgctxt "Collection connection"
 msgid "mobile app"
 msgstr "app mobile"
@@ -2216,7 +2238,7 @@ msgctxt "Connect interface"
 msgid "No collections"
 msgstr "Nessuna raccolta"
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "No collections are available."
 msgstr "Non ci sono raccolte disponibili."
 
@@ -2224,7 +2246,7 @@ msgstr "Non ci sono raccolte disponibili."
 msgid "No collections match"
 msgstr "Nessuna raccolta corrispondente"
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "No collections match. Try another name."
 msgstr "Nessuna raccolta corrispondente. Prova un altro nome."
 
@@ -2241,6 +2263,10 @@ msgstr "Nessun computer connesso"
 msgctxt "Connect interface"
 msgid "No computers match"
 msgstr "Nessun computer corrispondente"
+
+#: src/authorization-view.tsx
+msgid "No requesting origin is available. Continue only if you started this connection intentionally."
+msgstr "Nessuna origine disponibile. Continua solo se hai avviato intenzionalmente questa connessione."
 
 #: src/AccountManagement.tsx
 msgid "No sessions match"
@@ -2306,6 +2332,10 @@ msgid "Only {0}. Hidden folders are always excluded."
 msgstr "Solo {0}. Le cartelle nascoste sono sempre escluse."
 
 #: src/authorization-view.tsx
+msgid "Only continue if you recognize this exact app."
+msgstr "Continua solo se riconosci esattamente questa app."
+
+#: src/authorization-view.tsx
 msgid "Only continue if you recognize this exact site."
 msgstr "Continua solo se riconosci esattamente questo sito."
 
@@ -2313,7 +2343,6 @@ msgstr "Continua solo se riconosci esattamente questo sito."
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "Cambia solo la definizione di questo tipo. I record esistenti rimangono al loro posto. La configurazione viene convalidata prima dell'attivazione dell'accesso."
 
-#. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0}"
@@ -2363,10 +2392,6 @@ msgstr "Apri mdbase connect"
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect on {0} to make this collection available."
 msgstr "Apri mdbase connect su {0} per rendere disponibile questa raccolta."
-
-#: src/onboarding-view.tsx
-msgid "Open mdbase Connect without it"
-msgstr "Apri mdbase Connect senza questa funzione"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2537,10 +2562,6 @@ msgstr "Preferenze"
 msgid "Preparing {0}…"
 msgstr "Preparazione di {0}…"
 
-#: src/onboarding-view.tsx
-msgid "Preparing a place to start."
-msgstr "Preparazione dello spazio iniziale."
-
 #: src/ApplicationAccess.tsx
 msgid "Previously approved · Collection no longer visible to your account"
 msgstr "Approvata in precedenza · Raccolta non più visibile nell'account"
@@ -2549,15 +2570,15 @@ msgstr "Approvata in precedenza · Raccolta non più visibile nell'account"
 msgid "Privacy"
 msgstr "Privacy"
 
-#: src/CollectionPicker.tsx
-msgid "Private"
-msgstr "Privata"
-
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
 msgstr "Raccolta privata"
+
+#: src/authority-workflows.tsx
+msgid "Private collection — on your computers"
+msgstr "Raccolta privata — sui tuoi computer"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2588,7 +2609,7 @@ msgctxt "Connect interface"
 msgid "Reauthorization required"
 msgstr "Riautorizzazione necessaria"
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "Recently used"
 msgstr "Usata di recente"
 
@@ -2743,18 +2764,6 @@ msgstr "Accesso richiesto"
 msgid "Requested by {0}. No requesting origin is available."
 msgstr "Richiesto da {0}. Non è disponibile un'origine della richiesta."
 
-#. placeholder {0}: literal(pairing.connector_name)
-#. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
-#. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
-#: src/authority-workflows.tsx
-msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
-msgstr "Richiesto da <0>{0}</0>{1}{2}. Approva solo se hai avviato l'accesso in questa app."
-
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
-msgstr "Richiesta da un’app in esecuzione su questo computer. Identità dell’applicazione non verificata. Questa app si presenta come {0}. Approva solo se hai avviato l’accesso da questa app."
-
 #. placeholder {0}: literal(pairing.app_origin)
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
@@ -2855,6 +2864,11 @@ msgstr "Verifica la richiesta di {0} per {collectionName}."
 #: src/authorization-view.tsx
 msgid "Review access"
 msgstr "Verifica accesso"
+
+#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+msgid "Review app access"
+msgstr "Esamina l’accesso dell’app"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
@@ -3009,7 +3023,7 @@ msgstr "Ambito"
 msgid "Search"
 msgstr "Cerca"
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "Search collections by name"
 msgstr "Cerca raccolte per nome"
 
@@ -3037,7 +3051,7 @@ msgid "Select a collection to continue."
 msgstr "Seleziona una raccolta per continuare."
 
 #. placeholder {0}: literal(selected.name)
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "Selected: <0>{0}</0>"
 msgstr "Selezionato: <0>{0}</0>"
 
@@ -3129,10 +3143,6 @@ msgstr "Accedi su un computer"
 msgctxt "Account sign-in"
 msgid "Sign in to continue"
 msgstr "Accedi per continuare"
-
-#: src/auth-view.tsx
-msgid "Sign in with the method connected to your invited account."
-msgstr "Accedi con il metodo collegato all'account invitato."
 
 #: src/auth-view.tsx
 msgid "Sign in, review the request, and return to the application."
@@ -3298,6 +3308,10 @@ msgstr "La raccolta"
 #: src/authorization-view.tsx
 msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
 msgstr "La raccolta non può consentire insieme tutte le autorizzazioni richieste su record e file. Scegli un'altra raccolta."
+
+#: src/onboarding-view.tsx
+msgid "The collection could not be opened."
+msgstr "Non è stato possibile aprire la raccolta."
 
 #: src/authorization-view.tsx
 msgid "The collection requested by this application is not available."
@@ -3485,6 +3499,10 @@ msgid "This device can keep an offline copy of approved collections, including t
 msgstr "Questo dispositivo può conservare una copia offline delle raccolte approvate, inclusi i file e le informazioni attuali sull'account e sui membri. L'accesso riguarda solo le raccolte consentite."
 
 #: src/authority-workflows.tsx
+msgid "This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased."
+msgstr "Questo dispositivo può conservare offline note, file e informazioni su account e membri. Le copie scaricate non possono essere cancellate."
+
+#: src/authority-workflows.tsx
 msgid "This folder will receive Markdown from mdbase and will not upload local edits."
 msgstr "Questa cartella riceverà Markdown da mdbase e non caricherà le modifiche locali."
 
@@ -3552,6 +3570,7 @@ msgstr "Prova un altro nome di computer. Il filtro non revoca l'accesso."
 
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 #: src/onboarding-view.tsx
@@ -3585,7 +3604,7 @@ msgstr "Digita un comando"
 msgid "Type DELETE to confirm"
 msgstr "Digita DELETE per confermare"
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice."
 msgstr "Digita per filtrare. I tasti freccia evidenziano; Invio seleziona. La digitazione non cambia la scelta."
 
@@ -3683,6 +3702,11 @@ msgstr "Usa una persona esistente o crea una nota"
 msgid "Use an existing type"
 msgstr "Usa un tipo esistente"
 
+#. placeholder {0}: field.minLength
+#: src/auth-view.tsx
+msgid "Use at least {0} characters."
+msgstr "Usa almeno {0} caratteri."
+
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
@@ -3758,6 +3782,10 @@ msgstr "In attesa di sincronizzazione"
 msgid "We couldn't confirm collection creation finished. Please try again."
 msgstr "Impossibile confermare il completamento della creazione della raccolta. Riprova."
 
+#: src/onboarding-view.tsx
+msgid "We couldn't create your collection"
+msgstr "Non abbiamo potuto creare la tua raccolta"
+
 #: src/authority-workflows.tsx
 msgid "We couldn't identify your account. Sign in again to continue."
 msgstr "Impossibile identificare l'account. Accedi di nuovo per continuare."
@@ -3790,8 +3818,8 @@ msgid "We’ll email you a reset link. It expires in one hour."
 msgstr "Verrà inviato via email un link di reimpostazione. Scade dopo un'ora."
 
 #: src/onboarding-view.tsx
-msgid "We’re creating a small private Markdown collection, then we’ll open it in the editor."
-msgstr "Stiamo creando una piccola raccolta Markdown privata, poi la apriremo nell'editor."
+msgid "We’re creating a small private Markdown collection. It will open when it’s ready."
+msgstr "Stiamo creando una piccola raccolta Markdown privata. Si aprirà quando sarà pronta."
 
 #: src/authorization-view.tsx
 msgid "What it can do"
@@ -3827,6 +3855,10 @@ msgstr "Iscrizione annullata"
 msgid "Your account has been deleted."
 msgstr "L'account è stato eliminato."
 
+#: src/onboarding-view.tsx
+msgid "Your account is ready. Create a collection now, or continue without one."
+msgstr "Il tuo account è pronto. Crea una raccolta ora o continua senza."
+
 #: src/authorization-view.tsx
 msgid "Your approved collection and permissions will follow you back."
 msgstr "La raccolta approvata e le autorizzazioni saranno disponibili al ritorno."
@@ -3839,10 +3871,6 @@ msgstr "La modifica è stata salvata, ma non è stato possibile aggiornare i det
 msgid "Your choices are being checked with the collection’s main copy. The application does not have access yet."
 msgstr "Le scelte vengono verificate con la copia principale della raccolta. L'applicazione non ha ancora accesso."
 
-#: src/auth-view.tsx
-msgid "Your collections and account, in one place."
-msgstr "Raccolte e account in un unico posto."
-
 #: src/ConnectApp.tsx
 msgid "Your collections were not deleted."
 msgstr "Le raccolte non sono state eliminate."
@@ -3854,10 +3882,6 @@ msgstr "L'email è verificata. Scegli un nome e una password per completare la c
 #: src/auth-view.tsx
 msgid "Your email is verified. Confirm your name to finish setting up your account. No password needed."
 msgstr "L'email è verificata. Conferma il nome per completare la configurazione dell'account. Non serve una password."
-
-#: src/onboarding-view.tsx
-msgid "Your first collection"
-msgstr "La prima raccolta"
 
 #: src/authority-workflows.tsx
 msgid "Your local collection was kept."
@@ -3891,3 +3915,7 @@ msgstr "Le altre sessioni del browser sono state disconnesse. Questo browser ora
 msgctxt "Connect interface"
 msgid "Your person record"
 msgstr "Il record persona"
+
+#: src/auth-view.tsx
+msgid "Your session expired. Sign in to pick up where you left off."
+msgstr "La sessione è scaduta. Accedi per riprendere da dove avevi interrotto."

@@ -150,6 +150,13 @@ export function signInUrl(currentLocation: ReturnLocation = location): string {
   login.searchParams.set("return_to", target.href);
   return `${login.pathname}${login.search}`;
 }
+
+export function sessionExpiredUrl(baseUrl: string, currentHref: string = location.href): string {
+  const login = new URL("/login", baseUrl);
+  login.searchParams.set("reason", "session-expired");
+  login.searchParams.set("return_to", currentHref);
+  return login.href;
+}
 export type PortalBootstrapSecrets = Readonly<{
   invitationToken: string;
   verificationToken: string;

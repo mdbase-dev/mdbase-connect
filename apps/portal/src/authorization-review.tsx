@@ -12,14 +12,136 @@ import {
   type SetupContract,
   type SetupType
 } from "@mdbase/connect-ui/contract-setup";
-import { useMemo } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Brand } from "./portal-ui";
+import { SignedOutFooter } from "./auth-view";
+import { readRememberedCollection } from "./portal-model";
+import { literal } from "./literal";
+import { CloudIcon, DesktopIcon } from "@phosphor-icons/react";
+import { MdbaseMark } from "@mdbase-dev/ui/brand";
 import { initialContractSetupChoice } from "./application-setup";
 import type { ApplicationFileAction, PendingAuthorization } from "./api";
 import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities";
 import { Select } from "@mdbase-dev/ui/select";
 
 type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>;
+
+interface CollectionChoice { id: string; name: string; hint?: string; location: string; kind?: "local" | "hosted" | "private" | "cloud_copy" }
+
+/** Manual-selection combobox. Query, highlight and committed choice are
+ * independent: neither filtering nor keyboard navigation grants consent. */
+export function CollectionPicker({ label, collections, value, onChoose, disabled = false, onCreate, creationSelected = false }: {
+  label: string;
+  collections: readonly CollectionChoice[];
+  value: string;
+  onChoose(id: string): void;
+  disabled?: boolean;
+  onCreate?: () => void;
+  creationSelected?: boolean;
+}) {
+  useLocaleRevision();
+  const id = useId(), input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  // Reuse the portal's existing last-used preference as a ranking hint only.
+  const [recent] = useState(readRememberedCollection);
+  const sorted = useMemo(() => [...collections].sort((a, b) =>
+    Number(b.id === recent) - Number(a.id === recent)
+      || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id)
+  ), [collections, recent]);
+  const filtered = sorted.filter(collection => collection.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const active = filtered.findIndex(collection => collection.id === highlighted);
+  const selected = collections.find(collection => collection.id === value);
+
+  useEffect(() => {
+    if (active >= 0) list.current?.children[active]?.scrollIntoView?.({ block: "nearest" });
+  }, [active, highlighted]);
+
+  function choose(collection: CollectionChoice) {
+    if (disabled) return;
+    setHighlighted(collection.id);
+    onChoose(collection.id);
+    input.current?.focus();
+  }
+
+  return <div className="collection-picker">
+    <label id={`${id}-label`} htmlFor={`${id}-input`}>{label}</label>
+    <input className="mdbase-field"
+      ref={input} id={`${id}-input`} role="combobox" type="search" autoComplete="off" data-value={value}
+      aria-labelledby={`${id}-label`} aria-autocomplete="list" aria-expanded="true"
+      aria-controls={`${id}-list`} aria-activedescendant={active >= 0 ? `${id}-option-${active}` : undefined}
+      aria-describedby={`${id}-help`} placeholder={t(i18n)({ message: "Search collections by name" })} value={query} disabled={disabled}
+      onChange={event => { setQuery(event.currentTarget.value); setHighlighted(null); }}
+      onKeyDown={event => {
+        if (disabled || event.nativeEvent.isComposing) return;
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          if (!filtered.length) return;
+          const next = active < 0 ? (event.key === "ArrowDown" ? 0 : filtered.length - 1)
+            : Math.max(0, Math.min(filtered.length - 1, active + (event.key === "ArrowDown" ? 1 : -1)));
+          setHighlighted(filtered[next]!.id);
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          if (active >= 0) choose(filtered[active]!);
+        } else if (event.key === "Escape") {
+          event.preventDefault(); setHighlighted(null);
+        }
+      }}
+    />
+    <span id={`${id}-help`} className="mdbase-visually-hidden"><Trans>Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice.</Trans></span>
+    <div ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} aria-disabled={disabled} className="collection-picker-list">
+      {filtered.map((collection, index) => <div
+        key={collection.id} id={`${id}-option-${index}`} role="option" aria-label={collection.name} data-value={collection.id}
+        aria-selected={collection.id === value} aria-disabled={disabled}
+        aria-describedby={`${id}-hint-${index}`}
+        className={`collection-picker-option${collection.id === value ? " is-selected" : ""}${index === active ? " is-highlighted" : ""}`}
+        onMouseDown={event => event.preventDefault()} onClick={() => choose(collection)}
+      >
+        <CollectionIdentity name={collection.name} location={[collection.location, collection.hint].filter(Boolean).join(" · ")} kind={collection.kind} />
+        <small className="mdbase-visually-hidden" id={`${id}-hint-${index}`}>{[collection.location, collection.id === recent ? t(i18n)`Recently used` : null, collection.hint].filter(Boolean).join(" · ")}</small>
+        {collection.id === value && <span className="collection-picker-check" aria-hidden="true">✓</span>}
+      </div>)}
+    </div>
+    {filtered.length === 0 && <p className="field-note" role="status">{collections.length ? t(i18n)({ message: "No collections match. Try another name." }) : t(i18n)({ message: "No collections are available." })}</p>}
+    {onCreate && <button className="mdbase-button is-tertiary collection-picker-create" type="button" disabled={disabled} aria-pressed={creationSelected}
+      onClick={() => { setHighlighted(null); onCreate(); }}><Trans>Create a new collection…</Trans></button>}
+    {selected && <p className="mdbase-visually-hidden" aria-live="polite"><Trans>Selected: <strong>{literal(selected.name)}</strong></Trans></p>}
+  </div>;
+}
 type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement;
+
+export function RequestShell({ children, busy = false }: { children: React.ReactNode; busy?: boolean }) {
+  return <div className="request-shell" aria-busy={busy}>
+    <main className="mdbase-page approval-page">
+      <Brand productLabel />
+      <section className="mdbase-page-panel authorization-panel">{children}</section>
+    </main>
+    <SignedOutFooter />
+  </div>;
+}
+
+export function CollectionIdentity({ name, location, kind }: { name: string; location: string; kind?: string }) {
+  const suffixStart = Math.max(0, name.length - 12);
+  return <span className="collection-identity">
+    {kind === "hosted" || kind === "cloud_copy" ? <CloudIcon size={18} aria-hidden="true" /> : <DesktopIcon size={18} aria-hidden="true" />}
+    <span className="collection-identity-copy">
+      <strong className="collection-name" aria-label={name} title={name}>
+        <span aria-hidden="true">{name.slice(0, suffixStart)}</span><span aria-hidden="true">{name.slice(suffixStart)}</span>
+      </strong>
+      <small>{location}</small>
+    </span>
+  </span>;
+}
+
+export function GrantMoment({ applicationName, collectionName }: { applicationName: string; collectionName: string }) {
+  return <div className="grant-moment" role="status">
+    <span className="grant-mark" aria-hidden="true">
+      <MdbaseMark className="grant-stripes" />
+      <svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" /></svg>
+    </span>
+    <h1>{t(i18n)`${applicationName} can now use ${collectionName}`}</h1>
+  </div>;
+}
 
 const PEOPLE_PERMISSION_LABELS: Record<string, string> = {
   get identity() { return t(i18n)({ message: "See your account identity and display name" }); },

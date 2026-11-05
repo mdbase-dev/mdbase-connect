@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState, Component, type FormEvent, ty
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
-import { readRememberedCollection, rememberCollection } from "./portal-model";
+import { readRememberedCollection, rememberCollection, sessionExpiredUrl } from "./portal-model";
 import { CommandPalette, shortcutLabel, type Command } from "@mdbase-dev/ui/command-palette";
 import { signalMdbaseMark, useMdbaseMarkActivity } from "@mdbase-dev/ui/mark-activity";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
@@ -155,7 +155,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
           clearOverviewPreview();
           setPreview(undefined);
           setData(undefined);
-          location.href = new URL("/login", management.baseUrl).href;
+          location.href = sessionExpiredUrl(management.baseUrl);
           return;
         }
         setRefreshError(errorMessage(reason));
@@ -245,7 +245,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         }
         if (reason instanceof ManagementApiError && reason.status === 401) {
           clearOverviewPreview();
-          location.href = new URL("/login", management.baseUrl).href;
+          location.href = sessionExpiredUrl(management.baseUrl);
         }
       }
     } finally {

@@ -20,11 +20,6 @@ msgstr " (이미 허용됨)"
 msgid " (higher impact)"
 msgstr " (영향이 큼)"
 
-#. placeholder {0}: pairing.connector_name
-#: src/authority-workflows.tsx
-msgid " {0} can also create new collections for you."
-msgstr " {0}에서 새 컬렉션을 만들 수도 있습니다."
-
 #. placeholder {0}: literal(host(request.project_url))
 #: src/authorization-view.tsx
 msgid " {0} does not verify its origin."
@@ -44,18 +39,9 @@ msgstr " 표시된 코드가 <0>{0}</0>이며"
 msgid " File actions are included in the collection permissions above."
 msgstr " 파일 작업은 위 컬렉션 권한에 포함됩니다."
 
-#. placeholder {0}: literal(pairing.app_origin)
-#: src/authority-workflows.tsx
-msgid " from <0>{0}</0>"
-msgstr " 출처: <0>{0}</0>"
-
 #: src/authorization-view.tsx
 msgid " Permissions this application does not already have are marked New."
 msgstr " 이 애플리케이션에 아직 없는 권한은 신규로 표시됩니다."
-
-#: src/authority-workflows.tsx
-msgid " Previously approved collections stay available."
-msgstr " 이전에 승인한 컬렉션은 계속 사용할 수 있습니다."
 
 #: src/authority-workflows.tsx
 msgid " The original local files are no longer the main copy."
@@ -294,6 +280,10 @@ msgstr "{app}의 메시지: {0}"
 msgid "{app} was not given this file access in {collection}. Return to {app}; everything else works as before."
 msgstr "{app}에 {collection}의 해당 파일 접근 권한이 부여되지 않았습니다. 앱 {app}으로 돌아가세요. 다른 기능은 이전과 동일하게 작동합니다."
 
+#: src/authorization-review.tsx
+msgid "{applicationName} can now use {collectionName}"
+msgstr "{applicationName}에서 이제 {collectionName}을(를) 사용할 수 있습니다"
+
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "{applicationName} needs a {0} type"
@@ -432,6 +422,10 @@ msgctxt "Connect interface"
 msgid "Accept"
 msgstr "수락"
 
+#: src/auth-view.tsx
+msgid "Accept the agreement to create your account."
+msgstr "계정을 만들려면 동의 사항을 수락하세요."
+
 #: src/ConnectApp.tsx
 msgid "Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access."
 msgstr "컬렉션에 추가하려면 수락하세요. 초대는 이 계정에 연결됩니다. 다른 구성원의 앱에 사용자 액세스 권한을 승인하면 내 계정 이름과 고유 식별자가 공유될 수 있습니다."
@@ -448,6 +442,7 @@ msgid "Access"
 msgstr "접근 권한"
 
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
 msgid "Access approved"
 msgstr "액세스 승인됨"
 
@@ -470,11 +465,9 @@ msgctxt "Application access approval"
 msgid "Access denied"
 msgstr "액세스 거부됨"
 
-#. placeholder {0}: literal(createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : "")
-#. placeholder {1}: pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""
 #: src/authority-workflows.tsx
-msgid "Access includes the notes and files in the collection you pick.{0}{1}"
-msgstr "선택한 컬렉션의 노트와 파일에 액세스할 수 있습니다.{0}{1}"
+msgid "Access lasts until you remove it in mdbase Connect."
+msgstr "mdbase Connect에서 제거할 때까지 액세스가 유지됩니다."
 
 #: src/ConnectApp.tsx
 msgid "Access to this collection is paused on its computer."
@@ -616,6 +609,11 @@ msgstr "모든 컬렉션"
 msgid "All hosted data in {0} will be permanently deleted. This cannot be undone."
 msgstr "{0}의 모든 호스팅 데이터가 영구 삭제됩니다. 이 작업은 취소할 수 없습니다."
 
+#. placeholder {0}: literal(request.application_name)
+#: src/authorization-view.tsx
+msgid "All permissions listed below are required by {0}. You can allow them together or deny this request."
+msgstr "아래 나열된 권한은 모두 {0}에 필요합니다. 한꺼번에 허용하거나 이 요청을 거부할 수 있습니다."
+
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Allow"
@@ -670,6 +668,10 @@ msgstr "허용하는 중…"
 msgid "Already allowed collection (currently unavailable)"
 msgstr "이미 허용된 컬렉션(현재 사용할 수 없음)"
 
+#: src/authorization-view.tsx
+msgid "Already connected"
+msgstr "이미 연결됨"
+
 #: src/auth-view.tsx
 msgid "Already have an account? <0>Sign in</0>"
 msgstr "이미 계정이 있나요? <0>로그인</0>"
@@ -711,20 +713,10 @@ msgstr "앱 키 <0>{0}</0>. 앱을 승인할 때 컴퓨터에 이 키가 표시�
 msgid "Application access and {0}"
 msgstr "애플리케이션 액세스 및 {0}"
 
-#: src/authorization-view.tsx
-msgctxt "Application access approval"
-msgid "Application connection"
-msgstr "애플리케이션 연결"
-
 #. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
 msgstr "애플리케이션의 신원이 확인되지 않았습니다. 이 앱은 자신을 {0}(이)라고 합니다. 의도적으로 이 연결을 시작한 경우에만 계속하세요."
-
-#: src/authorization-view.tsx
-msgctxt "Application access approval"
-msgid "Application request"
-msgstr "애플리케이션 요청"
 
 #: src/authorization-view.tsx
 msgid "Application using a device code"
@@ -806,7 +798,7 @@ msgctxt "Account management"
 msgid "Beta"
 msgstr "베타"
 
-#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
 msgctxt "Collection connection"
 msgid "browser extension"
 msgstr "브라우저 확장 프로그램"
@@ -1108,11 +1100,6 @@ msgctxt "Connect interface"
 msgid "Computer not connected"
 msgstr "컴퓨터 연결되지 않음"
 
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Computer pairing"
-msgstr "컴퓨터 페어링"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computers"
@@ -1150,6 +1137,10 @@ msgstr "본인 확인"
 msgid "Connect an app"
 msgstr "앱 연결"
 
+#: src/auth-view.tsx
+msgid "Connect apps to your Markdown files, on your computers or hosted by mdbase."
+msgstr "컴퓨터 또는 mdbase에 호스팅된 Markdown 파일에 앱을 연결하세요."
+
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
 msgstr "Connect 관리 종료됨"
@@ -1184,6 +1175,14 @@ msgstr "이 mdbase connect 배포의 운영자에게 문의하세요."
 msgid "Continue"
 msgstr "계속"
 
+#: src/authorization-view.tsx
+msgid "Continue only if you started this connection intentionally."
+msgstr "직접 이 연결을 시작한 경우에만 계속하세요."
+
+#: src/auth-view.tsx
+msgid "Continue with email"
+msgstr "이메일로 계속"
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Continue with GitHub"
@@ -1198,6 +1197,10 @@ msgstr "Google로 계속"
 msgctxt "Connect interface"
 msgid "Continue with Google"
 msgstr "Google로 계속"
+
+#: src/onboarding-view.tsx
+msgid "Continue without it"
+msgstr "만들지 않고 계속"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1233,7 +1236,7 @@ msgstr "호스팅 컬렉션 만들기"
 msgid "Create a hosted collection before approving this folder."
 msgstr "이 폴더를 승인하기 전에 호스팅 컬렉션을 만드세요."
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "Create a new collection…"
 msgstr "새 컬렉션 만들기…"
 
@@ -1308,6 +1311,10 @@ msgstr "mdbase에 호스팅되는 일반 mdbase 컬렉션을 만듭니다. 애�
 msgctxt "Account sign-in"
 msgid "Creating account…"
 msgstr "계정 만드는 중…"
+
+#: src/onboarding-view.tsx
+msgid "Creating your first collection"
+msgstr "첫 번째 컬렉션 만드는 중"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1540,9 +1547,18 @@ msgstr "이메일 및 비밀번호"
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
 msgstr "<0>{0}</0>에 <1>{1}</1>이(가) 포함되도록 설정"
 
+#. placeholder {0}: label.toLocaleLowerCase()
+#: src/auth-view.tsx
+msgid "Enter {0}."
+msgstr "{0}을(를) 입력하세요."
+
 #: src/ConnectApp.tsx
 msgid "Enter a collection name."
 msgstr "컬렉션 이름을 입력하세요."
+
+#: src/auth-view.tsx
+msgid "Enter a valid email address."
+msgstr "유효한 이메일 주소를 입력하세요."
 
 #: src/authorization-view.tsx
 msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
@@ -1725,6 +1741,7 @@ msgstr "호스팅됨"
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "호스팅 액세스 권한은 즉시 제거되었습니다. 호스팅 데이터 삭제는 백그라운드에서 자동으로 계속됩니다. 로컬 컬렉션과 미러 파일은 컴퓨터에 남습니다."
 
+#: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Hosted by mdbase"
@@ -1946,6 +1963,11 @@ msgstr "Google 로그인 불러오는 중…"
 msgid "Loading people…"
 msgstr "사람 불러오는 중…"
 
+#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+msgid "Loading the request…"
+msgstr "요청 불러오는 중…"
+
 #: src/AccountManagement.tsx
 msgid "Local collection and mirror files remain on your computers."
 msgstr "로컬 컬렉션 및 미러 파일은 컴퓨터에 남습니다."
@@ -2061,7 +2083,7 @@ msgctxt "Connect interface"
 msgid "Missing required types"
 msgstr "필수 유형 누락"
 
-#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
 msgctxt "Collection connection"
 msgid "mobile app"
 msgstr "모바일 앱"
@@ -2216,7 +2238,7 @@ msgctxt "Connect interface"
 msgid "No collections"
 msgstr "컬렉션 없음"
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "No collections are available."
 msgstr "사용 가능한 컬렉션이 없습니다."
 
@@ -2224,7 +2246,7 @@ msgstr "사용 가능한 컬렉션이 없습니다."
 msgid "No collections match"
 msgstr "일치하는 컬렉션 없음"
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "No collections match. Try another name."
 msgstr "일치하는 컬렉션이 없습니다. 다른 이름으로 시도하세요."
 
@@ -2241,6 +2263,10 @@ msgstr "연결된 컴퓨터 없음"
 msgctxt "Connect interface"
 msgid "No computers match"
 msgstr "일치하는 컴퓨터 없음"
+
+#: src/authorization-view.tsx
+msgid "No requesting origin is available. Continue only if you started this connection intentionally."
+msgstr "요청 출처를 확인할 수 없습니다. 직접 이 연결을 시작한 경우에만 계속하세요."
 
 #: src/AccountManagement.tsx
 msgid "No sessions match"
@@ -2306,6 +2332,10 @@ msgid "Only {0}. Hidden folders are always excluded."
 msgstr "{0}만. 숨겨진 폴더는 항상 제외됩니다."
 
 #: src/authorization-view.tsx
+msgid "Only continue if you recognize this exact app."
+msgstr "이 앱이 정확히 맞다고 확인되는 경우에만 계속하세요."
+
+#: src/authorization-view.tsx
 msgid "Only continue if you recognize this exact site."
 msgstr "정확히 이 사이트를 아는 경우에만 계속하세요."
 
@@ -2313,7 +2343,6 @@ msgstr "정확히 이 사이트를 아는 경우에만 계속하세요."
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "이 유형 정의만 변경됩니다. 기존 레코드는 그대로 유지됩니다. 액세스가 활성화되기 전에 설정을 검증합니다."
 
-#. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0}"
@@ -2363,10 +2392,6 @@ msgstr "mdbase connect 열기"
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect on {0} to make this collection available."
 msgstr "이 컬렉션을 사용하려면 {0}에서 mdbase connect를 여세요."
-
-#: src/onboarding-view.tsx
-msgid "Open mdbase Connect without it"
-msgstr "이 옵션 없이 mdbase Connect 열기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2537,10 +2562,6 @@ msgstr "환경설정"
 msgid "Preparing {0}…"
 msgstr "{0} 준비하는 중…"
 
-#: src/onboarding-view.tsx
-msgid "Preparing a place to start."
-msgstr "시작할 공간을 준비하는 중입니다."
-
 #: src/ApplicationAccess.tsx
 msgid "Previously approved · Collection no longer visible to your account"
 msgstr "이전 승인됨 · 내 계정에서 컬렉션을 더 이상 볼 수 없음"
@@ -2549,15 +2570,15 @@ msgstr "이전 승인됨 · 내 계정에서 컬렉션을 더 이상 볼 수 없
 msgid "Privacy"
 msgstr "개인정보 보호"
 
-#: src/CollectionPicker.tsx
-msgid "Private"
-msgstr "비공개"
-
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
 msgstr "비공개 컬렉션"
+
+#: src/authority-workflows.tsx
+msgid "Private collection — on your computers"
+msgstr "비공개 컬렉션 — 내 컴퓨터에 저장"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2588,7 +2609,7 @@ msgctxt "Connect interface"
 msgid "Reauthorization required"
 msgstr "재승인 필요"
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "Recently used"
 msgstr "최근 사용"
 
@@ -2743,18 +2764,6 @@ msgstr "요청된 액세스"
 msgid "Requested by {0}. No requesting origin is available."
 msgstr "{0}에서 요청했습니다. 요청 출처 정보가 없습니다."
 
-#. placeholder {0}: literal(pairing.connector_name)
-#. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
-#. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>
-#: src/authority-workflows.tsx
-msgid "Requested by <0>{0}</0>{1}{2}. Approve only if you started sign-in in this app."
-msgstr "<0>{0}</0>{1}{2}에서 요청했습니다. 이 앱에서 로그인을 시작한 경우에만 승인하세요."
-
-#. placeholder {0}: literal(pairing.connector_name)
-#: src/authority-workflows.tsx
-msgid "Requested by an app running on this computer. Application identity unverified. This app calls itself {0}. Approve only if you started sign-in in this app."
-msgstr "이 컴퓨터에서 실행 중인 앱의 요청입니다. 애플리케이션의 신원이 확인되지 않았습니다. 이 앱은 자신을 {0}(이)라고 합니다. 이 앱에서 로그인을 시작한 경우에만 승인하세요."
-
 #. placeholder {0}: literal(pairing.app_origin)
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
@@ -2855,6 +2864,11 @@ msgstr "{collectionName}에 대한 {0}의 요청을 검토하세요."
 #: src/authorization-view.tsx
 msgid "Review access"
 msgstr "접근 권한 검토"
+
+#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+msgid "Review app access"
+msgstr "앱 액세스 검토"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
@@ -3009,7 +3023,7 @@ msgstr "범위"
 msgid "Search"
 msgstr "검색"
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "Search collections by name"
 msgstr "이름으로 컬렉션 검색"
 
@@ -3037,7 +3051,7 @@ msgid "Select a collection to continue."
 msgstr "계속하려면 컬렉션을 선택하세요."
 
 #. placeholder {0}: literal(selected.name)
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "Selected: <0>{0}</0>"
 msgstr "선택됨: <0>{0}</0>"
 
@@ -3129,10 +3143,6 @@ msgstr "컴퓨터에서 로그인"
 msgctxt "Account sign-in"
 msgid "Sign in to continue"
 msgstr "계속하려면 로그인하세요"
-
-#: src/auth-view.tsx
-msgid "Sign in with the method connected to your invited account."
-msgstr "초대받은 계정에 연결된 방법으로 로그인하세요."
 
 #: src/auth-view.tsx
 msgid "Sign in, review the request, and return to the application."
@@ -3298,6 +3308,10 @@ msgstr "컬렉션"
 #: src/authorization-view.tsx
 msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
 msgstr "이 컬렉션에서는 필요한 레코드 및 파일 권한을 모두 함께 허용할 수 없습니다. 다른 컬렉션을 선택하세요."
+
+#: src/onboarding-view.tsx
+msgid "The collection could not be opened."
+msgstr "컬렉션을 열 수 없습니다."
 
 #: src/authorization-view.tsx
 msgid "The collection requested by this application is not available."
@@ -3485,6 +3499,10 @@ msgid "This device can keep an offline copy of approved collections, including t
 msgstr "이 기기는 승인된 컬렉션의 파일과 현재 계정/구성원 정보를 포함한 오프라인 사본을 보관할 수 있습니다. 허용한 컬렉션에만 액세스할 수 있습니다."
 
 #: src/authority-workflows.tsx
+msgid "This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased."
+msgstr "이 기기는 노트, 파일, 계정 및 멤버 정보를 오프라인으로 보관할 수 있습니다. 다운로드한 사본은 지울 수 없습니다."
+
+#: src/authority-workflows.tsx
 msgid "This folder will receive Markdown from mdbase and will not upload local edits."
 msgstr "이 폴더는 mdbase에서 Markdown을 받아오며 로컬 편집 내용은 업로드하지 않습니다."
 
@@ -3552,6 +3570,7 @@ msgstr "다른 컴퓨터 이름을 입력하세요. 필터링은 접근 권한�
 
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 #: src/onboarding-view.tsx
@@ -3585,7 +3604,7 @@ msgstr "명령 입력"
 msgid "Type DELETE to confirm"
 msgstr "확인하려면 DELETE를 입력하세요"
 
-#: src/CollectionPicker.tsx
+#: src/authorization-review.tsx
 msgid "Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice."
 msgstr "필터링할 내용을 입력하세요. 화살표 키로 강조하고 Enter로 선택합니다. 입력만으로 선택은 바뀌지 않습니다."
 
@@ -3683,6 +3702,11 @@ msgstr "기존 사용자 사용 또는 노트 만들기"
 msgid "Use an existing type"
 msgstr "기존 유형 사용"
 
+#. placeholder {0}: field.minLength
+#: src/auth-view.tsx
+msgid "Use at least {0} characters."
+msgstr "{0}자 이상 사용하세요."
+
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
@@ -3758,6 +3782,10 @@ msgstr "동기화 대기 중"
 msgid "We couldn't confirm collection creation finished. Please try again."
 msgstr "컬렉션 생성이 완료되었는지 확인하지 못했습니다. 다시 시도하세요."
 
+#: src/onboarding-view.tsx
+msgid "We couldn't create your collection"
+msgstr "컬렉션을 만들 수 없습니다"
+
 #: src/authority-workflows.tsx
 msgid "We couldn't identify your account. Sign in again to continue."
 msgstr "계정을 식별하지 못했습니다. 다시 로그인해 계속하세요."
@@ -3790,8 +3818,8 @@ msgid "We’ll email you a reset link. It expires in one hour."
 msgstr "이메일로 재설정 링크를 보내드립니다. 1시간 후 만료됩니다."
 
 #: src/onboarding-view.tsx
-msgid "We’re creating a small private Markdown collection, then we’ll open it in the editor."
-msgstr "작은 비공개 Markdown 컬렉션을 만든 뒤 편집기에서 열겠습니다."
+msgid "We’re creating a small private Markdown collection. It will open when it’s ready."
+msgstr "작은 비공개 Markdown 컬렉션을 만들고 있습니다. 준비가 되면 열립니다."
 
 #: src/authorization-view.tsx
 msgid "What it can do"
@@ -3827,6 +3855,10 @@ msgstr "수신이 거부되었습니다"
 msgid "Your account has been deleted."
 msgstr "계정이 삭제되었습니다."
 
+#: src/onboarding-view.tsx
+msgid "Your account is ready. Create a collection now, or continue without one."
+msgstr "계정이 준비되었습니다. 지금 컬렉션을 만들거나 만들지 않고 계속하세요."
+
 #: src/authorization-view.tsx
 msgid "Your approved collection and permissions will follow you back."
 msgstr "승인한 컬렉션과 권한이 애플리케이션으로 돌아갈 때 함께 적용됩니다."
@@ -3839,10 +3871,6 @@ msgstr "변경 사항이 저장되었지만 계정 세부 정보를 새로고침
 msgid "Your choices are being checked with the collection’s main copy. The application does not have access yet."
 msgstr "선택한 설정을 컬렉션의 기본 사본에서 확인하고 있습니다. 애플리케이션에는 아직 액세스 권한이 없습니다."
 
-#: src/auth-view.tsx
-msgid "Your collections and account, in one place."
-msgstr "컬렉션과 계정을 한곳에서 관리하세요."
-
 #: src/ConnectApp.tsx
 msgid "Your collections were not deleted."
 msgstr "컬렉션은 삭제되지 않았습니다."
@@ -3854,10 +3882,6 @@ msgstr "이메일이 확인되었습니다. 계정 설정을 마치려면 이름
 #: src/auth-view.tsx
 msgid "Your email is verified. Confirm your name to finish setting up your account. No password needed."
 msgstr "이메일이 확인되었습니다. 계정 설정을 마치려면 이름을 확인하세요. 비밀번호는 필요하지 않습니다."
-
-#: src/onboarding-view.tsx
-msgid "Your first collection"
-msgstr "첫 컬렉션"
 
 #: src/authority-workflows.tsx
 msgid "Your local collection was kept."
@@ -3891,3 +3915,7 @@ msgstr "다른 브라우저 세션에서 로그아웃되었습니다. 이제 이
 msgctxt "Connect interface"
 msgid "Your person record"
 msgstr "내 사람 레코드"
+
+#: src/auth-view.tsx
+msgid "Your session expired. Sign in to pick up where you left off."
+msgstr "세션이 만료되었습니다. 로그인하면 중단한 곳에서 계속할 수 있습니다."

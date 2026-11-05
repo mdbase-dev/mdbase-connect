@@ -42,6 +42,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     }
     assert.ok(path.endsWith("/approve"), "only explicit creation/approval mutations occur");
     pairing.approved_at = new Date().toISOString();
+    pairing.selected_collection_id = body.selected_collection_id;
     if (loseApproval) return route.abort("failed");
     return route.fulfill({json: {ok: true}});
   });
@@ -63,7 +64,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
       assert.equal(await picker().getAttribute("data-value"), offeredId, "the committed CID matches the offered collection");
     }
   };
-  const done = () => page.getByRole("heading", {name: "Access approved", exact: true}).waitFor();
+  const done = () => page.getByRole("heading", {name: /^TaskNotes can now use /}).waitFor();
   try {
     await load();
     Object.assign(pairing, {account_selection_confirmed:false,account_email:null,signed_in_account_email:base.account_email,attested:false,fingerprint:null,app_origin:undefined});
@@ -103,7 +104,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
         assert.equal(await list().getByRole("option").count(), pairing.collections.length, "all candidates are inline");
         assert.ok(appearance.width > 0 && appearance.height > 0 && appearance.fits, "long picker is bounded by the popup viewport");
         const search = picker();
-        await search.scrollIntoViewIfNeeded();
+        await search.evaluate(input => input.scrollIntoView({block: "center", behavior: "instant"}));
         assert.equal(await search.evaluate(input => {
           const box = input.getBoundingClientRect();
           return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === input;

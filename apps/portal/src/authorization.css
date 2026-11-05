@@ -1,34 +1,13 @@
-/*
- * Application authorization. Follows the editor's document grammar: one flat
- * canvas, section titles over a strong rule, ruled rows with a quiet selected
- * state, sans copy with mono reserved for origins and identifiers. Copy stays
- * at or above 12px and uses only regular and bold weights.
- */
+.request-shell { min-height: 100svh; display: flex; flex-direction: column; }
+.approval-page { display: block; width: min(40rem, calc(100% - 2 * var(--space-6))); margin-inline: auto; padding: var(--space-8) 0 0; min-height: 0; }
+.approval-page > .product-brand { margin-bottom: var(--space-8); }
+.approval-page .product-brand-label { font-size: var(--font-size-caption); }
+.approval-page .authorization-panel { width: 100%; --control-height: 44px; }
+.request-shell > .minimal-auth-footer { width: min(40rem, calc(100% - 2 * var(--space-6))); margin: auto auto 0; padding-block: var(--space-6); }
+.request-identity { position: sticky; top: 0; z-index: 2; padding-block: var(--space-4); background: var(--paper); }
+.request-shell :is(h1, h2) { font-size: var(--font-size-heading); font-weight: var(--font-weight-semibold); line-height: 1.25; }
+.request-shell .mdbase-connect-lead { font-size: var(--font-size-prose); color: var(--color-text-soft); }
 
-.approval-page {
-  align-content: start;
-  padding-top: clamp(2rem, 6vh, 3.5rem);
-}
-
-.approval-page > .page-brand-row,
-.approval-page .authorization-panel {
-  width: min(40rem, 100%);
-}
-
-.approval-page .authorization-panel {
-  --control-height: 44px;
-}
-
-.approval-page .page-brand-row {
-  margin-bottom: 2.5rem;
-}
-
-.approval-page .eyebrow,
-.approval-page .page-brand > span {
-  font-size: 0.75rem;
-}
-
-/* Request identity */
 
 .request-identity {
   display: grid;
@@ -58,8 +37,8 @@
 }
 
 .request-identity h1 {
-  font-size: 1.65rem;
-  line-height: 1.1;
+  font-size: var(--font-size-heading);
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
@@ -191,78 +170,36 @@
 
 /* Collection choice */
 
-.collection-choice-field {
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.collection-choice-list > label,
-.selected-collection-summary {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.85rem;
-  min-height: 4.25rem;
-  padding: 0.7rem 0.6rem;
-  border-bottom: 1px solid var(--line);
-}
-
-.collection-choice-list > label {
-  cursor: pointer;
-  transition: background-color 150ms var(--ease);
-}
-
-.collection-choice-list > label:hover {
-  background: var(--hover);
-}
-
-.collection-choice-list > label.selected {
-  background: var(--selected);
-}
-
-.collection-choice-list > label:has(input:focus-visible) {
-  outline: var(--focus-ring);
-  outline-offset: -2px;
-}
-
-.collection-choice-list input,
-.permission-row input,
-.contract-setup-mode input {
-  width: 1rem;
-  height: 1rem;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
-.collection-choice-list input:focus-visible {
-  outline: none;
-}
-
-.selected-collection-summary {
-  grid-template-columns: minmax(0, 1fr) auto auto;
-}
-
-.collection-choice-copy,
-.selected-collection-summary > div {
-  display: grid;
-  gap: 0.15rem;
-  min-width: 0;
-}
-
-.collection-choice-copy strong,
-.selected-collection-summary strong {
-  font-size: 0.875rem;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-.collection-choice-copy small,
-.selected-collection-summary small {
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-}
+.permission-row input, .contract-setup-mode input { width: 1rem; height: 1rem; margin: 0; accent-color: var(--accent); }
+.selected-collection-summary { display: flex; align-items: center; gap: var(--space-3); padding-block: var(--space-3); border-bottom: 1px solid var(--line); }
+.selected-collection-summary > div { flex: 1; min-width: 0; }
+.collection-identity { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.collection-identity > svg { flex: none; color: var(--color-text-muted); }
+.collection-identity-copy { display: grid; gap: var(--space-1); min-width: 0; }
+.collection-name { display: flex; min-width: 0; font-weight: var(--font-weight-semibold); font-size: var(--font-size-ui); }
+.collection-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.collection-name > span:last-child { flex: none; white-space: pre; }
+.collection-identity-copy small { color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.collection-picker { display: grid; gap: var(--space-2); min-width: 0; margin-block: var(--space-4); }
+.collection-picker > label { font-weight: var(--font-weight-semibold); }
+.collection-picker input { width: 100%; min-width: 0; }
+.collection-picker-list { max-height: min(25rem, 30svh); overflow-y: auto; overscroll-behavior: contain; border-block: 1px solid var(--line); scroll-padding-block: var(--space-2); }
+.collection-picker-option { position: relative; display: flex; align-items: center; min-height: 64px; padding: var(--space-3) var(--space-8) var(--space-3) var(--space-3); border-bottom: 1px solid var(--line); cursor: pointer; }
+.collection-picker-option:last-child { border-bottom: 0; }
+.collection-picker-option:hover { background: var(--hover); }
+.collection-picker-option.is-selected { background: var(--selected); }
+.collection-picker-option.is-highlighted { outline: var(--focus-ring); outline-offset: -2px; }
+.collection-picker-option[aria-disabled="true"] { cursor: default; }
+.collection-picker-check { position: absolute; right: var(--space-3); color: var(--accent); }
+.collection-picker-create { justify-self: start; min-height: 44px; }
+.collection-picker-create[aria-pressed="true"] { color: var(--accent); }
+.installation-choice { display: grid; gap: var(--space-2); margin-block: var(--space-4); }
+.installation-account-label { color: var(--color-text-muted); font-size: var(--font-size-ui); overflow-wrap: anywhere; }
+.installation-advanced, .installation-details { margin-block: var(--space-3); color: var(--color-text-soft); font-size: var(--font-size-ui); }
+:is(.installation-advanced, .installation-details) summary { min-height: 44px; padding-block: var(--space-3); cursor: pointer; }
+.installation-details code { overflow-wrap: anywhere; }
+.installation-file-access-reason { margin: 0; padding: var(--space-2) var(--space-3); border-left: 3px solid currentColor; overflow-wrap: anywhere; }
+.mdbase-button.installation-account-action { min-height: 44px; }
 
 .collection-status {
   display: inline-flex;
@@ -784,9 +721,13 @@
 
 .approval-footer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 0.75rem 1.5rem;
+  gap: var(--space-3);
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  box-shadow: 0 -12px 12px -12px var(--paper);
   margin-top: 2rem;
   padding: 1rem 0 1.25rem;
   border-top: 1px solid var(--line-strong);
@@ -795,14 +736,6 @@
 
 .approval-section .approval-footer {
   margin-top: 1.25rem;
-}
-
-@media (min-width: 40rem) and (min-height: 36rem) {
-  .approval-footer {
-    position: sticky;
-    bottom: 0;
-    z-index: 1;
-  }
 }
 
 .approval-receipt {
@@ -850,7 +783,7 @@
 
 .request-outcome :is(h1, h2), .desktop-continuation h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: var(--font-size-heading);
   letter-spacing: -0.02em;
 }
 
@@ -916,10 +849,6 @@
     padding-top: 1.5rem;
   }
 
-  .approval-page .page-brand-row {
-    margin-bottom: 1.75rem;
-  }
-
   .request-identity {
     grid-template-columns: 2.25rem minmax(0, 1fr);
     gap: 0.8rem;
@@ -929,18 +858,6 @@
     width: 2.25rem;
     height: 2.25rem;
     font-size: 0.75rem;
-  }
-
-  .request-identity h1 {
-    font-size: 1.35rem;
-  }
-
-  .collection-choice-list > label {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .collection-choice-list > label .collection-status {
-    grid-column: 2;
   }
 
   .permission-row > label,
@@ -976,4 +893,27 @@
   .desktop-continuation .approval-actions {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.approval-actions .mdbase-button { min-height: 44px; white-space: normal; overflow-wrap: anywhere; }
+.approval-actions .mdbase-button.is-primary { transition-property: border-color; }
+.consent-step { opacity: 1; transition: opacity var(--motion-base) var(--ease-out); }
+@starting-style { .consent-step { opacity: 0; } }
+.grant-moment { display: flex; align-items: center; gap: var(--space-4); margin-block: var(--space-6); }
+.grant-moment h1 { margin: 0; }
+.grant-mark { position: relative; flex: none; width: 40px; height: 40px; color: var(--color-text); }
+.grant-mark > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.grant-stripes { opacity: 0; animation: grant-stripes var(--motion-grant) linear both; }
+.grant-stripes * { animation: none !important; }
+.grant-mark path { stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 24; stroke-dashoffset: 0; animation: grant-check var(--motion-grant) linear both; }
+@keyframes grant-stripes { from { opacity: 1; transform: none; } 70% { opacity: 0; transform: scale(.65); } to { opacity: 0; transform: scale(.65); } }
+@keyframes grant-check { from, 20% { opacity: 0; stroke-dashoffset: 24; } to { opacity: 1; stroke-dashoffset: 0; } }
+:is(.approval-form, .request-shell)[aria-busy="true"] .approval-actions .is-primary::before { content: ""; width: 12px; height: 12px; flex: none; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: approval-spin var(--motion-spin) linear 100ms infinite, approval-busy 100ms step-end both; }
+@keyframes approval-busy { from { opacity: 0; } to { opacity: 1; } }
+@keyframes approval-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .grant-stripes { animation: none; }
+  .grant-mark path { animation: none; }
+  .consent-step { transition: none; }
+  :is(.approval-form, .request-shell)[aria-busy="true"] .approval-actions .is-primary::before { animation: none; }
 }
