@@ -19,8 +19,7 @@ Screenshot comparisons are opt-in: `MDBASE_VISUAL_GOLDENS=1 pnpm test:portal-rev
 No golden images are included. After UI polish, use Playwright's `--update-snapshots`
 to accept the intended baselines explicitly.
 
-`sync-conflict` and `provider-unavailable` use the existing sharing-provider error
-surface; the current portal has no separate replica-conflict UI.
+`provider-unavailable` uses the existing sharing-provider error surface.
 Pending onboarding stays pending; failed onboarding can
 be retried successfully. These fixtures do not claim to implement sync or custody.
 

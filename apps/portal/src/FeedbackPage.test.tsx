@@ -154,8 +154,11 @@ describe("shared feedback", () => {
   });
 
   it("preserves /connect/feedback bookmarks through the same component", async () => {
-    render(<FeedbackProvider endpoint="https://feedback-api.mdbase.dev/v1/feedback" application={application}><FeedbackPage onDone={() => {}} /></FeedbackProvider>);
+    const onDone = vi.fn();
+    render(<FeedbackProvider endpoint="https://feedback-api.mdbase.dev/v1/feedback" application={application}><FeedbackPage onDone={onDone} /></FeedbackProvider>);
     expect(await screen.findByRole("dialog", { name: "Send feedback" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: "Send feedback" })).toHaveLength(1);
+    expect(onDone).toHaveBeenCalledOnce();
     expect(screen.getByRole("textbox", { name: /What happened/ })).toHaveFocus();
   });
 

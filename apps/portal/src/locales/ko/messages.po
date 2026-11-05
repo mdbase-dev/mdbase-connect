@@ -533,6 +533,7 @@ msgid "Actions"
 msgstr "작업"
 
 #. placeholder {0}: collection.name
+#. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Actions for {0}"
 msgstr "{0} 작업"
@@ -775,10 +776,6 @@ msgstr "컬렉션 전체에 접근할 수 있는 앱"
 msgid "Authentication"
 msgstr "인증"
 
-#: src/FeedbackPage.tsx
-msgid "Back to Connect"
-msgstr "Connect로 돌아가기"
-
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Beta"
@@ -831,7 +828,6 @@ msgstr "읽기 전용 앱 확인 및 연결 가능"
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
-#: src/ConnectPrimitives.tsx
 msgid "Cancel"
 msgstr "취소"
 
@@ -1617,10 +1613,6 @@ msgstr "고급 정보"
 #: src/ApplicationAccess.tsx
 msgid "Explore apps"
 msgstr "앱 살펴보기"
-
-#: src/FeedbackPage.tsx
-msgid "Feedback goes privately to the mdbase team."
-msgstr "피드백은 mdbase 팀에 비공개로 전달됩니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2642,11 +2634,6 @@ msgstr "최근 사용"
 msgid "Recovery"
 msgstr "복구"
 
-#. placeholder {0}: new Date(connector.created_at).toLocaleDateString(i18n.locale, { dateStyle: "short" })
-#: src/ConnectApp.tsx
-msgid "Registered {0}"
-msgstr "등록일: {0}"
-
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
@@ -2730,11 +2717,6 @@ msgstr "제거하는 중…"
 msgid "Rename"
 msgstr "이름 바꾸기"
 
-#: src/ConnectPrimitives.tsx
-msgctxt "Connect interface"
-msgid "Rename"
-msgstr "이름 바꾸기"
-
 #. placeholder {0}: collection.name
 #. placeholder {0}: computer.name
 #. placeholder {0}: connector.name
@@ -2744,15 +2726,11 @@ msgid "Rename {0}"
 msgstr "{0} 이름 변경"
 
 #. placeholder {0}: collection.name
+#. placeholder {0}: connector.name
 #. placeholder {1}: name.trim()
 #: src/ConnectApp.tsx
 msgid "Renamed {0} to {1}"
 msgstr "{0}의 이름을 {1}(으)로 변경했습니다"
-
-#. placeholder {0}: connector.name
-#: src/ConnectApp.tsx
-msgid "Renamed {0} to {name}"
-msgstr "{0}의 이름을 {name}(으)로 변경했습니다"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -2868,11 +2846,6 @@ msgstr "내 컴퓨터로 돌아가세요."
 #: src/authorization-view.tsx
 msgid "Returning to {applicationName}…"
 msgstr "{applicationName}(으)로 돌아가는 중…"
-
-#: src/ApplicationAccess.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "검토"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
@@ -2995,7 +2968,6 @@ msgid "Revoking access…"
 msgstr "접근 권한 해지 중…"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoking…"
 msgstr "철회하는 중…"
@@ -3019,21 +2991,11 @@ msgstr "{0}의 역할"
 msgid "Save"
 msgstr "저장"
 
-#: src/ConnectPrimitives.tsx
-msgctxt "Connect interface"
-msgid "Save"
-msgstr "저장"
-
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
 msgstr "축소된 액세스 저장"
 
 #: src/ConnectApp.tsx
-msgid "Saving…"
-msgstr "저장 중…"
-
-#: src/ConnectPrimitives.tsx
-msgctxt "Connect interface"
 msgid "Saving…"
 msgstr "저장 중…"
 
@@ -3087,7 +3049,6 @@ msgid "Selected: <0>{0}</0>"
 msgstr "선택됨: <0>{0}</0>"
 
 #: src/ConnectApp.tsx
-#: src/FeedbackPage.tsx
 msgctxt "Connect interface"
 msgid "Send feedback"
 msgstr "피드백 보내기"

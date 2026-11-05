@@ -82,7 +82,8 @@ test("renames before the server responds, rolls back failures, and offers real U
     await route.fulfill({ json: { ok: true } });
   });
   await page.goto(`${portalOrigin}/computers`);
-  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.getByRole("button", { name: "Actions for Home computer" }).click();
+  await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
   await page.getByRole("textbox", { name: "Rename Home computer" }).fill("Desk computer");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Desk computer", { exact: true })).toBeVisible();
@@ -91,7 +92,8 @@ test("renames before the server responds, rolls back failures, and offers real U
   await expect(page.getByRole("status").filter({ hasText: "previous value was restored" })).toBeVisible();
   await page.getByRole("button", { name: "Dismiss", exact: true }).last().click();
   fail = false;
-  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.getByRole("button", { name: "Actions for Home computer" }).click();
+  await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
   await page.getByRole("textbox", { name: "Rename Home computer" }).fill("Desk computer");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Desk computer", { exact: true })).toBeVisible();
@@ -99,7 +101,7 @@ test("renames before the server responds, rolls back failures, and offers real U
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.getByText("Home computer", { exact: true })).toBeVisible();
   await complete();
-  await expect(page.getByRole("button", { name: "Rename", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Actions for Home computer" })).toBeEnabled();
 });
 
 test("styles footer links and separates account details on desktop and mobile", async ({ page }) => {

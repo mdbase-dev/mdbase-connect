@@ -241,6 +241,7 @@
 
 .connect-row-actions a:where(:not(.mdbase-button)),
 .connect-section-title a:where(:not(.mdbase-button)),
+.connect-computer-row > a,
 .connect-row > a:where(:not(.mdbase-button)) {
   min-height: var(--control-height);
   display: inline-flex;
@@ -426,12 +427,16 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 .connect-collection-open, .connect-collection-menu { position: relative; z-index: 2; }
 .connect-collection-open .mdbase-button { white-space: nowrap; padding-inline: 6px; font-size: var(--font-size-caption); }
 .connect-collection-menu .mdbase-icon-button { width: 32px; height: 32px; }
+.connect-collection-menu { display: flex; align-items: center; justify-content: center; }
+.connect-computer-row { grid-template-columns: 20px minmax(0, 1fr) 112px 32px; }
+.connect-computer-row > a { grid-column: 2; grid-row: 2; justify-self: start; padding: 0 0 8px; }
+.connect-collection-row > .connect-status { white-space: normal; }
+.connect-computer-row > .connect-collection-menu { grid-column: 4; grid-row: 1; }
 .connect-collection-menu svg { width: 20px; height: 20px; }
 .connect-list-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
 .connect-list-filter input { width: 100%; }
 .connect-list-filter input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .connect-list-filter > button[hidden] { display: none; }
-.connect-collection-name .connect-collection-unavailable { display: none; }
 .connect-edit-form { display: grid; gap: 16px; }
 .connect-edit-form label { display: grid; gap: 8px; }
 .connect-edit-form p { margin: 0; }
@@ -488,6 +493,8 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 .connect-grant > summary > span {
   display: grid;
   gap: 3px;
+  min-width: 0;
+  flex: 1;
 }
 
 .connect-application > summary small,
@@ -795,14 +802,15 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 .connect-empty {
   min-height: 120px;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: flex-start;
   gap: 14px;
   color: var(--muted);
   text-align: left;
 }
 
 .connect-empty > svg {
+  flex: none;
   width: 22px;
   height: 22px;
 }
@@ -810,7 +818,11 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 .connect-empty div {
   display: grid;
   gap: var(--space-1);
+  min-width: 0;
+  justify-items: start;
 }
+
+.connect-empty > div > .mdbase-button.is-tertiary { padding-inline: 0; border-inline-width: 0; }
 
 .connect-empty strong {
   color: var(--ink);
@@ -913,22 +925,31 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
   .connect-navigation-sheet nav .connect-nav-group > a { display: flex; align-items: center; min-height: 44px; padding-inline: 12px; color: var(--muted); text-decoration: none; border-radius: var(--radius-sm); }
   .connect-navigation-sheet nav a.selected { color: var(--ink); background: var(--hover); }
   .connect-navigation-sheet .connect-nav-footer { margin-top: 24px; }
-  .connect-main { overflow: visible; padding-block: 24px 48px; }
+  .connect-main { overflow: visible; padding-block: 16px 48px; }
   .connect-page { width: calc(100% - 32px); }
-  .connect-page > header { gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+  .connect-page > header { gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .connect-page:has(.connect-collections-list) > header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .connect-page:has(.connect-collections-list) > header > div { display: contents; }
+  .connect-page:has(.connect-collections-list) > header h1 { grid-column: 1; grid-row: 1; }
+  .connect-page:has(.connect-collections-list) > header > button { grid-column: 2; grid-row: 1; }
+  .connect-page:has(.connect-collections-list) > header > div > span { grid-column: 1 / -1; }
   .connect-page > section { margin-top: 28px; }
   .connect-page > header + section { margin-top: 0; }
-  .connect-pending-banner { width: calc(100% - 32px); margin-bottom: 24px; display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px 10px; padding: 12px; }
-  .connect-pending-banner > b, .connect-pending-banner > .connect-banner-actions { grid-column: 2; min-height: 32px; display: flex; align-items: center; }
-  .connect-collection-row { min-height: 88px; grid-template-columns: 20px minmax(0, 1fr) 104px 44px; grid-template-rows: minmax(40px, auto) 44px; gap: 0 8px; }
-  .connect-location-glyph { grid-column: 1; grid-row: 1; }
-  .connect-collection-name { grid-column: 2 / 4; grid-row: 1; }
+  .connect-pending-banner { width: calc(100% - 32px); margin-bottom: 16px; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 4px 8px; padding: 10px; }
+  .connect-pending-banner > b, .connect-pending-banner > .connect-banner-actions { grid-column: 2 / -1; min-height: 44px; display: flex; align-items: center; }
+  .connect-pending-banner > span { grid-column: 2; }
+  .connect-pending-banner > b { grid-column: 3; grid-row: 1; align-self: center; }
+  .connect-pending-banner > span small { display: none; }
+  .connect-collection-row { min-height: 88px; grid-template-columns: 20px minmax(0, 1fr) 44px; grid-template-rows: auto auto; align-content: center; gap: 2px 8px; padding-block: 10px; }
+  .connect-location-glyph { grid-column: 1; grid-row: 1 / 3; }
+  .connect-collection-name { grid-column: 2; grid-row: 1; }
   .connect-collection-row > .connect-status { grid-column: 2; grid-row: 2; font-size: var(--font-size-caption); }
-  .connect-collection-open { grid-column: 3; grid-row: 2; }
-  .connect-collections-list .connect-collection-open { opacity: 1; grid-column: 2 / -1; }
+  .connect-collection-row > .connect-status { min-height: 20px; }
+  .connect-computer-row > a { grid-row: 3; }
+  .connect-collection-open { grid-column: 2; grid-row: 3; }
+  .connect-collections-list .connect-collection-open { display: none; }
   .connect-collections-list .connect-collection-open .mdbase-button { display: none; }
-  .connect-collection-name .connect-collection-unavailable { display: block; white-space: normal; }
-  .connect-collection-menu { grid-column: 4; grid-row: 1 / 3; }
+  .connect-collection-menu, .connect-computer-row > .connect-collection-menu { grid-column: 3; grid-row: 1 / 3; }
   .connect-collection-menu .mdbase-icon-button { width: 44px; height: 44px; }
   .connect-collection-open .mdbase-button { padding-inline: 0; }
   .connect-row { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding-block: 16px; border-bottom: 1px solid var(--line); }
@@ -942,7 +963,7 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
   .connect-section-title { flex-wrap: wrap; gap: 8px; }
   .connect-section-title > p { flex-basis: 100%; text-align: left; }
   .connect-account-row, .connect-account-row-main { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
-  .connect-shell :is(button, a.mdbase-button, summary), .connect-shell .connect-desktop-help a, .mdbase-dialog :is(button, a) { min-height: 44px; }
+  .connect-shell :is(button, a.mdbase-button, summary), .connect-shell .connect-desktop-help a, .connect-computer-row > a, .mdbase-dialog :is(button, a) { min-height: 44px; }
   .connect-preferences { flex-direction: column; align-items: stretch; }
 }
 
@@ -965,9 +986,6 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
   border-left: 0;
 }
 
-.connect-empty {
-  justify-content: flex-start;
-}
 .connect-shortcuts { display: grid; gap: 12px; }
 .connect-shortcuts > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .connect-shortcuts dd { margin: 0; white-space: nowrap; }

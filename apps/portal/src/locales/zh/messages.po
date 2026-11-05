@@ -533,6 +533,7 @@ msgid "Actions"
 msgstr "操作"
 
 #. placeholder {0}: collection.name
+#. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Actions for {0}"
 msgstr "{0} 的操作"
@@ -775,10 +776,6 @@ msgstr "可访问整个集合的应用"
 msgid "Authentication"
 msgstr "身份验证"
 
-#: src/FeedbackPage.tsx
-msgid "Back to Connect"
-msgstr "返回 Connect"
-
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Beta"
@@ -831,7 +828,6 @@ msgstr "可以查看和连接只读应用"
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
-#: src/ConnectPrimitives.tsx
 msgid "Cancel"
 msgstr "取消"
 
@@ -1617,10 +1613,6 @@ msgstr "高级详情"
 #: src/ApplicationAccess.tsx
 msgid "Explore apps"
 msgstr "探索应用"
-
-#: src/FeedbackPage.tsx
-msgid "Feedback goes privately to the mdbase team."
-msgstr "反馈将私下发送给 mdbase 团队。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2642,11 +2634,6 @@ msgstr "最近使用"
 msgid "Recovery"
 msgstr "恢复"
 
-#. placeholder {0}: new Date(connector.created_at).toLocaleDateString(i18n.locale, { dateStyle: "short" })
-#: src/ConnectApp.tsx
-msgid "Registered {0}"
-msgstr "注册于 {0}"
-
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
@@ -2730,11 +2717,6 @@ msgstr "正在移除…"
 msgid "Rename"
 msgstr "重命名"
 
-#: src/ConnectPrimitives.tsx
-msgctxt "Connect interface"
-msgid "Rename"
-msgstr "重命名"
-
 #. placeholder {0}: collection.name
 #. placeholder {0}: computer.name
 #. placeholder {0}: connector.name
@@ -2744,15 +2726,11 @@ msgid "Rename {0}"
 msgstr "重命名 {0}"
 
 #. placeholder {0}: collection.name
+#. placeholder {0}: connector.name
 #. placeholder {1}: name.trim()
 #: src/ConnectApp.tsx
 msgid "Renamed {0} to {1}"
 msgstr "已将 {0} 重命名为 {1}"
-
-#. placeholder {0}: connector.name
-#: src/ConnectApp.tsx
-msgid "Renamed {0} to {name}"
-msgstr "已将 {0} 重命名为 {name}"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -2868,11 +2846,6 @@ msgstr "返回你的电脑。"
 #: src/authorization-view.tsx
 msgid "Returning to {applicationName}…"
 msgstr "正在返回 {applicationName}…"
-
-#: src/ApplicationAccess.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "审查"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
@@ -2995,7 +2968,6 @@ msgid "Revoking access…"
 msgstr "正在撤销访问权限…"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoking…"
 msgstr "正在撤销…"
@@ -3019,21 +2991,11 @@ msgstr "{0} 的角色"
 msgid "Save"
 msgstr "保存"
 
-#: src/ConnectPrimitives.tsx
-msgctxt "Connect interface"
-msgid "Save"
-msgstr "保存"
-
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
 msgstr "保存收窄后的访问权限"
 
 #: src/ConnectApp.tsx
-msgid "Saving…"
-msgstr "正在保存…"
-
-#: src/ConnectPrimitives.tsx
-msgctxt "Connect interface"
 msgid "Saving…"
 msgstr "正在保存…"
 
@@ -3087,7 +3049,6 @@ msgid "Selected: <0>{0}</0>"
 msgstr "已选择：<0>{0}</0>"
 
 #: src/ConnectApp.tsx
-#: src/FeedbackPage.tsx
 msgctxt "Connect interface"
 msgid "Send feedback"
 msgstr "发送反馈"

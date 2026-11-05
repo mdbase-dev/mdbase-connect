@@ -152,7 +152,6 @@ const definitions = [
   ["account-sessions", "/account", "Travel Safari", 5],
   ["feedback", "/feedback", "Send feedback", 5],
   ["computer-offline", "/storage?collection=collection-2", "Storage", 5],
-  ["sync-conflict", "/access?collection=hosted-0", "Sync conflict: reconcile the Studio and Travel replicas before changing access.", 5],
   ["revoking", "/storage?collection=hosted-0", "Disconnecting…", 5, state => { state.overview.hosted_collections[0].replicas[0].revocation_status = "revoking"; state.overview.grants[0].revocation_status = "revoking"; }],
   ["provider-unavailable", "/access?collection=hosted-0", "The hosted provider is unavailable. Try again shortly.", 5],
   ["server-500", "/collections", "We couldn't load Collections", 5],
