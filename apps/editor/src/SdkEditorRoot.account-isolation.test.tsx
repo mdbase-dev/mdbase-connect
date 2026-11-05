@@ -49,7 +49,7 @@ async function setup() {
   const paired = h.mdbase.getSnapshot();
   if (!paired.signIn) throw new Error("Missing paired fixture account");
   const publish = (account: string, nativeGrants: readonly Completion[]) => {
-    h.controls.publishSnapshot({ ...paired,
+    h.controls.publishSnapshot({ ...paired, links: { account: "https://connect.mdbase.dev/account", manageAccess: "https://connect.mdbase.dev/account/applications" },
       signIn: { ...paired.signIn!, accountId: account, nativeGrants },
       collections: account === ACCOUNT_A ? paired.collections : [
         { collectionId: PRIVATE_B, displayName: NAME_B, role: "owner",

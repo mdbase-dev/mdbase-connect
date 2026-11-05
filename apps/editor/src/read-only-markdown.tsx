@@ -22,7 +22,7 @@ const marks = new Set(["HeaderMark", "QuoteMark", "ListMark", "EmphasisMark", "C
  * Only allowlisted structural nodes become DOM; everything else is escaped text.
  * Links/images/wiki references/tasks deliberately retain their inert source form.
  */
-function renderExcerpt(source: string): { content: ReactNode; truncated: boolean } {
+function renderExcerpt(source: string, previewTitle?: string): { content: ReactNode; truncated: boolean } {
   // Do not split a UTF16 surrogate pair at the excerpt boundary.
   let end = Math.min(source.length, MAX_EXCERPT_CHARACTERS);
   if (end < source.length && /[\uD800-\uDBFF]/.test(source[end - 1])) end -= 1;
@@ -39,6 +39,10 @@ function renderExcerpt(source: string): { content: ReactNode; truncated: boolean
     }
     const { name, from, to } = cursor;
     if (marks.has(name)) return null;
+    if (previewTitle && from === tree.topNode.firstChild?.from && (name === "ATXHeading1" || name === "SetextHeading1")) {
+      const heading = excerpt.slice(from, to).replace(/^ {0,3}#\s+/, "").replace(/\s+#+\s*$|\r?\n {0,3}=+\s*$/, "").trim();
+      if (heading === previewTitle) return null;
+    }
     if (name === "HorizontalRule") return <hr key={from} />;
     if (name === "HardBreak") return <br key={from} />;
     if (name === "FencedCode" || name === "CodeBlock") {
@@ -66,11 +70,11 @@ function renderExcerpt(source: string): { content: ReactNode; truncated: boolean
   return { content: node(0), truncated };
 }
 
-export function ReadOnlyMarkdown({ source, byteLength }: { source: string; byteLength: number }) {
+export function ReadOnlyMarkdown({ source, byteLength, previewTitle }: { source: string; byteLength: number; previewTitle?: string }) {
   useLingui();
-  const { content, truncated } = useMemo(() => renderExcerpt(source), [source, i18n.locale]);
+  const { content, truncated } = useMemo(() => renderExcerpt(source, previewTitle), [source, previewTitle, i18n.locale]);
   return <section className="read-only-markdown" role="region" aria-label={t`Read-only Markdown preview`} tabIndex={0}>
-    <p className="read-only-markdown-notice"><Trans>Read-only Markdown preview</Trans></p>
+    {!previewTitle && <p className="read-only-markdown-notice"><Trans>Read-only Markdown preview</Trans></p>}
     {byteLength > 1_048_576 && <p className="read-only-markdown-notice"><Trans>Notes larger than 1 MiB are read-only at launch.</Trans></p>}
     {truncated && <p className="read-only-markdown-notice"><Trans>Preview truncated for display. The whole verified original is available using Open original.</Trans></p>}
     <div className="read-only-markdown-body">{content}</div>

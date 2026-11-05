@@ -18,6 +18,9 @@
   --inspector-display: var(--inspector-track);
 }
 
+.editor-opening .note-list-pane { padding: var(--space-4); }
+.editor-opening p { color: var(--muted); font-size: var(--font-size-ui); }
+
 .app-shell.resizing-pane {
   transition: none;
 }

@@ -1,7 +1,7 @@
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
-import { OpeningScreen as SharedOpeningScreen } from "@mdbase-dev/ui/screens";
+import { Wordmark } from "@mdbase-dev/ui/brand";
 
 export function TypeWorkspaceLoading() {
   useLingui();
@@ -16,5 +16,9 @@ export function TypeWorkspaceLoading() {
 }
 export function OpeningScreen() {
   useLingui();
-  return <SharedOpeningScreen app="editor" title={t`Opening collection`} detail={t`Reading its notes and types`} entrance="flock" />;
+  return <div className="app-shell editor-opening" role="main" aria-label={t`Opening collection`} aria-busy="true" data-loading-state="opening">
+    <aside className="collection-rail"><Wordmark app="editor" /><p><Trans>Opening collection</Trans></p></aside>
+    <section className="note-list-pane"><p role="status"><Trans>Reading its notes and types</Trans></p></section>
+    <div className="editor-pane" />
+  </div>;
 }

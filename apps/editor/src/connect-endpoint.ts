@@ -12,7 +12,21 @@ export function connectServerUrl(
   search = location.search,
   configuredServerUrl = configuredConnectServerUrl
 ): string {
-  return new URLSearchParams(search).get("server") ?? configuredServerUrl;
+  const values = new URLSearchParams(search).getAll("server");
+  if (values.length > 1) throw new TypeError("Ambiguous Connect server origin");
+  const url = new URL(values[0] ?? configuredServerUrl);
+  if (url.username || url.password || url.pathname !== "/" || url.search || url.hash
+    || (url.protocol !== "https:" && url.protocol !== "http:")) throw new TypeError("Invalid Connect server origin");
+  return url.origin;
+}
+
+export function editorPortalUrl(search = location.search): string | null {
+  try {
+    return connectServerUrl(search);
+  } catch (error) {
+    if (error instanceof TypeError) return null;
+    throw error;
+  }
 }
 
 export function applyConnectServerOverride(

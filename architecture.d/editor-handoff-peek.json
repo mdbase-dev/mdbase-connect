@@ -1,0 +1,7 @@
+{
+  "reason": "The existing connection-screens module owns one recovery page shared by native entry and SDK build validation; the existing Connect endpoint module owns the single server-origin validator and its nonthrowing entry view. They replace raw URL parsing and generic SDK build-failure UI without adding a production file, package, protocol or persisted state. Anchored peek reuses the active note session instead of a separately fetched document snapshot, and the timed launch gate is deleted.",
+  "growth": {
+    "relativeImports": 7,
+    "typeScriptExportDeclarations": 2
+  }
+}
