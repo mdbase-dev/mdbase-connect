@@ -13,6 +13,21 @@ export async function pagesApi(path,{accountId,apiToken,fetchImpl=fetch},method=
  const body=await response.json();need(body.success,'Pages API refused request');return body.result;
 }
 const shellPaths=['/','/.well-known/mdbase-app.json','/mdbase-shell-sw.js','/mdbase-shell-runtime.js','/mdbase-shell-register.js'];
+// Built chunks name their WASM, fonts and workers in code, not in the index.
+const references=/(?:\.{0,2}\/)?(?:[\w@~-]+\/)*[\w@~.-]+\.(?:m?js|css|json|webmanifest|wasm|woff2?|ttf|png|svg|ico)(?![\w.-])/g;
+const hasReferences=path=>path==='/'||/\.(?:m?js|css|json|webmanifest)$/.test(path);
+const snapshotPathLimit=1024;
+export function referencedPaths(text,path) {
+ const paths=new Set();
+ for(const [reference] of text.matchAll(references)) {
+  // Vite emits both file-relative and base-relative asset names.
+  for(const base of [alias+path,alias+'/']) {
+   const url=new URL(reference,base);
+   if(url.origin===alias && /^\/[\w./@~-]*$/.test(url.pathname))paths.add(url.pathname);
+  }
+ }
+ return paths;
+}
 export function indexAssets(html) {
  const paths=new Set();
  for(const tag of html.matchAll(/<(?:script|link|img|source)\b[^>]*>/gi)) {
@@ -28,8 +43,13 @@ export function indexAssets(html) {
  need(paths.size>0 && paths.size<=256,'index resource inventory required');
  return [...paths].sort();
 }
-async function fingerprint(origin,path,fetchImpl,deadline=performance.now()+180000,retainBody=false) {
+async function fingerprint(origin,path,fetchImpl,deadline=performance.now()+180000,retainBody=false,discovered=false) {
  const response=await fetchImpl(origin+path,{redirect:'manual',cache:'no-store',credentials:'omit',headers:{'Accept-Encoding':'identity'},signal:AbortSignal.timeout(Math.max(1,Math.min(15000,Math.floor(deadline-performance.now()))))});
+ // A guessed reference may miss, and the Pages SPA fallback answers it with HTML.
+ if(discovered && (response.status!==200 || response.headers.get('content-type')?.includes('text/html'))) {
+  await response.body?.cancel().catch(()=>{});
+  return null;
+ }
  need(response.status===200,'previous deployment bytes unavailable');
  const reader=response.body.getReader(),digest=createHash('sha256'),chunks=[];let bytes=0;
  try {
@@ -48,11 +68,17 @@ export async function capturePrevious(options) {
  need(project.name==='mdbase-editor' && project.production_branch==='main' && previous?.environment==='production' && uuid.test(previous.id??'') && /^https:\/\/[a-f0-9]{8,32}\.mdbase-editor\.pages\.dev$/.test(previous.url??''),'previous production deployment identity required');
  const fetchImpl=options.fetchImpl??fetch,deadline=performance.now()+180000;
  const index=await fingerprint(alias,'/',fetchImpl,deadline,true);
- const paths=[...new Set([...shellPaths,...indexAssets(index.body)])];
- const probes=[];
- for(const path of paths) {
-  const probe=path==='/'?index.probe:await fingerprint(alias,path,fetchImpl,deadline);
-  probes.push(probe);
+ const required=new Set([...shellPaths,...indexAssets(index.body)]),queue=[...required],seen=new Set(queue),probes=[];
+ const follow=(text,path)=>{for(const next of referencedPaths(text,path))if(!seen.has(next)){seen.add(next);queue.push(next);}};
+ follow(index.body,'/');
+ while(queue.length) {
+  need(seen.size<=snapshotPathLimit,'previous deployment inventory bound');
+  const path=queue.shift();
+  if(path==='/'){probes.push(index.probe);continue;}
+  const result=await fingerprint(alias,path,fetchImpl,deadline,true,!required.has(path));
+  if(!result)continue;
+  probes.push(result.probe);
+  if(hasReferences(path))follow(result.body,path);
  }
  need(isDeepStrictEqual(index.probe,await fingerprint(alias,'/',fetchImpl,deadline)),'alias changed during snapshot');
  need((await pagesApi('',options)).canonical_deployment?.id===previous.id,'canonical deployment changed during snapshot');
@@ -65,7 +91,9 @@ export async function rollback(previous,options,{sleep=ms=>new Promise(resolve=>
   'captured full previous deployment required');
  const report={attempted:true,previousId:previous.id,ok:false,attempts:0};
  try {
-  await pagesApi(`/deployments/${previous.id}/rollback`,options,'POST');
+  // A publication that stopped before Pages accepted it has nothing to undo.
+  report.restored=(await pagesApi('',options)).canonical_deployment?.id!==previous.id;
+  if(report.restored)await pagesApi(`/deployments/${previous.id}/rollback`,options,'POST');
   const deadline=now()+settleMs;
   for(;;) {
    report.attempts++;
@@ -83,28 +111,17 @@ export async function rollback(previous,options,{sleep=ms=>new Promise(resolve=>
  }catch{/* Retain public failure state, never API payloads or transport errors. */}
  return report;
 }
-export async function recoverOnFailure({plan,verification,previous,options,recover=rollback}) {
- if(plan.target!=='production' || verification.ok===true)return {attempted:false};
- const aliasReport=verification.origins?.find(r=>r.origin===plan.origin);
- if(aliasReport?.ok===true)return {attempted:false};
- return recover(previous,options);
-}
 if(process.argv[1]===fileURLToPath(import.meta.url)) {
  const [command,directory]=process.argv.slice(2),json=async name=>JSON.parse(await readFile(`${directory}/${name}.json`,'utf8'));
  const options={accountId:process.env.CLOUDFLARE_ACCOUNT_ID,apiToken:process.env.CLOUDFLARE_API_TOKEN};
  try {
   if(command==='snapshot') {
    if(process.env.TARGET==='production')await writeFile(`${directory}/previous.json`,JSON.stringify(await capturePrevious(options),null,2));
-  } else if(command==='recover') {
-   let verification;try{verification=await json('verification');}catch{verification={ok:false};}
-   const report=await recoverOnFailure({plan:await json('plan'),verification,previous:await json('previous'),options});
-   await writeFile(`${directory}/rollback.json`,JSON.stringify(report,null,2));
-   if(report.attempted && !report.ok){console.error('Production rollback did not succeed: full alias snapshot verification failed');process.exitCode=1;}
-  }else if(command==='recover-smoke') {
+  }else if(command==='recover') {
    const report=await rollback(await json('previous'),options);
    await writeFile(`${directory}/rollback.json`,JSON.stringify(report,null,2));
-   // Smoke never passed: restoring availability cannot turn this run green.
-   console.error(report.ok?'Production smoke failed or incomplete; previous deployment restored and fully verified':'Production smoke failed or incomplete; rollback did not succeed');
+   // Publication never finished: restoring availability cannot turn this run green.
+   console.error(report.ok?'Production publication failed or incomplete; previous deployment active and fully verified':'Production publication failed or incomplete; rollback did not succeed');
    process.exitCode=1;
   }else throw Error('Unknown recovery command');
  }catch{console.error('Editor recovery operation failed');process.exitCode=1;}

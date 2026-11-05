@@ -43,11 +43,11 @@ it('refuses any direct protocol bytes that differ from the SDK authenticated bun
 });
 it('protected jobs only execute workflow-owned helpers, with ancestry checks before candidate data and upload',async()=>{
  const {jobs}=parse(await readFile(root+'.github/workflows/editor-pages.yml','utf8'));
- for(const name of ['native-inputs','native-deploy','production-smoke-recovery']) {
+ for(const name of ['native-inputs','native-deploy','production-recovery']) {
   const job=jobs[name],checkout=job.steps.filter(s=>s.uses?.startsWith('actions/checkout@'));
   assert.equal(checkout[0].with.ref,'${{ github.sha }}');
   const ancestry=job.steps.findIndex(s=>s.run?.includes('refs.mjs'));
-  if(name!=='production-smoke-recovery')assert.ok(ancestry>0);
+  if(name!=='production-recovery')assert.ok(ancestry>0);
   for(const step of job.steps) {
    assert.notEqual(step['working-directory'],'candidate');
    assert.doesNotMatch(step.run??'',/(?:node|bash|source|import|cd)\s+[^\n]*candidate/);
@@ -61,21 +61,24 @@ it('protected jobs only execute workflow-owned helpers, with ancestry checks bef
  assert.equal(upload['timeout-minutes'],7);
  assert.ok(deploy.steps.every(step=>step['timeout-minutes']>0),'all protected preparation and publication steps have independent bounds');
  assert.ok(deploy.steps.reduce((sum,step)=>sum+step['timeout-minutes'],0)<deploy['timeout-minutes'],'job deadline must outlive every step bound, including recovery and receipts');
- for(const step of deploy.steps.filter(s=>['deployment','verification'].includes(s.id) || s.run?.includes('rollback.mjs recover'))) {
+ for(const step of deploy.steps.filter(s=>s.id==='deployment')) {
   assert.match(step.if,/always\(\)/);
-  if(step.id==='deployment' || step.run?.includes('rollback.mjs recover')) {
-   assert.match(step.if,/upload.outcome == 'failure'/);assert.match(step.if,/upload.outcome == 'cancelled'/);
-  }
+  assert.match(step.if,/upload.outcome == 'failure'/);assert.match(step.if,/upload.outcome == 'cancelled'/);
  }
+ assert.doesNotMatch(JSON.stringify(deploy),/rollback\.mjs recover/);
+ const point=deploy.steps.findIndex(s=>s.with?.name?.startsWith('editor-production-recovery-point-'));
+ assert.ok(point>=0 && point<deploy.steps.indexOf(upload),'recovery point is stored before upload');
  const smokeJob=jobs['production-smoke'];
  assert.equal(smokeJob.environment,undefined);
  assert.doesNotMatch(JSON.stringify(smokeJob),/secrets\./);
  assert.ok(smokeJob.steps.filter(s=>s.uses?.startsWith('actions/checkout@')).every(s=>s.with.ref==='${{ github.sha }}'));
  assert.equal(smokeJob.needs,'native-deploy');
- const recovery=jobs['production-smoke-recovery'];
- assert.match(recovery.if,/always\(\).*production-smoke.result != 'success'/);
- assert.match(recovery.steps.find(s=>s.run?.includes('recover-smoke')).run,/rollback.mjs recover-smoke/);
- assert.ok(recovery.steps.some(s=>s.with?.['artifact-ids']==='${{ needs.native-deploy.outputs.receipt-id }}'));
+ const recovery=jobs['production-recovery'];
+ assert.match(recovery.if,/^always\(\)/);
+ assert.match(recovery.if,/native-deploy.result != 'skipped'/);
+ assert.match(recovery.if,/production-smoke.result != 'success'/);
+ assert.doesNotMatch(recovery.if,/native-deploy.result == 'success'/);
+ assert.equal(recovery.steps.find(s=>s.run?.includes('rollback.mjs')).run.match(/rollback\.mjs (\w+)/)[1],'recover');
 });
 function browserDouble({pageError=false,fence=false,csp=false,entrySource=source,missingSignIn=false}={}) {
  const listeners={},events=[];

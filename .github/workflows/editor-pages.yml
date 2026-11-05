@@ -226,8 +226,6 @@ jobs:
     defaults:
       run:
         working-directory: publisher
-    outputs:
-      receipt-id: ${{ steps.receipt.outputs.artifact-id }}
     concurrency:
       group: editor-native-upload-${{ inputs.target }}
       cancel-in-progress: false
@@ -299,6 +297,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node apps/editor/scripts/native/rollback.mjs snapshot "$RUNNER_TEMP/editor-receipt"
+      # Stored before upload, so recovery survives a lost job or receipt.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: inputs.target == 'production'
+        timeout-minutes: 2
+        with:
+          name: editor-production-recovery-point-${{ github.run_id }}
+          path: ${{ runner.temp }}/editor-receipt/previous.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Recheck immutable inventory and upload once
         id: upload
         timeout-minutes: 7
@@ -326,13 +333,6 @@ jobs:
         timeout-minutes: 9
         if: always() && steps.deployment.outcome == 'success'
         run: node apps/editor/scripts/native/hosting.mjs "$RUNNER_TEMP/editor-receipt/plan.json" "$RUNNER_TEMP/editor-receipt/inventory.json" "$RUNNER_TEMP/editor-receipt/deployment.json" > "$RUNNER_TEMP/editor-receipt/verification.json"
-      - name: Restore and verify previous production alias after alias failure
-        timeout-minutes: 7
-        if: always() && inputs.target == 'production' && (steps.upload.outcome == 'success' || steps.upload.outcome == 'failure' || steps.upload.outcome == 'cancelled') && steps.verification.outcome != 'success'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: node apps/editor/scripts/native/rollback.mjs recover "$RUNNER_TEMP/editor-receipt"
       - name: Preserve honest failure or complete static-publication receipt
         timeout-minutes: 1
         if: always()
@@ -340,7 +340,6 @@ jobs:
           if [ -f "$RUNNER_TEMP/editor-upload/artifact-metadata.json" ]; then cp "$RUNNER_TEMP/editor-upload/artifact-metadata.json" "$RUNNER_TEMP/editor-receipt/"; fi
           node apps/editor/scripts/native/publisher.mjs receipt "$RUNNER_TEMP/editor-receipt" > "$RUNNER_TEMP/editor-receipt/receipt.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        id: receipt
         timeout-minutes: 2
         if: always()
         with:
@@ -386,10 +385,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-  production-smoke-recovery:
-    name: Restore production after failed or incomplete smoke
+  production-recovery:
+    name: Restore production after incomplete publication or smoke
     needs: [native-deploy, production-smoke]
-    if: always() && inputs.target == 'production' && needs.native-deploy.result == 'success' && needs.production-smoke.result != 'success'
+    # A job-level always() still runs after cancellation or a job timeout.
+    if: always() && inputs.target == 'production' && needs.native-deploy.result != 'skipped' && needs.production-smoke.result != 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: editor-production
@@ -404,23 +404,40 @@ jobs:
         with:
           node-version: 24
         timeout-minutes: 2
+      - name: Find the recovery point stored before upload
+        id: point
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_RESULT: ${{ needs.native-deploy.result }}
+        run: |
+          set -euo pipefail
+          # The earliest point in a run predates every upload attempt in it.
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=editor-production-recovery-point-$GITHUB_RUN_ID&per_page=100" --jq '[.artifacts[]|select(.expired|not)]|sort_by(.created_at)|first|.id // empty')
+          if [ -z "$id" ] && [ "$DEPLOY_RESULT" = success ]; then
+            echo 'A completed publication has no recovery point' >&2
+            exit 1
+          fi
+          echo "artifact-id=$id" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: steps.point.outputs.artifact-id != ''
         timeout-minutes: 2
         with:
-          artifact-ids: ${{ needs.native-deploy.outputs.receipt-id }}
-          path: ${{ runner.temp }}/editor-receipt
+          artifact-ids: ${{ steps.point.outputs.artifact-id }}
+          path: ${{ runner.temp }}/editor-recovery
           merge-multiple: true
-      - name: Restore snapshot and verify every previous alias asset; keep run failed
+      - name: Restore snapshot and verify every previous asset; keep run failed
+        if: steps.point.outputs.artifact-id != ''
         timeout-minutes: 7
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: node apps/editor/scripts/native/rollback.mjs recover-smoke "$RUNNER_TEMP/editor-receipt"
+        run: node apps/editor/scripts/native/rollback.mjs recover "$RUNNER_TEMP/editor-recovery"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 2
-        if: always()
+        if: always() && steps.point.outputs.artifact-id != ''
         with:
-          name: editor-production-smoke-recovery-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/editor-receipt/
+          name: editor-production-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/editor-recovery/
           if-no-files-found: warn
           retention-days: 90

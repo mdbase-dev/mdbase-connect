@@ -79,11 +79,13 @@ approvals. UI repins change only the manifest and regenerated lock.
    and source SHA are separate: dispatch can target an older main ancestor.
 5. The existing `mdbase-editor` Pages project and `main` production channel are
    checked, never provisioned. Production snapshots the previous alias index,
-   manifest, service worker, shell runtime/registration scripts and every index
-   resource (scripts, stylesheets, preload assets and icons), with SHA256, length
-   and policy headers. The canonical deployment identity and alias index must
-   remain stable during capture. The injected, CSP-blocked Insights beacon is
-   not an Editor build asset. Missing recovery evidence blocks upload.
+   manifest, service worker, shell runtime/registration scripts, every index
+   resource and every asset those files reference transitively (chunks, workers,
+   WASM, fonts and icons), with SHA256, length and policy headers. The canonical
+   deployment identity and alias index must remain stable during capture. The
+   injected, CSP-blocked Insights beacon is not an Editor build asset. The
+   snapshot is stored as its own artifact before upload, and missing recovery
+   evidence blocks upload.
 6. Workflow-owned ancestry and inventory are rechecked immediately before
    upload. Upload is bounded to seven minutes inside a 60-minute job; separate
    step bounds reserve verification, recovery and receipt time. A timed-out
@@ -95,14 +97,9 @@ approvals. UI repins change only the manifest and regenerated lock.
    within three minutes, then on the custom alias. After immutable success, the
    alias gets complete verification attempts every 15 seconds in a five-minute
    settle window. Failed attempts never count as success.
-8. If the production alias fails verification, restore the captured deployment
-   via `POST /accounts/<account>/pages/projects/mdbase-editor/deployments/<id>/rollback`.
-   Verify the project reports that previous UUID and the alias serves its saved
-   complete snapshot bytes and headers, allowing five minutes to settle. A
-   mismatch in even one script, stylesheet or icon means rollback did not succeed. An unknown
-   verification result also triggers recovery. The job still fails after a
-   successful rollback; recovery failure is retained, not hidden. Staging does
-   not roll back. No automatic rebuild or redispatch is performed.
+8. Upload and verification run in one job. Any failure there, including a
+   timeout, a lost receipt or a cancelled run, goes to the recovery job in step 10.
+   Staging does not roll back. No automatic rebuild or redispatch is performed.
 9. After a successful production upload job, a separate job with no environment
    or deployment credentials installs only an isolated, locked Playwright with
    lifecycle scripts disabled. A fresh Chromium context disables HTTP cache and
@@ -111,15 +108,21 @@ approvals. UI repins change only the manifest and regenerated lock.
    page error or `readiness_fenced` fails smoke. The known Insights beacon CSP
    console refusal is ignored. Only public served code executes in this browser;
    no candidate repository scripts run in the smoke job.
-10. If smoke fails, times out, is cancelled or is otherwise incomplete after a
-    successful upload job, a following protected job downloads that job's exact
-    receipt artifact ID, restores its previous deployment and requires the same
-    full snapshot verification. It fails even if recovery succeeds. Production
-    is successful only when both publication and smoke pass.
+10. If the upload job did not succeed, or smoke did not pass, a separate
+    protected job finds the recovery point stored before upload. It runs after
+    cancellation too. Without a recovery point the job stopped before upload, so
+    there is nothing to restore. Otherwise, unless Pages already reports the
+    previous UUID, it restores that deployment via
+    `POST /accounts/<account>/pages/projects/mdbase-editor/deployments/<id>/rollback`.
+    It then requires the previous UUID and every saved asset's bytes and headers,
+    allowing five minutes to settle. A mismatch in one asset means rollback did
+    not succeed. The run stays failed even after a verified restore; a failed
+    recovery is retained, not hidden. Production is successful only when both
+    publication and smoke pass.
 
 Receipts retain the plan, authenticated intake, immutable artifact binding,
 complete inventory, project/deployment identity, verification attempts, previous
-production evidence and rollback result for 90 days. They contain public
+production evidence for 90 days; the recovery job retains the rollback result beside them. They contain public
 publication evidence, not raw Wrangler/API logs, secrets, customer identifiers,
 account activity or an application health/admission claim.
 

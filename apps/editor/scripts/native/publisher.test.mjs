@@ -12,7 +12,7 @@ import { assertDispatch, assertCheckout, assertAncestor, deploymentFor } from '.
 import { loadOriginals, productionPin, compareInstalled, protectedHashes } from './originals.mjs';
 import { authenticateProduction, stagingArchive } from './authentication.mjs';
 import { prepareInstall } from './install-inputs.mjs';
-import { capturePrevious, rollback, recoverOnFailure } from './rollback.mjs';
+import { capturePrevious, rollback } from './rollback.mjs';
 import { assertArtifactMetadata, assertArtifactRun, assertArtifactDirectory } from './artifact.mjs';
 import { inventoryDirectory } from './native-publish-bytes.mjs';
 import { headersPolicy, redirectsPolicy, assertHostingSource, verifyHosting, verifyPublication } from './hosting.mjs';
@@ -137,28 +137,31 @@ it('derives the staging frozen install without changing any other dependency',as
   assert.deepEqual(pkg,originalPackage);
  }finally{await rm(f.root,{recursive:true,force:true});}
 });
-it('rolls production back after alias failure, verifies the previous id and alias bytes, and keeps failure evidence',async()=>{
- const previousId='87654321-1234-4234-8234-123456789abc',previousUrl='https://87654321.mdbase-editor.pages.dev';
- let restored=false;const calls=[];
+it('rolls production back, verifies the previous id and every transitive asset, and keeps failure evidence',async()=>{
+ const previousId='87654321-1234-4234-8234-123456789abc',previousUrl='https://87654321.mdbase-editor.pages.dev',failedId='12345678-1234-4234-8234-123456789abc';
+ let active=previousId;const calls=[];
+ const bodies={'/':'<script type="module" src="/assets/entry.js"></script><link href="/style.css" rel="stylesheet">','/assets/entry.js':'import("./chunk.js");fetch("assets/engine.wasm");fetch("./gone.wasm")','/assets/chunk.js':'new URL("worker.js",import.meta.url)','/assets/engine.wasm':'previous wasm','/assets/worker.js':'previous worker','/style.css':'previous style'};
  const options={accountId:'a'.repeat(32),apiToken:'test-double',fetchImpl:async(url,init)=>{
   calls.push({url,method:init.method});
-  if(url.includes('/rollback')){restored=true;return Response.json({success:true,result:{id:previousId}});}
-  if(url.includes('api.cloudflare.com'))return Response.json({success:true,result:{name:'mdbase-editor',production_branch:'main',canonical_deployment:{id:previousId,url:previousUrl,environment:'production'}}});
-  return new Response(new URL(url).pathname==='/'?'<script type="module" src="/assets/entry.js"></script><link href="/style.css" rel="stylesheet">':url.endsWith('.json')?'manifest':'previous asset');
+  if(url.includes('/rollback')){active=previousId;return Response.json({success:true,result:{id:previousId}});}
+  if(url.includes('api.cloudflare.com'))return Response.json({success:true,result:{name:'mdbase-editor',production_branch:'main',canonical_deployment:{id:active,url:previousUrl,environment:'production'}}});
+  const path=new URL(url).pathname;
+  if(path.endsWith('.json'))return new Response('manifest');
+  if(path.endsWith('.wasm') && !bodies[path])return new Response('<html>spa</html>',{headers:{'content-type':'text/html'}});
+  return new Response(bodies[path]??'previous asset');
  }};
  const previous=await capturePrevious(options);
- assert.ok(previous.probes.some(p=>p.path==='/assets/entry.js'));
- assert.ok(previous.probes.some(p=>p.path==='/style.css'));
- assert.ok(calls.some(c=>c.url==='https://editor.mdbase.dev/assets/entry.js'));
+ for(const path of ['/assets/entry.js','/assets/chunk.js','/assets/worker.js','/assets/engine.wasm','/style.css'])assert.ok(previous.probes.some(p=>p.path===path),path);
+ assert.ok(!previous.probes.some(p=>p.path==='/assets/gone.wasm'),'SPA fallback is not a build asset');
  const plan={target:'production',origin:'https://editor.mdbase.dev'};
- const report=await recoverOnFailure({plan,verification:{ok:false,origins:[{origin:plan.origin,ok:false}]},previous,options});
- assert.equal(restored,true);assert.equal(report.ok,true);assert.equal(report.previousId,previousId);
+ active=failedId;
+ const report=await rollback(previous,options);
+ assert.equal(report.ok,true);assert.equal(report.restored,true);assert.equal(report.previousId,previousId);
  assert.equal(calls.filter(c=>c.method==='POST').length,1);
- assert.ok(calls.some(c=>c.url===plan.origin+'/'));
  assert.equal(createReceipt({plan,verification:{ok:false},previous,rollback:report}).rollback.ok,true);
- const no=await recoverOnFailure({plan:{...plan,target:'staging'},verification:{ok:false},recover:()=>{throw Error('must not recover staging');}});
- assert.equal(no.attempted,false);
- assert.equal((await recoverOnFailure({plan,verification:{ok:true}})).attempted,false);
+ const untouched=await rollback(previous,options);
+ assert.equal(untouched.ok,true);assert.equal(untouched.restored,false);
+ assert.equal(calls.filter(c=>c.method==='POST').length,1,'nothing to undo when the previous deployment is active');
  for(const probe of previous.probes) {
   const broken=await rollback(previous,{...options,fetchImpl:async(url,init)=>url===plan.origin+probe.path?new Response('wrong bytes'):options.fetchImpl(url,init)},{settleMs:100});
   assert.equal(broken.ok,false,'rollback must match '+probe.path);
@@ -259,7 +262,7 @@ it('runs main pushes as checks only and isolates build from protected upload dep
  assert.doesNotMatch(commands,/CURRENT|release\/native-/);assert.match(commands,/--commit-hash/);assert.match(commands,/--no-bundle/);
  assert.match(workflow.jobs.test.if,/github.event_name != 'workflow_dispatch'/);
  assert.equal(workflow.on.workflow_dispatch.inputs.source_sha.required,true);
- assert.ok(commands.includes('rollback.mjs recover'));
+ assert.ok(!commands.includes('rollback.mjs recover'));
  assert.doesNotMatch(JSON.stringify(workflow),/NATIVE_(SDK|PROTOCOL|TRUST|UI)_SHA256/);
 });
 it('re-verifies only the custom alias inside a bounded settle window after the immutable deployment passes',async()=>{
