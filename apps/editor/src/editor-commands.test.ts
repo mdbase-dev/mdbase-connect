@@ -26,6 +26,16 @@ describe("editor command registry", () => {
     expect(matchesCommandShortcut("command-palette", { ...event, altKey: true })).toBe(false);
     expect(matchesCommandShortcut("focus", { ...event, key: "F" })).toBe(true);
   });
+  it("keeps shared K semantics, sequence prefixes and list keys in the registry", () => {
+    const event = { key: "k", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false };
+    expect(matchesCommandShortcut("command-palette", event)).toBe(true);
+    expect(matchesCommandShortcut("command-palette", { ...event, shiftKey: true })).toBe(false);
+    expect(matchesCommandShortcut("types", { ...event, ctrlKey: false, key: "t" })).toBe(false);
+    expect(matchesCommandShortcut("types", { ...event, ctrlKey: false, key: "t" }, "g")).toBe(true);
+    expect(matchesCommandShortcut("new-note", { ...event, ctrlKey: false, key: "c" })).toBe(true);
+    expect(matchesCommandShortcut("peek", { ...event, ctrlKey: false, key: " " })).toBe(true);
+    expect(Object.values(commandDefinitions).some(entry => "shortcut" in entry && entry.shortcut.toLowerCase() === "x")).toBe(false);
+  });
   it("persists focus/typewriter preferences and collection-scoped pins", () => {
     savePreferences({ ...defaultPreferences, focusMode: true, typewriterScrolling: true });
     expect(loadPreferences()).toMatchObject({ focusMode: true, typewriterScrolling: true });

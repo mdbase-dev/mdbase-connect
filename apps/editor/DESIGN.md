@@ -121,9 +121,9 @@ are rejected before writing. After a partial change, remaining notes can be
 moved individually to the destination.
 
 Mobile (≤760px) presents each level as a separate navigable screen, with 44px
-touch targets and safe-area padding. The note bar contains only Back and More;
-the complete path sits subtly above the title, and Rename path, New note and
-Quick open live in More. List screens have a labeled, filled New note action.
+touch targets and safe-area padding. The note bar contains Back, New note and More;
+the complete path sits subtly above the title, and Rename path and Quick open
+live in More. List screens have a labeled, filled New note action.
 Properties take over the screen, and quick open fits the available viewport
 rather than keeping its desktop keyboard-help footer.
 
@@ -178,8 +178,8 @@ schema properties remain separate. The initial create operation includes the
 drafted body and properties. While an existing note is fetched, the stable
 document frame stays in place with concise loading text; it does not impersonate
 the note with placeholder content or shimmer. Before collection metadata is
-available, a centered status avoids previewing unstable sidebars. The first page
-then becomes usable in the three-pane workspace while the remaining index
+available, the top bar and a static list skeleton paint with the initial HTML.
+The first page then becomes usable in the three-pane workspace while the remaining index
 continues in the note list. A newly created note is adopted from the create
 response, so the editor never waits for a collection-wide refresh or a redundant
 read.
@@ -217,11 +217,15 @@ remain visible with recovery actions. Word count lives in Properties, not the ba
 Ctrl/⌘P opens quick open everywhere; `>` switches to commands, and
 Ctrl/⌘Shift+P opens commands directly. Commands use the same registry as note
 menus and shortcut help, with fuzzy matching, shortcut chips and recent commands
-first. Pin/Unpin and available selection actions use that registry too. With
+first. C creates a note, / focuses search, and G N, G T and G S open Notes,
+Types and Settings outside text inputs. X remains reserved and unbound.
+Pin/Unpin and available selection actions use that registry too. With
 multiple notes selected, Move and Delete target the selection; Add tag, Remove
 tag, Set property and Clear selection appear only when applicable. Property
 commands reveal the existing inline selection form, never a second bulk-action
-surface. Ctrl/⌘K inserts a link only in note text.
+surface. Ctrl/⌘K opens commands outside text inputs and inserts a link while
+writing. Shortcut help groups Navigate, Note and Text, with one scoped K entry;
+all hints use the shared shortcut notation.
 
 Focus mode (Ctrl/⌘Shift+F, Escape to exit) temporarily hides the rail, note list
 and properties without changing their saved layout. Its minimal bar keeps Exit
@@ -280,6 +284,11 @@ Undo notification that recreates the same path, frontmatter, and body. Undo
 notifications announce their result, pause expiry while hovered/focused, and
 support Escape to dismiss.
 
+Space peeks at the focused note; J/K move through the list while it stays open.
+The region uses the note title and politely announces changes. Peek enters with
+opacity and a 4px vertical translation over 120ms, leaves over 90ms, and
+cross-fades note bodies over 120ms. Reduced motion makes these changes static.
+
 The document bar keeps history, path, Properties, and More. Outline and keyboard
 help live in More; `?` opens help outside text inputs. Backlinks are a quiet
 Linked from section after the document text, not a competing inspector. Its
@@ -290,6 +299,6 @@ shared chevron disclosure initially shows five results, with Show all N. Each
 source note offers a plain-text snippet emphasising its matched phrase and a
 Link action for its first eligible title mention; conversion preserves the occurrence's spelling and offers Undo. Both
 writes check revisions and refuse to overwrite a changed occurrence or newer text.
-Pinned notes stay at the top of the list and quick open within this browser and
-collection. Link previews inside Markdown remain
+Pinned notes stay at the top of the list within this browser and collection;
+quick open puts recent notes first. Link previews inside Markdown remain
 available; list-row previews do not.

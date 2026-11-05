@@ -40,7 +40,7 @@ for (const width of [1440, 390]) {
     await page.goto("?demo=300");
     await expect(page.getByRole("textbox", { name: "Note body" })).toBeVisible();
     await expect(page.getByRole("button", { name: "More note actions" })).toHaveCount(1);
-    if (width === 390) await expect(page.locator(".editor-bar button:visible")).toHaveCount(2);
+    if (width === 390) await expect(page.locator(".editor-bar button:visible")).toHaveCount(3);
     await page.getByRole("button", { name: "More note actions" }).click();
     const menu = page.getByRole("menu", { name: "More note actions" });
     await expect(menu.getByRole("separator")).toHaveCount(3);

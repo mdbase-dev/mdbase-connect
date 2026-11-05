@@ -30,10 +30,10 @@ export function SettingsView({ description, connection, noteCount, preferences, 
   const { t, i18n } = useLingui();
   const numbers = formatters(i18n.locale);
   const route = connection?.authorityKind === "hosted"
-    ? t({ message: "Hosted", context: "connection route" })
+    ? t({ message: "Connected through mdbase", context: "connection route" })
     : connection?.directAccess === "available"
-      ? t({ message: "This computer", context: "connection route" })
-      : t({ message: "Via mdbase", context: "connection route" });
+      ? t({ message: "Connected directly", context: "connection route" })
+      : t({ message: "Connected through mdbase", context: "connection route" });
   const settings = objectValue(description.configuration?.settings);
   const runtime = objectValue(description.configuration?.runtime);
   const explicitTypeKeys = stringListValue(settings.explicit_type_keys, ["type", "types"]);
@@ -84,6 +84,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
 
       <section>
         <div className="settings-intro"><h2><Trans context="settings view">Connection</Trans></h2></div>
+        {connection?.authorityKind === "hosted" && <FactRow label={t({ message: "Main copy", context: "settings view" })} value={t({ message: "Hosted by mdbase", context: "settings view" })} />}
         <FactRow label={t({ message: "Route", context: "settings view" })} value={route} />
         <DirectAccessRow connection={connection} busy={directAccessBusy} onRequest={onRequestDirectAccess} />
         <div className="setting-row connection-action">

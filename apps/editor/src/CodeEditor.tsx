@@ -3,6 +3,7 @@ import { i18n as editorI18n } from "@lingui/core";
 import { isLocale } from "@mdbase-dev/i18n";
 import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18n/codemirror";
 import { t } from "@lingui/core/macro";
+import { commandDefinitions } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
 import { markdown, markdownKeymap, pasteURLAsLink } from "@codemirror/lang-markdown";
@@ -615,10 +616,10 @@ const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
 ];
 
 const writerKeymap = [
-  { key: "Mod-b", run: markdownFormatCommand("bold") },
-  { key: "Mod-i", run: markdownFormatCommand("italic") },
-  { key: "Mod-k", run: markdownFormatCommand("link") },
-  { key: "Mod-Shift-c", run: markdownFormatCommand("code") },
+  ...([ ["bold", "bold"], ["italic", "italic"], ["command-palette", "link"], ["code", "code"] ] as const).map(([id, format]) => ({
+    key: commandDefinitions[id].shortcut.toLowerCase().replace("mod", "Mod").replace("shift", "Shift").replaceAll("+", "-"),
+    run: markdownFormatCommand(format)
+  })),
   { key: "Tab", run: indentMarkdownList },
   { key: "Shift-Tab", run: outdentMarkdownList },
   ...markdownKeymap

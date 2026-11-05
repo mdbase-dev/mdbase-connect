@@ -282,11 +282,6 @@ msgstr "{1} 件中 {0} 件のフィールドが一致"
 msgid "{0} of {1} notes"
 msgstr "ノート {1} 件中 {0} 件"
 
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "{0} P"
-msgstr "{0} P"
-
 #. placeholder {0}: directory.invalid.length
 #: src/YourPersonPanel.tsx
 msgid "{0} person records need attention"
@@ -813,10 +808,6 @@ msgstr "既存の連絡先について"
 msgid "Actions"
 msgstr "操作"
 
-#: src/QuickOpen.tsx
-msgid "Actions in quick open"
-msgstr "クイックオープンの操作"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add"
@@ -835,10 +826,6 @@ msgstr "ノートを作成するには{0}を追加してください。"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
 msgstr "カスタムプロパティを追加…"
-
-#: src/QuickOpen.tsx
-msgid "Add a link, in the note text"
-msgstr "ノート本文にリンクを追加"
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
@@ -1153,6 +1140,7 @@ msgctxt "direct connection availability"
 msgid "Available"
 msgstr "利用可能"
 
+#: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
 msgstr "戻る"
@@ -1160,10 +1148,6 @@ msgstr "戻る"
 #: src/App.tsx
 msgid "Back in note history"
 msgstr "ノートの履歴を戻る"
-
-#: src/QuickOpen.tsx
-msgid "Back or forward"
-msgstr "戻る／進む"
 
 #: src/App.tsx
 msgid "Back to {historyBackPath} · Alt+Left"
@@ -1178,11 +1162,6 @@ msgstr "コレクションに戻る"
 msgid "Back to collections"
 msgstr "コレクション一覧に戻る"
 
-#: src/ConnectionScreens.tsx
-#: src/SdkEditorRoot.tsx
-msgid "Back to Collections"
-msgstr "コレクションに戻る"
-
 #: src/TypeBrowser.tsx
 msgid "Back to editing"
 msgstr "編集に戻る"
@@ -1190,6 +1169,11 @@ msgstr "編集に戻る"
 #: src/PropertiesPanel.tsx
 msgid "Back to fields"
 msgstr "フィールドに戻る"
+
+#: src/ConnectionScreens.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Back to mdbase Connect"
+msgstr "mdbase Connect に戻る"
 
 #: src/App.tsx
 msgid "Back to notes"
@@ -1234,9 +1218,9 @@ msgstr "ブロック · {0}"
 msgid "Body differences"
 msgstr "本文の差分"
 
-#: src/QuickOpen.tsx
-msgid "Bold or italic"
-msgstr "太字または斜体"
+#: src/editor-commands.ts
+msgid "Bold"
+msgstr "太字"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Boolean"
@@ -1597,6 +1581,16 @@ msgstr "標準"
 msgid "Commands"
 msgstr "コマンド"
 
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0}"
+msgstr "コマンド · {0}"
+
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0} outside text"
+msgstr "コマンド · テキスト外で {0}"
+
 #: src/TypeBrowser.tsx
 msgid "Common icons"
 msgstr "よく使うアイコン"
@@ -1658,9 +1652,23 @@ msgstr "別のコレクションを接続しますか？"
 msgid "Connect application contract"
 msgstr "アプリの契約を接続"
 
+#: src/ConnectionScreens.tsx
+msgid "Connect server: {server}"
+msgstr "Connect サーバー: {server}"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "接続済み"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected directly"
+msgstr "直接接続"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected through mdbase"
+msgstr "mdbase 経由で接続"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1898,6 +1906,7 @@ msgstr "最初のノートとともに作成します。空のフォルダーは
 msgid "Create my person record"
 msgstr "自分の人物レコードを作成"
 
+#: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
 msgid "Create note"
 msgstr "ノートを作成"
@@ -1943,10 +1952,6 @@ msgstr "作成中"
 #: src/NewNoteComposer.tsx
 msgid "Creating folder"
 msgstr "フォルダーを作成中"
-
-#: src/NewNoteComposer.tsx
-msgid "Ctrl "
-msgstr "Ctrl "
 
 #: src/editor-commands.ts
 msgid "Current note"
@@ -2021,8 +2026,8 @@ msgid "delete notes"
 msgstr "ノートを削除"
 
 #: src/App.tsx
-msgid "Deleted “{title}”."
-msgstr "「{title}」を削除しました。"
+msgid "Deleted {title}"
+msgstr "{title} を削除しました"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
@@ -2030,8 +2035,8 @@ msgid "Deleting"
 msgstr "削除中"
 
 #: src/App.tsx
-msgid "Deleting “{title}”…"
-msgstr "「{title}」を削除中…"
+msgid "Deleting {title}…"
+msgstr "{title} を削除中…"
 
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
@@ -2334,7 +2339,6 @@ msgid "Existing person or contact"
 msgstr "既存の人物または連絡先"
 
 #: src/App.tsx
-#: src/QuickOpen.tsx
 msgid "Exit focus mode"
 msgstr "集中モードを終了"
 
@@ -2423,7 +2427,6 @@ msgid "Find a note by title or path, or type > for actions"
 msgstr "タイトルまたはパスでノートを探すか、> を入力して操作を表示"
 
 #: src/App.tsx
-#: src/QuickOpen.tsx
 msgid "Find a note or action"
 msgstr "ノートまたは操作を検索"
 
@@ -2431,7 +2434,7 @@ msgstr "ノートまたは操作を検索"
 msgid "Find a property"
 msgstr "プロパティを検索"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Find in note"
 msgstr "ノート内を検索"
 
@@ -2543,6 +2546,10 @@ msgstr "このブラウザーから削除"
 msgid "Format"
 msgstr "形式"
 
+#: src/editor-commands.ts
+msgid "Forward"
+msgstr "進む"
+
 #: src/App.tsx
 msgid "Forward in note history"
 msgstr "ノートの履歴を進む"
@@ -2619,9 +2626,9 @@ msgid "Hide types sidebar"
 msgstr "型のサイドバーを非表示"
 
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Hosted"
-msgstr "ホスト型"
+msgctxt "settings view"
+msgid "Hosted by mdbase"
+msgstr "mdbase がホスト"
 
 #: src/TypeBrowser.tsx
 msgid "How notes are assigned to this type."
@@ -2647,9 +2654,17 @@ msgstr "影響範囲は現在索引に登録されているノートに基づき
 msgid "in the list"
 msgstr "リスト内"
 
+#: src/editor-commands.ts
+msgid "in the note composer"
+msgstr "ノート作成画面で"
+
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "互換性なし"
+
+#: src/editor-commands.ts
+msgid "Inline code"
+msgstr "インラインコード"
 
 #: src/code-editor-completions.ts
 msgid "Insert a fenced code block"
@@ -2714,6 +2729,10 @@ msgstr "JSON が無効です。"
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "追加後に編集されていないため、新しい初期データに置き換えられます。"
+
+#: src/editor-commands.ts
+msgid "Italic"
+msgstr "斜体"
 
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
@@ -2953,6 +2972,11 @@ msgstr "現地時刻（{0}）"
 msgid "Loses"
 msgstr "該当しなくなる"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Main copy"
+msgstr "メインコピー"
+
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
 msgstr "型定義を管理"
@@ -2982,7 +3006,7 @@ msgstr "タスクを完了にする"
 msgid "Mark task incomplete"
 msgstr "タスクを未完了にする"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Markdown コマンド"
 
@@ -3163,10 +3187,6 @@ msgstr "ノートを移動"
 msgid "move notes"
 msgstr "ノートを移動"
 
-#: src/QuickOpen.tsx
-msgid "Move through the note list"
-msgstr "ノート一覧を移動"
-
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
 msgid "Move to…"
@@ -3215,6 +3235,10 @@ msgstr "名前フィールド"
 msgid "Name the folder to create it."
 msgstr "フォルダーを作成するには名前を付けてください。"
 
+#: src/QuickOpen.tsx
+msgid "Navigate"
+msgstr "移動"
+
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -3238,6 +3262,7 @@ msgstr "入れ子の必須フィールド"
 msgid "New folder"
 msgstr "新しいフォルダー"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
@@ -3269,9 +3294,13 @@ msgstr "新しい型"
 msgid "New type definition"
 msgstr "新しい型定義"
 
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "次または前のノート"
+#: src/editor-commands.ts
+msgid "Next note"
+msgstr "次のノート"
+
+#: src/editor-commands.ts
+msgid "Next note in the list"
+msgstr "リスト内の次のノート"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts installed"
@@ -3433,6 +3462,10 @@ msgid "Not now"
 msgstr "後で"
 
 #: src/QuickOpen.tsx
+msgid "Note"
+msgstr "ノート"
+
+#: src/editor-commands.ts
 msgid "Note actions, in the list"
 msgstr "一覧内のノート操作"
 
@@ -3460,10 +3493,6 @@ msgstr "ノートへのリンク"
 #: src/App.tsx
 msgid "note path"
 msgstr "ノートのパス"
-
-#: src/NoteList.tsx
-msgid "Note peek"
-msgstr "ノートのプレビュー"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -3618,6 +3647,10 @@ msgstr "ファイルを開く"
 msgid "open notes"
 msgstr "ノートを開く"
 
+#: src/editor-commands.ts
+msgid "Open Notes"
+msgstr "ノートを開く"
+
 #: src/FileViewer.tsx
 msgid "Open original"
 msgstr "元のファイルを開く"
@@ -3710,6 +3743,10 @@ msgstr "ほかのフィールドも許可"
 msgid "outside text inputs"
 msgstr "テキスト入力欄の外"
 
+#: src/editor-commands.ts
+msgid "outside text; add a link while typing"
+msgstr "テキスト外。入力中はリンクを挿入"
+
 #: src/TypeBrowser.tsx
 msgid "Pack"
 msgstr "パック"
@@ -3778,7 +3815,7 @@ msgstr "埋め込まれた PDF、{filename}"
 msgid "PDF viewer, {filename}"
 msgstr "PDF ビューアー、{filename}"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Peek at the focused note"
 msgstr "フォーカス中のノートをプレビュー"
 
@@ -3884,6 +3921,14 @@ msgstr "過去30日間"
 msgid "Previous 7 days"
 msgstr "過去7日間"
 
+#: src/editor-commands.ts
+msgid "Previous note"
+msgstr "前のノート"
+
+#: src/editor-commands.ts
+msgid "Previous note in the list"
+msgstr "リスト内の前のノート"
+
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
 msgstr "以前にmdbase editor で開いた項目"
@@ -3933,16 +3978,6 @@ msgstr "ノートの型から提供され、このファイルには保存され
 #: src/editor-commands.ts
 msgid "Quick open"
 msgstr "クイックオープン"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P"
-msgstr "クイックオープン · {0} P"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P anywhere"
-msgstr "クイックオープン · どこからでも {0} P"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4487,6 +4522,7 @@ msgstr "検索フィルター"
 msgid "Search is incomplete."
 msgstr "検索はまだ完了していません。"
 
+#: src/editor-commands.ts
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "ノートとファイルを検索"
@@ -4794,6 +4830,7 @@ msgstr "テンプレート"
 msgid "text"
 msgstr "テキスト"
 
+#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
@@ -5377,11 +5414,6 @@ msgid "This collection's Person type was not added from a Person starter that ca
 msgstr "このコレクションの Person 型は、自動でアップグレードできる Person 初期型から追加されたものではないため、変更されていません。 "
 
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "This computer"
-msgstr "このコンピューター"
-
-#: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "This computer"
 msgstr "このコンピューター"
@@ -5871,11 +5903,6 @@ msgstr "検証結果が変わる場合があります"
 #: src/TypeBrowser.tsx
 msgid "Version {0}"
 msgstr "バージョン {0}"
-
-#: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Via mdbase"
-msgstr "mdbase 経由"
 
 #: src/NoteListViewOptions.tsx
 msgid "View options"

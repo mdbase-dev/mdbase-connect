@@ -58,7 +58,7 @@ for (const width of [1440, 390]) {
         await expect(list.getByRole("option", { selected: true })).toContainText(title);
         const scrollTop = await list.evaluate((element) => element.scrollTop);
         await page.keyboard.press("Space");
-        const peek = page.getByRole("region", { name: "Note peek", exact: true });
+        const peek = page.locator(".note-peek");
         await expect(peek).toBeVisible();
         await expect(list).toBeFocused();
         await expect(peek.getByRole("heading", { name: title, exact: true })).toHaveCount(1);
@@ -110,7 +110,8 @@ for (const width of [1440, 390]) {
           await page.getByRole("button", { name: "Collections", exact: true }).click();
         }
         await page.getByRole("button", { name: "Settings", exact: true }).click();
-        await expect(page.locator(".settings-view")).toContainText("Via mdbase");
+        await expect(page.locator(".settings-view")).toContainText("Connected through mdbase");
+        await expect(page.locator(".settings-view")).not.toContainText("Main copy");
         if (width === 390) await page.getByRole("button", { name: "Back to collection" }).click();
         await page.getByRole("button", { name: "Types (1)" }).click();
         if (width === 390) await page.getByRole("option", { name: /note/ }).click();

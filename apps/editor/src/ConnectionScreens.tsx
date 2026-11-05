@@ -16,8 +16,10 @@ import type { ReactNode } from "react";
 import { configuredConnectServerUrl, editorPortalUrl } from "./connect-endpoint";
 
 export function EditorEntryPage({ title, children }: { title: string; children: ReactNode }) {
+  const server = editorPortalUrl();
   return <ConnectLayout app="editor" title={title} lead={children}>
-    <a className="mdbase-button is-primary" href={editorPortalUrl() ?? configuredConnectServerUrl}><Trans>Back to Collections</Trans></a>
+    {server && <p className="editor-recovery-server"><Trans>Connect server: {server}</Trans></p>}
+    <a className="mdbase-button is-primary editor-recovery-action" href={server ?? configuredConnectServerUrl}><Trans>Back to mdbase Connect</Trans></a>
   </ConnectLayout>;
 }
 
@@ -56,7 +58,7 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
     {!fatal && <p className="mdbase-connect-footnote">{updatingAccess
       ? t`mdbase keeps the access you already approved and shows only what needs to be added.`
       : t`You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are.`}</p>}
-    <a className="mdbase-button" href={editorPortalUrl() ?? configuredConnectServerUrl}><Trans>Back to Collections</Trans></a>
+    <a className="mdbase-button" href={editorPortalUrl() ?? configuredConnectServerUrl}><Trans>Back to mdbase Connect</Trans></a>
     <FeedbackButton />
     <details className="compatibility-help"><summary><Trans>Collection not listed?</Trans></summary><p><Trans>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</Trans></p></details>
   </ConnectLayout>;
