@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../db.js";
@@ -10,7 +11,7 @@ import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import type { RelayHub } from "../../relay.js";
-import { localGrantRevocationStatus, queueLocalGrantRevocations } from "../../local-grant-revocation.js";
+import { deliverGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "../../local-grant-revocation.js";
 
 interface GrantRevocationRouteOptions {
   db: DatabasePool;
@@ -60,27 +61,10 @@ export function registerGrantRevocationRoute(
       status: "revoked" | "revoking" | "conflict";
     }> = [];
     for (const grant of found.rows) {
-      if (!grant.hosted_replica_id) {
-        results.push({ grant_id: grant.id, status: await localGrantRevocationStatus(options.db, user.id, grant.id) });
-        continue;
-      }
-      if (!grant.revoked_at) {
-        const queued = await queueHostedGrantRevocation(
-          options.db,
-          user.id,
-          grant.id,
-          "user_batch_request"
-        );
-        if (!queued) {
-          results.push({ grant_id: grant.id, status: "conflict" });
-          continue;
-        }
-      }
-      const status = await hostedGrantRevocationStatus(options.db, user.id, grant.id);
-      results.push({
-        grant_id: grant.id,
-        status: status === "revoking" ? "revoking" : status === "revoked" ? "revoked" : "conflict"
-      });
+      const queued = !grant.hosted_replica_id || grant.revoked_at || await queueHostedGrantRevocation(
+        options.db, user.id, grant.id, "user_batch_request"
+      );
+      results.push({ grant_id: grant.id, status: queued ? "revoking" : "conflict" });
     }
     // Explicit removal dismisses old reauthorization notices, not grant history.
     // Only durable tombstones qualify; an active conflict keeps its review state.
@@ -91,25 +75,30 @@ export function registerGrantRevocationRoute(
       [...grantIds, user.id]
     );
     await options.drainProviderRevocations();
+    await deliverGrantRevocations(options.relay, found.rows.map((grant) => grant.connector_id), request.log);
+    const statuses = await options.db.query<{ id: string; status: "revoked" | "revoking" | "conflict" }>(
+      `SELECT g.id, CASE
+         WHEN g.revoked_at IS NULL THEN 'conflict'
+         WHEN g.hosted_replica_id IS NOT NULL THEN CASE WHEN g.id IN (
+           SELECT grant_id FROM provider_revocation_jobs WHERE completed_at IS NULL
+         ) THEN 'revoking' ELSE 'revoked' END
+         WHEN g.revocation_confirmed_at IS NOT NULL OR g.next_collection_id IS NOT NULL THEN 'revoked'
+         ELSE 'revoking' END AS status
+       FROM grants g WHERE g.id IN (${grantParameters}) AND g.user_id = $${grantIds.length + 1}`,
+      [...grantIds, user.id]
+    );
+    const byId = new Map(statuses.rows.map((row) => [row.id, row.status]));
     for (const result of results) {
-      if (result.status !== "revoking" || localIds.includes(result.grant_id)) continue;
-      const status = await hostedGrantRevocationStatus(options.db, user.id, result.grant_id);
-      if (status === "revoked") result.status = "revoked";
+      if (result.status !== "conflict") result.status = byId.get(result.grant_id)!;
     }
-    for (const connectorId of new Set(found.rows.map((grant) => grant.connector_id).filter(Boolean))) {
-      await options.relay.pushPolicy(connectorId!);
-    }
-    for (const result of results) {
-      if (localIds.includes(result.grant_id)) {
-        result.status = await localGrantRevocationStatus(options.db, user.id, result.grant_id);
-      }
-      await audit(options.db, user.id, result.status === "revoked"
-        ? "grant.revoked"
-        : "grant.revocation_requested", result.grant_id, {
-        revocation_status: result.status,
-        batch: true
-      });
-    }
+    await options.db.query(
+      `INSERT INTO audit_events (id, user_id, event_type, subject_id, metadata) VALUES ${results.map((_, index) =>
+        `($${index * 5 + 1}, $${index * 5 + 2}, $${index * 5 + 3}, $${index * 5 + 4}, $${index * 5 + 5}::jsonb)`
+      ).join(", ")}`,
+      results.flatMap((result) => [randomUUID(), user.id,
+        result.status === "revoked" ? "grant.revoked" : "grant.revocation_requested", result.grant_id,
+        JSON.stringify({ revocation_status: result.status, batch: true })])
+    );
     return {
       ok: results.every((result) => result.status !== "conflict"),
       results
@@ -170,7 +159,7 @@ export function registerGrantRevocationRoute(
     } else {
       await queueLocalGrantRevocations(options.db, user.id, [grantId]);
     }
-    if (grant.connector_id) await options.relay.pushPolicy(grant.connector_id);
+    await deliverGrantRevocations(options.relay, [grant.connector_id], request.log);
     if (!grant.hosted_replica_id) revocationStatus = await localGrantRevocationStatus(options.db, user.id, grantId);
     await options.db.query(
       `UPDATE grants SET reauthorization_required_at = NULL, reauthorization_reason = NULL
