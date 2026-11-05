@@ -161,6 +161,11 @@ msgctxt "Collection field mapping"
 msgid "Doesn’t match"
 msgstr "일치하지 않음"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Filter the current list"
+msgstr "현재 목록 필터링"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Inspect saved-view definitions"
@@ -170,6 +175,11 @@ msgstr "저장된 뷰 정의 검사"
 msgctxt "Application permission"
 msgid "Install or update record types"
 msgstr "레코드 유형 설치 또는 업데이트"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Keyboard shortcuts"
+msgstr "키보드 단축키"
 
 #. placeholder {0}: url.host
 #: access.ts
@@ -186,10 +196,20 @@ msgctxt "Collection field mapping"
 msgid "Matches"
 msgstr "일치함"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Move through the list"
+msgstr "목록에서 이동"
+
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Not shared"
 msgstr "공유되지 않음"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Open the focused item"
+msgstr "포커스한 항목 열기"
 
 #: access.ts
 msgctxt "Application permission"
@@ -241,6 +261,11 @@ msgctxt "Application permission"
 msgid "Schedule app activity"
 msgstr "앱 활동 예약"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Search"
+msgstr "검색"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Search and query"
@@ -265,6 +290,11 @@ msgstr "이 앱의 예약된 활동 보기"
 msgctxt "Application permission"
 msgid "Set up this app in the collection"
 msgstr "컬렉션에서 이 앱 설정"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Shortcuts are off while typing or while a dialog is open."
+msgstr "입력 중이거나 대화 상자가 열려 있으면 단축키가 비활성화됩니다."
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"

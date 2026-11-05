@@ -1664,10 +1664,6 @@ msgstr "Filtrer les ordinateurs"
 msgid "Filter sessions"
 msgstr "Filtrer les sessions"
 
-#: src/ConnectApp.tsx
-msgid "Filter the current list"
-msgstr "Filtrer la liste actuelle"
-
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
 msgstr "Finalisation de la configuration de la collection…"
@@ -1925,7 +1921,6 @@ msgstr "Conservez la copie principale dans mdbase, avec des dossiers synchronis�
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "Conservez vos documents actuels et indiquez quels champs ont le même sens."
 
-#: src/ConnectApp.tsx
 #: src/portal-commands.ts
 msgid "Keyboard shortcuts"
 msgstr "Raccourcis clavier"
@@ -2158,10 +2153,6 @@ msgstr "Déplacer la copie principale"
 msgctxt "Collection connection"
 msgid "Move this collection"
 msgstr "Déplacer cette collection"
-
-#: src/ConnectApp.tsx
-msgid "Move through the list"
-msgstr "Parcourir la liste"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2432,10 +2423,6 @@ msgstr "Ouvrez le lien complet de réinitialisation du mot de passe reçu par e-
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
 msgstr "Ouvrez l’application de bureau pour connecter cet ordinateur, ajouter un dossier et reprendre cette même demande."
-
-#: src/ConnectApp.tsx
-msgid "Open the focused item"
-msgstr "Ouvrir l’élément ciblé"
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
@@ -3112,10 +3099,6 @@ msgstr "Code de partage"
 #: src/authorization-view.tsx
 msgid "Short approval code"
 msgstr "Code d’approbation court"
-
-#: src/ConnectApp.tsx
-msgid "Shortcuts are off while typing or while a dialog is open."
-msgstr "Les raccourcis sont désactivés pendant la saisie ou lorsqu’une boîte de dialogue est ouverte."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

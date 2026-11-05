@@ -41,6 +41,7 @@ function DeviceRequest({ device, collection, busy, onAct, onNotice }: {
     other: "Another device",
   });
   return <ApprovalPrompt
+    commandId={`device:${device.collection}/${device.device}`}
     title={t(i18n)`${who} wants to open ${collection}`}
     check={<div aria-live="polite">
       {device.sas ? <>

@@ -1664,10 +1664,6 @@ msgstr "筛选电脑"
 msgid "Filter sessions"
 msgstr "筛选会话"
 
-#: src/ConnectApp.tsx
-msgid "Filter the current list"
-msgstr "筛选当前列表"
-
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
 msgstr "正在完成集合设置…"
@@ -1925,7 +1921,6 @@ msgstr "将主副本保存在 mdbase 中，并可选择同步文件夹。"
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "保留当前记录，并说明哪些字段表达相同的含义。"
 
-#: src/ConnectApp.tsx
 #: src/portal-commands.ts
 msgid "Keyboard shortcuts"
 msgstr "键盘快捷键"
@@ -2158,10 +2153,6 @@ msgstr "迁移主副本"
 msgctxt "Collection connection"
 msgid "Move this collection"
 msgstr "迁移此集合"
-
-#: src/ConnectApp.tsx
-msgid "Move through the list"
-msgstr "在列表中移动"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2432,10 +2423,6 @@ msgstr "打开电子邮件中完整的密码重置链接。"
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
 msgstr "打开桌面应用以连接此电脑、添加文件夹并继续处理同一个请求。"
-
-#: src/ConnectApp.tsx
-msgid "Open the focused item"
-msgstr "打开焦点所在的项目"
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
@@ -3112,10 +3099,6 @@ msgstr "共享代码"
 #: src/authorization-view.tsx
 msgid "Short approval code"
 msgstr "短批准代码"
-
-#: src/ConnectApp.tsx
-msgid "Shortcuts are off while typing or while a dialog is open."
-msgstr "输入时或对话框打开时，快捷键不可用。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

@@ -986,9 +986,6 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
   border-left: 0;
 }
 
-.connect-shortcuts { display: grid; gap: 12px; }
-.connect-shortcuts > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.connect-shortcuts dd { margin: 0; white-space: nowrap; }
 .connect-list-filter > label { flex: 1; min-width: 0; }
 .connect-main [data-list-item]:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 @media (pointer: coarse) {

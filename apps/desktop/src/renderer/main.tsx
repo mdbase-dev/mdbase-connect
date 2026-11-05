@@ -9,10 +9,12 @@ import "@mdbase/connect-ui/styles.css";
 import "@mdbase-dev/ui/palette.css";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { CommandPalette, type Command } from "@mdbase-dev/ui/command-palette";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
+import { KeyboardShortcuts, navigationShortcuts, useConnectKeyboard } from "@mdbase/connect-ui/keyboard";
 import { AccessView } from "./access-view";
 import { ActivityView } from "./activity-view";
 import { CollectionsView } from "./collections-view";
@@ -60,7 +62,6 @@ const POLL_MS = 5_000;
 function App() {
   useLocaleRevision();
   const [route, setRoute] = useState<Route>("overview");
-  const [commandsOpen, setCommandsOpen] = useState(false);
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [checked, setChecked] = useState(false);
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
@@ -127,17 +128,6 @@ function App() {
   }, [refresh]);
 
   useEffect(() => {
-    const toggle = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setCommandsOpen((open) => !open);
-      }
-    };
-    window.addEventListener("keydown", toggle);
-    return () => window.removeEventListener("keydown", toggle);
-  }, []);
-
-  useEffect(() => {
     if (cloud?.configured && consumePairingCompleted(localStorage)) setRoute("collections");
   }, [cloud?.configured]);
 
@@ -190,14 +180,26 @@ function App() {
     setRoute(next);
     setNavigationOpen(false);
   };
+  const reviewApproval = (next: Route, commandId: string) => {
+    flushSync(() => selectRoute(next));
+    const prompt = [...document.querySelectorAll<HTMLElement>(".content .approval-prompt")].find(element => element.dataset.command === commandId);
+    if (prompt) keyboard.invoker.current = prompt;
+    prompt?.focus();
+    prompt?.scrollIntoView({ block: "nearest" });
+  };
 
+  const unnamedDevice = t(i18n)`Another device`;
   const commands: Command[] = [
     ...([["overview", t(i18n)({ message: "Overview", context: "Connect interface" })], ["collections", t(i18n)({ message: "Collections", context: "Connect interface" })], ["access", t(i18n)({ message: "Apps", context: "Connect interface" })], ["activity", t(i18n)({ message: "Activity", context: "Connect interface" })], ["settings", t(i18n)({ message: "Settings", context: "Connect interface" })]] as const)
-      .map(([id, label]) => ({ id, label: t(i18n)`Go to ${label}`, group: "commands", run: () => selectRoute(id) })),
+      .map(([id, label]) => ({ id, label: t(i18n)`Go to ${label}`, shortcut: id === "access" ? navigationShortcuts.applications : id === "activity" ? undefined : navigationShortcuts[id], group: "commands", run: () => selectRoute(id) })),
     { id: "add", label: t(i18n)({ message: "Add existing folder" }), group: "commands", run: addExisting },
-    { id: "create", label: t(i18n)({ message: "Create collection" }), group: "commands", run: openCreate },
+    { id: "create", label: t(i18n)({ message: "Create collection" }), shortcut: "c", group: "commands", run: openCreate },
+    { id: "shortcuts", label: t(i18n)`Keyboard shortcuts`, shortcut: "?", group: "commands", run: () => keyboard.showHelp() },
+    ...groups.pending.map(entry => ({ id: `approval:${entry.grant}`, label: t(i18n)`Review ${entry.app_name}`, detail: names[entry.collection] ?? entry.collection, group: "approvals", run: () => reviewApproval("access", `approval:${entry.grant}`) })),
+    ...devices.map(device => ({ id: `device:${device.collection}/${device.device}`, label: t(i18n)`Review ${device.name ?? unnamedDevice}`, detail: names[device.collection] ?? device.collection_name ?? device.collection, group: "approvals", run: () => reviewApproval("collections", `device:${device.collection}/${device.device}`) })),
     ...collections.map((collection) => ({ id: `collection:${collection.id}`, label: collection.name, detail: collection.root, group: "collections", run: () => { void act(() => window.mdbaseConnect.openCollectionFolder(collection.id)); } }))
   ];
+  const keyboard = useConnectKeyboard({ commands, enabled: true, root: ".content", filter: ".collection-filter input", listFocus: "summary" });
 
   return (
     <div className={`shell product-shell ${navigationOpen ? "navigation-open" : ""}`}>
@@ -206,15 +208,17 @@ function App() {
         collectionCount={collections.length}
         pendingCount={groups.attention}
         deviceCount={devices.length}
+        signingIn={cloud?.configured === false}
         connection={connection}
         computerName={t(i18n)`This computer · ${plural(collections.length, { one: "# collection", other: "# collections" })}`}
         onSelect={selectRoute}
-        onSearch={() => setCommandsOpen(true)}
+        onSearch={keyboard.show}
       />
-      <CommandPalette open={commandsOpen} commands={commands} onClose={() => setCommandsOpen(false)} showAll={["commands"]} groupLabel={(group) => group === "collections" ? t(i18n)({ message: "Collections", context: "Connect interface" }) : t(i18n)({ message: "Commands", context: "Connect interface" })} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)({ message: "Search", context: "Connect interface" })} />
+      <CommandPalette open={keyboard.open} commands={commands} onClose={keyboard.close} returnFocusRef={keyboard.invoker} showAll={["approvals", "commands"]} groupLabel={(group) => group === "collections" ? t(i18n)({ message: "Collections", context: "Connect interface" }) : group === "approvals" ? t(i18n)`Waiting for your approval` : t(i18n)({ message: "Commands", context: "Connect interface" })} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)({ message: "Search", context: "Connect interface" })} />
+      <KeyboardShortcuts keyboard={keyboard} commands={commands} />
       <button className="product-sidebar-backdrop" aria-label={t(i18n)({ message: "Close navigation", context: "Connect interface" })} onClick={() => setNavigationOpen(false)} />
       <div className="product-canvas desktop-canvas">
-        <MobileProductBar open={navigationOpen} onOpen={() => setNavigationOpen(true)} />
+        <MobileProductBar open={navigationOpen} signingIn={cloud?.configured === false} onOpen={() => setNavigationOpen(true)} />
         <main className="content">
           <header className="topbar">
             <div><h1>{copy.title}</h1><p className="lede">{copy.lede}</p></div>
