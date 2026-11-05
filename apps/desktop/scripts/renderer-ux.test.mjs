@@ -231,6 +231,100 @@ const entry = (overrides = {}) => ({
   state: "active", first_seen_ms: Date.now(), acknowledged: true, ...overrides
 });
 
+for (const theme of ["light", "dark"]) {
+  for (const viewport of [{ width: 1060, height: 720 }, { width: 820, height: 580 }]) {
+    test(`desktop finish: surfaces, locations and approvals at ${viewport.width} in ${theme}`, async () => {
+      const { page, errors, calls } = await desktop({
+        collections: [collection()],
+        access: [entry({ state: "pending_approval", fingerprint: "abcd1234" })],
+        devices: [{ collection: "c-notes", device: "d-laptop", name: "Laptop", kind: "desktop", sas: "012345" }]
+      });
+      try {
+        await page.setViewportSize(viewport);
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+        await page.evaluate(() => { window.fixture.account.computerName = "Studio workstation"; });
+        await page.clock.runFor(5_000);
+        const surfaces = await page.evaluate(() => ({
+          sidebar: getComputedStyle(document.querySelector(".product-sidebar")).backgroundColor,
+          canvas: getComputedStyle(document.querySelector("main")).backgroundColor,
+          border: getComputedStyle(document.querySelector(".product-sidebar")).borderRightWidth
+        }));
+        assert.notEqual(surfaces.sidebar, surfaces.canvas);
+        assert.equal(surfaces.border, "1px");
+        for (const [label, heading] of [[/^Collections 1 collection/, "Collections"], [/^Apps 1 item needs you/, "Apps"]]) {
+          const link = page.getByRole("link", { name: label });
+          await link.focus();
+          await page.keyboard.press("Enter");
+          await page.getByRole("heading", { name: heading, exact: true }).waitFor();
+          await nav(page, "Overview").click();
+        }
+        await screenshot(page, `finish-overview-${viewport.width}-${theme}`);
+        for (const route of ["Collections", "Apps"]) {
+          await nav(page, route).click();
+          const prompt = page.locator(".approval-prompt");
+          await prompt.waitFor();
+          const layout = await prompt.evaluate(element => {
+            const identity = element.querySelector(".grant-identity").getBoundingClientRect();
+            const actions = element.querySelector(".decision-actions").getBoundingClientRect();
+            const buttons = [...element.querySelectorAll("button")].map(button => button.getBoundingClientRect().toJSON());
+            return { identity: identity.toJSON(), actions: actions.toJSON(), buttons };
+          });
+          assert.ok(Math.abs(layout.identity.width - layout.actions.width) < 1);
+          assert.ok(layout.actions.top >= layout.identity.bottom);
+          assert.equal(layout.buttons.length, 2);
+          assert.ok(Math.abs(layout.buttons[0].top - layout.buttons[1].top) < 1);
+          assert.ok(layout.buttons.every(button => button.width < 160));
+          assert.ok(Math.abs(layout.buttons[1].right - layout.actions.right) < 1);
+          assert.equal(await page.evaluate(() => document.querySelector("main").scrollWidth > document.querySelector("main").clientWidth), false);
+          if (route === "Collections") {
+            const card = page.locator(".collection-card");
+            await card.getByText("Studio workstation", { exact: true }).waitFor();
+            assert.equal(await card.locator(".collection-card-main > svg[aria-hidden=true]").count(), 1);
+            assert.equal(await card.locator(".collection-card-main > .status-glyph").count(), 0);
+            assert.equal(await card.locator(".collection-card-main code").first().innerText(), collection().root);
+          }
+          await screenshot(page, `finish-${route.toLowerCase()}-${viewport.width}-${theme}`);
+        }
+        assert.deepEqual(await calls("approveAccess"), []);
+        assert.deepEqual(await calls("approveDevice"), []);
+        assert.deepEqual(errors, []);
+      } finally { await page.close(); }
+    });
+  }
+}
+
+test("app approval remains pending until acknowledged and a failure never claims access", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection()], access: [entry({ state: "pending_approval" })] });
+  try {
+    await nav(page, "Apps").click();
+    const prompt = page.locator(".approval-prompt");
+    await page.evaluate(() => {
+      window.mdbaseConnect.approveAccess = grant => new Promise((resolve, reject) => {
+        window.fixture.calls.push(["approveAccess", grant]);
+        window.fixture.finishApproval = () => { window.fixture.access = [{ ...window.fixture.access[0], state: "active" }]; resolve(null); };
+        window.fixture.failApproval = () => reject(new Error("Approval could not be recorded."));
+      });
+    });
+    assert.deepEqual(await calls("approveAccess"), []);
+    await prompt.getByRole("button", { name: "Approve…" }).click();
+    await page.waitForFunction(() => typeof window.fixture.failApproval === "function");
+    assert.equal(await prompt.getByRole("button", { name: "Approve…" }).isDisabled(), true);
+    assert.equal(await prompt.getByRole("button", { name: "Decline" }).isDisabled(), true);
+    assert.equal(await page.getByText("Reader can now use Notes.", { exact: true }).count(), 0);
+    assert.equal(await page.locator(".application-grant-group").count(), 0);
+    await page.evaluate(() => window.fixture.failApproval());
+    await page.getByRole("alert").filter({ hasText: "Approval could not be recorded." }).waitFor();
+    assert.equal(await prompt.isVisible(), true);
+    assert.equal(await page.getByText("Reader can now use Notes.", { exact: true }).count(), 0);
+    await prompt.getByRole("button", { name: "Approve…" }).click();
+    await page.waitForFunction(() => window.fixture.calls.filter(call => call[0] === "approveAccess").length === 2);
+    await page.evaluate(() => window.fixture.finishApproval());
+    await page.getByText("Reader can now use Notes.", { exact: true }).waitFor();
+    await prompt.waitFor({ state: "hidden" });
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test("adding a collection asks for sign-in first; one sign-in survives navigation and approval needs no restart", async () => {
   const { page, errors, calls } = await desktop({ signedIn: false });
   try {
@@ -403,10 +497,11 @@ test("access: pending approvals, new-access notices and revocation reach the dae
     await journal.getByText("mdbase could not fetch what this app is asking for", { exact: false }).waitFor();
     assert.equal(await journal.getByRole("button", { name: "Approve…" }).isDisabled(), true);
     const planner = page.locator(".approval-prompt").filter({ hasText: "Planner wants to use Notes" });
-    await planner.getByText("If you approve, Planner will be able to read notes and create and edit notes in Notes", { exact: false }).waitFor();
+    await planner.getByText("If you approve, Planner will be able to read records and create and edit records in Notes", { exact: false }).waitFor();
     await planner.getByRole("button", { name: "Approve…" }).click();
     assert.deepEqual(await calls("approveAccess"), [["pending"]]);
     const reader = page.locator(".application-grant-group").filter({ hasText: "Reader" });
+    await reader.getByText("Can read records and create and edit records", { exact: true }).waitFor();
     await reader.getByText("Notes", { exact: true }).waitFor();
     await reader.getByRole("button", { name: "Mark as seen" }).click();
     assert.deepEqual(await calls("acknowledgeAccess"), [["new"]]);

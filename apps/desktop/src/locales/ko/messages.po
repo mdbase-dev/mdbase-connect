@@ -417,6 +417,11 @@ msgctxt "Connect interface"
 msgid "Background behavior"
 msgstr "백그라운드 동작"
 
+#. placeholder {0}: capabilityPhrase(entry.capabilities)
+#: src/renderer/access-view.tsx
+msgid "Can {0}"
+msgstr "가능한 작업: {0}"
+
 #: src/main/main.ts
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
@@ -430,13 +435,8 @@ msgstr "변경 사항 따라잡는 중…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "change note types"
-msgstr "노트 유형 변경"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Change types"
-msgstr "유형 변경"
+msgid "change record types"
+msgstr "레코드 유형 변경"
 
 #: src/renderer/collections-view.tsx
 msgid "Changed by a program mdbase does not recognise"
@@ -667,13 +667,8 @@ msgstr "컬렉션 만들기"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Create and edit"
-msgstr "만들기 및 편집"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "create and edit notes"
-msgstr "노트 만들기 및 편집"
+msgid "create and edit records"
+msgstr "레코드 생성 및 편집"
 
 #: src/renderer/main.tsx
 msgid "Create collection"
@@ -699,13 +694,8 @@ msgstr "여기에서 거절 또는 철회됨"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Delete"
-msgstr "삭제"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "delete notes"
-msgstr "노트 삭제"
+msgid "delete records"
+msgstr "레코드 삭제"
 
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
@@ -783,11 +773,6 @@ msgstr "종단 간 암호화: mdbase에서 읽을 수 없습니다. 웹 앱은 �
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "이 컴퓨터의 이름을 입력하세요."
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Files"
-msgstr "파일"
 
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
@@ -1153,11 +1138,6 @@ msgstr "새 앱은 이제 이 컴퓨터에서 승인할 때까지 대기합니�
 msgid "New collection"
 msgstr "새 컬렉션"
 
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "No actions"
-msgstr "작업 없음"
-
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "No activity yet"
@@ -1322,18 +1302,13 @@ msgstr "mdbase Connect(메뉴 막대 또는 트레이 아이콘 포함)를 종�
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Read"
-msgstr "읽기"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "파일 읽기 및 추가"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "read notes"
-msgstr "노트 읽기"
+msgid "read records"
+msgstr "레코드 읽기"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -1357,11 +1332,6 @@ msgstr "드라이브를 다시 연결하거나 폴더를 복원하세요. 이전
 #: src/renderer/main.tsx
 msgid "Releases are checked against signed provenance before installation."
 msgstr "설치 전 서명된 출처 정보로 릴리스를 확인합니다."
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Reminders"
-msgstr "리마인더"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Remove a local collection connection"
@@ -1975,11 +1945,6 @@ msgstr "버전 {0}이(가) 설치 대상의 {1}%에 배포되고 있습니다."
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "버전 {0}이(가) 검증되었으며 설치할 준비가 되었습니다."
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Views"
-msgstr "뷰"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

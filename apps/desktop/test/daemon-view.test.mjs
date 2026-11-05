@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accountProblemText, describeActivity, groupAccess, presentCollection, presentConnection } from "../src/renderer/daemon-view.mts";
+import { accountProblemText, capabilityPhrase, describeActivity, groupAccess, presentCollection, presentConnection } from "../src/renderer/daemon-view.mts";
 
 test("connection: unknown, stopped, signed out, signing in and online are distinct", () => {
   assert.equal(presentConnection(null, false).dot, "connecting");
@@ -74,6 +74,17 @@ test("access: pending, served-by-app and refused are separated; badge counts dec
   assert.deepEqual(groups.apps.map((a) => [a.appName, a.grants.length]), [["Reader", 2], ["Tasks", 1]]);
   assert.deepEqual(groups.refused.map((e) => e.grant), ["4"]);
   assert.equal(groups.attention, 2);
+});
+
+test("capability copy uses record vocabulary without merging distinct scopes", () => {
+  assert.equal(capabilityPhrase(["read", "write"]), "read records and create and edit records");
+  assert.equal(capabilityPhrase(["schema"]), "change record types");
+  assert.equal(capabilityPhrase(["delete"]), "delete records");
+  assert.equal(capabilityPhrase(["views"]), "save views");
+  assert.equal(capabilityPhrase(["files"]), "read and add files");
+  assert.equal(capabilityPhrase(["timers"]), "set reminders");
+  assert.equal(capabilityPhrase([]), "do nothing yet");
+  assert.equal(capabilityPhrase(["future_action"]), "future action");
 });
 
 test("activity reads as sentences and never hides an unknown kind", () => {

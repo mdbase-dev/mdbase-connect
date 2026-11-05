@@ -4,7 +4,7 @@ import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React from "react";
 import { ApprovalPrompt } from "./approval-prompt";
-import { capabilityLabel, capabilityPhrase, groupedFingerprint, type AccessGroups } from "./daemon-view.mjs";
+import { capabilityPhrase, groupedFingerprint, type AccessGroups } from "./daemon-view.mjs";
 import { Empty, SectionHeading } from "./ui-components";
 import { relativeTime } from "./view-model";
 
@@ -14,10 +14,6 @@ function scope(entry: AccessEntry, names: Record<string, string>): string {
   const collection = names[entry.collection] ?? t(i18n)({ message: "a collection that is no longer on this computer" });
   const folders = entry.folders?.length ? ` (${entry.folders.join(", ")})` : "";
   return `${collection}${folders}`;
-}
-
-function capabilities(entry: AccessEntry): string {
-  return entry.capabilities.map(capabilityLabel).join(", ") || t(i18n)({ message: "No actions", context: "Connect interface" });
 }
 
 function AppRequest({ entry, names, busy, onAct, onNotice }: {
@@ -93,7 +89,7 @@ export function AccessView({ groups, names, busy, requireApproval, movedWaiting 
                   <article key={entry.grant} className="grant-review">
                     <div className="grant-identity">
                       <h3>{scope(entry, names)}</h3>
-                      <small>{capabilities(entry)}</small>
+                      <small>{t(i18n)`Can ${capabilityPhrase(entry.capabilities)}`}</small>
                       <small><Trans>Connected {relativeTime(new Date(entry.first_seen_ms).toISOString())}{entry.legacy_only ? t(i18n)({ message: " · older app version", context: "Connect interface" }) : ""}</Trans></small>
                     </div>
                     <div className="decision-actions">

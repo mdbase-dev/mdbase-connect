@@ -207,27 +207,13 @@ export function groupAccess<T extends EntryLike>(entries: T[]): AccessGroups<T> 
   };
 }
 
-/** Capability group names, for people. Unknown names are shown as they are. */
-export function capabilityLabel(capability: string): string {
-  const labels: Record<string, string> = {
-    read: t(i18n)({ message: "Read", context: "Local connection status" }),
-    write: t(i18n)({ message: "Create and edit", context: "Local connection status" }),
-    delete: t(i18n)({ message: "Delete", context: "Local connection status" }),
-    schema: t(i18n)({ message: "Change types", context: "Local connection status" }),
-    views: t(i18n)({ message: "Views", context: "Local connection status" }),
-    files: t(i18n)({ message: "Files", context: "Local connection status" }),
-    timers: t(i18n)({ message: "Reminders", context: "Local connection status" })
-  };
-  return labels[capability] ?? capability.replaceAll("_", " ");
-}
-
 /** What an app with these capabilities will be able to do, as one phrase. */
 export function capabilityPhrase(capabilities: readonly string[]): string {
   const phrases: Record<string, string> = {
-    read: t(i18n)({ message: "read notes", context: "Local connection status" }),
-    write: t(i18n)({ message: "create and edit notes", context: "Local connection status" }),
-    delete: t(i18n)({ message: "delete notes", context: "Local connection status" }),
-    schema: t(i18n)({ message: "change note types", context: "Local connection status" }),
+    read: t(i18n)({ message: "read records", context: "Local connection status" }),
+    write: t(i18n)({ message: "create and edit records", context: "Local connection status" }),
+    delete: t(i18n)({ message: "delete records", context: "Local connection status" }),
+    schema: t(i18n)({ message: "change record types", context: "Local connection status" }),
     views: t(i18n)({ message: "save views", context: "Local connection status" }),
     files: t(i18n)({ message: "read and add files", context: "Local connection status" }),
     timers: t(i18n)({ message: "set reminders", context: "Local connection status" })
