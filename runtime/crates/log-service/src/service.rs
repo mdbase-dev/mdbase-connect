@@ -898,6 +898,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             // §12 administrative API (control plane only).
             "create_log" => self.create_log(principal, params, now, budget).await,
             "set_quota" => self.set_quota(principal, params).await,
+            "storage_status" => self.storage_status(principal, params).await,
             "delete_log" => self.delete_log(principal, params).await,
             "log_terminal_status" => self.log_terminal_status(principal, params).await,
             "export" => self.export(principal, params).await,
@@ -2141,7 +2142,11 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
     pub async fn gc(&self, c: &Uuid, now: i64) -> Result<u64> {
         let mut tx = self.backend.begin(c, Mode::Write).await?;
         let mut state = Self::load(&mut tx).await?;
-        let candidates = tx.gc_candidates(now - OBJECT_GRACE_MS, 1000).await?;
+        // A restore imports objects before the items that reference them.
+        live(&state.meta)?;
+        let candidates = tx
+            .gc_candidates(now - OBJECT_GRACE_MS, GC_BATCH_OBJECTS)
+            .await?;
         let tier = state.meta.retention_tier;
         let mut dead = Vec::with_capacity(candidates.len());
         for o in candidates {
@@ -2275,6 +2280,19 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         tx.commit().await?;
         self.buckets.lock().unwrap().remove(&c);
         Ok(Outcome::plain(map(vec![(0, Cbor::Bool(true))])))
+    }
+
+    /// `storage_status {0: collection}` returns `{0: used bytes, 1: storage quota}`.
+    async fn storage_status(&self, p: &Principal, params: &Cbor) -> Result<Outcome> {
+        self.require_cp(p)?;
+        let c = uuid_field(params, 0)?;
+        let mut tx = self.backend.begin(&c, Mode::Read).await?;
+        let state = Self::load(&mut tx).await?;
+        live(&state.meta)?;
+        Ok(Outcome::plain(map(vec![
+            (0, Cbor::Uint(state.meta.used_bytes)),
+            (1, Cbor::Uint(state.meta.quotas.storage_bytes)),
+        ])))
     }
 
     /// Independently read the backend-owned immutable floor; a foreign or

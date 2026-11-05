@@ -298,10 +298,30 @@ describe("ConnectApp", () => {
     expect(heading.closest("section")?.querySelector(".connect-section-title")).toHaveTextContent("Collections2");
     expect(collections.getByText("Beta")).toBeInTheDocument();
     expect(collections.getByText("Usage unavailable")).toBeInTheDocument();
+    expect(collections.queryByText(/retained file storage/)).not.toBeInTheDocument();
     expect(collections.getByText(/Documents up to/)).toBeInTheDocument();
     expect(screen.queryByText("0 hosted collections")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Delete account…" }));
     expect(screen.getByText("3 collections and their stored data")).toBeInTheDocument();
+  });
+
+  it("shows what the log service stores for a native account, not legacy totals", async () => {
+    const account = accountFixture();
+    account.backend = "next";
+    account.storage.collections = [];
+    overview.native_collections = [
+      { id: "cloud", display_name: "Cloud notes", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: true } }
+    ];
+    overview.subscription = { ...overview.subscription!, native_storage_bytes: 5 * 1024 * 1024 };
+    const client = new ConnectManagementClient(location.origin);
+    vi.spyOn(client, "account").mockResolvedValue(account);
+    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={async () => {}} onSignedOut={() => {}} onDeleted={() => {}} />);
+    const heading = await screen.findByRole("heading", { name: "Collections" });
+    const collections = within(heading.closest("section")!);
+    expect(collections.getByText("5 MB of 1 GB")).toBeInTheDocument();
+    expect(collections.getByRole("progressbar", { name: "Beta hosted storage" })).toHaveAttribute("aria-valuenow", String(5 * 1024 * 1024));
+    expect(collections.getByText("Includes recent version history.")).toBeInTheDocument();
+    expect(collections.queryByText(/Markdown ·/)).not.toBeInTheDocument();
   });
 
   it("counts native collections without legacy shadow rows or content authorization", async () => {

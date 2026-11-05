@@ -1847,6 +1847,10 @@ msgstr "包含的存储空间"
 msgid "Includes collections that have left sync and retained data from deleted collections."
 msgstr "包括已停止同步的集合，以及已删除集合的保留数据。"
 
+#: src/AccountManagement.tsx
+msgid "Includes recent version history."
+msgstr "包含近期版本历史记录。"
+
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"

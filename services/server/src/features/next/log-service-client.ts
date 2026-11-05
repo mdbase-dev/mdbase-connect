@@ -306,6 +306,17 @@ export class LogServiceClient {
     }
   }
 
+  /** What the collection stores, counted by the log service as it enforces `storage_bytes`. */
+  async storageStatus(collection: string): Promise<{ usedBytes: number; quotaBytes: number }> {
+    const result = await this.rpc("storage_status", struct([[0, uuidBytes(collection)]]));
+    return { usedBytes: seqField(result, 0), quotaBytes: seqField(result, 1) };
+  }
+
+  /** One batch of `gc`; returns the objects removed, and a full batch means more may remain. */
+  async collectGarbage(collection: string): Promise<number> {
+    return seqField(await this.rpc("gc", struct([[0, uuidBytes(collection)]])), 0);
+  }
+
   /** `create_log`: idempotent for the same genesis bytes; `invalid`/`exists` for a different genesis.
    * The placement only matters on the call that creates the log. The reply's key 2 is the
    * region the log service recorded (on a retry too); absent for a collection with no region,

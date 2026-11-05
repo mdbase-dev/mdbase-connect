@@ -416,7 +416,8 @@ function SubscriptionStorage({ subscription, fallbackStorage }: {
   fallbackStorage: AccountData["storage"] | null;
 }) {
   useLocaleRevision();
-  const liveStorageBytes = subscription.usage?.live_storage_bytes ?? fallbackStorage?.total_storage_bytes ?? null;
+  const native = fallbackStorage === null;
+  const liveStorageBytes = subscription.usage?.live_storage_bytes ?? fallbackStorage?.total_storage_bytes ?? subscription.native_storage_bytes ?? null;
   const liveContentBytes = subscription.usage?.live_content_bytes ?? fallbackStorage?.total_content_bytes ?? null;
   const liveFileBytes = subscription.usage?.live_file_bytes ?? fallbackStorage?.total_file_bytes ?? null;
   const limit = subscription.limits.hosted_storage_bytes;
@@ -431,10 +432,12 @@ function SubscriptionStorage({ subscription, fallbackStorage }: {
       <span>{liveStorageBytes === null ? t(i18n)({ message: "Usage unavailable", context: "Account management" }) : t(i18n)`${formatBytes(liveStorageBytes)} of ${formatBytes(limit)}`}</span>
     </div>
     {liveStorageBytes !== null && <div className="connect-storage-progress" role="progressbar" aria-label={t(i18n)`${tier} hosted storage`} aria-valuemin={0} aria-valuemax={limit} aria-valuenow={liveStorageBytes} aria-valuetext={t(i18n)`${formatBytes(liveStorageBytes)} of ${formatBytes(limit)} used`}><span style={{ width: `${percentage}%` }} /></div>}
-    <p>{liveContentBytes === null || liveFileBytes === null
-      ? t(i18n)({ message: "Markdown and file usage is temporarily unavailable." })
-      : t(i18n)`${formatBytes(liveContentBytes)} Markdown · ${formatBytes(liveFileBytes)} files`}</p>
-    {subscription.limits.retained_file_bytes > 0 && <p>{subscription.usage
+    {native
+      ? <p><Trans>Includes recent version history.</Trans></p>
+      : <p>{liveContentBytes === null || liveFileBytes === null
+        ? t(i18n)({ message: "Markdown and file usage is temporarily unavailable." })
+        : t(i18n)`${formatBytes(liveContentBytes)} Markdown · ${formatBytes(liveFileBytes)} files`}</p>}
+    {!native && subscription.limits.retained_file_bytes > 0 && <p>{subscription.usage
       ? t(i18n)`${formatBytes(subscription.usage.retained_file_bytes)} of ${formatBytes(subscription.limits.retained_file_bytes)} retained file storage`
       : t(i18n)`${formatBytes(subscription.limits.retained_file_bytes)} retained file storage included`}</p>}
     <p><Trans>Documents up to {formatBytes(subscription.limits.max_document_bytes)} · files up to {formatBytes(subscription.limits.max_single_file_bytes)} · {countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")} · {countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")} per collection</Trans></p>
