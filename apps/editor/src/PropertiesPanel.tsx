@@ -5,12 +5,13 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import {
   FileCodeIcon as FileCode2,
+  DotsThreeIcon as MoreHorizontal,
   XIcon as X
 } from "./icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import { CodeEditor } from "./CodeEditor";
-import { ActionMenu } from "./ActionMenu";
+import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import type { NoteDocument } from "./model";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import { noteWordCount } from "./note";
@@ -41,6 +42,7 @@ export function PropertiesPanel({
   onSaveDocument
 }: PropertiesPanelProps) {
   useLingui();
+  const menu = useMenuTrigger();
   const initial = useMemo(() => structuredClone(note.frontmatter), [note, i18n.locale]);
   const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body ?? "");
   const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types, i18n.locale]);
@@ -254,9 +256,12 @@ export function PropertiesPanel({
         <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}><Trans>Properties</Trans></button>
         <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}><Trans>Advanced</Trans></button>
       </div>
-      <ActionMenu label={t`Property options`} items={[
-        { label: mode === "source" ? t`Back to fields` : t`Edit as source`, icon: <FileCode2 aria-hidden="true" />, onSelect: () => setMode(mode === "source" ? "fields" : "source") }
-      ]} />
+      <div className="note-actions">
+        <button {...menu.triggerProps} className="icon-button" aria-label={t`Property options`}><MoreHorizontal aria-hidden="true" /></button>
+        <Menu open={menu.open} id={menu.id} label={t`Property options`} triggerRef={menu.trigger} onClose={menu.close}>
+          <button role="menuitem" className="mdbase-menu-item" onClick={() => { menu.close(true); setMode(mode === "source" ? "fields" : "source"); }}><FileCode2 aria-hidden="true" />{mode === "source" ? t`Back to fields` : t`Edit as source`}</button>
+        </Menu>
+      </div>
     </div>
 
     {mode === "fields" ? <fieldset disabled={readOnly} id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">

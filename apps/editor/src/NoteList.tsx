@@ -7,8 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type Keyboard
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { FilePlusIcon as FilePlus2, SidebarSimpleIcon as PanelLeft } from "./icons";
-import { ContextMenu } from "./ContextMenu";
-import type { ActionMenuItem } from "./ActionMenu";
+import { ContextMenu, type ActionMenuItem } from "./ContextMenu";
 import { NoteSearchField } from "./NoteSearchField";
 import type { CollectionFile } from "./model";
 import { folder, noteExcerpt, noteTimestamp, noteTitle } from "./note";

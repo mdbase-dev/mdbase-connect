@@ -1,28 +1,7 @@
 import { t } from "@lingui/core/macro";
-import { useLingui } from "@lingui/react";
-import { useEffect, useRef, useState } from "react";
-import { CheckCircleIcon as CheckCircle, WarningCircleIcon as CircleAlert, XIcon as X } from "./icons";
+import type { ToastItem } from "@mdbase-dev/ui/toast";
 
-export type ToastTone = "info" | "success" | "error";
-
-export interface ToastAction {
-  label: string;
-  onAction: () => void;
-  busy?: boolean;
-}
-
-export interface ToastItem {
-  id: string;
-  message: string;
-  tone: ToastTone;
-  action?: ToastAction;
-  sticky?: boolean;
-  dismissible?: boolean;
-  /** Overrides the default auto-dismiss delay. */
-  durationMs?: number;
-}
-
-const autoDismissMs = 6_000;
+type ToastTone = NonNullable<ToastItem["tone"]>;
 /** Matches TaskNotes: an Undo stays available for 30 seconds. */
 export const undoWindowMs = 30_000;
 
@@ -67,44 +46,4 @@ export function buildToastItems({
     action: { label: t`Resume rename`, onAction: onResumeRename }
   });
   return items;
-}
-
-export function ToastStack({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: string) => void }) {
-  useLingui();
-  useEffect(() => {
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
-      const toast = [...toasts].reverse().find((item) => item.dismissible !== false && !item.action?.busy);
-      if (toast) { event.preventDefault(); onDismiss(toast.id); }
-    };
-    window.addEventListener("keydown", escape);
-    return () => window.removeEventListener("keydown", escape);
-  }, [toasts, onDismiss]);
-  if (!toasts.length) return null;
-  return <div className="toast-stack" aria-label={t`Notifications`}>
-    {toasts.map((toast) => <Toast key={toast.id} toast={toast} onDismiss={onDismiss} />)}
-  </div>;
-}
-
-function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: string) => void }) {
-  useLingui();
-  const dismiss = () => onDismiss(toast.id);
-  const [paused, setPaused] = useState(false);
-  useAutoDismiss(toast, dismiss, paused);
-  return <div className={`toast toast-${toast.tone}`} role="status" data-toast={toast.id} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false); }}>
-    {toast.tone === "error" ? <CircleAlert aria-hidden="true" /> : toast.tone === "success" ? <CheckCircle aria-hidden="true" /> : null}
-    <span>{toast.message}</span>
-    {toast.action && <button disabled={toast.action.busy} onClick={toast.action.onAction}>{toast.action.label}</button>}
-    {toast.dismissible === false ? null : <button className="icon-button" aria-label={t`Dismiss notification`} disabled={toast.action?.busy} onClick={dismiss}><X aria-hidden="true" /></button>}
-  </div>;
-}
-
-function useAutoDismiss(toast: ToastItem, dismiss: () => void, paused: boolean) {
-  const dismissRef = useRef(dismiss);
-  dismissRef.current = dismiss;
-  useEffect(() => {
-    if (toast.sticky || toast.action?.busy || paused) return;
-    const timer = window.setTimeout(() => dismissRef.current(), toast.durationMs ?? autoDismissMs);
-    return () => window.clearTimeout(timer);
-  }, [toast.message, toast.sticky, toast.action?.busy, toast.durationMs, paused]);
 }

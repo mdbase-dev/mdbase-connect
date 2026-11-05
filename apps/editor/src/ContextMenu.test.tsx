@@ -3,6 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 import { ContextMenu } from "./ContextMenu";
 
 describe("ContextMenu", () => {
+  it("uses the shared top-layer menu at the pointer and closes on outside press", () => {
+    render(<ContextMenu label="Note actions" showTrigger={false} items={[
+      { label: "Copy path", icon: null, onSelect: vi.fn() }
+    ]}><button>Note row</button></ContextMenu>);
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Note row" }), { clientX: 120, clientY: 160 });
+    const menu = screen.getByRole("menu", { name: "Note actions" });
+    expect(menu).toHaveAttribute("popover", "manual");
+    expect(menu).toHaveClass("mdbase-overlay", "mdbase-menu");
+    expect(menu).toHaveStyle({ left: "120px", top: "160px" });
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
   it("disables unavailable actions, skips them in keyboard navigation, and restores focus on Escape", async () => {
     const unavailable = vi.fn();
     render(<ContextMenu label="Note actions" showTrigger={false} items={[

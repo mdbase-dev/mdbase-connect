@@ -168,8 +168,8 @@ test.describe("responsive themed view readiness", () => {
       await openDemoForLayout(page);
       await page.keyboard.press("Control+p");
       await page.getByRole("combobox", { name: "Find a note or action" }).fill(">");
-      await expect(page.getByRole("option").first()).toContainText("New note");
-      await expect(page.locator(".quick-open-command small").first()).toHaveCSS("font-family", /IBM Plex Sans/);
+      await expect(page.getByRole("dialog", { name: "Quick open" }).getByRole("option").first()).toContainText("New note");
+      await expect(page.locator(".mdbase-command-copy small").first()).toHaveCSS("font-family", /IBM Plex Sans/);
       await checkView("Quick open");
       await page.keyboard.press("Escape");
 

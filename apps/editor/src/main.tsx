@@ -18,6 +18,8 @@ import { createEditorMdbase, SdkEditorRoot } from "./SdkEditorRoot";
 import { EnvironmentBadge } from "./EnvironmentBadge";
 import { deliverAppGrantCallbackFrom, isAppGrantCallback } from "./private-collections";
 import "@mdbase-dev/ui/motion.css";
+import "@mdbase-dev/ui/palette.css";
+import "@mdbase-dev/ui/toast.css";
 import "./styles.css";
 import "./environment-badge.css";
 import { offlineShell } from "./offline-shell";

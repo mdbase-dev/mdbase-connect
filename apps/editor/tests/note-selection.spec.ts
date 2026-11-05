@@ -25,7 +25,7 @@ test("selection preserves the anchor, keyboard range works, batch tag changes sh
   await page.getByRole("textbox", { name: "Tag", exact: true }).fill("batch-test");
   await page.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCount(1);
-  await expect(page.locator('[data-toast="recovery"]')).toContainText("Updated 2 notes");
+  await expect(page.getByRole("status").filter({ has: page.getByRole("button", { name: "Undo", exact: true }) })).toContainText("Updated 2 notes");
   const search = page.getByRole("combobox", { name: "Search notes and files" });
   await search.fill("batch-test");
   await expect(list.getByRole("option")).toHaveCount(2);
@@ -51,7 +51,7 @@ test("pins persist only in All notes, selected drag moves all notes and Undo res
   await second.click({ modifiers: ["Control"] });
   await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
   await second.dragTo(page.getByRole("button", { name: /^Show notes in Archive,/ }));
-  await expect(page.locator('[data-toast="recovery"]')).toContainText("Moved 2 notes");
+  await expect(page.getByRole("status").filter({ has: page.getByRole("button", { name: "Undo", exact: true }) })).toContainText("Moved 2 notes");
   await expect(page.getByRole("button", { name: "Archive/the-shape-of-useful-tools.md", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.getByRole("button", { name: "Notes/the-shape-of-useful-tools.md", exact: true })).toBeVisible();
