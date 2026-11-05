@@ -4,7 +4,7 @@ import { MdbaseConnectError, type PendingMutationSummary } from "@mdbase-dev/con
 import type { CollectionGateway } from "./model";
 import type { NoteSession, NoteSessionStore } from "./note-session";
 import type { CollectionMutationScope } from "./collection-mutation-scope";
-import type { ToastItem } from "./Toasts";
+import type { ToastItem } from "@mdbase-dev/ui/toast";
 import { gatewayError } from "./gateway";
 
 export interface RenamePlan {

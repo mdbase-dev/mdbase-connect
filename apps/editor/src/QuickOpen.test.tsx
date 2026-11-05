@@ -1,11 +1,16 @@
 import { fireEvent, render, screen } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
-import { QuickOpen, ShortcutHelp } from "./QuickOpen";
+import { quickOpenResults, ShortcutHelp } from "./QuickOpen";
+import { CommandPalette } from "@mdbase-dev/ui/command-palette";
+
+function QuickOpen({ initialCommandMode, onClose, ...options }: Parameters<typeof quickOpenResults>[0] & { initialCommandMode?: boolean; onClose: () => void }) {
+  return <CommandPalette open commands={[]} initialQuery={initialCommandMode ? ">" : ""} onClose={onClose} getResults={query => quickOpenResults(options, query)} />;
+}
 
 describe("keyboard discovery", () => {
   it("offers the trimmed empty-search title for creation by Enter, not in command mode", () => {
     const create = vi.fn(), close = vi.fn();
-    render(<QuickOpen index={[]} recentPaths={[]} types={[]} onSelect={() => {}} onCreate={create} onClose={close} />);
+    render(<QuickOpen index={[]} recentPaths={[]} types={[]} commands={[]} onSelect={() => {}} onCreate={create} onClose={close} />);
     const input = screen.getByRole("combobox");
     expect(screen.queryByRole("option")).not.toBeInTheDocument();
     fireEvent.change(input, { target: { value: "  New idea  " } });
@@ -20,9 +25,9 @@ describe("keyboard discovery", () => {
   });
 
   it("does not offer creation without create permission", () => {
-    render(<QuickOpen index={[]} recentPaths={[]} types={[]} onSelect={() => {}} onClose={() => {}} />);
+    render(<QuickOpen index={[]} recentPaths={[]} types={[]} commands={[]} onSelect={() => {}} onClose={() => {}} />);
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "New idea" } });
-    expect(screen.getByText("No matching notes.")).toBeInTheDocument();
+    expect(screen.getByText("Nothing matches")).toBeInTheDocument();
     expect(screen.queryByRole("option")).not.toBeInTheDocument();
   });
   it.each(["MacIntel", "iPad", "Linux x86_64"])("shows one quick-open chord and link-only K on %s", (platform) => {
@@ -30,7 +35,7 @@ describe("keyboard discovery", () => {
     render(<ShortcutHelp onClose={() => {}} />);
     const modifier = platform === "Linux x86_64" ? "Ctrl" : "⌘";
     expect(screen.getByText(`${modifier} P`, { selector: "kbd" })).toBeInTheDocument();
-    expect(screen.getAllByText(`${modifier} K`, { selector: "kbd" })).toHaveLength(1);
+    expect(screen.getAllByText(`${modifier} K`, { selector: "kbd" })).toHaveLength(2);
     expect(screen.getByText("Add a link, in the note text")).toBeInTheDocument();
     expect(screen.queryByText("Quick open, outside the note text")).not.toBeInTheDocument();
   });
@@ -40,7 +45,7 @@ describe("keyboard discovery", () => {
     render(<QuickOpen index={[]} recentPaths={[]} types={[]} initialCommandMode commands={[{ id: "focus", label: "Focus mode", shortcut: "Mod Shift F", run }, { id: "copy-path", label: "Copy path", run }]} onSelect={() => {}} onClose={close} />);
     const input = screen.getByRole("combobox");
     expect(input).toHaveValue(">");
-    expect(screen.getByText(/Shift F/, { selector: "kbd" })).toBeInTheDocument();
+    expect(screen.getByText(/Shift\+F/, { selector: "kbd" })).toBeInTheDocument();
     fireEvent.change(input, { target: { value: ">fcs md" } });
     expect(screen.getAllByRole("option")).toHaveLength(1);
     fireEvent.keyDown(input, { key: "Enter" });
@@ -57,7 +62,7 @@ describe("keyboard discovery", () => {
     render(<QuickOpen index={[]} recentPaths={[]} types={[]} commands={commands} onSelect={() => {}} onClose={() => {}} />);
     const input = screen.getByRole("combobox");
     fireEvent.keyDown(input, { key: "End" });
-    expect(input).toHaveAttribute("aria-activedescendant", "quick-open-19");
+    expect(document.getElementById(input.getAttribute("aria-activedescendant")!)).toHaveTextContent("Action 19");
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
     fireEvent.change(input, { target: { value: ">missing" } });
     fireEvent.keyDown(input, { key: "ArrowDown" });
@@ -65,6 +70,5 @@ describe("keyboard discovery", () => {
     fireEvent.change(input, { target: { value: ">Action 0" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(run).toHaveBeenCalledOnce();
-    delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
   });
 });

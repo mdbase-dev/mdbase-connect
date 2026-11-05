@@ -33,6 +33,23 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 describe("mdbase editor", () => {
+  it("uses shared menu groups without making separators keyboard stops", async () => {
+    render(<App gateway={new DemoCollectionGateway(3)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    const trigger = screen.getByRole("button", { name: "More note actions" });
+    fireEvent.click(trigger);
+    const menu = screen.getByRole("menu", { name: "More note actions" });
+    expect(within(menu).getAllByRole("separator")).toHaveLength(3);
+    const items = within(menu).getAllByRole("menuitem").filter(item => !(item as HTMLButtonElement).disabled);
+    await waitFor(() => expect(items[0]).toHaveFocus());
+    for (const item of items.slice(1)) {
+      fireEvent.keyDown(menu, { key: "ArrowDown" });
+      expect(item).toHaveFocus();
+    }
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(trigger).toHaveFocus();
+  });
+
   it("opens a v2 viewer grant for reading without writable controls", async () => {
     class ViewerGateway extends DemoCollectionGateway {
       protected currentConnection(): ConnectionSummary {
@@ -656,7 +673,7 @@ describe("mdbase editor", () => {
     expect(gateway.watchCalls).toBe(1);
   });
 
-  it.each(["ctrlKey", "metaKey"] as const)("uses P everywhere and leaves K alone outside note text (%s)", async (modifier) => {
+  it.each(["ctrlKey", "metaKey"] as const)("uses P everywhere and shares K search outside text inputs (%s)", async (modifier) => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
     const body = await screen.findByRole("textbox", { name: "Note body" });
     const search = screen.getByRole("combobox", { name: "Search notes and files" });
@@ -665,7 +682,10 @@ describe("mdbase editor", () => {
       target.focus();
       const unhandled = fireEvent.keyDown(target, { key: "k", [modifier]: true });
       if (target !== body) expect(unhandled).toBe(false);
-      expect(screen.queryByRole("dialog", { name: "Quick open" })).not.toBeInTheDocument();
+      if (target.tagName === "BUTTON") {
+        expect(screen.getByRole("dialog", { name: "Quick open" })).toBeInTheDocument();
+        fireEvent.keyDown(window, { key: "Escape" });
+      } else expect(screen.queryByRole("dialog", { name: "Quick open" })).not.toBeInTheDocument();
       fireEvent.keyDown(target, { key: "p", [modifier]: true });
       expect(screen.getByRole("dialog", { name: "Quick open" })).toBeInTheDocument();
       fireEvent.keyDown(window, { key: "Escape" });
@@ -686,7 +706,7 @@ describe("mdbase editor", () => {
 
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
     const quickOpen = await screen.findByRole("dialog", { name: "Quick open" });
-    expect(within(quickOpen).getByText("Recent notes and actions")).toBeInTheDocument();
+    expect(within(quickOpen).getByText("Notes", { selector: '[role="presentation"]' })).toBeInTheDocument();
     const finder = within(quickOpen).getByRole("combobox", { name: "Find a note or action" });
     await user.type(finder, "qstn kpng");
     expect(within(quickOpen).getByRole("option", { name: /Questions worth keeping 7/ })).toBeInTheDocument();
@@ -714,7 +734,7 @@ describe("mdbase editor", () => {
     expect(help).toHaveTextContent("Bold or italic");
     expect(help).toHaveTextContent("Markdown commands");
     expect(help).toHaveTextContent("Next or previous note");
-    await user.click(within(help).getByRole("button", { name: "Close keyboard shortcuts" }));
+    await user.click(within(help).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Shortcuts" })).not.toBeInTheDocument();
   });
 
