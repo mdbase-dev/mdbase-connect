@@ -7,7 +7,7 @@ it.each(["Trusted Brand", "<0/>", "<b>x</b>", String.raw`name\path`])("describes
   const {container}=render(<RequestIdentity request={request}/>);
   expect(screen.getByRole("heading",{name:"Connect an app"})).toBeInTheDocument();
   expect(screen.getByText("an app running on this computer")).toBeInTheDocument();
-  expect(screen.getByRole("note")).toHaveTextContent(`Application identity unverified. This app calls itself ${application_name}.`);
+  expect(screen.getByRole("note")).toHaveTextContent(`App identity unverified. This app calls itself ${application_name}.`);
   expect(container.querySelector("img")).toBeNull();
   expect(screen.queryByText(/recognize this exact site/)).not.toBeInTheDocument();
 });

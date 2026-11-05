@@ -326,6 +326,10 @@ msgstr "Приложение"
 msgid "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
 msgstr "Сейчас эту папку использует другое приложение, например Obsidian. mdbase откроет её, когда приложение освободит её."
 
+#: src/renderer/main.tsx
+msgid "Another device"
+msgstr "Другое устройство"
+
 #: src/renderer/takeover-state.mts
 msgid "another program is writing to the folder"
 msgstr "другая программа записывает данные в папку"
@@ -546,6 +550,10 @@ msgstr "Выберите, где создать папку коллекции"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Выберите, где создать папку."
+
+#: src/renderer/collections-view.tsx
+msgid "Clear filter"
+msgstr "Сбросить фильтр"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -774,6 +782,10 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Введите имя этого компьютера."
 
+#: src/renderer/collections-view.tsx
+msgid "Filter collections"
+msgstr "Фильтр коллекций"
+
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Finish in your browser."
@@ -887,6 +899,10 @@ msgstr "Сохраняет подключение приложений на др
 #: src/renderer/activity-view.tsx
 msgid "Kept on this computer only: the last 200 changes."
 msgstr "Хранится только на этом компьютере: последние 200 изменений."
+
+#: src/renderer/main.tsx
+msgid "Keyboard shortcuts"
+msgstr "Сочетания клавиш"
 
 #: src/renderer/language-setting.tsx
 msgid "Language"
@@ -1378,6 +1394,12 @@ msgstr "Проверить"
 #: src/renderer/collections-view.tsx
 msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "Проверить {0, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}"
+
+#. placeholder {0}: device.name ?? unnamedDevice
+#. placeholder {0}: entry.app_name
+#: src/renderer/main.tsx
+msgid "Review {0}"
+msgstr "Проверить {0}"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1968,6 +1990,7 @@ msgid "Waiting for you"
 msgstr "Ожидается ваше решение"
 
 #: src/renderer/access-view.tsx
+#: src/renderer/main.tsx
 msgid "Waiting for your approval"
 msgstr "Ожидание вашего одобрения"
 

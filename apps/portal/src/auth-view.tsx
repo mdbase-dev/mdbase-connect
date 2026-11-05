@@ -76,7 +76,7 @@ function AuthInput({ label, matchValue, maxCharacters, onChange, onBlur, ...prop
 function Loading({ error }: { error: string }) {
   useLocaleRevision();
   return <MinimalAuthPage><section className="mdbase-page-panel" aria-busy={!error}>
-    <h1>{error ? t(i18n)({ message: "Couldn’t connect", context: "Account sign-in" }) : t(i18n)({ message: "Opening mdbase connect", context: "Account sign-in" })}</h1>
+    <h1>{error ? t(i18n)({ message: "Couldn’t connect", context: "Account sign-in" }) : t(i18n)({ message: "Opening mdbase Connect", context: "Account sign-in" })}</h1>
     <p role={error ? "alert" : "status"}>{error || t(i18n)({ message: "Just a moment…", context: "Account sign-in" })}</p>
     {error && <button className="mdbase-button is-primary" onClick={() => location.reload()}><Trans>Try again</Trans></button>}
   </section></MinimalAuthPage>;
@@ -149,7 +149,7 @@ export function Login() {
       <section className="mdbase-page-panel">
         <h1>{continuingAuthorization ? t(i18n)({ message: "Sign in to continue", context: "Account sign-in" }) : t(i18n)({ message: "Sign in", context: "Account sign-in" })}</h1>
         <p><Trans>Connect apps to your Markdown files, on your computers or hosted by mdbase.</Trans></p>
-        {continuingAuthorization && <p><Trans>Sign in, review the request, and return to the application.</Trans></p>}
+        {continuingAuthorization && <p><Trans>Sign in, review the request, and return to the app.</Trans></p>}
         {new URLSearchParams(location.search).get("reason") === "session-expired" && <p role="status"><Trans>Your session expired. Sign in to pick up where you left off.</Trans></p>}
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         <AuthProviders providers={providers} divider={false} onError={setError} />
@@ -291,7 +291,7 @@ export function ForgotPassword() {
       <section className="mdbase-page-panel">
         <h1>{submitted ? t(i18n)({ message: "Check your email", context: "Account sign-in" }) : t(i18n)({ message: "Reset your password", context: "Account sign-in" })}</h1>
         <p role={submitted ? "status" : undefined} aria-live={submitted ? "polite" : undefined}>{submitted
-          ? t(i18n)({ message: "If an mdbase connect account uses that address, its one-time reset link is on the way." })
+          ? t(i18n)({ message: "If an mdbase Connect account uses that address, its one-time reset link is on the way." })
           : available
             ? t(i18n)({ message: "We’ll email you a reset link. It expires in one hour." })
             : t(i18n)({ message: "Password recovery is temporarily unavailable. You can still return to sign in." })}</p>
@@ -609,9 +609,7 @@ export function Signup({
         <p role={requestSubmitted ? "status" : undefined} aria-live={requestSubmitted ? "polite" : undefined}>
           {requestSubmitted
             ? t(i18n)({ message: "If that address can be used, its one-time verification link is on the way." })
-            : config.external_public_registration
-              ? config.password_public_registration ? t(i18n)({ message: "Use a connected account, or verify your email to get started." }) : t(i18n)({ message: "Use a connected account to get started." })
-              : t(i18n)({ message: "We’ll email you a link to verify your address. Then you can choose a password." })}
+            : t(i18n)`Connect apps to your Markdown files, on your computers or hosted by mdbase.`}
         </p>
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         {!requestSubmitted && config.external_public_registration && (

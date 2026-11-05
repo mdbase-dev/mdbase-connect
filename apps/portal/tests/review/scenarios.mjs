@@ -130,6 +130,7 @@ const definitions = [
   ["empty-account", "/collections", "No collections", 0],
   ["single-collection", "/?collection=collection-0", "Field research", 1],
   ["typical-account", "/collections", "Collections", 5],
+  ["sync-conflict", "/access?collection=hosted-0", "Sync conflict", 5],
   ["computer-connected", "/collections", "Connected", 5, state => { state.overview.connectors[0].last_seen_at = new Date().toISOString(); }],
   ["heavy-account", "/collections", "Collections", 64],
   ["pairing-fresh", pair, "Open in Reader", 5, state => { state.pairing.account_selection_confirmed = false; }],

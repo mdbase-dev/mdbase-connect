@@ -34,7 +34,7 @@ export function collectionCompatibility(
       compatible: false,
       code: "collection_kind",
       label: t(i18n)({ message: "Cloud collection required" }),
-      detail: t(i18n)({ message: "This application needs a collection hosted by mdbase." })
+      detail: t(i18n)({ message: "This app needs a collection hosted by mdbase." })
     };
   }
   if (requiresMdbase03(request.requested_operations) && !supportsMdbase03(collection.spec_version)) {

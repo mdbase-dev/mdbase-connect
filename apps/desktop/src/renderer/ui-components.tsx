@@ -21,6 +21,7 @@ export function ProductSidebar({
   collectionCount,
   pendingCount,
   deviceCount,
+  signingIn,
   connection,
   computerName,
   onSelect,
@@ -31,6 +32,7 @@ export function ProductSidebar({
   pendingCount: number;
   /** New devices waiting to open a Private collection. */
   deviceCount?: number;
+  signingIn: boolean;
   connection: { dot: ConnectionDotState; label: string };
   computerName: string;
   onSelect(route: Route): void;
@@ -41,7 +43,7 @@ export function ProductSidebar({
   const pill = useRef<HTMLSpanElement>(null);
   useNavPill(nav, pill);
   return <aside id="product-navigation" className="product-sidebar">
-    <div className="product-sidebar-brand"><Brand /></div>
+    <div className="product-sidebar-brand"><Brand signingIn={signingIn} /></div>
     <button className="sidebar-search" onClick={onSearch}><span>{t(i18n)({ message: "Search", context: "Connect interface" })}</span><kbd>{shortcutLabel("mod+k")}</kbd></button>
     <nav ref={nav} className="product-sidebar-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
       <span ref={pill} className="nav-pill" aria-hidden="true" hidden />
@@ -63,10 +65,10 @@ export function ProductSidebar({
   </aside>;
 }
 
-export function MobileProductBar({ open, onOpen }: { open: boolean; onOpen(): void }) {
+export function MobileProductBar({ open, signingIn, onOpen }: { open: boolean; signingIn: boolean; onOpen(): void }) {
   useLocaleRevision();
   return <header className="mobile-product-bar">
-    <Brand />
+    <Brand signingIn={signingIn} />
     <button className="mobile-navigation-button" aria-label={t(i18n)({ message: "Open navigation", context: "Connect interface" })} aria-controls="product-navigation" aria-expanded={open} onClick={onOpen}><span /></button>
   </header>;
 }
@@ -98,10 +100,10 @@ export function StatusDot({ state }: { state: ConnectionDotState }) {
   return <StatusGlyph state={glyphForDot[state]} />;
 }
 
-export function Brand() {
+export function Brand({ signingIn }: { signingIn: boolean }) {
   useLocaleRevision();
   const { signal, busy } = useMdbaseMarkActivity();
-  return <div className="product-brand"><MdbaseMark className="product-brand-mark" motion={busy ?? "keys-first"} signal={signal} /><strong>mdbase</strong><span className="product-brand-label">connect</span></div>;
+  return <div className="product-brand"><MdbaseMark className="product-brand-mark" motion={busy ?? (signingIn ? "keys-first" : undefined)} signal={signal} /><strong>mdbase</strong><span className="product-brand-label">connect</span></div>;
 }
 
 export function SettingSwitch({ className, label, description, checked, disabled, stateLabel, onChange }: {

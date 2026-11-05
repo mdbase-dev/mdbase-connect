@@ -1,5 +1,6 @@
 /* Shared by the portal palette and Editor quick open after its npm repin. */
 .mdbase-dialog.mdbase-command-palette {
+  --accent-soft: var(--color-accent-soft);
   width: min(var(--palette-width), calc(100vw - 16px));
   margin: var(--palette-top) auto auto;
   max-height: calc(100dvh - var(--palette-top) - 16px);
@@ -98,6 +99,11 @@
   max-width: 100%;
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
+}
+
+.mdbase-command-results mark {
+  color: inherit;
+  background: var(--accent-soft);
 }
 
 .mdbase-command-results small {

@@ -1,17 +1,22 @@
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
 import { buildPolicySnapshot } from "./relay-policy.js";
 import { ExactPolicyPublisher } from "./relay-policy-session.js";
 import { RelayHub } from "./relay.js";
 import { registerGrantRevocationRoute } from "./features/authorizations/grant-revocation-route.js";
+import { registerConnectorGrantRoutes } from "./features/grants/connector-routes.js";
+import { registerErrorHandler } from "./platform/error-handler.js";
+import { tokenHash } from "./security.js";
+import { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 import { confirmLocalGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "./local-grant-revocation.js";
 
 const databases: DatabasePool[] = [];
 const schemaCleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(databases.splice(0).map((db) => db.end()));
   await Promise.all(schemaCleanups.splice(0).map((cleanup) => cleanup()));
 });
@@ -76,6 +81,137 @@ export async function exerciseRevocationBarrier(db: DatabasePool, id: string) {
 }
 
 describe("truthful local revocation", () => {
+  describe.each(["single", "batch", "connector"] as const)("%s post-commit delivery", (mode) => {
+    it.each([
+      ["offline", false], ["policy_apply_failed", false], ["offline", true], ["acknowledged", true]
+    ] as const)("returns durable status after %s (confirmed: %s)", async (delivery, confirmed) => {
+      const { db, id } = await fixture();
+      await db.query(`UPDATE grants SET reauthorization_required_at=now(),
+        reauthorization_reason='collection_level_authorization' WHERE id=$1`, [id]);
+      await db.query("UPDATE connectors SET token_hash=$1 WHERE id=$2", [tokenHash("test-connector"), id]);
+      const relay = new RelayHub(db);
+      const push = vi.spyOn(relay, "pushPolicy").mockImplementation(async () => {
+        expect((await db.query("SELECT revoked_at FROM grants WHERE id=$1", [id])).rows[0].revoked_at).not.toBeNull();
+        if (confirmed) await db.query("UPDATE grants SET revocation_confirmed_at=now() WHERE id=$1", [id]);
+        if (delivery === "offline") throw new RelayUnavailableError();
+        if (delivery === "policy_apply_failed") throw new ConnectorOperationError(delivery, "private daemon detail");
+      });
+      const logs: string[] = [];
+      const app = Fastify({ logger: { stream: { write: (line: string) => { logs.push(line); } } } });
+      registerErrorHandler(app);
+      registerGrantRevocationRoute(app, { db, relay, tailscaleAuth: true, drainProviderRevocations: async () => {} });
+      registerConnectorGrantRoutes(app, { db, relay });
+      try {
+        const response = await app.inject({
+          method: mode === "batch" ? "POST" : "DELETE",
+          url: mode === "batch" ? "/v1/grants/revoke-batch" : `/v1/${mode === "connector" ? "connectors/grants" : "grants"}/${id}`,
+          headers: mode === "connector" ? { authorization: "Bearer test-connector" } : { "tailscale-user-login": `${id}@example.test` },
+          ...(mode === "batch" ? { payload: { grant_ids: [id] } } : {})
+        });
+        const status = confirmed ? "revoked" : "revoking";
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual(mode === "batch"
+          ? { ok: true, results: [{ grant_id: id, status }] } : { ok: true, revocation_status: status });
+        expect(push).toHaveBeenCalledExactlyOnceWith(id);
+        const events = (await db.query("SELECT event_type, subject_id, metadata FROM audit_events WHERE user_id=$1", [id])).rows;
+        expect(events).toEqual([{
+          event_type: confirmed ? "grant.revoked" : "grant.revocation_requested", subject_id: id,
+          metadata: { revocation_status: status, ...(mode === "batch" ? { batch: true } : mode === "connector" ? { connector_id: id } : {}) }
+        }]);
+        if (mode !== "connector") {
+          expect((await db.query("SELECT reauthorization_required_at, reauthorization_reason FROM grants WHERE id=$1", [id])).rows[0])
+            .toEqual({ reauthorization_required_at: null, reauthorization_reason: null });
+        }
+        for (const table of ["access_tokens", "refresh_tokens"]) {
+          expect((await db.query(`SELECT revoked_at FROM ${table} WHERE grant_id=$1`, [id])).rows[0].revoked_at).not.toBeNull();
+        }
+        expect(logs.filter((line) => line.includes("Grant revocation delivery deferred"))).toHaveLength(delivery === "acknowledged" ? 0 : 1);
+        expect(logs.join("")).not.toContain("private daemon detail");
+      } finally { await app.close(); await relay.close(); }
+    });
+  });
+
+  it.each([false, true])("uses one status query and audit insert for 100 grants (push rejects: %s)", async (rejectPush) => {
+    const { db, id } = await fixture();
+    const grantIds = [id, ...Array.from({ length: 99 }, () => randomUUID())];
+    for (const grantId of grantIds.slice(1)) {
+      await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,scope,application_installation_id,application_authorization)
+        VALUES($1,$2,$2,$2,'["read"]','{"access":"full_collection","contracts":[]}',$1,
+        '{"binding":{"protocol_version":4,"contracts":{"semantic_capabilities":1}}}')`, [grantId, id]);
+    }
+    const relay = new RelayHub(db);
+    const push = vi.spyOn(relay, "pushPolicy").mockImplementation(async () => {
+      if (rejectPush) throw new RelayUnavailableError();
+      await db.query("UPDATE grants SET revocation_confirmed_at=now() WHERE id=$1", [id]);
+    });
+    const app = Fastify();
+    registerGrantRevocationRoute(app, { db, relay, tailscaleAuth: true, drainProviderRevocations: async () => {} });
+    const statements: string[] = [];
+    const selectedIds: string[] = [];
+    const query = db.query.bind(db);
+    vi.spyOn(db, "query").mockImplementation(async (text, values) => {
+      statements.push(text);
+      const result = await query(text, values);
+      if (text.includes("LEFT JOIN collections col ON col.id = g.collection_id")) {
+        selectedIds.push(...result.rows.map((row) => row.id));
+      }
+      return result;
+    });
+    const connect = db.connect.bind(db);
+    vi.spyOn(db, "connect").mockImplementation(async () => {
+      const connection = await connect();
+      if (connection === db) return connection;
+      const connectionQuery = connection.query.bind(connection);
+      vi.spyOn(connection, "query").mockImplementation((text, values) => { statements.push(text); return connectionQuery(text, values); });
+      return connection;
+    });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/grants/revoke-batch",
+        headers: { "tailscale-user-login": `${id}@example.test` }, payload: { grant_ids: grantIds } });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(selectedIds).toHaveLength(100);
+      expect(new Set(selectedIds)).toEqual(new Set(grantIds));
+      expect(response.json()).toEqual({ ok: true, results: selectedIds.map((grantId) => ({
+        grant_id: grantId, status: grantId === id && !rejectPush ? "revoked" : "revoking"
+      })) });
+      expect(push).toHaveBeenCalledExactlyOnceWith(id);
+      expect(statements.filter((sql) => sql.includes("END AS status"))).toHaveLength(1);
+      expect(statements.filter((sql) => sql.includes("INSERT INTO audit_events"))).toHaveLength(1);
+      expect(statements).toHaveLength(rejectPush ? 13 : 14);
+      const events = (await query("SELECT subject_id, event_type, metadata FROM audit_events WHERE user_id=$1", [id])).rows;
+      expect(events).toHaveLength(100);
+      for (const event of events) {
+        const status = event.subject_id === id && !rejectPush ? "revoked" : "revoking";
+        expect(event).toEqual({ subject_id: event.subject_id,
+          event_type: status === "revoked" ? "grant.revoked" : "grant.revocation_requested",
+          metadata: { revocation_status: status, batch: true } });
+      }
+    } finally { await app.close(); await relay.close(); }
+  });
+
+  it("continues delivery to other connectors after one batch push rejects", async () => {
+    const { db, id } = await fixture();
+    const other = await revocationFixture(db);
+    await db.query("UPDATE grants SET user_id=$1 WHERE id=$2", [id, other]);
+    const relay = new RelayHub(db);
+    const push = vi.spyOn(relay, "pushPolicy").mockImplementation(async (connectorId) => {
+      await db.query("UPDATE grants SET revocation_confirmed_at=now() WHERE id=$1", [connectorId]);
+    }).mockRejectedValueOnce(new RelayUnavailableError());
+    const app = Fastify();
+    registerGrantRevocationRoute(app, { db, relay, tailscaleAuth: true, drainProviderRevocations: async () => {} });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/grants/revoke-batch",
+        headers: { "tailscale-user-login": `${id}@example.test` }, payload: { grant_ids: [id, other] } });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json()).toMatchObject({ ok: true, results: expect.arrayContaining([
+        ...[id, other].map((grantId) => ({ grant_id: grantId,
+          status: grantId === push.mock.calls[0][0] ? "revoking" : "revoked" }))
+      ]) });
+      expect(push).toHaveBeenCalledTimes(2);
+      expect((await db.query("SELECT subject_id FROM audit_events WHERE user_id=$1", [id])).rows).toHaveLength(2);
+    } finally { await app.close(); await relay.close(); }
+  });
+
   it.skipIf(!process.env.MDBASE_CONNECT_TEST_DATABASE_URL)("PostgreSQL serializes revocation behind an in-flight snapshot cut", async () => {
     const { db, id } = await fixture();
     const snapshotLocked = Promise.withResolvers<void>();

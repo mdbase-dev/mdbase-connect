@@ -326,6 +326,10 @@ msgstr "Una aplicación"
 msgid "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
 msgstr "Otra aplicación, como Obsidian, está usando esta carpeta. mdbase la abrirá cuando la otra aplicación deje de usarla."
 
+#: src/renderer/main.tsx
+msgid "Another device"
+msgstr "Otro dispositivo"
+
 #: src/renderer/takeover-state.mts
 msgid "another program is writing to the folder"
 msgstr "otro programa está escribiendo en la carpeta"
@@ -546,6 +550,10 @@ msgstr "Elige dónde crear la carpeta de la colección"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Elige dónde crear la carpeta."
+
+#: src/renderer/collections-view.tsx
+msgid "Clear filter"
+msgstr "Borrar filtro"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -774,6 +782,10 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Introduce un nombre para este ordenador."
 
+#: src/renderer/collections-view.tsx
+msgid "Filter collections"
+msgstr "Filtrar colecciones"
+
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Finish in your browser."
@@ -887,6 +899,10 @@ msgstr "Mantiene conectadas a este ordenador las aplicaciones de tus otros dispo
 #: src/renderer/activity-view.tsx
 msgid "Kept on this computer only: the last 200 changes."
 msgstr "Conservados solo en este ordenador: los últimos 200 cambios."
+
+#: src/renderer/main.tsx
+msgid "Keyboard shortcuts"
+msgstr "Atajos de teclado"
 
 #: src/renderer/language-setting.tsx
 msgid "Language"
@@ -1378,6 +1394,12 @@ msgstr "Revisar"
 #: src/renderer/collections-view.tsx
 msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "Revisar {0, plural, one {# archivo} other {# archivos}}"
+
+#. placeholder {0}: device.name ?? unnamedDevice
+#. placeholder {0}: entry.app_name
+#: src/renderer/main.tsx
+msgid "Review {0}"
+msgstr "Revisar {0}"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1968,6 +1990,7 @@ msgid "Waiting for you"
 msgstr "Esperando tu decisión"
 
 #: src/renderer/access-view.tsx
+#: src/renderer/main.tsx
 msgid "Waiting for your approval"
 msgstr "Esperando tu aprobación"
 

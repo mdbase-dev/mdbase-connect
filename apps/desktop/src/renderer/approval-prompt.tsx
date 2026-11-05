@@ -7,8 +7,9 @@ import React from "react";
  * computer asking to open a Private collection. Both say who is asking, what
  * they will be able to do, and what to check before approving.
  */
-export function ApprovalPrompt({ title, can, check, note, approveLabel, declineLabel, approveDisabled, busy, onApprove, onDecline }: {
+export function ApprovalPrompt({ title, commandId, can, check, note, approveLabel, declineLabel, approveDisabled, busy, onApprove, onDecline }: {
   title: string;
+  commandId: string;
   /** "If you approve, ..." */
   can?: string;
   /** What to compare before approving, if anything. */
@@ -23,7 +24,7 @@ export function ApprovalPrompt({ title, can, check, note, approveLabel, declineL
 }) {
   useLocaleRevision();
   return (
-    <article className="grant-review approval-prompt">
+    <article className="grant-review approval-prompt" data-command={commandId} data-list-item tabIndex={-1}>
       <div className="grant-identity">
         <h3>{title}</h3>
         {can && <small>{can}</small>}

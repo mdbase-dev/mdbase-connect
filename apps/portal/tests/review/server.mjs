@@ -22,7 +22,7 @@ const google = `window.google = { accounts: { id: {
   }
 } } };`;
 
-export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "http://127.0.0.1:4814/?demo=300" } = {}) {
+export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "http://127.0.0.1:4802/?demo=300" } = {}) {
   const sessions = new Map();
   const feedback = [];
   return createServer(async (request, response) => {
@@ -78,8 +78,23 @@ export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "htt
           state.returnTo = localTarget(url.searchParams.get("return_to"));
           return send({ client_id: "local-review", nonce: "local-review" });
         }
-        if (path === "/auth/google/callback" && method === "POST") { signIn(); return send({ redirect_to: state.returnTo ?? "/collections" }); }
-        if (path === "/auth/github" && method === "GET") { signIn(); return redirect(localTarget(url.searchParams.get("return_to"))); }
+        if ((path === "/auth/google/callback" && method === "POST") || (path === "/auth/github" && method === "GET")) {
+          if (path === "/auth/github") state.returnTo = localTarget(url.searchParams.get("return_to"));
+          const target = state.name === "signup" && !state.signedIn
+            ? `/signup?external=1&return_to=${encodeURIComponent(state.returnTo ?? "/")}`
+            : state.returnTo ?? "/collections";
+          if (state.name !== "signup" || state.signedIn) signIn();
+          return path === "/auth/github" ? redirect(target) : send({ redirect_to: target });
+        }
+        if (path === "/v1/auth/external/signup/preview" && method === "POST" && state.name === "signup") {
+          return send({ proof_id: "review-external-proof", email: data.user.email, name: data.user.name });
+        }
+        if (path === "/v1/auth/external/signup" && method === "POST" && state.name === "signup") {
+          if (body.proof_id !== "review-external-proof" || body.terms_version !== "1" || body.privacy_version !== "1") return send(error("Accept the review agreements"), 400);
+          data.user.name = body.name;
+          signIn();
+          return send({ redirect_to: state.returnTo === "/" ? "/getting-started" : state.returnTo });
+        }
         if (path === "/v1/auth/password/login" && method === "POST") { signIn(); return send({ ok: true }); }
         if (path === "/v1/auth/password/signup/verification" && method === "POST") return send({ verification: { email: state.verificationEmail ?? data.user.email } });
         if (path === "/v1/auth/password/signup/request" && method === "POST") { state.verificationEmail = body.email; return send({ ok: true }); }
@@ -128,6 +143,7 @@ export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "htt
           const [, collectionId, resource, itemId] = sharing;
           if (!data.hosted_collections.some(collection => collection.id === collectionId)) return send(error("Collection not found"), 404);
           if (state.name === "provider-unavailable") return send(error("The hosted provider is unavailable. Try again shortly."), 503);
+          if (state.name === "sync-conflict") return send(error("Sync conflict: reconcile the Studio and Travel replicas before changing access.", "sync_conflict"), 409);
           const items = (state[resource][collectionId] ??= []);
           if (method === "GET") return send({ [resource]: items });
           if (resource === "invitations" && method === "POST") {

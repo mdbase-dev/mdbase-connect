@@ -705,7 +705,15 @@ async fn close_dead<H: RelayHost>(
                 Some(current) => current().await,
                 None => false,
             };
-            (!allowed).then(|| "grant_inactive".into())
+            if allowed {
+                None
+            } else {
+                Some(
+                    host.grant_refusal(&p.collection, &p.grant)
+                        .await
+                        .unwrap_or_else(|| crate::access::Refusal::Unavailable.reason().into()),
+                )
+            }
         } else {
             host.grant_refusal(&p.collection, &p.grant).await
         };
@@ -783,9 +791,14 @@ async fn open_pipe<H: RelayHost>(
                 == Ok(true);
             if !activated {
                 crate::session_diagnostics::pre_live("grant_not_live");
-                let _ = out2
-                    .send(PipeOut::Close(pipe, "grant_inactive".into()))
-                    .await;
+                let reason = h
+                    .grant_refusal(
+                        &secrets::uuid_string(&collection),
+                        &secrets::uuid_string(&grant),
+                    )
+                    .await
+                    .unwrap_or_else(|| crate::access::Refusal::Unavailable.reason().into());
+                let _ = out2.send(PipeOut::Close(pipe, reason)).await;
                 return;
             }
         }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { pipeCloseError } from "../src/transport/relay-pipe.js";
 import { relayCloseFromDetails } from "../src/transport/relay-close.js";
 
@@ -11,7 +12,16 @@ const classes = [
   [4404, "connector_offline"], [4429, "connector_busy"], [4999, "other"],
 ] as const;
 
+const grantRefusals = JSON.parse(readFileSync(new URL("../../../conformance/relay-grant-refusals.json", import.meta.url), "utf8")) as {
+  name: string; reason: string; close_code: number;
+}[];
+
 describe("bounded relay close diagnostics", () => {
+  it.each(grantRefusals)("preserves the daemon/server recovery contract for $name", ({ reason, close_code }) => {
+    expect(pipeCloseError(close_code, reason)).toMatchObject({
+      code: close_code === 4000 ? "unavailable" : "forbidden", reason,
+    });
+  });
   it.each(classes)("keeps numeric close code %i and fixed class %s without raw text", (code, closeClass) => {
     const raw = "PRIVATE_UNKNOWN_CLOSE_TEXT_/some/path?token=do-not-retain";
     const error = pipeCloseError(code, raw);

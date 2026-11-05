@@ -62,6 +62,7 @@ class ResizeObserverStub implements ResizeObserver {
 }
 
 globalThis.ResizeObserver = ResizeObserverStub;
+Element.prototype.scrollIntoView = vi.fn();
 
 const emptyRect = (): DOMRect => ({
   x: 0,

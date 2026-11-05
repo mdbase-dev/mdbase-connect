@@ -274,9 +274,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       {installationAccountLabel(pairing) && <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>}
       <p className="mdbase-connect-lead" role="alert">{refusal.message}</p>
       <footer className="approval-footer">
-        <p className="approval-receipt">{pairing.return_url
-          ? <a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>
-          : t(i18n)`Return to ${pairing.connector_name}.`}</p>
+        {pairing.return_url && <p className="approval-receipt"><a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a></p>}
         <div className="approval-actions">
           {(!outcome || retry) && <button className="mdbase-button is-secondary" disabled={busy} onClick={() => void act("deny")}><Trans>Cancel</Trans></button>}
           {!outcome && <button className="mdbase-button is-primary" disabled={busy} onClick={() => setAttempt(value => value + 1)}><Trans>Check again</Trans></button>}
@@ -377,17 +375,17 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     {privateChoice && <p className="field-note"><Trans>This collection stays on your computer. It can connect when a computer signed in to this account is available.</Trans></p>}
                     {privateChoice && !pairing.native_authorization_id && <p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>}
                     {!privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || pairing.retained_collection_ids?.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="mdbase-disclosure installation-advanced">
-                      <summary><Trans>Allow access to additional collections</Trans></summary>
+                      <summary><Trans>Allow offline access to additional collections</Trans></summary>
                       <CheckboxGroup legend={t(i18n)({ message: "Additional collection access" })} disabled={busy}>
                         {(pairing.collections??[]).filter(c=>c.kind!=="private").map(collection=>(
                           <div className="collection-picker-option installation-additional-collection" key={collection.collection_id}>
                             <Checkbox checked={collection.collection_id===selectedCollectionId || collectionIds.includes(collection.collection_id)} disabled={collection.collection_id===selectedCollectionId || pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...new Set([...ids,collection.collection_id])]:ids.filter(id=>id!==collection.collection_id))}>
                               <CollectionIdentity name={collection.display_name} location={collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`} kind={collection.kind ?? "cloud_copy"} />{pairing.retained_collection_ids?.includes(collection.collection_id) ? t(i18n)` (already allowed)` : ""}
                             </Checkbox>
-                            {pairing.scope_only && pairing.retained_collection_ids?.includes(collection.collection_id) && <button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(collection.collection_id)}><Trans>Remove access</Trans></button>}
+                            {pairing.scope_only && pairing.retained_collection_ids?.includes(collection.collection_id) && <button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(collection.collection_id)}><Trans>Revoke access</Trans></button>}
                           </div>
                         ))}
-                        {(pairing.retained_collection_ids??[]).filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><div key={id}><p><Trans>Already allowed collection (currently unavailable)</Trans></p><button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(id)}><Trans>Remove access</Trans></button></div>)}
+                        {(pairing.retained_collection_ids??[]).filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><div key={id}><p><Trans>Already allowed collection (currently unavailable)</Trans></p><button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(id)}><Trans>Revoke access</Trans></button></div>)}
                         {(pairing.requested_create_collections || pairing.retained_create_collections) && <Checkbox checked={createCollections} disabled={pairing.retained_create_collections} onChange={event=>setCreateCollections(event.target.checked)}>
                            <Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans> </Checkbox>}
                       </CheckboxGroup>
@@ -398,27 +396,28 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       <p className="field-note"><Trans>Applies to the collection you chose to open and any new collections selected here. Other collections are not included.</Trans></p>
                       {!allowReminders && <p role="status"><Trans>Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged.</Trans></p>}
                     </div>}
-                    {removingId && <div role="group" aria-label={t(i18n)({ message: "Confirm removal", context: "Collection connection" })}>
+                    {removingId && <div role="group" aria-label={t(i18n)({ message: "Confirm revocation", context: "Collection connection" })}>
                       <p><Trans>{literal(pairing.connector_name)} will lose access to {literal(pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))} on all its devices. Previously downloaded data cannot be erased.</Trans></p>
                       <button className="mdbase-button installation-account-action" disabled={busy} onClick={()=>setRemovingId("")}><Trans>Keep access</Trans></button>
-                      <button className="mdbase-button is-primary installation-account-action" disabled={busy} onClick={()=>void act("remove-access")}><Trans>Remove access</Trans></button>
+                      <button className="mdbase-button is-primary installation-account-action" disabled={busy} onClick={()=>void act("remove-access")}><Trans>Revoke access</Trans></button>
                     </div>}
-                    {revokingId && <p role="status"><Trans>Removing access to {literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))}…</Trans></p>}
+                    {revokingId && <p role="status"><Trans>Revoking access to {literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))}…</Trans></p>}
                     {details}
                     <footer className="approval-footer">
-                      <div className="approval-receipt">
-                        {selectedName && <CollectionIdentity name={selectedName} location={privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`} kind={privateChoice ? "private" : "cloud_copy"} />}
+                      <div className="approval-receipt approval-target" id={`pairing-target-${pairingId}`}>
+                        {selectedName && <div className="collection-identity-copy"><strong className="collection-name">{selectedName}</strong><small>{privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`}</small></div>}
                         <p><Trans>This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased.</Trans></p>
                         {createCollections && !privateChoice && <p><Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans></p>}
-                        {pairing.scope_only && <p><Trans>Already-allowed access stays in place. Remove access separately if you no longer want it.</Trans></p>}
-                        <p><Trans>Access lasts until you remove it in mdbase Connect.</Trans></p>
+                        {pairing.scope_only && <p><Trans>Already-allowed access stays in place. Revoke access separately if you no longer want it.</Trans></p>}
+                        <p><Trans>Access continues until you revoke it in mdbase Connect.</Trans></p>
                       </div>
                       <div className="approval-actions">
                     <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => void act("deny")}><Trans>Cancel</Trans></button>
                     <button className="mdbase-button is-primary"
+                      aria-describedby={`pairing-target-${pairingId}`}
                       disabled={busy || !installationAccountLabel(pairing) || !selectedCollectionId || (selectedCollectionId===NEW_COLLECTION ? !pairing.can_create_collection || !newCollectionName.trim() : !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId))}
                       onClick={()=>void act("approve")}>
-                      {busy ? t(i18n)({ message: "Approving…", context: "Collection connection" }) : selectedName ? t(i18n)`Open ${pairing.connector_name} with ${selectedName}` : t(i18n)`Open ${pairing.connector_name}`}
+                      {busy ? t(i18n)({ message: "Approving…", context: "Collection connection" }) : t(i18n)`Open ${pairing.connector_name}`}
                     </button>
                       </div>
                     </footer>
@@ -440,7 +439,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               Allow mdbase on this computer to use your account. This is needed
               after installing or updating the desktop app, even on a computer
               you used before. It will publish collection names and route
-              application requests, but not local folder paths.
+              app requests, but not local folder paths.
             </Trans></p>
             <div className="decision-actions">
               <a className="mdbase-button" href="/"><Trans>
@@ -854,7 +853,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
           <>
             <p className="eyebrow outcome-label"><Trans>Transfer complete</Trans></p>
             <h1>{t(i18n)`${collectionName} now lives on your computer.`}</h1>
-            <p>{t(i18n)`The folder on ${mirrorName} is now the main copy. Hosted access has stopped and previous application connections were revoked.`}</p>
+            <p>{t(i18n)`The folder on ${mirrorName} is now the main copy. Hosted access has stopped and previous app connections were revoked.`}</p>
             <div className="transfer-status" role="status">
               <StatusGlyph state="online" />
               <span>{t(i18n)`Main copy on ${mirrorName}`}</span>
@@ -882,7 +881,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
             <p className="eyebrow outcome-label"><Trans>Transfer approved</Trans></p>
             <h1>{t(i18n)`Return to ${mirrorName}.`}</h1>
             <p><Trans>
-              mdbase connect is checking the latest hosted changes, registering
+              mdbase Connect is checking the latest hosted changes, registering
               the folder, and making it the main copy.
             </Trans></p>
             <div className="transfer-status" role="status">
@@ -926,9 +925,9 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
                 </Trans></dd>
               </div>
               <div>
-                <dt><Trans>Applications</Trans></dt>
+                <dt><Trans>Apps</Trans></dt>
                 <dd><Trans>
-                  Existing access is revoked. Connect applications again to use
+                  Existing access is revoked. Connect apps again to use
                   the local collection.
                 </Trans></dd>
               </div>

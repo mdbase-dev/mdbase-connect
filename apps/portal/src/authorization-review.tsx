@@ -12,7 +12,7 @@ import {
   type SetupContract,
   type SetupType
 } from "@mdbase/connect-ui/contract-setup";
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Brand } from "./portal-ui";
 import { SignedOutFooter } from "./auth-view";
 import { initials, readRememberedCollection } from "./portal-model";
@@ -113,7 +113,27 @@ export function CollectionPicker({ label, labelledBy, collections, value, onChoo
 type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement;
 
 export function RequestShell({ children, busy = false }: { children: React.ReactNode; busy?: boolean }) {
-  return <div className="request-shell" aria-busy={busy}>
+  const shell = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const panel = shell.current!.querySelector<HTMLElement>(".authorization-panel")!;
+    const resize = () => {
+      const footer = panel.querySelector(".approval-footer");
+      const height = footer?.getBoundingClientRect().height ?? 0;
+      document.documentElement.style.setProperty("--approval-footer-space", `${height + 16}px`);
+      const scrollport = panel.querySelector<HTMLElement>(".collection-picker-list");
+      if (scrollport) {
+        const available = window.innerHeight - Math.max(0, scrollport.getBoundingClientRect().top) - height - 16;
+        const rows = Math.max(1, Math.floor((available - 2) / 64));
+        scrollport.style.setProperty("--collection-picker-space", `${rows * 64 + 2}px`);
+      }
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(panel);
+    window.addEventListener("resize", resize);
+    resize();
+    return () => { observer.disconnect(); window.removeEventListener("resize", resize); document.documentElement.style.removeProperty("--approval-footer-space"); };
+  }, []);
+  return <div className="request-shell" aria-busy={busy} ref={shell}>
     <main className="mdbase-page approval-page">
       <Brand productLabel />
       <section className="mdbase-page-panel authorization-panel">{children}</section>
@@ -136,14 +156,14 @@ export function CollectionIdentity({ name, location, kind }: { name: string; loc
 }
 
 export function GrantMoment({ applicationName, collectionName, collectionKind }: { applicationName: string; collectionName: string; collectionKind?: "local" | "hosted" | "private" | "cloud_copy" }) {
-  return <div className="grant-moment" role="status">
+  return <div className="grant-moment">
     <span className="request-identity-mark" aria-hidden="true">{initials(applicationName)}</span>
     <span className="grant-mark" aria-hidden="true">
       <MdbaseMark className="grant-stripes" />
       <svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" /></svg>
     </span>
     {collectionKind && <span className="grant-collection-glyph" aria-hidden="true">{collectionKind === "hosted" || collectionKind === "cloud_copy" ? <CloudIcon /> : <DesktopIcon />}</span>}
-    <h1>{t(i18n)`${applicationName} can now use ${collectionName}`}</h1>
+    <h1 tabIndex={-1}>{t(i18n)`${applicationName} can now use ${collectionName}`}</h1>
   </div>;
 }
 
@@ -314,7 +334,7 @@ export function PermissionList({
     {people && <div className="permission-files">
       <p className="permission-files-heading">
         <strong><Trans>People</Trans></strong>
-        <small><Trans>Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</Trans></small>
+        <small><Trans>Account identifiers are the same in every collection, so this app can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</Trans></small>
       </p>
       <ul className="permission-list" aria-label={t(i18n)({ message: "People permissions", context: "Application access approval" })}>
         {[...(people.required ?? []).map((permission) => ({ permission, required: true })),
@@ -412,7 +432,7 @@ export function ContractSetupEditor({
             <summary><Trans>Expert details</Trans></summary>
             <code>{contract.id} · {contract.version}</code>
             {contract.description && <p>{contract.description}</p>}
-            {!canGuideExistingType && suggestions.length > 0 && <p><Trans>This application uses advanced behavior settings, so an existing type cannot be connected during approval.</Trans></p>}
+            {!canGuideExistingType && suggestions.length > 0 && <p><Trans>This app uses advanced behavior settings, so an existing type cannot be connected during approval.</Trans></p>}
           </details>
         </div>
       </div>
@@ -457,7 +477,7 @@ export function ContractSetupEditor({
           const typeField = availableFields.find((candidate) => candidate.reference === mapped);
           const assessment = assessMapping(field, typeField);
           return <label key={field.reference}>
-            <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? t(i18n)`The application’s ${field.label.toLocaleLowerCase()} value.`}</small></span>
+            <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? t(i18n)`The app’s ${field.label.toLocaleLowerCase()} value.`}</small></span>
             <Select
               aria-label={field.label}
               value={mapped}

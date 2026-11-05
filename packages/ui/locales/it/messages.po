@@ -161,6 +161,11 @@ msgctxt "Collection field mapping"
 msgid "Doesn’t match"
 msgstr "Non corrisponde"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Filter the current list"
+msgstr "Filtra l’elenco attuale"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Inspect saved-view definitions"
@@ -170,6 +175,11 @@ msgstr "Esamina le definizioni delle viste salvate"
 msgctxt "Application permission"
 msgid "Install or update record types"
 msgstr "Installa o aggiorna i tipi di record"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Keyboard shortcuts"
+msgstr "Scorciatoie da tastiera"
 
 #. placeholder {0}: url.host
 #: access.ts
@@ -186,10 +196,20 @@ msgctxt "Collection field mapping"
 msgid "Matches"
 msgstr "Corrisponde"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Move through the list"
+msgstr "Spostati nell’elenco"
+
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Not shared"
 msgstr "Non condiviso"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Open the focused item"
+msgstr "Apri l’elemento attivo"
 
 #: access.ts
 msgctxt "Application permission"
@@ -241,6 +261,11 @@ msgctxt "Application permission"
 msgid "Schedule app activity"
 msgstr "Pianifica l'attività dell'app"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Search"
+msgstr "Cerca"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Search and query"
@@ -265,6 +290,11 @@ msgstr "Visualizza l'attività pianificata di questa app"
 msgctxt "Application permission"
 msgid "Set up this app in the collection"
 msgstr "Configura questa app nella raccolta"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Shortcuts are off while typing or while a dialog is open."
+msgstr "Le scorciatoie sono disattivate durante la digitazione o quando è aperta una finestra di dialogo."
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"

@@ -97,7 +97,7 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
     };
   }, { signedIn, collections, access, devices });
   await page.goto(origin);
-  await page.getByText(signedIn ? "Connected securely" : "Not signed in", { exact: true }).first().waitFor();
+  await page.getByText(signedIn ? "Connected securely" : "Not signed in", { exact: true }).first().waitFor().catch(error => { throw new Error(`${error.message}\nRenderer errors: ${errors.join("; ")}`); });
   const calls = (name) => page.evaluate((name) => window.fixture.calls.filter((call) => call[0] === name).map((call) => call.slice(1)), name);
   return { page, errors, calls };
 }
@@ -229,6 +229,109 @@ test("ready synced collections do not offer the unavailable turn-off action", as
 const entry = (overrides = {}) => ({
   grant: "g1", collection: "c-notes", app_id: "reader", app_name: "Reader", client_pk: "pk", capabilities: ["read", "write"],
   state: "active", first_seen_ms: Date.now(), acknowledged: true, ...overrides
+});
+
+test("shared keyboard shortcuts navigate, filter and move list focus without approving", async () => {
+  const { page, errors, calls } = await desktop({ collections: Array.from({ length: 14 }, (_, index) => collection({ id: `c-${index}`, name: `Notes ${String(index).padStart(2, "0")}` })) });
+  try {
+    await page.keyboard.press("g");
+    await page.keyboard.press("c");
+    await page.getByRole("heading", { name: "Collections", exact: true }).waitFor();
+    await page.keyboard.press("j");
+    assert.equal(await page.locator(".collection-card").nth(0).evaluate(element => element === document.activeElement), true);
+    await page.keyboard.press("j");
+    assert.equal(await page.locator(".collection-card").nth(1).evaluate(element => element === document.activeElement), true);
+    await page.keyboard.press("k");
+    await page.keyboard.press("Enter");
+    assert.equal(await page.getByRole("button", { name: "Actions for Notes 00" }).evaluate(element => element === document.activeElement), true);
+    await page.keyboard.press("/");
+    const filter = page.getByRole("searchbox", { name: "Filter collections" });
+    assert.equal(await filter.evaluate(element => element === document.activeElement), true);
+    await filter.fill("Notes 13");
+    assert.equal(await page.locator(".collection-card").count(), 1);
+    await page.keyboard.type("ga?/");
+    assert.equal(await page.getByRole("heading", { name: "Collections", exact: true }).count(), 1);
+    assert.equal(await page.getByRole("dialog").count(), 0);
+    await filter.fill("");
+    await filter.evaluate(element => element.blur());
+    await page.keyboard.press("g");
+    await page.keyboard.press("a");
+    await page.getByRole("heading", { name: "Apps", exact: true }).waitFor();
+    await page.keyboard.press("g");
+    await page.keyboard.press("s");
+    await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
+    await page.keyboard.press("?");
+    const help = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+    await help.waitFor();
+    assert.match(await help.innerText(), /G C/);
+    assert.match(await help.innerText(), /G A/);
+    assert.match(await help.innerText(), /G S/);
+    await page.keyboard.press("g");
+    await page.keyboard.press("c");
+    assert.equal(await page.getByRole("heading", { name: "Settings", exact: true }).count(), 1);
+    await page.keyboard.press("Escape");
+    await help.waitFor({ state: "hidden" });
+    await page.keyboard.press("Control+/");
+    await help.waitFor();
+    assert.deepEqual(await calls("approveAccess"), []);
+    assert.deepEqual(await calls("approveDevice"), []);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+for (const theme of ["light", "dark"]) {
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    test(`W19 palette reviews pending approvals at ${viewport.width} in ${theme}`, async () => {
+      const { page, errors, calls } = await desktop({
+        collections: [collection()],
+        access: [entry({ state: "pending_approval", fingerprint: "abcd1234" })],
+        devices: [{ collection: "c-notes", device: "d-laptop", name: "Laptop", kind: "desktop", sas: "012345" }]
+      });
+      try {
+        await page.setViewportSize(viewport);
+        await page.emulateMedia({ colorScheme: theme });
+        assert.equal(await page.locator(".mdbase-motion-keys-first").count(), 0);
+        assert.equal(await page.locator(".product-brand-mark").first().evaluate(element => getComputedStyle(element.querySelector("rect")).opacity), "1");
+        for (const [name, route, command] of [["Reader", "Apps", "approval:g1"], ["Laptop", "Collections", "device:c-notes/d-laptop"]]) {
+          await page.keyboard.press("Control+k");
+          const palette = page.getByRole("dialog", { name: "Commands" });
+          await palette.getByRole("option", { name: new RegExp(`Review ${name}`) }).waitFor();
+          await palette.getByRole("combobox").fill(name);
+          await palette.evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished)));
+          await screenshot(page, `w19-palette-${name}-${viewport.width}-${theme}`);
+          await page.keyboard.press("Enter");
+          await palette.waitFor({ state: "hidden" });
+          await page.getByRole("heading", { name: route, exact: true }).waitFor();
+          await page.waitForFunction(command => document.activeElement?.getAttribute("data-command") === command, command);
+          const prompt = page.locator(".approval-prompt").filter({ hasText: name });
+          await prompt.getByRole("button", { name: name === "Reader" ? "Approve…" : "Allow", exact: true }).waitFor();
+          await screenshot(page, `w19-review-${name}-${viewport.width}-${theme}`);
+          assert.deepEqual(await calls("approveAccess"), []);
+          assert.deepEqual(await calls("approveDevice"), []);
+          assert.deepEqual(await calls("denyAccess"), []);
+          assert.deepEqual(await calls("rejectDevice"), []);
+        }
+        await page.keyboard.press("Control+k");
+        await page.keyboard.press("Control+k");
+        await page.getByRole("dialog", { name: "Commands" }).waitFor({ state: "hidden" });
+        assert.equal(await page.locator(".approval-prompt").evaluate(element => element === document.activeElement), true);
+        assert.deepEqual(errors, []);
+      } finally { await page.close(); }
+    });
+  }
+}
+
+test("the mark builds only during sign-in and reduced motion stays static", async () => {
+  const { page, errors } = await desktop({ signedIn: false });
+  try {
+    assert.equal(await page.locator(".mdbase-motion-keys-first").count(), 1);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    assert.equal(await page.locator(".mdbase-motion-keys-first rect").evaluateAll(elements => elements.every(element => getComputedStyle(element).animationName === "none")), true);
+    await page.evaluate(() => { window.fixture.account.configured = true; });
+    await page.clock.runFor(5_000);
+    assert.equal(await page.locator(".mdbase-motion-keys-first").count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
 });
 
 for (const theme of ["light", "dark"]) {

@@ -64,6 +64,31 @@ The rest of this section describes Private grants.
 
 The grant is an offer. The replica admits the app only under the first valid device-signed `grant_approval` for the log grant; the control plane never admits on the grant row alone. Desktops fetch what to show and sign from `GET /v1/next/grants/:grantId/terms` (an ordinary connector credential of a device of the granting account; installation credentials are refused).
 
+The daemon additionally gates Private relay sessions on an exact cached grant,
+collection and authenticated Noise key under a live account-bound feed lease.
+This is deny-only: a feed entry cannot supply Private capabilities or replace
+signed log policy. Admission and established-session rechecks deny delisted or
+locally refused grants even when the log is unreachable or a revocation remains
+parked in the policy outbox. Local refusal tombstones also deny granted IPC
+sessions and localhost-link sessions using the refused client key. On a Local
+collection a locally approved replacement grant on that key lifts the link
+refusal; on Private a feed row cannot, and the refused grant ID always stays
+refused. The host's independently authenticated session is not an app grant. Private IPC and link
+sessions do not require a feed lease and can keep using confirmed signed policy
+offline. Native cloud-copy (`SyncMode::Synced`) daemon behavior is unchanged;
+its feed reconciliation still excludes that mode.
+
+Both delivery orders fail closed: log-first waits for the matching feed, and
+feed-first waits for effective signed policy. Lease lapse uses
+`4000 / grant_lease_expired`, including PendingApproval restored without a live
+monotonic lease. Missing cached Private grants under a live lease and not-yet-effective
+signed policy use `4000 / authorization_unavailable`. Both are `unavailable`;
+`4403 / grant_inactive` remains terminal. The SDK's existing 30-second first-open
+wait accepts those actual retryable reasons, including Noise hello Problems,
+and resumes without another consent once both arrive.
+After restart a newer snapshot sequence is required: replaying the persisted
+cursor does not renew a feed lease.
+
 Routing for a Private grant considers only desktop and CLI devices of the granting account whose exact enrolment is appended to the collection's log and never revoked, while the account is a current member. Pipe admission opens only on a device in that set. Token issuance and refresh require current membership.
 
 `availability` on the route (and on native or superseded entries of `/v1/next/apps/collections`):

@@ -479,7 +479,7 @@ export class RelayHub {
         this.connectors.delete(connectorId);
       }
       session.policy.stop(new RelayUnavailableError());
-      socket.close(4003, "Initial connector policy unavailable");
+      socket.close(1011, "Initial connector policy unavailable");
       this.rejectForSocket(socket, new RelayUnavailableError());
       await Promise.allSettled([binding.close(), session.policy.waitForIdle()]);
       throw error;
@@ -984,7 +984,7 @@ export class RelayHub {
     this.connectors.delete(connectorId);
     session.policy.stop(new RelayUnavailableError());
     this.rejectForSocket(session.socket, new RelayUnavailableError());
-    session.socket.close(4003, "Connector policy acknowledgement failed");
+    session.socket.close(1011, "Connector policy acknowledgement failed");
     void session.binding.close();
   }
 

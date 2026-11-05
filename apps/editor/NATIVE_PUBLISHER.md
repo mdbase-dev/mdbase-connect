@@ -98,20 +98,23 @@ approvals. UI repins change only the manifest and regenerated lock.
 7. Verify all served bytes, headers and routes on the immutable deployment URL
    within three minutes, then on the custom alias. After immutable success, the
    alias gets complete verification attempts every 15 seconds in a five-minute
-   settle window. Failed attempts never count as success.
+   settle window. Failed attempts never count as success. The edge can revalidate
+   an unchanged file and keep the previous build's headers, so the alias proves
+   the document security headers on HTML; bytes, MIME and cache rules on every
+   file. The immutable URL proves the full policy on every file.
 8. Upload and verification run in one job. Any failure there, including a
    timeout, a lost receipt or a cancelled run, goes to the recovery job in step 10.
    Staging does not roll back. No automatic rebuild or redispatch is performed.
-9. After a successful production upload job, a separate job with no environment
+9. After a successful upload job, on either target, a separate job with no environment
    or deployment credentials installs only an isolated, locked Playwright with
    lifecycle scripts disabled. A fresh Chromium context disables HTTP cache and
-   service workers, loads `https://editor.mdbase.dev`, checks the served entry
+   service workers, loads the target's Editor origin, checks the served entry
    asset's 12-character source commit and reaches the Sign in button. An uncaught
    page error or `readiness_fenced` fails smoke. The known Insights beacon CSP
    console refusal is ignored. Only public served code executes in this browser;
    no candidate repository scripts run in the smoke job.
-10. If the upload job did not succeed, or smoke did not pass, a separate
-    protected job finds the recovery point stored before upload. It runs after
+10. On production, if the upload job did not succeed or smoke did not pass, a
+    separate protected job finds the recovery point stored before upload. It runs after
     cancellation too. Without a recovery point the job stopped before upload, so
     there is nothing to restore. Otherwise, if Pages reports a deployment of this
     run's source, it restores the previous UUID via

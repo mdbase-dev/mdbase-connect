@@ -52,7 +52,7 @@ describe("approval collection chooser",()=>{
     fireEvent.keyDown(f.input,{key:"ArrowDown"});expect(within(f.picker).queryAllByRole("option",{selected:true})).toEqual([]);
     fireEvent.keyDown(f.input,{key:"Enter"});
     expect(screen.getByRole("option",{name:"[test] Notes 159"})).toHaveAttribute("aria-selected","true");
-    expect(screen.getByRole("button",{name:"Open Reader with [test] Notes 159"})).toBeEnabled();
+    expect(screen.getByRole("button",{name:"Open Reader"})).toBeEnabled();
     expect(vi.mocked(api)).toHaveBeenCalledTimes(1);
   });
   it("does not preselect a collection hint on a fresh approval",async()=>{
@@ -63,7 +63,7 @@ describe("approval collection chooser",()=>{
     fireEvent.click(screen.getByRole("option",{name:"[test] Notes 8"}));
     fireEvent.change(f.input,{target:{value:"notes 159"}});
     expect(screen.queryByRole("option",{name:"[test] Notes 8"})).not.toBeInTheDocument();
-    expect(screen.getByRole("button",{name:"Open Reader with [test] Notes 8"})).toBeEnabled();
+    expect(screen.getByRole("button",{name:"Open Reader"})).toBeEnabled();
     expect(vi.mocked(api)).toHaveBeenCalledTimes(1);
   });
   it("announces no matches and restores the catalog after clearing search",async()=>{
@@ -73,9 +73,9 @@ describe("approval collection chooser",()=>{
   });
   it("keeps creation an explicit choice with its named approval and no mutation from selection",async()=>{
     await show();fireEvent.click(screen.getByRole("button",{name:"Create a new collection…"}));
-    expect(screen.getByRole("button",{name:"Open Reader with a new collection"})).toBeDisabled();
+    expect(screen.getByRole("button",{name:"Open Reader"})).toBeDisabled();
     fireEvent.change(screen.getByRole("textbox",{name:"New collection name"}),{target:{value:"New notes"}});
-    expect(screen.getByRole("button",{name:"Open Reader with New notes"})).toBeEnabled();
+    expect(screen.getByRole("button",{name:"Open Reader"})).toBeEnabled();
     expect(vi.mocked(api)).toHaveBeenCalledTimes(1);
   });
   it("shows markup-shaped application and collection names literally",async()=>{
@@ -95,7 +95,7 @@ describe("approval collection chooser",()=>{
     vi.mocked(api).mockResolvedValue({pairing:{connector_name:app,approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,account_email:"test@example.test",app_origin:"https://planner.example",can_create_collection:false,collections:[{collection_id:"c",display_name:name,role:"owner"}]}});
     render(<Pairing pairingId="pairing"/>);
     fireEvent.click(await screen.findByRole("option",{name}));
-    expect(screen.getByRole("button",{name:`Open ${app} with ${name}`})).toBeInTheDocument();
+    expect(screen.getByRole("button",{name:`Open ${app}`})).toHaveAccessibleDescription(expect.stringContaining(name));
   });
   async function privateChoice(native="native-request") {
     vi.mocked(api).mockClear();
@@ -111,8 +111,8 @@ describe("approval collection chooser",()=>{
   it("uses the SAME chooser/confirm for Private without creating or granting Hosted scopes",async()=>{
     await privateChoice();
     expect(screen.getByRole("option",{name:"[test] Original Private"})).toHaveAttribute("aria-selected","true");
-    expect(screen.queryByText("Allow access to additional collections")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button",{name:"Open Reader with [test] Original Private"}));
+    expect(screen.queryByText("Allow offline access to additional collections")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button",{name:"Open Reader"}));
     await waitFor(()=>expect(vi.mocked(api)).toHaveBeenCalledWith("/v1/pairing-requests/pairing/approve",expect.objectContaining({method:"POST"})));
     const approval=vi.mocked(api).mock.calls.find(([path])=>String(path).endsWith("/approve"))!;
     expect(JSON.parse(approval[1]!.body as string)).toEqual({fingerprint:"1234-5678-1234-5678",collection_ids:[],create_collections:false,selected_collection_id:"original-private",selected_collection_kind:"private"});
@@ -121,7 +121,7 @@ describe("approval collection chooser",()=>{
   it("does not approve Private from catalog metadata before its signed companion is prepared",async()=>{
     await privateChoice("");
     expect(screen.getByRole("status")).toHaveTextContent("Preparing Reader");
-    fireEvent.click(screen.getByRole("button",{name:"Open Reader with [test] Original Private"}));
+    fireEvent.click(screen.getByRole("button",{name:"Open Reader"}));
     await waitFor(() => expect(screen.getByRole("button",{name:"Approving…"})).toBeDisabled());
     expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==="POST")).toBe(false);
   });

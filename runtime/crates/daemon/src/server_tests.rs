@@ -7,6 +7,10 @@ mod conflict_tests;
 #[path = "server_mirror_join_tests.rs"]
 mod mirror_join_tests;
 use super::*;
+
+#[cfg(unix)]
+#[path = "server_grant_session_tests.rs"]
+mod grant_sessions;
 use crate::access::{AccessState, FeedCursor};
 use crate::confirm::{Answer, Confirmer};
 use std::collections::BTreeMap;
@@ -710,6 +714,7 @@ async fn local_open_and_pipe_refusals_preserve_consent_and_lease_reasons() {
                 Auth::Grant {
                     grant: grant_id,
                     client_pk: [1; 32],
+                    origin: crate::session::Origin::LocalIpc,
                 },
                 mdbn_wire::client::ClientRequest {
                     id: 1,

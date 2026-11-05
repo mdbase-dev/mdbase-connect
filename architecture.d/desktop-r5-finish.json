@@ -1,0 +1,8 @@
+{
+  "reason": "One Connect-only keyboard module replaces Portal's inline chord table, keyboard listeners and help markup and Desktop's independent palette listener. Both shells now use the same navigation table, input guards, list focus behavior and help rather than maintaining parallel implementations.",
+  "growth": {
+    "productionFiles": 1,
+    "typeScriptExportDeclarations": 3,
+    "packages/ui": 1
+  }
+}

@@ -1,14 +1,15 @@
 // Workflow-owned browser driver. Only public served application code runs in Chromium.
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-const origin='https://editor.mdbase.dev';
+const origins={production:'https://editor.mdbase.dev',staging:'https://editor-staging.mdbase.dev'};
 const need=(ok,reason)=>{if(!ok)throw Error(reason);};
-export function assertEntryAsset(url,source) {
- need(/^[a-f0-9]{40}$/.test(source??''),'invalid-source');
+export function assertEntryAsset(url,source,target='production') {
+ const origin=origins[target];
+ need(origin&&/^[a-f0-9]{40}$/.test(source??''),'invalid-source');
  const asset=new URL(url);
  need(asset.origin===origin && new RegExp(`^/assets/[^/]+-${source.slice(0,12)}\\.js$`).test(asset.pathname),'entry-source-mismatch');
 }
-export async function smoke(chromium,source) {
+export async function smoke(chromium,source,target='production') {
  const browser=await chromium.launch({headless:true});
  const failures=new Set();
  try {
@@ -23,11 +24,13 @@ export async function smoke(chromium,source) {
    // known CSP refusal is harmless. A readiness fence is always terminal.
    if(/readiness_fenced/i.test(message.text()))failures.add('readiness-fenced');
   });
-  const response=await page.goto(origin+'/',{waitUntil:'networkidle',timeout:90000});
+  const response=await page.goto(origins[target]+'/',{waitUntil:'networkidle',timeout:90000});
   need(response?.status()===200,'entry-unavailable');
-  const entries=await page.locator('script[type="module"][src]').evaluateAll(nodes=>nodes.map(node=>node.src));
+  // Cloudflare injects its Insights beacon as a cross-origin module script.
+  const entries=(await page.locator('script[type="module"][src]').evaluateAll(nodes=>nodes.map(node=>node.src)))
+   .filter(url=>new URL(url).origin===origins[target]);
   need(entries.length===1,'entry-asset-required');
-  assertEntryAsset(entries[0],source);
+  assertEntryAsset(entries[0],source,target);
   const entry=await context.request.get(entries[0]);
   need(entry.ok() && (await entry.body()).length>0,'entry-asset-unavailable');
   await page.getByRole('button',{name:'Sign in',exact:true}).waitFor({state:'visible',timeout:60000});
@@ -41,8 +44,8 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
  let report;
  try {
   const {chromium}=await import(pathToFileURL((await readFile(toolPath,'utf8')).trim()).href);
-  report=await smoke(chromium,process.env.SOURCE_SHA);
- }catch{report={ok:false,reason:'production-smoke-failed'};process.exitCode=1;}
+  report=await smoke(chromium,process.env.SOURCE_SHA,process.env.TARGET);
+ }catch(error){report={ok:false,reason:/^[a-z,-]+$/.test(error?.message)?error.message:'smoke-failed'};process.exitCode=1;}
  await writeFile(receiptPath,JSON.stringify(report,null,2));
- console.log(report.ok?'Production smoke passed':'Production smoke failed');
+ console.log(report.ok?'Editor smoke passed':'Editor smoke failed');
 }

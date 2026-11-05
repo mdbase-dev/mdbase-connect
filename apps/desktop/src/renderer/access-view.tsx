@@ -27,6 +27,7 @@ function AppRequest({ entry, names, busy, onAct, onNotice }: {
   const where = scope(entry, names);
   const unknown = entry.terms_unavailable === true;
   return <ApprovalPrompt
+    commandId={`approval:${entry.grant}`}
     title={t(i18n)`${entry.app_name} wants to use ${where}`}
     can={unknown
       ? t(i18n)({ message: "mdbase could not fetch what this app is asking for, or which folders. Approval is possible once it can." })
@@ -78,7 +79,7 @@ export function AccessView({ groups, names, busy, requireApproval, movedWaiting 
             ? <Empty title={t(i18n)({ message: "Your apps reconnect soon", context: "Connect interface" })} text={t(i18n)`Apps you used with mdbase Connect appear here once Private sync is on for the ${plural(movedWaiting, { one: "collection", other: "collections" })} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again.`} />
             : <Empty title={t(i18n)({ message: "No apps connected", context: "Connect interface" })} text={t(i18n)({ message: "Open the app you want to use and connect it to mdbase. You approve it in your browser, and it appears here." })} />
           : <div className="application-access-list">{groups.apps.map((app) => (
-            <details key={app.appId} className="application-grant-group" open={app.unacknowledged > 0}>
+            <details key={app.appId} className="application-grant-group" data-list-item open={app.unacknowledged > 0}>
               <summary>
                 <div><strong>{app.appName}</strong>{app.unacknowledged > 0 && <b className="new-access">{t(i18n)({ message: "New", context: "Connect interface" })}</b>}</div>
                 <span>{t(i18n)`${plural(app.grants.length, { one: "# collection", other: "# collections" })}`}</span>
