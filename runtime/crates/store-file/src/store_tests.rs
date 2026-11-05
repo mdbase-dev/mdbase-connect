@@ -238,6 +238,124 @@ fn deferred_resource_reoffers_original_token_and_refuses_changed_source() {
 }
 
 #[test]
+fn resource_restored_to_confirmed_bytes_revalidates_without_acknowledging_old_source() {
+    let world = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut store = world.open_with(Config {
+        move_window_ms: 0,
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    let original = b"spec_version: '0.3.0'\n";
+    world.p.fs.write_replace("mdbase.yaml", original).unwrap();
+    let confirmed = store.observe(None).unwrap();
+    ack(&mut store, &confirmed);
+    world
+        .p
+        .fs
+        .write_replace("mdbase.yaml", b"spec_version: '99.0.0'\n")
+        .unwrap();
+    store.request_rescan();
+    let invalid = store.observe(None).unwrap();
+    assert_eq!(invalid.len(), 1);
+    assert!(
+        store
+            .resource_observation_text(&invalid[0], 1024)
+            .unwrap()
+            .is_some()
+    );
+    store.defer_disk_observations(&[invalid[0].token]).unwrap();
+    world.p.fs.write_replace("mdbase.yaml", original).unwrap();
+    store.request_rescan();
+    let corrected = store.observe(None).unwrap();
+    assert_eq!(corrected.len(), 1);
+    assert_ne!(corrected[0].token, invalid[0].token);
+    assert_eq!(corrected[0].base, Some(revision(original)));
+    assert_eq!(
+        store
+            .resource_observation_text(&corrected[0], 1024)
+            .unwrap(),
+        Some(String::from_utf8(original.to_vec()).unwrap())
+    );
+    assert!(
+        store
+            .resource_observation_batch_complete(&corrected)
+            .unwrap()
+    );
+    assert!(!store.resource_observation_current(&invalid[0]).unwrap());
+    assert!(store.resource_observation_current(&corrected[0]).unwrap());
+    world
+        .p
+        .fs
+        .write_replace("mdbase.yaml", b"spec_version: '99.0.0'\n")
+        .unwrap();
+    assert!(store.resource_observation_current(&invalid[0]).unwrap());
+    assert!(!store.resource_observation_current(&corrected[0]).unwrap());
+}
+
+#[test]
+fn resource_read_refusals_revalidate_restored_confirmed_bytes() {
+    for (invalid_bytes, settling) in [
+        (vec![0xff], false),
+        (vec![b'x'; 128], false),
+        (b"invalid resource".to_vec(), true),
+    ] {
+        let world = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+        let mut store = world.open_with(Config {
+            move_window_ms: 0,
+            quiescence_ms: 100,
+            ..Config::default()
+        });
+        let original = b"spec_version: '0.3.0'\n";
+        world.p.fs.write_replace("mdbase.yaml", original).unwrap();
+        let confirmed = store.observe(None).unwrap();
+        ack(&mut store, &confirmed);
+        world
+            .p
+            .fs
+            .write_replace("mdbase.yaml", &invalid_bytes)
+            .unwrap();
+        store.request_rescan();
+        let invalid = store.observe(None).unwrap();
+        assert_eq!(invalid.len(), 1);
+        if settling {
+            store.on_events(&[FileEvent {
+                path: RelPath::new("mdbase.yaml").unwrap(),
+                kind: FileEventKind::Changed,
+                id: None,
+                cookie: None,
+            }]);
+        }
+        assert!(
+            store
+                .resource_observation_text(&invalid[0], 64)
+                .unwrap()
+                .is_none()
+        );
+        store.defer_disk_observations(&[invalid[0].token]).unwrap();
+        world.p.fs.write_replace("mdbase.yaml", original).unwrap();
+        world.clock.advance(101);
+        store.request_rescan();
+        let corrected = store.observe(None).unwrap();
+        assert_eq!(corrected.len(), 1, "refused bytes: {invalid_bytes:?}");
+        assert_ne!(corrected[0].token, invalid[0].token);
+        assert_eq!(corrected[0].base, Some(revision(original)));
+        assert_eq!(
+            store
+                .resource_observation_text(&corrected[0], 64)
+                .unwrap()
+                .as_deref(),
+            Some(std::str::from_utf8(original).unwrap())
+        );
+        assert!(store.resource_observation_current(&corrected[0]).unwrap());
+        assert!(
+            store
+                .resource_observation_batch_complete(&corrected)
+                .unwrap()
+        );
+    }
+}
+
+#[test]
 fn terminal_resource_refusal_blocks_unchanged_observation_attempts() {
     // FileStore binding model only: not a synthesized native receipt.
     let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
@@ -309,7 +427,7 @@ fn ordinary_attachment_delivery_survives_resource_deferral_without_a_new_token()
 }
 
 #[test]
-fn only_requested_resource_dependency_reads_reoffer_attachment_text() {
+fn only_authenticated_resource_dependency_reads_arm_redelivery() {
     let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
     let mut s = w.open_with(Config {
         move_window_ms: 0,
@@ -325,11 +443,23 @@ fn only_requested_resource_dependency_reads_reoffer_attachment_text() {
         s.observe(None).unwrap().is_empty(),
         "ordinary JSON stays ordinary"
     );
-    assert!(s.resource_observation_text(&original, 2).unwrap().is_none());
+    assert!(s.resource_observation_text(&original, 0).is_err());
+    assert!(
+        s.resource_observation_text(&original, mdbn_replica::store::RESOURCE_SOURCE_BYTES + 1)
+            .is_err()
+    );
     assert!(
         s.observe(None).unwrap().is_empty(),
-        "over-bound read cannot arm resource redelivery"
+        "invalid read limits cannot arm resource redelivery"
     );
+    assert!(s.resource_observation_text(&original, 2).unwrap().is_none());
+    let reoffered = s.observe(None).unwrap();
+    assert_eq!(reoffered.len(), 1);
+    assert_eq!(reoffered[0].token, original.token);
+    assert!(matches!(
+        reoffered[0].now,
+        Some(Observed::Attachment { .. })
+    ));
     assert_eq!(
         s.resource_observation_text(&original, 1024)
             .unwrap()

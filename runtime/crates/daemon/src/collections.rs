@@ -682,6 +682,25 @@ impl CollectionHost {
         )
     }
 
+    pub(crate) async fn close_with_failure(
+        &mut self,
+        dir: &Path,
+        mut failure: crate::sync_failure::Failure,
+    ) {
+        let paths = std::mem::take(&mut failure.paths);
+        let shared = self.last_sync_failure.clone();
+        let cancel = self.cancel.clone();
+        crate::sync_failure::retain_and_stop(
+            &shared,
+            dir,
+            failure,
+            || cancel.store(true, Ordering::SeqCst),
+            async { paths },
+            self.close(),
+        )
+        .await;
+    }
+
     /// Stop: flush and close the replica. Idempotent. A background open still
     /// in progress is cancelled; its runtime stops when it finishes.
     pub async fn close(&mut self) {

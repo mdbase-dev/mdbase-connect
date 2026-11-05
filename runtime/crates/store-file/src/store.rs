@@ -671,17 +671,24 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             || original.moved_from != observation.moved_from
             || observation.provenance != Provenance::Normal
             || original.evidence.is_some()
-            || self
-                .dirty
-                .get(&original.path)
-                .is_some_and(|due| *due > self.now())
         {
             return Ok(None);
         }
         let Some(expected) = &original.known_after else {
             return Ok(None);
         };
+        let expected_revision = expected.rev;
         let path = Self::rel(&original.path)?;
+        if let Some(original) = self.outstanding.get_mut(&observation.token.0) {
+            original.resource_requested = true;
+        }
+        if self
+            .dirty
+            .get(&observation.path)
+            .is_some_and(|due| *due > self.now())
+        {
+            return Ok(None);
+        }
         let meta = match self.observe_io(|| self.p.stat(&path)).await? {
             Ok(meta) if meta.kind == FileKind::File && meta.size <= limit as u64 => meta,
             _ => return Ok(None),
@@ -690,17 +697,11 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             Ok(read) if read.meta == meta && read.bytes.len() <= limit => read,
             _ => return Ok(None),
         };
-        if revision(&read.bytes) != expected.rev {
+        if revision(&read.bytes) != expected_revision {
             return Ok(None);
         }
         mdbn_replica::mirror_admission::ensure_open(&self.inner)?;
-        let text = String::from_utf8(read.bytes).ok();
-        if text.is_some()
-            && let Some(original) = self.outstanding.get_mut(&observation.token.0)
-        {
-            original.resource_requested = true;
-        }
-        Ok(text)
+        Ok(String::from_utf8(read.bytes).ok())
     }
 
     /// Drain content-free local retention diagnostics. Never contains note paths.
@@ -1929,8 +1930,21 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         if self.missing.remove(path).is_some() {
             // Came back (vim-style save, swap window): compare as usual.
         }
+        let revalidate_resource = known.as_ref().is_some_and(|known| {
+            self.outstanding_at
+                .get(path)
+                .into_iter()
+                .flatten()
+                .filter_map(|token| self.outstanding.get(token))
+                .any(|original| {
+                    original.resource_requested
+                        && original.evidence.is_none()
+                        && original.known_after.as_ref().map(|after| after.rev) != Some(known.rev)
+                })
+        });
         if let Some(k) = &known
             && Self::meta_unchanged(k, &meta)
+            && !revalidate_resource
         {
             return Ok(());
         }
@@ -1943,6 +1957,9 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 // Same bytes, new metadata (touch, our swap): just remember it.
                 let st = self.state_from(k.id, rev, &seen.meta, k.ours);
                 self.set_disk(changes, path, Some(st));
+                if revalidate_resource && !self.already_reported(path, Some(rev)) {
+                    self.emit(changes, out, path, Some(k.rev), Some(seen), None, k.id)?;
+                }
             }
             Some(k) => {
                 if seen.meta.size == 0 && k.size != 0 && !quiet_recheck {

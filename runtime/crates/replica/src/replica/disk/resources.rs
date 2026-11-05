@@ -15,6 +15,7 @@ const OPERATIONS: usize = 64;
 const BYTES: usize = 8 * 1024 * 1024;
 const DOCUMENT: usize = 1024 * 1024;
 const WORK: usize = 65536;
+pub(super) const RESOURCE_INGEST_DEFERRED: &str = "Resource ingestion deferred: incomplete, unstable, invalid, over-budget or previously refused registry; original observations retained.";
 
 fn checked_insert(map: &mut BTreeMap<String, String>, path: &str, doc: &str) -> bool {
     if path.len() > 4096
@@ -376,6 +377,16 @@ impl<S: Store> Replica<S> {
         }
         self.pump();
         self.check_apply_store_health()?;
+        let own_refusal = self
+            .incidents
+            .get(&mdbn_wire::client::IncidentKind::Integrity.value())
+            .is_some_and(|incident| {
+                matches!(&incident.details, Some(mdbn_wire::common::Value::Text(message)) if message == RESOURCE_INGEST_DEFERRED)
+            });
+        if own_refusal {
+            self.clear_incident(mdbn_wire::client::IncidentKind::Integrity);
+        }
+        self.resource_ingest_paths.clear();
         Ok(Some(rest))
     }
 }

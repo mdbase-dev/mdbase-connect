@@ -193,7 +193,7 @@ enum Cmd {
     /// Rescan, then list the confirmed records and resources.
     Inventory(oneshot::Sender<Option<Inventory>>),
     /// Stop admitting writes, settle, take the inventory and hold counts, stop.
-    Freeze(oneshot::Sender<Option<Frozen>>),
+    Freeze(oneshot::Sender<Result<Frozen, Option<crate::sync_failure::Failure>>>),
     #[cfg(test)]
     TestSeedHold(
         Box<Option<mdbn_wire::client::Hold>>,
@@ -599,15 +599,19 @@ impl Runtime {
     /// Stop the runtime at a single point for adopt: sessions are closed first,
     /// so no write is admitted after the snapshot; the folder is rescanned; the
     /// inventory and hold counts are taken; then the runtime stops as
-    /// [`Runtime::stop`] does. `None` (and still stopped) when it was already
-    /// stopped or the store could not be read.
-    pub async fn freeze(&self) -> Option<Frozen> {
+    /// [`Runtime::stop`] does. On failure, returns the allowlisted terminal
+    /// diagnostic when known; an absent diagnostic never proves recovery safe.
+    pub async fn freeze(&self) -> Result<Frozen, Option<crate::sync_failure::Failure>> {
         let (tx, rx) = oneshot::channel();
         let sent = self.tx.send(Cmd::Freeze(tx)).is_ok();
-        let frozen = if sent { rx.await.ok().flatten() } else { None };
+        let frozen = if sent {
+            rx.await.unwrap_or(Err(None))
+        } else {
+            Err(None)
+        };
         #[cfg(test)]
         {
-            *self.capture_fixture_frozen.lock().unwrap() = Some(frozen.clone());
+            *self.capture_fixture_frozen.lock().unwrap() = Some(frozen.as_ref().ok().cloned());
         }
         let thread = self.thread.lock().ok().and_then(|mut t| t.take());
         if let Some(t) = thread {
@@ -1791,6 +1795,7 @@ fn run(
                     rep.ingest(ingest.drain(..).collect());
                 }
                 rep.store_mut().inner_mut().request_rescan();
+                let mut failure = None;
                 let frozen = match rep.observe(None) {
                     Ok(_) => {
                         // observe() can return Ok after ingest records a terminal
@@ -1824,6 +1829,16 @@ fn run(
                                 })
                             }
                             _ => {
+                                failure = crate::sync_failure::Failure::project(
+                                    &status,
+                                    &rep.adopt_status(),
+                                );
+                                if let Some(failure) = &mut failure
+                                    && failure.cause
+                                        == Some(crate::sync_failure::Cause::ResourceIngestDeferred)
+                                {
+                                    failure.paths = rep.resource_ingest_paths();
+                                }
                                 tracing::warn!(
                                     pending = status.pending,
                                     terminal,
@@ -1840,7 +1855,7 @@ fn run(
                 };
                 drop(link);
                 drop(rep);
-                let _ = reply.send(frozen);
+                let _ = reply.send(frozen.ok_or(failure));
                 return;
             }
             Ok(Cmd::Stop(deleted, done)) => {

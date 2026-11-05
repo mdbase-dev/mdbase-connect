@@ -235,13 +235,44 @@ async fn terminal_capture_sync_enable_retains_original_paused_source_without_bas
     let saved = Registry::load(&f.daemon.profile.registry_file()).unwrap();
     let persisted = saved.get(&f.id).unwrap().clone();
     assert!(persisted.paused, "stop must survive a process restart");
+    let status = f
+        .daemon
+        .inner
+        .lock()
+        .await
+        .hosts
+        .iter()
+        .find(|host| host.entry().id == f.id)
+        .unwrap()
+        .status();
+    let failure = status
+        .last_sync_failure
+        .expect("failed local capture must retain its terminal diagnostic");
+    assert_eq!(failure.kind, crate::sync_failure::Kind::Integrity);
+    assert_eq!(failure.stage, crate::sync_failure::Stage::ResourceIngestion);
+    assert_eq!(
+        failure.cause,
+        Some(crate::sync_failure::Cause::ResourceIngestDeferred)
+    );
+    assert_eq!(failure.paths, vec!["mdbase.yaml"]);
+    assert_eq!(failure.persisted, Some(true));
+    let recovered = crate::sync_failure::Failure::load(
+        &f.daemon.profile.state_dir.join("collections").join(&f.id),
+    )
+    .unwrap()
+    .expect("capture diagnostic must survive restart");
+    assert_eq!(recovered.kind, failure.kind);
+    assert_eq!(recovered.cause, failure.cause);
+    assert_eq!(recovered.paths, failure.paths);
+    assert_eq!(recovered.persisted, None);
     assert_eq!(persisted.id, original.id);
     assert_eq!(persisted.replica_id, original.replica_id);
     assert_eq!(persisted.owner_account, original.owner_account);
     // Explicitly narrower than a full daemon restart: production host
     // reconstruction from the actual disk registry must not initialize an actor.
-    let mut restarted = crate::collections::CollectionHost::open(persisted, None);
+    let mut restarted = crate::collections::CollectionHost::open(persisted, f.daemon.host_ctx());
     assert_eq!(restarted.state(), crate::control::CollectionState::Paused);
+    assert_eq!(restarted.status().last_sync_failure, Some(recovered));
     assert!(restarted.runtime().is_none());
     assert!(!restarted.is_serving());
     restarted.refresh();
@@ -249,6 +280,141 @@ async fn terminal_capture_sync_enable_retains_original_paused_source_without_bas
     assert!(restarted.runtime().is_none());
     restarted.close().await;
     close_fixture(&f).await;
+}
+
+#[tokio::test]
+async fn source_capture_rechecks_repaired_resources_in_same_actor() {
+    for refusal in ["unsupported", "non-utf8", "oversized"] {
+        let fixture = capture_fixture("capture-repaired-live-source").await;
+        let config_path = fixture.folder.path().join("mdbase.yaml");
+        let config = std::fs::read(&config_path).unwrap();
+        let inventory = fixture.runtime.inventory().await.unwrap();
+        let invalid = match refusal {
+            "unsupported" => String::from_utf8(config.clone())
+                .unwrap()
+                .replace("0.3.0", "99.0.0")
+                .into_bytes(),
+            "non-utf8" => vec![0xff],
+            _ => vec![b'x'; 1024 * 1024 + 1],
+        };
+        std::fs::write(&config_path, invalid).unwrap();
+        fixture.runtime.inventory().await;
+        let status = fixture.runtime.status().await.unwrap();
+        let failure = crate::sync_failure::Failure::project(&status, &None).unwrap();
+        assert_eq!(
+            failure.cause,
+            Some(crate::sync_failure::Cause::ResourceIngestDeferred)
+        );
+        std::fs::write(&config_path, &config).unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let frozen = fixture
+            .runtime
+            .freeze()
+            .await
+            .unwrap_or_else(|failure| panic!("repaired {refusal} source retained {failure:?}"));
+        assert_eq!(frozen.inventory, inventory);
+        assert_eq!((frozen.holds, frozen.unresolved), (0, 0));
+        assert_eq!(std::fs::read(config_path).unwrap(), config);
+        assert_eq!(
+            std::fs::read(fixture.folder.path().join("original.md")).unwrap(),
+            fixture.note
+        );
+        assert_no_collection_bootstrap(&fixture);
+        close_fixture(&fixture).await;
+    }
+}
+
+#[tokio::test]
+async fn source_recapture_checks_current_files_without_replacing_identity() {
+    let fixture = capture_fixture("capture-corrected-source").await;
+    let config = std::fs::read(fixture.folder.path().join("mdbase.yaml")).unwrap();
+    let original = fixture
+        .daemon
+        .inner
+        .lock()
+        .await
+        .registry
+        .get(&fixture.id)
+        .unwrap()
+        .clone();
+    let inventory = fixture.runtime.inventory().await.unwrap();
+    let invalid = String::from_utf8(config.clone())
+        .unwrap()
+        .replace("0.3.0", "99.0.0");
+    assert_ne!(invalid.as_bytes(), config);
+    std::fs::write(fixture.folder.path().join("mdbase.yaml"), invalid).unwrap();
+    let refusal = fixture
+        .daemon
+        .enable_sync(EnableSync {
+            collection: fixture.id.clone(),
+            mode: None,
+            accept_takeover_holds: false,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(refusal.reason.as_deref(), Some("source_capture_incomplete"));
+    assert_retained_capture(&fixture, &original).await;
+    fixture
+        .daemon
+        .enable_sync(EnableSync {
+            collection: fixture.id.clone(),
+            mode: None,
+            accept_takeover_holds: false,
+        })
+        .await
+        .expect_err("sync setup must not reopen the paused source");
+    assert_retained_capture(&fixture, &original).await;
+
+    let unchanged = fixture.daemon.set_paused(&fixture.id, false).await.unwrap();
+    assert_eq!(unchanged["state"], "ready");
+    let refusal = fixture
+        .daemon
+        .enable_sync(EnableSync {
+            collection: fixture.id.clone(),
+            mode: None,
+            accept_takeover_holds: false,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(refusal.reason.as_deref(), Some("source_capture_incomplete"));
+    assert_retained_capture(&fixture, &original).await;
+
+    std::fs::write(fixture.folder.path().join("mdbase.yaml"), &config).unwrap();
+    let resumed = fixture.daemon.set_paused(&fixture.id, false).await.unwrap();
+    assert_eq!(resumed["state"], "ready");
+    let runtime = {
+        let inner = fixture.daemon.inner.lock().await;
+        let entry = inner.registry.get(&fixture.id).unwrap();
+        assert_eq!(entry.id, original.id);
+        assert_eq!(entry.replica_id, original.replica_id);
+        assert_eq!(entry.root, original.root);
+        assert_eq!(entry.mode, original.mode);
+        assert_eq!(entry.owner_account, original.owner_account);
+        assert_eq!(entry.device, original.device);
+        let host = inner
+            .hosts
+            .iter()
+            .find(|host| host.entry().id == fixture.id)
+            .unwrap();
+        assert!(host.status().last_sync_failure.is_some());
+        host.runtime().unwrap()
+    };
+    let frozen = runtime
+        .freeze()
+        .await
+        .expect("corrected source must pass the real capture fence");
+    assert_eq!(frozen.inventory, inventory);
+    assert_eq!((frozen.holds, frozen.unresolved), (0, 0));
+    assert_eq!(
+        std::fs::read(fixture.folder.path().join("original.md")).unwrap(),
+        fixture.note
+    );
+    assert_eq!(
+        std::fs::read(fixture.folder.path().join("mdbase.yaml")).unwrap(),
+        config
+    );
+    assert_no_collection_bootstrap(&fixture);
+    close_fixture(&fixture).await;
 }
 
 #[tokio::test]
@@ -292,6 +458,7 @@ async fn stopped_original_actor_none_cannot_silently_restart_during_sync_enable(
     assert!(host.entry().paused);
     assert!(!host.is_serving());
     assert!(host.runtime().is_none());
+    assert!(host.status().last_sync_failure.is_none());
     drop(inner);
     close_fixture(&f).await;
 }
@@ -314,7 +481,7 @@ async fn capture_stop_registry_save_failure_fences_memory_and_original_writers()
     let evidence = registry.with_extension("original-evidence.json");
     std::fs::rename(&registry, &evidence).unwrap();
     std::fs::create_dir(&registry).unwrap();
-    assert!(f.daemon.retain_failed_capture(&f.id).await.is_err());
+    assert!(f.daemon.retain_failed_capture(&f.id, None).await.is_err());
     assert_retained_capture(&f, &original).await;
     assert!(
         f.daemon.authority.incarnation().is_none(),

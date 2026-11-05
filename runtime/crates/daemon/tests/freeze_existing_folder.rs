@@ -86,11 +86,16 @@ async fn immediate_freeze_includes_preexisting_markdown_and_config() {
 async fn freeze_refuses_an_invalid_resource_capture_instead_of_an_empty_base() {
     let invalid = "spec_version: 99.0.0\nsettings:\n  timezone: UTC\n";
     let (root, rt) = existing_config("invalid", invalid);
-    let frozen = rt.freeze().await;
-    assert!(
-        frozen.is_none(),
-        "a resource-ingest incident is not a successful empty inventory"
+    let failure = rt
+        .freeze()
+        .await
+        .expect_err("a resource-ingest incident is not a successful empty inventory")
+        .expect("the resource-ingest incident must retain its diagnostic");
+    assert_eq!(
+        failure.cause,
+        Some(mdbn_daemon::sync_failure::Cause::ResourceIngestDeferred)
     );
+    assert_eq!(failure.paths, vec!["mdbase.yaml"]);
     assert_eq!(
         std::fs::read_to_string(root.join("source/mdbase.yaml")).unwrap(),
         invalid
