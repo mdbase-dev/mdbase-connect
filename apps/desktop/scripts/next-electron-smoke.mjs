@@ -63,7 +63,7 @@ try {
   console.log("ok - signed out: sign-in is offered and Add collection asks for it first");
   // The views read the real daemon through the guarded IPC (owning main frame only).
   await window.getByRole("heading", { name: "No collections yet" }).waitFor();
-  await nav("App access").click();
+  await nav("Apps").click();
   await window.getByRole("heading", { name: "No apps connected" }).waitFor();
   await nav("Settings").click();
   await window.getByText("Ask before new apps connect", { exact: true }).waitFor();
@@ -72,7 +72,7 @@ try {
   assert.ok(Array.isArray(await window.evaluate(() => window.mdbaseConnect.listActivity())));
   await nav("Activity").click();
   await window.getByRole("heading", { name: "Recent activity" }).waitFor();
-  console.log("ok - Collections, App access, Activity and Settings views read the daemon");
+  console.log("ok - Collections, Apps, Activity and Settings views read the daemon");
   if (connectHome) {
     const move = window.getByRole("button", { name: "Move to the new sync engine" });
     await move.waitFor({ timeout: 30_000 });

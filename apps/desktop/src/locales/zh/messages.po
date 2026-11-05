@@ -265,14 +265,14 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "账户"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Account and startup."
-msgstr "账户与启动设置。"
-
 #: src/renderer/daemon-view.mts
 msgid "Account connection needs attention"
 msgstr "账户连接需要处理"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "Actions for {0}"
+msgstr "{0}的操作"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -330,12 +330,6 @@ msgstr "另一个应用（如 Obsidian）目前正在使用此文件夹。该应
 msgid "another program is writing to the folder"
 msgstr "另一个程序正在写入文件夹"
 
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "应用访问权限"
-
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
 msgstr "此电脑上的应用访问和集合更改将列在这里。"
@@ -370,6 +364,12 @@ msgstr "请在浏览器中批准此电脑。此窗口会自动更新。"
 msgctxt "Connect interface"
 msgid "Approve…"
 msgstr "正在批准…"
+
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "应用"
 
 #: src/renderer/daemon-view.mts
 msgid "Apps cannot use it until you resume it."
@@ -682,11 +682,6 @@ msgstr "创建集合"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "在以下位置创建文件夹："
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Decide what apps can do."
-msgstr "决定应用可以执行的操作。"
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -1383,6 +1378,10 @@ msgctxt "Desktop application"
 msgid "Remove and add"
 msgstr "移除并添加"
 
+#: src/renderer/collections-view.tsx
+msgid "Removing…"
+msgstr "正在移除…"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "重命名"
@@ -1448,6 +1447,7 @@ msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "正在保存…"
 
+#: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Search"
@@ -1780,11 +1780,6 @@ msgstr "无法验证此集合的同步设置。请关闭同步后重新开启，
 msgid "This computer"
 msgstr "此电脑"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "This computer"
-msgstr "此电脑"
-
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
@@ -1912,11 +1907,6 @@ msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "正在开启…"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "输入命令"
-
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx
 msgid "Unavailable"
@@ -2021,17 +2011,9 @@ msgctxt "Local connection status"
 msgid "Waiting to open."
 msgstr "等待打开。"
 
-#: src/renderer/main.tsx
-msgid "What reached this computer."
-msgstr "到达此电脑的内容。"
-
 #: src/renderer/collections-view.tsx
 msgid "What this collection is for"
 msgstr "此集合的用途"
-
-#: src/renderer/main.tsx
-msgid "What this computer is doing right now."
-msgstr "此电脑当前正在执行的操作。"
 
 #: src/renderer/takeover-panel.tsx
 msgid "What to do: "
@@ -2083,19 +2065,9 @@ msgstr "你的集合正在等待迁移"
 msgid "Your collections moved to mdbase"
 msgstr "你的集合已迁移到 mdbase"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your collections."
-msgstr "你的集合。"
-
 #: src/renderer/takeover-state.mts
 msgid "Your local collections are safe on disk."
 msgstr "你的本地集合安全地保存在磁盘上。"
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your local connection."
-msgstr "你的本地连接。"
 
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."
