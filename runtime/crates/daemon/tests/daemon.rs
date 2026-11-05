@@ -300,8 +300,8 @@ async fn daemon_lifecycle() {
             Err(ClientError::Remote(e)) => assert_eq!(e.reason.as_deref(), Some("invalid_id")),
             other => panic!("{other:?}"),
         }
-        // A granted session on a local collection with no grant feed yet: refused
-        // because its grant lease is not live.
+        // A granted session on a local collection with no grant feed yet: the
+        // grant is unknown here, whatever the state of the lease.
         let pg = Prologue {
             grant: [3; 16],
             ..p
@@ -314,7 +314,7 @@ async fn daemon_lifecycle() {
         let prob = hello.problem.unwrap();
         assert_eq!(
             (prob.code.as_str(), prob.reason.as_deref()),
-            ("forbidden", Some("grant_lease_expired"))
+            ("forbidden", Some("unknown_grant"))
         );
         // Without the host key, an unknown collection is indistinguishable from a
         // hosted one; with it, the lookup answers.
