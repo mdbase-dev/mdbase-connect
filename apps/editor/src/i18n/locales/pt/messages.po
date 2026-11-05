@@ -1182,6 +1182,11 @@ msgstr "Voltar à coleção"
 msgid "Back to collections"
 msgstr "Voltar às coleções"
 
+#: src/ConnectionScreens.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Back to Collections"
+msgstr "Voltar às coleções"
+
 #: src/TypeBrowser.tsx
 msgid "Back to editing"
 msgstr "Voltar à edição"
@@ -1256,6 +1261,10 @@ msgstr "Lista com marcadores"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Calculated"
 msgstr "Calculado"
+
+#: src/ConnectionScreens.tsx
+msgid "Can't open this collection"
+msgstr "Não foi possível abrir esta coleção"
 
 #: src/App.tsx
 #: src/BulkNoteProperties.tsx
@@ -3489,6 +3498,10 @@ msgstr "link para nota"
 msgid "note path"
 msgstr "caminho da nota"
 
+#: src/NoteList.tsx
+msgid "Note peek"
+msgstr "Prévia da nota"
+
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/PropertiesPanel.tsx
@@ -3654,6 +3667,11 @@ msgstr "Abrir original"
 msgid "Open Settings"
 msgstr "Abrir Configurações"
 
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Open the Editor configured for your mdbase environment from Collections."
+msgstr "Em Coleções, abra o Editor configurado para o seu ambiente mdbase."
+
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "Abra para encontrar menções."
@@ -3666,6 +3684,7 @@ msgstr "Abrir Tipos"
 msgid "Open YAML"
 msgstr "Abrir YAML"
 
+#: src/App.tsx
 #: src/NoteList.tsx
 msgid "Opening"
 msgstr "Abrindo"
@@ -3673,11 +3692,6 @@ msgstr "Abrindo"
 #: src/App.tsx
 msgid "Opening “{pendingNotePath}”…"
 msgstr "Abrindo “{pendingNotePath}”…"
-
-#. placeholder {0}: original.displayName
-#: src/SdkEditorRoot.tsx
-msgid "Opening {0}"
-msgstr "Abrindo {0}"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
@@ -3691,10 +3705,6 @@ msgstr "Abrindo coleção"
 #: src/main.tsx
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "Abrindo o mdbase connect… <0>Continuar</0>"
-
-#: src/main.tsx
-msgid "Opening mdbase…"
-msgstr "Abrindo o mdbase…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
@@ -4369,6 +4379,11 @@ msgstr "Tentar salvar novamente"
 #: src/NoteList.tsx
 msgid "Retry search"
 msgstr "Tentar pesquisar novamente"
+
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Return to Collections and open the collection again."
+msgstr "Volte às coleções e abra a coleção novamente."
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
@@ -5385,6 +5400,11 @@ msgstr "Esta coleção está vazia."
 msgid "This collection is no longer open in mdbase editor."
 msgstr "Esta coleção não está mais aberta no mdbase editor."
 
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "This collection link is invalid"
+msgstr "Este link da coleção é inválido"
+
 #: src/gateway.ts
 msgid "This collection needs authorization again. Choose the collection to continue."
 msgstr "Esta coleção precisa de nova autorização. Escolha a coleção para continuar."
@@ -5418,6 +5438,11 @@ msgstr "Este contato tem outro tipo explícito. Revise primeiro as declarações
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
 msgstr "Este contrato não expõe propriedades simples de nível superior. Configure as referências de campo dele no YAML."
+
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "This Editor build cannot open collections here"
+msgstr "Esta versão do Editor não pode abrir coleções aqui"
 
 #: src/use-session-lifecycle.ts
 msgid "This editor session has been closed."

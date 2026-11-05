@@ -54,11 +54,13 @@ describe("Note actions", () => {
     list.scrollTop = 76;
     await user.click(list);
     fireEvent.keyDown(list, { key: " " });
-    const peek = await screen.findByRole("dialog", { name: "The shape of useful tools" });
+    const peek = await screen.findByRole("region", { name: "Note peek" });
+    expect(within(peek).getByRole("heading", { name: "The shape of useful tools" })).toBeInTheDocument();
+    expect(within(peek).queryByText("Read-only Markdown preview")).not.toBeInTheDocument();
     expect(within(peek).getByRole("region", { name: "Read-only Markdown preview" })).toBeInTheDocument();
     expect(list.scrollTop).toBe(76);
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Note peek" })).not.toBeInTheDocument());
     await waitFor(() => expect(list).toHaveFocus());
     expect(list).toHaveAttribute("aria-activedescendant", active);
     expect(list.scrollTop).toBe(76);

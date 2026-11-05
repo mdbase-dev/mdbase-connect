@@ -44,7 +44,6 @@ import { useCollectionBrowserEntries } from "./collection-browser";
 import { CollectionRail, ConnectionStatus, connectWorkspaceUrl, type ShownConnectionState } from "./CollectionRail";
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
-import { useLaunchEntrancePlaying } from "@mdbase-dev/ui/screens";
 import { offlineShell } from "./offline-shell";
 import { ConnectScreen } from "./ConnectionScreens";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
@@ -52,7 +51,7 @@ import type { EditorCollectionSwitcher } from "./editor-collections";
 import { ConflictResolver } from "./ConflictResolver";
 import { DraftRecovery, frontmatterPatch, recoveryDraftMatchesRecord } from "./draft-recovery";
 import { connectServerUrl } from "./connect-endpoint";
-import { ConfirmDialog, Dialog } from "./Dialog";
+import { ConfirmDialog } from "./Dialog";
 import { ReadOnlyMarkdown } from "./read-only-markdown";
 import {
   loadContractCatalog,
@@ -84,7 +83,6 @@ import type {
 } from "./model";
 import {
   editableNote,
-  persistedBody,
   noteHeadings,
   noteWordCount,
   noteTags,
@@ -179,6 +177,7 @@ interface NoteNavigationHistory {
 }
 
 interface NoteNavigationOptions {
+  keepList?: boolean;
   historyIndex?: number;
 }
 
@@ -256,7 +255,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [renamePlan, setRenamePlan] = useState<RenamePlan>();
   const [quickOpen, setQuickOpen] = useState(false);
-  const [peekNote, setPeekNote] = useState<NoteDocument>();
+  const [peekOpen, setPeekOpen] = useState(false);
   const [quickOpenCommandMode, setQuickOpenCommandMode] = useState(false);
   const [editorAutoFocus, setEditorAutoFocus] = useState(true);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -622,7 +621,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setOutlineOpen(false);
     setRenamePlan(undefined);
     clearRenameRequest();
-    setMobilePane("editor");
+    if (!options.keepList) setMobilePane("editor");
     try {
       if (cached && !cached.deleted) {
         if (descriptionReady) await descriptionReady;
@@ -1039,7 +1038,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setRenamePlan(undefined);
     setQuickOpen(false);
     setConfirmation(undefined);
-    setPeekNote(undefined);
+    setPeekOpen(false);
     setSelectedTypeName(undefined);
     resetTypeLifecycle();
     setSaveState("saved");
@@ -1480,6 +1479,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   function selectSurface(next: Surface) {
+    setPeekOpen(false);
     if (creationMode && creationDirty) {
       setConfirmation({
         title: creationMode === "folder" ? t`Discard this folder?` : t`Discard this note?`,
@@ -1658,8 +1658,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mutationsFrozen, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body, i18n.locale]);
-  const launching = useLaunchEntrancePlaying();
-  const usable = phase === "ready" && Boolean(description) && !launching;
+  const usable = phase === "ready" && Boolean(description);
   // First usable render: only now may the offline shell install and precache.
   useEffect(() => { if (usable) offlineShell.ready(); }, [usable]);
   const dismissToast = useCallback((id: string) => {
@@ -1667,7 +1666,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     else if (id === "note-open") setNoteOpenFailure(undefined);
     else if (id === "recovery") setRecoveryAction(undefined);
   }, []);
-  if (phase === "starting" || (launching && phase !== "disconnected")) return <OpeningScreen />;
+  if (phase === "starting") return <OpeningScreen />;
   if (phase === "disconnected") return <>
     <ConnectScreen
       notice={sessionSnapshot.status === "start_failed"
@@ -1697,8 +1696,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       onClose={() => { confirmation.onDismiss?.(); setConfirmation(undefined); }}
     />}
   </>;
-  // A quick open waits for the launch entrance to land rather than cutting it off mid-flight.
-  if (phase === "loading" || !description || launching) return <OpeningScreen />;
+  if (phase === "loading" || !description) return <OpeningScreen />;
 
   const selectedType = description.types.find((type) => type.name === selectedTypeName);
   const hasListPane = surface !== "settings";
@@ -1896,8 +1894,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
         onSelect={(path, options) => {
-          setEditorAutoFocus(!options?.keyboard);
-          navigateToNote(path);
+          setEditorAutoFocus(!peekOpen && !options?.keyboard);
+          navigateToNote(path, { keepList: peekOpen });
         }}
         onSelectFile={navigateToFile}
         filter={noteFilter}
@@ -1906,14 +1904,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onFilter={setNoteFilter}
         noteActions={(path) => listSelection.paths.length > 1 && listSelection.paths.includes(path) ? bulkActions(listSelection.paths) : noteActions(path)}
         onRename={(path) => void renameNote(path)}
-        onPeek={async (path) => {
-          const epoch = collectionEpoch.current, generation = documentGeneration.current;
-          try {
-            const session = noteSessions.current.get(path);
-            const note = session ? { ...session.document, body: persistedBody(session.draft.title, session.draft.body, session.draft.source) } : await gateway.read(path);
-            if (epoch === collectionEpoch.current && generation === documentGeneration.current) setPeekNote(note);
-          } catch (error) { if (epoch === collectionEpoch.current) setNotice(gatewayError(error)); }
-        }}
+        onPeek={() => setPeekOpen((open) => !open)}
+        onClosePeek={() => setPeekOpen(false)}
+        peek={peekOpen && draft && !selectedCollectionFile ? <>
+          <header><h2>{draft.title}</h2><button className="icon-button" aria-label={t`Close note peek`} onClick={() => { setPeekOpen(false); globalThis.document.querySelector<HTMLElement>(".note-scroll")?.focus(); }}><X aria-hidden="true" /></button></header>
+          {noteLoading ? <p role="status"><Trans>Opening</Trans></p> : <ReadOnlyMarkdown source={draft.body} byteLength={new TextEncoder().encode(draft.body).length} previewTitle={draft.title} />}
+        </> : undefined}
         onDelete={(path) => { if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
         onCreate={canCreateNotes ? beginCreate : undefined}
         onCollections={() => returnToMobilePane("collections")}
@@ -2183,10 +2179,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       onClose={() => setQuickOpen(false)}
     />}
     {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
-    {peekNote && <Dialog titleId="note-peek-title" className="confirm-dialog note-peek" onClose={() => setPeekNote(undefined)}>
-      <header><h2 id="note-peek-title">{noteTitle(peekNote, typeDescriptors)}</h2><button className="icon-button" aria-label={t`Close note peek`} onClick={() => setPeekNote(undefined)}><X aria-hidden="true" /></button></header>
-      <ReadOnlyMarkdown source={peekNote.body ?? ""} byteLength={new TextEncoder().encode(peekNote.body ?? "").length} />
-    </Dialog>}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {confirmation && <ConfirmDialog
       title={confirmation.title}

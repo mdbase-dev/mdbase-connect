@@ -4,7 +4,7 @@ import { useLingui } from "@lingui/react";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createMdbase, type Mdbase, type MdbaseApplicationDeclaration, type MdbaseClient } from "@mdbase-dev/sdk";
 import { CollectionGate, CollectionSwitcher, defaultCollectionCopy, type CollectionSection, type CollectionSectionItem, type CollectionSectionItemAction, type CollectionView } from "@mdbase-dev/ui/collections";
-import { OpeningScreen } from "@mdbase-dev/ui/screens";
+import { OpeningScreen } from "./LoadingScreens";
 import { FeedbackButton } from "@mdbase-dev/ui/feedback";
 import { describeError } from "@mdbase-dev/sdk/describe";
 import type { Surface } from "./app-state-types";
@@ -15,6 +15,8 @@ import { editorCollectionApp, type EditorCollectionSwitcher } from "./editor-col
 import manifest from "../public/.well-known/mdbase-app.json";
 import "@mdbase-dev/ui/collections.css";
 import "./styles/shared-collections.css";
+import { EditorEntryPage } from "./ConnectionScreens";
+import { configuredConnectServerUrl, editorPortalUrl } from "./connect-endpoint";
 
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
 
@@ -70,17 +72,26 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
   const privates = import.meta.env.MODE === "test" ? privateCollections ?? null : null;
   const snapshot = useSyncExternalStore((listener) => sdk.subscribe(listener), () => sdk.getSnapshot(), () => sdk.getSnapshot());
   // Developer-only detail (e.g. which manifest fields a registration refusal named): logs, never the screen.
-  const developerMessage = snapshot.status === "blocked" ? describeError(snapshot)?.developerMessage ?? null : null;
+  const problem = snapshot.status === "blocked" ? describeError(snapshot) : null;
+  const developerMessage = problem?.developerMessage ?? null;
   useEffect(() => { if (developerMessage) console.warn(t`mdbase editor: ${developerMessage}`); }, [developerMessage]);
   const priv = usePrivateSection(sdk, privates);
   const sections = priv.section ? [priv.section] : undefined;
   const switcher: EditorCollectionSwitcher = (onBeforeLeave) => <CollectionSwitcher mdbase={sdk} app={editorCollectionApp} allowDelete
     variant="full" allowPrivate={false} className="editor-collection-switcher" sections={sections} onBeforeLeave={onBeforeLeave} />;
   const extraActions = (view: CollectionView) => <>
+    <a className="mdbase-button" href={editorPortalUrl() ?? configuredConnectServerUrl}><Trans>Back to Collections</Trans></a>
     {priv.section && view.kind === "choosing" && <button type="button" className="mdbase-button" onClick={priv.add}><Trans>Add a Private collection</Trans></button>}
     {priv.problem && <p className="editor-private-problem" role="alert">{priv.problem}</p>}
     <FeedbackButton />
   </>;
+  if (declaration && !snapshot.links) return <EditorEntryPage title={t`This Editor build cannot open collections here`}>
+    <Trans>Open the Editor configured for your mdbase environment from Collections.</Trans>
+  </EditorEntryPage>;
+  if (declaration && snapshot.links && editorPortalUrl() !== new URL(snapshot.links.account).origin) return <EditorEntryPage title={t`This collection link is invalid`}>
+    <Trans>Return to Collections and open the collection again.</Trans>
+  </EditorEntryPage>;
+  if (problem?.key === "application_failed") throw new Error(`Editor SDK invariant failed: ${snapshot.problem}`);
   return <CollectionGate mdbase={sdk} app={editorCollectionApp} allowPrivate={false} allowDelete extraActions={extraActions} sections={sections}
     renderAppCollection={() => priv.scope && <NativeScopeView key={priv.scope.connection.generation} application={priv.scope.actions}
       connection={priv.scope.connection} declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}>
@@ -304,7 +315,7 @@ function NativeScopeView({ application, connection, declaration, switcher, rende
     queueMicrotask(() => { if (active) setView({ client, scope: { application, connection: original, gateway } }); });
     return () => { active = false; gateway.dispose(); };
   }, [application, client, declaration, original]);
-  const opening = <OpeningScreen app="editor" title={t`Opening ${original.displayName}`} />;
+  const opening = <OpeningScreen />;
   if (!view || view.client !== client) return opening;
   if (renderNative) return renderNative(view.scope);
   return <Suspense fallback={opening}><EditorApp gateway={view.scope.gateway} collectionSwitcher={switcher} onFeedbackContext={onFeedbackContext} /></Suspense>;

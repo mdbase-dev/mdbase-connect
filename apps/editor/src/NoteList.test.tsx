@@ -31,10 +31,24 @@ describe("NoteList search presentation", () => {
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       contentIndexing: false, contentLoaded: 2,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
-      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop,
+      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
       onSelectFile: noop, onPeek: peek, onCollections: noop
     };
     const view = render(<NoteList {...props} />);
+    const list = screen.getByRole("listbox");
+    fireEvent.keyDown(list, { key: "j" });
+    expect(props.onSelect).toHaveBeenLastCalledWith(second.path, { keyboard: true });
+    props.onSelect.mockClear();
+    fireEvent.keyDown(list, { key: "j", ctrlKey: true });
+    fireEvent.keyDown(list, { key: "j", altKey: true });
+    fireEvent.keyDown(list, { key: "j", shiftKey: true });
+    fireEvent.keyDown(list, { key: "j", isComposing: true });
+    expect(props.onSelect).not.toHaveBeenCalled();
+    view.rerender(<NoteList {...props} selectedPath={second.path} />);
+    fireEvent.keyDown(list, { key: "k" });
+    expect(props.onSelect).toHaveBeenLastCalledWith(first.path, { keyboard: true });
+    viewport.scrollToIndex.mockClear();
+    view.rerender(<NoteList {...props} />);
     fireEvent.keyDown(screen.getByRole("listbox"), { key: " " });
     expect(peek).toHaveBeenCalledWith(first.path);
     const row = screen.getAllByRole("option")[0];

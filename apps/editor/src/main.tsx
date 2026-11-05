@@ -1,4 +1,6 @@
 import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import "@mdbase-dev/ui/fonts.css";
 import "@mdbase-dev/ui/tokens.css";
 import "@mdbase-dev/ui/brand.css";
@@ -14,7 +16,6 @@ import { AppErrorBoundary } from "./AppErrorBoundary";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { createEditorMdbase, SdkEditorRoot } from "./SdkEditorRoot";
 import { EnvironmentBadge } from "./EnvironmentBadge";
-import { connectServerUrl } from "./connect-endpoint";
 import { deliverAppGrantCallbackFrom, isAppGrantCallback } from "./private-collections";
 import "@mdbase-dev/ui/motion.css";
 import "./styles.css";
@@ -22,6 +23,9 @@ import "./environment-badge.css";
 import { offlineShell } from "./offline-shell";
 import { LocaleProvider } from "@mdbase-dev/i18n/react";
 import { editorLocaleRuntime } from "./i18n/runtime";
+import { EditorEntryPage } from "./ConnectionScreens";
+import { editorPortalUrl } from "./connect-endpoint";
+import { OpeningScreen } from "./LoadingScreens";
 
 function reportLocaleLoadError(error: unknown) {
   console.warn("Editor language could not be loaded; keeping the current language.", error);
@@ -31,8 +35,9 @@ const EditorApp = lazy(() => import("./App").then((module) => ({ default: module
 // The Connect console is retired from the Editor: accounts, access and collection
 // management live on the Connect portal. Keep old /connect bookmarks working by
 // forwarding them there, and never mount management (or an SDK owner) here.
-const managementTarget = location.pathname === "/connect" || location.pathname.startsWith("/connect/")
-  ? new URL(location.pathname.slice("/connect".length) || "/", connectServerUrl()) : null;
+const portalUrl = editorPortalUrl();
+const managementTarget = portalUrl && (location.pathname === "/connect" || location.pathname.startsWith("/connect/"))
+  ? new URL(location.pathname.slice("/connect".length) || "/", portalUrl) : null;
 if (managementTarget) {
   managementTarget.search = location.search;
   managementTarget.searchParams.delete("server");
@@ -50,10 +55,8 @@ const environment = import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "l
 if (environment !== "lab" && environment !== "staging" && environment !== "production") throw new Error("Invalid Editor application environment");
 // The explicit demo build has no native SDK owner; preserve its loopback E2E
 // entry while applying exact target origins to every real native entry.
-if (!demoGateway && ((environment === "staging" && location.origin !== "https://editor-staging.mdbase.dev")
-  || (environment === "production" && location.origin !== "https://editor.mdbase.dev"))) {
-  throw new Error("Invalid Editor application origin for its environment");
-}
+const wrongOrigin = !demoGateway && ((environment === "staging" && location.origin !== "https://editor-staging.mdbase.dev")
+  || (environment === "production" && location.origin !== "https://editor.mdbase.dev"));
 // The Private collection consent popup returns here: hand its result to the
 // waiting editor tab and close, without starting a second SDK owner.
 const grantCallback = !managementTarget && isAppGrantCallback(new URL(location.href));
@@ -61,22 +64,25 @@ if (grantCallback) {
   void deliverAppGrantCallbackFrom(new URL(location.href)).catch(() => {});
 }
 // One SDK owner for the module lifetime; construction does no registration IO.
-const sdk = !managementTarget && !demoGateway && !grantCallback ? createEditorMdbase({ origin: location.origin, environment }) : null;
+const sdk = portalUrl && !wrongOrigin && !managementTarget && !demoGateway && !grantCallback ? createEditorMdbase({ origin: location.origin, environment }) : null;
 
 function EditorWorkspace() {
+  useLingui();
   const [context, setContext] = useState<{ surface: Surface; collectionName?: string }>({ surface: "notes" });
   const updateContext = useCallback((surface: Surface, collectionName?: string) => {
     setContext((previous) => previous.surface === surface && previous.collectionName === collectionName ? previous : { surface, collectionName });
   }, []);
   return <FeedbackProvider endpoint={feedbackEndpoint()} turnstileSiteKey={turnstileSiteKey()} application={feedbackApplication("mdbase editor", context.surface, import.meta.env.VITE_MDBASE_REVISION, import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "development" : "production"))} collectionName={context.collectionName}>
-    <AppErrorBoundary>{grantCallback ? <p className="mdbase-connect-status"><Trans>You can close this window.</Trans></p>
+    <AppErrorBoundary>{!portalUrl ? <EditorEntryPage title={t`This collection link is invalid`}><Trans>Return to Collections and open the collection again.</Trans></EditorEntryPage>
+      : wrongOrigin ? <EditorEntryPage title={t`This Editor build cannot open collections here`}><Trans>Open the Editor configured for your mdbase environment from Collections.</Trans></EditorEntryPage>
+      : grantCallback ? <p className="mdbase-connect-status"><Trans>You can close this window.</Trans></p>
       : sdk ? <SdkEditorRoot sdk={sdk} onFeedbackContext={updateContext} />
       : demoGateway ? <EditorApp gateway={demoGateway} onFeedbackContext={updateContext} /> : null}</AppErrorBoundary>
   </FeedbackProvider>;
 }
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><LocaleProvider runtime={editorLocaleRuntime} onError={reportLocaleLoadError}><AppErrorBoundary product="mdbase editor"><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite"><Trans>Opening mdbase…</Trans></div>}>{managementTarget ? <main aria-live="polite"><Trans>Opening mdbase connect… <a href={managementTarget.href}>Continue</a></Trans></main> : <EditorWorkspace />}</Suspense></AppErrorBoundary></LocaleProvider></StrictMode>
+  <StrictMode><LocaleProvider runtime={editorLocaleRuntime} onError={reportLocaleLoadError}><AppErrorBoundary product="mdbase editor"><EnvironmentBadge /><Suspense fallback={<OpeningScreen />}>{managementTarget ? <main aria-live="polite"><Trans>Opening mdbase connect… <a href={managementTarget.href}>Continue</a></Trans></main> : <EditorWorkspace />}</Suspense></AppErrorBoundary></LocaleProvider></StrictMode>
 );
 // Collection screens register the offline shell once usable; others after a delay.
 if (!managementTarget) offlineShell.start();

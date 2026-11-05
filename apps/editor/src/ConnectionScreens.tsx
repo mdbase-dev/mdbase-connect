@@ -11,6 +11,15 @@ import { ConnectLayout } from "@mdbase-dev/ui/screens";
 import { FeedbackButton } from "@mdbase-dev/ui/feedback";
 import "@mdbase-dev/ui/feedback.css";
 import type { ConnectionSummary } from "./model";
+import type { ReactNode } from "react";
+import { configuredConnectServerUrl, editorPortalUrl } from "./connect-endpoint";
+
+export function EditorEntryPage({ title, children }: { title: string; children: ReactNode }) {
+  return <ConnectLayout app="editor" title={title} lead={children}>
+    <a className="mdbase-button is-primary" href={editorPortalUrl() ?? configuredConnectServerUrl}><Trans>Back to Collections</Trans></a>
+  </ConnectLayout>;
+}
+
 interface ConnectScreenProps {
   notice?: string;
   missingCapabilities?: string[];
@@ -28,7 +37,7 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
   const updatingAccess = missingCapabilities.length > 0;
   return <ConnectLayout
     app="editor"
-    title={<><Trans>Your notes,</Trans><br /><Trans>as files.</Trans></>}
+    title={notice ? t`Can't open this collection` : <><Trans>Your notes,</Trans><br /><Trans>as files.</Trans></>}
     lead={updatingAccess
       ? t`Update access to ${accessSummary(missingCapabilities)} in this collection.`
       : t`Choose the collection you want to write in.`}
@@ -60,6 +69,7 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
     {!fatal && <p className="mdbase-connect-footnote">{updatingAccess
       ? t`mdbase keeps the access you already approved and shows only what needs to be added.`
       : t`You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are.`}</p>}
+    <a className="mdbase-button" href={editorPortalUrl() ?? configuredConnectServerUrl}><Trans>Back to Collections</Trans></a>
     <FeedbackButton />
     <details className="compatibility-help"><summary><Trans>Collection not listed?</Trans></summary><p><Trans>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</Trans></p></details>
   </ConnectLayout>;
