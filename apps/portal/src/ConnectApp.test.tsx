@@ -40,7 +40,7 @@ describe("ConnectApp", () => {
   it("delays row skeletons until the overview has been pending for 150ms", async () => {
     vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
     render(<ConnectApp />);
-    expect(screen.getByRole("complementary", { name: "mdbase connect navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "mdbase Connect navigation" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Computers" })).toBeInTheDocument();
     expect(document.querySelector(".connect-skeleton")).not.toBeInTheDocument();
     await waitFor(() => expect(document.querySelectorAll(".connect-skeleton > div")).toHaveLength(3));
@@ -211,7 +211,7 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("button", { name: "New hosted collection" })).not.toBeInTheDocument();
     await user.click(add);
     await user.click(screen.getByRole("button", { name: /A folder on this computer/ }));
-    expect(screen.getByRole("link", { name: "Open mdbase connect" })).toHaveAttribute("href", "mdbase-connect://open");
+    expect(screen.getByRole("link", { name: "Open mdbase Connect" })).toHaveAttribute("href", "mdbase-connect://open");
     expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
   });
@@ -225,7 +225,7 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("button", { name: "Add collection" }));
     expect(screen.getByRole("button", { name: /Hosted by mdbase/ })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /A folder on this computer/ }));
-    expect(screen.getByRole("link", { name: "Open mdbase connect" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open mdbase Connect" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
   });
@@ -344,9 +344,9 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     expect(await screen.findByText("No collection access")).toBeInTheDocument();
     expect(screen.getByText("Can create collections for your account")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input, init]) => new URL(String(input)).pathname === "/v1/account/installations/installation-connector" && init?.method === "DELETE")).toBe(true));
     expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname.startsWith("/v1/grants"))).toBe(false);
   });
@@ -505,7 +505,7 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
-    const navigation = screen.getByRole("complementary", { name: "mdbase connect navigation" });
+    const navigation = screen.getByRole("complementary", { name: "mdbase Connect navigation" });
     expect(navigation).toHaveTextContent("Collections");
     expect(navigation).toHaveTextContent("Account");
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
@@ -517,7 +517,7 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("link", { name: "Storage" }));
     await waitFor(() => expect(location.pathname).toBe("/storage"));
     expect(screen.getByRole("heading", { name: "Storage" })).toHaveFocus();
-    expect(document.title).toBe("Storage - mdbase connect");
+    expect(document.title).toBe("Storage - mdbase Connect");
   });
 
   it("does not fall back to a production Editor when none is configured", async () => {
@@ -565,7 +565,7 @@ describe("ConnectApp", () => {
 
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     expect(screen.getAllByText(/^Offline/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Open mdbase connect on Home computer to make this collection available.")).toBeInTheDocument();
+    expect(screen.getByText("Open mdbase Connect on Home computer to make this collection available.")).toBeInTheDocument();
     expect(screen.queryByText("The editor can reach this collection now.")).not.toBeInTheDocument();
   });
 
@@ -579,7 +579,7 @@ describe("ConnectApp", () => {
 
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     expect(screen.getAllByText(/^Update required/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Update mdbase connect on Home computer before using this collection."))
+    expect(screen.getByText("Update mdbase Connect on Home computer before using this collection."))
       .toBeInTheDocument();
     expect(screen.queryByText("The editor can reach this collection now.")).not.toBeInTheDocument();
 
@@ -779,7 +779,7 @@ describe("ConnectApp", () => {
     expect(second).toEqual(first);
     expect(Object.keys(second).sort()).toEqual(["account_id","display_name","request_id","timezone"]);
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Open mdbase connect" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open mdbase Connect" })).not.toBeInTheDocument();
   });
 
   it("restores an uncertain original creation after reload and has one Add action even without hosted availability",async()=>{
@@ -793,7 +793,7 @@ describe("ConnectApp", () => {
     expect(screen.getByLabelText("Collection name")).toBeDisabled();
     expect(screen.getByRole("button",{name:"Retry creation"})).toBeDisabled();
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Open mdbase connect" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open mdbase Connect" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
   });
@@ -942,7 +942,7 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("link", { name: "Computers" }));
 
     expect(await screen.findByText("No computers connected")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open mdbase connect" })).toHaveAttribute("href", "mdbase-connect://open");
+    expect(screen.getByRole("link", { name: "Open mdbase Connect" })).toHaveAttribute("href", "mdbase-connect://open");
     expect(screen.getByRole("link", { name: "Install the latest release" })).toHaveAttribute("href", "https://mdbase.dev/downloads/");
   });
 
@@ -991,7 +991,7 @@ describe("ConnectApp", () => {
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "Apps" }));
 
-    expect(await screen.findByText("Legacy scoped access is revoked. Reauthorize this application for the entire collection.")).toBeInTheDocument();
+    expect(await screen.findByText("Legacy scoped access is revoked. Reauthorize this app for the entire collection.")).toBeInTheDocument();
     expect(screen.getByText("Reauthorization required")).toBeInTheDocument();
 
     overview.grants = [legacy, {
@@ -1100,8 +1100,8 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
 
     await waitFor(() => expect(screen.queryByText("Reading list")).not.toBeInTheDocument());
     const batchCalls = vi.mocked(fetch).mock.calls.filter(([input]) =>
@@ -1134,8 +1134,8 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" });
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" });
 
     fireEvent.click(confirm);
     fireEvent.click(confirm);
@@ -1167,8 +1167,8 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
 
     expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(
       "1 grants were revoked; 1 changed concurrently. The current state has been refreshed."
@@ -1185,7 +1185,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
       if (new URL(String(input)).pathname === "/v1/grants/revoke-batch") {
@@ -1194,13 +1194,13 @@ describe("ConnectApp", () => {
       return originalFetch(input, init);
     });
     vi.useFakeTimers();
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
 
     await act(async () => vi.advanceTimersByTimeAsync(30_000));
     expect(within(screen.getByRole("dialog")).getByRole("alert")).toHaveTextContent(
       "The request timed out after it may have reached the service. Refresh to confirm the current state before trying again."
     );
-    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" })).toBeEnabled();
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" })).toBeEnabled();
   });
 
   it("aborts an in-flight management mutation on unmount without refreshing", async () => {
@@ -1222,8 +1222,8 @@ describe("ConnectApp", () => {
     const rendered = render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
     await waitFor(() => expect(mutationSignal).toBeDefined());
     const overviewCalls = vi.mocked(fetch).mock.calls.filter(([input]) =>
       new URL(String(input)).pathname === "/v1/me"

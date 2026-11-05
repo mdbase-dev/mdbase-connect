@@ -54,11 +54,11 @@ const PRESENTATION: Record<ApplicationCapabilityId, {
   },
   "background.schedule": {
     get label() { return t(i18n)({ message: "Schedule background work", context: "Application access approval" }); },
-    get description() { return t(i18n)({ message: "Create and maintain timers that run while the application is closed." }); }
+    get description() { return t(i18n)({ message: "Create and maintain timers that run while the app is closed." }); }
   },
   "offline.replica": {
     get label() { return t(i18n)({ message: "Keep an offline replica", context: "Application access approval" }); },
-    get description() { return t(i18n)({ message: "Synchronize an application-controlled local copy of this collection." }); }
+    get description() { return t(i18n)({ message: "Synchronize an app-controlled local copy of this collection." }); }
   }
 };
 

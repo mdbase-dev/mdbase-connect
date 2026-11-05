@@ -3431,7 +3431,7 @@ async function authorityPromotionCliE2E(
       name: "Use the folder on Promotion mirror as the main copy?"
     })).toBeVisible();
     await expect(page.getByText(
-      "Existing access is revoked. Connect applications again to use the local collection."
+      "Existing access is revoked. Connect apps again to use the local collection."
     )).toBeVisible();
     await page.getByRole("button", { name: "Move main copy" }).click();
     const promotionExit = await waitForExit(promotion, 30_000);

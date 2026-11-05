@@ -55,24 +55,6 @@ export function CollectionPicker({ label, labelledBy, collections, value, onChoo
   const active = filtered.findIndex(collection => collection.id === highlighted);
   const selected = collections.find(collection => collection.id === value);
 
-  useLayoutEffect(() => {
-    const scrollport = list.current!;
-    const footer = scrollport.closest(".authorization-panel")!.querySelector(".approval-footer")!;
-    const resize = () => {
-      const available = window.innerHeight - Math.max(0, scrollport.getBoundingClientRect().top)
-        - footer.getBoundingClientRect().height - 16;
-      const rows = Math.max(1, Math.floor((available - 2) / 64));
-      scrollport.style.setProperty("--collection-picker-space", `${rows * 64 + 2}px`);
-      const activeId = input.current?.getAttribute("aria-activedescendant");
-      if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
-    };
-    const observer = new ResizeObserver(resize);
-    observer.observe(footer);
-    window.addEventListener("resize", resize);
-    resize();
-    return () => { observer.disconnect(); window.removeEventListener("resize", resize); };
-  }, [value, query, creationSelected]);
-
   useEffect(() => {
     if (active >= 0) list.current?.children[active]?.scrollIntoView?.({ block: "nearest" });
   }, [active, highlighted]);
@@ -131,7 +113,27 @@ export function CollectionPicker({ label, labelledBy, collections, value, onChoo
 type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement;
 
 export function RequestShell({ children, busy = false }: { children: React.ReactNode; busy?: boolean }) {
-  return <div className="request-shell" aria-busy={busy}>
+  const shell = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const panel = shell.current!.querySelector<HTMLElement>(".authorization-panel")!;
+    const resize = () => {
+      const footer = panel.querySelector(".approval-footer");
+      const height = footer?.getBoundingClientRect().height ?? 0;
+      document.documentElement.style.setProperty("--approval-footer-space", `${height + 16}px`);
+      const scrollport = panel.querySelector<HTMLElement>(".collection-picker-list");
+      if (scrollport) {
+        const available = window.innerHeight - Math.max(0, scrollport.getBoundingClientRect().top) - height - 16;
+        const rows = Math.max(1, Math.floor((available - 2) / 64));
+        scrollport.style.setProperty("--collection-picker-space", `${rows * 64 + 2}px`);
+      }
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(panel);
+    window.addEventListener("resize", resize);
+    resize();
+    return () => { observer.disconnect(); window.removeEventListener("resize", resize); document.documentElement.style.removeProperty("--approval-footer-space"); };
+  }, []);
+  return <div className="request-shell" aria-busy={busy} ref={shell}>
     <main className="mdbase-page approval-page">
       <Brand productLabel />
       <section className="mdbase-page-panel authorization-panel">{children}</section>
@@ -154,7 +156,7 @@ export function CollectionIdentity({ name, location, kind }: { name: string; loc
 }
 
 export function GrantMoment({ applicationName, collectionName, collectionKind }: { applicationName: string; collectionName: string; collectionKind?: "local" | "hosted" | "private" | "cloud_copy" }) {
-  return <div className="grant-moment" role="status">
+  return <div className="grant-moment">
     <span className="request-identity-mark" aria-hidden="true">{initials(applicationName)}</span>
     <span className="grant-mark" aria-hidden="true">
       <MdbaseMark className="grant-stripes" />

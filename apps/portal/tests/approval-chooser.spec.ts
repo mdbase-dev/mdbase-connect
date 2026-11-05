@@ -30,7 +30,7 @@ for (const width of [1280, 390]) test(`names account readiness and policy refusa
   await expect(notes).toHaveAttribute("aria-selected", "true");
   await expect(input).toHaveAttribute("data-value", "notes");
   expect(mutations).toEqual([]);
-  await page.getByRole("button",{name:"Open Reader with Notes",exact:true}).click();
+  await page.getByRole("button",{name:"Open Reader",exact:true}).click();
   await expect(page.getByRole("heading",{name:"Account upgrade needed"})).toBeVisible();
   await expect(page.getByRole("heading",{name:"Sign-in cancelled"})).toHaveCount(0);
   await expect(page.locator(".mdbase-connect-lead",{hasText:"support@mdbase.dev"})).toBeVisible();
@@ -81,7 +81,7 @@ for (const width of [1280, 390]) test(`searches approval collections without cha
   await expect(picker.getByRole("option")).toHaveCount(0);
   await expect(input).toHaveAttribute("data-value", "collection-59");
   await expect(page.getByRole("status")).toContainText("No collections match");
-  await expect(page.getByRole("button",{name:"Open Reader with [test] Notes 59",exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Open Reader",exact:true})).toBeVisible();
   await expect(create).toBeEnabled();
   await expect(create).toHaveAttribute("aria-pressed", "false");
   await input.fill("");

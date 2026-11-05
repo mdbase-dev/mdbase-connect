@@ -84,7 +84,7 @@ class ManagementErrorBoundary extends Component<{ children: ReactNode }, { faile
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   render() {
-    return this.state.failed ? <main className="connect-loading" role="alert"><h1><Trans>mdbase connect needs to restart</Trans></h1><p><Trans>Your collections were not deleted.</Trans></p><button className="mdbase-button is-tertiary" onClick={() => location.reload()}><Trans>Reload Connect</Trans></button><FeedbackButton /></main> : this.props.children;
+    return this.state.failed ? <main className="connect-loading" role="alert"><h1><Trans>mdbase Connect needs to restart</Trans></h1><p><Trans>Your collections were not deleted.</Trans></p><button className="mdbase-button is-tertiary" onClick={() => location.reload()}><Trans>Reload Connect</Trans></button><FeedbackButton /></main> : this.props.children;
   }
 }
 
@@ -365,7 +365,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   </nav>;
   const footer = <footer className="connect-nav-footer"><FeedbackButton /><div className="connect-account-slot">{data && <RouteLink view="account" navigate={navigate}><strong title={data.user.name}>{data.user.name}</strong><small title={data.user.email ?? undefined}>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink>}</div></footer>;
   return <div className="connect-shell">
-    <aside className="connect-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
+    <aside className="connect-nav" aria-label={t(i18n)({ message: "mdbase Connect navigation" })}>
       <header><Brand productLabel /><button className="connect-mobile-nav-toggle mdbase-icon-button" aria-label={t(i18n)({ message: "Open menu", context: "Connect interface" })} aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><List aria-hidden="true" /></button></header>
       <button className="sidebar-search" onClick={keyboard.show}><span><Trans>Search</Trans></span><kbd>{shortcutLabel("mod+k")}</kbd></button>
       {!navigationOpen && <>{navigation}{footer}</>}
@@ -393,7 +393,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       {activeView === "computers" && <Computers error={mutationError} data={data} busy={busy} perform={perform} />}
       {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onSignedOut={endSession} onDeleted={() => { clearOverviewPreview(); lifecycleRef.current?.abort(); setAccountDeleted(true); }} />}
       {activeView === "feedback" && feedbackEnabled && <FeedbackPage onDone={() => navigate("overview", selectedCollection?.id)} />}
-      {activeView === "feedback" && !feedbackEnabled && <Page title={t(i18n)({ message: "Feedback unavailable", context: "Connect interface" })} intro={t(i18n)({ message: "This deployment has not configured a feedback destination." })}><section><Empty title={t(i18n)({ message: "Feedback is unavailable", context: "Connect interface" })} body={t(i18n)({ message: "Contact the person who operates this mdbase connect deployment." })} /></section></Page>}
+      {activeView === "feedback" && !feedbackEnabled && <Page title={t(i18n)({ message: "Feedback unavailable", context: "Connect interface" })} intro={t(i18n)({ message: "This deployment has not configured a feedback destination." })}><section><Empty title={t(i18n)({ message: "Feedback is unavailable", context: "Connect interface" })} body={t(i18n)({ message: "Contact the person who operates this mdbase Connect deployment." })} /></section></Page>}
       </>}
     </main>
     <CommandPalette open={keyboard.open} commands={commands} onClose={keyboard.close} returnFocusRef={keyboard.invoker} showAll={["navigation", "commands"]} groupLabel={group => keyboard.groupLabels[group]} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)`Search collections, apps, computers, sessions and actions`} emptyState={<><strong><Trans>No results</Trans></strong><p><Trans>Try an object name, its location, or an action such as Rename. Clear the search to browse.</Trans></p></>} />
@@ -443,7 +443,7 @@ function CollectionOverview({ collection, applications, editorOrigin }: {
     <section>
       <SectionTitle title={t(i18n)({ message: "Apps with access to the entire collection", context: "Connect interface" })} />
       {applications.map((application) => <div className="connect-row connect-application-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0]?.homepage ?? application.installations[0].application_origin)}</small></div><span>{application.installations.length ? t(i18n)({ message: "Access as your account", context: "Connect interface" }) : permissionSummary(application.grants)}</span><a className="mdbase-button is-tertiary" href={`/access?collection=${encodeURIComponent(collection.id)}`}><Trans>Review access</Trans></a></div>)}
-      {applications.length === 0 && <Empty title={t(i18n)({ message: "No apps with access" })} body={t(i18n)({ message: "Applications appear after you approve access to this collection." })} />}
+      {applications.length === 0 && <Empty title={t(i18n)({ message: "No apps with access" })} body={t(i18n)({ message: "Apps appear after you approve access to this collection." })} />}
     </section>
   </Page>;
 }
@@ -458,7 +458,7 @@ function CollectionSharingPanel({ error, collection, busy, perform, sharingAvail
   useLocaleRevision();
   const [members, setMembers] = useState<HostedCollectionMember[]>();
   const [invitations, setInvitations] = useState<HostedCollectionInvitation[]>();
-  const [loadError, setLoadError] = useState("");
+  const [loadError, setLoadError] = useState<{ message: string; conflict: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [inviting, setInviting] = useState(false);
   const [targetMode, setTargetMode] = useState<"email" | "invitee_code">("email");
@@ -477,9 +477,9 @@ function CollectionSharingPanel({ error, collection, busy, perform, sharingAvail
       if (signal?.aborted) return;
       setMembers(memberResult.members);
       setInvitations(invitationResult.invitations);
-      setLoadError("");
+      setLoadError(null);
     } catch (reason) {
-      if (!signal?.aborted) setLoadError(errorMessage(reason));
+      if (!signal?.aborted) setLoadError({ message: errorMessage(reason), conflict: reason instanceof ManagementApiError && reason.status === 409 });
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
@@ -547,7 +547,7 @@ function CollectionSharingPanel({ error, collection, busy, perform, sharingAvail
       count={members?.length}
       action={sharingAvailable && <button className="mdbase-button is-tertiary" onClick={() => { setInviting(true); setShareLink(""); }}><Trans><Plus aria-hidden="true" />Invite person</Trans></button>}
     />
-    {loadError && <div className="connect-notice error" role="alert">{loadError}<button className="mdbase-button is-tertiary" onClick={() => void load()}><Trans>Try again</Trans></button></div>}
+    {loadError && <div className="connect-notice error" role="alert"><div>{loadError.message}{loadError.conflict && <p><Trans>Resolve the conflicting changes in the desktop app on the computers holding this collection, then return here to change access.</Trans></p>}</div>{!loadError.conflict && <button className="mdbase-button is-tertiary" onClick={() => void load()}><Trans>Try again</Trans></button>}</div>}
     {sharingAvailable && inviting && <form className="connect-inline-form connect-sharing-form" onSubmit={(event) => void invite(event)}>
       <label><span><Trans>Invite using</Trans></span><Select aria-label={t(i18n)({ message: "Invite using", context: "Connect interface" })} value={targetMode} options={[{ value: "email", label: t(i18n)`Verified email` }, { value: "invitee_code", label: t(i18n)`Sharing code` }]} onChange={(next) => { setTargetMode(next); setTarget(""); }} /></label>
       <label><span>{targetMode === "email" ? t(i18n)({ message: "Email address", context: "Connect interface" }) : t(i18n)({ message: "Sharing code", context: "Connect interface" })}</span><input className="mdbase-field" autoFocus type={targetMode === "email" ? "email" : "text"} maxLength={targetMode === "email" ? 320 : 32} value={target} onChange={(event) => setTarget(event.target.value)} placeholder={targetMode === "email" ? t(i18n)({ message: "person@example.com", context: "Connect interface" }) : "ABCD-EFGH"} /></label>
@@ -557,10 +557,10 @@ function CollectionSharingPanel({ error, collection, busy, perform, sharingAvail
     </form>}
     {shareLink && <div className="connect-sharing-link" role="status"><div><strong><Trans>Invitation ready</Trans></strong><small><Trans>Send this private link to the invited person. Email invitations require an already registered, verified account. If they have just signed up, create a new invitation.</Trans></small></div><input className="mdbase-field" aria-label={t(i18n)({ message: "Collection invitation link" })} readOnly value={shareLink} onFocus={(event) => event.currentTarget.select()} /><button className="mdbase-button is-tertiary" onClick={() => void copyLink()}>{copied ? t(i18n)({ message: "Copied", context: "Connect interface" }) : t(i18n)({ message: "Copy link", context: "Connect interface" })}</button></div>}
     {members?.map((member) => <div className="connect-row connect-member-row" key={member.id ?? "owner"}>
-      <div><strong>{member.name}</strong><small>{member.kind === "owner" ? t(i18n)({ message: "Collection owner", context: "Connect interface" }) : member.state === "changing" ? t(i18n)({ message: "Updating access…", context: "Connect interface" }) : member.state === "revoking" ? t(i18n)({ message: "Removing application and folder access…" }) : member.role === "editor" ? t(i18n)({ message: "Can edit notes and manage types" }) : t(i18n)({ message: "Can view and connect read-only apps" })}</small></div>
+      <div><strong>{member.name}</strong><small>{member.kind === "owner" ? t(i18n)({ message: "Collection owner", context: "Connect interface" }) : member.state === "changing" ? t(i18n)({ message: "Updating access…", context: "Connect interface" }) : member.state === "revoking" ? t(i18n)({ message: "Removing app and folder access…" }) : member.role === "editor" ? t(i18n)({ message: "Can edit notes and manage types" }) : t(i18n)({ message: "Can view and connect read-only apps" })}</small></div>
       {member.kind === "owner" ? <span><Trans>Owner</Trans></span> : <>
         <label className="connect-role-select"><span className="mdbase-visually-hidden"><Trans>Role for {literal(member.name)}</Trans></span><Select aria-label={t(i18n)`Role for ${member.name}`} value={member.role as MemberRole} options={memberRoles} disabled={member.state !== "active" || (!sharingAvailable && member.role === "viewer") || busy.has(`member-role-${member.id}`)} onChange={(next) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(collection.id, member.id!, next, options), t(i18n)`Updated ${member.name} access to ${collection.display_name ?? collection.id}`)} /></label>
-        <ConfirmAction error={error} className="mdbase-button is-tertiary is-danger" label={member.state === "revoking" ? t(i18n)({ message: "Removing…", context: "Connect interface" }) : t(i18n)({ message: "Remove", context: "Connect interface" })} question={collection.display_name ? t(i18n)`Remove ${member.name} from ${collection.display_name}?` : t(i18n)`Remove ${member.name} from the unnamed collection?`} consequence={t(i18n)`Their application and folder access will also be revoked.`} pendingLabel={t(i18n)`Removing access…`} confirmLabel={t(i18n)({ message: "Remove access", context: "Connect interface" })} busy={member.state === "revoking" || busy.has(`member-revoke-${member.id}`)} onConfirm={() => mutate(`member-revoke-${member.id}`, (options) => management.revokeCollectionMember(collection.id, member.id!, options), t(i18n)`Removing ${member.name} from ${collection.display_name ?? collection.id}`)} />
+        <ConfirmAction error={error} className="mdbase-button is-tertiary is-danger" label={member.state === "revoking" ? t(i18n)({ message: "Removing…", context: "Connect interface" }) : t(i18n)({ message: "Remove", context: "Connect interface" })} question={collection.display_name ? t(i18n)`Remove ${member.name} from ${collection.display_name}?` : t(i18n)`Remove ${member.name} from the unnamed collection?`} consequence={t(i18n)`Their app and folder access will also be revoked.`} pendingLabel={t(i18n)`Removing access…`} confirmLabel={t(i18n)({ message: "Remove access", context: "Connect interface" })} busy={member.state === "revoking" || busy.has(`member-revoke-${member.id}`)} onConfirm={() => mutate(`member-revoke-${member.id}`, (options) => management.revokeCollectionMember(collection.id, member.id!, options), t(i18n)`Removing ${member.name} from ${collection.display_name ?? collection.id}`)} />
       </>}
     </div>)}
     {loading && <p className="connect-muted" role="status"><Trans>Loading people…</Trans></p>}
@@ -583,7 +583,7 @@ function Storage({ error, collection, busy, perform, editorOrigin }: {
     return <Page title={t(i18n)({ message: "Storage", context: "Connect interface" })} intro={t(i18n)`${collection.name} is stored in mdbase replicas on your devices.`}>
       <p>{collection.detail}</p>
       <CollectionModeControl key={collection.id} collectionId={collection.id} load={() => takeModePrefetch(management, collection.id) ?? management.collectionModeStatus(collection.id)} change={(targetMode, requestId) => management.requestCollectionMode(collection.id, {targetMode, requestId})} cancel={(_target, requestId) => management.cancelCollectionMode(collection.id, requestId)} />
-      <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection replicas</Trans></strong><small><Trans>Replicas sync between your devices. Application access is managed separately.</Trans></small></div></div></section>
+      <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection replicas</Trans></strong><small><Trans>Replicas sync between your devices. App access is managed separately.</Trans></small></div></div></section>
     </Page>;
   }
   if (collection.kind === "hosted") {
@@ -684,7 +684,7 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
         {intent && <p role="status"><Trans>Your original request is kept. Retry it to avoid creating another collection.</Trans></p>}
         <footer className="mdbase-dialog-actions"><button className="mdbase-button is-tertiary" type="button" disabled={busy.has("create-collection")} onClick={() => setCreating(false)}><Trans>Cancel</Trans></button><button className="mdbase-button is-primary" disabled={!hostedEnabled || !canCreate || busy.has("create-collection")}>{busy.has("create-collection") ? t(i18n)({ message: "Creating…", context: "Connect interface" }) : intent ? t(i18n)({ message: "Retry creation", context: "Connect interface" }) : t(i18n)({ message: "Create", context: "Connect interface" })}</button></footer>
       </form>}
-      {location === "native" && <div className="connect-edit-form"><p><Trans>Choose or create a folder in the desktop app. Collection files stay on this computer.</Trans></p><DesktopLink href="mdbase-connect://open"><Trans>Open mdbase connect</Trans></DesktopLink></div>}
+      {location === "native" && <div className="connect-edit-form"><p><Trans>Choose or create a folder in the desktop app. Collection files stay on this computer.</Trans></p><DesktopLink href="mdbase-connect://open"><Trans>Open mdbase Connect</Trans></DesktopLink></div>}
     </Dialog>
   </Page>;
 }
@@ -728,13 +728,13 @@ function Computers({ error, data, busy, perform }: {
             event.preventDefault();
             if (await perform(`rename-computer-${connector.id}`, options => management.renameConnector(connector.id, name.trim(), options), false, { kind: "rename-computer", id: connector.id, name: name.trim(), previous: connector.name }, t(i18n)`Renamed ${connector.name} to ${name.trim()}`)) setSelection(null);
           }}><label><span className="mdbase-visually-hidden"><Trans>Rename {connector.name}</Trans></span><input className="mdbase-field" data-autofocus maxLength={200} value={name} onFocus={event => event.currentTarget.select()} onChange={event => setName(event.target.value)} /></label><footer className="mdbase-dialog-actions"><button type="button" className="mdbase-button is-tertiary" disabled={working} onClick={() => setSelection(null)}><Trans>Cancel</Trans></button><button className="mdbase-button is-primary" disabled={working || !name.trim() || name.trim() === connector.name}>{working ? t(i18n)`Saving…` : t(i18n)`Save`}</button></footer></form></Dialog>
-          <ConfirmDialog open={selection?.id === connector.id && selection.kind === "revoke"} title={t(i18n)`Revoke ${connector.name}?`} consequence={t(i18n)`Applications will lose access through this computer. Your local files will not be deleted.`} confirmLabel={t(i18n)({ message: "Revoke computer", context: "Connect interface" })} pendingLabel={t(i18n)`Revoking access…`} busy={working} returnFocusRef={trigger} onClose={() => setSelection(null)} onConfirm={async () => {
+          <ConfirmDialog open={selection?.id === connector.id && selection.kind === "revoke"} title={t(i18n)`Revoke ${connector.name}?`} consequence={t(i18n)`Apps will lose access through this computer. Your local files will not be deleted.`} confirmLabel={t(i18n)({ message: "Revoke computer", context: "Connect interface" })} pendingLabel={t(i18n)`Revoking access…`} busy={working} returnFocusRef={trigger} onClose={() => setSelection(null)} onConfirm={async () => {
             if (await perform(`computer-${connector.id}`, options => management.revokeConnector(connector.id, options), false, undefined, t(i18n)`Revoked ${connector.name}`)) setSelection(null);
           }}>{error && <p role="alert">{error}</p>}</ConfirmDialog>
         </div>;
       })}
       {data.connectors.length > 0 && visible.length === 0 && <Empty title={t(i18n)({ message: "No computers match", context: "Connect interface" })} body={t(i18n)({ message: "Try a different computer name. Filtering does not revoke access." })} />}
-      {data.connectors.length === 0 && <Empty title={t(i18n)({ message: "No computers connected", context: "Connect interface" })} body={t(i18n)({ message: "Open the mdbase connect desktop app and choose Connect this computer." })} action={<span className="connect-empty-actions"><a href="mdbase-connect://open"><Trans>Open mdbase connect</Trans></a><a href={desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Install the latest release</Trans></a></span>} />}
+      {data.connectors.length === 0 && <Empty title={t(i18n)({ message: "No computers connected", context: "Connect interface" })} body={t(i18n)({ message: "Open the mdbase Connect desktop app and choose Connect this computer." })} action={<span className="connect-empty-actions"><a href="mdbase-connect://open"><Trans>Open mdbase Connect</Trans></a><a href={desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Install the latest release</Trans></a></span>} />}
     </section>
   </Page>;
 }
@@ -831,7 +831,7 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
     <span className="connect-collection-menu"><button ref={trigger} className="mdbase-icon-button" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><DotsThree aria-hidden="true" /></button>
       <Menu open={menuOpen} triggerRef={trigger} id={`collection-menu-${collection.id}`} label={collection.name} onClose={refocus => { setMenuOpen(false); if (refocus) trigger.current?.focus(); }}>
         {navigate && <button role="menuitem" className="mdbase-menu-item" onClick={() => { setMenuOpen(false); navigate("overview", collection.id); }}>{t(i18n)({ message: "Overview", context: "Connect interface" })}</button>}
-        {!hosted && <DesktopLink role="menuitem" href="mdbase-connect://open"><Trans>Open mdbase connect</Trans></DesktopLink>}
+        {!hosted && <DesktopLink role="menuitem" href="mdbase-connect://open"><Trans>Open mdbase Connect</Trans></DesktopLink>}
         {active && hosted.access.can_rename_collection && <button role="menuitem" className="mdbase-menu-item" data-action="rename" onClick={() => { setMenuOpen(false); setName(collection.name); setEditing("rename"); }}><Trans>Rename</Trans></button>}
         {active && <DesktopLink role="menuitem" href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.id)}`}><Trans>Sync folder</Trans></DesktopLink>}
         {hosted?.access.can_delete_collection && <button role="menuitem" data-action="delete" className="mdbase-menu-item is-danger" onClick={() => { setMenuOpen(false); setName(""); setEditing("delete"); }}><Trans>Delete</Trans></button>}
@@ -848,7 +848,7 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
 }
 
 function connectionDescription(collection: CollectionRow): string {
-  if (collection.kind === "native") return t(i18n)({ message: "Management access does not give applications access to collection content. Each application needs its own collection approval." });
+  if (collection.kind === "native") return t(i18n)({ message: "Management access does not give apps access to collection content. Each app needs its own collection approval." });
   if (collection.kind === "hosted") {
     return collection.available
       ? t(i18n)({ message: "The hosted collection is available to the editor." })
@@ -856,11 +856,11 @@ function connectionDescription(collection: CollectionRow): string {
   }
   if (collection.paused) return t(i18n)({ message: "Access to this collection is paused on its computer." });
   if (collection.upgradeRequired) {
-    return t(i18n)`Update mdbase connect on ${collection.detail} before using this collection.`;
+    return t(i18n)`Update mdbase Connect on ${collection.detail} before using this collection.`;
   }
   return collection.available
     ? t(i18n)`The editor can reach this collection through ${collection.detail}.`
-    : t(i18n)`Open mdbase connect on ${collection.detail} to make this collection available.`;
+    : t(i18n)`Open mdbase Connect on ${collection.detail} to make this collection available.`;
 }
 
 function isConnectorOnline(lastSeenAt: string | null): boolean { return lastSeenAt !== null && Date.now() - new Date(lastSeenAt).getTime() < 45_000; }

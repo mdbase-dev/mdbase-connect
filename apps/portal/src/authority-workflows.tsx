@@ -274,9 +274,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       {installationAccountLabel(pairing) && <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>}
       <p className="mdbase-connect-lead" role="alert">{refusal.message}</p>
       <footer className="approval-footer">
-        <p className="approval-receipt">{pairing.return_url
-          ? <a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>
-          : t(i18n)`Return to ${pairing.connector_name}.`}</p>
+        {pairing.return_url && <p className="approval-receipt"><a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a></p>}
         <div className="approval-actions">
           {(!outcome || retry) && <button className="mdbase-button is-secondary" disabled={busy} onClick={() => void act("deny")}><Trans>Cancel</Trans></button>}
           {!outcome && <button className="mdbase-button is-primary" disabled={busy} onClick={() => setAttempt(value => value + 1)}><Trans>Check again</Trans></button>}
@@ -406,19 +404,20 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     {revokingId && <p role="status"><Trans>Revoking access to {literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))}…</Trans></p>}
                     {details}
                     <footer className="approval-footer">
-                      <div className="approval-receipt">
-                        {selectedName && <CollectionIdentity name={selectedName} location={privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`} kind={privateChoice ? "private" : "cloud_copy"} />}
+                      <div className="approval-receipt approval-target" id={`pairing-target-${pairingId}`}>
+                        {selectedName && <div className="collection-identity-copy"><strong className="collection-name">{selectedName}</strong><small>{privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`}</small></div>}
                         <p><Trans>This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased.</Trans></p>
                         {createCollections && !privateChoice && <p><Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans></p>}
                         {pairing.scope_only && <p><Trans>Already-allowed access stays in place. Revoke access separately if you no longer want it.</Trans></p>}
-                        <p><Trans>Access continues until you revoke it in mdbase connect.</Trans></p>
+                        <p><Trans>Access continues until you revoke it in mdbase Connect.</Trans></p>
                       </div>
                       <div className="approval-actions">
                     <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => void act("deny")}><Trans>Cancel</Trans></button>
                     <button className="mdbase-button is-primary"
+                      aria-describedby={`pairing-target-${pairingId}`}
                       disabled={busy || !installationAccountLabel(pairing) || !selectedCollectionId || (selectedCollectionId===NEW_COLLECTION ? !pairing.can_create_collection || !newCollectionName.trim() : !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId))}
                       onClick={()=>void act("approve")}>
-                      {busy ? t(i18n)({ message: "Approving…", context: "Collection connection" }) : selectedName ? t(i18n)`Open ${pairing.connector_name} with ${selectedName}` : t(i18n)`Open ${pairing.connector_name}`}
+                      {busy ? t(i18n)({ message: "Approving…", context: "Collection connection" }) : t(i18n)`Open ${pairing.connector_name}`}
                     </button>
                       </div>
                     </footer>
@@ -854,7 +853,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
           <>
             <p className="eyebrow outcome-label"><Trans>Transfer complete</Trans></p>
             <h1>{t(i18n)`${collectionName} now lives on your computer.`}</h1>
-            <p>{t(i18n)`The folder on ${mirrorName} is now the main copy. Hosted access has stopped and previous application connections were revoked.`}</p>
+            <p>{t(i18n)`The folder on ${mirrorName} is now the main copy. Hosted access has stopped and previous app connections were revoked.`}</p>
             <div className="transfer-status" role="status">
               <StatusGlyph state="online" />
               <span>{t(i18n)`Main copy on ${mirrorName}`}</span>
@@ -882,7 +881,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
             <p className="eyebrow outcome-label"><Trans>Transfer approved</Trans></p>
             <h1>{t(i18n)`Return to ${mirrorName}.`}</h1>
             <p><Trans>
-              mdbase connect is checking the latest hosted changes, registering
+              mdbase Connect is checking the latest hosted changes, registering
               the folder, and making it the main copy.
             </Trans></p>
             <div className="transfer-status" role="status">
@@ -926,9 +925,9 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
                 </Trans></dd>
               </div>
               <div>
-                <dt><Trans>Applications</Trans></dt>
+                <dt><Trans>Apps</Trans></dt>
                 <dd><Trans>
-                  Existing access is revoked. Connect applications again to use
+                  Existing access is revoked. Connect apps again to use
                   the local collection.
                 </Trans></dd>
               </div>

@@ -4,7 +4,7 @@ import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { provisionedContract, type SetupType } from "@mdbase/connect-ui/contract-setup";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { APPLICATION_SETUP_OPERATIONS } from "@mdbase-dev/connect-protocol";
 import {
   api,
@@ -292,7 +292,7 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
   const [late, setLate] = useState(false);
   const [seconds, setSeconds] = useState(3);
   const outcome = useRef<HTMLDivElement>(null);
-  useEffect(() => { outcome.current?.querySelector<HTMLElement>("h1, h2")?.focus(); }, [status]);
+  useLayoutEffect(() => { outcome.current?.querySelector<HTMLElement>("h1, h2")?.focus(); }, [status]);
   useEffect(() => {
     if (!returnUrl || portable || (status !== "approved" && status !== "denied")) return;
     if (status === "denied") {
@@ -322,9 +322,9 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
     <Heading>{t(i18n)({ message: "This request has expired or was already answered." })}</Heading>
     <p>{t(i18n)`Return to ${applicationName} and connect again to start a new request.`}</p>
   </div>;
-  if (status === "setting_up") return <div className="request-outcome" role="status">
+  if (status === "setting_up") return <div className="request-outcome" role="status" ref={outcome}>
     <p className="eyebrow outcome-label"><Trans>Approval recorded</Trans></p>
-    <h2><Trans>Finishing collection setup…</Trans></h2>
+    <h2 tabIndex={-1}><Trans>Finishing collection setup…</Trans></h2>
     <div className="collection-setup-progress" aria-hidden="true" />
     <p><Trans>Your choices are being checked with the collection’s main copy. The app does not have access yet.</Trans></p>
     {late && <p><Trans>This is taking longer than usual. Keep this page open; it continues automatically when setup finishes.</Trans></p>}
@@ -392,15 +392,15 @@ function DesktopContinuation({ request, onReviewHere }: {
   const desktopUrl = `mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`;
   return (
     <section className="desktop-continuation" aria-live="polite">
-      <h2><Trans>Choose the folder in mdbase connect.</Trans></h2>
+      <h2><Trans>Choose the folder in mdbase Connect.</Trans></h2>
       <p><Trans>This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {literal(request.application_name)}.</Trans></p>
       <div className="desktop-continuation-status">
         <StatusGlyph state="connecting" />
-        <div><strong><Trans>Waiting for mdbase connect</Trans></strong><small><Trans>The page will notice when the request is approved.</Trans></small></div>
+        <div><strong><Trans>Waiting for mdbase Connect</Trans></strong><small><Trans>The page will notice when the request is approved.</Trans></small></div>
       </div>
       <div className="approval-actions">
         <button className="mdbase-button" type="button" onClick={onReviewHere}><Trans>Review in this browser</Trans></button>
-        <a className="mdbase-button is-primary" href={desktopUrl}><Trans>Open mdbase connect</Trans></a>
+        <a className="mdbase-button is-primary" href={desktopUrl}><Trans>Open mdbase Connect</Trans></a>
       </div>
       <p className="field-note"><Trans>If the desktop app does not open, <a href="https://mdbase.dev/downloads/" target="_blank" rel="noreferrer">install the current Connect release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</Trans></p>
     </section>
@@ -507,6 +507,7 @@ function SupportedApprovalForm({
     : new Set<string>()
   );
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
+  useLayoutEffect(() => { if (submitting) reviewHeading.current?.focus(); }, [submitting]);
   const [creatingHosted, setCreatingHosted] = useState(false);
   const [showAlternateCollections, setShowAlternateCollections] = useState(false);
   const [collectionName, setCollectionName] = useState("");
@@ -975,8 +976,8 @@ function SupportedApprovalForm({
       {reviewing && <footer className="approval-footer">
         <div className="approval-receipt">
           <p>{request.distribution === "portable"
-            ? t(i18n)`${request.application_name} can use ${selectedName} while it remains connected. You can revoke access in mdbase connect.`
-            : t(i18n)`${request.application_name} can use ${selectedName} until you revoke access in mdbase connect.`}</p>
+            ? t(i18n)`${request.application_name} can use ${selectedName} while it remains connected. You can revoke access in mdbase Connect.`
+            : t(i18n)`${request.application_name} can use ${selectedName} until you revoke access in mdbase Connect.`}</p>
           {privateCollection && <p><Trans>This is a Private collection: it stays on your computer. {literal(request.application_name)} can use it while a computer that has it is running mdbase and is signed in to your account.</Trans></p>}
           {higherImpactLabels.length > 0 && <p className="receipt-impact"><Trans><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</Trans></p>}
           {approvalBlocker && <p className="receipt-blocker" id={blockerId}>{approvalBlocker}</p>}

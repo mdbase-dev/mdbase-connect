@@ -22,7 +22,7 @@ const google = `window.google = { accounts: { id: {
   }
 } } };`;
 
-export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "http://127.0.0.1:4814/?demo=300" } = {}) {
+export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "http://127.0.0.1:4802/?demo=300" } = {}) {
   const sessions = new Map();
   const feedback = [];
   return createServer(async (request, response) => {
@@ -143,6 +143,7 @@ export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "htt
           const [, collectionId, resource, itemId] = sharing;
           if (!data.hosted_collections.some(collection => collection.id === collectionId)) return send(error("Collection not found"), 404);
           if (state.name === "provider-unavailable") return send(error("The hosted provider is unavailable. Try again shortly."), 503);
+          if (state.name === "sync-conflict") return send(error("Sync conflict: reconcile the Studio and Travel replicas before changing access.", "sync_conflict"), 409);
           const items = (state[resource][collectionId] ??= []);
           if (method === "GET") return send({ [resource]: items });
           if (resource === "invitations" && method === "POST") {

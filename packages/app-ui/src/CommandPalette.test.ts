@@ -33,6 +33,15 @@ describe("CommandPalette group labels", () => {
     return document.querySelector("dialog")?.outerHTML ?? "";
   };
 
+  it("highlights literal label matches without replacing adapter content", () => {
+    render({ commands: [command("field", "collections", "Field [notes] archive")], initialQuery: "field [notes]" });
+    expect([...document.querySelectorAll("mark")].map(element => element.textContent)).toEqual(["Field", "[notes]"]);
+    render({ commands: [{ ...command("adapter", "collections", "Field notes"), content: createElement("strong", null, createElement("mark", null, "Adapter")) }], initialQuery: "field" });
+    expect(document.querySelector("mark")?.textContent).toBe("Adapter");
+    render();
+    expect(document.querySelector("mark")).toBeNull();
+  });
+
   it("keeps existing headings when no callback is supplied", () => {
     expect(headings(render())).toEqual(["tabs", "app"]);
   });
