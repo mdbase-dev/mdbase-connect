@@ -407,6 +407,7 @@ pub(crate) struct Session {
     pub(crate) conflicts_sub: bool,
     pub(crate) pending_cursors: std::collections::VecDeque<client::pending::Position>,
     pub(crate) pending_time_floor: i64,
+    pub(crate) file_stream_failure: bool,
 }
 
 impl Session {

@@ -818,3 +818,67 @@ fn engine_authenticated_held_read_span_never_outputs_successor_upload_bytes() {
     assert!(region.owns(new));
     assert!(region.borrow(new).unwrap().iter().all(|b| *b == 0xef));
 }
+
+fn stream_failure_hello() -> Vec<u8> {
+    request(
+        0,
+        "hello",
+        HelloParams {
+            versions: vec![Version { major: 1, minor: 0 }],
+            client_name: "app".into(),
+            client_version: "0".into(),
+            features: Some(vec!["file-stream-failure-v1".into()]),
+            timezone: None,
+        }
+        .to_cbor(),
+    )
+}
+
+#[test]
+fn engine_failed_read_keeps_a_negotiated_session_open() {
+    let mut f = fixture(500);
+    let (session, _) =
+        f.h.e
+            .hello(Some((GRANT, CLIENT_PK)), &stream_failure_hello());
+    f.session = session;
+    for _ in 0..2 {
+        let stream = read(&mut f, None);
+        let (ticket, _) = lease(&mut f).unwrap();
+        f.h.e.attachment_failed(ticket);
+        let mut failed = false;
+        for out in f.h.e.poll() {
+            match out {
+                Out::Closed(session) => assert_ne!(session, f.session),
+                Out::Frame(session, frame) if session == f.session => {
+                    if let ClientFrame::Push(push) = ClientFrame::from_bytes(&frame).unwrap()
+                        && push.kind == "file_stream_failed"
+                    {
+                        let Cbor::Map(fields) = push.payload else {
+                            panic!("failure payload");
+                        };
+                        assert_eq!(fields[0], (Cbor::Uint(0), Cbor::Uint(stream)));
+                        failed = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(failed, "the failed stream was not reported");
+        assert!(!f.h.e.attachment_active(f.session));
+    }
+}
+
+#[test]
+fn engine_failed_read_closes_a_session_without_the_feature() {
+    let mut f = fixture(500);
+    read(&mut f, None);
+    let (ticket, _) = lease(&mut f).unwrap();
+    f.h.e.attachment_failed(ticket);
+    let session = f.session;
+    assert!(
+        f.h.e
+            .poll()
+            .iter()
+            .any(|out| matches!(out, Out::Closed(s) if *s == session))
+    );
+}

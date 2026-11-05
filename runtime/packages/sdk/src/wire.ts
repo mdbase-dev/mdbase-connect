@@ -1224,6 +1224,16 @@ export const fileChunk = struct<FileChunk>("file-chunk", [
   [3, "last", bool],
 ]);
 
+export interface FileStreamFailure {
+  stream: number;
+  problem: Problem;
+}
+
+export const fileStreamFailure = struct<FileStreamFailure>("file-stream-failure", [
+  [0, "stream", uint],
+  [1, "problem", problem],
+]);
+
 export const TRANSFER_PHASES = [
   "receiving",
   "sealing",
@@ -1357,6 +1367,7 @@ export const PUSH_CODECS: Record<string, Codec<any>> = {
   conflicts: list(conflictEntry),
   presence: presencePush,
   file_chunk: fileChunk,
+  file_stream_failed: fileStreamFailure,
   transfer_progress: transferProgress,
   changes: changesResult,
 };

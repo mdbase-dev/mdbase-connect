@@ -1711,6 +1711,8 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export uploadChunkParams
   export FileChunk
   export fileChunk
+  export FileStreamFailure
+  export fileStreamFailure
   export TRANSFER_PHASES
   export TransferPhase
   export TransferProgress

@@ -7,6 +7,9 @@ use crate::log::{CallId, LogReply, LogRequest, LogResponse};
 use mdbn_wire::client::FileView;
 use mdbn_wire::common::Hash;
 
+/// A failed read ends its stream, not the client's session.
+pub(crate) const FILE_STREAM_FAILURE_FEATURE: &str = "file-stream-failure-v1";
+
 pub(crate) struct ClientFiles {
     reads: FileReads,
     pub(super) region: AttachmentRegion,
@@ -104,7 +107,7 @@ impl<S: Store> Replica<S> {
     pub fn attachment_read_deadline(&self) -> Option<i64> {
         self.client_files.as_ref()?.reads.deadline()
     }
-    /// Expire the native lane and wipe its lease; the transport closes the result.
+    /// Expire the native lane and wipe its lease; the caller ends the result.
     pub fn attachment_read_tick(&mut self, now: i64) -> Option<SessionId> {
         let io = self.client_files.as_mut()?;
         io.reads.tick(now, &mut io.region)
@@ -118,7 +121,7 @@ impl<S: Store> Replica<S> {
         self.prune_client_file_call();
         if let Some(session) = retired {
             // Do not strand the SDK waiting for a last chunk on a retired lane.
-            self.client_file_failed(session);
+            self.attachment_read_end_failed(session);
         }
     }
     /// Trusted host I/O request, not an admission permit or an app-selected address.
@@ -230,17 +233,50 @@ impl<S: Store> Replica<S> {
             self.calls.retain(|call| call.id != id);
         }
     }
-    fn client_file_failed(&mut self, session: SessionId) {
-        let mut problem = ErrorCode::Unavailable.problem_with_reason(
-            "file_read_failed",
-            "the native file stream could not complete",
+    /// End this session's failed read. A session that negotiated stream
+    /// failure keeps running; any other only knows the session-wide `closed`.
+    pub fn attachment_read_end_failed(&mut self, session: SessionId) {
+        self.end_file_read(
+            session,
+            ErrorCode::Unavailable.problem_with_reason(
+                "file_read_failed",
+                "the native file stream could not complete",
+            ),
         );
-        problem.details = self
-            .client_files
-            .as_mut()
-            .and_then(|io| io.reads.take_failure(session));
-        crate::api::ClientApi::close(self, session);
-        self.pushes.push((session, Push::Closed(problem)));
+    }
+    /// End this session's expired read, as [`Self::attachment_read_end_failed`].
+    pub fn attachment_read_end_idle(&mut self, session: SessionId) {
+        self.end_file_read(
+            session,
+            ErrorCode::Unavailable.problem_with_reason("file_read_idle", "file read timed out"),
+        );
+    }
+    fn end_file_read(&mut self, session: SessionId, mut problem: mdbn_wire::client::Problem) {
+        let negotiated = self
+            .sessions
+            .get(&session)
+            .is_some_and(|s| s.file_stream_failure);
+        let mut stream = None;
+        if let Some(io) = self.client_files.as_mut() {
+            problem.details = io.reads.take_failure(session);
+            stream = io.reads.latest_stream(session).filter(|_| negotiated);
+            if stream.is_some() {
+                io.reads.close(session, &mut io.region);
+            }
+        }
+        let Some(stream) = stream else {
+            crate::api::ClientApi::close(self, session);
+            self.pushes.push((session, Push::Closed(problem)));
+            return;
+        };
+        self.prune_client_file_call();
+        self.pushes.push((
+            session,
+            Push::FileStreamFailed {
+                stream: stream.0,
+                problem,
+            },
+        ));
     }
     /// Drive device reads through the canonical, authenticated LS call path.
     /// Hosted transport already streams R2 segments through the same native lane.
@@ -276,7 +312,7 @@ impl<S: Store> Replica<S> {
                     .call = Some((id, object.ticket));
             }
             Ok(None) => {}
-            Err(session) => self.client_file_failed(session),
+            Err(session) => self.attachment_read_end_failed(session),
         }
     }
     pub(crate) fn on_client_file_read_reply(&mut self, id: CallId, ticket: u64, reply: LogReply) {
@@ -289,7 +325,7 @@ impl<S: Store> Replica<S> {
         io.call = None;
         if !self.attachment_read_allowed(ticket) {
             if let Some(session) = self.attachment_read_session() {
-                self.client_file_failed(session);
+                self.attachment_read_end_failed(session);
             }
             return;
         }
@@ -317,7 +353,7 @@ impl<S: Store> Replica<S> {
             _ => false,
         };
         if !valid {
-            self.client_file_failed(session);
+            self.attachment_read_end_failed(session);
         }
     }
     /// One typed chunk per device push drain; existing ACK credit bounds output.
@@ -337,7 +373,7 @@ impl<S: Store> Replica<S> {
                 chunk.map(|(session, chunk)| (session, Push::FileChunk(chunk)))
             }
             Err(session) => {
-                self.client_file_failed(session);
+                self.attachment_read_end_failed(session);
                 None
             }
         }

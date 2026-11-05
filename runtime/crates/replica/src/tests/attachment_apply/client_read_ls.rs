@@ -308,3 +308,55 @@ fn corrupt_device_ls_object_closes_without_plaintext_and_wipes_lane() {
     );
     assert!(a.r.test_attachment_read_region().held_lease().is_none());
 }
+
+#[test]
+fn negotiated_read_failure_ends_the_stream_and_keeps_the_session() {
+    let (_, mut a) = fixture(31);
+    let session =
+        a.r.hello(
+            SessionAuth::Host,
+            HelloParams {
+                versions: vec![Version { major: 1, minor: 0 }],
+                client_name: "native-reader".into(),
+                client_version: "1".into(),
+                features: Some(vec!["file-stream-failure-v1".into()]),
+                timezone: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(session.1.features, ["file-stream-failure-v1"]);
+    let session = session.0;
+    a.s = session;
+    a.r.sealer = Box::new(crate::seal::PlainSealer::for_device(a.r.cfg.device_id));
+    for _ in 0..2 {
+        // A failed read must release its lane, or the retry would report busy.
+        let (stream, _) =
+            a.r.read_file(session, Target::Id(FILE), None, None)
+                .unwrap();
+        let mut failed = None;
+        for _ in 0..10 {
+            a.pump();
+            for (id, push) in a.r.take_pushes() {
+                if id != session {
+                    continue;
+                }
+                match push {
+                    crate::api::Push::FileStreamFailed { stream, problem } => {
+                        failed = Some((stream, problem));
+                    }
+                    crate::api::Push::Closed(problem) => panic!("session closed: {problem:?}"),
+                    crate::api::Push::FileChunk(_) => panic!("failed read exposed plaintext"),
+                    _ => {}
+                }
+            }
+            if failed.is_some() {
+                break;
+            }
+        }
+        let (failed, problem) = failed.expect("native read must fail its stream");
+        assert_eq!(failed, stream.0);
+        assert_eq!(problem.reason.as_deref(), Some("file_read_failed"));
+        assert!(a.r.test_attachment_read_region().held_lease().is_none());
+    }
+    assert!(a.r.describe(session).is_ok());
+}
