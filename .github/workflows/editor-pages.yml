@@ -242,6 +242,11 @@ jobs:
       EDITOR_SOURCE_ROOT: ${{ github.workspace }}/candidate
       WRANGLER_SEND_METRICS: 'false'
     steps:
+      # A recovery point must predate everything its run published.
+      - name: One publication per run; dispatch a new run to retry
+        timeout-minutes: 1
+        working-directory: ${{ github.workspace }}
+        run: test "$GITHUB_RUN_ATTEMPT" = 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -412,8 +417,7 @@ jobs:
           DEPLOY_RESULT: ${{ needs.native-deploy.result }}
         run: |
           set -euo pipefail
-          # The earliest point in a run predates every upload attempt in it.
-          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=editor-production-recovery-point-$GITHUB_RUN_ID&per_page=100" --jq '[.artifacts[]|select(.expired|not)]|sort_by(.created_at)|first|.id // empty')
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=editor-production-recovery-point-$GITHUB_RUN_ID" --jq '[.artifacts[]|select(.expired|not)]|first|.id // empty')
           if [ -z "$id" ] && [ "$DEPLOY_RESULT" = success ]; then
             echo 'A completed publication has no recovery point' >&2
             exit 1
@@ -430,6 +434,7 @@ jobs:
         if: steps.point.outputs.artifact-id != ''
         timeout-minutes: 7
         env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node apps/editor/scripts/native/rollback.mjs recover "$RUNNER_TEMP/editor-recovery"

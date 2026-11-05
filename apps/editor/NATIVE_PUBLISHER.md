@@ -86,6 +86,8 @@ approvals. UI repins change only the manifest and regenerated lock.
    injected, CSP-blocked Insights beacon is not an Editor build asset. The
    snapshot is stored as its own artifact before upload, and missing recovery
    evidence blocks upload.
+   Each run publishes once: a rerun of the upload job refuses, so retry with a new
+   dispatch.
 6. Workflow-owned ancestry and inventory are rechecked immediately before
    upload. Upload is bounded to seven minutes inside a 60-minute job; separate
    step bounds reserve verification, recovery and receipt time. A timed-out
@@ -111,12 +113,13 @@ approvals. UI repins change only the manifest and regenerated lock.
 10. If the upload job did not succeed, or smoke did not pass, a separate
     protected job finds the recovery point stored before upload. It runs after
     cancellation too. Without a recovery point the job stopped before upload, so
-    there is nothing to restore. Otherwise, unless Pages already reports the
-    previous UUID, it restores that deployment via
+    there is nothing to restore. Otherwise, if Pages reports a deployment of this
+    run's source, it restores the previous UUID via
     `POST /accounts/<account>/pages/projects/mdbase-editor/deployments/<id>/rollback`.
-    It then requires the previous UUID and every saved asset's bytes and headers,
-    allowing five minutes to settle. A mismatch in one asset means rollback did
-    not succeed. The run stays failed even after a verified restore; a failed
+    A deployment of any other source is newer work and is left alone. The previous
+    UUID and every saved asset's bytes and headers must then hold for 30 seconds,
+    within five minutes, so an upload that lands late is still undone. A mismatch
+    in one asset means rollback did not succeed. The run stays failed even after a verified restore; a failed
     recovery is retained, not hidden. Production is successful only when both
     publication and smoke pass.
 

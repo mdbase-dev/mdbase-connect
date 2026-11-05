@@ -139,31 +139,44 @@ it('derives the staging frozen install without changing any other dependency',as
 });
 it('rolls production back, verifies the previous id and every transitive asset, and keeps failure evidence',async()=>{
  const previousId='87654321-1234-4234-8234-123456789abc',previousUrl='https://87654321.mdbase-editor.pages.dev',failedId='12345678-1234-4234-8234-123456789abc';
- let active=previousId;const calls=[];
- const bodies={'/':'<script type="module" src="/assets/entry.js"></script><link href="/style.css" rel="stylesheet">','/assets/entry.js':'import("./chunk.js");fetch("assets/engine.wasm");fetch("./gone.wasm")','/assets/chunk.js':'new URL("worker.js",import.meta.url)','/assets/engine.wasm':'previous wasm','/assets/worker.js':'previous worker','/style.css':'previous style'};
+ let active=previousId,commit=null;const calls=[];
+ const source='c'.repeat(40),clock={t:0,now:()=>clock.t,sleep:async ms=>{clock.t+=ms;}},recovery={source,...clock};
+ const bodies={'/':'<script type="module" src="/assets/entry.js"></script><link href="/style.css" rel="stylesheet">','/assets/entry.js':'import("./chunk.js");fetch("assets/engine.wasm");fetch("./gone.wasm");new URL("./workers.v1/pool.js",import.meta.url)','/assets/chunk.js':'new URL("worker.js",import.meta.url)','/assets/engine.wasm':'previous wasm','/assets/worker.js':'previous worker','/assets/workers.v1/pool.js':'previous pool','/style.css':'previous style'};
  const options={accountId:'a'.repeat(32),apiToken:'test-double',fetchImpl:async(url,init)=>{
   calls.push({url,method:init.method});
   if(url.includes('/rollback')){active=previousId;return Response.json({success:true,result:{id:previousId}});}
-  if(url.includes('api.cloudflare.com'))return Response.json({success:true,result:{name:'mdbase-editor',production_branch:'main',canonical_deployment:{id:active,url:previousUrl,environment:'production'}}});
+  if(url.includes('api.cloudflare.com'))return Response.json({success:true,result:{name:'mdbase-editor',production_branch:'main',canonical_deployment:{id:active,url:previousUrl,environment:'production',deployment_trigger:{metadata:{commit_hash:commit}}}}});
   const path=new URL(url).pathname;
   if(path.endsWith('.json'))return new Response('manifest');
   if(path.endsWith('.wasm') && !bodies[path])return new Response('<html>spa</html>',{headers:{'content-type':'text/html'}});
   return new Response(bodies[path]??'previous asset');
  }};
  const previous=await capturePrevious(options);
- for(const path of ['/assets/entry.js','/assets/chunk.js','/assets/worker.js','/assets/engine.wasm','/style.css'])assert.ok(previous.probes.some(p=>p.path===path),path);
+ for(const path of ['/assets/entry.js','/assets/chunk.js','/assets/worker.js','/assets/workers.v1/pool.js','/assets/engine.wasm','/style.css'])assert.ok(previous.probes.some(p=>p.path===path),path);
  assert.ok(!previous.probes.some(p=>p.path==='/assets/gone.wasm'),'SPA fallback is not a build asset');
  const plan={target:'production',origin:'https://editor.mdbase.dev'};
- active=failedId;
- const report=await rollback(previous,options);
+ active=failedId;commit=source;
+ const report=await rollback(previous,options,recovery);
  assert.equal(report.ok,true);assert.equal(report.restored,true);assert.equal(report.previousId,previousId);
  assert.equal(calls.filter(c=>c.method==='POST').length,1);
  assert.equal(createReceipt({plan,verification:{ok:false},previous,rollback:report}).rollback.ok,true);
- const untouched=await rollback(previous,options);
+ const untouched=await rollback(previous,options,recovery);
  assert.equal(untouched.ok,true);assert.equal(untouched.restored,false);
  assert.equal(calls.filter(c=>c.method==='POST').length,1,'nothing to undo when the previous deployment is active');
+ active=failedId;commit='d'.repeat(40);
+ const newer=await rollback(previous,options,recovery);
+ assert.equal(newer.ok,false);assert.equal(newer.refused,true);
+ assert.equal(calls.filter(c=>c.method==='POST').length,1,'a newer publication is never undone');
+ active=previousId;commit=source;
+ let reads=0;
+ const late=await rollback(previous,{...options,fetchImpl:async(url,init)=>{
+  if(url.endsWith('/mdbase-editor') && ++reads===2)active=failedId;
+  return options.fetchImpl(url,init);
+ }},recovery);
+ assert.equal(late.ok,true);assert.equal(late.restored,true,'an upload that lands during verification is still undone');
+ assert.equal(active,previousId);
  for(const probe of previous.probes) {
-  const broken=await rollback(previous,{...options,fetchImpl:async(url,init)=>url===plan.origin+probe.path?new Response('wrong bytes'):options.fetchImpl(url,init)},{settleMs:100});
+  const broken=await rollback(previous,{...options,fetchImpl:async(url,init)=>url===plan.origin+probe.path?new Response('wrong bytes'):options.fetchImpl(url,init)},{source,settleMs:100});
   assert.equal(broken.ok,false,'rollback must match '+probe.path);
  }
  await assert.rejects(capturePrevious({...options,fetchImpl:async(url,init)=>url===plan.origin+'/assets/entry.js'?new Response('missing',{status:404}):options.fetchImpl(url,init)}),/bytes unavailable/);

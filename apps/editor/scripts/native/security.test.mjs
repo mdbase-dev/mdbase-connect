@@ -66,6 +66,7 @@ it('protected jobs only execute workflow-owned helpers, with ancestry checks bef
   assert.match(step.if,/upload.outcome == 'failure'/);assert.match(step.if,/upload.outcome == 'cancelled'/);
  }
  assert.doesNotMatch(JSON.stringify(deploy),/rollback\.mjs recover/);
+ assert.equal(deploy.steps[0].run,'test "$GITHUB_RUN_ATTEMPT" = 1');
  const point=deploy.steps.findIndex(s=>s.with?.name?.startsWith('editor-production-recovery-point-'));
  assert.ok(point>=0 && point<deploy.steps.indexOf(upload),'recovery point is stored before upload');
  const smokeJob=jobs['production-smoke'];

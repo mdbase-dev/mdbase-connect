@@ -12,16 +12,16 @@ export async function pagesApi(path,{accountId,apiToken,fetchImpl=fetch},method=
  need(response.ok,'Pages API request failed');
  const body=await response.json();need(body.success,'Pages API refused request');return body.result;
 }
-const shellPaths=['/','/.well-known/mdbase-app.json','/mdbase-shell-sw.js','/mdbase-shell-runtime.js','/mdbase-shell-register.js'];
+const shellPaths=['/','/.well-known/mdbase-app.json','/mdbase-shell-sw.js','/mdbase-shell-runtime.js'];
 // Built chunks name their WASM, fonts and workers in code, not in the index.
-const references=/(?:\.{0,2}\/)?(?:[\w@~-]+\/)*[\w@~.-]+\.(?:m?js|css|json|webmanifest|wasm|woff2?|ttf|png|svg|ico)(?![\w.-])/g;
+const references=/(?:[\w@~.-]*\/)*[\w@~.-]+\.(?:m?js|css|json|webmanifest|wasm|woff2?|ttf|otf|png|svg|ico|webp|avif|jpe?g|gif)(?![\w.-])/g;
 const hasReferences=path=>path==='/'||/\.(?:m?js|css|json|webmanifest)$/.test(path);
-const snapshotPathLimit=1024;
+const snapshotAssetLimit=1024,snapshotRequestLimit=4096;
 export function referencedPaths(text,path) {
  const paths=new Set();
  for(const [reference] of text.matchAll(references)) {
-  // Vite emits both file-relative and base-relative asset names.
-  for(const base of [alias+path,alias+'/']) {
+  // Vite also emits base-relative names; an explicit ./ or ../ is file-relative.
+  for(const base of reference.startsWith('.')?[alias+path]:[alias+path,alias+'/']) {
    const url=new URL(reference,base);
    if(url.origin===alias && /^\/[\w./@~-]*$/.test(url.pathname))paths.add(url.pathname);
   }
@@ -44,7 +44,8 @@ export function indexAssets(html) {
  return [...paths].sort();
 }
 async function fingerprint(origin,path,fetchImpl,deadline=performance.now()+180000,retainBody=false,discovered=false) {
- const response=await fetchImpl(origin+path,{redirect:'manual',cache:'no-store',credentials:'omit',headers:{'Accept-Encoding':'identity'},signal:AbortSignal.timeout(Math.max(1,Math.min(15000,Math.floor(deadline-performance.now()))))});
+ const response=await fetchImpl(origin+path,{redirect:'manual',cache:'no-store',credentials:'omit',headers:{'Accept-Encoding':'identity'},signal:AbortSignal.timeout(Math.max(1,Math.min(15000,Math.floor(deadline-performance.now()))))}).catch(error=>{if(discovered)return null;throw error;});
+ if(!response)return null;
  // A guessed reference may miss, and the Pages SPA fallback answers it with HTML.
  if(discovered && (response.status!==200 || response.headers.get('content-type')?.includes('text/html'))) {
   await response.body?.cancel().catch(()=>{});
@@ -72,7 +73,7 @@ export async function capturePrevious(options) {
  const follow=(text,path)=>{for(const next of referencedPaths(text,path))if(!seen.has(next)){seen.add(next);queue.push(next);}};
  follow(index.body,'/');
  while(queue.length) {
-  need(seen.size<=snapshotPathLimit,'previous deployment inventory bound');
+  need(probes.length<=snapshotAssetLimit && seen.size<=snapshotRequestLimit,'previous deployment inventory bound');
   const path=queue.shift();
   if(path==='/'){probes.push(index.probe);continue;}
   const result=await fingerprint(alias,path,fetchImpl,deadline,true,!required.has(path));
@@ -84,32 +85,37 @@ export async function capturePrevious(options) {
  need((await pagesApi('',options)).canonical_deployment?.id===previous.id,'canonical deployment changed during snapshot');
  return {id:previous.id,url:previous.url,probes};
 }
-export async function rollback(previous,options,{sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=()=>performance.now(),settleMs=300000}={}) {
- need(uuid.test(previous?.id??'') && previous.probes?.length>=shellPaths.length &&
+export async function rollback(previous,options,{source,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=()=>performance.now(),settleMs=300000,holdMs=30000}={}) {
+ need(uuid.test(previous?.id??'') && /^[a-f0-9]{40}$/.test(source??'') && previous.probes?.length>=shellPaths.length &&
   shellPaths.every(path=>previous.probes.some(p=>p.path===path)) &&
   previous.probes.every(p=>/^\/[\w./@~-]*$/.test(p.path) && !p.path.split('/').includes('..') && /^[a-f0-9]{64}$/.test(p.sha256)),
   'captured full previous deployment required');
- const report={attempted:true,previousId:previous.id,ok:false,attempts:0};
- try {
-  // A publication that stopped before Pages accepted it has nothing to undo.
-  report.restored=(await pagesApi('',options)).canonical_deployment?.id!==previous.id;
-  if(report.restored)await pagesApi(`/deployments/${previous.id}/rollback`,options,'POST');
-  const deadline=now()+settleMs;
-  for(;;) {
-   report.attempts++;
-   try {
-    need(now()<deadline,'rollback verification deadline');
-    const project=await pagesApi('',options);
-    need(project.canonical_deployment?.id===previous.id,'rollback deployment not active');
-    for(const expected of previous.probes) {
-     const actual=await fingerprint(alias,expected.path,options.fetchImpl??fetch,performance.now()+Math.max(1,deadline-now()));
-     need(actual.bytes===expected.bytes && actual.sha256===expected.sha256 && isDeepStrictEqual(actual.headers,expected.headers),'alias does not serve previous deployment');
-    }
-    report.ok=true;return report;
-   }catch{if(now()+15000>=deadline)break;await sleep(15000);}
-  }
- }catch{/* Retain public failure state, never API payloads or transport errors. */}
- return report;
+ const report={attempted:true,previousId:previous.id,ok:false,attempts:0,restored:false};
+ const deadline=now()+settleMs;
+ let heldSince=null;
+ for(;;) {
+  report.attempts++;
+  try {
+   need(now()<deadline,'rollback verification deadline');
+   const active=(await pagesApi('',options)).canonical_deployment;
+   if(active?.id!==previous.id) {
+    // Only this run's source may be undone; anything else is a newer publication.
+    if(active?.deployment_trigger?.metadata?.commit_hash!==source){report.refused=true;return report;}
+    await pagesApi(`/deployments/${previous.id}/rollback`,options,'POST');
+    report.restored=true;
+    need(false,'rollback settling');
+   }
+   for(const expected of previous.probes) {
+    const actual=await fingerprint(alias,expected.path,options.fetchImpl??fetch,performance.now()+Math.max(1,deadline-now()));
+    need(actual.bytes===expected.bytes && actual.sha256===expected.sha256 && isDeepStrictEqual(actual.headers,expected.headers),'alias does not serve previous deployment');
+   }
+   // An accepted upload can become canonical after the first clean pass.
+   heldSince??=now();
+   if(now()-heldSince>=holdMs){report.ok=true;return report;}
+  }catch{heldSince=null;/* Retain public failure state, never API payloads or transport errors. */}
+  if(now()+15000>=deadline)return report;
+  await sleep(15000);
+ }
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)) {
  const [command,directory]=process.argv.slice(2),json=async name=>JSON.parse(await readFile(`${directory}/${name}.json`,'utf8'));
@@ -118,10 +124,10 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
   if(command==='snapshot') {
    if(process.env.TARGET==='production')await writeFile(`${directory}/previous.json`,JSON.stringify(await capturePrevious(options),null,2));
   }else if(command==='recover') {
-   const report=await rollback(await json('previous'),options);
+   const report=await rollback(await json('previous'),options,{source:process.env.SOURCE_SHA});
    await writeFile(`${directory}/rollback.json`,JSON.stringify(report,null,2));
    // Publication never finished: restoring availability cannot turn this run green.
-   console.error(report.ok?'Production publication failed or incomplete; previous deployment active and fully verified':'Production publication failed or incomplete; rollback did not succeed');
+   console.error(report.ok?'Production publication failed or incomplete; previous deployment active and fully verified':report.refused?'Production publication failed or incomplete; a different deployment is active, so nothing was restored':'Production publication failed or incomplete; rollback did not succeed');
    process.exitCode=1;
   }else throw Error('Unknown recovery command');
  }catch{console.error('Editor recovery operation failed');process.exitCode=1;}
