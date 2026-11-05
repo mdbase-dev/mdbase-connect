@@ -51,6 +51,7 @@ export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "htt
         return redirect(scenario.path);
       }
       if (path === "/__review/google.js") return send(google, 200, "application/javascript");
+      if (path === "/__review/return") return send("Returned to TaskNotes", 200, "text/plain");
       if (["/__review/terms", "/__review/privacy"].includes(path)) return send("Local review agreement. No account or personal information is sent anywhere.", 200, "text/plain");
       const id = request.headers.cookie?.match(/(?:^|;\s*)review=([\w-]+)/)?.[1];
       const state = sessions.get(id);
@@ -167,7 +168,7 @@ export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "htt
         const authorization = path.match(/^\/v1\/authorization-requests\/([^/]+)(?:\/([^/]+))?$/);
         if (authorization) {
           const action = authorization[2];
-          if (action === "status" && method === "GET") return send({ status: state.authorizationStatus });
+          if (action === "status" && method === "GET") return send({ status: state.authorizationStatus, ...(state.authorizationRedirect ? { redirect_uri: state.authorizationRedirect } : {}) });
           if (!action && method === "GET") return send({ authorization: state.authorization,
             collections: [...data.collections.map(collection => ({ ...collection, kind: "local" })), ...data.hosted_collections.map(collection => ({ ...collection, connector_name: "Hosted by mdbase", kind: "hosted" }))],
             hosted_collections_available: true, unavailable_connectors: [{ connector_id: "computer-2", connector_name: "Travel laptop", reason: "offline" }] });

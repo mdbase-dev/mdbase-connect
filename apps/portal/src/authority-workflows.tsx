@@ -12,8 +12,8 @@ import {
 } from "./api";
 import { finishDeniedPairing, rememberCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
-import { CollectionPicker, CollectionIdentity, GrantMoment, RequestShell, fileActionLabel } from "./authorization-review";
-import { RequestIdentity } from "./authorization-view";
+import { CollectionPicker, CollectionIdentity, RequestShell, fileActionLabel } from "./authorization-review";
+import { RequestIdentity, RequestOutcome } from "./authorization-view";
 import { watchPairingCollections, watchPairingPreparation } from "./pairing-progress";
 import { Checkbox, CheckboxGroup } from "@mdbase-dev/ui/checkbox";
 import { Select } from "@mdbase-dev/ui/select";
@@ -245,16 +245,6 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     }
   }
 
-  // Hand back to the app's declared link once, right after this approval.
-  useEffect(() => {
-    if (handBack.current && pairing?.approved_at && pairing.return_url) {
-      handBack.current = false;
-      const timer = window.setTimeout(() => location.assign(pairing.return_url!),
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 300);
-      return () => window.clearTimeout(timer);
-    }
-  }, [pairing]);
-
   if (!pairing)
     return (
       <RequestShell busy={!error}>
@@ -349,10 +339,9 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               </>
             ) : pairing.approved_at ? (
               <>
-                {selectedName ? <GrantMoment applicationName={pairing.connector_name} collectionName={selectedName} /> : <h1><Trans>Access approved</Trans></h1>}
-                <p className="mdbase-connect-lead">{pairing.return_url
-                  ? <a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>
-                  : t(i18n)`Return to ${pairing.connector_name}.`}</p>
+                <RequestOutcome status="approved" applicationName={pairing.connector_name} collectionName={selectedName}
+                  collectionKind={privateChoice ? "private" : "cloud_copy"} returnUrl={handBack.current ? pairing.return_url ?? "" : ""} />
+                {!handBack.current && pairing.return_url && <a className="mdbase-button outcome-return" href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>}
                 {pairing.timer_declaration && <p role="status">{pairing.timer_consent
                   ? t(i18n)({ message: "You allowed reminders for the selected collections." })
                   : t(i18n)({ message: "Reminders are off. You can turn them on in the app by approving reminders again." })}</p>}

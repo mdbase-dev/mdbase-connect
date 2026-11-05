@@ -109,6 +109,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const matches = useMemo(() => matchingCommands(commands, query, showAll), [commands, query, showAll]);
+  const resultHeight = Math.min(380, Math.max(152, Math.ceil((matches.length * 38 + new Set(matches.map(command => command.group)).size * 30 + 12) / 76) * 76));
   useEffect(() => { if (open) { setQuery(""); setActive(0); } }, [open]);
   const run = (command: Command, alternate = false): void => {
     inputRef.current?.closest("dialog")?.close();
@@ -141,7 +142,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
           onKeyDown={(event) => { if (!event.nativeEvent.isComposing) handleKeys(event, matches, active, setActive, run, onClose); }}
         />
       </label>
-      <div id={`${hintId}-results`} className="mdbase-command-results" role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
+      <div id={`${hintId}-results`} className="mdbase-command-results" style={{ height: resultHeight }} role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
             {command.group !== matches[index - 1]?.group

@@ -5,13 +5,14 @@
   --motion-fast: 120ms;
   --motion-quick: 150ms;
   --motion-base: 180ms;
-  --motion-slow: 240ms;
+  --motion-slow: 200ms;
   --motion-spin: 700ms;
   --motion-pulse: 1.1s;
   --motion-settle: 2.4s;
   --motion-enter: 160ms;
   --motion-exit: 120ms;
   --motion-grant: 300ms;
+  --motion-confirm: 1s;
 }
 
 .mdbase-overlay {
@@ -36,6 +37,7 @@
     --motion-enter: 0ms;
     --motion-exit: 0ms;
     --motion-grant: 0ms;
+    --motion-confirm: 0ms;
     --motion-fast: 0ms;
     --motion-quick: 0ms;
     --motion-base: 0ms;

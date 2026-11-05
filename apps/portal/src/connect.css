@@ -436,8 +436,10 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 .connect-edit-form label { display: grid; gap: 8px; }
 .connect-edit-form p { margin: 0; }
 .connect-field-error { min-height: 1.6em; line-height: 1.6; color: var(--danger); }
-.connect-collection-row.is-new { animation: connect-row-entry 160ms ease-out both; }
-@keyframes connect-row-entry { from { opacity: 0; transform: translateY(-4px); } }
+.connect-collection-row.is-new { isolation: isolate; }
+.connect-collection-row.is-new::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--selected); opacity: 0; pointer-events: none; transition: opacity var(--motion-confirm) var(--ease-out); }
+@starting-style { .connect-collection-row.is-new::before { opacity: 1; } }
+.connect-collection-row:active:has(.connect-collection-link) { background: var(--selected); transition-duration: 0s; }
 .connect-location-choices { display: grid; gap: 8px; }
 .connect-location-choice { display: flex; align-items: flex-start; gap: 14px; width: 100%; padding: 18px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
 .connect-location-choice:hover { background: var(--hover); }
@@ -940,12 +942,12 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
   .connect-section-title { flex-wrap: wrap; gap: 8px; }
   .connect-section-title > p { flex-basis: 100%; text-align: left; }
   .connect-account-row, .connect-account-row-main { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
-  .connect-shell :is(button, a.mdbase-button, summary), .connect-shell .connect-desktop-help a, .connect-navigation-sheet :is(button, a) { min-height: 44px; }
+  .connect-shell :is(button, a.mdbase-button, summary), .connect-shell .connect-desktop-help a, .mdbase-dialog :is(button, a) { min-height: 44px; }
   .connect-preferences { flex-direction: column; align-items: stretch; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .connect-collection-row.is-new { animation: none; }
+  .connect-collection-row.is-new::before { opacity: 1; }
   .connect-shell *,
   .connect-shell *::before,
   .connect-shell *::after {

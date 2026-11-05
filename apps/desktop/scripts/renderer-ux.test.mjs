@@ -412,7 +412,7 @@ test("access: pending approvals, new-access notices and revocation reach the dae
     assert.deepEqual(await calls("acknowledgeAccess"), [["new"]]);
     await reader.getByRole("button", { name: "Revoke" }).click();
     assert.match(await page.getByRole("dialog").getAttribute("class"), /mdbase-confirm-dialog/, "revoke uses the shared confirmation surface");
-    await reader.getByRole("button", { name: "Revoke access" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Revoke access" }).click();
     await page.getByText("Reader can no longer use Notes through this computer.", { exact: true }).waitFor();
     assert.deepEqual(await calls("revokeAccess"), [["new"]]);
     await screenshot(page, "access");

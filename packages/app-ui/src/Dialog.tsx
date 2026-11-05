@@ -1,5 +1,6 @@
 import { t } from "@lingui/core/macro";
 import { useLayoutEffect, useRef, type JSX, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { useLocaleRevision } from "./i18n.js";
 import { useOverlay } from "./overlay.js";
 
@@ -37,7 +38,7 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
     };
   }, [present, ref, returnFocusRef]);
   if (!present) return null;
-  return <dialog ref={ref} className={["mdbase-dialog mdbase-overlay", className].filter(Boolean).join(" ")}
+  return createPortal(<dialog ref={ref} className={["mdbase-dialog mdbase-overlay", className].filter(Boolean).join(" ")}
     data-open={open} role="dialog" aria-label={title} aria-describedby={descriptionId}
     onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape") { event.preventDefault(); if (!closeDisabled) onClose(); } }}
     onCancel={(event) => { event.preventDefault(); if (!closeDisabled) onClose(); }}
@@ -50,5 +51,5 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
       </header>
       {children}
     </div>
-  </dialog>;
+  </dialog>, document.body);
 }

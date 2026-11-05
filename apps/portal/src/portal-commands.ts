@@ -99,7 +99,8 @@ export function usePortalCommands({ data, collections, applications, sessions, s
     const palette = (event: KeyboardEvent) => {
       if (!enabled || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== "k") return;
       event.preventDefault();
-      if (document.querySelector("dialog.mdbase-command-palette[open]")) setOpen(false);
+      const retained = document.querySelector<HTMLDialogElement>("dialog.mdbase-command-palette[open]");
+      if (retained) setOpen(retained.dataset.open === "false");
       else if (!document.querySelector("dialog[open], [role=dialog], [role=menu], [role=listbox]")) show();
     };
     const keydown = (event: KeyboardEvent) => {

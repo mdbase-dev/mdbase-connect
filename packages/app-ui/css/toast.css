@@ -1,5 +1,11 @@
 .mdbase-toaster { position: fixed; bottom: 20px; right: 20px; z-index: 1000; max-width: min(460px, calc(100vw - 40px)); }
+.mdbase-toast-slot { display: grid; grid-template-rows: 1fr; opacity: 1; transform: translateY(0); transition: grid-template-rows var(--motion-enter) var(--ease-out), opacity var(--motion-enter) var(--ease-out), transform var(--motion-enter) var(--ease-out); }
+.mdbase-toast-slot[data-open="false"] { grid-template-rows: 0fr; opacity: 0; transform: translateY(8px); pointer-events: none; transition-duration: var(--motion-exit); }
+@starting-style { .mdbase-toast-slot[data-open="true"] { grid-template-rows: 0fr; opacity: 0; transform: translateY(8px); } }
+.mdbase-toast-clip { min-height: 0; overflow: hidden; }
 .mdbase-toast { display: flex; align-items: center; gap: 9px; padding: 8px 8px 8px 13px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-soft); box-shadow: var(--elevation-high); font-size: var(--font-size-ui); }
+.mdbase-toast-clip > .mdbase-toast { margin-top: 8px; }
 .mdbase-toast span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .mdbase-toast button { flex: none; font-size: inherit; }
 @media (max-width: 640px) { .mdbase-toaster { top: max(16px, env(safe-area-inset-top)); bottom: auto; left: 16px; right: 16px; max-width: none; } }
+@media (prefers-reduced-motion: reduce) { .mdbase-toast-slot { transition: none; transform: none; } }

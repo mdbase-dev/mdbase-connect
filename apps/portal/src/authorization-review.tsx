@@ -15,7 +15,7 @@ import {
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Brand } from "./portal-ui";
 import { SignedOutFooter } from "./auth-view";
-import { readRememberedCollection } from "./portal-model";
+import { initials, readRememberedCollection } from "./portal-model";
 import { literal } from "./literal";
 import { CloudIcon, DesktopIcon } from "@phosphor-icons/react";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
@@ -135,12 +135,14 @@ export function CollectionIdentity({ name, location, kind }: { name: string; loc
   </span>;
 }
 
-export function GrantMoment({ applicationName, collectionName }: { applicationName: string; collectionName: string }) {
+export function GrantMoment({ applicationName, collectionName, collectionKind }: { applicationName: string; collectionName: string; collectionKind?: "local" | "hosted" | "private" | "cloud_copy" }) {
   return <div className="grant-moment" role="status">
+    <span className="request-identity-mark" aria-hidden="true">{initials(applicationName)}</span>
     <span className="grant-mark" aria-hidden="true">
       <MdbaseMark className="grant-stripes" />
       <svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" /></svg>
     </span>
+    {collectionKind && <span className="grant-collection-glyph" aria-hidden="true">{collectionKind === "hosted" || collectionKind === "cloud_copy" ? <CloudIcon /> : <DesktopIcon />}</span>}
     <h1>{t(i18n)`${applicationName} can now use ${collectionName}`}</h1>
   </div>;
 }
