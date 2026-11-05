@@ -204,7 +204,7 @@ test("signup associates the 257-character password error and brings it into view
   await confirmation.fill("😀".repeat(256));
   await expect(password).not.toHaveAttribute("aria-invalid", "true");
   await page.getByRole("button", { name: "Create account", exact: true }).click();
-  await expect(page.getByRole("alert")).toHaveText("Please try again.");
+  await expect(page.getByRole("alert")).toHaveText("Something went wrong on mdbase. Try again.");
   await expect(page.getByRole("alert")).toBeFocused();
   await expect(page.getByRole("alert")).toBeInViewport();
   expect(submitted).toBe(1);
@@ -214,7 +214,7 @@ test("configuration failure stays in the auth shell and offers a working retry",
   await page.route(`${portalOrigin}/v1/auth/config`, (route) => route.fulfill({ status: 503, json: { error: { message: "Sign-in is temporarily unavailable." } } }));
   await page.goto(`${portalOrigin}/login`);
   await expect(page.getByRole("heading", { name: "Couldn’t connect" })).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveText("Sign-in is temporarily unavailable.");
+  await expect(page.getByRole("alert")).toHaveText("Something went wrong on mdbase. Try again.");
   await page.route(`${portalOrigin}/v1/auth/config`, (route) => route.fulfill({ json: authentication }));
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
