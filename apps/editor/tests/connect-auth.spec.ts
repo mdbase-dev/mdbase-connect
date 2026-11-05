@@ -123,7 +123,12 @@ test("signup and recovery use the same column and announce email delivery withou
     await page.goto(`${portalOrigin}/${path}`);
     await chooseOption(page.getByRole("combobox", { name: "Color theme" }), "dark");
     await expect(page.locator(".minimal-auth-shell")).toBeVisible();
-    await expect(page.locator(".provider-divider")).toHaveCount(path === "signup" ? 1 : 0);
+    await expect(page.locator(".provider-divider")).toHaveCount(0);
+    if (path === "signup") {
+      const provider = await page.getByRole("link", { name: "Continue with GitHub" }).boundingBox();
+      const email = await page.getByLabel("Email", { exact: true }).boundingBox();
+      expect(provider!.y + provider!.height).toBeLessThan(email!.y);
+    }
     await page.getByLabel("Email", { exact: true }).fill("fixture@example.com");
     await page.getByRole("button", { name: action }).click();
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();

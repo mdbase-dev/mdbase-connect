@@ -53,6 +53,7 @@ it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus",
   trigger.focus();
   act(() => trigger.click());
   const dialog = host.querySelector("dialog")!;
+  expect(document.getElementById(dialog.getAttribute("aria-describedby")!)?.textContent).toBe("The hosted data will be deleted.");
   dialog.style.setProperty("transition-duration", "0.12s");
   expect(document.activeElement?.textContent).toBe("Cancel");
   act(() => changeOpen!(false));

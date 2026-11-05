@@ -309,6 +309,7 @@ export function RequestOutcome({ status, applicationName, collectionName, portab
   if (status === "setting_up") return <div className="request-outcome" role="status">
     <p className="eyebrow outcome-label"><Trans>Approval recorded</Trans></p>
     <h2><Trans>Finishing collection setup…</Trans></h2>
+    <div className="collection-setup-progress" aria-hidden="true" />
     <p><Trans>Your choices are being checked with the collection’s main copy. The application does not have access yet.</Trans></p>
     {late && <p><Trans>This is taking longer than usual. Keep this page open; it continues automatically when setup finishes.</Trans></p>}
   </div>;
@@ -317,7 +318,7 @@ export function RequestOutcome({ status, applicationName, collectionName, portab
     {approved && collectionName ? <GrantMoment applicationName={applicationName} collectionName={collectionName} />
       : <h1>{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</h1>}
     {approved && collectionName && <p className="mdbase-visually-hidden"><Trans>Access approved</Trans></p>}
-    <h2>{portable ? t(i18n)`Return to ${applicationName}.` : t(i18n)`Returning to ${applicationName}…`}</h2>
+    <p>{portable ? t(i18n)`Return to ${applicationName}.` : t(i18n)`Returning to ${applicationName}…`}</p>
     <p>{portable
       ? approved
         ? t(i18n)({ message: "The application will finish connecting with its one-time device code. You can close this window." })
@@ -355,7 +356,7 @@ export function RequestIdentity({ request, showClientKey = true }: { request: Pi
           : portable
           ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null}</Trans></p>
           : request.application_origin?.trim()
-          ? <p className="request-guidance">{originKind ? <Trans>Only continue if you recognize this exact app.</Trans> : <Trans>Only continue if you recognize this exact site.</Trans>} <Trans>Continue only if you started this connection intentionally.</Trans></p>
+          ? <p className="request-guidance request-origin-guidance">{originKind ? <Trans>Continue only if you started this and recognize this app.</Trans> : <Trans>Continue only if you started this and recognize this site.</Trans>}</p>
           : <p className="request-guidance" role="note"><Trans>No requesting origin is available. Continue only if you started this connection intentionally.</Trans></p>}
         {showClientKey && request.client_fingerprint
           ? <p className="request-fingerprint"><Trans>App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</Trans></p>
@@ -746,7 +747,7 @@ function SupportedApprovalForm({
   return (
     <div className="approval-form" aria-busy={submitting !== null}>
       {!reviewing && <section className="approval-section" aria-labelledby={`requested-${request.id}`}>
-        <h2 className="approval-section-title" id={`requested-${request.id}`}><Trans>Requests</Trans></h2>
+        <h2 className="approval-section-title" id={`requested-${request.id}`}><Trans>{literal(request.application_name)} is asking to</Trans></h2>
         <RequestedAccessSummary groups={requestedPermissionGroups} files={request.requirements.files} people={people} />
         {requestSetupSummary.length > 0 && <p className="approval-section-note">{requestSetupSummary.join(". ")}.</p>}
       </section>}
@@ -765,7 +766,7 @@ function SupportedApprovalForm({
           }}><Trans>Change</Trans></button>}
         </div> : <>
           {compatible.length > 0 && <div ref={collectionChoicesRef}>
-            <CollectionPicker label={t(i18n)`Collection`} value={collectionId} onChoose={chooseCollection} disabled={submitting !== null}
+            <CollectionPicker label={t(i18n)({ message: "Choose a collection", context: "Application access approval" })} labelledBy={`collection-${request.id}`} value={collectionId} onChoose={chooseCollection} disabled={submitting !== null}
               collections={compatible.map(({ collection }) => ({ id: collection.id, name: collection.display_name,
                 kind: collection.kind, location: collectionLocations.get(collection.id)!,
                 hint: request.existing_access?.some(access => access.collection_id === collection.id) ? t(i18n)`Already connected` : undefined }))} />
@@ -778,8 +779,7 @@ function SupportedApprovalForm({
           {(unavailable.length > 0
             || unavailableConnectors.length > 0
             || (request.requirements.collection_kind !== "hosted" && !request.collection_id)
-            || (canCreateHosted && !request.collection_id)) && <details
-              className="alternate-collection-options"
+            || (canCreateHosted && !request.collection_id)) && <details className="mdbase-disclosure alternate-collection-options"
               open={compatible.length === 0 || creatingHosted || showAlternateCollections}
               onToggle={(event) => {
                 if (compatible.length > 0 && !creatingHosted) {

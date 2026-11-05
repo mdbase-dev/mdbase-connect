@@ -37,6 +37,31 @@ export function ConnectPage({ title, intro, status, action, reading = false, chi
 }) {
   useLocaleRevision();
   const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const page = heading.current!.closest(".connect-page")!;
+    let focused: HTMLElement | null = null;
+    let targets: HTMLElement[] = [];
+    const track = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || target.closest("dialog")) return;
+      focused = target.closest("[data-list-item]");
+      const rows = [...page.querySelectorAll<HTMLElement>("[data-list-item]")];
+      const index = focused ? rows.indexOf(focused) : -1;
+      targets = index < 0 ? [] : [...rows.slice(index + 1), ...rows.slice(0, index).reverse()];
+    };
+    const observer = new MutationObserver(() => {
+      if (!focused || focused.isConnected || document.querySelector("dialog[open]")) return;
+      if (document.activeElement === document.body) {
+        const row = targets.find(target => target.isConnected);
+        const target = row?.querySelector<HTMLElement>("a, button, summary") ?? heading.current;
+        target?.focus({ preventScroll: true });
+      }
+      focused = null;
+    });
+    document.addEventListener("focusin", track);
+    observer.observe(page, { childList: true, subtree: true });
+    return () => { observer.disconnect(); document.removeEventListener("focusin", track); };
+  }, [title]);
   useLayoutEffect(() => {
     document.title = `${title} - mdbase connect`;
     const main = heading.current?.closest(".connect-main");
@@ -94,7 +119,7 @@ export function InlineRename({ value, label, inputLabel, busy = false, onSubmit 
   }
   return <><button className="mdbase-button is-tertiary" disabled={busy} onClick={() => { setDraft(value); setOpen(true); }}>{label ?? t(i18n)({ message: "Rename", context: "Connect interface" })}</button>
   <Dialog open={open} title={inputLabel} closeDisabled={busy} onClose={() => setOpen(false)}><form className="connect-edit-form" onSubmit={(event) => void submit(event)}>
-    <label><span className="mdbase-visually-hidden">{inputLabel}</span><input className="mdbase-field" autoFocus maxLength={200} value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
+    <label><span className="mdbase-visually-hidden">{inputLabel}</span><input className="mdbase-field" data-autofocus onFocus={event => event.currentTarget.select()} maxLength={200} value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
     <button className="mdbase-button is-tertiary" type="button" disabled={busy} onClick={() => setOpen(false)}><Trans>Cancel</Trans></button>
     <button className="connect-primary-action mdbase-button is-primary" disabled={busy || !draft.trim() || draft.trim() === value}>{busy ? t(i18n)({ message: "Saving…", context: "Connect interface" }) : t(i18n)({ message: "Save", context: "Connect interface" })}</button>
   </form></Dialog></>;
@@ -102,7 +127,8 @@ export function InlineRename({ value, label, inputLabel, busy = false, onSubmit 
 
 export function ListFilter({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {
   useLocaleRevision();
-  return <div className="connect-list-filter"><label><span className="mdbase-visually-hidden">{label}</span><input className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} /></label><kbd>/</kbd><button type="button" className="mdbase-button is-tertiary" hidden={!value} onClick={() => onChange("")}><Trans>Clear filter</Trans></button></div>;
+  const input = useRef<HTMLInputElement>(null);
+  return <div className="connect-list-filter"><label><span className="mdbase-visually-hidden">{label}</span><input ref={input} className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} /></label><kbd>/</kbd><button type="button" className="mdbase-icon-button" hidden={!value} aria-label={t(i18n)`Clear search`} onClick={() => { onChange(""); input.current!.focus(); }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>;
 }
 
 export function DesktopLink({ href, role, children }: { href: string; role?: "menuitem"; children: ReactNode }) {
@@ -113,7 +139,7 @@ export function DesktopLink({ href, role, children }: { href: string; role?: "me
     window.addEventListener("blur", opened);
     return () => { window.clearTimeout(timer.current); window.removeEventListener("blur", opened); };
   }, []);
-  return <><a className={role ? undefined : "mdbase-button is-tertiary"} role={role} href={href} onClick={() => {
+  return <><a className={role ? "mdbase-menu-item" : "mdbase-button is-tertiary"} role={role} href={href} onClick={() => {
     setFailed(false);
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setFailed(true), 1500);

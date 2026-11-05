@@ -30,8 +30,9 @@ interface CollectionChoice { id: string; name: string; hint?: string; location: 
 
 /** Manual-selection combobox. Query, highlight and committed choice are
  * independent: neither filtering nor keyboard navigation grants consent. */
-export function CollectionPicker({ label, collections, value, onChoose, disabled = false, onCreate, creationSelected = false }: {
+export function CollectionPicker({ label, labelledBy, collections, value, onChoose, disabled = false, onCreate, creationSelected = false }: {
   label: string;
+  labelledBy?: string;
   collections: readonly CollectionChoice[];
   value: string;
   onChoose(id: string): void;
@@ -49,7 +50,8 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
     Number(b.id === recent) - Number(a.id === recent)
       || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id)
   ), [collections, recent]);
-  const filtered = sorted.filter(collection => collection.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const terms = query.trim().toLocaleLowerCase(i18n.locale).split(/\s+/u).filter(Boolean);
+  const filtered = sorted.filter(collection => terms.every(term => collection.name.toLocaleLowerCase(i18n.locale).includes(term)));
   const active = filtered.findIndex(collection => collection.id === highlighted);
   const selected = collections.find(collection => collection.id === value);
 
@@ -65,10 +67,10 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
   }
 
   return <div className="collection-picker">
-    <label id={`${id}-label`} htmlFor={`${id}-input`}>{label}</label>
+    {!labelledBy && <label id={`${id}-label`} htmlFor={`${id}-input`}>{label}</label>}
     <input className="mdbase-field"
       ref={input} id={`${id}-input`} role="combobox" type="search" autoComplete="off" data-value={value}
-      aria-labelledby={`${id}-label`} aria-autocomplete="list" aria-expanded="true"
+      aria-labelledby={labelledBy ?? `${id}-label`} aria-autocomplete="list" aria-expanded="true"
       aria-controls={`${id}-list`} aria-activedescendant={active >= 0 ? `${id}-option-${active}` : undefined}
       aria-describedby={`${id}-help`} placeholder={t(i18n)({ message: "Search collections by name" })} value={query} disabled={disabled}
       onChange={event => { setQuery(event.currentTarget.value); setHighlighted(null); }}
@@ -89,7 +91,7 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
       }}
     />
     <span id={`${id}-help`} className="mdbase-visually-hidden"><Trans>Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice.</Trans></span>
-    <div ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} aria-disabled={disabled} className="collection-picker-list">
+    <div ref={list} id={`${id}-list`} role="listbox" aria-labelledby={labelledBy ?? `${id}-label`} aria-disabled={disabled} className="collection-picker-list">
       {filtered.map((collection, index) => <div
         key={collection.id} id={`${id}-option-${index}`} role="option" aria-label={collection.name} data-value={collection.id}
         aria-selected={collection.id === value} aria-disabled={disabled}
@@ -97,7 +99,7 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
         className={`collection-picker-option${collection.id === value ? " is-selected" : ""}${index === active ? " is-highlighted" : ""}`}
         onMouseDown={event => event.preventDefault()} onClick={() => choose(collection)}
       >
-        <CollectionIdentity name={collection.name} location={[collection.location, collection.hint].filter(Boolean).join(" · ")} kind={collection.kind} />
+        <span aria-hidden="true"><CollectionIdentity name={collection.name} location={[collection.location, collection.hint].filter(Boolean).join(" · ")} kind={collection.kind} /></span>
         <small className="mdbase-visually-hidden" id={`${id}-hint-${index}`}>{[collection.location, collection.id === recent ? t(i18n)`Recently used` : null, collection.hint].filter(Boolean).join(" · ")}</small>
         {collection.id === value && <span className="collection-picker-check" aria-hidden="true">✓</span>}
       </div>)}
@@ -339,7 +341,7 @@ export function NotificationAccess({ applicationName, notifications }: {
   useLocaleRevision();
   if (notifications.criteria.length === 0) return null;
   return (
-    <details className="notification-access">
+    <details className="mdbase-disclosure notification-access">
       <summary>
         <span>
           <strong><Trans>Change notifications</Trans></strong>
@@ -404,7 +406,7 @@ export function ContractSetupEditor({
         <div>
           <strong>{t(i18n)`${applicationName} needs a ${setupLabel(contract).toLocaleLowerCase()} type`}</strong>
           <small>{t(i18n)`Allowing access adds a separate type supplied by ${applicationName}. Existing records stay unchanged.`}</small>
-          <details className="contract-expert-details">
+          <details className="mdbase-disclosure contract-expert-details">
             <summary><Trans>Expert details</Trans></summary>
             <code>{contract.id} · {contract.version}</code>
             {contract.description && <p>{contract.description}</p>}
@@ -422,7 +424,7 @@ export function ContractSetupEditor({
           <strong>{t(i18n)`Help ${applicationName} understand ${setupLabel(contract).toLocaleLowerCase()}`}</strong>
           <small>{contract.description ?? t(i18n)`Choose whether to add a new ${setupLabel(contract).toLocaleLowerCase()} type or use one you already have.`}</small>
         </div>
-        <details className="contract-expert-details">
+        <details className="mdbase-disclosure contract-expert-details">
           <summary><Trans>Expert details</Trans></summary>
           <code>{contract.id} · {contract.version}</code>
         </details>

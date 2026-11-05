@@ -3,10 +3,11 @@ import { useLayoutEffect, useRef, type JSX, type ReactNode, type RefObject } fro
 import { useLocaleRevision } from "./i18n.js";
 import { useOverlay } from "./overlay.js";
 
-export function Dialog({ open, onClose, title, className, closeDisabled = false, returnFocusRef, children }: {
+export function Dialog({ open, onClose, title, descriptionId, className, closeDisabled = false, returnFocusRef, children }: {
   readonly open: boolean;
   readonly onClose: () => void;
   readonly title: string;
+  readonly descriptionId?: string | undefined;
   readonly className?: string | undefined;
   readonly closeDisabled?: boolean;
   readonly returnFocusRef?: RefObject<HTMLElement | null> | undefined;
@@ -37,7 +38,7 @@ export function Dialog({ open, onClose, title, className, closeDisabled = false,
   }, [present, ref, returnFocusRef]);
   if (!present) return null;
   return <dialog ref={ref} className={["mdbase-dialog mdbase-overlay", className].filter(Boolean).join(" ")}
-    data-open={open} role="dialog" aria-label={title}
+    data-open={open} role="dialog" aria-label={title} aria-describedby={descriptionId}
     onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape") { event.preventDefault(); if (!closeDisabled) onClose(); } }}
     onCancel={(event) => { event.preventDefault(); if (!closeDisabled) onClose(); }}
     onMouseDown={(event) => { if (!closeDisabled && event.target === event.currentTarget) onClose(); }}>

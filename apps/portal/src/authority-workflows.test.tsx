@@ -111,7 +111,7 @@ describe("approval collection chooser",()=>{
   it("uses the SAME chooser/confirm for Private without creating or granting Hosted scopes",async()=>{
     await privateChoice();
     expect(screen.getByRole("option",{name:"[test] Original Private"})).toHaveAttribute("aria-selected","true");
-    expect(screen.queryByText("Advanced: allow more collections")).not.toBeInTheDocument();
+    expect(screen.queryByText("Allow access to additional collections")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button",{name:"Open Reader with [test] Original Private"}));
     await waitFor(()=>expect(vi.mocked(api)).toHaveBeenCalledWith("/v1/pairing-requests/pairing/approve",expect.objectContaining({method:"POST"})));
     const approval=vi.mocked(api).mock.calls.find(([path])=>String(path).endsWith("/approve"))!;

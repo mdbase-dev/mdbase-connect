@@ -69,4 +69,14 @@ describe("matchingCommands", () => {
     expect(matchingCommands(commands, "source 3").map((c) => c.id)).toEqual(["source-3"]);
     expect(matchingCommands(commands, "open settings").map((c) => c.id)).toEqual(["settings"]);
   });
+
+  it("matches nonadjacent terms and retains label matches before the search cap", () => {
+    const commands = [
+      ...Array.from({ length: 50 }, (_, index) => ({ ...command(`collection-${index}`, "collections"), detail: "Travel laptop" })),
+      command("computer", "computers", "Travel field laptop"),
+    ];
+    const matches = matchingCommands(commands, "travel laptop");
+    expect(matches).toHaveLength(40);
+    expect(matches[0]?.id).toBe("computer");
+  });
 });

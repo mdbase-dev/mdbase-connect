@@ -137,13 +137,13 @@ async function auditPortalLogin() {
     return [element === document.activeElement, style.outlineWidth, style.outlineStyle, style.outlineColor === accent];
   }), [true, "2px", "solid", true], "password keyboard focus has an accent ring");
   await auditPage(page, "portal login", { keyboard: true });
-  await assertAuthDesign(page, "portal login", { divider: false });
+  await assertAuthDesign(page, "portal login");
   assert.equal(await page.getByRole("link", { name: "Privacy" }).count(), 1, "portal login: privacy link is present");
   await page.goto(`${servers[0].origin}/signup`);
   await page.getByRole("heading", { name: "Create an account" }).waitFor();
   await page.getByRole("button", { name: "Send verification link" }).waitFor();
   await auditPage(page, "portal signup", { keyboard: true });
-  await assertAuthDesign(page, "portal signup", { divider: false });
+  await assertAuthDesign(page, "portal signup");
   assert.equal(await page.locator("html").getAttribute("data-theme"), null, "portal signup: theme follows the operating system");
   assert.equal(await page.getByRole("combobox", { name: "Color theme" }).count(), 1, "portal signup: System/Light/Dark remains available");
   const authAlignment = await page.locator(".minimal-auth-page > .product-brand, .minimal-auth-footer").evaluateAll(
@@ -159,7 +159,7 @@ async function auditPortalLogin() {
   await page.close();
 }
 
-async function assertAuthDesign(page, label, { divider = true } = {}) {
+async function assertAuthDesign(page, label) {
   const design = await page.locator(".minimal-auth-shell").evaluate((shell) => {
     const visible = (element) => element.checkVisibility() && element.getClientRects().length > 0;
     const copy = [...shell.querySelectorAll("h1, p, label, input, button, a, span, strong")].filter(visible);
@@ -209,7 +209,7 @@ async function assertAuthDesign(page, label, { divider = true } = {}) {
   assert.ok(design.labels.length > 0 && design.labels.every(({ size, weight }) => size === design.sizes.section && weight === design.weights.medium), `${label}: field labels use medium section type`);
   assert.deepEqual(design.primary, [{ filled: true, onAccent: true }], `${label}: one filled primary action with on-accent text`);
   assert.equal(design.filledActions, 1, `${label}: providers and quiet links are not primary actions`);
-  assert.deepEqual(design.dividers, divider ? ["or"] : [], `${label}: one divider only when email and providers coexist`);
+  assert.deepEqual(design.dividers, [], `${label}: providers precede email without a divider`);
 }
 
 async function auditPortalDevLogin() {
@@ -311,12 +311,10 @@ async function auditPortalSignup() {
           const { left, width } = document.querySelector(selector).getBoundingClientRect();
           return { left, width };
         };
-        const label = document.querySelector(".auth-providers > .provider-divider > span");
-        const range = document.createRange();
-        range.selectNodeContents(label);
         return {
-          edges: [".minimal-auth-page > .product-brand", ".auth-providers", ".google-provider", ".github-button", ".auth-providers > .provider-divider", ".password-auth-form", ".minimal-auth-footer"].map(bounds),
-          labelLines: range.getClientRects().length,
+          edges: [".minimal-auth-page > .product-brand", ".auth-providers", ".google-provider", ".github-button", ".password-auth-form", ".minimal-auth-footer"].map(bounds),
+          providersBottom: document.querySelector(".auth-providers").getBoundingClientRect().bottom,
+          emailTop: document.querySelector(".password-auth-form").getBoundingClientRect().top,
           googleScheme: getComputedStyle(document.querySelector(".google-provider")).colorScheme,
           overflow: document.documentElement.scrollWidth > innerWidth
         };
@@ -325,7 +323,8 @@ async function auditPortalSignup() {
         assert.ok(Math.abs(edge.left - layout.edges[0].left) < 1, `signup ${colorScheme}/${width}: aligned left edges`);
         assert.ok(Math.abs(edge.width - layout.edges[0].width) < 1, `signup ${colorScheme}/${width}: matching widths`);
       }
-      assert.equal(layout.labelLines, 1, `signup ${colorScheme}/${width}: email divider stays on one line`);
+      assert.equal(await page.locator(".provider-divider").count(), 0);
+      assert.ok(layout.emailTop > layout.providersBottom, `signup ${colorScheme}/${width}: providers precede email`);
       assert.equal(layout.googleScheme, "light", "Google iframe uses its native color scheme");
       assert.equal(layout.overflow, false, `signup ${colorScheme}/${width}: no horizontal overflow`);
       await assertAuthDesign(page, `signup ${colorScheme}/${width}`);
@@ -717,7 +716,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     await route.fulfill({ status: 404, json: { error: "not_found" } });
   });
   await page.goto(`${servers[0].origin}/authorize/${requestId}`);
-  await page.getByRole("heading", { name: "Workout journal" }).waitFor();
+  await page.getByRole("heading", { name: "Workout journal", level: 1, exact: true }).waitFor();
   const applicationIcon = page.locator('.request-identity-mark img[src="https://journal.example/icon.png"]');
   await applicationIcon.waitFor();
   assert.equal(await applicationIcon.getAttribute("referrerpolicy"), "no-referrer", "portal authorization: application icons do not send the approval-page referrer");
@@ -774,7 +773,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   const personalNotesRow = personalNotesChoice;
   assert.equal(await personalNotesRow.evaluate((element) => getComputedStyle(element).cursor), "pointer", "portal authorization: the full collection row is visibly selectable");
   assert.equal(await personalNotesRow.evaluate((element) => element.getBoundingClientRect().height >= 44), true, "portal authorization: collection rows have deliberate full-row presence");
-  const collectionSearch = page.getByRole("combobox", { name: "Collection", exact: true });
+  const collectionSearch = page.getByRole("combobox", { name: "Choose a collection", exact: true });
   await collectionSearch.focus();
   await page.keyboard.press("ArrowDown");
   assert.equal(await page.getByRole("option", { selected: true }).count(), 0, "portal authorization: arrows only highlight, never commit consent");

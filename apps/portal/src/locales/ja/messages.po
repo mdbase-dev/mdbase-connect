@@ -116,14 +116,11 @@ msgstr "{0} と保存されているデータ"
 msgid "{0} can no longer be used: {1} Choose another collection."
 msgstr "{0} は利用できなくなりました: {1} 別のコレクションを選んでください。"
 
-#. placeholder {0}: application.applicationName
 #. placeholder {0}: grant.application_name
 #. placeholder {0}: group.applicationName
-#. placeholder {1}: collection.name
 #. placeholder {1}: entries[0]!.collection_name
 #. placeholder {1}: grant.collection_name
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgid "{0} can no longer use {1}"
 msgstr "{0} は {1} を使用できなくなりました"
 
@@ -151,6 +148,11 @@ msgstr "{0} の接続が解除されました。"
 #: src/authorization-view.tsx
 msgid "{0} has remote access paused."
 msgstr "{0} のリモートアクセスは一時停止中です。"
+
+#. placeholder {0}: literal(request.application_name)
+#: src/authorization-view.tsx
+msgid "{0} is asking to"
+msgstr "{0} が次の操作を求めています"
 
 #. placeholder {0}: collection.display_name
 #: src/compatibility.ts
@@ -586,10 +588,6 @@ msgstr "承認された追加のファイル操作: {0}"
 msgid "Adds {0} to the collection"
 msgstr "コレクションに {0} を追加します"
 
-#: src/authority-workflows.tsx
-msgid "Advanced: allow more collections"
-msgstr "詳細設定: さらに多くのコレクションを許可"
-
 #. placeholder {0}: adoption.mirror_name ?? adoption.source_name
 #: src/authority-workflows.tsx
 msgid "After the move, {0} stays as a synced folder. It will not be a second main copy."
@@ -632,6 +630,10 @@ msgstr "{app} にこのファイルへのアクセスを許可しますか？"
 msgctxt "Application access approval"
 msgid "Allow access"
 msgstr "アクセスを許可"
+
+#: src/authority-workflows.tsx
+msgid "Allow access to additional collections"
+msgstr "追加のコレクションへのアクセスを許可"
 
 #: src/authorization-view.tsx
 msgid "Allow at least one permission to continue."
@@ -1000,9 +1002,12 @@ msgstr "新しい {0} 型を追加するか、既存の型を使うか選んで�
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
-#: src/ConnectPrimitives.tsx
 msgid "Clear filter"
 msgstr "フィルターをクリア"
+
+#: src/ConnectPrimitives.tsx
+msgid "Clear search"
+msgstr "検索をクリア"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1026,10 +1031,6 @@ msgstr "クラウド上のコピーを設定済み"
 #: src/authorization-view.tsx
 msgid "Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application."
 msgstr "コードは大文字と小文字を区別せず、10 分後に期限切れになります。承認できるのは、そのアプリケーションが作成したキーだけです。"
-
-#: src/authorization-view.tsx
-msgid "Collection"
-msgstr "コレクション"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1166,8 +1167,12 @@ msgid "Continue"
 msgstr "続行"
 
 #: src/authorization-view.tsx
-msgid "Continue only if you started this connection intentionally."
-msgstr "この接続を意図的に開始した場合のみ続行してください。"
+msgid "Continue only if you started this and recognize this app."
+msgstr "自分で開始し、このアプリに心当たりがある場合のみ続行してください。"
+
+#: src/authorization-view.tsx
+msgid "Continue only if you started this and recognize this site."
+msgstr "自分で開始し、このサイトに心当たりがある場合のみ続行してください。"
 
 #: src/auth-view.tsx
 msgid "Continue with email"
@@ -1333,6 +1338,11 @@ msgstr "現在の許容量"
 #: src/AccountManagement.tsx
 msgid "Current password"
 msgstr "現在のパスワード"
+
+#: src/portal-commands.ts
+msgctxt "Color theme"
+msgid "Dark"
+msgstr "ダーク"
 
 #: src/ConnectApp.tsx
 msgid "Delete"
@@ -1944,6 +1954,11 @@ msgstr "最終使用 {0}"
 msgid "Legacy scoped access is revoked. Reauthorize this application for the entire collection."
 msgstr "旧形式の範囲限定アクセスは取り消されました。このアプリケーションにコレクション全体へのアクセスを再承認してください。"
 
+#: src/portal-commands.ts
+msgctxt "Color theme"
+msgid "Light"
+msgstr "ライト"
+
 #: src/ConnectApp.tsx
 msgid "Link your account to an editable record in this collection. Collection access is approved separately."
 msgstr "アカウントをこのコレクション内の編集可能なレコードに紐付けます。コレクションへのアクセスは別途承認が必要です。"
@@ -2195,7 +2210,6 @@ msgid "New access will stop across all installations. Copies already downloaded 
 msgstr "すべてのインストールで新たなアクセスが停止します。ダウンロード済みのコピーはリモートで削除できません。"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "新たなアクセスが停止します。アプリがダウンロード済みのコピーはリモートで削除できません。"
 
@@ -2346,14 +2360,6 @@ msgstr "一回限り · 有効期限 {0}"
 #: src/authorization-review.tsx
 msgid "Only {0}. Hidden folders are always excluded."
 msgstr "{0} のみ。隠しフォルダーは常に除外されます。"
-
-#: src/authorization-view.tsx
-msgid "Only continue if you recognize this exact app."
-msgstr "このアプリに間違いないと確認できる場合のみ続行してください。"
-
-#: src/authorization-view.tsx
-msgid "Only continue if you recognize this exact site."
-msgstr "このサイトに確実に心当たりがある場合のみ続行してください。"
 
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
@@ -2791,10 +2797,6 @@ msgstr "{0} からの要求です。要求元の出所は確認できません�
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
 msgstr "<0>{0}</0> から要求されました。ここに表示される出所は要求者の身元の証明にはなりません。"
 
-#: src/authorization-view.tsx
-msgid "Requests"
-msgstr "要求"
-
 #: src/authorization-review.tsx
 msgid "Required"
 msgstr "必須"
@@ -2884,6 +2886,7 @@ msgid "Review {0}’s request for {collectionName}."
 msgstr "{collectionName} に対する {0} の要求を確認してください。"
 
 #: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 msgid "Review access"
 msgstr "アクセスを確認"
 
@@ -2937,12 +2940,9 @@ msgstr "取り消す"
 msgid "Revoke {0}"
 msgstr "{0}を取り消す"
 
-#. placeholder {0}: application.applicationName
 #. placeholder {0}: group.applicationName
-#. placeholder {1}: collection.name
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgid "Revoke {0} access to {1}?"
 msgstr "{0} の {1} へのアクセスを取り消しますか？"
 
@@ -2959,7 +2959,6 @@ msgid "Revoke {0}?"
 msgstr "{0} を取り消しますか？"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
 msgstr "アクセスを取り消す"
@@ -3325,6 +3324,11 @@ msgstr "このコレクションのアプリケーション管理下のローカ
 #: src/ConnectApp.tsx
 msgid "Syncing will stop after the computer confirms. Files already downloaded will remain."
 msgstr "コンピューターが確認すると同期が停止します。ダウンロード済みのファイルは残ります。"
+
+#: src/portal-commands.ts
+msgctxt "Color theme"
+msgid "System"
+msgstr "システム"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"

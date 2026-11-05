@@ -1,15 +1,17 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { createElement, useEffect, useEffectEvent, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { type Command } from "@mdbase-dev/ui/command-palette";
 import { t } from "@lingui/core/macro";
 import { i18n } from "@mdbase-dev/ui/i18n";
-import { type AccountSession, type HostedCollection, type ManagementOverview } from "@mdbase/connect-management";
+import { type AccountSession, type HostedCollection, type NativeCollection, type ManagementOverview } from "@mdbase/connect-management";
 import { type applicationGroups } from "./ApplicationAccess";
 import { relativeTime } from "./ConnectPrimitives";
+import { countLabel } from "./count-label";
+import { CloudIcon, DesktopIcon, SquaresFourIcon } from "@phosphor-icons/react";
 
 export type ConnectView = "overview" | "storage" | "access" | "collections" | "applications" | "computers" | "account" | "feedback";
 
-type CommandCollection = { id: string; name: string; detail: string } & ({ kind: "hosted"; source: HostedCollection } | { kind: "local" | "native" });
+type CommandCollection = { id: string; name: string; detail: string } & ({ kind: "hosted"; source: HostedCollection } | { kind: "native"; source: NativeCollection } | { kind: "local" });
 
 export function usePortalCommands({ data, collections, applications, sessions, selectedCollectionId, navigate, viewLabel, enabled, openEditor, reviewRequest }: {
   data: ManagementOverview | undefined;
@@ -59,9 +61,9 @@ export function usePortalCommands({ data, collections, applications, sessions, s
   const reveal = (view: ConnectView, selectors: readonly string[], click = false) => activate(() => navigate(view, selectedCollectionId), selectors, click);
   const groupLabels: Record<string, string> = { collections: viewLabel("collections"), apps: viewLabel("applications"), computers: viewLabel("computers"), sessions: t(i18n)`Browser sessions`, navigation: t(i18n)`Navigation`, commands: t(i18n)`Actions` };
   commands.push(
-    ...collections.map(collection => ({ id: `collection:${collection.id}`, label: collection.name, detail: collection.detail, group: "collections", run: () => navigate("overview", collection.id) })),
-    ...applications.map(application => ({ id: `app:${application.applicationId}`, label: application.applicationName, detail: [...new Set([...application.grants.map(grant => grant.collection_name), ...application.installations.map(entry => entry.collection_name)].filter(Boolean))].join(" · "), group: "apps", run: () => reveal("applications", [`${target(`app:${application.applicationId}`)} > summary`], true) })),
-    ...(data?.connectors ?? []).map(computer => ({ id: `computer:${computer.id}`, label: computer.name, detail: data!.collections.filter(collection => collection.connector_id === computer.id).map(collection => collection.display_name).join(" · "), group: "computers", run: () => reveal("computers", [target(`computer:${computer.id}`)]) })),
+    ...(["overview", "storage", "access"] as const).flatMap(view => collections.map(collection => ({ id: view === "overview" ? `collection:${collection.id}` : `${view}:${collection.id}`, label: view === "overview" ? collection.name : `${collection.name} · ${viewLabel(view)}`, detail: collection.detail, icon: createElement(collection.kind === "hosted" || collection.kind === "native" && collection.source.sync === "cloud_copy" ? CloudIcon : DesktopIcon), group: "collections", run: () => navigate(view, collection.id) }))),
+    ...applications.map(application => ({ id: `app:${application.applicationId}`, label: application.applicationName, detail: countLabel(application.collectionCount, "collection"), keywords: [...application.grants.map(grant => grant.collection_name), ...application.installations.map(entry => entry.collection_name)].filter(Boolean).join(" "), icon: createElement(SquaresFourIcon), group: "apps", run: () => reveal("applications", [`${target(`app:${application.applicationId}`)} > summary`], true) })),
+    ...(data?.connectors ?? []).map(computer => ({ id: `computer:${computer.id}`, label: computer.name, detail: countLabel(data!.collections.filter(collection => collection.connector_id === computer.id).length, "collection"), icon: createElement(DesktopIcon), group: "computers", run: () => reveal("computers", [target(`computer:${computer.id}`)]) })),
     ...(sessions ?? []).map(session => ({ id: `session:${session.id}`, label: session.client_name, detail: session.current ? t(i18n)`This browser, active now` : t(i18n)`Last used ${relativeTime(session.last_seen_at)}`, group: "sessions", run: () => reveal("account", [target(`session:${session.id}`)]) })),
     ...(["collections", "applications", "computers", "account", ...(selectedCollectionId ? ["overview", "storage", "access"] as const : [])] as const).map(view => ({ id: view, label: t(i18n)`Go to ${viewLabel(view)}`, shortcut: `g ${{ collections: "c", applications: "a", computers: "p", account: "s", overview: "o", storage: "t", access: "r" }[view]}`, group: "navigation", run: () => navigate(view, selectedCollectionId) })),
     { id: "create", label: t(i18n)`Add collection`, shortcut: "c", group: "commands", run: () => reveal("collections", [target("create")], true) },
@@ -81,7 +83,7 @@ export function usePortalCommands({ data, collections, applications, sessions, s
     ]),
     ...(sessions ?? []).filter(session => !session.current).map(session => ({ id: `revoke-session:${session.id}`, label: t(i18n)`Sign out ${session.client_name}`, group: "commands", run: () => reveal("account", [`${target(`session:${session.id}`)} button`], true) })),
     ...((sessions ?? []).some(session => !session.current) ? [{ id: "sign-out-others", label: t(i18n)`Sign out other sessions`, group: "commands", run: () => reveal("account", [`${target("sign-out-others")} button`], true) }] : []),
-    { id: "theme", label: t(i18n)`Theme`, group: "commands", run: () => reveal("account", [".connect-preferences > button.theme-select"], true) },
+    ...(["system", "light", "dark"] as const).map(value => ({ id: `theme:${value}`, label: value === "system" ? t(i18n)({ message: "System", context: "Color theme" }) : value === "light" ? t(i18n)({ message: "Light", context: "Color theme" }) : t(i18n)({ message: "Dark", context: "Color theme" }), detail: t(i18n)`Theme`, group: "commands", run: () => reveal("account", [".connect-preferences > button.theme-select", `[role=option][data-value=${value}]`], true) })),
     { id: "language", label: t(i18n)`Language`, group: "commands", run: () => reveal("account", [".connect-preferences .language-setting button, .connect-preferences .language-setting select"], true) },
     { id: "feedback", label: viewLabel("feedback"), group: "commands", run: () => navigate("feedback", selectedCollectionId) },
     { id: "shortcuts", label: t(i18n)`Keyboard shortcuts`, shortcut: "?", group: "commands", run: () => setHelpOpen(true) },

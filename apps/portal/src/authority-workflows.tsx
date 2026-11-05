@@ -269,7 +269,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     : null;
   const selectedCollection=pairing.collections?.find(collection=>collection.collection_id===selectedCollectionId);
   const privateChoice=selectedCollection?.kind==="private";
-  const details = <details className="installation-details">
+  const details = <details className="mdbase-disclosure installation-details">
                       <summary><Trans>Details</Trans></summary>
                       {pairing.app_origin?.trim()
                         ? <p><Trans>Requested from <code>{literal(pairing.app_origin)}</code>. The origin shown here is not proof of who made the request.</Trans></p>
@@ -283,12 +283,16 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       <h1>{refusal.heading}</h1>
       {installationAccountLabel(pairing) && <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>}
       <p className="mdbase-connect-lead" role="alert">{refusal.message}</p>
-      {!outcome && <button className="mdbase-button" disabled={busy} onClick={() => setAttempt(value => value + 1)}><Trans>Check again</Trans></button>}
-      {retry && <button className="mdbase-button" disabled={busy} onClick={() => void act(retry)}><Trans>Try again</Trans></button>}
-      {(!outcome || retry) && <div className="decision-actions"><button className="mdbase-button" disabled={busy} onClick={() => void act("deny")}><Trans>Cancel</Trans></button></div>}
-      <p className="mdbase-connect-lead">{pairing.return_url
-        ? <a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>
-        : t(i18n)`Return to ${pairing.connector_name}.`}</p>
+      <footer className="approval-footer">
+        <p className="approval-receipt">{pairing.return_url
+          ? <a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>
+          : t(i18n)`Return to ${pairing.connector_name}.`}</p>
+        <div className="approval-actions">
+          {(!outcome || retry) && <button className="mdbase-button is-secondary" disabled={busy} onClick={() => void act("deny")}><Trans>Cancel</Trans></button>}
+          {!outcome && <button className="mdbase-button is-primary" disabled={busy} onClick={() => setAttempt(value => value + 1)}><Trans>Check again</Trans></button>}
+          {retry && <button className="mdbase-button is-primary" disabled={busy} onClick={() => void act(retry)}><Trans>Try again</Trans></button>}
+        </div>
+      </footer>
     </RequestShell>;
   }
   if (installation && pairing.file_access) {
@@ -383,13 +387,13 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     </div>}
                     {privateChoice && <p className="field-note"><Trans>This collection stays on your computer. It can connect when a computer signed in to this account is available.</Trans></p>}
                     {privateChoice && !pairing.native_authorization_id && <p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>}
-                    {!privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || pairing.retained_collection_ids?.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="installation-advanced">
-                      <summary><Trans>Advanced: allow more collections</Trans></summary>
+                    {!privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || pairing.retained_collection_ids?.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="mdbase-disclosure installation-advanced">
+                      <summary><Trans>Allow access to additional collections</Trans></summary>
                       <CheckboxGroup legend={t(i18n)({ message: "Additional collection access" })} disabled={busy}>
                         {(pairing.collections??[]).filter(c=>c.kind!=="private").map(collection=>(
-                          <div key={collection.collection_id}>
+                          <div className="collection-picker-option installation-additional-collection" key={collection.collection_id}>
                             <Checkbox checked={collection.collection_id===selectedCollectionId || collectionIds.includes(collection.collection_id)} disabled={collection.collection_id===selectedCollectionId || pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...new Set([...ids,collection.collection_id])]:ids.filter(id=>id!==collection.collection_id))}>
-                              {collection.display_name}{pairing.retained_collection_ids?.includes(collection.collection_id) ? t(i18n)` (already allowed)` : ""}
+                              <CollectionIdentity name={collection.display_name} location={collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`} kind={collection.kind ?? "cloud_copy"} />{pairing.retained_collection_ids?.includes(collection.collection_id) ? t(i18n)` (already allowed)` : ""}
                             </Checkbox>
                             {pairing.scope_only && pairing.retained_collection_ids?.includes(collection.collection_id) && <button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(collection.collection_id)}><Trans>Remove access</Trans></button>}
                           </div>

@@ -317,6 +317,16 @@ textarea.mdbase-field {
   background: var(--color-selected);
 }
 
+.mdbase-menu-item.is-danger,
+.mdbase-menu-item.is-danger:hover:not(:disabled, [aria-disabled="true"]),
+.mdbase-menu .mdbase-menu-item.is-danger:focus-visible { color: var(--color-danger); }
+
+.mdbase-disclosure > summary { display: flex; align-items: center; gap: var(--space-2); list-style: none; cursor: pointer; }
+.mdbase-disclosure > summary::-webkit-details-marker { display: none; }
+.mdbase-disclosure > summary::after { content: ""; flex: none; width: 6px; height: 6px; margin-left: auto; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; rotate: -45deg; transition: rotate var(--motion-quick) var(--ease-standard); }
+.mdbase-disclosure[open] > summary::after { rotate: 45deg; }
+@media (prefers-reduced-motion: reduce) { .mdbase-disclosure > summary::after { transition: none; } }
+
 .mdbase-menu-copy {
   min-width: 0;
   flex: 1 1 auto;

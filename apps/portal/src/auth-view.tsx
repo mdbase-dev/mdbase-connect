@@ -614,12 +614,14 @@ export function Signup({
               : t(i18n)({ message: "We’ll email you a link to verify your address. Then you can choose a password." })}
         </p>
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
+        {!requestSubmitted && config.external_public_registration && (
+          <AuthProviders providers={config.providers} divider={false} onError={setError} />
+        )}
         {!requestSubmitted && config.password_public_registration && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void requestVerification(event)}>
             <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
               type="email"
               autoComplete="email"
-              autoFocus
               maxLength={320}
               required
               value={email}
@@ -629,9 +631,6 @@ export function Signup({
               {busy ? t(i18n)({ message: "Sending link…", context: "Account sign-in" }) : t(i18n)({ message: "Send verification link", context: "Account sign-in" })}
             </button>
           </form>
-        )}
-        {!requestSubmitted && config.external_public_registration && (
-          <AuthProviders providers={config.providers} divider={config.password_public_registration === true} onError={setError} />
         )}
         <p className="auth-footnote"><Trans>Already have an account? <a href={signInUrl()}>Sign in</a></Trans></p>
       </section>

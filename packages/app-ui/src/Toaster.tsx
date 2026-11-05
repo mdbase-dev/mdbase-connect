@@ -46,8 +46,8 @@ export function Toaster() {
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocus={() => setFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
     {present && shown && <div ref={ref} data-open={Boolean(current)} className="mdbase-toast mdbase-overlay"><span>{shown.message}</span>
-      {shown.undo && <button onClick={() => { dismiss(); shown.undo?.(); }}>{t(i18n)`Undo`}</button>}
-      <button onClick={dismiss}>{t(i18n)`Dismiss`}</button>
+      {shown.undo && <button className="mdbase-button is-secondary" onClick={() => { dismiss(); shown.undo?.(); }}>{t(i18n)`Undo`}</button>}
+      <button className="mdbase-button is-tertiary" onClick={dismiss}>{t(i18n)`Dismiss`}</button>
     </div>}
   </div>;
 }
