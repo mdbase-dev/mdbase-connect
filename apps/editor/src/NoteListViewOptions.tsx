@@ -4,6 +4,7 @@ import { useLingui } from "@lingui/react";
 import { CheckIcon as Check, SlidersHorizontalIcon as SlidersHorizontal } from "./icons";
 import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { defaultSortDirection, noteSortDirections, noteSortKey, noteSortOptions, type NoteSort, type NoteSortPreference, type SortField } from "./note-sort";
+import { command, commandDefinitions } from "./editor-commands";
 
 export function NoteListViewOptions({ sort, fields, scopeLabel, onSort, onClearScope }: {
   sort: NoteSort;
@@ -66,8 +67,8 @@ export function NoteListViewOptions({ sort, fields, scopeLabel, onSort, onClearS
         className="mdbase-menu-item"
         role="menuitemradio"
         aria-checked={!scopeLabel}
-        onClick={() => select(onClearScope)}
-      ><span className="view-option-check">{!scopeLabel && <Check aria-hidden="true" />}</span><span><Trans>All notes</Trans></span></button>
+        onClick={() => select(command("clear-filter", onClearScope).run)}
+      ><span className="view-option-check">{!scopeLabel && <Check aria-hidden="true" />}</span><span>{commandDefinitions["clear-filter"].label}</span></button>
     </Menu>
   </div>;
 }

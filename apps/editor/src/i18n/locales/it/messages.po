@@ -1000,9 +1000,9 @@ msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "Etichette indicative e colore usati per visualizzare i record di questo tipo."
 
 #: src/App.tsx
+#: src/editor-commands.ts
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
-#: src/NoteListViewOptions.tsx
 msgid "All notes"
 msgstr "Tutte le note"
 
@@ -2423,6 +2423,14 @@ msgstr "Visualizzatore di file, {filename}"
 msgid "Fill in the required properties."
 msgstr "Compila le proprietà richieste."
 
+#: src/editor-commands.ts
+msgid "Filter by tag"
+msgstr "Filtra per tag"
+
+#: src/editor-commands.ts
+msgid "Filter by type"
+msgstr "Filtra per tipo"
+
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "Filtra i collegamenti per tipo"
@@ -3150,6 +3158,17 @@ msgstr "Proprietà richieste mancanti"
 msgid "Modified"
 msgstr "Modificato"
 
+#: src/editor-commands.ts
+msgid "Modified newest"
+msgstr "Modificate di recente"
+
+#: src/note-list-view.ts
+msgid "modified oldest"
+msgstr "modificate meno di recente"
+
+#: src/editor-commands.ts
+msgid "Modified oldest"
+msgstr "Modificate meno di recente"
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "Altre regole di comportamento della raccolta in YAML"
@@ -3325,12 +3344,12 @@ msgid "Next note in the list"
 msgstr "Nota successiva nella lista"
 
 #: src/TypeBrowser.tsx
-msgid "No app contracts installed"
+msgid "No app contracts are installed"
 msgstr "Nessun contratto app installato"
 
 #: src/TypeBrowser.tsx
-msgid "No application contracts are installed"
-msgstr "Nessun contratto applicativo installato"
+msgid "No app contracts installed"
+msgstr "Nessun contratto app installato"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
@@ -3799,6 +3818,9 @@ msgstr "Parzialmente installato"
 msgid "Path"
 msgstr "Percorso"
 
+#: src/editor-commands.ts
+msgid "Path A–Z"
+msgstr "Percorso dalla A alla Z"
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "Percorso copiato."
@@ -4545,6 +4567,7 @@ msgstr "Campi gestiti da schema"
 msgid "Scope"
 msgstr "Ambito"
 
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "Ricerca"
@@ -4558,6 +4581,7 @@ msgid "Search is incomplete."
 msgstr "La ricerca è incompleta."
 
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "Cerca note e file"
@@ -5600,6 +5624,9 @@ msgstr "Questo valore non corrisponde al formato richiesto."
 msgid "Title"
 msgstr "Titolo"
 
+#: src/editor-commands.ts
+msgid "Title A–Z"
+msgstr "Titolo dalla A alla Z"
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "Differenze di titolo"
@@ -5983,8 +6010,8 @@ msgid "Working…"
 msgstr "Elaborazione…"
 
 #: src/TypeBrowser.tsx
-msgid "Works with applications"
-msgstr "Funziona con le applicazioni"
+msgid "Works with apps"
+msgstr "Funziona con le app"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

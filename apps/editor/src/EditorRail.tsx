@@ -11,7 +11,7 @@ import {
   SidebarSimpleIcon as PanelLeftClose
 } from "./icons";
 import { Wordmark } from "@mdbase-dev/ui/brand";
-import { FeedbackBug, useFeedback } from "@mdbase-dev/ui/feedback";
+import { useFeedback } from "@mdbase-dev/ui/feedback";
 import "@mdbase-dev/ui/feedback.css";
 import { RailDropTarget, type RailDropActions } from "./RailDropTarget";
 
@@ -96,7 +96,7 @@ function RailFeedback() {
   const feedback = useFeedback();
   if (!feedback.enabled) return null;
   return <button type="button" className="mdbase-feedback-trigger rail-feedback" onClick={() => feedback.open()}>
-    <span><FeedbackBug wiggle={feedback.wiggle} /><span className="rail-row-label"><Trans>Send feedback</Trans></span></span>
+    <span className="rail-row-label"><Trans>Send feedback</Trans></span>
   </button>;
 }
 

@@ -1,8 +1,28 @@
 import { t } from "@lingui/core/macro";
+import { buildEditorCommands, command, type EditorCommand } from "./editor-commands";
+import { defaultSortDirection, noteSortOptions, type NoteSortPreference, type SortField } from "./note-sort";
 
 export const NOTE_PATHS_MIME = "application/x-mdbase-note-paths";
 export type NoteFilter = { kind: "folder" | "tag" | "type"; value: string };
 export interface SearchFacet { name: string; count: number }
+export function noteFilterCommand(filter: NoteFilter & { kind: "tag" | "type" }, onFilter: (filter: NoteFilter) => void): EditorCommand {
+  const entry = command(filter.kind === "tag" ? "filter-tag" : "filter-type", () => onFilter(filter));
+  return { ...entry, id: `${entry.id}:${filter.value}`, label: `${entry.label}: ${filter.value}` };
+}
+
+export function noteViewCommands(onSort: (sort: NoteSortPreference) => void, onFilter: (filter: NoteFilter) => void, onClear: () => void, tags: SearchFacet[], types: SearchFacet[], fields: readonly SortField[]): EditorCommand[] {
+  return buildEditorCommands({
+    "sort-modified-desc": () => onSort({ key: "modified", direction: "desc" }),
+    "sort-modified-asc": () => onSort({ key: "modified", direction: "asc" }),
+    "sort-title-asc": () => onSort({ key: "title", direction: "asc" }),
+    "sort-path-asc": () => onSort({ key: "path", direction: "asc" }),
+    "clear-filter": onClear
+  }).concat(
+    noteSortOptions(fields).fields.map(({ key, label }) => ({ id: `sort-${key}`, label, run: () => onSort({ key, direction: defaultSortDirection(key) }) })),
+    tags.map(({ name }) => noteFilterCommand({ kind: "tag", value: name }, onFilter)),
+    types.map(({ name }) => noteFilterCommand({ kind: "type", value: name }, onFilter))
+  );
+}
 export interface NoteRowStatus {
   label?: string;
   tone: "quiet" | "busy" | "error";

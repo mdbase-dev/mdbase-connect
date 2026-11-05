@@ -1,5 +1,12 @@
 import { t } from "@lingui/core/macro";
 export const commandDefinitions = {
+  "sort-modified-desc": { get label() { return t`Modified newest`; } },
+  "sort-modified-asc": { get label() { return t`Modified oldest`; } },
+  "sort-title-asc": { get label() { return t`Title A–Z`; } },
+  "sort-path-asc": { get label() { return t`Path A–Z`; } },
+  "filter-tag": { get label() { return t`Filter by tag`; } },
+  "filter-type": { get label() { return t`Filter by type`; } },
+  "clear-filter": { get label() { return t`All notes`; } },
   "quick-open": { get label() { return t`Quick open`; }, shortcut: "mod+P", group: "Navigate" },
   "command-palette": { get label() { return t`Commands`; }, shortcut: "mod+K", aliases: ["mod+shift+P"], group: "Navigate", get scope() { return t`outside text; add a link while typing`; } },
   "new-note": { get label() { return t`New note`; }, shortcut: "C", aliases: ["mod+shift+N"], group: "Note" },

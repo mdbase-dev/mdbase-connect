@@ -1000,9 +1000,9 @@ msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "Описательные метки и цвет для отображения записей этого типа."
 
 #: src/App.tsx
+#: src/editor-commands.ts
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
-#: src/NoteListViewOptions.tsx
 msgid "All notes"
 msgstr "Все заметки"
 
@@ -2423,6 +2423,14 @@ msgstr "Просмотр файла: {filename}"
 msgid "Fill in the required properties."
 msgstr "Заполните обязательные свойства."
 
+#: src/editor-commands.ts
+msgid "Filter by tag"
+msgstr "Фильтр по тегу"
+
+#: src/editor-commands.ts
+msgid "Filter by type"
+msgstr "Фильтр по типу"
+
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "Фильтровать ссылки по типу"
@@ -3150,6 +3158,17 @@ msgstr "Отсутствуют обязательные свойства"
 msgid "Modified"
 msgstr "Изменено"
 
+#: src/editor-commands.ts
+msgid "Modified newest"
+msgstr "Сначала изменённые недавно"
+
+#: src/note-list-view.ts
+msgid "modified oldest"
+msgstr "сначала изменённые давно"
+
+#: src/editor-commands.ts
+msgid "Modified oldest"
+msgstr "Сначала изменённые давно"
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "Дополнительные правила поведения коллекции в YAML"
@@ -3325,11 +3344,11 @@ msgid "Next note in the list"
 msgstr "Следующая заметка в списке"
 
 #: src/TypeBrowser.tsx
-msgid "No app contracts installed"
+msgid "No app contracts are installed"
 msgstr "Контракты приложений не установлены"
 
 #: src/TypeBrowser.tsx
-msgid "No application contracts are installed"
+msgid "No app contracts installed"
 msgstr "Контракты приложений не установлены"
 
 #: src/TypeBrowser.tsx
@@ -3799,6 +3818,9 @@ msgstr "Установлено частично"
 msgid "Path"
 msgstr "Путь"
 
+#: src/editor-commands.ts
+msgid "Path A–Z"
+msgstr "Путь от А до Я"
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "Путь скопирован."
@@ -4545,6 +4567,7 @@ msgstr "Поля под управлением схемы"
 msgid "Scope"
 msgstr "Область действия"
 
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "Поиск"
@@ -4558,6 +4581,7 @@ msgid "Search is incomplete."
 msgstr "Поиск не завершён."
 
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "Поиск заметок и файлов"
@@ -5600,6 +5624,9 @@ msgstr "Значение не соответствует требуемому ф
 msgid "Title"
 msgstr "Название"
 
+#: src/editor-commands.ts
+msgid "Title A–Z"
+msgstr "Название от А до Я"
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "Различия в названии"
@@ -5983,8 +6010,8 @@ msgid "Working…"
 msgstr "Выполнение…"
 
 #: src/TypeBrowser.tsx
-msgid "Works with applications"
-msgstr "Работает с приложениями"
+msgid "Works with apps"
+msgstr "Совместимость с приложениями"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

@@ -1000,9 +1000,9 @@ msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "この型のレコードを表示する際に使う補助的なラベルと色です。"
 
 #: src/App.tsx
+#: src/editor-commands.ts
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
-#: src/NoteListViewOptions.tsx
 msgid "All notes"
 msgstr "すべてのノート"
 
@@ -2423,6 +2423,14 @@ msgstr "ファイルビューアー、{filename}"
 msgid "Fill in the required properties."
 msgstr "必須のプロパティを入力してください。"
 
+#: src/editor-commands.ts
+msgid "Filter by tag"
+msgstr "タグで絞り込む"
+
+#: src/editor-commands.ts
+msgid "Filter by type"
+msgstr "タイプで絞り込む"
+
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "型でリンクを絞り込む"
@@ -3150,6 +3158,17 @@ msgstr "不足している必須プロパティ"
 msgid "Modified"
 msgstr "更新日時"
 
+#: src/editor-commands.ts
+msgid "Modified newest"
+msgstr "更新日時が新しい順"
+
+#: src/note-list-view.ts
+msgid "modified oldest"
+msgstr "更新日時が古い順"
+
+#: src/editor-commands.ts
+msgid "Modified oldest"
+msgstr "更新日時が古い順"
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "その他のコレクション動作を YAML で設定"
@@ -3325,12 +3344,12 @@ msgid "Next note in the list"
 msgstr "リスト内の次のノート"
 
 #: src/TypeBrowser.tsx
-msgid "No app contracts installed"
-msgstr "インストール済みのアプリ契約はありません"
+msgid "No app contracts are installed"
+msgstr "アプリのコントラクトがインストールされていません"
 
 #: src/TypeBrowser.tsx
-msgid "No application contracts are installed"
-msgstr "アプリの契約はインストールされていません"
+msgid "No app contracts installed"
+msgstr "インストール済みのアプリ契約はありません"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
@@ -3799,6 +3818,9 @@ msgstr "一部インストール済み"
 msgid "Path"
 msgstr "パス"
 
+#: src/editor-commands.ts
+msgid "Path A–Z"
+msgstr "パスの昇順"
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "パスをコピーしました。"
@@ -4545,6 +4567,7 @@ msgstr "スキーマで管理されるフィールド"
 msgid "Scope"
 msgstr "対象範囲"
 
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "検索"
@@ -4558,6 +4581,7 @@ msgid "Search is incomplete."
 msgstr "検索はまだ完了していません。"
 
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "ノートとファイルを検索"
@@ -5600,6 +5624,9 @@ msgstr "この値は必須の形式に一致しません。"
 msgid "Title"
 msgstr "タイトル"
 
+#: src/editor-commands.ts
+msgid "Title A–Z"
+msgstr "タイトルの昇順"
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "タイトルの差分"
@@ -5983,8 +6010,8 @@ msgid "Working…"
 msgstr "処理中…"
 
 #: src/TypeBrowser.tsx
-msgid "Works with applications"
-msgstr "アプリと連携"
+msgid "Works with apps"
+msgstr "アプリとの互換性"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

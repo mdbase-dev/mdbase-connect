@@ -647,7 +647,7 @@
   }
 
   .new-note-composer > form {
-    padding: var(--space-8) 22px 0;
+    padding: var(--space-8) 0 0;
   }
 
   .new-note-actions {

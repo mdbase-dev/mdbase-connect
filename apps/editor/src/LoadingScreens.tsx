@@ -18,7 +18,7 @@ export function OpeningScreen() {
   useLingui();
   return <div className="app-shell editor-opening surface-notes pane-notes" role="main" aria-label={t`Opening collection`} aria-busy="true" data-loading-state="opening">
     <aside className="collection-rail"><Wordmark app="editor" /><p><Trans>Opening collection</Trans></p></aside>
-    <section className="note-list-pane"><header className="list-header"><Wordmark app="editor" /></header><p role="status"><Trans>Reading its notes and types</Trans></p><div className="opening-list-skeleton" aria-hidden="true">{Array.from({ length: 6 }, (_, index) => <span key={index} />)}</div></section>
+    <section className="note-list-pane"><header className="list-header"><div><h1><Trans>Opening collection</Trans></h1><p role="status"><Trans>Reading its notes and types</Trans></p></div></header><div className="note-list-controls"><div className="search-field"><input aria-label={t`Search notes and files`} placeholder={t`Search`} disabled /></div></div><div className="note-selection-slot" /><div className="opening-list-skeleton" aria-hidden="true">{Array.from({ length: 6 }, (_, index) => <span key={index} />)}</div></section>
     <div className="editor-pane" />
   </div>;
 }

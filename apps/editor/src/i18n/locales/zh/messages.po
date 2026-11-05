@@ -1000,9 +1000,9 @@ msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "显示此类型的记录时使用的提示标签和颜色。"
 
 #: src/App.tsx
+#: src/editor-commands.ts
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
-#: src/NoteListViewOptions.tsx
 msgid "All notes"
 msgstr "所有笔记"
 
@@ -2423,6 +2423,14 @@ msgstr "文件查看器，{filename}"
 msgid "Fill in the required properties."
 msgstr "填写必填属性。"
 
+#: src/editor-commands.ts
+msgid "Filter by tag"
+msgstr "按标签筛选"
+
+#: src/editor-commands.ts
+msgid "Filter by type"
+msgstr "按类型筛选"
+
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "按类型筛选链接"
@@ -3150,6 +3158,17 @@ msgstr "缺少必填属性"
 msgid "Modified"
 msgstr "修改时间"
 
+#: src/editor-commands.ts
+msgid "Modified newest"
+msgstr "修改时间从新到旧"
+
+#: src/note-list-view.ts
+msgid "modified oldest"
+msgstr "修改时间从旧到新"
+
+#: src/editor-commands.ts
+msgid "Modified oldest"
+msgstr "修改时间从旧到新"
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "YAML 中的更多集合行为"
@@ -3325,12 +3344,12 @@ msgid "Next note in the list"
 msgstr "列表中的下一条笔记"
 
 #: src/TypeBrowser.tsx
-msgid "No app contracts installed"
+msgid "No app contracts are installed"
 msgstr "未安装应用契约"
 
 #: src/TypeBrowser.tsx
-msgid "No application contracts are installed"
-msgstr "未安装任何应用契约"
+msgid "No app contracts installed"
+msgstr "未安装应用契约"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
@@ -3799,6 +3818,9 @@ msgstr "已部分安装"
 msgid "Path"
 msgstr "路径"
 
+#: src/editor-commands.ts
+msgid "Path A–Z"
+msgstr "路径 A–Z"
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "路径已复制。"
@@ -4545,6 +4567,7 @@ msgstr "由架构管理的字段"
 msgid "Scope"
 msgstr "范围"
 
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "搜索"
@@ -4558,6 +4581,7 @@ msgid "Search is incomplete."
 msgstr "搜索结果不完整。"
 
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "搜索笔记和文件"
@@ -5600,6 +5624,9 @@ msgstr "此值不符合要求的格式。"
 msgid "Title"
 msgstr "标题"
 
+#: src/editor-commands.ts
+msgid "Title A–Z"
+msgstr "标题 A–Z"
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "标题差异"
@@ -5983,8 +6010,8 @@ msgid "Working…"
 msgstr "处理中…"
 
 #: src/TypeBrowser.tsx
-msgid "Works with applications"
-msgstr "与应用配合使用"
+msgid "Works with apps"
+msgstr "兼容的应用"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

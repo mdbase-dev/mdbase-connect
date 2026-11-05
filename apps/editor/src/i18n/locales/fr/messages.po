@@ -1000,9 +1000,9 @@ msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "Libellés indicatifs et couleur utilisés pour afficher les documents de ce type."
 
 #: src/App.tsx
+#: src/editor-commands.ts
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
-#: src/NoteListViewOptions.tsx
 msgid "All notes"
 msgstr "Toutes les notes"
 
@@ -2423,6 +2423,14 @@ msgstr "Visionneuse de fichier, {filename}"
 msgid "Fill in the required properties."
 msgstr "Renseignez les propriétés obligatoires."
 
+#: src/editor-commands.ts
+msgid "Filter by tag"
+msgstr "Filtrer par étiquette"
+
+#: src/editor-commands.ts
+msgid "Filter by type"
+msgstr "Filtrer par type"
+
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "Filtrer les liens par type"
@@ -3150,6 +3158,17 @@ msgstr "Propriétés obligatoires manquantes"
 msgid "Modified"
 msgstr "Modifié"
 
+#: src/editor-commands.ts
+msgid "Modified newest"
+msgstr "Modification la plus récente"
+
+#: src/note-list-view.ts
+msgid "modified oldest"
+msgstr "modification la plus ancienne"
+
+#: src/editor-commands.ts
+msgid "Modified oldest"
+msgstr "Modification la plus ancienne"
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "Autres comportements de la collection en YAML"
@@ -3325,12 +3344,12 @@ msgid "Next note in the list"
 msgstr "Note suivante dans la liste"
 
 #: src/TypeBrowser.tsx
-msgid "No app contracts installed"
-msgstr "Aucun contrat d’application installé"
+msgid "No app contracts are installed"
+msgstr "Aucun contrat d’app installé"
 
 #: src/TypeBrowser.tsx
-msgid "No application contracts are installed"
-msgstr "Aucun contrat d’application n’est installé"
+msgid "No app contracts installed"
+msgstr "Aucun contrat d’application installé"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
@@ -3799,6 +3818,9 @@ msgstr "Partiellement installé"
 msgid "Path"
 msgstr "Chemin"
 
+#: src/editor-commands.ts
+msgid "Path A–Z"
+msgstr "Chemin A–Z"
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "Chemin copié."
@@ -4545,6 +4567,7 @@ msgstr "Champs gérés par le schéma"
 msgid "Scope"
 msgstr "Portée"
 
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "Rechercher"
@@ -4558,6 +4581,7 @@ msgid "Search is incomplete."
 msgstr "La recherche est incomplète."
 
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "Rechercher des notes et des fichiers"
@@ -5600,6 +5624,9 @@ msgstr "Cette valeur ne correspond pas au format requis."
 msgid "Title"
 msgstr "Titre"
 
+#: src/editor-commands.ts
+msgid "Title A–Z"
+msgstr "Titre A–Z"
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "Différences de titre"
@@ -5983,8 +6010,8 @@ msgid "Working…"
 msgstr "Traitement en cours…"
 
 #: src/TypeBrowser.tsx
-msgid "Works with applications"
-msgstr "Compatible avec les applications"
+msgid "Works with apps"
+msgstr "Compatible avec les apps"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

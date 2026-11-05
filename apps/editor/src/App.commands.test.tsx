@@ -17,6 +17,19 @@ async function runCommand(query: string) {
 }
 
 describe("workspace commands", () => {
+  it("uses the menu registry for sort and tag/type filters", async () => {
+    render(<App gateway={new DemoCollectionGateway(12)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await runCommand("Title A–Z");
+    expect(localStorage.getItem("mdbase-editor:note-sort")).toBe("title-asc");
+    await runCommand("Filter by type: note");
+    expect(screen.getByRole("button", { name: "Remove type filter note" })).toBeInTheDocument();
+    await runCommand("All notes");
+    expect(screen.queryByRole("button", { name: "Remove type filter note" })).not.toBeInTheDocument();
+    await runCommand("Filter by tag: ideas");
+    expect(screen.getByRole("button", { name: "Remove tag filter ideas" })).toBeInTheDocument();
+  });
+
   it("enters focus from commands, hides sidebars and properties, preserves layout, and persists until Escape", async () => {
     const user = userEvent.setup();
     render(<App gateway={new DemoCollectionGateway(4)} />);

@@ -18,7 +18,7 @@ import {
 import { lintGutter, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
 import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { registerActiveEditor, unregisterActiveEditor } from "./code-editor-reveal";
-import { Compartment, EditorSelection, EditorState, Prec, Transaction, type Extension, type Range } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction, type Extension, type Range } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -119,6 +119,13 @@ const EMPTY_NOTES: NoteSummary[] = [];
 const rememberedEditors = new Map<string, RememberedEditor>();
 const rememberedEditorLimit = 40;
 const EMPTY_HISTORY_STATE = EditorState.create({ extensions: [history()] }).field(historyField);
+const remoteChange = StateEffect.define<DecorationSet>();
+const remoteChangeLines = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update: (lines, transaction) => transaction.effects.find((effect) => effect.is(remoteChange))?.value
+    ?? (transaction.docChanged ? Decoration.none : lines),
+  provide: (field) => EditorView.decorations.from(field)
+});
 
 export { internalLinkPathAt } from "./code-editor-writer-interactions";
 export { linkCompletion, mentionScope } from "./code-editor-completions";
@@ -239,6 +246,7 @@ export function CodeEditor({
   useLayoutEffect(() => {
     if (!parentRef.current) return;
     const extensions: Extension[] = [
+      remoteChangeLines,
       vimMode.current.of([]),
       historyMode.current.of([history()]),
       Prec.highest(attachmentCapture(() => onUploadAttachmentRef.current)),
@@ -528,16 +536,26 @@ export function CodeEditor({
       appliedRemoteToken.current = remoteApplyToken;
     }
     if (!externalReset && restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
+    const before = view.state.doc.toString().split("\n");
+    const after = value.split("\n");
+    let first = 0;
+    let last = after.length;
+    while (first < Math.min(before.length, after.length) && before[first] === after[first]) first++;
+    while (last > first && before[before.length - (after.length - last) - 1] === after[last - 1]) last--;
     syncing.current = true;
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
       selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, value.length)),
-      effects: externalReset
-        ? historyMode.current.reconfigure([history(), historyField.init(() => EMPTY_HISTORY_STATE)])
-        : undefined,
+      effects: externalReset ? historyMode.current.reconfigure([history(), historyField.init(() => EMPTY_HISTORY_STATE)]) : undefined,
       annotations: externalReset ? Transaction.addToHistory.of(false) : undefined
     });
     syncing.current = false;
+    if (externalReset && !view.hasFocus && first < last) {
+      const lines = after.slice(first, last).map((_, index) => Decoration.line({ class: "cm-remote-change" }).range(view.state.doc.line(first + index + 1).from));
+      view.dispatch({ effects: remoteChange.of(Decoration.set(lines)) });
+      const timeout = setTimeout(() => { if (viewRef.current === view) view.dispatch({ effects: remoteChange.of(Decoration.none) }); }, 900);
+      return () => clearTimeout(timeout);
+    }
   }, [value, remoteApplyToken]);
 
   useEffect(() => {

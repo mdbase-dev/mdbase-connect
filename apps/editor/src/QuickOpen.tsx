@@ -56,11 +56,11 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
   useLingui();
   const groups = { Navigate: t`Navigate`, Note: t`Note`, Text: t`Text` };
   return <Dialog open title={t`Shortcuts`} className="shortcut-help" onClose={onClose}>
-    {Object.entries(groups).map(([group, label]) => <section key={group}><h3>{label}</h3><dl>
+    <div className="shortcut-groups">{Object.entries(groups).map(([group, label]) => <section key={group}><h3>{label}</h3><dl>
       {(Object.values(commandDefinitions) as CommandDefinition[]).filter(entry => entry.group === group && entry.shortcut).map(entry => <div key={entry.label}>
-        <dt>{entry.label}{entry.scope ? `, ${entry.scope}` : ""}</dt>
-        <dd>{[entry.shortcut!, ...(entry.aliases ?? [])].map(keys => <kbd key={keys}>{shortcutLabel(keys)}</kbd>)}</dd>
+        <dt>{entry.label}{entry.scope && <small>{entry.scope}</small>}</dt>
+        <dd>{[entry.shortcut!, ...(entry.aliases ?? [])].map(keys => <kbd key={keys}>{shortcutLabel(keys.replace("ArrowLeft", "←").replace("ArrowRight", "→"))}</kbd>)}</dd>
       </div>)}
-    </dl></section>)}
+    </dl></section>)}</div>
   </Dialog>;
 }
