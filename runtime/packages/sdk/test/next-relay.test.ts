@@ -347,7 +347,7 @@ describe("bridge scope and session regressions", () => {
     ).rejects.toBeDefined();
   });
 
-  it("keeps the shared Private entry opening through pre-live rejection, then opens the original Noise grant", async () => {
+  it.each(["authorization_unavailable", "grant_lease_expired"])("keeps Private opening through %s, then opens the original Noise grant", async reason => {
     const w = world(1);
     let live = false;
     const refused: ReturnType<typeof pipe>[] = [];
@@ -356,7 +356,7 @@ describe("bridge scope and session regressions", () => {
       const p = pipe();
       refused.push(p);
       // Native refuses before consuming M1 or serving any application request.
-      p.app.send = () => p.end(4000, "grant_inactive");
+      p.app.send = () => p.end(4000, reason);
       return p.app;
     } };
     const connector = nextRelayConnector({ next, collection: w.collection, staticKey: generateKeyPair() });
@@ -392,6 +392,7 @@ describe("bridge scope and session regressions", () => {
 
   it.each([
     { code: 4403, reason: "grant_inactive", expected: "forbidden" },
+    { code: 4000, reason: "grant_inactive", expected: "unavailable" },
     { code: 4000, reason: "grant_revoked", expected: "unavailable" },
     { code: 4000, reason: "pipe_closed", expected: "unavailable" },
     { code: 4000, reason: "device_key_mismatch", expected: "unauthenticated" },
@@ -406,8 +407,8 @@ describe("bridge scope and session regressions", () => {
   });
 
   it("does not retry a similarly named error from an unfenced connector", async () => {
-    const open = vi.fn(async () => { throw pipeCloseError(4000, "grant_inactive"); });
-    await expect(connect({ app, connector: { description: "not-next-relay", open } })).rejects.toMatchObject({ reason: "grant_inactive" });
+    const open = vi.fn(async () => { throw pipeCloseError(4000, "authorization_unavailable"); });
+    await expect(connect({ app, connector: { description: "not-next-relay", open } })).rejects.toMatchObject({ reason: "authorization_unavailable" });
     expect(open).toHaveBeenCalledTimes(1);
   });
 
@@ -425,7 +426,7 @@ describe("bridge scope and session regressions", () => {
           });
           return w.next.route(c, o);
         },
-        openPipe: async () => { throw pipeCloseError(4000, "grant_inactive"); },
+        openPipe: async () => { throw pipeCloseError(4000, "authorization_unavailable"); },
       };
       const result = connect({ app, connector: nextRelayConnector({ next, collection: w.collection, staticKey: generateKeyPair() }) }).then(() => "unexpected ready", e => e);
       await vi.advanceTimersByTimeAsync(29_999);
@@ -476,7 +477,7 @@ describe("bridge scope and session regressions", () => {
     vi.useFakeTimers();
     try {
       const w = world(), controller = new AbortController();
-      const openPipe = vi.fn(async () => { throw pipeCloseError(4000, "grant_inactive"); });
+      const openPipe = vi.fn(async () => { throw pipeCloseError(4000, "grant_lease_expired"); });
       const waiting = vi.fn(() => controller.abort());
       const result = connect({ app, signal: controller.signal, onWaiting: waiting, connector: nextRelayConnector({ next: { ...w.next, openPipe }, collection: w.collection, staticKey: generateKeyPair() }) }).then(() => "unexpected ready", e => e);
       await vi.advanceTimersByTimeAsync(0);

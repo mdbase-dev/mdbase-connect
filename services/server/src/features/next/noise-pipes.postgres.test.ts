@@ -166,6 +166,7 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
     ["none", "unknown_grant", 4403],
     ...cookieNames.map(name => [name, "unknown_grant", 4403]),
     ["none", "grant_lease_expired", 4000],
+    ["none", "authorization_unavailable", 4000],
     ["none", "grant_pending_approval", 4403],
     ["none", "grant_revoked_on_device", 4403],
   ] as const)("carries frame-authenticated bytes with cookie %s and closes for %s", async (cookieName, closeReason, closeCode) => {

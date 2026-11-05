@@ -70,17 +70,21 @@ This is deny-only: a feed entry cannot supply Private capabilities or replace
 signed log policy. Admission and established-session rechecks deny delisted or
 locally refused grants even when the log is unreachable or a revocation remains
 parked in the policy outbox. Local refusal tombstones also deny granted IPC
-sessions and localhost-link sessions using the refused client key; the host's
+sessions and localhost-link sessions using the refused client key, unless an
+Active replacement grant uses that key (the refused grant ID stays refused); the host's
 independently authenticated session is not an app grant. Private IPC and link
 sessions do not require a feed lease and can keep using confirmed signed policy
 offline. Native cloud-copy (`SyncMode::Synced`) daemon behavior is unchanged;
 its feed reconciliation still excludes that mode.
 
 Both delivery orders fail closed: log-first waits for the matching feed, and
-feed-first waits for effective signed policy. The existing pre-live relay close
-(`4000`, `grant_inactive`) is retryable, not the authority refusal `4403`;
-the SDK's existing bounded first-open wait resumes without another consent once
-both arrive. Missing Private cache authority at Noise admission is `unavailable`.
+feed-first waits for effective signed policy. Lease lapse uses
+`4000 / grant_lease_expired`, including PendingApproval restored without a live
+monotonic lease. Missing cached Private grants under a live lease and not-yet-effective
+signed policy use `4000 / authorization_unavailable`. Both are `unavailable`;
+`4403 / grant_inactive` remains terminal. The SDK's existing 30-second first-open
+wait accepts those actual retryable reasons, including Noise hello Problems,
+and resumes without another consent once both arrive.
 After restart a newer snapshot sequence is required: replaying the persisted
 cursor does not renew a feed lease.
 

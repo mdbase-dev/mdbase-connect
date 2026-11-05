@@ -185,19 +185,22 @@ pub enum Refusal {
     RevokedLocally,
     /// The grant list for this collection is older than its lease.
     LeaseExpired,
+    /// Private authorization has not reached the local cache yet.
+    Unavailable,
 }
 
 impl Refusal {
     /// Client-facing refusal; a renewable lease lapse is not revoked consent.
     pub fn problem(self) -> mdbn_wire::client::Problem {
-        let code = if self == Self::LeaseExpired {
+        let retryable = matches!(self, Self::LeaseExpired | Self::Unavailable);
+        let code = if retryable {
             mdbn_replica::api::ErrorCode::Unavailable
         } else {
             mdbn_replica::api::ErrorCode::Forbidden
         };
         let mut problem =
             code.problem_with_reason(self.reason(), "this app has no active access here");
-        if self == Self::LeaseExpired {
+        if retryable {
             problem.retry_after_ms = Some(1000);
         }
         problem
@@ -211,6 +214,7 @@ impl Refusal {
             Refusal::PendingApproval => "grant_pending_approval",
             Refusal::RevokedLocally => "grant_revoked_on_device",
             Refusal::LeaseExpired => "grant_lease_expired",
+            Refusal::Unavailable => "authorization_unavailable",
         }
     }
 }

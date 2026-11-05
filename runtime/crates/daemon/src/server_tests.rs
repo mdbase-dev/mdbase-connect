@@ -714,6 +714,7 @@ async fn local_open_and_pipe_refusals_preserve_consent_and_lease_reasons() {
                 Auth::Grant {
                     grant: grant_id,
                     client_pk: [1; 32],
+                    origin: crate::session::Origin::LocalIpc,
                 },
                 mdbn_wire::client::ClientRequest {
                     id: 1,

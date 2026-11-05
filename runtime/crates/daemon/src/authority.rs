@@ -182,6 +182,67 @@ impl Authority {
         }
     }
 
+    pub(crate) fn authorize_session(
+        &self,
+        collection: &str,
+        auth: crate::session::Auth,
+    ) -> Result<(), Refusal> {
+        use crate::session::{Auth, Origin};
+        let state = self.0.read().expect("authority lock poisoned");
+        let mode = state.entries.get(collection).map(|entry| entry.mode);
+        if mode == Some(SyncMode::Synced) {
+            return Ok(());
+        }
+        let matching = || {
+            state.access.entries.iter().filter(|entry| {
+                entry.grant.collection == collection
+                    && match auth {
+                        Auth::Grant { grant, .. } => {
+                            entry.grant.grant == crate::secrets::uuid_string(&grant)
+                        }
+                        Auth::Link { client_pk } => {
+                            crate::secrets::hex_decode(&entry.grant.client_pk)
+                                .ok()
+                                .as_deref()
+                                == Some(&client_pk[..])
+                        }
+                        Auth::Host { .. } => false,
+                    }
+            })
+        };
+        if matching().any(|entry| entry.is_refused())
+            && !(matches!(auth, Auth::Link { .. })
+                && matching().any(|entry| entry.state == crate::access::AccessState::Active))
+        {
+            return Err(Refusal::RevokedLocally);
+        }
+        if let Auth::Grant {
+            grant,
+            client_pk,
+            origin,
+        } = auth
+            && (mode == Some(SyncMode::Local) || origin == Origin::RelayPipe)
+        {
+            let now = crate::fsutil::now_ms() as u64;
+            if mode == Some(SyncMode::SyncedE2e) && !state.access.lease_live(collection, now) {
+                return Err(Refusal::LeaseExpired);
+            }
+            state
+                .access
+                .authorize(
+                    collection,
+                    &crate::secrets::uuid_string(&grant),
+                    &client_pk,
+                    now,
+                )
+                .map_err(|reason| match (mode, reason) {
+                    (Some(SyncMode::SyncedE2e), Refusal::UnknownGrant) => Refusal::Unavailable,
+                    _ => reason,
+                })?;
+        }
+        Ok(())
+    }
+
     /// Current authenticated account (not derived from grants or registration).
     pub fn active_account(&self) -> Option<B16> {
         self.0.read().ok()?.paired.map(|paired| paired.account)

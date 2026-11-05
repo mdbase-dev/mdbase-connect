@@ -72,6 +72,7 @@ async fn private_daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         entry.id = COLLECTION.to_uuid_string();
         entry.mode = SyncMode::SyncedE2e;
         entry.ever_e2e = true;
+        daemon.authority.publish_registry(&inner.registry);
     }
     daemon
 }
@@ -83,27 +84,16 @@ async fn private_cache_gate_is_exact_deny_only_and_origin_scoped() {
     let collection = COLLECTION.to_uuid_string();
     let relay = auth(SessionOrigin::RelayPipe);
     let ipc = auth(SessionOrigin::LocalIpc);
-    assert!(
-        daemon
-            .inner
-            .lock()
-            .await
-            .authorize_session(&collection, ipc)
-            .is_ok()
-    );
+    assert!(daemon.authority.authorize_session(&collection, ipc).is_ok());
     let missing = daemon
-        .inner
-        .lock()
-        .await
+        .authority
         .authorize_session(&collection, relay)
         .unwrap_err();
-    assert_eq!(missing.code, "unavailable");
+    assert_eq!(missing, crate::access::Refusal::LeaseExpired);
     feed(&daemon, 1, true).await;
     assert!(
         daemon
-            .inner
-            .lock()
-            .await
+            .authority
             .authorize_session(&collection, relay)
             .is_ok()
     );
@@ -121,9 +111,7 @@ async fn private_cache_gate_is_exact_deny_only_and_origin_scoped() {
     ] {
         assert!(
             daemon
-                .inner
-                .lock()
-                .await
+                .authority
                 .authorize_session(&collection, wrong)
                 .is_err()
         );
@@ -131,16 +119,29 @@ async fn private_cache_gate_is_exact_deny_only_and_origin_scoped() {
     {
         let mut inner = daemon.inner.lock().await;
         inner.access.entries[0].grant.collection = B16([10; 16]).to_uuid_string();
-        assert!(inner.authorize_session(&collection, relay).is_err());
+        daemon.authority.publish_access(&inner.access);
+        assert!(
+            daemon
+                .authority
+                .authorize_session(&collection, relay)
+                .is_err()
+        );
         inner.access.entries[0].grant.collection = collection.clone();
         inner.access.monotonic_leases.clear();
-        assert!(inner.authorize_session(&collection, relay).is_err());
-        assert!(inner.authorize_session(&collection, ipc).is_ok());
+        daemon.authority.publish_access(&inner.access);
+        assert!(
+            daemon
+                .authority
+                .authorize_session(&collection, relay)
+                .is_err()
+        );
+        assert!(daemon.authority.authorize_session(&collection, ipc).is_ok());
     }
     for state in [AccessState::Denied, AccessState::RevokedLocally] {
         let mut inner = daemon.inner.lock().await;
         inner.access.entries[0].state = state;
         inner.access.entries[0].delisted = true;
+        daemon.authority.publish_access(&inner.access);
         for origin in [
             relay,
             ipc,
@@ -148,11 +149,15 @@ async fn private_cache_gate_is_exact_deny_only_and_origin_scoped() {
                 client_pk: CLIENT_KEY,
             },
         ] {
-            let error = inner.authorize_session(&collection, origin).unwrap_err();
-            assert_eq!(error.reason.as_deref(), Some("grant_revoked_on_device"));
+            let error = daemon
+                .authority
+                .authorize_session(&collection, origin)
+                .unwrap_err();
+            assert_eq!(error, crate::access::Refusal::RevokedLocally);
         }
         assert!(
-            inner
+            daemon
+                .authority
                 .authorize_session(
                     &collection,
                     Auth::Link {
@@ -162,16 +167,114 @@ async fn private_cache_gate_is_exact_deny_only_and_origin_scoped() {
                 .is_ok()
         );
         inner.registry.collections[0].mode = SyncMode::Synced;
-        assert!(inner.authorize_session(&collection, relay).is_ok());
+        daemon.authority.publish_registry(&inner.registry);
+        assert!(
+            daemon
+                .authority
+                .authorize_session(&collection, relay)
+                .is_ok()
+        );
         inner.registry.collections[0].mode = SyncMode::SyncedE2e;
+        daemon.authority.publish_registry(&inner.registry);
     }
+}
+
+#[tokio::test]
+async fn relay_refusals_follow_the_shared_server_close_contract() {
+    use crate::relay::RelayHost;
+    let cases: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../conformance/relay-grant-refusals.json"
+    ))
+    .unwrap();
+    for case in cases {
+        let dir = crate::testutil::TestDir::new("relay-refusal");
+        let daemon = private_daemon(&dir).await;
+        feed(&daemon, 1, true).await;
+        {
+            let mut inner = daemon.inner.lock().await;
+            inner.registry.collections[0].mode =
+                serde_json::from_value(case["mode"].clone()).unwrap();
+            if case["state"].is_null() {
+                inner.access.entries.clear();
+            } else {
+                inner.access.entries[0].state =
+                    serde_json::from_value(case["state"].clone()).unwrap();
+            }
+            if case["live_lease"] == false {
+                inner.access.monotonic_leases.clear();
+            }
+            daemon.authority.publish_registry(&inner.registry);
+            daemon.authority.publish_access(&inner.access);
+        }
+        assert_eq!(
+            daemon
+                .grant_refusal(&COLLECTION.to_uuid_string(), &GRANT.to_uuid_string())
+                .await
+                .as_deref(),
+            case["reason"].as_str(),
+            "{}",
+            case["name"],
+        );
+        let refusal = daemon
+            .authority
+            .authorize_session(&COLLECTION.to_uuid_string(), auth(SessionOrigin::RelayPipe));
+        if case["mode"] == "synced" {
+            assert!(refusal.is_ok());
+        } else {
+            let problem = refusal.unwrap_err().problem();
+            assert_eq!(problem.reason.as_deref(), case["reason"].as_str());
+            if case["close_code"] == 4000 {
+                assert_eq!(problem.code, "unavailable");
+                assert_eq!(problem.retry_after_ms, Some(1000));
+            } else {
+                assert_eq!(problem.code, "forbidden");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn reapproved_link_key_does_not_reactivate_the_refused_grant() {
+    let dir = crate::testutil::TestDir::new("reapproved-link");
+    let daemon = private_daemon(&dir).await;
+    feed(&daemon, 1, true).await;
+    daemon
+        .access_change(|access| access.revoke(&GRANT.to_uuid_string()).cloned())
+        .await
+        .unwrap();
+    let mut replacement = cached();
+    replacement.grant = B16([10; 16]).to_uuid_string();
+    daemon
+        .commit_control_plane_feed(
+            &snapshot(2),
+            &BTreeMap::from([(COLLECTION.to_uuid_string(), vec![replacement])]),
+        )
+        .await
+        .unwrap();
+    assert!(
+        daemon
+            .authority
+            .authorize_session(
+                &COLLECTION.to_uuid_string(),
+                Auth::Link {
+                    client_pk: CLIENT_KEY
+                },
+            )
+            .is_ok()
+    );
+    assert_eq!(
+        daemon
+            .authority
+            .authorize_session(&COLLECTION.to_uuid_string(), auth(SessionOrigin::LocalIpc),),
+        Err(crate::access::Refusal::RevokedLocally)
+    );
 }
 
 struct AccountSource(B16);
 
 impl GrantSource for AccountSource {
-    fn grant(&self, _: &B16) -> Option<mdbn_replica::policy::EffectiveGrant> {
-        None
+    fn grant(&self, _: &B16) -> mdbn_replica::api::ApiResult<mdbn_replica::policy::EffectiveGrant> {
+        Err(crate::access::Refusal::UnknownGrant.problem().into())
     }
     fn active_account(&self) -> Option<B16> {
         Some(self.0)
@@ -492,12 +595,131 @@ async fn rpc(log: &str, cp: &ControlPlane, method: &str, params: Cbor) -> Cbor {
     unreachable!()
 }
 
-async fn closed(session: &mut SessionChannels) {
+async fn closed(session: &mut SessionChannels) -> mdbn_wire::client::Problem {
     tokio::time::timeout(Duration::from_secs(5), async {
-        while session.outbound.recv().await.is_some() {}
+        let mut problem = None;
+        while let Some(frame) = session.outbound.recv().await {
+            if let ClientFrame::Push(push) = frame
+                && push.kind == "closed"
+            {
+                problem = Some(mdbn_wire::client::Problem::from_cbor(&push.payload).unwrap());
+            }
+        }
+        problem.expect("refused session lost its Closed problem")
     })
     .await
-    .expect("refused session remained open");
+    .expect("refused session remained open")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_frames_do_not_wait_for_the_daemon_inner_lock() {
+    let dir = crate::testutil::TestDir::new("session-lock");
+    let daemon = private_daemon(&dir).await;
+    let signed = SignedRuntime::new(&dir).await;
+    signed.publish().await;
+    feed(&daemon, 1, true).await;
+    let guard = daemon.inner.lock().await;
+    let mut session = tokio::time::timeout(
+        Duration::from_secs(2),
+        signed.open(&daemon, auth(SessionOrigin::RelayPipe)),
+    )
+    .await
+    .expect("opening waited for unrelated daemon work")
+    .session
+    .unwrap();
+    session
+        .inbound
+        .send(ClientFrame::Request(ClientRequest {
+            id: 10,
+            method: "get_status".into(),
+            params: Cbor::Map(vec![]),
+        }))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Some(ClientFrame::Response(response)) = session.outbound.recv().await
+                && response.id == 10
+            {
+                assert!(response.problem.is_none(), "{:?}", response.problem);
+                break;
+            }
+        }
+    })
+    .await
+    .expect("frames waited for unrelated daemon work");
+    drop(guard);
+    drop(session);
+    signed.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inbound_refusal_answers_the_request_and_preserves_the_lease_hint() {
+    let dir = crate::testutil::TestDir::new("inbound-refusal");
+    let daemon = private_daemon(&dir).await;
+    let signed = SignedRuntime::new(&dir).await;
+    signed.publish().await;
+    feed(&daemon, 1, true).await;
+    let mut session = signed
+        .open(&daemon, auth(SessionOrigin::RelayPipe))
+        .await
+        .session
+        .unwrap();
+    {
+        let mut inner = daemon.inner.lock().await;
+        inner.registry.collections[0].mode = SyncMode::Local;
+        inner.access.monotonic_leases.clear();
+        daemon.authority.publish_registry(&inner.registry);
+        daemon.authority.publish_access(&inner.access);
+    }
+    session
+        .inbound
+        .send(ClientFrame::Request(ClientRequest {
+            id: 11,
+            method: "get_status".into(),
+            params: Cbor::Map(vec![]),
+        }))
+        .await
+        .unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), session.outbound.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let ClientFrame::Response(response) = response else {
+        panic!("refused request lost its response")
+    };
+    assert_eq!(response.id, 11);
+    let problem = response.problem.unwrap();
+    assert_eq!(problem.reason.as_deref(), Some("grant_lease_expired"));
+    assert_eq!(problem.retry_after_ms, Some(1000));
+    assert_eq!(closed(&mut session).await, problem);
+    signed.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn replica_terminal_push_is_not_filtered_by_a_lapsed_local_lease() {
+    let dir = crate::testutil::TestDir::new("terminal-push");
+    let daemon = private_daemon(&dir).await;
+    let signed = SignedRuntime::new(&dir).await;
+    signed.publish().await;
+    feed(&daemon, 1, true).await;
+    let mut session = signed
+        .open(&daemon, auth(SessionOrigin::RelayPipe))
+        .await
+        .session
+        .unwrap();
+    {
+        let mut inner = daemon.inner.lock().await;
+        inner.registry.collections[0].mode = SyncMode::Local;
+        inner.access.monotonic_leases.clear();
+        daemon.authority.publish_registry(&inner.registry);
+        daemon.authority.publish_access(&inner.access);
+    }
+    signed.runtime.stop_deleted().await;
+    let problem = closed(&mut session).await;
+    assert_eq!(problem.reason.as_deref(), Some("collection_deleted"));
+    assert_eq!(problem.recovery, Recovery::None);
+    signed.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -529,6 +751,7 @@ async fn private_session_waits_for_both_delivery_orders_and_new_restart_sequence
         assert!(opened.session.is_some());
         drop(opened);
         let loaded = AccessList::load(&daemon.profile.access_file()).unwrap();
+        daemon.authority.publish_access(&loaded);
         daemon.inner.lock().await.access = loaded;
         feed(&daemon, 1, true).await;
         assert_eq!(
@@ -545,6 +768,72 @@ async fn private_session_waits_for_both_delivery_orders_and_new_restart_sequence
         assert!(signed.open(&daemon, relay).await.session.is_some());
         signed.stop().await;
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn failed_feed_save_expires_private_authority_without_revoking_offline_use() {
+    use crate::relay::RelayHost;
+    let dir = crate::testutil::TestDir::new("private-save");
+    let daemon = private_daemon(&dir).await;
+    let signed = SignedRuntime::new(&dir).await;
+    signed.publish().await;
+    feed(&daemon, 1, true).await;
+    let path = daemon.profile.access_file();
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    assert!(
+        daemon
+            .commit_control_plane_feed(
+                &snapshot(2),
+                &BTreeMap::from([(COLLECTION.to_uuid_string(), vec![cached()]),])
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        daemon
+            .grant_refusal(&COLLECTION.to_uuid_string(), &GRANT.to_uuid_string())
+            .await
+            .as_deref(),
+        Some("grant_lease_expired")
+    );
+    let problem = signed
+        .open(&daemon, auth(SessionOrigin::RelayPipe))
+        .await
+        .response
+        .problem
+        .unwrap();
+    assert_eq!(problem.reason.as_deref(), Some("grant_lease_expired"));
+    assert_eq!(problem.retry_after_ms, Some(1000));
+    assert!(
+        signed
+            .open(&daemon, auth(SessionOrigin::LocalIpc))
+            .await
+            .session
+            .is_some()
+    );
+    assert_eq!(
+        daemon
+            .inner
+            .lock()
+            .await
+            .access
+            .feed_cursor
+            .as_ref()
+            .unwrap()
+            .sequence,
+        1
+    );
+    std::fs::remove_dir(&path).unwrap();
+    feed(&daemon, 2, true).await;
+    assert!(
+        signed
+            .open(&daemon, auth(SessionOrigin::RelayPipe))
+            .await
+            .session
+            .is_some()
+    );
+    signed.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -585,7 +874,10 @@ async fn private_delisting_and_local_refusal_close_sessions_without_log_revocati
             );
         }
         feed(&daemon, 2, false).await;
-        closed(&mut relay).await;
+        assert_eq!(
+            closed(&mut relay).await.reason.as_deref(),
+            Some("authorization_unavailable")
+        );
         assert!(
             !crate::relay::RelayHost::grant_live(
                 daemon.as_ref(),
@@ -614,12 +906,15 @@ async fn private_delisting_and_local_refusal_close_sessions_without_log_revocati
             .await
             .session
             .unwrap();
-        daemon.inner.lock().await.access.monotonic_leases.insert(
-            COLLECTION.to_uuid_string(),
-            std::time::Instant::now() - Duration::from_millis(1),
-        );
+        {
+            let mut inner = daemon.inner.lock().await;
+            inner.access.monotonic_leases.clear();
+            daemon.authority.publish_access(&inner.access);
+        }
         daemon.bump();
-        closed(&mut relay).await;
+        let problem = closed(&mut relay).await;
+        assert_eq!(problem.reason.as_deref(), Some("grant_lease_expired"));
+        assert_eq!(problem.retry_after_ms, Some(1000));
         for session in [&mut ipc, &mut link] {
             session
                 .inbound
