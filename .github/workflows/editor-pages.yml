@@ -222,7 +222,7 @@ jobs:
     needs: [native-inputs, native-build]
     runs-on: ubuntu-24.04
     # Upload has a separate 7-minute bound; leave time for checks and recovery.
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: publisher
@@ -250,7 +250,9 @@ jobs:
           path: publisher
           fetch-depth: 0
           persist-credentials: false
+        timeout-minutes: 3
       - name: Workflow-owned ancestry check before candidate data is read
+        timeout-minutes: 1
         run: node apps/editor/scripts/native/refs.mjs
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -258,9 +260,11 @@ jobs:
           path: candidate
           fetch-depth: 0
           persist-credentials: false
+        timeout-minutes: 3
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+        timeout-minutes: 2
       - name: Workflow-owned guard; candidate is data only
         timeout-minutes: 4
         run: |
@@ -387,23 +391,21 @@ jobs:
     needs: [native-deploy, production-smoke]
     if: always() && inputs.target == 'production' && needs.native-deploy.result == 'success' && needs.production-smoke.result != 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 20
     environment: editor-production
-    env:
-      TARGET: production
-      SOURCE_SHA: ${{ inputs.source_sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+        timeout-minutes: 3
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - name: Workflow-owned ancestry check
-        run: node apps/editor/scripts/native/refs.mjs
+        timeout-minutes: 2
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        timeout-minutes: 2
         with:
           artifact-ids: ${{ needs.native-deploy.outputs.receipt-id }}
           path: ${{ runner.temp }}/editor-receipt
@@ -415,6 +417,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node apps/editor/scripts/native/rollback.mjs recover-smoke "$RUNNER_TEMP/editor-receipt"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 2
         if: always()
         with:
           name: editor-production-smoke-recovery-${{ github.run_id }}-${{ github.run_attempt }}

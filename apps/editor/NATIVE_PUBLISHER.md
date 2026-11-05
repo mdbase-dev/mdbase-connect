@@ -85,7 +85,7 @@ approvals. UI repins change only the manifest and regenerated lock.
    remain stable during capture. The injected, CSP-blocked Insights beacon is
    not an Editor build asset. Missing recovery evidence blocks upload.
 6. Workflow-owned ancestry and inventory are rechecked immediately before
-   upload. Upload is bounded to seven minutes inside a 45-minute job; separate
+   upload. Upload is bounded to seven minutes inside a 60-minute job; separate
    step bounds reserve verification, recovery and receipt time. A timed-out
    upload is a possible deployment and follows the same verification/recovery. The actual deployment UUID
    is resolved from its exact URL, source and Pages channel, including repeated

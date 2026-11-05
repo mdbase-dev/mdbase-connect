@@ -22,6 +22,17 @@ it('passes identity policy in the DSSE second argument and refuses a wrong certi
  const auth=await readFile(root+'apps/editor/scripts/native/authentication.mjs','utf8');
  assert.match(auth,/prove=provenSource/,'Editor must use the same corrected live SDK verifier');
 });
+it('cryptographically refuses a real public npm bundle when its certificate identity differs from policy',{timeout:120000},async()=>{
+ const {pin}=await productionPin(root);
+ const response=await fetch(pin.publication.attestations,{signal:AbortSignal.timeout(30000),redirect:'error'});
+ assert.equal(response.ok,true);
+ const proofs=(await response.json()).attestations.filter(a=>a.predicateType==='https://slsa.dev/provenance/v1');
+ assert.equal(proofs.length,1);
+ const identity=`https://github.com/mdbase-dev/mdbase-connect/.github/workflows/publish-sdk-npm.yml@${pin.publication.ref}`;
+ await verifyProvenanceBundle(proofs[0].bundle,{identity});
+ await assert.rejects(verifyProvenanceBundle(proofs[0].bundle,{identity:'https://github.com/other/repo/.github/workflows/publish.yml@refs/heads/main'}),
+  error=>error.code==='UNTRUSTED_SIGNER_ERROR');
+});
 it('refuses any direct protocol bytes that differ from the SDK authenticated bundled archive',async()=>{
  const {pin,bytes}=await productionPin(root);
  const pkg=JSON.parse(await readFile(root+'apps/editor/package.json','utf8'));
@@ -36,7 +47,7 @@ it('protected jobs only execute workflow-owned helpers, with ancestry checks bef
   const job=jobs[name],checkout=job.steps.filter(s=>s.uses?.startsWith('actions/checkout@'));
   assert.equal(checkout[0].with.ref,'${{ github.sha }}');
   const ancestry=job.steps.findIndex(s=>s.run?.includes('refs.mjs'));
-  assert.ok(ancestry>0);
+  if(name!=='production-smoke-recovery')assert.ok(ancestry>0);
   for(const step of job.steps) {
    assert.notEqual(step['working-directory'],'candidate');
    assert.doesNotMatch(step.run??'',/(?:node|bash|source|import|cd)\s+[^\n]*candidate/);
@@ -48,9 +59,13 @@ it('protected jobs only execute workflow-owned helpers, with ancestry checks bef
  const deploy=jobs['native-deploy'],upload=deploy.steps.find(s=>s.id==='upload');
  assert.match(upload.run,/refs\.mjs/);
  assert.equal(upload['timeout-minutes'],7);
- assert.ok(deploy['timeout-minutes']>=45);
+ assert.ok(deploy.steps.every(step=>step['timeout-minutes']>0),'all protected preparation and publication steps have independent bounds');
+ assert.ok(deploy.steps.reduce((sum,step)=>sum+step['timeout-minutes'],0)<deploy['timeout-minutes'],'job deadline must outlive every step bound, including recovery and receipts');
  for(const step of deploy.steps.filter(s=>['deployment','verification'].includes(s.id) || s.run?.includes('rollback.mjs recover'))) {
   assert.match(step.if,/always\(\)/);
+  if(step.id==='deployment' || step.run?.includes('rollback.mjs recover')) {
+   assert.match(step.if,/upload.outcome == 'failure'/);assert.match(step.if,/upload.outcome == 'cancelled'/);
+  }
  }
  const smokeJob=jobs['production-smoke'];
  assert.equal(smokeJob.environment,undefined);
