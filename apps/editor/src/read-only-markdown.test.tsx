@@ -3,6 +3,18 @@ import { describe, expect, it } from "vitest";
 import { ReadOnlyMarkdown } from "./read-only-markdown";
 
 describe("inert structural renderer bounds", () => {
+  it("uses excerpt reference text in peek without changing inert original previews or code", () => {
+    const source = "Read [[Notes/other|Another note]] and [[Notes/plain#Heading]].\n\n![[Assets/image.svg|Image]]\n\n`[[literal]]`\n\n```\n![[code]]\n```";
+    const view = render(<ReadOnlyMarkdown source={source} byteLength={source.length} previewTitle="Title" />);
+    const preview = screen.getByRole("region");
+    expect(preview).toHaveTextContent("Read Another note and plain.");
+    expect(preview).not.toHaveTextContent("Assets/image.svg");
+    expect(preview.querySelector("code")).toHaveTextContent("[[literal]]");
+    expect(preview.querySelector("pre")).toHaveTextContent("![[code]]");
+    view.rerender(<ReadOnlyMarkdown source={source} byteLength={source.length} />);
+    expect(preview).toHaveTextContent("[[Notes/other|Another note]]");
+    expect(preview.querySelector("a,img")).toBeNull();
+  });
   it.each(["# Title\n\nBody", "Title\n=====\n\nBody"])("omits only a leading heading repeating the peek title: %s", (source) => {
     const view = render(<ReadOnlyMarkdown source={source} byteLength={source.length} previewTitle="Title" />);
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();

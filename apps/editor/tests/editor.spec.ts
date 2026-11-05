@@ -1247,7 +1247,7 @@ test("builds and saves a recursive list-of-objects field", async ({ page }) => {
 test("resizes, collapses, and restores the desktop sidebars", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Note body" })).toBeFocused();
+  await expect(page.getByRole("listbox", { name: "Collection notes and files" })).toBeFocused();
 
   const collectionResize = page.getByRole("separator", { name: "Resize collections sidebar" });
   await collectionResize.focus();

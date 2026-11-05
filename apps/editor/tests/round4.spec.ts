@@ -95,6 +95,7 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       await expect(page.locator(".opening-list-skeleton").first()).toBeVisible();
       await expect(page.locator(".editor-opening .list-header").first()).toBeVisible();
       await page.screenshot({ path: testInfo.outputPath("opening.png") });
+      await page.waitForLoadState("networkidle");
       await page.unrouteAll({ behavior: "wait" });
       await page.goto("?server=http://127.0.0.1:4815&collection=hosted-0");
       const link = page.getByRole("link", { name: "Back to mdbase Connect" });

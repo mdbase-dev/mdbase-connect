@@ -3676,8 +3676,8 @@ msgstr "유형 열기"
 msgid "Open YAML"
 msgstr "YAML 열기"
 
-#: src/App.tsx
 #: src/NoteList.tsx
+#: src/NotePreview.tsx
 msgid "Opening"
 msgstr "여는 중"
 
@@ -4312,8 +4312,8 @@ msgstr "저장되지 않은 편집 내용 복원"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
-msgid "Restored “{0}”."
-msgstr "“{0}” 복원됨."
+msgid "Restored {0}"
+msgstr "{0} 복원됨"
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."
