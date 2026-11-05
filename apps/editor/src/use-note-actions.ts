@@ -593,7 +593,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         clearSelection();
         if (await openNote(restored.path)) focusNoteList();
         if (!mutationScope.current.isCurrent(token)) return;
-        setNotice(t`Restored “${noteTitle(restored, typeDescriptors)}”.`, "success");
+        setNotice(t`Restored ${noteTitle(restored, typeDescriptors)}`, "success");
       } else {
         const moves = action.kind === "move" ? [...action.paths] : [action];
         const result = await runNoteBatch([...moves].reverse().map((move) => move.to), async (path) => {

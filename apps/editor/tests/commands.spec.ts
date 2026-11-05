@@ -43,7 +43,7 @@ for (const width of [1440, 390]) {
         await list.focus();
         await page.keyboard.press("ArrowDown");
         await page.keyboard.press("ArrowDown");
-        if (width === 390) await page.getByRole("button", { name: "Back to notes" }).click();
+        if (width === 390) await expect(page.locator(".app-shell")).toHaveClass(/pane-notes/);
         const title = await list.locator(".list-focused .note-title").innerText();
         const nextTitle = await list.locator(".note-row:not(.file-row)").evaluateAll((rows) => {
           const position = rows.findIndex((row) => row.classList.contains("list-focused"));

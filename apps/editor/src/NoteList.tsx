@@ -81,6 +81,9 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
 }) {
   useLingui();
   const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (document.activeElement === document.body) scrollRef.current?.focus({ preventScroll: true });
+  }, []);
   const { ref: peekRef, present: peekPresent } = useOverlay<HTMLElement>(Boolean(peek));
   const peekContent = useRef({ body: peek, title: peekTitle });
   if (peek) peekContent.current = { body: peek, title: peekTitle };
@@ -203,7 +206,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
     if (event.key === "Enter" || event.key === " ") {
       if (selectedEntryIndex >= 0 && selectedEntryIndex < entries.length) {
         event.preventDefault();
-        if (selected?.kind === "note") chooseNote(selected.path, "single", true);
+        if (selected?.kind === "note") chooseNote(selected.path, "single");
         else openEntry(entries[selectedEntryIndex]);
       }
       return;

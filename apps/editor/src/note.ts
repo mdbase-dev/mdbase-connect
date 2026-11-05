@@ -102,9 +102,7 @@ export function markdownPlainText(body: string, title = "", maximumLength = Numb
       continue;
     }
     if (fenced) continue;
-    const line = raw
-      .replace(/!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)/g, "")
-      .replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_, target: string, alias?: string) => alias ?? target.split("/").at(-1) ?? target)
+    const line = markdownReferenceText(raw)
       .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
       .replace(/^\s{0,3}(#{1,6}\s+|>\s?|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+[.)]\s+)/, "")
       .replace(/(\*\*|__|~~|`)/g, "")
@@ -119,6 +117,12 @@ export function markdownPlainText(body: string, title = "", maximumLength = Numb
   }
   const text = lines.join(" ");
   return text.length > maximumLength ? `${text.slice(0, maximumLength).replace(/\s+\S*$/, "")}…` : text;
+}
+
+export function markdownReferenceText(source: string): string {
+  return source
+    .replace(/!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_, target: string, alias?: string) => alias ?? target.split("/").at(-1) ?? target);
 }
 
 export function noteTimestamp(note: NoteSummary): string {

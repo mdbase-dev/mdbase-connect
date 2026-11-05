@@ -3706,8 +3706,8 @@ msgstr "型を開く"
 msgid "Open YAML"
 msgstr "YAML を開く"
 
-#: src/App.tsx
 #: src/NoteList.tsx
+#: src/NotePreview.tsx
 msgid "Opening"
 msgstr "開いています"
 
@@ -4343,8 +4343,8 @@ msgstr "未保存の編集を復元"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
-msgid "Restored “{0}”."
-msgstr "「{0}」を復元しました。"
+msgid "Restored {0}"
+msgstr "{0}を復元しました"
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."

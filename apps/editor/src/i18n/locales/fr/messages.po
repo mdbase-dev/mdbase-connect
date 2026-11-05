@@ -3706,8 +3706,8 @@ msgstr "Ouvrir les types"
 msgid "Open YAML"
 msgstr "Ouvrir le YAML"
 
-#: src/App.tsx
 #: src/NoteList.tsx
+#: src/NotePreview.tsx
 msgid "Opening"
 msgstr "Ouverture"
 
@@ -4343,8 +4343,8 @@ msgstr "Restaurer les modifications non enregistrées"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
-msgid "Restored “{0}”."
-msgstr "« {0} » a été restaurée."
+msgid "Restored {0}"
+msgstr "{0} restaurée"
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."

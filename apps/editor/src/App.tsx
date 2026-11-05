@@ -57,7 +57,6 @@ import { connectServerUrl } from "./connect-endpoint";
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
 import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
 import { Toaster, type ToastItem } from "@mdbase-dev/ui/toast";
-import { ReadOnlyMarkdown } from "./read-only-markdown";
 import {
   loadContractCatalog,
   type ContractCatalogPack
@@ -114,6 +113,7 @@ import { NoteList } from "./NoteList";
 import { noteRowStatus } from "./note-mutation-presentation";
 import {
   NotePreviewCard,
+  NotePeekBody,
   useNotePreview
 } from "./NotePreview";
 import {
@@ -265,9 +265,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [renamePlan, setRenamePlan] = useState<RenamePlan>();
   const [quickOpen, setQuickOpen] = useState(false);
-  const [peekOpen, setPeekOpen] = useState(false);
+  const [peekPath, setPeekPath] = useState<string>();
   const [quickOpenCommandMode, setQuickOpenCommandMode] = useState(false);
-  const [editorAutoFocus, setEditorAutoFocus] = useState(true);
+  const [editorAutoFocus, setEditorAutoFocus] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shortcutPrefix = useRef(0);
   const [confirmation, setConfirmation] = useState<Confirmation>();
@@ -387,6 +387,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       ignoreNextMobileHistoryPush.current = true;
       setSurface(event.state.surface);
       setMobilePane(event.state.pane);
+      if (event.state.surface === "notes" && event.state.pane === "notes") focusNoteList();
       setPropertiesOpen(false);
       setBacklinksOpen(false);
     };
@@ -789,6 +790,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   function navigateToNote(path: string, options: NoteNavigationOptions = {}) {
+    setEditorAutoFocus(!options.keepList);
     if (creationMode && creationDirty) {
       setConfirmation({
         title: creationMode === "folder" ? t`Discard this folder?` : t`Discard this note?`,
@@ -839,7 +841,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setNoteOpenFailure(undefined);
     if (path === noteSessions.current.active?.document.path && !noteLoading && !selectedCollectionFile) {
       setPendingNotePath(undefined);
-      setMobilePane("editor");
+      if (!options.keepList) {
+        setMobilePane("editor");
+        requestAnimationFrame(() => globalThis.document.querySelector<HTMLElement>(".code-editor-writer .cm-content")?.focus());
+      }
       if (options.historyIndex !== undefined) selectNoteHistoryIndex(options.historyIndex, path);
       return;
     }
@@ -962,11 +967,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
     openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin,
     clearSelection: () => { setSelection(undefined); setBulkPropertyKind(undefined); },
-    focusNoteList: () => {
-      setEditorAutoFocus(false);
-      setMobilePane("notes");
-      window.requestAnimationFrame(() => window.document.querySelector<HTMLElement>(".note-scroll")?.focus());
-    },
+    focusNoteList,
     setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths, setNotice
   });
 
@@ -1054,7 +1055,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setRenamePlan(undefined);
     setQuickOpen(false);
     setConfirmation(undefined);
-    setPeekOpen(false);
+    setPeekPath(undefined);
+    setEditorAutoFocus(false);
     setSelectedTypeName(undefined);
     resetTypeLifecycle();
     setSaveState("saved");
@@ -1185,6 +1187,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setCreationDirty(false);
     setCreationContext({});
     setMobilePane("editor");
+    setEditorAutoFocus(true);
     adoptDocument(created);
     recordNoteNavigation(created.path);
   }
@@ -1495,7 +1498,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   function selectSurface(next: Surface) {
-    setPeekOpen(false);
+    setPeekPath(undefined);
     if (creationMode && creationDirty) {
       setConfirmation({
         title: creationMode === "folder" ? t`Discard this folder?` : t`Discard this note?`,
@@ -1523,7 +1526,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setBacklinksOpen(false);
     setRenamePlan(undefined);
     clearRenameRequest();
-    setMobilePane(next === "settings" ? "editor" : "notes");
+    if (next === "notes") focusNoteList();
+    else setMobilePane(next === "settings" ? "editor" : "notes");
     if (next === "types" && !typeCreating) {
       const name = selectedTypeName ?? description?.types[0]?.name;
       if (name && (typeDocument?.name !== name || !typeSource)) {
@@ -1552,7 +1556,18 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setCreationMode(undefined);
     setCreationContext({});
     setCreationDirty(false);
-    returnToMobilePane("notes");
+    focusNoteList();
+  }
+
+  function focusNoteList() {
+    setEditorAutoFocus(false);
+    setLayout((current) => ({ ...current, listCollapsed: false }));
+    if (mobileLayout && isMobileHistoryState(history.state) && history.state.surface === "notes" && history.state.pane === "editor") {
+      history.back();
+      return;
+    }
+    setMobilePane("notes");
+    requestAnimationFrame(() => globalThis.document.querySelector<HTMLElement>(".note-scroll")?.focus({ preventScroll: true }));
   }
 
   function returnToMobilePane(fallback: MobilePane) {
@@ -1595,7 +1610,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       if (event.isComposing || event.defaultPrevented) return;
       const modifier = event.metaKey || event.ctrlKey;
       const key = event.key.toLocaleLowerCase();
-      const typing = isEditableTarget(event.target);
+      const typing = event.target instanceof HTMLElement && (event.target.isContentEditable
+        || Boolean(event.target.closest("input, textarea, select, [role='textbox'], [contenteditable='true']")));
       const prefix = !typing && shortcutPrefix.current > 0 && event.timeStamp - shortcutPrefix.current < 1000 ? "g" : "";
       shortcutPrefix.current = 0;
       if (event.key === "Escape" && (quickOpen || shortcutsOpen)) {
@@ -1619,6 +1635,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       }
       if (quickOpen || shortcutsOpen) return;
       if (phase !== "ready") return;
+      if (event.key === "Escape" && !preferences.vim && !focusMode
+          && event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content")
+          && !event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')
+          && !globalThis.document.querySelector(".cm-panels, .cm-tooltip")) {
+        event.preventDefault();
+        focusNoteList();
+        return;
+      }
       if (!typing && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))) {
         const navigation = buildEditorCommands({
           notes: () => selectSurface("notes"),
@@ -1684,7 +1708,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mutationsFrozen, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
+  }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mobileLayout, mutationsFrozen, noteFilter, noteLoading, openNote, phase, preferences.vim, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body, i18n.locale]);
   const usable = phase === "ready" && Boolean(description);
@@ -1818,6 +1842,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
   const activeToasts = buildToastItems({ notice, recoveryMessage, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
   const pendingNoteMutations = gateway.pendingNoteMutations();
+  const peekNote = allNotes.find((note) => note.path === peekPath);
+  const peekTitle = peekNote ? noteTitle(peekNote, typeDescriptors) : undefined;
   activeToasts.push(...pendingNoteToasts(pendingNoteMutations, activePendingRename?.requestId, recoveryBusy, recoverPendingNote));
   if (noteOpenFailure && document) activeToasts.push({
     id: "note-open", message: noteOpenFailure.message, tone: "error", sticky: true,
@@ -1938,8 +1964,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
         onSelect={(path, options) => {
-          setEditorAutoFocus(!peekOpen && !options?.keyboard);
-          navigateToNote(path, { keepList: peekOpen });
+          if (peekPath && options?.keyboard) { setPeekPath(path); return; }
+          setPeekPath(undefined);
+          navigateToNote(path, { keepList: options?.keyboard });
         }}
         onSelectFile={navigateToFile}
         filter={noteFilter}
@@ -1948,12 +1975,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onFilter={setNoteFilter}
         noteActions={(path) => listSelection.paths.length > 1 && listSelection.paths.includes(path) ? bulkActions(listSelection.paths) : noteActions(path)}
         onRename={(path) => void renameNote(path)}
-        onPeek={() => setPeekOpen((open) => !open)}
-        onClosePeek={() => setPeekOpen(false)}
-        peekTitle={draft?.title}
-        peek={peekOpen && draft && !selectedCollectionFile ? <>
-          <header><h2 aria-live="polite">{draft.title}</h2><button className="icon-button" aria-label={t`Close note peek`} onClick={() => { setPeekOpen(false); globalThis.document.querySelector<HTMLElement>(".note-scroll")?.focus(); }}><X aria-hidden="true" /></button></header>
-          <NotePeekBody path={document?.path} source={draft.body} title={draft.title} loading={noteLoading} />
+        onPeek={(path) => setPeekPath((current) => current ? undefined : path)}
+        onClosePeek={() => setPeekPath(undefined)}
+        peekTitle={peekTitle}
+        peek={peekNote && peekTitle ? <>
+          <header><h2 aria-live="polite">{peekTitle}</h2><button className="icon-button" aria-label={t`Close note peek`} onClick={() => { setPeekPath(undefined); focusNoteList(); }}><X aria-hidden="true" /></button></header>
+          <NotePeekBody path={peekNote.path} source={peekPath === document?.path ? draft?.body : peekNote.body} title={peekTitle} gateway={gateway} />
         </> : undefined}
         onDelete={(path) => { if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
         onCreate={canCreateNotes ? beginCreate : undefined}
@@ -2244,31 +2271,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   </div>;
 }
 
-function NotePeekBody({ path, source, title, loading }: { path?: string; source: string; title: string; loading: boolean }) {
-  const current = useRef({ path, source, title });
-  const [outgoing, setOutgoing] = useState<typeof current.current>();
-  useLayoutEffect(() => {
-    if (current.current.path !== path) setOutgoing(current.current);
-    current.current = { path, source, title };
-  }, [path, source, title]);
-  useEffect(() => {
-    if (!outgoing) return;
-    const timeout = setTimeout(() => setOutgoing(undefined), 120);
-    return () => clearTimeout(timeout);
-  }, [outgoing]);
-  return <div className="note-peek-pages">
-    {outgoing && <div key={`outgoing-${outgoing.path}`} className="note-peek-body is-outgoing" aria-hidden="true" inert><ReadOnlyMarkdown source={outgoing.source} byteLength={new TextEncoder().encode(outgoing.source).length} previewTitle={outgoing.title} /></div>}
-    <div key={path} className="note-peek-body">{loading ? <p role="status"><Trans>Opening</Trans></p> : <ReadOnlyMarkdown source={source} byteLength={new TextEncoder().encode(source).length} previewTitle={title} />}</div>
-  </div>;
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && (
-    target.isContentEditable
-    || target.matches("input, textarea, select, [role='textbox']")
-    || Boolean(target.closest("[contenteditable='true']"))
-  );
-}
 
 function collectionExplicitTypeKeys(configuration: unknown): string[] {
   if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) return ["type", "types"];

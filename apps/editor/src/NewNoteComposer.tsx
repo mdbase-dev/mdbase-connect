@@ -165,7 +165,12 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
     style={{ "--editor-font-size": `${preferences?.fontSize ?? 17}px` } as CSSProperties}
   >
     <header className="editor-bar"><button className="mobile-back icon-button" aria-label={folderCreation ? t`Cancel new folder` : t`Cancel new note`} onClick={() => onCancel(hasDraft)}><ArrowLeft aria-hidden="true" /></button>{leadingActions}<span>{folderCreation ? t`New folder` : t`New note`}</span></header>
-    <form className={folderCreation ? "new-folder-form" : "new-note-form"} onSubmit={(event) => void submit(event)} onKeyDown={createWithShortcut}>
+    <form className={folderCreation ? "new-folder-form" : "new-note-form"} onSubmit={(event) => void submit(event)} onKeyDown={(event) => {
+      if (event.key === "Escape" && !event.defaultPrevented && !event.nativeEvent.isComposing && !hasDraft && !creating) {
+        event.preventDefault();
+        onCancel(false);
+      } else createWithShortcut(event);
+    }}>
       {folderCreation
         ? <><h1><Trans>New folder</Trans></h1><p className="new-note-intro"><Trans>Create it with a first note. Empty folders aren’t stored.</Trans></p></>
         : <label className="new-note-title"><span className="sr-only">{primaryLabel}</span><input autoFocus value={title} onChange={(event) => changeTitle(event.target.value)} placeholder={displayField ? primaryLabel : t`Untitled`} /></label>}

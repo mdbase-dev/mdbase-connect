@@ -3706,8 +3706,8 @@ msgstr "打开类型"
 msgid "Open YAML"
 msgstr "打开 YAML"
 
-#: src/App.tsx
 #: src/NoteList.tsx
+#: src/NotePreview.tsx
 msgid "Opening"
 msgstr "正在打开"
 
@@ -4343,8 +4343,8 @@ msgstr "恢复未保存的编辑"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
-msgid "Restored “{0}”."
-msgstr "已恢复“{0}”。"
+msgid "Restored {0}"
+msgstr "已恢复{0}"
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."

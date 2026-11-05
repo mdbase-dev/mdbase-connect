@@ -1,11 +1,53 @@
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { CollectionGateway, NoteDocument, NoteSummary } from "./model";
 import { noteTitle } from "./note";
+import { ReadOnlyMarkdown } from "./read-only-markdown";
+
+export function NotePeekBody({ path, source, title, gateway }: { path: string; source?: string; title: string; gateway: CollectionGateway }) {
+  const [loaded, setLoaded] = useState<{ path: string; body?: string; unavailable?: boolean }>();
+  useEffect(() => {
+    if (source !== undefined) return;
+    let cancelled = false;
+    void gateway.read(path).then((note) => {
+      if (!cancelled) setLoaded({ path, body: note.body ?? "" });
+    }).catch(() => { if (!cancelled) setLoaded({ path, unavailable: true }); });
+    return () => { cancelled = true; };
+  }, [gateway, path, source]);
+  const body = source ?? (loaded?.path === path ? loaded.body : undefined);
+  const loading = body === undefined;
+  const unavailable = loading && loaded?.path === path && loaded.unavailable;
+  const pages = useRef<HTMLDivElement>(null);
+  const incoming = useRef<HTMLDivElement>(null);
+  const current = useRef({ path, source: body, title });
+  const [outgoing, setOutgoing] = useState<typeof current.current>();
+  useLayoutEffect(() => {
+    if (current.current.path !== path) setOutgoing(current.current);
+    current.current = { path, source: body, title };
+  }, [path, body, title]);
+  useEffect(() => {
+    if (!outgoing) return;
+    const timeout = setTimeout(() => setOutgoing(undefined), 120);
+    return () => clearTimeout(timeout);
+  }, [outgoing]);
+  useLayoutEffect(() => {
+    if (!incoming.current || !pages.current) return;
+    if (loading && pages.current.style.height) return;
+    const resize = () => { if (pages.current && incoming.current) pages.current.style.height = `${incoming.current.getBoundingClientRect().height}px`; };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(incoming.current);
+    return () => observer.disconnect();
+  }, [path, body, loading]);
+  return <div ref={pages} className="note-peek-pages">
+    {outgoing?.source !== undefined && <div key={`outgoing-${outgoing.path}`} className="note-peek-body is-outgoing" aria-hidden="true" inert><ReadOnlyMarkdown source={outgoing.source} byteLength={new TextEncoder().encode(outgoing.source).length} previewTitle={outgoing.title} /></div>}
+    <div ref={incoming} key={path} className="note-peek-body">{unavailable ? <p role="status"><Trans>Preview unavailable.</Trans></p> : body === undefined ? <p role="status"><Trans>Opening</Trans></p> : <ReadOnlyMarkdown source={body} byteLength={new TextEncoder().encode(body).length} previewTitle={title} />}</div>
+  </div>;
+}
 
 export interface NotePreviewAnchor {
   left: number;
