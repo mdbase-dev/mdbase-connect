@@ -120,7 +120,9 @@ shows:
 
 An application-level action may revoke every grant on the current computer.
 The confirmation names both the application and the boundary. A local
-connector confirms revocation after enforcing it. Connect disables its hosted
+connector confirms unbound local revocation after enforcing it; log-bound grants
+follow the [revocation status contract](../next-grant-policy.md#revocation-status).
+Connect disables its hosted
 credentials locally first, shows `Revoking` while provider confirmation is
 pending, and shows `Revoked` only after the hosted data authority confirms it.
 Never turn a provider outage into a false success message.

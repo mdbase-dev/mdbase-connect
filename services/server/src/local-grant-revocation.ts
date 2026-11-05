@@ -56,6 +56,7 @@ export async function confirmLocalGrantRevocations(db: DatabasePool, connectorId
   await db.query(
     `UPDATE grants SET revocation_confirmed_at = COALESCE(revocation_confirmed_at, now())
      WHERE revoked_at IS NOT NULL AND hosted_replica_id IS NULL
+       AND id NOT IN (SELECT grant_id FROM next_grant_bindings)
        AND revocation_policy_sequence IS NOT NULL AND revocation_policy_sequence <= $3::bigint
        AND collection_id IN (
          SELECT col.id FROM collections col JOIN connectors c ON c.id = col.connector_id
@@ -65,13 +66,11 @@ export async function confirmLocalGrantRevocations(db: DatabasePool, connectorId
 }
 
 export async function localGrantRevocationStatus(db: DatabasePool, userId: string, grantId: string): Promise<"revoking" | "revoked"> {
-  // A native-collection grant is revoked in the policy log by the same
-  // transaction (grant-revoke trigger); no connector acknowledgement follows.
-  const result = await db.query<{ revocation_confirmed_at: string | null; native: boolean }>(
-    `SELECT revocation_confirmed_at, next_collection_id IS NOT NULL AS native FROM grants
+  const result = await db.query<{ revocation_confirmed_at: string | null }>(
+    `SELECT revocation_confirmed_at FROM grants
      WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL AND hosted_replica_id IS NULL`,
     [grantId, userId]
   );
   const row = result.rows[0];
-  return row?.revocation_confirmed_at || row?.native ? "revoked" : "revoking";
+  return row?.revocation_confirmed_at ? "revoked" : "revoking";
 }

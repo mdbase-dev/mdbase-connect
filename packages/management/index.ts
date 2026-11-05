@@ -276,7 +276,7 @@ export interface ManagementOverview {
     reauthorization_reason: string | null;
     collection_id: string;
     collection_name: string;
-    collection_kind: "local" | "hosted";
+    collection_kind: "local" | "hosted" | "private" | "cloud_copy";
     application_id: string;
     application_family_id?: string;
     application_name: string;

@@ -191,6 +191,14 @@ async function recover(lock: PolicyLock, log: LogServiceClient, collectionId: st
           ? await lock.query("UPDATE next_policy_batches SET state = 'appended', appended_at = now(), error = NULL WHERE id = $1 AND state = 'sending' RETURNING id", [batch.id])
           : await lock.query("DELETE FROM next_policy_batches WHERE id = $1 AND state = 'sending' RETURNING id", [batch.id]);
         if (changed.rows.length !== 1) throw new Error("policy recovery state changed; outcome unknown");
+        if (batch.acknowledged) await lock.query(
+          `UPDATE grants g SET revocation_confirmed_at = b.appended_at
+           FROM next_policy_batches b, next_policy_outbox o, next_grant_bindings binding
+           WHERE b.id = $1 AND o.batch_id = b.id AND binding.collection_id = o.collection_id AND binding.grant_id = g.id
+             AND g.revoked_at IS NOT NULL AND g.revocation_confirmed_at IS NULL
+             AND o.ops->'ops' @> jsonb_build_array(jsonb_build_object('op', 'grant-revoke', 'grant', binding.log_grant_id::text))`,
+          [batch.id]
+        );
       }
     }
     await lock.commit();

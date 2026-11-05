@@ -9,6 +9,30 @@ Connect's OAuth grant ID remains the stable control-plane reference for tokens, 
 - Legacy/shadow/device-log grants do not emit policy. Existing next grants without a binding are inactive until explicit reauthorization; no migration backfill invents user consent.
 - The existing policy emitter signs/appends the queued intent. A binding or discovery response is not proof of appended policy or live admission. The Noise endpoint enforces confirmed policy.
 
+## Revocation status
+`revocation_status` is presentation-only, never an authorization input. Revocation
+refuses new control-plane access and tokens immediately; `revoking` means that
+the grant's enforcement authority has not yet confirmed completion:
+
+- **Log-bound grants**, including Private, native cloud-copy and migrated
+  `collection_id` grants: `revoked` means the item containing the bound log UUID's
+  `grant-revoke` was durably appended. The emitter sets the existing
+  `grants.revocation_confirmed_at` in the same transaction as the append record.
+  Exact-byte recovery does likewise. Queued, sending (including unknown outcomes),
+  parked and head-moved/rebuilding batches stay `revoking`. A connector feed
+  acknowledgement cannot confirm these grants. No individual device acknowledgement
+  is implied; disconnected devices may not yet have applied the appended policy.
+  Cascading deletion still queues policy but leaves no grant row to confirm.
+- **Local grants without a log binding**: `revoked` requires an exact,
+  current-generation connector snapshot acknowledgement at or above the immutable
+  `revocation_policy_sequence` barrier. Lease expiry, disconnect and stale or
+  mismatched acknowledgements do not confirm it.
+- **Hosted-provider grants**: completion follows their existing hosted authority's
+  confirmation, not a local connector acknowledgement.
+
+Retries retain the original barrier and confirmation timestamp. Neither a queued
+trigger nor an HTTP success response proves that log policy has appended.
+
 ## No authority broadening
 A synced next grant must have a nonempty **exact union** of semantic capability v2 operation groups, a full-collection scope, a valid installation UUID and an attested 32-byte Noise key. Collection setup's paired assess/apply operations are accepted only with definitions.manage. offline.replica is not a thin-client grant.
 

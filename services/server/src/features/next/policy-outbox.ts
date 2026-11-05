@@ -434,7 +434,18 @@ export class PolicyEmitter {
       throw error;
     }
     await lock.assertOwned();
-    await lock.query("UPDATE next_policy_batches SET state = 'appended', appended_at = now(), error = NULL WHERE id = $1 AND state = 'sending'", [batch.id]);
+    await lock.query(
+      `WITH appended AS (
+         UPDATE next_policy_batches SET state = 'appended', appended_at = now(), error = NULL
+         WHERE id = $1 AND state = 'sending' RETURNING id, appended_at
+       )
+       UPDATE grants g SET revocation_confirmed_at = appended.appended_at
+       FROM appended, next_policy_outbox o, next_grant_bindings b
+       WHERE o.batch_id = appended.id AND b.collection_id = o.collection_id AND b.grant_id = g.id
+         AND g.revoked_at IS NOT NULL AND g.revocation_confirmed_at IS NULL
+         AND o.ops->'ops' @> jsonb_build_array(jsonb_build_object('op', 'grant-revoke', 'grant', b.log_grant_id::text))`,
+      [batch.id]
+    );
     return "appended";
   }
 
