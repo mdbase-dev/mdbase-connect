@@ -436,6 +436,19 @@
 
 .note-peek { position: fixed; inset: auto; margin: 0; width: min(480px, calc(100vw - 24px)); max-height: min(560px, calc(100dvh - 24px)); overflow: auto; padding: var(--space-4); color: var(--ink); background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--elevation-high); }
 .note-peek::backdrop { display: none; }
+.note-peek { opacity: 0; transform: translateY(4px); transition: opacity 90ms var(--ease-out), transform 90ms var(--ease-out); }
+.note-peek[data-open="true"] { opacity: 1; transform: translateY(0); transition-duration: 120ms; }
+@starting-style { .note-peek[data-open="true"] { opacity: 0; transform: translateY(4px); } }
+.note-peek-pages { display: grid; }
+.note-peek-body { grid-area: 1 / 1; min-width: 0; animation: peek-body-in 120ms var(--ease-out); }
+.note-peek-body.is-outgoing { animation-name: peek-body-out; pointer-events: none; }
+@keyframes peek-body-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes peek-body-out { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .note-peek, .note-peek[data-open="true"] { transition: none; transform: none; }
+  .note-peek-body, .note-peek-body.is-outgoing { animation: none; }
+  .note-peek-body.is-outgoing { display: none; }
+}
 .note-peek .read-only-markdown { padding: 0; }
 .note-peek .read-only-markdown-body { white-space: normal; }
 .note-peek > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }

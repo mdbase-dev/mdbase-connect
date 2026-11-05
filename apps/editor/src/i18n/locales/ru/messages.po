@@ -282,11 +282,6 @@ msgstr "Совпадают поля: {0} из {1}"
 msgid "{0} of {1} notes"
 msgstr "Заметки: {0} из {1}"
 
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "{0} P"
-msgstr "{0} P"
-
 #. placeholder {0}: directory.invalid.length
 #: src/YourPersonPanel.tsx
 msgid "{0} person records need attention"
@@ -813,10 +808,6 @@ msgstr "О существующих контактах"
 msgid "Actions"
 msgstr "Действия"
 
-#: src/QuickOpen.tsx
-msgid "Actions in quick open"
-msgstr "Действия в быстром переходе"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add"
@@ -835,10 +826,6 @@ msgstr "Добавьте {0}, чтобы создать заметку."
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
 msgstr "Добавить произвольное свойство…"
-
-#: src/QuickOpen.tsx
-msgid "Add a link, in the note text"
-msgstr "Добавить ссылку в текст заметки"
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
@@ -1153,6 +1140,7 @@ msgctxt "direct connection availability"
 msgid "Available"
 msgstr "Доступно"
 
+#: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
 msgstr "Назад"
@@ -1160,10 +1148,6 @@ msgstr "Назад"
 #: src/App.tsx
 msgid "Back in note history"
 msgstr "Назад по истории заметок"
-
-#: src/QuickOpen.tsx
-msgid "Back or forward"
-msgstr "Назад или вперёд"
 
 #: src/App.tsx
 msgid "Back to {historyBackPath} · Alt+Left"
@@ -1178,11 +1162,6 @@ msgstr "Назад к коллекции"
 msgid "Back to collections"
 msgstr "Назад к коллекциям"
 
-#: src/ConnectionScreens.tsx
-#: src/SdkEditorRoot.tsx
-msgid "Back to Collections"
-msgstr "Назад к коллекциям"
-
 #: src/TypeBrowser.tsx
 msgid "Back to editing"
 msgstr "Назад к редактированию"
@@ -1190,6 +1169,11 @@ msgstr "Назад к редактированию"
 #: src/PropertiesPanel.tsx
 msgid "Back to fields"
 msgstr "Назад к полям"
+
+#: src/ConnectionScreens.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Back to mdbase Connect"
+msgstr "Вернуться в mdbase Connect"
 
 #: src/App.tsx
 msgid "Back to notes"
@@ -1234,9 +1218,9 @@ msgstr "Блок · {0}"
 msgid "Body differences"
 msgstr "Различия в тексте"
 
-#: src/QuickOpen.tsx
-msgid "Bold or italic"
-msgstr "Полужирный или курсив"
+#: src/editor-commands.ts
+msgid "Bold"
+msgstr "Полужирный"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Boolean"
@@ -1597,6 +1581,16 @@ msgstr "Удобный"
 msgid "Commands"
 msgstr "Команды"
 
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0}"
+msgstr "Команды · {0}"
+
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0} outside text"
+msgstr "Команды · {0} вне текста"
+
 #: src/TypeBrowser.tsx
 msgid "Common icons"
 msgstr "Часто используемые значки"
@@ -1658,9 +1652,23 @@ msgstr "Подключить другую коллекцию?"
 msgid "Connect application contract"
 msgstr "Подключить контракт приложения"
 
+#: src/ConnectionScreens.tsx
+msgid "Connect server: {server}"
+msgstr "Сервер Connect: {server}"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "Подключено"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected directly"
+msgstr "Прямое подключение"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected through mdbase"
+msgstr "Подключено через mdbase"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1898,6 +1906,7 @@ msgstr "Создайте её с первой заметкой. Пустые п�
 msgid "Create my person record"
 msgstr "Создать мою запись о пользователе"
 
+#: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
 msgid "Create note"
 msgstr "Создать заметку"
@@ -1943,10 +1952,6 @@ msgstr "Создание"
 #: src/NewNoteComposer.tsx
 msgid "Creating folder"
 msgstr "Создание папки"
-
-#: src/NewNoteComposer.tsx
-msgid "Ctrl "
-msgstr "Ctrl "
 
 #: src/editor-commands.ts
 msgid "Current note"
@@ -2021,8 +2026,8 @@ msgid "delete notes"
 msgstr "удалять заметки"
 
 #: src/App.tsx
-msgid "Deleted “{title}”."
-msgstr "Удалено: «{title}»."
+msgid "Deleted {title}"
+msgstr "Удалено: {title}"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
@@ -2030,8 +2035,8 @@ msgid "Deleting"
 msgstr "Удаление"
 
 #: src/App.tsx
-msgid "Deleting “{title}”…"
-msgstr "Удаление «{title}»…"
+msgid "Deleting {title}…"
+msgstr "Удаление {title}…"
 
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
@@ -2338,7 +2343,6 @@ msgid "Existing person or contact"
 msgstr "Существующий пользователь или контакт"
 
 #: src/App.tsx
-#: src/QuickOpen.tsx
 msgid "Exit focus mode"
 msgstr "Выйти из режима сосредоточения"
 
@@ -2428,7 +2432,6 @@ msgid "Find a note by title or path, or type > for actions"
 msgstr "Найдите заметку по названию или пути либо введите > для действий"
 
 #: src/App.tsx
-#: src/QuickOpen.tsx
 msgid "Find a note or action"
 msgstr "Найдите заметку или действие"
 
@@ -2436,7 +2439,7 @@ msgstr "Найдите заметку или действие"
 msgid "Find a property"
 msgstr "Найти свойство"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Find in note"
 msgstr "Найти в заметке"
 
@@ -2548,6 +2551,10 @@ msgstr "Забыть в этом браузере"
 msgid "Format"
 msgstr "Формат"
 
+#: src/editor-commands.ts
+msgid "Forward"
+msgstr "Вперёд"
+
 #: src/App.tsx
 msgid "Forward in note history"
 msgstr "Вперёд по истории заметок"
@@ -2632,8 +2639,8 @@ msgid "High to low"
 msgstr "По убыванию"
 
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Hosted"
+msgctxt "settings view"
+msgid "Hosted by mdbase"
 msgstr "Размещено в mdbase"
 
 #: src/TypeBrowser.tsx
@@ -2660,9 +2667,17 @@ msgstr "Оценка влияния основана на заметках в т
 msgid "in the list"
 msgstr "в списке"
 
+#: src/editor-commands.ts
+msgid "in the note composer"
+msgstr "в форме создания заметки"
+
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "Несовместимо"
+
+#: src/editor-commands.ts
+msgid "Inline code"
+msgstr "Встроенный код"
 
 #: src/code-editor-completions.ts
 msgid "Insert a fenced code block"
@@ -2727,6 +2742,10 @@ msgstr "Недопустимый JSON."
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "С момента добавления запись не редактировалась, поэтому она будет заменена новой начальной записью."
+
+#: src/editor-commands.ts
+msgid "Italic"
+msgstr "Курсив"
 
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
@@ -2978,6 +2997,11 @@ msgstr "Утратят тип"
 msgid "Low to high"
 msgstr "По возрастанию"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Main copy"
+msgstr "Основная копия"
+
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
 msgstr "управлять определениями типов"
@@ -3007,7 +3031,7 @@ msgstr "Отметить задачу выполненной"
 msgid "Mark task incomplete"
 msgstr "Отметить задачу невыполненной"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Команды Markdown"
 
@@ -3177,10 +3201,6 @@ msgstr "Переместить заметку"
 msgid "move notes"
 msgstr "перемещать заметки"
 
-#: src/QuickOpen.tsx
-msgid "Move through the note list"
-msgstr "Перемещаться по списку заметок"
-
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
 msgid "Move to…"
@@ -3229,6 +3249,10 @@ msgstr "Поле имени"
 msgid "Name the folder to create it."
 msgstr "Назовите папку, чтобы создать её."
 
+#: src/QuickOpen.tsx
+msgid "Navigate"
+msgstr "Навигация"
+
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -3252,6 +3276,7 @@ msgstr "вложенные обязательные поля"
 msgid "New folder"
 msgstr "Новая папка"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
@@ -3290,6 +3315,14 @@ msgstr "Сначала новые"
 #: src/QuickOpen.tsx
 msgid "Next or previous note"
 msgstr "Следующая или предыдущая заметка"
+
+#: src/editor-commands.ts
+msgid "Next note"
+msgstr "Следующая заметка"
+
+#: src/editor-commands.ts
+msgid "Next note in the list"
+msgstr "Следующая заметка в списке"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts installed"
@@ -3455,6 +3488,10 @@ msgid "Not now"
 msgstr "Не сейчас"
 
 #: src/QuickOpen.tsx
+msgid "Note"
+msgstr "Заметка"
+
+#: src/editor-commands.ts
 msgid "Note actions, in the list"
 msgstr "Действия с заметкой в списке"
 
@@ -3482,10 +3519,6 @@ msgstr "ссылка на заметку"
 #: src/App.tsx
 msgid "note path"
 msgstr "путь к заметке"
-
-#: src/NoteList.tsx
-msgid "Note peek"
-msgstr "Предпросмотр заметки"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -3644,6 +3677,10 @@ msgstr "открывать файлы"
 msgid "open notes"
 msgstr "открывать заметки"
 
+#: src/editor-commands.ts
+msgid "Open Notes"
+msgstr "Открыть заметки"
+
 #: src/FileViewer.tsx
 msgid "Open original"
 msgstr "Открыть оригинал"
@@ -3740,6 +3777,10 @@ msgstr "Другие поля разрешены"
 msgid "outside text inputs"
 msgstr "вне текстовых полей"
 
+#: src/editor-commands.ts
+msgid "outside text; add a link while typing"
+msgstr "вне текста; при вводе — вставить ссылку"
+
 #: src/TypeBrowser.tsx
 msgid "Pack"
 msgstr "Пакет"
@@ -3805,7 +3846,7 @@ msgstr "Встроенный PDF: {filename}"
 msgid "PDF viewer, {filename}"
 msgstr "Просмотр PDF: {filename}"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Peek at the focused note"
 msgstr "Предпросмотр заметки в фокусе"
 
@@ -3911,6 +3952,14 @@ msgstr "За предыдущие 30 дней"
 msgid "Previous 7 days"
 msgstr "За предыдущие 7 дней"
 
+#: src/editor-commands.ts
+msgid "Previous note"
+msgstr "Предыдущая заметка"
+
+#: src/editor-commands.ts
+msgid "Previous note in the list"
+msgstr "Предыдущая заметка в списке"
+
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
 msgstr "Ранее открытые в mdbase editor"
@@ -3960,16 +4009,6 @@ msgstr "Задано типом заметки, не хранится в это�
 #: src/editor-commands.ts
 msgid "Quick open"
 msgstr "Быстрый переход"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P"
-msgstr "Быстрый переход · {0} P"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P anywhere"
-msgstr "Быстрый переход · {0} P из любого места"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4518,6 +4557,7 @@ msgstr "Поисковые фильтры"
 msgid "Search is incomplete."
 msgstr "Поиск не завершён."
 
+#: src/editor-commands.ts
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "Поиск заметок и файлов"
@@ -4825,6 +4865,7 @@ msgstr "Шаблон"
 msgid "text"
 msgstr "текст"
 
+#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
@@ -5408,11 +5449,6 @@ msgid "This collection's Person type was not added from a Person starter that ca
 msgstr "Тип Person в этой коллекции создан не из начального шаблона Person, допускающего автоматическое обновление, поэтому он не изменён. "
 
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "This computer"
-msgstr "Этот компьютер"
-
-#: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "This computer"
 msgstr "Этот компьютер"
@@ -5900,11 +5936,6 @@ msgstr "Результат проверки может измениться"
 #: src/TypeBrowser.tsx
 msgid "Version {0}"
 msgstr "Версия {0}"
-
-#: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Via mdbase"
-msgstr "Через mdbase"
 
 #: src/NoteListViewOptions.tsx
 msgid "View options"

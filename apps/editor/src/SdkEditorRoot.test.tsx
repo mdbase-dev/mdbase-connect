@@ -32,7 +32,7 @@ it("names the unsupported LAB build before starting an SDK with no authenticated
   const view = render(<SdkEditorRoot sdk={sdk} />);
   try {
     expect(screen.getByRole("heading", { name: "This Editor build cannot open collections here" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to Collections" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to mdbase Connect" })).toBeInTheDocument();
     expect(sdk.getSnapshot()).toBe(initial);
     expect(worker).not.toHaveBeenCalled();
   } finally { view.unmount(); await sdk.close(); }
@@ -96,7 +96,7 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
     render(<SdkEditorRoot sdk={h.mdbase} />);
     await waitFor(() => expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid manifest: /homepage")));
     expect(document.body).not.toHaveTextContent("/homepage");
-    expect(screen.getByRole("link", { name: "Back to Collections" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to mdbase Connect" })).toBeInTheDocument();
     warn.mockRestore();
   });
 

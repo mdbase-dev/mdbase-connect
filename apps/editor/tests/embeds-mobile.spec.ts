@@ -15,7 +15,8 @@ for (const width of [360, 390, 430]) {
     await page.goto("?demo=300");
     const title = page.getByRole("textbox", { name: "Note title" });
     await expect(title).toBeVisible();
-    await expect(page.locator(".editor-bar button:visible")).toHaveCount(2);
+    await expect(page.locator(".editor-bar button:visible")).toHaveCount(3);
+    await expect(page.locator(".editor-bar").getByRole("button", { name: "New note", exact: true })).toBeVisible();
     await expect(page.locator(".mobile-note-path")).toHaveText("Notes/the-shape-of-useful-tools.md");
     await expect(page.locator(".editor-bar .path-button")).toHaveCount(0);
     for (const theme of ["light", "dark"]) {

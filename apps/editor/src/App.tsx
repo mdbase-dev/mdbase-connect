@@ -55,7 +55,7 @@ import { ConflictResolver } from "./ConflictResolver";
 import { DraftRecovery, frontmatterPatch, recoveryDraftMatchesRecord } from "./draft-recovery";
 import { connectServerUrl } from "./connect-endpoint";
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
-import { CommandPalette } from "@mdbase-dev/ui/command-palette";
+import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
 import { Toaster, type ToastItem } from "@mdbase-dev/ui/toast";
 import { ReadOnlyMarkdown } from "./read-only-markdown";
 import {
@@ -123,7 +123,7 @@ import {
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { revealMarkdownLine } from "./code-editor-reveal";
 import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-notes";
-import { buildEditorCommands, command, formatShortcut, matchesCommandShortcut, type CommandId } from "./editor-commands";
+import { buildEditorCommands, command, matchesCommandShortcut, type CommandId } from "./editor-commands";
 import { unlinkedMentions } from "./unlinked-mentions";
 import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
 import { quickOpenResults, ShortcutHelp } from "./QuickOpen";
@@ -269,6 +269,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [quickOpenCommandMode, setQuickOpenCommandMode] = useState(false);
   const [editorAutoFocus, setEditorAutoFocus] = useState(true);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const shortcutPrefix = useRef(0);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [recentPaths, setRecentPaths] = useState(loadRecentPaths);
   const [noteHistoryState, setNoteHistoryState] = useState<NoteNavigationHistory>({ paths: [], index: -1 });
@@ -1338,7 +1339,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   function menuCommand(id: CommandId, icon: ReactNode, run: () => void, disabled = false, label?: string): ActionMenuItem {
     const entry = command(id, run, label);
-    return { label: entry.label, icon, onSelect: entry.run, disabled, title: entry.shortcut ? `${entry.label} · ${formatShortcut(entry.shortcut)}` : undefined };
+    return { label: entry.label, icon, onSelect: entry.run, disabled, title: entry.shortcut ? `${entry.label} · ${shortcutLabel(entry.shortcut)}` : undefined };
   }
   function togglePin(path: string) {
     if (!description) return;
@@ -1591,33 +1592,37 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   // after navigation, rather than the previous render's passive effect.
   useLayoutEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.defaultPrevented) return;
       const modifier = event.metaKey || event.ctrlKey;
       const key = event.key.toLocaleLowerCase();
+      const typing = isEditableTarget(event.target);
+      const prefix = !typing && shortcutPrefix.current > 0 && event.timeStamp - shortcutPrefix.current < 1000 ? "g" : "";
+      shortcutPrefix.current = 0;
       if (event.key === "Escape" && (quickOpen || shortcutsOpen)) {
         event.preventDefault();
         setQuickOpen(false);
         setShortcutsOpen(false);
         return;
       }
-      if (matchesCommandShortcut("quick-open", event) || matchesCommandShortcut("command-palette", event)) {
+      if (matchesCommandShortcut("quick-open", event) || matchesCommandShortcut("command-palette", event) && (!typing || event.shiftKey)) {
         event.preventDefault();
         setShortcutsOpen(false);
-        setQuickOpenCommandMode(event.shiftKey);
+        setQuickOpenCommandMode(matchesCommandShortcut("command-palette", event));
         setQuickOpen(true);
-        return;
-      }
-      if (modifier && !event.altKey && !event.shiftKey && key === "k"
-          && !(event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content"))) {
-        event.preventDefault();
-        if (!isEditableTarget(event.target)) {
-          setShortcutsOpen(false);
-          setQuickOpenCommandMode(false);
-          setQuickOpen(true);
-        }
         return;
       }
       if (quickOpen || shortcutsOpen) return;
       if (phase !== "ready") return;
+      if (!typing && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))) {
+        const navigation = buildEditorCommands({
+          notes: () => selectSurface("notes"),
+          types: () => selectSurface("types"),
+          settings: () => selectSurface("settings"),
+          "focus-search": () => { selectSurface("notes"); requestAnimationFrame(() => globalThis.document.querySelector<HTMLInputElement>(".search-field input")?.focus()); }
+        }).find(entry => matchesCommandShortcut(entry.id as CommandId, event, prefix));
+        if (navigation) { event.preventDefault(); navigation.run(); return; }
+        if (!modifier && !event.altKey && !event.shiftKey && key === "g") { shortcutPrefix.current = event.timeStamp; return; }
+      }
       if (event.key === "Escape" && focusMode && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"], .cm-panels, .cm-tooltip'))) {
         event.preventDefault();
         setPreferences((current) => ({ ...current, focusMode: false }));
@@ -1634,7 +1639,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         void renameNote(selectedPath);
         return;
       }
-      if (matchesCommandShortcut("new-note", event)) {
+      if (matchesCommandShortcut("new-note", event) && (!typing || modifier) && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))) {
         event.preventDefault();
         beginCreate();
         return;
@@ -1644,13 +1649,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         setLayout((current) => ({ ...current, listCollapsed: !current.listCollapsed }));
         return;
       }
-      if (event.altKey && !modifier && (event.key === "ArrowLeft" || event.key === "ArrowRight")
+      if ((matchesCommandShortcut("history-back", event) || matchesCommandShortcut("history-forward", event))
           && surface === "notes" && !creationMode) {
         event.preventDefault();
         navigateNoteHistory(event.key === "ArrowLeft" ? -1 : 1);
         return;
       }
-      if (event.altKey && !modifier && (key === "j" || key === "k") && surface === "notes" && !creationMode) {
+      if ((matchesCommandShortcut("next-note", event) || matchesCommandShortcut("previous-note", event)) && surface === "notes" && !creationMode) {
         event.preventDefault();
         const selectedIndex = visibleBrowserEntries.findIndex((entry) => entry.kind === "note"
           ? !selectedCollectionFile && entry.path === selectedPath
@@ -1665,7 +1670,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         else if (next) navigateToFile(next.file);
         return;
       }
-      if ((event.key === "?" || (event.ctrlKey && key === "/")) && !isEditableTarget(event.target)) {
+      if (matchesCommandShortcut("shortcuts", event) && !typing) {
         event.preventDefault();
         setQuickOpen(false);
         setShortcutsOpen(true);
@@ -1760,6 +1765,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     theme: switchTheme,
     types: () => selectSurface("types"),
     settings: () => selectSurface("settings"),
+    notes: () => selectSurface("notes"),
     connect: () => { location.href = connectWorkspaceUrl(description.collectionId); },
     "switch-collection": collectionSwitcher ? openCollectionSwitcher : undefined,
     ...(bulkCommandsAvailable ? {
@@ -1792,7 +1798,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       case "batch": recoveryMessage = recoveryAction.message; break;
       case "delete": {
         const title = noteTitle(recoveryAction.document, typeDescriptors);
-        recoveryMessage = recoveryAction.pending ? t`Deleting “${title}”…` : t`Deleted “${title}”.`;
+        recoveryMessage = recoveryAction.pending ? t`Deleting ${title}…` : t`Deleted ${title}`;
         break;
       }
       case "move": {
@@ -1921,7 +1927,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onSearch={setSearch}
         onSort={chooseNoteSort}
         onClearScope={() => setNoteFilter(undefined)}
-        onQuickOpen={() => { setQuickOpenCommandMode(false); setQuickOpen(true); }}
+        onQuickOpen={() => { setQuickOpenCommandMode(true); setQuickOpen(true); }}
         onRetryStructure={() => void loadIndex().catch(() => undefined)}
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
@@ -1938,9 +1944,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onRename={(path) => void renameNote(path)}
         onPeek={() => setPeekOpen((open) => !open)}
         onClosePeek={() => setPeekOpen(false)}
+        peekTitle={draft?.title}
         peek={peekOpen && draft && !selectedCollectionFile ? <>
-          <header><h2>{draft.title}</h2><button className="icon-button" aria-label={t`Close note peek`} onClick={() => { setPeekOpen(false); globalThis.document.querySelector<HTMLElement>(".note-scroll")?.focus(); }}><X aria-hidden="true" /></button></header>
-          {noteLoading ? <p role="status"><Trans>Opening</Trans></p> : <ReadOnlyMarkdown source={draft.body} byteLength={new TextEncoder().encode(draft.body).length} previewTitle={draft.title} />}
+          <header><h2 aria-live="polite">{draft.title}</h2><button className="icon-button" aria-label={t`Close note peek`} onClick={() => { setPeekOpen(false); globalThis.document.querySelector<HTMLElement>(".note-scroll")?.focus(); }}><X aria-hidden="true" /></button></header>
+          <NotePeekBody path={document?.path} source={draft.body} title={draft.title} loading={noteLoading} />
         </> : undefined}
         onDelete={(path) => { if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
         onCreate={canCreateNotes ? beginCreate : undefined}
@@ -1971,6 +1978,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
+            {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} disabled={mutationsFrozen} onClick={() => beginCreate()}><FilePlus2 aria-hidden="true" /></button>}
             {editorLeadingActions}
             <div className="note-history" role="group" aria-label={t`Note history`}>
               <button
@@ -2207,7 +2215,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     <CommandPalette open={quickOpen} commands={[]} initialQuery={quickOpenCommandMode ? ">" : ""}
       label={t`Quick open`} inputLabel={t`Find a note or action`} placeholder={t`Find a note by title or path, or type > for actions`}
       getResults={query => quickOpenResults({ index: searchIndex,
-        recentPaths: [...pinnedPaths, ...recentPaths.filter(path => !pinnedPaths.includes(path))], types: typeDescriptors, commands: quickOpenCommands,
+        recentPaths, types: typeDescriptors, commands: quickOpenCommands,
         onCreate: canCreateNotes && !mutationsFrozen ? title => { beginCreate(); setCreationContext(current => ({ ...current, title })); } : undefined,
         onSelect: path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); navigateToNote(path); }
       }, query)} onClose={() => setQuickOpen(false)} />
@@ -2227,6 +2235,24 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}
     <NotePreviewCard preview={notePreviewController.preview} />
     <Toaster items={activeToasts} onDismiss={dismissToast} />
+  </div>;
+}
+
+function NotePeekBody({ path, source, title, loading }: { path?: string; source: string; title: string; loading: boolean }) {
+  const current = useRef({ path, source, title });
+  const [outgoing, setOutgoing] = useState<typeof current.current>();
+  useLayoutEffect(() => {
+    if (current.current.path !== path) setOutgoing(current.current);
+    current.current = { path, source, title };
+  }, [path, source, title]);
+  useEffect(() => {
+    if (!outgoing) return;
+    const timeout = setTimeout(() => setOutgoing(undefined), 120);
+    return () => clearTimeout(timeout);
+  }, [outgoing]);
+  return <div className="note-peek-pages">
+    {outgoing && <div key={`outgoing-${outgoing.path}`} className="note-peek-body is-outgoing" aria-hidden="true" inert><ReadOnlyMarkdown source={outgoing.source} byteLength={new TextEncoder().encode(outgoing.source).length} previewTitle={outgoing.title} /></div>}
+    <div key={path} className="note-peek-body">{loading ? <p role="status"><Trans>Opening</Trans></p> : <ReadOnlyMarkdown source={source} byteLength={new TextEncoder().encode(source).length} previewTitle={title} />}</div>
   </div>;
 }
 

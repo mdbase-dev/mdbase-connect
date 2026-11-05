@@ -156,7 +156,7 @@ describe("mdbase editor", () => {
     expect(screen.queryByRole("button", { name: "Use this computer" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByText("Available")).toBeInTheDocument();
-    expect(screen.getByText("This computer", { selector: ".fact-row strong" })).toBeInTheDocument();
+    expect(screen.getByText("Connected directly", { selector: ".fact-row strong" })).toBeInTheDocument();
   });
 
   it("opens a collection, selects a note, and autosaves body changes", async () => {
@@ -677,11 +677,11 @@ describe("mdbase editor", () => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
     const body = await screen.findByRole("textbox", { name: "Note body" });
     const search = screen.getByRole("combobox", { name: "Search notes and files" });
-    expect(screen.getByRole("button", { name: /^Quick open · / }).title).not.toContain("K");
+    expect(screen.getByRole("button", { name: /^Commands · / }).title).toContain("K");
     for (const target of [search, body, screen.getByRole("button", { name: "Note properties" })]) {
       target.focus();
       const unhandled = fireEvent.keyDown(target, { key: "k", [modifier]: true });
-      if (target !== body) expect(unhandled).toBe(false);
+      if (target.tagName === "BUTTON") expect(unhandled).toBe(false);
       if (target.tagName === "BUTTON") {
         expect(screen.getByRole("dialog", { name: "Quick open" })).toBeInTheDocument();
         fireEvent.keyDown(window, { key: "Escape" });
@@ -731,9 +731,9 @@ describe("mdbase editor", () => {
     const help = screen.getByRole("dialog", { name: "Shortcuts" });
     expect(help).toHaveTextContent("Quick open");
     expect(help).toHaveTextContent("Find in note");
-    expect(help).toHaveTextContent("Bold or italic");
+    expect(help).toHaveTextContent("Bold");
     expect(help).toHaveTextContent("Markdown commands");
-    expect(help).toHaveTextContent("Next or previous note");
+    expect(help).toHaveTextContent("Next note in the list");
     await user.click(within(help).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Shortcuts" })).not.toBeInTheDocument();
   });
@@ -1008,13 +1008,13 @@ describe("mdbase editor", () => {
     await screen.findByRole("textbox", { name: "Note title" });
     await user.click(screen.getByLabelText("More note actions"));
     await user.click(screen.getByRole("menuitem", { name: "Delete" }));
-    const deleting = await screen.findByText("Deleting “The shape of useful tools”…");
+    const deleting = await screen.findByText("Deleting The shape of useful tools…");
     expect(deleting.closest('[role="status"]')).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
 
     gateway.releaseDelete();
     const undo = await screen.findByRole("button", { name: "Undo" });
-    expect(undo.closest('[role="status"]')).toHaveTextContent("Deleted “The shape of useful tools”.");
+    expect(undo.closest('[role="status"]')).toHaveTextContent("Deleted The shape of useful tools");
     await user.click(undo);
     expect(await screen.findByRole("option", { name: /The shape of useful tools/ })).toBeInTheDocument();
     expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("Good tools leave room");

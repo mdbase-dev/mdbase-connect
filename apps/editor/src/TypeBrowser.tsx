@@ -276,7 +276,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
       <button className="mobile-back icon-button" aria-label={t`Back to types`} onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
       {leadingActions}
       <details className="type-file-details">
-        <summary><Trans>Details</Trans></summary>
+        <summary><span><Trans>Details</Trans></span><ChevronRight aria-hidden="true" /></summary>
         <PathLabel path={path} />
         {!creating && <p>{typeHeadingFacts(type!, contractState.implementations.length)}</p>}
       </details>
