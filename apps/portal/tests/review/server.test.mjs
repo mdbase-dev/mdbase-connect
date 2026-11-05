@@ -96,6 +96,7 @@ test("review configuration and onboarding expose the demo Editor handoff", async
   const { editor_url } = await read(cookie, "/v1/ui-configuration");
   assert.equal(new URL(editor_url).searchParams.get("demo"), "300");
   assert.equal(new URL(editor_url).hostname, "127.0.0.1");
+  assert.equal(new URL(editor_url).port, "4802");
   const ready = await request(cookie, "/v1/onboarding/starter-collection", "POST", {});
   assert.equal((await ready.json()).editor_url, editor_url);
 });

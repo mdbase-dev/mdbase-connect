@@ -146,7 +146,7 @@ describe("one explicit collection consent", () => {
     expect(within(f.picker).queryAllByRole("option", {selected:true})).toEqual([]);
     expect(screen.getByRole("button", {name:"Open Reader"})).toBeDisabled();
     fireEvent.click(privateRow);
-    expect(screen.getByRole("button", {name:"Open Reader with Private notes"})).toBeEnabled();
+    expect(screen.getByRole("button", {name:"Open Reader"})).toBeEnabled();
     expect(f.posts()).toEqual([]);
   });
 
@@ -157,7 +157,7 @@ describe("one explicit collection consent", () => {
     expect(screen.getByRole("button", {name:"Create a new collection…"})).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("textbox", {name:"New collection name"})).toHaveValue("Original creation");
     expect(screen.getByRole("textbox", {name:"New collection name"})).toHaveAttribute("readonly");
-    expect(screen.getByRole("button", {name:"Open Reader with Original creation"})).toBeEnabled();
+    expect(screen.getByRole("button", {name:"Open Reader"})).toBeEnabled();
     expect(f.posts()).toEqual([]);
   });
 
@@ -166,7 +166,7 @@ describe("one explicit collection consent", () => {
       creation:{collection_id:"created",display_name:"Earlier creation",completed:true}});
     expect(screen.getByRole("combobox", {name:"Open in Reader"})).toHaveAttribute("data-value", "notes");
     expect(screen.getByRole("option", {name:"Notes"})).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("button", {name:"Open Reader with Notes"})).toBeEnabled();
+    expect(screen.getByRole("button", {name:"Open Reader"})).toBeEnabled();
     expect(f.posts()).toEqual([]);
   });
 
@@ -175,7 +175,7 @@ describe("one explicit collection consent", () => {
       creation:{collection_id:"notes",display_name:"Notes",completed:true}});
     expect(screen.getByRole("combobox", {name:"Open in Reader"})).toHaveAttribute("data-value", "notes");
     expect(screen.getByRole("option", {name:"Notes"})).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("button", {name:"Open Reader with Notes"})).toBeEnabled();
+    expect(screen.getByRole("button", {name:"Open Reader"})).toBeEnabled();
     expect(f.posts()).toEqual([]);
   });
 

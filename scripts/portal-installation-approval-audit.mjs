@@ -49,7 +49,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
   const url = `${origin}/pair/00000000-0000-4000-8000-000000000001`;
   const picker = () => page.getByRole("combobox", {name: "Open in TaskNotes", exact: true});
   const list = () => page.getByRole("listbox", {name: "Open in TaskNotes", exact: true});
-  const approve = () => page.getByRole("button", {name: /^Open TaskNotes(?: with .+)?$/});
+  const approve = () => page.getByRole("button", {name: "Open TaskNotes", exact: true});
   const load = async hint => {
     pairing = structuredClone(base); posts = []; failCreation = false; loseApproval = false; holdAttestation = false;
     await page.goto(`${url}${hint ? `?collection_hint=${hint}` : ""}`); await picker().waitFor();
@@ -123,7 +123,9 @@ export async function auditPortalInstallationApproval(localPage, origin) {
         assert.equal(await picker().getAttribute("data-value"), "", "arrows only highlight");
         await page.keyboard.press("Enter");
         assert.equal(await picker().getAttribute("data-value"), first, "Enter commits the highlighted candidate");
-        assert.equal(await approve().innerText(), "Open TaskNotes with Personal notes");
+        assert.equal(await approve().innerText(), "Open TaskNotes");
+        await page.locator(".approval-target .collection-name").getByText("Personal notes", { exact: true }).waitFor();
+        assert.equal(await approve().getAttribute("aria-describedby"), await page.locator(".approval-target").getAttribute("id"));
         assert.equal(posts.length, 0, "focus, filtering and keyboard selection never approve or create a collection");
       }
     }
@@ -171,7 +173,8 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     pairing.selected_collection_id = second;
     await page.reload(); await picker().waitFor();
     assert.equal(await picker().getAttribute("data-value"), second, "restore a server-recorded explicit choice, never the conflicting hint");
-    assert.equal(await approve().innerText(), "Open TaskNotes with Work notes");
+    assert.equal(await approve().innerText(), "Open TaskNotes");
+    await page.locator(".approval-target .collection-name").getByText("Work notes", { exact: true }).waitFor();
     await picker().fill("Personal");
     assert.equal(await picker().getAttribute("data-value"), second, "filtering keeps the restored choice");
     assert.equal(posts.length, 0);
@@ -180,7 +183,8 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     pairing.collections.push({collection_id: created, display_name: "Original name", role: "owner"});
     await page.reload(); await picker().waitFor();
     assert.equal(await picker().getAttribute("data-value"), created, "restore the person's completed creation");
-    assert.equal(await approve().innerText(), "Open TaskNotes with Original name");
+    assert.equal(await approve().innerText(), "Open TaskNotes");
+    await page.locator(".approval-target .collection-name").getByText("Original name", { exact: true }).waitFor();
     assert.equal(posts.length, 0);
     await load();
     pairing.account_email = null; pairing.account_provider = "github"; pairing.account_login = "original";

@@ -37,7 +37,7 @@ export function ProductSidebar({ items, active, account, identity, editorHref, a
   };
   return <aside id="product-navigation" className="product-sidebar">
     <div className="product-sidebar-brand"><Brand productLabel /></div>
-    <nav className="product-sidebar-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
+    <nav className="product-sidebar-nav" aria-label={t(i18n)({ message: "mdbase Connect navigation" })}>
       {items.map((item) => <a
         key={item.id}
         className={`product-sidebar-link ${active === item.id ? "active" : ""}`}
@@ -115,5 +115,5 @@ export function SectionHeading({ title, note, count }: { title: string; note: st
 export function Empty({ title, text }: { title: string; text: string }) {
   useLocaleRevision(); return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
 export function Loading({ error = "", onRetry }: { error?: string; onRetry?(): void }) {
-  useLocaleRevision(); return <main className="mdbase-page loading" aria-busy={!error}><PageBrand label="connect" markMotion="orbit" error={error} /><p role={error ? "alert" : "status"}>{error || t(i18n)({ message: "Opening mdbase connect…", context: "Connect interface" })}</p>{error && onRetry && <button className="mdbase-button is-primary" onClick={onRetry}><Trans>Try again</Trans></button>}</main>; }
+  useLocaleRevision(); return <main className="mdbase-page loading" aria-busy={!error}><PageBrand label="connect" markMotion="orbit" error={error} /><p role={error ? "alert" : "status"}>{error || t(i18n)({ message: "Opening mdbase Connect…", context: "Connect interface" })}</p>{error && onRetry && <button className="mdbase-button is-primary" onClick={onRetry}><Trans>Try again</Trans></button>}</main>; }
 

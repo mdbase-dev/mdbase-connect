@@ -38,7 +38,7 @@ test("manages collections on the portal and links to the configured Editor witho
   await page.goto(`${portalOrigin}/?collection=collection`);
   await expect(page.getByRole("heading", { name: "Garden notes" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Collection navigation" })).toHaveCount(0);
-  await expect(page.getByRole("complementary", { name: "mdbase connect navigation" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "mdbase Connect navigation" })).toBeVisible();
   await expect(page.getByText("Account", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open in editor" })).toHaveAttribute("href", `http://editor.test/?server=${encodeURIComponent(portalOrigin)}&collection=collection`);
   await page.getByRole("link", { name: "Storage" }).click();
@@ -54,7 +54,7 @@ test("opens the shell before the network and reuses names without cached authori
   await page.route(`${portalOrigin}/v1/me`, async route => { await delayed; await route.fulfill({ json: overview }); });
   try {
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("complementary", { name: "mdbase connect navigation" })).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "mdbase Connect navigation" })).toBeVisible();
     await expect(page.getByText("Last known details", { exact: true })).toBeVisible();
     await expect(page.getByText("Garden notes", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /Revoke|Delete|Approve/ })).toHaveCount(0);

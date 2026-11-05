@@ -9,6 +9,6 @@ export function countLabel(value: number, kind: "record" | "file" | "collection"
     case "hosted-collection": return t(i18n)`${plural(value, { one: "# hosted collection", other: "# hosted collections" })}`;
     case "installation": return t(i18n)`${plural(value, { one: "# installation", other: "# installations" })}`;
     case "folder": return t(i18n)`${plural(value, { one: "# synced folder", other: "# synced folders" })}`;
-    case "application-installation": return t(i18n)`${plural(value, { one: "# application installation", other: "# application installations" })}`;
+    case "application-installation": return t(i18n)`${plural(value, { one: "# app installation", other: "# app installations" })}`;
   }
 }

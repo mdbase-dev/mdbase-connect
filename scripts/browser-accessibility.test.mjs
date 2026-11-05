@@ -749,7 +749,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     element.addEventListener("click", (event) => event.preventDefault(), { once: true });
   });
   await localFolder.click();
-  await page.getByRole("heading", { name: "Choose the folder in mdbase connect." }).waitFor();
+  await page.getByRole("heading", { name: "Choose the folder in mdbase Connect." }).waitFor();
   assert.equal(
     new URL(page.url()).searchParams.get("continue_in_desktop"),
     "1",

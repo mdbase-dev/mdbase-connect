@@ -320,7 +320,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         </div>
         <EmailPreferenceRow
           title={t(i18n)({ message: "Announcements", context: "Account management" })}
-          description={t(i18n)({ message: "Occasional news about significant changes to mdbase Connect and new mdbase applications." })}
+          description={t(i18n)({ message: "Occasional news about significant changes to mdbase Connect and new mdbase apps." })}
           checked={account.email_preferences.announcements}
           busy={busy.has("email-announcements")}
           onChange={(enabled) => void setEmailPreference("announcements", enabled)}
@@ -354,7 +354,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         {error && <div className="mdbase-message is-error" role="alert">{error}</div>}
         <div className="connect-deletion-effects">
           <p><strong><Trans>This permanently deletes:</Trans></strong></p>
-          <ul><li><Trans>{countLabel(account.deletion.owned_collections, "collection")} and their stored data</Trans></li><li><Trans>Application access and {countLabel(account.deletion.computers, "computer")}</Trans></li><li><Trans>Every browser session and sign-in method</Trans></li></ul>
+          <ul><li><Trans>{countLabel(account.deletion.owned_collections, "collection")} and their stored data</Trans></li><li><Trans>App access and {countLabel(account.deletion.computers, "computer")}</Trans></li><li><Trans>Every browser session and sign-in method</Trans></li></ul>
           <p><Trans>Includes collections that have left sync and retained data from deleted collections.</Trans></p>
           <p><strong><Trans>Local collection and mirror files remain on your computers.</Trans></strong></p>
         </div>

@@ -131,13 +131,13 @@ msgstr "{0} non può più usare {collectionName}"
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
-msgid "{0} can use {selectedName} until you revoke access in mdbase connect."
-msgstr "{0} può usare {selectedName} finché non viene revocato l'accesso in mdbase connect."
+msgid "{0} can use {selectedName} until you revoke access in mdbase Connect."
+msgstr "{0} può usare {selectedName} finché non viene revocato l'accesso in mdbase Connect."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
-msgid "{0} can use {selectedName} while it remains connected. You can revoke access in mdbase connect."
-msgstr "{0} può usare {selectedName} finché rimane connessa. È possibile revocare l'accesso in mdbase connect."
+msgid "{0} can use {selectedName} while it remains connected. You can revoke access in mdbase Connect."
+msgstr "{0} può usare {selectedName} finché rimane connessa. È possibile revocare l'accesso in mdbase Connect."
 
 #. placeholder {0}: providerLabel(provider)
 #: src/AccountManagement.tsx
@@ -336,7 +336,7 @@ msgid "{unsubscribed, select, product_updates {You won’t receive product updat
 msgstr "{unsubscribed, select, product_updates {Non si riceveranno aggiornamenti sui prodotti da mdbase Connect. I messaggi relativi all'account, come le email di verifica e sicurezza, continueranno ad arrivare.} other {Non si riceveranno annunci da mdbase Connect. I messaggi relativi all'account, come le email di verifica e sicurezza, continueranno ad arrivare.}}"
 
 #: src/count-label.ts
-msgid "{value, plural, one {# application installation} other {# application installations}}"
+msgid "{value, plural, one {# app installation} other {# app installations}}"
 msgstr "{value, plural, one {# installazione dell'applicazione} other {# installazioni dell'applicazione}}"
 
 #: src/AccountManagement.tsx
@@ -462,8 +462,8 @@ msgid "Access changed elsewhere. Review the current permissions before saving. <
 msgstr "L'accesso è cambiato altrove. Verifica le autorizzazioni attuali prima di salvare. <0>Verifica l'accesso attuale</0>"
 
 #: src/authority-workflows.tsx
-msgid "Access continues until you revoke it in mdbase connect."
-msgstr "L’accesso continua finché non lo revochi in mdbase connect."
+msgid "Access continues until you revoke it in mdbase Connect."
+msgstr "L’accesso continua finché non lo revochi in mdbase Connect."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -694,6 +694,11 @@ msgctxt "Account management"
 msgid "Announcements"
 msgstr "Annunci"
 
+#. placeholder {0}: countLabel(account.deletion.computers, "computer")
+#: src/AccountManagement.tsx
+msgid "App access and {0}"
+msgstr "Accesso delle applicazioni e {0}"
+
 #. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "App identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
@@ -712,27 +717,6 @@ msgstr "Chiave dell'app <0>{0}</0>. Il computer mostrerà questa chiave quando l
 #: src/authorization-view.tsx
 msgid "App using a device code"
 msgstr "Applicazione che usa un codice dispositivo"
-
-#. placeholder {0}: countLabel(account.deletion.computers, "computer")
-#: src/AccountManagement.tsx
-msgid "Application access and {0}"
-msgstr "Accesso delle applicazioni e {0}"
-
-#: src/authority-workflows.tsx
-msgid "Applications"
-msgstr "Applicazioni"
-
-#: src/ConnectApp.tsx
-msgid "Applications appear after you approve access to this collection."
-msgstr "Le applicazioni compaiono dopo l'approvazione dell'accesso a questa raccolta."
-
-#: src/ApplicationAccess.tsx
-msgid "Applications appear here after you approve access."
-msgstr "Le applicazioni compaiono qui dopo l'approvazione dell'accesso."
-
-#: src/ConnectApp.tsx
-msgid "Applications will lose access through this computer. Your local files will not be deleted."
-msgstr "Le app perderanno l'accesso tramite questo computer. I file locali non verranno eliminati."
 
 #: src/authority-workflows.tsx
 msgid "Applies to the collection you chose to open and any new collections selected here. Other collections are not included."
@@ -765,11 +749,31 @@ msgctxt "Collection connection"
 msgid "Approving…"
 msgstr "Approvazione in corso…"
 
+#: src/authority-workflows.tsx
+msgid "Apps"
+msgstr "App"
+
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Apps"
 msgstr "App"
+
+#: src/ConnectApp.tsx
+msgid "Apps appear after you approve access to this collection."
+msgstr "Le applicazioni compaiono dopo l'approvazione dell'accesso a questa raccolta."
+
+#: src/ApplicationAccess.tsx
+msgid "Apps appear here after you approve access."
+msgstr "Le applicazioni compaiono qui dopo l'approvazione dell'accesso."
+
+#: src/ApplicationAccess.tsx
+msgid "Apps connected to your account. Your browser sign-in is never shared with them."
+msgstr "Verifica le applicazioni connesse all'account. Le credenziali di accesso del browser non vengono mai condivise con loro."
+
+#: src/ConnectApp.tsx
+msgid "Apps will lose access through this computer. Your local files will not be deleted."
+msgstr "Le app perderanno l'accesso tramite questo computer. I file locali non verranno eliminati."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -987,8 +991,8 @@ msgid "Choose or create my person record"
 msgstr "Scegli o crea il mio record persona"
 
 #: src/authorization-view.tsx
-msgid "Choose the folder in mdbase connect."
-msgstr "Scegli la cartella in mdbase connect."
+msgid "Choose the folder in mdbase Connect."
+msgstr "Scegli la cartella in mdbase Connect."
 
 #: src/ConnectApp.tsx
 msgid "Choose where your first collection lives."
@@ -1158,8 +1162,8 @@ msgid "Connected"
 msgstr "Connesso"
 
 #: src/ConnectApp.tsx
-msgid "Contact the person who operates this mdbase connect deployment."
-msgstr "Contatta chi gestisce questa installazione di mdbase connect."
+msgid "Contact the person who operates this mdbase Connect deployment."
+msgstr "Contatta chi gestisce questa installazione di mdbase Connect."
 
 #: src/auth-view.tsx
 msgid "Continue"
@@ -1249,7 +1253,7 @@ msgid "Create an account"
 msgstr "Crea un account"
 
 #: src/authorization-capabilities.ts
-msgid "Create and maintain timers that run while the application is closed."
+msgid "Create and maintain timers that run while the app is closed."
 msgstr "Crea e gestisci timer che funzionano anche quando l'applicazione è chiusa."
 
 #: src/authorization-capabilities.ts
@@ -1594,7 +1598,7 @@ msgid "Every visible folder. Hidden folders are always excluded."
 msgstr "Ogni cartella visibile. Le cartelle nascoste sono sempre escluse."
 
 #: src/authority-workflows.tsx
-msgid "Existing access is revoked. Connect applications again to use the local collection."
+msgid "Existing access is revoked. Connect apps again to use the local collection."
 msgstr "L'accesso esistente è stato revocato. Riconnetti le applicazioni per usare la raccolta locale."
 
 #: src/authority-workflows.tsx
@@ -1806,8 +1810,8 @@ msgid "Identity unavailable"
 msgstr "Identità non disponibile"
 
 #: src/auth-view.tsx
-msgid "If an mdbase connect account uses that address, its one-time reset link is on the way."
-msgstr "Se un account mdbase connect usa questo indirizzo, il relativo link monouso per reimpostare la password è in arrivo."
+msgid "If an mdbase Connect account uses that address, its one-time reset link is on the way."
+msgstr "Se un account mdbase Connect usa questo indirizzo, il relativo link monouso per reimpostare la password è in arrivo."
 
 #: src/auth-view.tsx
 msgid "If that address can be used, its one-time verification link is on the way."
@@ -1941,7 +1945,7 @@ msgid "Last used {0}"
 msgstr "Ultimo utilizzo {0}"
 
 #: src/ApplicationAccess.tsx
-msgid "Legacy scoped access is revoked. Reauthorize this application for the entire collection."
+msgid "Legacy scoped access is revoked. Reauthorize this app for the entire collection."
 msgstr "L'accesso limitato precedente è stato revocato. Autorizza nuovamente questa applicazione per l'intera raccolta."
 
 #: src/portal-commands.ts
@@ -2049,7 +2053,7 @@ msgid "Managed by your tailnet"
 msgstr "Gestita dalla tailnet"
 
 #: src/ConnectApp.tsx
-msgid "Management access does not give applications access to collection content. Each application needs its own collection approval."
+msgid "Management access does not give apps access to collection content. Each app needs its own collection approval."
 msgstr "L'accesso di gestione non concede alle applicazioni l'accesso al contenuto della raccolta. Ogni applicazione richiede un'approvazione specifica per la raccolta."
 
 #: src/AccountManagement.tsx
@@ -2061,25 +2065,25 @@ msgid "Markdown edits will sync in both directions. Concurrent edits remain sepa
 msgstr "Le modifiche Markdown si sincronizzeranno in entrambe le direzioni. Le modifiche simultanee rimarranno separate finché non verrà scelta una versione."
 
 #: src/ConnectPrimitives.tsx
-msgid "mdbase connect could not be reached. Check your connection and try again."
-msgstr "Impossibile raggiungere mdbase connect. Controlla la connessione e riprova."
+msgid "mdbase Connect could not be reached. Check your connection and try again."
+msgstr "Impossibile raggiungere mdbase Connect. Controlla la connessione e riprova."
 
 #: src/portal-model.ts
-msgid "mdbase connect could not reach the service. Check your connection and try again."
-msgstr "mdbase connect non è riuscito a raggiungere il servizio. Controlla la connessione e riprova."
+msgid "mdbase Connect could not reach the service. Check your connection and try again."
+msgstr "mdbase Connect non è riuscito a raggiungere il servizio. Controlla la connessione e riprova."
 
 #: src/authority-workflows.tsx
-msgid "mdbase connect is checking the latest hosted changes, registering the folder, and making it the main copy."
-msgstr "mdbase connect verifica le ultime modifiche alla raccolta ospitata, registra la cartella e la rende la copia principale."
+msgid "mdbase Connect is checking the latest hosted changes, registering the folder, and making it the main copy."
+msgstr "mdbase Connect verifica le ultime modifiche alla raccolta ospitata, registra la cartella e la rende la copia principale."
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
-msgid "mdbase connect navigation"
-msgstr "Navigazione di mdbase connect"
+msgid "mdbase Connect navigation"
+msgstr "Navigazione di mdbase Connect"
 
 #: src/ConnectApp.tsx
-msgid "mdbase connect needs to restart"
-msgstr "mdbase connect deve essere riavviato"
+msgid "mdbase Connect needs to restart"
+msgstr "mdbase Connect deve essere riavviato"
 
 #. placeholder {0}: literal(adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." }))
 #: src/authority-workflows.tsx
@@ -2325,7 +2329,7 @@ msgid "Nothing is allowed until you review access."
 msgstr "Non viene consentito nulla prima della verifica dell'accesso."
 
 #: src/AccountManagement.tsx
-msgid "Occasional news about significant changes to mdbase Connect and new mdbase applications."
+msgid "Occasional news about significant changes to mdbase Connect and new mdbase apps."
 msgstr "Notizie occasionali su modifiche importanti a mdbase Connect e nuove applicazioni mdbase."
 
 #: src/ConnectApp.tsx
@@ -2355,11 +2359,6 @@ msgstr "Cambia solo la definizione di questo tipo. I record esistenti rimangono 
 #: src/authority-workflows.tsx
 msgid "Open {0}"
 msgstr "Apri {0}"
-
-#. placeholder {0}: pairing.connector_name
-#: src/authority-workflows.tsx
-msgid "Open {0} with {selectedName}"
-msgstr "Apri {0} con {selectedName}"
 
 #: src/ConnectApp.tsx
 msgid "Open a collection in the editor or manage where its main copy lives."
@@ -2393,13 +2392,13 @@ msgstr "Apri nell'editor"
 
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
-msgid "Open mdbase connect"
-msgstr "Apri mdbase connect"
+msgid "Open mdbase Connect"
+msgstr "Apri mdbase Connect"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
-msgid "Open mdbase connect on {0} to make this collection available."
-msgstr "Apri mdbase connect su {0} per rendere disponibile questa raccolta."
+msgid "Open mdbase Connect on {0} to make this collection available."
+msgstr "Apri mdbase Connect su {0} per rendere disponibile questa raccolta."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2429,8 +2428,8 @@ msgid "Open the link from the email again, or change email preferences in your a
 msgstr "Apri di nuovo il link nell'email oppure modifica le preferenze email nelle impostazioni dell'account."
 
 #: src/ConnectApp.tsx
-msgid "Open the mdbase connect desktop app and choose Connect this computer."
-msgstr "Apri l'app desktop di mdbase connect e scegli Connetti questo computer."
+msgid "Open the mdbase Connect desktop app and choose Connect this computer."
+msgstr "Apri l'app desktop di mdbase Connect e scegli Connetti questo computer."
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
@@ -2454,13 +2453,13 @@ msgstr "Apri, cerca, convalida e segui i record e le viste salvate; elenca i nom
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
-msgid "Opening mdbase connect"
-msgstr "Apertura di mdbase connect"
+msgid "Opening mdbase Connect"
+msgstr "Apertura di mdbase Connect"
 
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
-msgid "Opening mdbase connect…"
-msgstr "Apertura di mdbase connect…"
+msgid "Opening mdbase Connect…"
+msgstr "Apertura di mdbase Connect…"
 
 #: src/auth-view.tsx
 msgid "or"
@@ -2687,7 +2686,7 @@ msgid "Removing access…"
 msgstr "Rimozione dell'accesso…"
 
 #: src/ConnectApp.tsx
-msgid "Removing application and folder access…"
+msgid "Removing app and folder access…"
 msgstr "Rimozione dell'accesso tramite applicazioni e cartelle…"
 
 #: src/ConnectApp.tsx
@@ -2724,7 +2723,7 @@ msgid "Replacing your password signs out every other browser session connected t
 msgstr "La sostituzione della password disconnette tutte le altre sessioni del browser collegate all'account."
 
 #: src/ConnectApp.tsx
-msgid "Replicas sync between your devices. Application access is managed separately."
+msgid "Replicas sync between your devices. App access is managed separately."
 msgstr "Le repliche si sincronizzano tra i tuoi dispositivi. L’accesso delle applicazioni si gestisce separatamente."
 
 #. placeholder {0}: response.status
@@ -2759,6 +2758,10 @@ msgstr "Obbligatorio"
 msgctxt "Account sign-in"
 msgid "Reset your password"
 msgstr "Reimposta la password"
+
+#: src/ConnectApp.tsx
+msgid "Resolve the conflicting changes in the desktop app on the computers holding this collection, then return here to change access."
+msgstr "Risolvi le modifiche in conflitto nell’app desktop sui computer che contengono questa raccolta, poi torna qui per modificare l’accesso."
 
 #. placeholder {0}: inverse.name
 #: src/ConnectApp.tsx
@@ -2840,10 +2843,6 @@ msgstr "Verifica accesso"
 msgid "Review app access"
 msgstr "Esamina l’accesso dell’app"
 
-#: src/ApplicationAccess.tsx
-msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
-msgstr "Verifica le applicazioni connesse all'account. Le credenziali di accesso del browser non vengono mai condivise con loro."
-
 #: src/authorization-view.tsx
 msgid "Review in this browser"
 msgstr "Verifica in questo browser"
@@ -2865,7 +2864,7 @@ msgid "Review request"
 msgstr "Verifica richiesta"
 
 #: src/ApplicationAccess.tsx
-msgid "Review the access each application has to {collectionName}."
+msgid "Review the access each app has to {collectionName}."
 msgstr "Verifica l'accesso di ciascuna applicazione a {collectionName}."
 
 #. placeholder {0}: grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })
@@ -2919,8 +2918,8 @@ msgstr "Revocare l'accesso a {0}?"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
-msgid "Revoke application"
-msgstr "Revoca applicazione"
+msgid "Revoke app"
+msgstr "Revoca app"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
@@ -3119,7 +3118,7 @@ msgid "Sign in to continue"
 msgstr "Accedi per continuare"
 
 #: src/auth-view.tsx
-msgid "Sign in, review the request, and return to the application."
+msgid "Sign in, review the request, and return to the app."
 msgstr "Accedi, verifica la richiesta e torna all'applicazione."
 
 #: src/AccountManagement.tsx
@@ -3256,7 +3255,7 @@ msgid "Synced folders"
 msgstr "Cartelle sincronizzate"
 
 #: src/authorization-capabilities.ts
-msgid "Synchronize an application-controlled local copy of this collection."
+msgid "Synchronize an app-controlled local copy of this collection."
 msgstr "Sincronizza una copia locale di questa raccolta controllata dall'applicazione."
 
 #: src/ConnectApp.tsx
@@ -3334,7 +3333,7 @@ msgid "The editor can reach this collection through {0}."
 msgstr "L'editor può raggiungere questa raccolta tramite {0}."
 
 #: src/authority-workflows.tsx
-msgid "The folder on {mirrorName} is now the main copy. Hosted access has stopped and previous application connections were revoked."
+msgid "The folder on {mirrorName} is now the main copy. Hosted access has stopped and previous app connections were revoked."
 msgstr "La cartella su {mirrorName} è ora la copia principale. L'accesso ospitato è terminato e le precedenti connessioni delle applicazioni sono state revocate."
 
 #: src/ConnectApp.tsx
@@ -3384,8 +3383,8 @@ msgid "The main copy was not moved to mdbase."
 msgstr "La copia principale non è stata spostata su mdbase."
 
 #: src/portal-model.ts
-msgid "The mdbase connect app on this computer needs to be updated before you can continue."
-msgstr "L'app mdbase connect su questo computer deve essere aggiornata prima di continuare."
+msgid "The mdbase Connect app on this computer needs to be updated before you can continue."
+msgstr "L'app mdbase Connect su questo computer deve essere aggiornata prima di continuare."
 
 #: src/authority-workflows.tsx
 msgid "The original app approval changed."
@@ -3421,7 +3420,7 @@ msgid "The value has changed again. Undo is no longer available."
 msgstr "Il valore è cambiato di nuovo. Non è più possibile annullare."
 
 #: src/ConnectApp.tsx
-msgid "Their application and folder access will also be revoked."
+msgid "Their app and folder access will also be revoked."
 msgstr "Verrà revocato anche il loro accesso tramite app e cartelle."
 
 #: src/portal-commands.ts
@@ -3444,21 +3443,21 @@ msgstr "Impossibile aprire questo link di configurazione dell'account"
 msgid "This app needs a collection hosted by mdbase, and none is ready yet."
 msgstr "Questa applicazione richiede una raccolta ospitata da mdbase e nessuna è ancora pronta."
 
+#: src/compatibility.ts
+msgid "This app needs a collection hosted by mdbase."
+msgstr "Questa applicazione richiede una raccolta ospitata da mdbase."
+
 #: src/authorization-capabilities.ts
 msgid "This app needs an update before it can connect. Try again after it updates."
 msgstr "Questa app richiede un aggiornamento prima di potersi connettere. Riprova dopo l'aggiornamento."
 
+#: src/portal-model.ts
+msgid "This app request has expired. Return to the app and start again."
+msgstr "Questa richiesta dell'applicazione è scaduta. Torna all'applicazione e ricomincia."
+
 #: src/authorization-review.tsx
 msgid "This app uses advanced behavior settings, so an existing type cannot be connected during approval."
 msgstr "Questa applicazione usa impostazioni di comportamento avanzate, quindi non è possibile collegare un tipo esistente durante l'approvazione."
-
-#: src/compatibility.ts
-msgid "This application needs a collection hosted by mdbase."
-msgstr "Questa applicazione richiede una raccolta ospitata da mdbase."
-
-#: src/portal-model.ts
-msgid "This application request has expired. Return to the application and start again."
-msgstr "Questa richiesta dell'applicazione è scaduta. Torna all'applicazione e ricomincia."
 
 #: src/ConnectApp.tsx
 msgid "This browser could not keep your creation request. No request was sent."
@@ -3658,8 +3657,8 @@ msgstr "Annullamento dell'iscrizione…"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
-msgid "Update mdbase connect on {0} before using this collection."
-msgstr "Aggiorna mdbase connect su {0} prima di usare questa raccolta."
+msgid "Update mdbase Connect on {0} before using this collection."
+msgstr "Aggiorna mdbase Connect su {0} prima di usare questa raccolta."
 
 #: src/ConnectApp.tsx
 msgid "Update recommended for current policy protection"
@@ -3775,8 +3774,8 @@ msgid "Viewer"
 msgstr "Visualizzatore"
 
 #: src/authorization-view.tsx
-msgid "Waiting for mdbase connect"
-msgstr "In attesa di mdbase connect"
+msgid "Waiting for mdbase Connect"
+msgstr "In attesa di mdbase Connect"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"

@@ -24,9 +24,9 @@ Pending onboarding stays pending; failed onboarding can
 be retried successfully. These fixtures do not claim to implement sync or custody.
 
 The fake UI configuration and onboarding handoff point to
-`http://127.0.0.1:4814/?demo=300`. Start the Editor there with
+`http://127.0.0.1:4802/?demo=300`. Start the Editor there with
 `pnpm --filter mdbase-editor build:e2e` then
-`pnpm --filter mdbase-editor preview --port 4814 --strictPort`, or set
+`pnpm --filter mdbase-editor preview --port 4802 --strictPort`, or set
 `REVIEW_EDITOR_URL` to your own local Editor URL. Onboarding hands off to this full demo URL, not a real collection grant.
 Collection Open links use its origin with the normal server/collection parameters;
 they do not pretend a demo record is a hosted collection. Use an unused `PORT` for this review server too.

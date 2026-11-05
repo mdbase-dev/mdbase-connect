@@ -78,7 +78,7 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
   useLocaleRevision();
   const [query, setQuery] = useState("");
   const visible = groups.filter(group => group.applicationName.toLocaleLowerCase(i18n.locale).includes(query.trim().toLocaleLowerCase(i18n.locale)));
-  return <Page title={collectionName ? t(i18n)({ message: "Access", context: "Connect interface" }) : t(i18n)({ message: "Apps", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each application has to ${collectionName}.` : t(i18n)({ message: "Review applications connected to your account. Your browser sign-in is never shared with them." })}>
+  return <Page title={collectionName ? t(i18n)({ message: "Access", context: "Connect interface" }) : t(i18n)({ message: "Apps", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each app has to ${collectionName}.` : t(i18n)({ message: "Apps connected to your account. Your browser sign-in is never shared with them." })}>
     <section>{collectionName && <SectionTitle title={t(i18n)({ message: "Apps", context: "Connect interface" })} count={groups.length} />}
       {groups.length >= 10 && <ListFilter label={t(i18n)`Filter apps`} value={query} onChange={setQuery} />}
       {visible.map(group => <details className="mdbase-disclosure connect-application" key={group.applicationId} data-list-item data-command={`app:${group.applicationId}`}>
@@ -101,13 +101,13 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
             }, false, undefined, t(i18n)`${group.applicationName} can no longer use ${entries[0]!.collection_name}`)} />}
           </div>)}
           {group.grants.map(grant => <GrantEditor error={error} key={grant.id} grant={grant} client={client} busy={busy} perform={perform} />)}
-          <ConfirmAction error={error} className="mdbase-button is-danger connect-revoke-application" label={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} question={collectionName ? t(i18n)`Revoke ${group.applicationName} access to ${collectionName}?` : t(i18n)`Revoke ${group.applicationName}?`} consequence={collectionName ? t(i18n)`New access will stop. Copies already downloaded by the app cannot be removed remotely.` : t(i18n)`New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely.`} pendingLabel={t(i18n)`Revoking access…`} confirmLabel={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => perform(`application-${group.applicationId}`, async options => {
+          <ConfirmAction error={error} className="mdbase-button is-danger connect-revoke-application" label={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke app", context: "Connect interface" })} question={collectionName ? t(i18n)`Revoke ${group.applicationName} access to ${collectionName}?` : t(i18n)`Revoke ${group.applicationName}?`} consequence={collectionName ? t(i18n)`New access will stop. Copies already downloaded by the app cannot be removed remotely.` : t(i18n)`New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely.`} pendingLabel={t(i18n)`Revoking access…`} confirmLabel={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke app", context: "Connect interface" })} busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => perform(`application-${group.applicationId}`, async options => {
             await revokeApplicationGroup(group, client, Boolean(collectionName), options);
           }, false, undefined, collectionName ? t(i18n)`${group.applicationName} can no longer use ${collectionName}` : t(i18n)`Revoked ${group.applicationName}`)} />
         </div>
       </details>)}
       {groups.length > 0 && visible.length === 0 && <Empty title={t(i18n)`No apps match`} body={t(i18n)`Try another app name.`} action={<button className="mdbase-button is-tertiary" onClick={() => setQuery("")}><Trans>Clear filter</Trans></button>} />}
-      {groups.length === 0 && <Empty title={t(i18n)({ message: "No apps with access" })} body={t(i18n)({ message: "Applications appear here after you approve access." })} />}
+      {groups.length === 0 && <Empty title={t(i18n)({ message: "No apps with access" })} body={t(i18n)({ message: "Apps appear here after you approve access." })} />}
     </section>
     {!collectionName && <section>
       <SectionTitle title={t(i18n)`Explore apps`} note={t(i18n)({ message: "Open an app, then choose which collections it can access." })} />
@@ -135,7 +135,7 @@ function GrantEditor({ error, grant, client, busy, perform }: {
     return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small><Trans>Revocation is pending. Waiting for {grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })} to confirm enforcement.</Trans></small></span><b>{t(i18n)({ message: "Revoking…", context: "Connect interface" })}</b></div>;
   }
   if (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0) {
-    return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small><Trans>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</Trans></small></span><b>{t(i18n)({ message: "Reauthorization required", context: "Connect interface" })}</b></div>;
+    return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small><Trans>Legacy scoped access is revoked. Reauthorize this app for the entire collection.</Trans></small></span><b>{t(i18n)({ message: "Reauthorization required", context: "Connect interface" })}</b></div>;
   }
   const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))];
   const changed = ordered.some((operation) => operations.has(operation) !== grant.operations.includes(operation));

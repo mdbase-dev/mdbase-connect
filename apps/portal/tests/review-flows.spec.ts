@@ -1,5 +1,126 @@
 import { expect, openScenario, test } from "./review/fixture";
 import { authorizationId, pairingId } from "./review/scenarios.mjs";
+import type { Page, TestInfo } from "@playwright/test";
+
+async function checkConsentFocus(page: Page, testInfo: TestInfo) {
+  const controls = await page.locator(".authorization-panel").evaluate(panel => {
+    const controls = [...panel.querySelectorAll<HTMLElement>("a[href], button, input, select, summary, [tabindex], .collection-picker-list")]
+      .filter(element => (element.tabIndex >= 0 || (element.matches(".collection-picker-list") && element.scrollHeight > element.clientHeight))
+        && !element.matches(":disabled") && element.checkVisibility());
+    controls.forEach((element, index) => { element.dataset.reviewFocusIndex = String(index); });
+    controls[0].focus();
+    return controls.length;
+  });
+  const visited = [];
+  for (let index = 0; index < controls; index++) {
+    const focus = await page.evaluate(() => {
+      const active = document.activeElement as HTMLElement;
+      const bounds = active.getBoundingClientRect();
+      const footer = document.querySelector(".approval-footer")!.getBoundingClientRect();
+      return { index: Number(active.dataset.reviewFocusIndex), tag: active.tagName, name: active.getAttribute("aria-label") ?? active.textContent?.slice(0, 80),
+        clear: Boolean(active.closest(".approval-footer")) || bounds.bottom <= footer.top,
+        hit: active.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)) };
+    });
+    visited.push(focus);
+    expect(focus, JSON.stringify(visited)).toMatchObject({ index, clear: true, hit: true });
+    await page.keyboard.press("Tab");
+  }
+  await testInfo.attach("consent-focus-hit-tests", { body: JSON.stringify(visited, null, 2), contentType: "application/json" });
+  await page.screenshot({ path: testInfo.outputPath("consent-disclosures.png") });
+}
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`W17 consent body and compact target ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme });
+      await openScenario(page, "pairing-many");
+      const picker = page.getByRole("combobox", { name: "Open in Reader" });
+      await picker.fill("Coastal");
+      await picker.press("ArrowDown");
+      await picker.press("Enter");
+      const approval = page.getByRole("button", { name: "Open Reader", exact: true });
+      await expect(approval).toBeEnabled();
+      await expect(approval).toHaveAttribute("aria-describedby", `pairing-target-${pairingId}`);
+      const target = page.locator(".approval-target .collection-name");
+      expect(await target.evaluate(element => element.scrollHeight <= element.clientHeight && element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect((await approval.boundingBox())!.height).toBeLessThan(70);
+      await page.getByText("Allow offline access to additional collections", { exact: true }).click();
+      await page.getByText("Details", { exact: true }).click();
+      await checkConsentFocus(page, testInfo);
+    });
+
+    test(`W17 authorization body focus ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme });
+      await openScenario(page, "authorization");
+      await page.getByRole("combobox", { name: "Choose a collection", exact: true }).fill("Field");
+      await page.getByRole("option").first().click();
+      await page.getByRole("button", { name: "Review access", exact: true }).click();
+      for (const disclosure of await page.locator("details.mdbase-disclosure > summary").all()) await disclosure.click();
+      await checkConsentFocus(page, testInfo);
+    });
+
+    test(`W17 palette and phone rows ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme });
+      await openScenario(page, "typical-account");
+      if (viewport.width === 390) {
+        const hosted = page.locator(".connect-collection-row").filter({ hasText: "Shared research library" });
+        await expect(hosted.locator(".connect-status")).toBeHidden();
+        expect((await hosted.boundingBox())!.height).toBeLessThan(80);
+        await expect(page.locator(".connect-page > header > div > span")).toBeHidden();
+      }
+      await page.keyboard.press("Control+k");
+      await page.getByRole("combobox", { name: "Search collections, apps, computers, sessions and actions" }).fill("field");
+      const mark = page.locator(".mdbase-command-results mark").first();
+      await expect(mark).toHaveText(/field/i);
+      const colors = await mark.evaluate(element => ({ color: getComputedStyle(element).color, parent: getComputedStyle(element.parentElement!).color, background: getComputedStyle(element).backgroundColor }));
+      expect(colors.color).toBe(colors.parent);
+      expect(colors.background).not.toBe("rgb(255, 255, 0)");
+      expect(colors.background).not.toBe("rgba(0, 0, 0, 0)");
+      await page.screenshot({ path: testInfo.outputPath("palette-matches.png") });
+    });
+  }
+}
+
+test("W17 sharing conflicts give desktop guidance instead of futile retry", async ({ page }) => {
+  await openScenario(page, "sync-conflict");
+  const error = page.getByRole("alert");
+  await expect(error).toContainText("Studio and Travel");
+  await expect(error).toContainText("Resolve the conflicting changes in the desktop app");
+  await expect(error.getByRole("button", { name: "Try again" })).toHaveCount(0);
+});
+
+test.describe("W17 touch hints", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+  test("hides keyboard hints on coarse pointers", async ({ page }) => {
+    await openScenario(page, "typical-account");
+    expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
+    await expect(page.locator(".sidebar-search kbd")).toBeHidden();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await expect(page.locator(".mdbase-command-results kbd").first()).toBeHidden();
+  });
+});
+
+test("W17 pending approval retains heading focus", async ({ page }) => {
+  await openScenario(page, "authorization");
+  await page.getByRole("combobox", { name: "Choose a collection", exact: true }).fill("Field");
+  await page.getByRole("option").first().click();
+  await page.getByRole("button", { name: "Review access", exact: true }).click();
+  let finishApproval!: () => void;
+  const approvalResponse = new Promise<void>(resolve => { finishApproval = resolve; });
+  await page.route(`**/v1/authorization-requests/${authorizationId}/approve`, async route => {
+    await approvalResponse;
+    await route.fulfill({ json: { status: "setting_up" } });
+  });
+  await page.route(`**/v1/authorization-requests/${authorizationId}/status`, route => route.fulfill({ json: { status: "setting_up" } }));
+  await page.getByRole("button", { name: "Allow access", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Collection", exact: true })).toBeFocused();
+  finishApproval();
+  await expect(page.getByRole("heading", { name: "Finishing collection setup…", exact: true })).toBeFocused();
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+});
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   for (const colorScheme of ["light", "dark"] as const) test(`W11 list slots and shell ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
@@ -22,11 +143,11 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       return { height: row.height, statusLeft: status.left, statusOverflow: statusElement.scrollWidth - statusElement.clientWidth, menuLeft: menu.left, centre: menu.top + menu.height / 2 - row.top - row.height / 2, menuHeight: menu.height };
     }));
     expect(geometry).toHaveLength(7);
-    expect(new Set(geometry.map(row => row.statusLeft)).size).toBe(1);
+    if (viewport.width === 1440) expect(new Set(geometry.map(row => row.statusLeft)).size).toBe(1);
     expect(new Set(geometry.map(row => row.menuLeft)).size).toBe(1);
     expect(geometry.every(row => row.statusOverflow <= 1)).toBe(true);
     if (viewport.width === 390) {
-      expect(new Set(geometry.map(row => row.height)).size).toBe(1);
+      expect(geometry.every(row => row.height >= 64)).toBe(true);
       expect(geometry.every(row => Math.abs(row.centre) <= 1 && row.menuHeight >= 44)).toBe(true);
       expect((await rows.first().boundingBox())!.y).toBeLessThan(300);
     }
@@ -120,7 +241,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
           });
           await page.reload();
           await page.getByRole("option", { name: longName }).click();
-          await expect(page.getByRole("button", { name: `Open Reader with ${longName}` })).toBeEnabled();
+          await expect(page.getByRole("button", { name: `Open Reader` })).toBeEnabled();
         }
         await picker.focus();
         for (let index = 0; index < 30; index++) await picker.press("ArrowDown");
@@ -267,9 +388,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await expect(page.getByRole("link", { name: "Open in editor", exact: true }).filter({ visible: true })).toHaveCount(0);
       const offline = page.locator(".connect-collection-row").filter({ hasText: "Offline" }).first();
       await expect(offline.locator(".connect-collection-name small")).toContainText("Travel laptop");
-      const name = await offline.locator(".connect-collection-name").boundingBox();
+      const name = await offline.locator(".connect-collection-name small").boundingBox();
       const status = await offline.locator(".connect-status").boundingBox();
-      expect(status!.y).toBeGreaterThanOrEqual(name!.y + name!.height);
+      expect(Math.abs(status!.y - name!.y)).toBeLessThanOrEqual(2);
       await page.getByRole("button", { name: "Open menu" }).click();
       await expect(page.locator(".connect-navigation-sheet .product-brand")).toBeVisible();
       await expect(page.locator(".connect-navigation-sheet .mdbase-motion-keys-first")).toHaveCount(0);
@@ -349,7 +470,7 @@ test("palette actions reuse row dialogs, including non-optimistic revoke and ses
   await run("Revoke Reader", "Revoke Reader");
   const confirm = page.getByRole("dialog", { name: "Revoke Reader?", exact: true });
   await expect(confirm.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
-  await confirm.getByRole("button", { name: "Revoke application", exact: true }).click();
+  await confirm.getByRole("button", { name: "Revoke app", exact: true }).click();
   await expect(confirm.getByRole("button", { name: "Revoking access…", exact: true })).toBeDisabled();
   await expect(page.locator('[data-command="app:app-1"]')).toBeVisible();
   acknowledge();
@@ -533,7 +654,7 @@ test("hosted creation validates on blur without moving its action", async ({ pag
 test("failed revocation stays visible and never removes a grant optimistically", async ({ page }, testInfo) => {
   await openScenario(page, "applications");
   await page.locator(".connect-application > summary").first().click();
-  await page.getByRole("button", { name: "Revoke application", exact: true }).first().click();
+  await page.getByRole("button", { name: "Revoke app", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
   await page.route("**/v1/grants/revoke-batch", async route => {
     await new Promise(resolve => setTimeout(resolve, 400));
@@ -541,11 +662,11 @@ test("failed revocation stays visible and never removes a grant optimistically",
   });
   const grants = page.locator(".connect-grant");
   const count = await grants.count();
-  await dialog.getByRole("button", { name: "Revoke application", exact: true }).click();
+  await dialog.getByRole("button", { name: "Revoke app", exact: true }).click();
   await expect(dialog.getByRole("button", { name: "Revoking access…" })).toHaveAttribute("aria-busy", "true");
   await expect(grants).toHaveCount(count);
   await expect(dialog.getByRole("alert")).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Revoke application", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Revoke app", exact: true })).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath("revocation-error.png") });
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
@@ -625,7 +746,7 @@ test("signed-out pairing signs in locally and remembers approval", async ({ page
   await page.getByLabel("Password", { exact: true }).fill("review-only-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByRole("option", { name: "Field research", exact: true }).click();
-  await page.getByRole("button", { name: "Open Reader with Field research", exact: true }).click();
+  await page.getByRole("button", { name: "Open Reader", exact: true }).click();
   await expect.poll(async () => (await (await page.request.get(`/v1/pairing-requests/${pairingId}`)).json()).pairing.approved_at).toBeTruthy();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Reader can now use Field research", exact: true })).toBeVisible();
@@ -633,7 +754,7 @@ test("signed-out pairing signs in locally and remembers approval", async ({ page
 
 test("create-new pairing creates a collection and persists it", async ({ page }) => {
   await openScenario(page, "pairing-create-new");
-  await page.getByRole("button", { name: "Open Reader with Reader highlights", exact: true }).click();
+  await page.getByRole("button", { name: "Open Reader", exact: true }).click();
   await expect.poll(async () => (await (await page.request.get(`/v1/pairing-requests/${pairingId}`)).json()).pairing.creation.completed).toBe(true);
   await page.goto("/collections");
   await expect(page.getByText("Reader highlights", { exact: true }).first()).toBeVisible();
@@ -678,14 +799,14 @@ test("account session revocation sticks after reload", async ({ page }) => {
 });
 
 test("signup creates the starter collection and hands off to the configured Editor", async ({ page, baseURL }) => {
-  await page.route("http://127.0.0.1:4814/?demo=300", route => route.fulfill({ contentType: "text/html", body: "<h1>Editor handoff</h1>" }));
+  await page.route("http://127.0.0.1:4802/?demo=300", route => route.fulfill({ contentType: "text/html", body: "<h1>Editor handoff</h1>" }));
   await openScenario(page, "signup-agreements");
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("Maya Chen");
   await page.getByLabel("Password", { exact: true }).fill("a-long-local-review-password");
   await page.getByLabel("Confirm password", { exact: true }).fill("a-long-local-review-password");
   await page.getByRole("checkbox", { name: /I agree to the/ }).check();
   await page.getByRole("button", { name: "Create account", exact: true }).click();
-  await expect(page).toHaveURL("http://127.0.0.1:4814/?demo=300");
+  await expect(page).toHaveURL("http://127.0.0.1:4802/?demo=300");
   await expect(page.getByRole("heading", { name: "Editor handoff" })).toBeVisible();
   await page.goto(`${baseURL}/collections`);
   await expect(page.getByText("My first collection", { exact: true }).first()).toBeVisible();

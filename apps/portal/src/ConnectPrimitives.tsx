@@ -62,7 +62,7 @@ export function ConnectPage({ title, intro, status, action, reading = false, chi
     return () => { observer.disconnect(); document.removeEventListener("focusin", track); };
   }, [title]);
   useLayoutEffect(() => {
-    document.title = `${title} - mdbase connect`;
+    document.title = `${title} - mdbase Connect`;
     const main = heading.current?.closest(".connect-main");
     if (main instanceof HTMLElement) main.scrollTo?.({ top: 0 });
     heading.current?.focus({ preventScroll: true });
@@ -135,6 +135,6 @@ export function relativeTime(value: string): string {
 export function errorMessage(value: unknown): string {
   const detail = value instanceof Error ? value.message : String(value);
   return /failed to fetch|networkerror|network request failed/i.test(detail)
-    ? t(i18n)({ message: "mdbase connect could not be reached. Check your connection and try again." })
+    ? t(i18n)({ message: "mdbase Connect could not be reached. Check your connection and try again." })
     : detail;
 }

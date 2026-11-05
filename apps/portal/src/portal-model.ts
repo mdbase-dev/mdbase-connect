@@ -73,13 +73,13 @@ export function message(value: unknown) {
     }
   }
   if (/failed to fetch|networkerror|network request failed/i.test(detail)) {
-    return t(i18n)({ message: "mdbase connect could not reach the service. Check your connection and try again." });
+    return t(i18n)({ message: "mdbase Connect could not reach the service. Check your connection and try again." });
   }
   if (/authorization.+(?:expired|not found)|request.+(?:expired|not found)/i.test(detail)) {
-    return t(i18n)({ message: "This application request has expired. Return to the application and start again." });
+    return t(i18n)({ message: "This app request has expired. Return to the app and start again." });
   }
   if (/unsupported.+protocol|up-to-date connector|no longer compatible/i.test(detail)) {
-    return t(i18n)({ message: "The mdbase connect app on this computer needs to be updated before you can continue." });
+    return t(i18n)({ message: "The mdbase Connect app on this computer needs to be updated before you can continue." });
   }
   return detail;
 }
