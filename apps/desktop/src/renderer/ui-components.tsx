@@ -47,7 +47,7 @@ export function ProductSidebar({
       <span ref={pill} className="nav-pill" aria-hidden="true" hidden />
       <NavButton route="overview" current={route} label={t(i18n)({ message: "Overview", context: "Connect interface" })} onSelect={onSelect} />
       <NavButton route="collections" current={route} label={t(i18n)({ message: "Collections", context: "Connect interface" })} count={collectionCount} attention={deviceCount} onSelect={onSelect} />
-      <NavButton route="access" current={route} label={t(i18n)({ message: "App access", context: "Connect interface" })} attention={pendingCount} onSelect={onSelect} />
+      <NavButton route="access" current={route} label={t(i18n)({ message: "Apps", context: "Connect interface" })} attention={pendingCount} onSelect={onSelect} />
       <NavButton route="activity" current={route} label={t(i18n)({ message: "Activity", context: "Connect interface" })} onSelect={onSelect} />
       <NavButton route="settings" current={route} label={t(i18n)({ message: "Settings", context: "Connect interface" })} onSelect={onSelect} />
     </nav>

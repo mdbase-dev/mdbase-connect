@@ -32,30 +32,25 @@ import {
 import { message, type Route } from "./view-model";
 import "./styles.css";
 
-const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }> = {
+const routeCopy: Record<Route, { title: string; lede: string }> = {
   overview: {
-    get eyebrow() { return t(i18n)({ message: "This computer", context: "Connect interface" }); },
-    get title() { return t(i18n)({ message: "Your local connection.", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Overview", context: "Connect interface" }); },
     get lede() { return t(i18n)({ message: "Collections, app access and sync status in one place." }); }
   },
   collections: {
-    get eyebrow() { return t(i18n)({ message: "Collections", context: "Connect interface" }); },
-    get title() { return t(i18n)({ message: "Your collections.", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Collections", context: "Connect interface" }); },
     get lede() { return t(i18n)({ message: "Folders on this computer that your apps can use, and how each one syncs." }); }
   },
   access: {
-    get eyebrow() { return t(i18n)({ message: "App access", context: "Connect interface" }); },
-    get title() { return t(i18n)({ message: "Decide what apps can do.", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Apps", context: "Connect interface" }); },
     get lede() { return t(i18n)({ message: "Apps you approve in mdbase reach your local collections through this computer." }); }
   },
   activity: {
-    get eyebrow() { return t(i18n)({ message: "Activity", context: "Connect interface" }); },
-    get title() { return t(i18n)({ message: "What reached this computer." }); },
+    get title() { return t(i18n)({ message: "Activity", context: "Connect interface" }); },
     get lede() { return t(i18n)({ message: "App access and collection changes on this computer." }); }
   },
   settings: {
-    get eyebrow() { return t(i18n)({ message: "Settings", context: "Connect interface" }); },
-    get title() { return t(i18n)({ message: "Account and startup.", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Settings", context: "Connect interface" }); },
     get lede() { return t(i18n)({ message: "This computer's account, app approval and background behavior." }); }
   }
 };
@@ -197,10 +192,11 @@ function App() {
   };
 
   const commands: Command[] = [
-    ...([["overview", t(i18n)({ message: "Overview", context: "Connect interface" })], ["collections", t(i18n)({ message: "Collections", context: "Connect interface" })], ["access", t(i18n)({ message: "App access", context: "Connect interface" })], ["activity", t(i18n)({ message: "Activity", context: "Connect interface" })], ["settings", t(i18n)({ message: "Settings", context: "Connect interface" })]] as const)
+    ...([["overview", t(i18n)({ message: "Overview", context: "Connect interface" })], ["collections", t(i18n)({ message: "Collections", context: "Connect interface" })], ["access", t(i18n)({ message: "Apps", context: "Connect interface" })], ["activity", t(i18n)({ message: "Activity", context: "Connect interface" })], ["settings", t(i18n)({ message: "Settings", context: "Connect interface" })]] as const)
       .map(([id, label]) => ({ id, label: t(i18n)`Go to ${label}`, group: "commands", run: () => selectRoute(id) })),
     { id: "add", label: t(i18n)({ message: "Add existing folder" }), group: "commands", run: addExisting },
-    { id: "create", label: t(i18n)({ message: "Create collection" }), group: "commands", run: openCreate }
+    { id: "create", label: t(i18n)({ message: "Create collection" }), group: "commands", run: openCreate },
+    ...collections.map((collection) => ({ id: `collection:${collection.id}`, label: collection.name, detail: collection.root, group: "collections", run: () => { void act(() => window.mdbaseConnect.openCollectionFolder(collection.id)); } }))
   ];
 
   return (
@@ -215,13 +211,13 @@ function App() {
         onSelect={selectRoute}
         onSearch={() => setCommandsOpen(true)}
       />
-      <CommandPalette open={commandsOpen} commands={commands} onClose={() => setCommandsOpen(false)} showAll={["commands"]} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)({ message: "Type a command", context: "Connect interface" })} />
+      <CommandPalette open={commandsOpen} commands={commands} onClose={() => setCommandsOpen(false)} showAll={["commands"]} groupLabel={(group) => group === "collections" ? t(i18n)({ message: "Collections", context: "Connect interface" }) : t(i18n)({ message: "Commands", context: "Connect interface" })} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)({ message: "Search", context: "Connect interface" })} />
       <button className="product-sidebar-backdrop" aria-label={t(i18n)({ message: "Close navigation", context: "Connect interface" })} onClick={() => setNavigationOpen(false)} />
       <div className="product-canvas desktop-canvas">
         <MobileProductBar open={navigationOpen} onOpen={() => setNavigationOpen(true)} />
         <main className="content">
           <header className="topbar">
-            <div><p className="eyebrow">{copy.eyebrow}</p><h1>{copy.title}</h1><p className="lede">{copy.lede}</p></div>
+            <div><h1>{copy.title}</h1><p className="lede">{copy.lede}</p></div>
           </header>
 
           <div aria-live="polite">
@@ -313,20 +309,19 @@ function Overview({ cloud, connectionLabel, collections, attention, busy, onNavi
         </div>
       </section>}
       <section>
-        <SectionHeading title={t(i18n)({ message: "Overview", context: "Connect interface" })} note={t(i18n)({ message: "What this computer is doing right now." })} />
         <div className="overview-list">
-          <OverviewRow label={t(i18n)({ message: "Account", context: "Connect interface" })} value={connectionLabel} detail={cloud.serverUrl ?? ""} action={t(i18n)({ message: "Settings", context: "Connect interface" })} onClick={() => onNavigate("settings")} />
-          <OverviewRow label={t(i18n)({ message: "Collections", context: "Connect interface" })} value={t(i18n)`${plural(collections.length, { one: "# collection", other: "# collections" })}`} detail={synced > 0 ? t(i18n)`${synced} synced` : t(i18n)`All on this computer only`} action={t(i18n)({ message: "Collections", context: "Connect interface" })} onClick={() => onNavigate("collections")} />
-          <OverviewRow label={t(i18n)({ message: "App access", context: "Connect interface" })} value={attention > 0 ? t(i18n)`${plural(attention, { one: "# item needs you", other: "# items need you" })}` : t(i18n)`Nothing waiting`} detail={t(i18n)`Apps you approve reach your collections through this computer`} action={t(i18n)({ message: "App access", context: "Connect interface" })} onClick={() => onNavigate("access")} />
+          <OverviewRow label={t(i18n)({ message: "Account", context: "Connect interface" })} value={connectionLabel} detail={cloud.serverUrl ?? ""} route="settings" onNavigate={onNavigate} />
+          <OverviewRow label={t(i18n)({ message: "Collections", context: "Connect interface" })} value={t(i18n)`${plural(collections.length, { one: "# collection", other: "# collections" })}`} detail={synced > 0 ? t(i18n)`${synced} synced` : t(i18n)`All on this computer only`} route="collections" onNavigate={onNavigate} />
+          <OverviewRow label={t(i18n)({ message: "Apps", context: "Connect interface" })} value={attention > 0 ? t(i18n)`${plural(attention, { one: "# item needs you", other: "# items need you" })}` : t(i18n)`Nothing waiting`} detail={t(i18n)`Apps you approve reach your collections through this computer`} route="access" onNavigate={onNavigate} />
         </div>
       </section>
     </div>
   );
 }
 
-function OverviewRow({ label, value, detail, action, onClick }: { label: string; value: string; detail: string; action: string; onClick(): void }) {
+function OverviewRow({ label, value, detail, route, onNavigate }: { label: string; value: string; detail: string; route: Route; onNavigate(route: Route): void }) {
   useLocaleRevision();
-  return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="mdbase-button is-tertiary" onClick={onClick}>{action}</button></div>;
+  return <a className="overview-row" href={`#${route}`} onClick={(event) => { event.preventDefault(); onNavigate(route); }}><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div></a>;
 }
 
 function CreateCollectionDialog({ open, busy, onClose, onCreate }: {

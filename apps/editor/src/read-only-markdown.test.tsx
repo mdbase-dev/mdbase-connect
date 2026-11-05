@@ -3,6 +3,15 @@ import { describe, expect, it } from "vitest";
 import { ReadOnlyMarkdown } from "./read-only-markdown";
 
 describe("inert structural renderer bounds", () => {
+  it.each(["# Title\n\nBody", "Title\n=====\n\nBody"])("omits only a leading heading repeating the peek title: %s", (source) => {
+    const view = render(<ReadOnlyMarkdown source={source} byteLength={source.length} previewTitle="Title" />);
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+    expect(screen.queryByText("Read-only Markdown preview")).not.toBeInTheDocument();
+    expect(screen.getByRole("region")).toHaveTextContent("Body");
+    view.rerender(<ReadOnlyMarkdown source={source} byteLength={source.length} previewTitle="Another title" />);
+    expect(screen.getByRole("heading", { name: "Title" })).toBeInTheDocument();
+  });
+
   it.each([
     ["nesting", "> ".repeat(100) + "deep"],
     ["node count", "*a* ".repeat(3000)],

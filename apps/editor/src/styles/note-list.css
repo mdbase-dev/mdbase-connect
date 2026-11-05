@@ -434,6 +434,9 @@
   justify-self: start;
 }
 
-.note-peek { width: min(680px, 100%); max-height: calc(100dvh - 150px); overflow: auto; }
+.note-peek { position: fixed; inset: auto; margin: 0; width: min(480px, calc(100vw - 24px)); max-height: min(560px, calc(100dvh - 24px)); overflow: auto; padding: var(--space-4); color: var(--ink); background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--elevation-high); }
+.note-peek::backdrop { display: none; }
+.note-peek .read-only-markdown { padding: 0; }
+.note-peek .read-only-markdown-body { white-space: normal; }
 .note-peek > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.note-peek h2 { margin: 0; font-size: var(--font-size-heading); overflow-wrap: anywhere; }
+.note-peek > header h2 { margin: 0; font-size: var(--font-size-heading); overflow-wrap: anywhere; }

@@ -990,24 +990,25 @@ async function auditDesktopRoutes() {
     };
   });
   await page.goto(servers[1].origin);
-  await page.getByRole("heading", { name: "Your local connection." }).waitFor();
+  await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
   await page.getByText("Connected securely", { exact: true }).first().waitFor();
   await auditPage(page, "desktop overview", { keyboard: true });
 
   const nav = (name) => page.locator(".product-sidebar-link").filter({ hasText: name });
   for (const route of [
-    ["Collections", "Your collections."],
-    ["App access", "Decide what apps can do."],
-    ["Activity", "What reached this computer."],
-    ["Settings", "Account and startup."]
+    ["Collections", "Collections"],
+    ["Apps", "Apps"],
+    ["Activity", "Activity"],
+    ["Settings", "Settings"]
   ]) {
     await nav(route[0]).click();
-    await page.getByRole("heading", { name: route[1] }).waitFor();
+    await page.getByRole("heading", { name: route[1], exact: true }).waitFor();
     if (route[0] === "Collections") {
-      await page.getByRole("button", { name: "Review 1 file" }).click();
+      await page.getByRole("button", { name: "Actions for Personal notes" }).click();
+      await page.getByRole("menuitem", { name: "Review 1 file" }).click();
       await page.getByRole("button", { name: "Keep both" }).waitFor();
     }
-    if (route[0] === "App access") {
+    if (route[0] === "Apps") {
       await page.getByRole("button", { name: "Approve…" }).waitFor();
       await page.getByRole("button", { name: "Mark as seen" }).waitFor();
     }

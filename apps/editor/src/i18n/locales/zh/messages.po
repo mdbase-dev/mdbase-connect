@@ -1182,6 +1182,11 @@ msgstr "返回集合"
 msgid "Back to collections"
 msgstr "返回集合列表"
 
+#: src/ConnectionScreens.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Back to Collections"
+msgstr "返回集合"
+
 #: src/TypeBrowser.tsx
 msgid "Back to editing"
 msgstr "返回编辑"
@@ -1256,6 +1261,10 @@ msgstr "无序列表"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Calculated"
 msgstr "计算值"
+
+#: src/ConnectionScreens.tsx
+msgid "Can't open this collection"
+msgstr "无法打开此集合"
 
 #: src/App.tsx
 #: src/BulkNoteProperties.tsx
@@ -3489,6 +3498,10 @@ msgstr "笔记链接"
 msgid "note path"
 msgstr "笔记路径"
 
+#: src/NoteList.tsx
+msgid "Note peek"
+msgstr "笔记预览"
+
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/PropertiesPanel.tsx
@@ -3654,6 +3667,11 @@ msgstr "打开原文件"
 msgid "Open Settings"
 msgstr "打开设置"
 
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Open the Editor configured for your mdbase environment from Collections."
+msgstr "请从集合中打开为您的 mdbase 环境配置的编辑器。"
+
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "展开以查找提及。"
@@ -3666,6 +3684,7 @@ msgstr "打开类型"
 msgid "Open YAML"
 msgstr "打开 YAML"
 
+#: src/App.tsx
 #: src/NoteList.tsx
 msgid "Opening"
 msgstr "正在打开"
@@ -3673,11 +3692,6 @@ msgstr "正在打开"
 #: src/App.tsx
 msgid "Opening “{pendingNotePath}”…"
 msgstr "正在打开“{pendingNotePath}”…"
-
-#. placeholder {0}: original.displayName
-#: src/SdkEditorRoot.tsx
-msgid "Opening {0}"
-msgstr "正在打开 {0}"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
@@ -3691,10 +3705,6 @@ msgstr "正在打开集合"
 #: src/main.tsx
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "正在打开 mdbase connect… <0>继续</0>"
-
-#: src/main.tsx
-msgid "Opening mdbase…"
-msgstr "正在打开 mdbase…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
@@ -4369,6 +4379,11 @@ msgstr "重试保存"
 #: src/NoteList.tsx
 msgid "Retry search"
 msgstr "重试搜索"
+
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Return to Collections and open the collection again."
+msgstr "请返回集合并重新打开该集合。"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
@@ -5385,6 +5400,11 @@ msgstr "此集合为空。"
 msgid "This collection is no longer open in mdbase editor."
 msgstr "此集合已不再在 mdbase editor 中打开。"
 
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "This collection link is invalid"
+msgstr "此集合链接无效"
+
 #: src/gateway.ts
 msgid "This collection needs authorization again. Choose the collection to continue."
 msgstr "此集合需要重新授权。请选择集合以继续。"
@@ -5418,6 +5438,11 @@ msgstr "此联系人具有其他显式类型。请先在编辑器中审阅其类
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
 msgstr "此契约未公开简单的顶层属性。请在 YAML 中配置其字段引用。"
+
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "This Editor build cannot open collections here"
+msgstr "此编辑器版本无法在此打开集合"
 
 #: src/use-session-lifecycle.ts
 msgid "This editor session has been closed."

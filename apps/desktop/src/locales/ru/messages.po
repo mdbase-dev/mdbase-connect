@@ -265,14 +265,14 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Учётная запись"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Account and startup."
-msgstr "Учётная запись и запуск."
-
 #: src/renderer/daemon-view.mts
 msgid "Account connection needs attention"
 msgstr "Подключение учётной записи требует внимания"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "Actions for {0}"
+msgstr "Действия для {0}"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -330,12 +330,6 @@ msgstr "Сейчас эту папку использует другое при�
 msgid "another program is writing to the folder"
 msgstr "другая программа записывает данные в папку"
 
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "Доступ приложений"
-
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
 msgstr "Здесь появятся изменения коллекций и доступа приложений на этом компьютере."
@@ -370,6 +364,12 @@ msgstr "Одобрите этот компьютер в браузере. Окн
 msgctxt "Connect interface"
 msgid "Approve…"
 msgstr "Одобрить…"
+
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "Приложения"
 
 #: src/renderer/daemon-view.mts
 msgid "Apps cannot use it until you resume it."
@@ -682,11 +682,6 @@ msgstr "Создать коллекцию"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Создать папку в"
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Decide what apps can do."
-msgstr "Решайте, что могут делать приложения."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -1383,6 +1378,10 @@ msgctxt "Desktop application"
 msgid "Remove and add"
 msgstr "Удалить и добавить"
 
+#: src/renderer/collections-view.tsx
+msgid "Removing…"
+msgstr "Удаление…"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "Переименовать"
@@ -1448,6 +1447,7 @@ msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Сохранение…"
 
+#: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Search"
@@ -1780,11 +1780,6 @@ msgstr "Не удалось проверить настройки синхрон
 msgid "This computer"
 msgstr "Этот компьютер"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "This computer"
-msgstr "Этот компьютер"
-
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
@@ -1912,11 +1907,6 @@ msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Включение…"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "Введите команду"
-
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx
 msgid "Unavailable"
@@ -2021,17 +2011,9 @@ msgctxt "Local connection status"
 msgid "Waiting to open."
 msgstr "Ожидает открытия."
 
-#: src/renderer/main.tsx
-msgid "What reached this computer."
-msgstr "Что получено этим компьютером."
-
 #: src/renderer/collections-view.tsx
 msgid "What this collection is for"
 msgstr "Для чего предназначена эта коллекция"
-
-#: src/renderer/main.tsx
-msgid "What this computer is doing right now."
-msgstr "Что сейчас делает этот компьютер."
 
 #: src/renderer/takeover-panel.tsx
 msgid "What to do: "
@@ -2083,19 +2065,9 @@ msgstr "Ваши коллекции ожидают переноса"
 msgid "Your collections moved to mdbase"
 msgstr "Ваши коллекции перенесены в mdbase"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your collections."
-msgstr "Ваши коллекции."
-
 #: src/renderer/takeover-state.mts
 msgid "Your local collections are safe on disk."
 msgstr "Ваши локальные коллекции в безопасности на диске."
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your local connection."
-msgstr "Ваше локальное подключение."
 
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."
