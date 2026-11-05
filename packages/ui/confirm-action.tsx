@@ -26,7 +26,7 @@ export function ConfirmAction({ label, question, consequence, confirmLabel, pend
       onClose={() => setOpen(false)} onConfirm={async () => { setFailed(false); if (await onConfirm() !== false) setOpen(false); else setFailed(true); }}>
       {failed && error && <p role="alert">{error}</p>}
       {confirmName !== undefined && <label><span>{t(i18n)`Type ${confirmName} to confirm`}</span>
-        <input className="mdbase-field" value={typed} autoComplete="off" spellCheck={false} onChange={(event) => setTyped(event.target.value)} />
+        <input className="mdbase-field" data-autofocus value={typed} autoComplete="off" spellCheck={false} onChange={(event) => setTyped(event.target.value)} />
       </label>}
     </ConfirmDialog>
   </>;

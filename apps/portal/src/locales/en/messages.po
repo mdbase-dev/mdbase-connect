@@ -176,8 +176,8 @@ msgstr "{0} is offline."
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
-msgid "{0} is stored in mdbase replicas on your devices."
-msgstr "{0} is stored in mdbase replicas on your devices."
+msgid "{0} is stored on your computers."
+msgstr "{0} is stored on your computers."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
@@ -923,10 +923,6 @@ msgstr "Check again"
 msgid "Check the app."
 msgstr "Check the app."
 
-#: src/ConnectPrimitives.tsx
-msgid "Check your connection and try again."
-msgstr "Check your connection and try again."
-
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
@@ -1044,6 +1040,10 @@ msgstr "Collection"
 msgid "Collection changes"
 msgstr "Collection changes"
 
+#: src/ConnectApp.tsx
+msgid "Collection copies"
+msgstr "Collection copies"
+
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
 msgstr "Collection ID"
@@ -1065,10 +1065,6 @@ msgstr "Collection owner"
 msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "Collection permissions"
-
-#: src/ConnectApp.tsx
-msgid "Collection replicas"
-msgstr "Collection replicas"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
@@ -1204,6 +1200,10 @@ msgstr "Continue without it"
 msgctxt "Connect interface"
 msgid "Copied"
 msgstr "Copied"
+
+#: src/ConnectApp.tsx
+msgid "Copies sync between your computers. App access is managed separately."
+msgstr "Copies sync between your computers. App access is managed separately."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2368,9 +2368,15 @@ msgstr "Open a collection in the editor or manage where its main copy lives."
 msgid "Open an app, then choose which collections it can access."
 msgstr "Open an app, then choose which collections it can access."
 
+#: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
 msgstr "Open desktop app"
+
+#. placeholder {0}: collection.detail
+#: src/ConnectApp.tsx
+msgid "Open desktop app on {0} to make this collection available."
+msgstr "Open desktop app on {0} to make this collection available."
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
@@ -2389,16 +2395,6 @@ msgstr "Open in editor"
 msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "Open in editor"
-
-#: src/authorization-view.tsx
-#: src/ConnectApp.tsx
-msgid "Open mdbase Connect"
-msgstr "Open mdbase Connect"
-
-#. placeholder {0}: collection.detail
-#: src/ConnectApp.tsx
-msgid "Open mdbase Connect on {0} to make this collection available."
-msgstr "Open mdbase Connect on {0} to make this collection available."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2721,10 +2717,6 @@ msgstr "Replace existing files"
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
 msgstr "Replacing your password signs out every other browser session connected to the account."
-
-#: src/ConnectApp.tsx
-msgid "Replicas sync between your devices. App access is managed separately."
-msgstr "Replicas sync between your devices. App access is managed separately."
 
 #. placeholder {0}: response.status
 #: src/api.ts
@@ -3212,6 +3204,11 @@ msgstr "Signing out…"
 msgctxt "Account management"
 msgid "Signing out…"
 msgstr "Signing out…"
+
+#: src/ConnectPrimitives.tsx
+#: src/portal-model.ts
+msgid "Something went wrong on mdbase. Try again."
+msgstr "Something went wrong on mdbase. Try again."
 
 #: src/auth-view.tsx
 msgid "Start signup again"

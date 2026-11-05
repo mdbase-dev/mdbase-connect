@@ -369,7 +369,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
           {!canPasswordDelete && !canExternalDelete && <p className="connect-muted"><Trans>No supported reauthentication method is connected.</Trans></p>}
         </div>}
         {reauthenticationToken && <p className="connect-current" role="status"><Trans>Identity confirmed for this deletion.</Trans></p>}
-        <label><span><Trans>Type DELETE to confirm</Trans></span><input className="mdbase-field" autoComplete="off" spellCheck={false} value={deletionConfirmation} onChange={(event) => setDeletionConfirmation(event.target.value)} /></label>
+        <label><span><Trans>Type DELETE to confirm</Trans></span><input className="mdbase-field" data-autofocus autoComplete="off" spellCheck={false} value={deletionConfirmation} onChange={(event) => setDeletionConfirmation(event.target.value)} /></label>
         </ConfirmDialog>
       </>}
     </section>

@@ -547,7 +547,7 @@ function CollectionSharingPanel({ error, collection, busy, perform, sharingAvail
       count={members?.length}
       action={sharingAvailable && <button className="mdbase-button is-tertiary" onClick={() => { setInviting(true); setShareLink(""); }}><Trans><Plus aria-hidden="true" />Invite person</Trans></button>}
     />
-    {loadError && <div className="connect-notice error" role="alert"><div>{loadError.message}{loadError.conflict && <p><Trans>Resolve the conflicting changes in the desktop app on the computers holding this collection, then return here to change access.</Trans></p>}</div>{!loadError.conflict && <button className="mdbase-button is-tertiary" onClick={() => void load()}><Trans>Try again</Trans></button>}</div>}
+    {loadError && <div className="connect-notice error" role="alert"><div>{loadError.conflict ? <p><Trans>Resolve the conflicting changes in the desktop app on the computers holding this collection, then return here to change access.</Trans></p> : loadError.message}</div>{!loadError.conflict && <button className="mdbase-button is-tertiary" onClick={() => void load()}><Trans>Try again</Trans></button>}</div>}
     {sharingAvailable && inviting && <form className="connect-inline-form connect-sharing-form" onSubmit={(event) => void invite(event)}>
       <label><span><Trans>Invite using</Trans></span><Select aria-label={t(i18n)({ message: "Invite using", context: "Connect interface" })} value={targetMode} options={[{ value: "email", label: t(i18n)`Verified email` }, { value: "invitee_code", label: t(i18n)`Sharing code` }]} onChange={(next) => { setTargetMode(next); setTarget(""); }} /></label>
       <label><span>{targetMode === "email" ? t(i18n)({ message: "Email address", context: "Connect interface" }) : t(i18n)({ message: "Sharing code", context: "Connect interface" })}</span><input className="mdbase-field" autoFocus type={targetMode === "email" ? "email" : "text"} maxLength={targetMode === "email" ? 320 : 32} value={target} onChange={(event) => setTarget(event.target.value)} placeholder={targetMode === "email" ? t(i18n)({ message: "person@example.com", context: "Connect interface" }) : "ABCD-EFGH"} /></label>
@@ -580,10 +580,10 @@ function Storage({ error, collection, busy, perform, editorOrigin }: {
 }) {
   useLocaleRevision();
   if (collection.kind === "native") {
-    return <Page title={t(i18n)({ message: "Storage", context: "Connect interface" })} intro={t(i18n)`${collection.name} is stored in mdbase replicas on your devices.`}>
+    return <Page title={t(i18n)({ message: "Storage", context: "Connect interface" })} intro={t(i18n)`${collection.name} is stored on your computers.`}>
       <p>{collection.detail}</p>
       <CollectionModeControl key={collection.id} collectionId={collection.id} load={() => takeModePrefetch(management, collection.id) ?? management.collectionModeStatus(collection.id)} change={(targetMode, requestId) => management.requestCollectionMode(collection.id, {targetMode, requestId})} cancel={(_target, requestId) => management.cancelCollectionMode(collection.id, requestId)} />
-      <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection replicas</Trans></strong><small><Trans>Replicas sync between your devices. App access is managed separately.</Trans></small></div></div></section>
+      <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection copies</Trans></strong><small><Trans>Copies sync between your computers. App access is managed separately.</Trans></small></div></div></section>
     </Page>;
   }
   if (collection.kind === "hosted") {
@@ -684,7 +684,7 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
         {intent && <p role="status"><Trans>Your original request is kept. Retry it to avoid creating another collection.</Trans></p>}
         <footer className="mdbase-dialog-actions"><button className="mdbase-button is-tertiary" type="button" disabled={busy.has("create-collection")} onClick={() => setCreating(false)}><Trans>Cancel</Trans></button><button className="mdbase-button is-primary" disabled={!hostedEnabled || !canCreate || busy.has("create-collection")}>{busy.has("create-collection") ? t(i18n)({ message: "Creating…", context: "Connect interface" }) : intent ? t(i18n)({ message: "Retry creation", context: "Connect interface" }) : t(i18n)({ message: "Create", context: "Connect interface" })}</button></footer>
       </form>}
-      {location === "native" && <div className="connect-edit-form"><p><Trans>Choose or create a folder in the desktop app. Collection files stay on this computer.</Trans></p><DesktopLink href="mdbase-connect://open"><Trans>Open mdbase Connect</Trans></DesktopLink></div>}
+      {location === "native" && <div className="connect-edit-form"><p><Trans>Choose or create a folder in the desktop app. Collection files stay on this computer.</Trans></p><DesktopLink href="mdbase-connect://open"><Trans>Open desktop app</Trans></DesktopLink></div>}
     </Dialog>
   </Page>;
 }
@@ -734,7 +734,7 @@ function Computers({ error, data, busy, perform }: {
         </div>;
       })}
       {data.connectors.length > 0 && visible.length === 0 && <Empty title={t(i18n)({ message: "No computers match", context: "Connect interface" })} body={t(i18n)({ message: "Try a different computer name. Filtering does not revoke access." })} />}
-      {data.connectors.length === 0 && <Empty title={t(i18n)({ message: "No computers connected", context: "Connect interface" })} body={t(i18n)({ message: "Open the mdbase Connect desktop app and choose Connect this computer." })} action={<span className="connect-empty-actions"><a href="mdbase-connect://open"><Trans>Open mdbase Connect</Trans></a><a href={desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Install the latest release</Trans></a></span>} />}
+      {data.connectors.length === 0 && <Empty title={t(i18n)({ message: "No computers connected", context: "Connect interface" })} body={t(i18n)({ message: "Open the mdbase Connect desktop app and choose Connect this computer." })} action={<span className="connect-empty-actions"><a href="mdbase-connect://open"><Trans>Open desktop app</Trans></a><a href={desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Install the latest release</Trans></a></span>} />}
     </section>
   </Page>;
 }
@@ -831,7 +831,7 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
     <span className="connect-collection-menu"><button ref={trigger} className="mdbase-icon-button" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><DotsThree aria-hidden="true" /></button>
       <Menu open={menuOpen} triggerRef={trigger} id={`collection-menu-${collection.id}`} label={collection.name} onClose={refocus => { setMenuOpen(false); if (refocus) trigger.current?.focus(); }}>
         {navigate && <button role="menuitem" className="mdbase-menu-item" onClick={() => { setMenuOpen(false); navigate("overview", collection.id); }}>{t(i18n)({ message: "Overview", context: "Connect interface" })}</button>}
-        {!hosted && <DesktopLink role="menuitem" href="mdbase-connect://open"><Trans>Open mdbase Connect</Trans></DesktopLink>}
+        {!hosted && <DesktopLink role="menuitem" href="mdbase-connect://open"><Trans>Open desktop app</Trans></DesktopLink>}
         {active && hosted.access.can_rename_collection && <button role="menuitem" className="mdbase-menu-item" data-action="rename" onClick={() => { setMenuOpen(false); setName(collection.name); setEditing("rename"); }}><Trans>Rename</Trans></button>}
         {active && <DesktopLink role="menuitem" href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.id)}`}><Trans>Sync folder</Trans></DesktopLink>}
         {hosted?.access.can_delete_collection && <button role="menuitem" data-action="delete" className="mdbase-menu-item is-danger" onClick={() => { setMenuOpen(false); setName(""); setEditing("delete"); }}><Trans>Delete</Trans></button>}
@@ -860,7 +860,7 @@ function connectionDescription(collection: CollectionRow): string {
   }
   return collection.available
     ? t(i18n)`The editor can reach this collection through ${collection.detail}.`
-    : t(i18n)`Open mdbase Connect on ${collection.detail} to make this collection available.`;
+    : t(i18n)`Open desktop app on ${collection.detail} to make this collection available.`;
 }
 
 function isConnectorOnline(lastSeenAt: string | null): boolean { return lastSeenAt !== null && Date.now() - new Date(lastSeenAt).getTime() < 45_000; }

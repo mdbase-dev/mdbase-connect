@@ -83,7 +83,7 @@ describe("account readiness before app consent", () => {
       return { pairing: original };
     });
     fireEvent.click(screen.getByRole("button", { name: /^Open Notes(?: with .+)?$/ }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Creation is not finished");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
     expect(screen.getByRole("textbox", { name: "New collection name" })).toHaveValue("Original name");
     expect(screen.getByRole("textbox", { name: "New collection name" })).toHaveAttribute("readonly");
     expect(screen.getByRole("button", { name: /^Open Notes(?: with .+)?$/ })).toBeEnabled();

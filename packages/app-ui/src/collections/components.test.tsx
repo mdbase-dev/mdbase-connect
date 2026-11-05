@@ -646,6 +646,8 @@ describe("delete outcome", () => {
     const onClose = vi.fn();
     mdbase.deleteCollection.mockImplementationOnce(() => Promise.reject(Object.assign(new Error("no"), { code: "forbidden" })));
     render(<Host entry={entry} onClose={onClose} />);
+    expect(document.activeElement).toBe(document.querySelector("dialog input"));
+    expect(button("Delete collection").disabled).toBe(true);
     typeName();
     await act(async () => { button("Delete collection").click(); });
     act(() => button("Cancel").click());

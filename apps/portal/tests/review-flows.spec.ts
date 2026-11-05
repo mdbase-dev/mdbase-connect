@@ -87,9 +87,129 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
 test("W17 sharing conflicts give desktop guidance instead of futile retry", async ({ page }) => {
   await openScenario(page, "sync-conflict");
   const error = page.getByRole("alert");
-  await expect(error).toContainText("Studio and Travel");
+  await expect(error).not.toContainText("replicas");
   await expect(error).toContainText("Resolve the conflicting changes in the desktop app");
   await expect(error.getByRole("button", { name: "Try again" })).toHaveCount(0);
+});
+
+for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as const) for (const reducedMotion of ["reduce", "no-preference"] as const) {
+  test(`W24 consent expansion and pending focus ${width} ${colorScheme} ${reducedMotion}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await page.emulateMedia({ colorScheme, reducedMotion });
+    await openScenario(page, "pairing-many");
+    const picker = page.getByRole("combobox", { name: "Open in Reader", exact: true });
+    await picker.focus();
+    for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    for (let step = 0; step < 4; step++) await page.keyboard.press("Tab");
+    const details = page.locator("details").filter({ has: page.locator("summary", { hasText: "Details" }) });
+    await expect(details.locator("summary")).toBeFocused();
+    const height = await page.locator(".collection-picker-list").evaluate(element => element.getBoundingClientRect().height);
+    await page.keyboard.press("Enter");
+    await expect(details).toHaveAttribute("open", "");
+    await page.waitForTimeout(350);
+    expect(await page.locator(".collection-picker-list").evaluate(element => element.getBoundingClientRect().height)).toBe(height);
+    const geometry = await details.evaluate(element => {
+      const summary = element.querySelector("summary")!;
+      const box = summary.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return { hit: summary.contains(hit), bottom: element.getBoundingClientRect().bottom, footer: document.querySelector(".approval-footer")!.getBoundingClientRect().top };
+    });
+    expect(geometry.hit).toBe(true);
+    expect(geometry.bottom).toBeLessThanOrEqual(geometry.footer);
+    await testInfo.attach("expanded-details", { body: await page.screenshot(), contentType: "image/png" });
+    await page.goto("/__review/scenario/pairing-many?latency=300");
+    await picker.fill("Reading");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    const approve = page.getByRole("button", { name: "Open Reader", exact: true });
+    let finishApproval!: () => void;
+    const approvalResponse = new Promise<void>(resolve => { finishApproval = resolve; });
+    await page.route(`**/v1/pairing-requests/${pairingId}/approve`, async route => {
+      await approvalResponse;
+      await route.continue();
+    });
+    await approve.focus();
+    await expect(approve).toBeFocused();
+    await page.keyboard.press("Enter");
+    try {
+      await expect(page.locator(".approval-actions .is-primary")).toBeDisabled();
+      await expect(page.locator(".approval-target")).toBeFocused();
+      await expect(page.getByRole("heading", { name: /Reader can now use/ })).toHaveCount(0);
+      await testInfo.attach("pending-approval", { body: await page.screenshot(), contentType: "image/png" });
+    } finally { finishApproval(); }
+    await expect(page.getByRole("heading", { name: /Reader can now use/ })).toBeFocused();
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("H1");
+  });
+}
+
+test("W24 filter returns to results without typing list shortcuts", async ({ page }) => {
+  await openScenario(page, "heavy-account");
+  const filter = page.getByRole("searchbox", { name: "Filter collections" });
+  await page.keyboard.press("/");
+  await expect(filter).toBeFocused();
+  await filter.fill("Field");
+  await page.keyboard.press("Escape");
+  await expect(filter).toHaveValue("");
+  await expect(filter).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".connect-collection-link").first()).toBeFocused();
+  await page.keyboard.press("j");
+  await expect(page.locator(".connect-collection-link").nth(1)).toBeFocused();
+  await expect(filter).toHaveValue("");
+  for (const key of ["ArrowDown", "Enter"]) {
+    await page.keyboard.press("/");
+    await filter.fill("Field");
+    await page.keyboard.press(key);
+    await expect(page.locator(".connect-collection-link").first()).toBeFocused();
+    await expect(filter).toHaveValue("Field");
+  }
+});
+
+test("W24 typed confirms start in the field and keep approval deliberate", async ({ page }) => {
+  await openScenario(page, "typical-account");
+  const row = page.locator(".connect-collection-row").filter({ has: page.getByRole("link", { name: "Shared research library", exact: true }) });
+  await row.getByRole("button", { name: /^Actions for/ }).click();
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("textbox")).toBeFocused();
+  await expect(dialog.getByRole("button", { name: "Delete permanently", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await page.getByRole("link", { name: "Account", exact: true }).click();
+  await page.getByRole("button", { name: "Delete account…", exact: true }).click();
+  await expect(page.getByLabel("Type DELETE to confirm")).toBeFocused();
+  await expect(page.getByRole("button", { name: "Delete account permanently", exact: true })).toBeDisabled();
+});
+
+test("W24 server errors do not blame the network", async ({ page }) => {
+  await openScenario(page, "server-500");
+  await expect(page.getByRole("alert")).toContainText("Something went wrong on mdbase. Try again.");
+  await expect(page.getByRole("alert")).not.toContainText("Check your connection");
+});
+
+test("W24 capped palette keeps its search header and active result visible", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openScenario(page, "heavy-account");
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+  const input = palette.getByRole("combobox");
+  await page.keyboard.press("End");
+  const visible = await palette.evaluate(element => {
+    const results = element.querySelector(".mdbase-command-results")!;
+    const active = element.querySelector('[aria-selected="true"]')!;
+    const box = active.getBoundingClientRect();
+    const bounds = results.getBoundingClientRect();
+    const search = element.querySelector(".mdbase-command-search")!.getBoundingClientRect();
+    return { scrollable: results.scrollHeight > results.clientHeight, hit: active.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)), top: box.top, bottom: box.bottom, resultsTop: bounds.top, resultsBottom: bounds.bottom, headerBottom: search.bottom };
+  });
+  await testInfo.attach("palette-scroll", { body: JSON.stringify(visible), contentType: "application/json" });
+  expect(visible.scrollable).toBe(true);
+  expect(visible.hit).toBe(true);
+  expect(visible.top).toBeGreaterThanOrEqual(visible.resultsTop);
+  expect(visible.bottom).toBeLessThanOrEqual(visible.resultsBottom);
+  expect(visible.headerBottom).toBeLessThanOrEqual(visible.resultsTop);
+  await input.fill("Theme");
+  await expect.poll(() => palette.locator(".mdbase-command-results").evaluate(element => element.scrollHeight <= element.clientHeight)).toBe(true);
 });
 
 test.describe("W17 touch hints", () => {
@@ -114,9 +234,9 @@ test("W17 pending approval retains heading focus", async ({ page }) => {
     await approvalResponse;
     await route.fulfill({ json: { status: "setting_up" } });
   });
-  await page.route(`**/v1/authorization-requests/${authorizationId}/status`, route => route.fulfill({ json: { status: "setting_up" } }));
   await page.getByRole("button", { name: "Allow access", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Collection", exact: true })).toBeFocused();
+  await page.route(`**/v1/authorization-requests/${authorizationId}/status`, route => route.fulfill({ json: { status: "setting_up" } }));
   finishApproval();
   await expect(page.getByRole("heading", { name: "Finishing collection setup…", exact: true })).toBeFocused();
   expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);

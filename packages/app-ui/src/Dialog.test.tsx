@@ -13,6 +13,14 @@ const host = document.body.appendChild(document.createElement("div"));
 const root = createRoot(host);
 afterEach(() => { act(() => root.render(null)); vi.useRealTimers(); });
 
+it("focuses a typed confirmation before its default cancel action", () => {
+  act(() => root.render(<ConfirmDialog open title="Delete collection" confirmLabel="Delete" pendingLabel="Deleting…" disabled onConfirm={vi.fn()} onClose={vi.fn()}>
+    <label>Type Notes to confirm<input data-autofocus /></label>
+  </ConfirmDialog>));
+  expect(document.activeElement).toBe(document.querySelector("input"));
+  expect(document.querySelector<HTMLButtonElement>(".mdbase-button.is-danger")?.disabled).toBe(true);
+});
+
 it("keeps an inspector open beneath quick open and returns focus to it", () => {
   const inspectorClose = vi.fn();
   const openPalette = (open: boolean) => <><Dialog open title="Properties" onClose={inspectorClose}><button data-autofocus>Property</button></Dialog>

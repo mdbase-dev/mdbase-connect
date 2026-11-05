@@ -34,7 +34,7 @@ for (const [link, pathname] of retiredLinks) {
     const target = new URL(page.url());
     expect(target.origin).toBe("http://connect.test");
     expect(target.pathname).toBe(pathname);
-    await expect(page.getByRole("complementary", { name: "mdbase connect navigation" })).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "mdbase Connect navigation" })).toHaveCount(0);
   });
 }
 

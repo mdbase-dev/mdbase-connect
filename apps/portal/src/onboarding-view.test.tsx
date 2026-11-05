@@ -35,7 +35,7 @@ describe("starter onboarding", () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ error: { code, message: "Could not prepare the collection." } }, { status }));
     render(<GettingStarted />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not prepare the collection.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(status >= 500 ? "Something went wrong on mdbase. Try again." : "Could not prepare the collection.");
     expect(replace).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Continue without it" })).toHaveAttribute("href", "/");
     vi.mocked(fetch).mockResolvedValue(Response.json({ status: "ready", editor_url: "https://editor.example.test/starter" }));
