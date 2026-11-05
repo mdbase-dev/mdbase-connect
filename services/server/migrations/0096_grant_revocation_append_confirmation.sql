@@ -1,7 +1,9 @@
 -- mdbase:next-grant-revoke-trigger:v1
 -- Log-bound revocations confirm when the grant-revoke appends. A native grant
 -- without an active binding has nothing to append, so its revocation is complete
--- in this transaction.
+-- in this transaction. A grant restored to its legacy target has a retired
+-- binding whose log revoke is unrelated to this revocation, so it drops the
+-- binding and waits for its connector acknowledgement.
 CREATE OR REPLACE FUNCTION next_revoke_grant_binding() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE binding next_grant_bindings%ROWTYPE;
 BEGIN
@@ -12,8 +14,12 @@ BEGIN
     VALUES(binding.collection_id, jsonb_build_object('version', 1, 'ops', jsonb_build_array(
       jsonb_build_object('op', 'grant-revoke', 'grant', binding.log_grant_id::text))));
     UPDATE next_grant_bindings SET active = false WHERE grant_id = OLD.id;
-  ELSIF TG_OP = 'UPDATE' AND OLD.revoked_at IS NULL AND NEW.next_collection_id IS NOT NULL THEN
-    NEW.revocation_confirmed_at := now();
+  ELSIF TG_OP = 'UPDATE' AND OLD.revoked_at IS NULL THEN
+    IF NEW.next_collection_id IS NOT NULL THEN
+      NEW.revocation_confirmed_at := now();
+    ELSE
+      DELETE FROM next_grant_bindings WHERE grant_id = OLD.id;
+    END IF;
   END IF;
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;

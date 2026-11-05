@@ -56,13 +56,7 @@ export async function confirmLocalGrantRevocations(db: DatabasePool, connectorId
   await db.query(
     `UPDATE grants SET revocation_confirmed_at = COALESCE(revocation_confirmed_at, now())
      WHERE revoked_at IS NOT NULL AND hosted_replica_id IS NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM next_grant_bindings b
-         JOIN next_policy_outbox o ON o.collection_id = b.collection_id
-         LEFT JOIN next_policy_batches p ON p.id = o.batch_id
-         WHERE b.grant_id = grants.id AND p.state IS DISTINCT FROM 'appended'
-           AND o.ops->'ops' @> jsonb_build_array(jsonb_build_object('op', 'grant-revoke', 'grant', b.log_grant_id::text))
-       )
+       AND id NOT IN (SELECT grant_id FROM next_grant_bindings)
        AND revocation_policy_sequence IS NOT NULL AND revocation_policy_sequence <= $3::bigint
        AND collection_id IN (
          SELECT col.id FROM collections col JOIN connectors c ON c.id = col.connector_id

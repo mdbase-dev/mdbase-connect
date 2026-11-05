@@ -20,7 +20,7 @@ the grant's enforcement authority has not yet confirmed completion:
   `grants.revocation_confirmed_at` in the same transaction as the append record.
   Exact-byte recovery does likewise. Queued, sending (including unknown outcomes),
   parked and head-moved/rebuilding batches stay `revoking`. A connector feed
-  acknowledgement cannot confirm a grant while its log revoke is outstanding. No individual device acknowledgement
+  acknowledgement cannot confirm a grant with a log binding. No individual device acknowledgement
   is implied; disconnected devices may not yet have applied the appended policy.
   Cascading deletion still queues policy but leaves no grant row to confirm.
   A native grant with no active binding has no log policy to revoke, so its
