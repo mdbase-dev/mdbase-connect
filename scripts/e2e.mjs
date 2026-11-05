@@ -331,10 +331,10 @@ secret: connector scope test
   await onboardingPage.goto(`${serverUrl}/authorize/${authorizationId}`);
   await onboardingPage.getByText(collection.display_name, { exact: true }).waitFor();
   const onboardingCollectionChoice = onboardingPage.locator(
-    `.collection-choice-list input[value="${collection.id}"]`
+    `.collection-picker-option[data-value="${collection.id}"]`
   );
   if (await onboardingCollectionChoice.isVisible()) {
-    await onboardingCollectionChoice.check();
+    await onboardingCollectionChoice.click();
     await onboardingPage
       .getByRole("button", { name: "Review access", exact: true })
       .click();
@@ -433,7 +433,7 @@ secret: connector scope test
     const portalPage = await portalContext.newPage();
     await portalPage.goto(`${serverUrl}/authorize/${portalAuthorizationId}`);
     const duplicateRows = portalPage
-      .locator(".collection-choice-list label")
+      .locator(".collection-picker-option")
       .filter({ hasText: "Workouts" });
     await duplicateRows.first().waitFor({ state: "visible" });
     const duplicateRowCount = await duplicateRows.count();
@@ -443,17 +443,7 @@ secret: connector scope test
         + JSON.stringify(portalRequest.body.collections)
       );
     }
-    const radioLabels = await duplicateRows.locator("input[type=radio]").evaluateAll(
-      (inputs) => inputs.map((input) =>
-        input.labels?.[0]?.textContent?.replace(/\s+/g, " ").trim() ?? ""
-      )
-    );
-    if (radioLabels.length !== 2
-        || radioLabels.some((label) => !label.includes("ID …"))
-        || new Set(radioLabels).size !== 2) {
-      throw new Error(`Same-name radio labels remained ambiguous: ${JSON.stringify(radioLabels)}`);
-    }
-    const details = await duplicateRows.locator("small").allTextContents();
+    const details = await duplicateRows.locator(".collection-identity-copy small").allTextContents();
     if (details.length !== 2 || new Set(details).size !== 2) {
       throw new Error(`Same-name collection details remained ambiguous: ${JSON.stringify(details)}`);
     }
@@ -645,7 +635,7 @@ implements:
     const setupPage = await setupContext.newPage();
     await setupPage.goto(`${serverUrl}/authorize/${setupAuthorizationId}`);
     const setupPageChoice = setupPage.locator(
-      `.collection-choice-list input[value="${collection.id}"]`
+      `.collection-picker-option[data-value="${collection.id}"]`
     );
     await setupPage.locator(".approval-form").waitFor();
     if (await setupPageChoice.isVisible()) {
@@ -820,7 +810,7 @@ implements:
       `${serverUrl}/authorize/${taskNotesAuthorization.id}`
     );
     const taskNotesPageChoice = taskNotesPage.locator(
-      `.collection-choice-list input[value="${collection.id}"]`
+      `.collection-picker-option[data-value="${collection.id}"]`
     );
     await taskNotesPage.locator(".approval-form").waitFor();
     if (await taskNotesPageChoice.isVisible()) {

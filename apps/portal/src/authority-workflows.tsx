@@ -1,5 +1,4 @@
 import { StatusGlyph } from "@mdbase/connect-ui/status-glyph";
-import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
@@ -13,23 +12,16 @@ import {
 } from "./api";
 import { finishDeniedPairing, rememberCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
-import { CollectionPicker } from "./CollectionPicker";
-import { fileActionLabel } from "./authorization-review";
+import { CollectionPicker, CollectionIdentity, GrantMoment, RequestShell, fileActionLabel } from "./authorization-review";
+import { RequestIdentity } from "./authorization-view";
 import { watchPairingCollections, watchPairingPreparation } from "./pairing-progress";
 import { Checkbox, CheckboxGroup } from "@mdbase-dev/ui/checkbox";
 import { Select } from "@mdbase-dev/ui/select";
-import "@mdbase-dev/ui/screens.css";
-
-/** Plain label for an exact non-web app origin shown on the consent screen. */
-function appOriginKind(origin: string | undefined): string | null {
-  if (origin?.startsWith("capacitor://")) return t(i18n)({ message: "mobile app", context: "Collection connection" });
-  if (origin?.startsWith("chrome-extension://")) return t(i18n)({ message: "browser extension", context: "Collection connection" });
-  return null;
-}
+type PairingRequest = DevicePairing & { expires_at?: string };
 
 export function Pairing({ pairingId }: { pairingId: string }) {
   useLocaleRevision();
-  const [pairing, setPairing] = useState<DevicePairing | null>(null);
+  const [pairing, setPairing] = useState<PairingRequest | null>(null);
   const [deepLink, setDeepLink] = useState("");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -257,18 +249,19 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   useEffect(() => {
     if (handBack.current && pairing?.approved_at && pairing.return_url) {
       handBack.current = false;
-      location.assign(pairing.return_url);
+      const timer = window.setTimeout(() => location.assign(pairing.return_url!),
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 300);
+      return () => window.clearTimeout(timer);
     }
   }, [pairing]);
 
   if (!pairing)
     return (
-      <Loading
-        error={error}
-        onRetry={() => {
-          if (error) setAttempt((value) => value + 1);
-        }}
-      />
+      <RequestShell busy={!error}>
+        <h1><Trans>Review app access</Trans></h1>
+        <p role={error ? "alert" : "status"}>{error || t(i18n)`Loading the request…`}</p>
+        {error && <button className="mdbase-button is-primary" onClick={() => setAttempt(value => value + 1)}><Trans>Try again</Trans></button>}
+      </RequestShell>
     );
   const installation = pairing.installation_device === true;
   const refusal = outcome && outcome !== "cancelled" ? outcome : pairing.account_upgrade
@@ -276,10 +269,17 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     : null;
   const selectedCollection=pairing.collections?.find(collection=>collection.collection_id===selectedCollectionId);
   const privateChoice=selectedCollection?.kind==="private";
+  const details = <details className="installation-details">
+                      <summary><Trans>Details</Trans></summary>
+                      {pairing.app_origin?.trim()
+                        ? <p><Trans>Requested from <code>{literal(pairing.app_origin)}</code>. The origin shown here is not proof of who made the request.</Trans></p>
+                        : <p><Trans>Requested by {literal(pairing.connector_name)}. No requesting origin is available.</Trans></p>}
+                      {pairing.fingerprint && <p><Trans>Device key: <code>{pairing.fingerprint}</code></Trans></p>}
+                      <p><Trans>This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow.</Trans></p>
+                    </details>;
   const selectedName=selectedCollectionId===NEW_COLLECTION ? newCollectionName.trim() || t(i18n)({ message: "a new collection", context: "Collection connection" }) : selectedCollection?.display_name;
   if (installation && !pairing.approved_at && !declined && outcome !== "cancelled" && refusal) {
-    return <main className="mdbase-connect-screen installation-approval"><section>
-      <PageBrand label="connect" error={error} />
+    return <RequestShell>
       <h1>{refusal.heading}</h1>
       {installationAccountLabel(pairing) && <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>}
       <p className="mdbase-connect-lead" role="alert">{refusal.message}</p>
@@ -289,7 +289,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       <p className="mdbase-connect-lead">{pairing.return_url
         ? <a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>
         : t(i18n)`Return to ${pairing.connector_name}.`}</p>
-    </section></main>;
+    </RequestShell>;
   }
   if (installation && pairing.file_access) {
     const request = pairing.file_access, app = pairing.connector_name;
@@ -298,9 +298,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     const permissions = <ul className="field-note">{actions.map(action =>
       <li key={action}>{fileActionLabel(action)}</li>)}</ul>;
     return (
-      <main className="mdbase-connect-screen installation-approval">
-        <section>
-          <PageBrand label="connect" error={error} />
+      <RequestShell>
           {pairing.approved_at ? (
             <>
               <h1><Trans>Allowed</Trans></h1>
@@ -331,17 +329,13 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               </div>
             </>
           )}
-        </section>
-      </main>
+      </RequestShell>
     );
   }
   return (
-    <main className={installation ? "mdbase-connect-screen installation-approval" : "center-page"}>
-      {!installation && <PageBrand label={t(i18n)({ message: "Computer pairing", context: "Collection connection" })} error={error} />}
-      <section className={installation ? undefined : "decision-panel"}>
+    <RequestShell busy={busy}>
         {installation ? (
           <>
-            <PageBrand label="connect" error={error} />
             {outcome === "cancelled" ? (
               <>
                 <h1><Trans>Sign-in cancelled</Trans></h1>
@@ -351,7 +345,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               </>
             ) : pairing.approved_at ? (
               <>
-                <h1><Trans>Access approved</Trans></h1>
+                {selectedName ? <GrantMoment applicationName={pairing.connector_name} collectionName={selectedName} /> : <h1><Trans>Access approved</Trans></h1>}
                 <p className="mdbase-connect-lead">{pairing.return_url
                   ? <a href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>
                   : t(i18n)`Return to ${pairing.connector_name}.`}</p>
@@ -361,8 +355,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               </>
             ) : (
               <>
-                <h1><Trans>Open {literal(pairing.connector_name)}</Trans></h1>
-                <p className="installation-account-label installation-requester">{pairing.app_platform === "native" && isNativeLoopbackOrigin(pairing.app_origin) ? <Trans>Requested by an app running on this computer. Application identity unverified. This app calls itself {literal(pairing.connector_name)}. Approve only if you started sign-in in this app.</Trans> : <Trans>Requested by <strong>{literal(pairing.connector_name)}</strong>{appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""}{pairing.app_origin?.trim() && <Trans> from <code>{literal(pairing.app_origin)}</code></Trans>}. Approve only if you started sign-in in this app.</Trans>}</p>
+                <RequestIdentity request={{ application_name: pairing.connector_name, application_origin: pairing.app_origin,
+                  platform: pairing.app_platform, homepage: pairing.app_origin ?? "", expires_at: pairing.expires_at }} showClientKey={false} />
                 {installationAccountLabel(pairing) ? (
                   <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>
                 ) : (
@@ -374,7 +368,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                 {pairing.account_selection_confirmed && !pairing.attested && <p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>}
                     <CollectionPicker
                       label={t(i18n)`Open in ${pairing.connector_name}`}
-                      collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind,
+                      collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind ?? "cloud_copy",
+                        location: collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`,
                         hint:collection.role&&collection.role!=="owner"?t(i18n)`Shared with you`:undefined}))}
                       value={selectedCollectionId} onChoose={setSelectedCollectionId} disabled={busy}
                       onCreate={pairing.can_create_collection && !pairing.creation?.completed ? ()=>setSelectedCollectionId(NEW_COLLECTION) : undefined}
@@ -403,7 +398,6 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                         {(pairing.requested_create_collections || pairing.retained_create_collections) && <Checkbox checked={createCollections} disabled={pairing.retained_create_collections} onChange={event=>setCreateCollections(event.target.checked)}>
                            <Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans> </Checkbox>}
                       </CheckboxGroup>
-                      {pairing.scope_only && <p><Trans>Already-allowed access stays in place. Remove access separately if you no longer want it.</Trans></p>}
                     </details> : null}
                     {!privateChoice && pairing.timer_declaration && <div className="installation-choice">
                       <Checkbox disabled={busy} checked={allowReminders} onChange={event=>setAllowReminders(event.target.checked)}>
@@ -417,31 +411,27 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       <button className="mdbase-button is-primary installation-account-action" disabled={busy} onClick={()=>void act("remove-access")}><Trans>Remove access</Trans></button>
                     </div>}
                     {revokingId && <p role="status"><Trans>Removing access to {literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))}…</Trans></p>}
-                    <p className="mdbase-connect-footnote"><Trans>Access includes the notes and files in the collection you pick.{literal(createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : "")}{pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""}</Trans></p>
+                    {details}
+                    <footer className="approval-footer">
+                      <div className="approval-receipt">
+                        {selectedName && <CollectionIdentity name={selectedName} location={privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`} kind={privateChoice ? "private" : "cloud_copy"} />}
+                        <p><Trans>This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased.</Trans></p>
+                        {createCollections && !privateChoice && <p><Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans></p>}
+                        {pairing.scope_only && <p><Trans>Already-allowed access stays in place. Remove access separately if you no longer want it.</Trans></p>}
+                        <p><Trans>Access lasts until you remove it in mdbase Connect.</Trans></p>
+                      </div>
+                      <div className="approval-actions">
+                    <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => void act("deny")}><Trans>Cancel</Trans></button>
                     <button className="mdbase-button is-primary"
                       disabled={busy || !installationAccountLabel(pairing) || !selectedCollectionId || (selectedCollectionId===NEW_COLLECTION ? !pairing.can_create_collection || !newCollectionName.trim() : !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId))}
                       onClick={()=>void act("approve")}>
                       {busy ? t(i18n)({ message: "Approving…", context: "Collection connection" }) : selectedName ? t(i18n)`Open ${pairing.connector_name} with ${selectedName}` : t(i18n)`Open ${pairing.connector_name}`}
                     </button>
-                <div className="decision-actions">
-                  <button
-                    className="mdbase-button"
-                    disabled={busy}
-                    onClick={() => void act("deny")}
-                  ><Trans>
-                    Cancel
-                  </Trans></button>
-                </div>
+                      </div>
+                    </footer>
               </>
             )}
-            {outcome !== "cancelled" && <details className="installation-details">
-              <summary><Trans>Details</Trans></summary>
-              {pairing.app_origin?.trim()
-                ? <p><Trans>Requested from <code>{literal(pairing.app_origin)}</code>. The origin shown here is not proof of who made the request.</Trans></p>
-                : <p><Trans>Requested by {literal(pairing.connector_name)}. No requesting origin is available.</Trans></p>}
-              <p><Trans>This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow.</Trans></p>
-              {pairing.fingerprint && <p><Trans>Device key: <code>{pairing.fingerprint}</code></Trans></p>}
-            </details>}
+            {pairing.approved_at && details}
           </>
         ) : deepLink ? (
           <>
@@ -479,8 +469,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             {retry && !busy && <button className="mdbase-button installation-account-action" onClick={() => void act(retry)}><Trans>Try again</Trans></button>}
           </div>
         )}
-      </section>
-    </main>
+    </RequestShell>
   );
 }
 

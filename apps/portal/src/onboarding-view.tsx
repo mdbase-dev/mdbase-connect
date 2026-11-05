@@ -1,9 +1,10 @@
 import { Trans } from "@lingui/react/macro";
-import { useLocaleRevision } from "@mdbase-dev/ui/i18n";
+import { t } from "@lingui/core/macro";
+import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 import { message } from "./portal-model";
-import { PageBrand } from "./portal-ui";
+import { MinimalAuthPage } from "./auth-view";
 
 interface StarterCollectionResponse {
   status: "pending" | "ready" | "deleted";
@@ -33,7 +34,8 @@ export function GettingStarted() {
         location.replace("/");
         return;
       }
-      location.replace(result.editor_url ?? "/");
+      if (!result.editor_url && !result.collection_id) throw new Error(t(i18n)`The collection could not be opened.`);
+      location.replace(result.editor_url || `/collections/${encodeURIComponent(result.collection_id!)}`);
     }).catch((reason) => {
       requestInFlight.current = false;
       // The legacy starter endpoint emits onboarding_moved. The other codes
@@ -60,19 +62,19 @@ export function GettingStarted() {
   }, []);
 
   return (
-    <main className="mdbase-page">
-      <PageBrand label="connect" markMotion="sort" error={error} />
+    <MinimalAuthPage>
       <section className="mdbase-page-panel onboarding-panel" aria-live="polite">
-        <p className="eyebrow"><Trans>Your first collection</Trans></p>
-        <h1><Trans>Preparing a place to start.</Trans></h1>
-        <p><Trans>We’re creating a small private Markdown collection, then we’ll open it in the editor.</Trans></p>
+        <h1>{error ? <Trans>We couldn't create your collection</Trans> : <Trans>Creating your first collection</Trans>}</h1>
+        <p>{error ? <Trans>Your account is ready. Create a collection now, or continue without one.</Trans> : <Trans>We’re creating a small private Markdown collection. It will open when it’s ready.</Trans>}</p>
         {!error && <div className="onboarding-progress" aria-hidden="true"><span /></div>}
-        {error && <>
-          <div className="mdbase-message is-error" role="alert">{error}</div>
+        <div className="onboarding-actions">
+          {error && <>
+          <p className="mdbase-message is-error" role="alert">{error}</p>
           <button className="mdbase-button is-primary" type="button" onClick={prepare}><Trans>Try again</Trans></button>
-          <a className="quiet-auth-link" href="/"><Trans>Open mdbase Connect without it</Trans></a>
-        </>}
+          </>}
+          <a className="quiet-auth-link" href="/"><Trans>Continue without it</Trans></a>
+        </div>
       </section>
-    </main>
+    </MinimalAuthPage>
   );
 }

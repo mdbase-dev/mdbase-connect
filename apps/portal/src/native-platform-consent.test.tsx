@@ -16,7 +16,8 @@ it.each(["https://remote.example.test", "http://localhost:49152", "http://[::1]:
   const request={platform:"native",distribution:"web",application_name:"Claimed Native",homepage:"http://127.0.0.1:49152",application_origin,expires_at:new Date(Date.now()+60000).toISOString()} as PendingAuthorization;
   render(<RequestIdentity request={request}/>);
   expect(screen.queryByText("an app running on this computer")).not.toBeInTheDocument();
-  expect(screen.getByText("Only continue if you recognize this exact site.")).toBeInTheDocument();
-  const expected=application_origin === "null" ? "null" : new URL(application_origin ?? request.homepage).host;
-  expect(screen.getByText(expected)).toBeInTheDocument();
+  if (application_origin) {
+    expect(screen.getByText(/Only continue if you recognize this exact site\./)).toBeInTheDocument();
+    expect(screen.getByText(application_origin)).toBeInTheDocument();
+  } else expect(screen.getByText(/No requesting origin is available\./)).toBeInTheDocument();
 });

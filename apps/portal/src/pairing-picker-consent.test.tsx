@@ -6,18 +6,18 @@ vi.mock("./api", async original => ({ ...await original<typeof import("./api")>(
 afterEach(() => vi.useRealTimers());
 
 async function fixture(extra: Partial<DevicePairing> = {}) {
-  let selected = false, attested = false, approved = false;
+  let selected = false, attested = false, approved = false, selectedCollectionId = "";
   let catalog = [{ collection_id: "notes", display_name: "Notes", role: "owner" }];
   const state = () => ({ connector_name: "Reader", approved_at: approved ? "approved" : null,
     installation_device: true, account_upgraded: true, app_origin: "https://reader.example",
     account_selection_confirmed: selected, signed_in_account_email: "owner@example.test",
     account_email: selected ? "owner@example.test" : null, attested,
-    fingerprint: attested ? "1234-5678" : null, collections: catalog, ...extra });
+    fingerprint: attested ? "1234-5678" : null, selected_collection_id: selectedCollectionId, collections: catalog, ...extra });
   vi.mocked(api).mockReset();
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (options?.method === "POST") {
       if (path.endsWith("/select-account")) selected = true;
-      else if (path.endsWith("/approve")) approved = true;
+      else if (path.endsWith("/approve")) { approved = true; selectedCollectionId = JSON.parse(String(options.body)).selected_collection_id; }
       else throw new Error(`Unexpected mutation: ${path}`);
       return {};
     }
@@ -31,15 +31,25 @@ async function fixture(extra: Partial<DevicePairing> = {}) {
 }
 
 describe("one explicit collection consent", () => {
+  it("keeps collection-creation authority and retained access beside the decision", async () => {
+    const view = await fixture({ requested_create_collections: true, scope_only: true });
+    const receipt = within(document.querySelector<HTMLElement>(".approval-receipt")!);
+    expect(receipt.getByText("Allow Reader to create new collections")).toBeVisible();
+    expect(receipt.getByText("Already-allowed access stays in place. Remove access separately if you no longer want it.")).toBeVisible();
+    fireEvent.click(screen.getByText("Advanced: allow more collections"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Allow Reader to create new collections" }));
+    expect(receipt.queryByText("Allow Reader to create new collections")).not.toBeInTheDocument();
+    expect(view.posts()).toEqual([]);
+  });
   it("describes native pairing as an unverified app running on this computer", async () => {
     const f = await fixture({app_platform:"native",app_origin:"http://127.0.0.1:49152"});
-    expect(screen.getByText(/Requested by an app running on this computer/)).toHaveTextContent("Application identity unverified. This app calls itself Reader.");
+    expect(screen.getByRole("note")).toHaveTextContent("Application identity unverified. This app calls itself Reader.");
     expect(f.posts()).toEqual([]);
   });
   it.each(["https://remote.example.test", "http://localhost:49152", "http://[::1]:49152", undefined])("shows the actual pairing origin instead of native wording for %s", async app_origin => {
     await fixture({app_platform:"native",app_origin});
     expect(screen.queryByText(/Requested by an app running on this computer/)).not.toBeInTheDocument();
-    if (app_origin) expect(screen.getByText(/Approve only if you started sign-in/)).toHaveTextContent(app_origin);
+    if (app_origin) expect(document.querySelector(".request-origin code")).toHaveTextContent(app_origin);
   });
   it("lands directly on the picker with app/origin/warning, and no account or approval mutation", async () => {
     const f = await fixture();
@@ -48,7 +58,8 @@ describe("one explicit collection consent", () => {
     expect(within(f.picker).queryAllByRole("option", { selected: true })).toEqual([]);
     expect(screen.queryByRole("button", { name: "Use this account" })).not.toBeInTheDocument();
     expect(screen.queryByText(/mdbase was upgraded/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Approve only if you started sign-in/)).toHaveTextContent("https://reader.example");
+    expect(document.querySelector(".request-origin code")).toHaveTextContent("https://reader.example");
+    expect(screen.getByText(/Only continue if you recognize this exact site\./)).toBeInTheDocument();
     expect(screen.getByText("Details")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ })).toBeDisabled();
     fireEvent.change(screen.getByRole("combobox", { name: "Open in Reader" }), { target: { value: "Notes" } });
@@ -66,7 +77,7 @@ describe("one explicit collection consent", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(f.posts().map(([path]) => path.split("/").at(-1))).toEqual(["select-account", "approve"]);
     expect(JSON.parse(f.posts()[1][1]!.body as string)).toEqual({ fingerprint: "1234-5678", collection_ids: ["notes"], create_collections: false, selected_collection_id: "notes" });
-    expect(screen.getByRole("heading", { name: "Access approved" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Reader can now use Notes" })).toBeInTheDocument();
   });
 
   it("keeps the informational device key under Details after preparation and on the approved screen", async () => {
@@ -82,7 +93,7 @@ describe("one explicit collection consent", () => {
     expect(screen.getByRole("button", { name: "Approving…" })).toBeDisabled();
     expect(screen.getByText("1234-5678").closest("details")).toHaveClass("installation-details");
     await act(async () => { finish(); await vi.advanceTimersByTimeAsync(0); });
-    expect(screen.getByRole("heading", { name: "Access approved" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Reader can now use Notes" })).toBeInTheDocument();
     expect(screen.getByText("Details")).toBeInTheDocument();
     expect(screen.getByText("1234-5678").closest("details")).toHaveClass("installation-details");
   });
@@ -130,7 +141,7 @@ describe("one explicit collection consent", () => {
     expect(screen.getAllByRole("listbox")).toHaveLength(1);
     expect(within(f.picker).getAllByRole("option")).toHaveLength(2);
     const privateRow = screen.getByRole("option", {name:"Private notes"});
-    expect(privateRow).toHaveAccessibleDescription("Private · Shared with you");
+    expect(privateRow).toHaveAccessibleDescription("Private collection — on your computers · Shared with you");
     expect(privateRow).toHaveAttribute("data-value", "private");
     expect(within(f.picker).queryAllByRole("option", {selected:true})).toEqual([]);
     expect(screen.getByRole("button", {name:"Open Reader"})).toBeDisabled();
@@ -209,7 +220,8 @@ describe("one explicit collection consent", () => {
   it.each([undefined, "", "   "])("never renders an empty origin (%s)", async app_origin => {
     await fixture({ app_origin });
     fireEvent.click(screen.getByText("Details"));
-    expect(screen.getByText(/No requesting origin is available/)).toHaveTextContent("Requested by Reader.");
+    expect(document.querySelector(".request-guidance")).toHaveTextContent("No requesting origin is available. Continue only if you started this connection intentionally.");
+    expect(screen.getByText(/Requested by Reader\./)).toHaveTextContent("No requesting origin is available.");
     expect(document.body.textContent).not.toContain("Requested from .");
     expect(document.querySelectorAll("code")).toHaveLength(0);
   });

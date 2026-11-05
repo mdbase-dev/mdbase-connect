@@ -11,29 +11,41 @@ import {
   returnTarget,
   signInUrl
 } from "./portal-model";
-import { PageBrand } from "./portal-ui";
+import { Brand, ThemeMenu } from "./portal-ui";
 
-function MinimalAuthPage({ children }: { children: React.ReactNode }) {
+export function SignedOutFooter() {
+  return <footer className="minimal-auth-footer">
+    <a href="https://mdbase.dev/privacy/"><Trans>Privacy</Trans></a>
+    <a href="https://mdbase.dev/terms/"><Trans>Terms</Trans></a>
+    <div className="signed-out-preferences"><ThemeMenu /></div>
+  </footer>;
+}
+
+export function MinimalAuthPage({ children }: { children: React.ReactNode }) {
   useLocaleRevision();
   return <div className="minimal-auth-shell">
     <main className="mdbase-page minimal-auth-page">
-      <PageBrand label="connect" />
+      <Brand productLabel />
       {children}
     </main>
-    <footer className="minimal-auth-footer">
-      <a href="https://mdbase.dev/privacy/"><Trans>Privacy</Trans></a>
-      <a href="https://mdbase.dev/terms/"><Trans>Terms</Trans></a>
-    </footer>
+    <SignedOutFooter />
   </div>;
 }
 
-/** Keep native constraints, but announce errors beside the field. */
 function AuthInput({ label, matchValue, maxCharacters, onChange, onBlur, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; matchValue?: string; maxCharacters?: number }) {
   useLocaleRevision();
   const labelId = useId();
   const errorId = useId();
   const input = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
+  function validationMessage(field: HTMLInputElement) {
+    if (field.validity.valueMissing) return t(i18n)`Enter ${label.toLocaleLowerCase()}.`;
+    if (field.validity.typeMismatch) return t(i18n)`Enter a valid email address.`;
+    if (field.minLength > 0 && field.value.length < field.minLength) return t(i18n)`Use at least ${field.minLength} characters.`;
+    if (maxCharacters !== undefined && [...field.value].length > maxCharacters) return t(i18n)`Password must contain no more than ${maxCharacters} characters.`;
+    if (matchValue !== undefined && field.value !== matchValue) return t(i18n)({ message: "Passwords do not match.", context: "Account sign-in" });
+    return "";
+  }
   useEffect(() => {
     const field = input.current;
     if (!field) return;
@@ -41,23 +53,23 @@ function AuthInput({ label, matchValue, maxCharacters, onChange, onBlur, ...prop
     field.setCustomValidity(tooLong
       ? t(i18n)`Password must contain no more than ${maxCharacters} characters.`
       : matchValue !== undefined && field.value && field.value !== matchValue ? t(i18n)({ message: "Passwords do not match.", context: "Account sign-in" }) : "");
-    setError((current) => current || tooLong ? field.validationMessage : "");
+    setError((current) => current ? validationMessage(field) : "");
   }, [matchValue, maxCharacters, props.value]);
-  return <label>
+  return <label className="auth-input">
     <span id={labelId}>{label}</span>
     <input {...props} className="mdbase-field" ref={input} name={props.name ?? props.autoComplete}
       aria-labelledby={labelId}
       aria-invalid={error ? true : undefined}
       aria-describedby={[props["aria-describedby"], error ? errorId : ""].filter(Boolean).join(" ") || undefined}
       onChange={onChange}
-      onBlur={(event) => { setError(event.currentTarget.validationMessage); onBlur?.(event); }}
+      onBlur={(event) => { setError(validationMessage(event.currentTarget)); onBlur?.(event); }}
       onInvalid={(event) => {
         event.preventDefault();
-        setError(event.currentTarget.validationMessage);
+        setError(validationMessage(event.currentTarget));
         if (event.currentTarget.form?.querySelector(":invalid") === event.currentTarget) event.currentTarget.focus();
       }}
     />
-    {error && <span className="auth-field-error" id={errorId} role="alert">{error}</span>}
+    {!props.readOnly && <span className="auth-field-error" id={errorId} aria-live="polite">{error}</span>}
   </label>;
 }
 
@@ -73,6 +85,7 @@ function Loading({ error }: { error: string }) {
 export function Login() {
   useLocaleRevision();
   const [name, setName] = useState("Callum");
+  const [emailVisible, setEmailVisible] = useState(false);
   const [email, setEmail] = useState("callum@example.com");
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [error, setError] = useState(authenticationFlowError);
@@ -135,20 +148,18 @@ export function Login() {
     <MinimalAuthPage>
       <section className="mdbase-page-panel">
         <h1>{continuingAuthorization ? t(i18n)({ message: "Sign in to continue", context: "Account sign-in" }) : t(i18n)({ message: "Sign in", context: "Account sign-in" })}</h1>
-        <p>{continuingAuthorization
-          ? t(i18n)({ message: "Sign in, review the request, and return to the application." })
-          : config.registration === "open"
-            ? t(i18n)({ message: "Your collections and account, in one place." })
-            : t(i18n)({ message: "Sign in with the method connected to your invited account." })}</p>
+        <p><Trans>Connect apps to your Markdown files, on your computers or hosted by mdbase.</Trans></p>
+        {continuingAuthorization && <p><Trans>Sign in, review the request, and return to the application.</Trans></p>}
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
-        {config.password_login && (
+        <AuthProviders providers={providers} divider={false} onError={setError} />
+        {config.password_login && !emailVisible && <button className="mdbase-button email-choice" type="button" aria-expanded={false} onClick={() => setEmailVisible(true)}><Trans>Continue with email</Trans></button>}
+        {config.password_login && emailVisible && (
           <PasswordLoginForm
             recoveryAvailable={config.password_recovery === true}
             onError={setError}
             onSignedIn={() => { location.href = returnTarget(); }}
           />
         )}
-        <AuthProviders providers={providers} divider={config.password_login === true} onError={setError} />
         {config.registration !== "open" && (
           <p className="auth-footnote">
             {config.password_registration ? t(i18n)({ message: "Invited? Open the link in your invitation email. " }) : ""}
@@ -213,6 +224,7 @@ function PasswordLoginForm({
     <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void signIn(event)}>
       <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
         type="email"
+        autoFocus
         autoComplete="username"
         maxLength={320}
         required
@@ -712,6 +724,7 @@ export function Signup({
             >
               {busy ? t(i18n)({ message: "Creating account…", context: "Account sign-in" }) : t(i18n)({ message: "Create account", context: "Account sign-in" })}
             </button>
+            {!agreementsAccepted && <p className="field-note"><Trans>Accept the agreement to create your account.</Trans></p>}
           </form>
         )}
         {externalSignup && (!ready || error) && <a className="quiet-auth-link" href={`/signup?return_to=${encodeURIComponent(returnTarget())}`}><Trans>Start signup again</Trans></a>}
@@ -905,11 +918,15 @@ export function GoogleIdentityButton({ startUrl, onComplete, onError }: {
     <div ref={button} className="google-button" inert={busy || !ready} aria-hidden={busy || !ready} />
     {!ready && <button type="button" className="mdbase-button provider-button provider-loading" disabled={!failed}
       onClick={() => { onError(""); setAttempt((value) => value + 1); }}>
-      {!failed && <span className="auth-spinner" aria-hidden="true" />}
+      <GoogleMark />
       {failed ? t(i18n)({ message: "Retry Google sign-in", context: "Account sign-in" }) : t(i18n)({ message: "Continue with Google", context: "Account sign-in" })}
     </button>}
     <span className="mdbase-visually-hidden" role="status">{busy ? t(i18n)({ message: "Signing in with Google…", context: "Account sign-in" }) : !ready && !failed ? t(i18n)({ message: "Loading Google sign-in…", context: "Account sign-in" }) : ""}</span>
   </div>;
+}
+
+function GoogleMark() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285f4" d="M21.6 12.23c0-.71-.06-1.39-.18-2.05H12v3.88h5.38a4.6 4.6 0 0 1-2 3.02v2.51h3.24c1.9-1.75 2.98-4.33 2.98-7.36Z"/><path fill="#34a853" d="M12 22c2.7 0 4.96-.9 6.62-2.41l-3.24-2.51c-.9.6-2.05.96-3.38.96-2.6 0-4.8-1.76-5.59-4.12H3.07v2.59A10 10 0 0 0 12 22Z"/><path fill="#fbbc05" d="M6.41 13.92a6 6 0 0 1 0-3.84V7.49H3.07a10 10 0 0 0 0 9.02l3.34-2.59Z"/><path fill="#ea4335" d="M12 5.96c1.47 0 2.79.5 3.82 1.49l2.87-2.87A9.6 9.6 0 0 0 12 2a10 10 0 0 0-8.93 5.49l3.34 2.59C7.2 7.72 9.4 5.96 12 5.96Z"/></svg>;
 }
 
 function GitHubMark() {

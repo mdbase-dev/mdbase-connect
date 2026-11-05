@@ -2,6 +2,72 @@ import { expect, openScenario, test } from "./review/fixture";
 import { authorizationId, pairingId } from "./review/scenarios.mjs";
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+for (const colorScheme of ["light", "dark"] as const) test(`signup blur validation preserves the first consent pointer click ${viewport.width} ${colorScheme}`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  await page.emulateMedia({ colorScheme });
+  await openScenario(page, "signup-agreements");
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Maya Chen");
+  await page.getByLabel("Password", { exact: true }).fill("a-long-local-review-password");
+  await page.getByLabel("Confirm password", { exact: true }).fill("a-different-local-review-password");
+  const agreement = page.getByRole("checkbox", { name: /I agree to the/ });
+  await agreement.scrollIntoViewIfNeeded();
+  const before = await agreement.boundingBox();
+  expect(before).not.toBeNull();
+  await page.mouse.move(before!.x + before!.width / 2, before!.y + before!.height / 2);
+  await page.mouse.down();
+  await expect(page.getByText("Passwords do not match.", { exact: true })).toBeVisible();
+  await page.mouse.up();
+  await expect(agreement).toBeChecked();
+  expect((await agreement.boundingBox())!.y).toBe(before!.y);
+  await expect(page.getByLabel("Confirm password", { exact: true })).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByRole("checkbox", { name: /Send me occasional product updates/ })).not.toBeChecked();
+});
+}
+
+test("grant waits for acknowledged status and resolves stripes to a check", async ({ page }, testInfo) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  let approved = false;
+  await page.route(`**/v1/authorization-requests/${authorizationId}/status`, route => route.fulfill({ json: { status: approved ? "approved" : "pending" } }));
+  await openScenario(page, "authorization");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("combobox", { name: "Collection", exact: true })).toBeFocused();
+  await expect(page.getByText(/All permissions listed below are required/)).toHaveCount(0);
+  await page.getByRole("option", { name: "Field research", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Allow access", exact: true })).toHaveCount(0);
+  await expect.poll(async () => (await (await page.request.get("/v1/me")).json()).pending_authorizations.length).toBe(1);
+  await page.getByRole("button", { name: "Review access", exact: true }).click();
+  const reviewHeader = await page.locator(".request-identity").elementHandle();
+  await page.getByRole("button", { name: "Allow access", exact: true }).click();
+  await expect(page.getByText("The application does not have access yet.", { exact: false })).toBeVisible();
+  await expect(page.locator(".grant-moment")).toHaveCount(0);
+  expect(await reviewHeader!.evaluate(element => element.isConnected && getComputedStyle(element).position === "sticky")).toBe(true);
+  approved = true;
+  await expect(page.getByRole("heading", { name: "TaskNotes can now use Field research", exact: true })).toBeVisible();
+  await page.evaluate(() => document.getAnimations().forEach(animation => animation.pause()));
+  for (const time of [0, 60, 120, 180, 240, 300]) {
+    await page.evaluate(time => document.getAnimations().forEach(animation => { animation.currentTime = time; }), time);
+    const path = testInfo.outputPath(`grant-${time}ms.png`);
+    await page.locator(".grant-moment").screenshot({ path, animations: "allow" });
+    await testInfo.attach(`grant-${time}ms`, { path, contentType: "image/png" });
+    if (time === 0) await expect(page.locator(".grant-stripes")).toHaveCSS("opacity", "1");
+    if (time === 300) {
+      await expect(page.locator(".grant-stripes")).toHaveCSS("opacity", "0");
+      await expect(page.locator(".grant-mark > svg:last-child path")).toHaveCSS("stroke-dashoffset", "0px");
+    }
+  }
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openScenario(page, "authorization-approved");
+  await expect(page.locator(".grant-stripes")).toHaveCSS("opacity", "0");
+  expect(await page.locator(".grant-moment").evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0);
+});
+
+test("required-only permission copy matches the declared request", async ({ page }) => {
+  await openScenario(page, "authorization-required");
+  await expect(page.getByText("All permissions listed below are required by TaskNotes. You can allow them together or deny this request.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   for (const colorScheme of ["light", "dark"] as const) test(`foundation dialogs ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
@@ -78,6 +144,7 @@ test("rename survives navigation and reload", async ({ page }) => {
 
 test("signed-out pairing signs in locally and remembers approval", async ({ page }) => {
   await openScenario(page, "pairing-signed-out");
+  await page.getByRole("button", { name: "Continue with email", exact: true }).click();
   await page.getByRole("textbox", { name: "Email", exact: true }).fill("maya@chen.example");
   await page.getByLabel("Password", { exact: true }).fill("review-only-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -85,7 +152,7 @@ test("signed-out pairing signs in locally and remembers approval", async ({ page
   await page.getByRole("button", { name: "Open Reader with Field research", exact: true }).click();
   await expect.poll(async () => (await (await page.request.get(`/v1/pairing-requests/${pairingId}`)).json()).pairing.approved_at).toBeTruthy();
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Access approved", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reader can now use Field research", exact: true })).toBeVisible();
 });
 
 test("create-new pairing creates a collection and persists it", async ({ page }) => {
@@ -100,7 +167,7 @@ test("create-new pairing creates a collection and persists it", async ({ page })
 
 test("consent adds a real grant and removes the pending request", async ({ page }) => {
   await openScenario(page, "authorization");
-  await page.getByRole("radio", { name: /Field research/ }).check();
+  await page.getByRole("option", { name: "Field research", exact: true }).click();
   await page.getByRole("button", { name: /Review access/ }).click();
   await page.getByRole("button", { name: "Allow access", exact: true }).click();
   await expect(page.getByText("Access approved", { exact: true })).toBeVisible();

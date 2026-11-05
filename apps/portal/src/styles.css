@@ -156,163 +156,6 @@ h1 {
   font-size: 0.72rem;
 }
 
-.installation-approval {
-  --control-height: 44px;
-  min-height: 100svh;
-}
-
-.installation-approval section {
-  min-width: 0;
-}
-
-/* Consent pages are long; start the decision near the header, not mid-screen. */
-.mdbase-connect-screen.installation-approval h1 {
-  margin-top: var(--space-8);
-}
-
-@media (max-width: 760px) {
-  .mdbase-connect-screen.installation-approval section {
-    margin-top: 0;
-  }
-}
-
-/* Consent becoming available must look enabled immediately, not fade from gray.
- * The approve label names the chosen collection, which can be long. */
-.installation-approval .mdbase-button.is-primary {
-  transition-property: border-color;
-  max-width: 100%;
-  margin: 0 var(--space-2) var(--space-2) 0;
-  padding-block: var(--space-2);
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.installation-approval .installation-account-label {
-  margin-block: var(--space-1) 0;
-  color: var(--color-text-muted);
-}
-
-.installation-approval .installation-requester {
-  margin-top: 0;
-  color: var(--color-text-soft);
-}
-
-.installation-approval .installation-requester strong {
-  color: var(--color-text);
-}
-
-.installation-approval .mdbase-connect-footnote {
-  margin-block: var(--space-4);
-  color: var(--color-text-soft);
-  font-size: var(--font-size-prose);
-}
-
-.installation-approval .installation-account-label code {
-  font-family: var(--mono);
-  font-size: 0.92em;
-  overflow-wrap: anywhere;
-}
-
-.installation-advanced,
-.installation-details {
-  margin-block: var(--space-4);
-  color: var(--color-text-soft);
-  font-size: var(--font-size-ui);
-}
-
-.installation-advanced summary,
-.installation-details summary {
-  min-height: 44px;
-  padding-block: var(--space-3);
-  cursor: pointer;
-}
-
-.installation-details code {
-  overflow-wrap: anywhere;
-}
-
-.installation-approval .decision-actions {
-  display: inline-flex;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.installation-choice {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-  margin-block: var(--space-4);
-}
-
-.installation-choice input:not([type="checkbox"]),
-.installation-choice button {
-  min-height: 44px;
-}
-
-.collection-picker {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-  margin-block: var(--space-4);
-}
-
-.collection-picker > label {
-  font-weight: var(--font-weight-semibold);
-}
-
-.collection-picker input {
-  width: 100%;
-  min-width: 0;
-  --control-height: 2.4rem;
-}
-
-.collection-picker input:focus-visible,
-.collection-picker-create:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: var(--focus-offset);
-}
-
-/* Short lists sit in the page; long ones scroll so Create and Open stay near. */
-.collection-picker-list {
-  max-height: min(30rem, 55vh);
-  min-width: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border-block: 1px solid var(--color-border);
-}
-
-.collection-picker-option {
-  position: relative;
-  display: grid;
-  gap: 2px;
-  min-height: 44px;
-  padding: var(--space-2) var(--space-8) var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  border-radius: 0;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-  transition: background var(--motion-quick) var(--ease-standard);
-}
-
-.collection-picker-option:last-child { border-bottom: 0; }
-.collection-picker-option strong { font-weight: var(--font-weight-semibold); }
-.collection-picker-option small { color: var(--color-text-muted); font-size: var(--font-size-caption); }
-.collection-picker-option:hover { background: var(--color-surface-subtle); }
-.collection-picker-option.is-highlighted { outline: var(--focus-ring); outline-offset: -2px; }
-.collection-picker-option.is-selected { background: var(--color-accent-soft); }
-.collection-picker-option[aria-disabled="true"] { cursor: default; }
-.collection-picker-check { position: absolute; right: var(--space-3); top: 50%; translate: 0 -50%; color: var(--color-accent); font-weight: var(--font-weight-semibold); }
-.collection-picker-create { justify-self: start; min-height: 44px; margin-left: calc(-1 * var(--space-3) + 1px); }
-.collection-picker-create[aria-pressed="true"] { color: var(--color-text); background: var(--color-accent-soft); }
-
-.mdbase-button.installation-account-action {
-  min-height: 44px;
-}
-
-.installation-account-label {
-  overflow-wrap: anywhere;
-}
 
 .decision-actions {
   display: flex;
@@ -558,6 +401,10 @@ h1 {
   font-size: var(--font-size-prose);
 }
 
+.minimal-auth-page .product-brand-label {
+  font-size: var(--font-size-caption);
+}
+
 .minimal-auth-page .product-brand-mark {
   width: 20px;
   height: 20px;
@@ -611,7 +458,17 @@ h1 {
   color: var(--color-danger);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-regular);
+  min-height: 2.8em;
+  line-height: 1.4;
 }
+
+.minimal-auth-page > .product-brand { width: 100%; margin-bottom: var(--space-8); }
+.minimal-auth-page .email-choice { margin-top: var(--space-3); }
+.signed-out-preferences { display: flex; gap: var(--space-3); }
+.minimal-auth-footer { flex-wrap: wrap; align-items: center; }
+.minimal-auth-page .onboarding-actions { display: grid; gap: 12px; margin-top: var(--space-6); }
+.minimal-auth-page .onboarding-actions :is(.mdbase-button, .quiet-auth-link) { margin: 0; }
+.onboarding-actions .quiet-auth-link { min-height: 44px; display: inline-flex; align-items: center; }
 
 .minimal-auth-page .field-note {
   margin-top: var(--space-1);
@@ -787,17 +644,9 @@ h1 {
 
 @media (max-width: 40rem) {
   .minimal-auth-shell { width: min(100% - var(--space-8), 25rem); }
-  .minimal-auth-page > .page-brand-row { margin-bottom: var(--space-8); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .minimal-auth-shell * { transition: none; }
   .auth-spinner { animation: none; }
-}
-
-.installation-approval .installation-file-access-reason {
-  margin: 0;
-  padding: 0.5rem 0.75rem;
-  border-left: 3px solid currentColor;
-  overflow-wrap: anywhere;
 }
