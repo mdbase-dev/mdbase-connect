@@ -2,11 +2,15 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { CommandPalette, matchingCommands, type Command } from "./CommandPalette.js";
+import { CommandPalette, matchingCommands, shortcutLabel, type Command } from "./CommandPalette.js";
 
 const command = (id: string, group: string, label = id): Command => ({ id, group, label, run: () => {} });
 
 const headings = (markup: string) => [...markup.matchAll(/class="mdbase-command-group" role="presentation">(.*?)<\/div>/g)].map((match) => match[1]);
+
+it("presents sequential shortcuts without turning them into chords", () => {
+  expect(shortcutLabel("g c")).toBe("G C");
+});
 
 describe("CommandPalette group labels", () => {
   const commands = [

@@ -1,0 +1,4 @@
+{
+  "reason": "One Portal hook replaces the ad-hoc Mod+K handler and owns the single registry, keyboard scope and activation of existing controls. It imports the existing app grouping type and time formatter rather than copying them. The view type and hook are private Portal exports. No new package, dependency, protocol, persisted state or mutation path.",
+  "growth": { "productionFiles": 1, "relativeImports": 3, "typeScriptExportDeclarations": 2 }
+}

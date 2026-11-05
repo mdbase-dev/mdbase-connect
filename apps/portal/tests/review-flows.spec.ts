@@ -2,6 +2,143 @@ import { expect, openScenario, test } from "./review/fixture";
 import { authorizationId, pairingId } from "./review/scenarios.mjs";
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const colorScheme of ["light", "dark"] as const) test(`Portal keyboard and cached palette ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ colorScheme });
+    await openScenario(page, "heavy-account");
+    const requests: string[] = [];
+    page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/v1/")) requests.push(request.url()); });
+    const search = page.getByRole("button", { name: /^Search/ });
+    await search.click();
+    const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+    const query = palette.getByRole("combobox");
+    for (const [term, label] of [["Coastal restoration", /Coastal restoration/], ["Reader", /^Reader/], ["Travel laptop", /^Travel laptop/], ["Travel Safari", /^Travel Safari/], ["Rename Shared", /^Rename Shared research library/], ["Sign out", /^Sign out/]]) {
+      await query.fill(term);
+      await expect(palette.getByRole("option", { name: label }).first()).toBeVisible();
+    }
+    await query.fill("no such collection or command");
+    await expect(palette.getByRole("status")).toContainText("Clear the search to browse.");
+    expect(requests).toEqual([]);
+    await query.fill("Coastal restoration");
+    await expect(query).toHaveAttribute("aria-activedescendant", /collection:/);
+    await testInfo.attach("cached-palette", { body: await page.screenshot(), contentType: "image/png" });
+    await page.keyboard.press("Escape");
+    await expect(palette).toHaveCount(0);
+    await expect(search).toBeFocused();
+    await page.keyboard.press("?");
+    await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+    await page.keyboard.press("c");
+    await expect(page.getByRole("dialog", { name: "Add collection", exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.keyboard.press("Control+/");
+    await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.keyboard.press("/");
+    const filter = page.getByRole("searchbox", { name: "Filter collections" });
+    await expect(filter).toBeFocused();
+    await page.keyboard.type("c?g");
+    await page.keyboard.press("Control+k");
+    await expect(filter).toHaveValue("c?g");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await filter.fill("");
+    await filter.press("Tab");
+    await search.focus();
+    await page.keyboard.press("j");
+    const first = page.locator(".connect-collection-link").first();
+    const destination = await first.getAttribute("href");
+    await expect(first).toBeFocused();
+    await page.keyboard.press("j");
+    await expect(page.locator(".connect-collection-link").nth(1)).toBeFocused();
+    await page.keyboard.press("k");
+    await expect(first).toBeFocused();
+    expect(await first.evaluate(element => getComputedStyle(element, "::after").outlineStyle)).not.toBe("none");
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(new URL(destination!, page.url()).href);
+    await page.keyboard.press("g"); await page.keyboard.press("p");
+    await expect(page.getByRole("heading", { name: "Computers", exact: true })).toBeVisible();
+    await page.keyboard.press("j");
+    await expect(page.locator('[data-command="computer:computer-0"]')).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.locator('[data-command="computer:computer-0"]').getByRole("button", { name: "Rename", exact: true })).toBeFocused();
+    await page.keyboard.press("c");
+    await expect(page.getByRole("dialog", { name: "Add collection", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+  });
+}
+
+test.describe("touch commands", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+  test("keeps one visible search entry and hides shortcut hints", async ({ page }) => {
+    await openScenario(page, "heavy-account");
+    const search = page.getByRole("button", { name: /^Search/ });
+    await expect(search).toHaveCount(1);
+    await expect(search.locator("kbd")).toBeHidden();
+    await expect(page.locator(".connect-list-filter > kbd")).toBeHidden();
+    await search.click();
+    const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+    await expect(palette.getByRole("combobox")).toBeFocused();
+    await expect(palette.locator(".mdbase-command-results kbd").first()).toBeHidden();
+    await expect(palette.locator("footer")).toBeHidden();
+    await page.keyboard.press("Escape");
+    await expect(palette).toHaveCount(0);
+    await expect(search).toBeFocused();
+  });
+});
+
+test("palette actions reuse row dialogs, including non-optimistic revoke and session confirms", async ({ page }) => {
+  await openScenario(page, "typical-account");
+  const run = async (term: string, name: string | RegExp) => {
+    await page.getByRole("button", { name: /^Search/ }).click();
+    const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+    await palette.getByRole("combobox").fill(term);
+    await palette.getByRole("option", { name, exact: true }).click();
+  };
+  await run("rename shared", "Rename Shared research library Hosted by mdbase");
+  await expect(page.getByRole("dialog", { name: "Rename Shared research library", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await run("delete shared", "Delete Shared research library Hosted by mdbase");
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Delete permanently" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  let acknowledge!: () => void;
+  const held = new Promise<void>(resolve => { acknowledge = resolve; });
+  await page.route("**/v1/grants/revoke-batch", async route => { await held; await route.continue(); });
+  await run("Revoke Reader", "Revoke Reader");
+  const confirm = page.getByRole("dialog", { name: "Revoke Reader?", exact: true });
+  await expect(confirm.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await confirm.getByRole("button", { name: "Revoke application", exact: true }).click();
+  await expect(confirm.getByRole("button", { name: "Revoking access…", exact: true })).toBeDisabled();
+  await expect(page.locator('[data-command="app:app-1"]')).toBeVisible();
+  acknowledge();
+  await expect(confirm).toHaveCount(0);
+  await expect(page.locator('[data-command="app:app-1"]')).toHaveCount(0);
+  await run("Revoke Home workstation", "Revoke Home workstation");
+  const computer = page.getByRole("dialog", { name: "Revoke Home workstation?", exact: true });
+  await expect(computer.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await expect(page.locator('[data-command="computer:computer-1"]')).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(computer).toHaveCount(0);
+  await run("Theme", "Theme");
+  await expect(page.getByRole("heading", { name: "Preferences", exact: true })).toBeVisible();
+  await page.getByRole("option", { name: "Dark", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await run("Language", "Language");
+  await expect(page.getByRole("listbox")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await run("Travel Safari", /^Travel Safari Last used /);
+  await expect(page.locator('[data-command="session:session-2"]')).toBeFocused();
+  await run("Sign out Travel Safari", "Sign out Travel Safari");
+  const session = page.getByRole("dialog", { name: "Sign out Travel Safari?" });
+  await expect(session.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await run("Sign out", "Sign out");
+  await expect(page.getByRole("dialog", { name: "Sign out of this browser?" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  expect((await (await page.request.get("/v1/account/sessions")).json()).sessions).toHaveLength(3);
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
 for (const colorScheme of ["light", "dark"] as const) test(`signup blur validation preserves the first consent pointer click ${viewport.width} ${colorScheme}`, async ({ page }) => {
   await page.setViewportSize(viewport);
   await page.emulateMedia({ colorScheme });
@@ -97,7 +234,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(trigger).toBeFocused();
     await page.keyboard.press("Control+k");
     await expect(dialog).toHaveAccessibleName("Commands");
-    await expect(dialog.getByRole("textbox")).toBeFocused();
+    await expect(dialog.getByRole("combobox")).toBeFocused();
     expect(await dialog.evaluate(element => element.getAnimations().length)).toBe(0);
     await page.screenshot({ path: testInfo.outputPath("palette.png") });
     await page.keyboard.press("Escape");
@@ -256,6 +393,7 @@ test("consent adds a real grant and removes the pending request", async ({ page 
 test("account session revocation sticks after reload", async ({ page }) => {
   await openScenario(page, "account-sessions");
   await page.getByRole("button", { name: "Sign out other sessions", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Sign out", exact: true }).click();
   await expect.poll(async () => (await (await page.request.get("/v1/account/sessions")).json()).sessions.length).toBe(1);
   await page.reload();
   await expect(page.getByText("Studio Chrome", { exact: true })).toBeVisible();

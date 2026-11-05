@@ -487,11 +487,6 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "アカウント"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Account & sessions"
-msgstr "アカウントとセッション"
-
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
 msgstr "サービスの修正作業中のため、アカウントの削除は一時的に利用できません。"
@@ -532,6 +527,10 @@ msgstr "アカウントのアップグレードを予定しました"
 msgid "Account: {0}"
 msgstr "アカウント: {0}"
 
+#: src/portal-commands.ts
+msgid "Actions"
+msgstr "操作"
+
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Actions for {0}"
@@ -547,6 +546,7 @@ msgid "Add a new {0} type"
 msgstr "新しい {0} 型を追加"
 
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgid "Add collection"
 msgstr "コレクションを追加"
 
@@ -598,11 +598,6 @@ msgstr "移動後、{0} は同期フォルダーとして残ります。二つ�
 #: src/authority-workflows.tsx
 msgid "After the move, the original local files are no longer the main copy."
 msgstr "移動後、元のローカルファイルは正本ではなくなります。"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "All collections"
-msgstr "すべてのコレクション"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
@@ -693,11 +688,6 @@ msgctxt "Account management"
 msgid "Announcements"
 msgstr "お知らせ"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "アプリへのアクセス"
-
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "App installation"
@@ -723,11 +713,6 @@ msgid "Application using a device code"
 msgstr "デバイスコードを使うアプリケーション"
 
 #: src/authority-workflows.tsx
-msgid "Applications"
-msgstr "アプリケーション"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Applications"
 msgstr "アプリケーション"
 
@@ -812,6 +797,10 @@ msgstr "ブラウザーセッション"
 msgctxt "Account management"
 msgid "Browser session actions"
 msgstr "ブラウザーセッションの操作"
+
+#: src/portal-commands.ts
+msgid "Browser sessions"
+msgstr "ブラウザーセッション"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1011,6 +1000,7 @@ msgstr "新しい {0} 型を追加するか、既存の型を使うか選んで�
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
+#: src/ConnectPrimitives.tsx
 msgid "Clear filter"
 msgstr "フィルターをクリア"
 
@@ -1349,6 +1339,11 @@ msgid "Delete"
 msgstr "削除"
 
 #. placeholder {0}: collection.name
+#: src/portal-commands.ts
+msgid "Delete {0}"
+msgstr "{0}を削除"
+
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Delete {0}?"
 msgstr "{0} を削除しますか？"
@@ -1664,6 +1659,10 @@ msgstr "コンピューターを絞り込む"
 msgid "Filter sessions"
 msgstr "セッションを絞り込む"
 
+#: src/ConnectApp.tsx
+msgid "Filter the current list"
+msgstr "現在のリストを絞り込む"
+
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
 msgstr "コレクションの設定を完了中…"
@@ -1713,9 +1712,10 @@ msgstr "生成中…"
 msgid "GitHub account @{login}"
 msgstr "GitHub アカウント @{login}"
 
-#: src/ConnectApp.tsx
-msgid "Go to {label}"
-msgstr "{label} に移動"
+#. placeholder {0}: viewLabel(view)
+#: src/portal-commands.ts
+msgid "Go to {0}"
+msgstr "{0}に移動"
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
@@ -1920,7 +1920,13 @@ msgstr "メインコピーを mdbase に保存し、必要に応じてフォル�
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "現在のレコードを残し、同じ意味を持つフィールドを指定してください。"
 
+#: src/ConnectApp.tsx
+#: src/portal-commands.ts
+msgid "Keyboard shortcuts"
+msgstr "キーボードショートカット"
+
 #: src/LanguageSetting.tsx
+#: src/portal-commands.ts
 msgid "Language"
 msgstr "言語"
 
@@ -1930,6 +1936,7 @@ msgstr "前回確認した情報"
 
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
+#: src/portal-commands.ts
 msgid "Last used {0}"
 msgstr "最終使用 {0}"
 
@@ -2143,6 +2150,10 @@ msgid "Move this collection"
 msgstr "このコレクションを移動"
 
 #: src/ConnectApp.tsx
+msgid "Move through the list"
+msgstr "リスト内を移動"
+
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved"
 msgstr "移動済み"
@@ -2162,6 +2173,7 @@ msgid "Name"
 msgstr "名前"
 
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgid "Navigation"
 msgstr "ナビゲーション"
 
@@ -2267,6 +2279,10 @@ msgstr "一致するコンピューターはありません"
 #: src/authorization-view.tsx
 msgid "No requesting origin is available. Continue only if you started this connection intentionally."
 msgstr "リクエスト元のオリジンを確認できません。この接続を意図的に開始した場合のみ続行してください。"
+
+#: src/ConnectApp.tsx
+msgid "No results"
+msgstr "結果がありません"
 
 #: src/AccountManagement.tsx
 msgid "No sessions match"
@@ -2378,7 +2394,7 @@ msgstr "{0} で開く"
 msgid "Open in editor"
 msgstr "エディターで開く"
 
-#: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "エディターで開く"
@@ -2415,6 +2431,10 @@ msgstr "メールに記載された完全なパスワードリセットリンク
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
 msgstr "デスクトップアプリを開き、このコンピューターを接続してフォルダーを追加すると、同じ要求を続行できます。"
+
+#: src/ConnectApp.tsx
+msgid "Open the focused item"
+msgstr "フォーカスした項目を開く"
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
@@ -2711,8 +2731,10 @@ msgid "Rename"
 msgstr "名前を変更"
 
 #. placeholder {0}: collection.name
+#. placeholder {0}: computer.name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgid "Rename {0}"
 msgstr "{0} の名前を変更"
 
@@ -2889,6 +2911,7 @@ msgid "Review request"
 msgstr "要求を確認"
 
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgctxt "Connect interface"
 msgid "Review request"
 msgstr "要求を確認"
@@ -2907,6 +2930,12 @@ msgstr "アクセスの取り消しは保留中です。{0} による適用確�
 msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "取り消す"
+
+#. placeholder {0}: application.applicationName
+#. placeholder {0}: computer.name
+#: src/portal-commands.ts
+msgid "Revoke {0}"
+msgstr "{0}を取り消す"
 
 #. placeholder {0}: application.applicationName
 #. placeholder {0}: group.applicationName
@@ -3027,6 +3056,10 @@ msgstr "検索"
 msgid "Search collections by name"
 msgstr "名前でコレクションを検索"
 
+#: src/ConnectApp.tsx
+msgid "Search collections, apps, computers, sessions and actions"
+msgstr "コレクション、アプリ、コンピューター、セッション、操作を検索"
+
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "see collection members"
@@ -3126,6 +3159,10 @@ msgstr "共有コード"
 msgid "Short approval code"
 msgstr "短い承認コード"
 
+#: src/ConnectApp.tsx
+msgid "Shortcuts are off while typing or while a dialog is open."
+msgstr "入力中またはダイアログが開いている間はショートカットが無効になります。"
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
@@ -3149,8 +3186,19 @@ msgid "Sign in, review the request, and return to the application."
 msgstr "ログインして要求を確認し、アプリケーションに戻ってください。"
 
 #: src/AccountManagement.tsx
+#: src/portal-commands.ts
 msgid "Sign out"
 msgstr "ログアウト"
+
+#. placeholder {0}: session.client_name
+#: src/portal-commands.ts
+msgid "Sign out {0}"
+msgstr "{0}からログアウト"
+
+#. placeholder {0}: session.client_name
+#: src/AccountManagement.tsx
+msgid "Sign out {0}?"
+msgstr "{0}からログアウトしますか？"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3158,8 +3206,17 @@ msgid "Sign out of this browser"
 msgstr "このブラウザーからログアウト"
 
 #: src/AccountManagement.tsx
+msgid "Sign out of this browser?"
+msgstr "このブラウザーからログアウトしますか？"
+
+#: src/AccountManagement.tsx
+#: src/portal-commands.ts
 msgid "Sign out other sessions"
 msgstr "ほかのセッションをログアウト"
+
+#: src/AccountManagement.tsx
+msgid "Sign out other sessions?"
+msgstr "他のセッションからログアウトしますか？"
 
 #: src/authority-workflows.tsx
 msgid "Sign-in cancelled"
@@ -3212,6 +3269,10 @@ msgid "Signing in…"
 msgstr "ログイン中…"
 
 #: src/AccountManagement.tsx
+msgid "Signing out…"
+msgstr "ログアウト中…"
+
+#: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Signing out…"
 msgstr "ログアウト中…"
@@ -3231,11 +3292,6 @@ msgstr "ストレージ"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Storage & sync"
-msgstr "ストレージと同期"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Sync"
 msgstr "同期"
 
@@ -3246,6 +3302,11 @@ msgstr "フォルダーを同期"
 #: src/ConnectApp.tsx
 msgid "Sync folder"
 msgstr "フォルダーを同期"
+
+#. placeholder {0}: collection.name
+#: src/portal-commands.ts
+msgid "Sync folder · {0}"
+msgstr "フォルダーを同期 · {0}"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -3273,6 +3334,10 @@ msgstr "Tailscale の本人確認"
 #: src/auth-view.tsx
 msgid "Terms"
 msgstr "規約"
+
+#: src/AccountManagement.tsx
+msgid "That browser will need to sign in again. Copies already downloaded will remain."
+msgstr "そのブラウザーでは再度ログインが必要になります。ダウンロード済みのコピーは残ります。"
 
 #: src/authority-workflows.tsx
 msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
@@ -3417,6 +3482,10 @@ msgstr "値が再度変更されました。元に戻すことはできません
 msgid "Their application and folder access will also be revoked."
 msgstr "そのユーザーのアプリとフォルダーのアクセス権も取り消されます。"
 
+#: src/portal-commands.ts
+msgid "Theme"
+msgstr "テーマ"
+
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
 msgstr "このアカウントでは、mdbase デスクトップアプリで新しいデバイスを承認します。デスクトップアプリからこのデバイスを追加し、{app} で再度ログインしてください。"
@@ -3452,6 +3521,10 @@ msgstr "このアプリケーションは高度な動作設定を使用するた
 #: src/ConnectApp.tsx
 msgid "This browser could not keep your creation request. No request was sent."
 msgstr "このブラウザーでは作成要求を保持できませんでした。要求は送信されていません。"
+
+#: src/portal-commands.ts
+msgid "This browser, active now"
+msgstr "このブラウザー、現在使用中"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3552,6 +3625,10 @@ msgstr "このリセットリンクは開けません"
 msgid "This unsubscribe link can’t be opened"
 msgstr "この配信停止リンクは開けません"
 
+#: src/AccountManagement.tsx
+msgid "Those browsers will need to sign in again. This browser stays signed in."
+msgstr "それらのブラウザーでは再度ログインが必要になります。このブラウザーのログイン状態は維持されます。"
+
 #: src/authority-workflows.tsx
 msgid "Transfer approved"
 msgstr "転送を承認しました"
@@ -3578,6 +3655,10 @@ msgstr "別のコンピューター名をお試しください。絞り込みで
 msgid "Try again"
 msgstr "再試行"
 
+#: src/ConnectApp.tsx
+msgid "Try an object name, its location, or an action such as Rename. Clear the search to browse."
+msgstr "名前、場所、または「名前を変更」などの操作で検索してください。検索をクリアすると一覧を表示できます。"
+
 #: src/ApplicationAccess.tsx
 msgid "Try another app name."
 msgstr "別のアプリ名をお試しください。"
@@ -3594,11 +3675,6 @@ msgstr "別の名前を試してください。"
 #: src/ConnectApp.tsx
 msgid "Type {0} to confirm"
 msgstr "確認のため {0} と入力してください"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "コマンドを入力"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"
@@ -3845,6 +3921,10 @@ msgstr "選択したコレクションのリマインダーを許可しました
 #: src/authority-workflows.tsx
 msgid "You can close this tab."
 msgstr "このタブを閉じてかまいません。"
+
+#: src/AccountManagement.tsx
+msgid "You will need to sign in again to manage your collections."
+msgstr "コレクションを管理するには再度ログインが必要になります。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

@@ -81,7 +81,7 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
   return <Page title={collectionName ? t(i18n)({ message: "Access", context: "Connect interface" }) : t(i18n)({ message: "Apps", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each application has to ${collectionName}.` : t(i18n)({ message: "Review applications connected to your account. Your browser sign-in is never shared with them." })}>
     <section>{collectionName && <SectionTitle title={t(i18n)({ message: "Apps", context: "Connect interface" })} count={groups.length} />}
       {groups.length >= 10 && <ListFilter label={t(i18n)`Filter apps`} value={query} onChange={setQuery} />}
-      {visible.map(group => <details className="connect-application" key={group.applicationId}>
+      {visible.map(group => <details className="connect-application" key={group.applicationId} data-list-item data-command={`app:${group.applicationId}`}>
         <summary><span><strong>{group.applicationName}</strong>{!collectionName && <small>{countLabel(group.collectionCount, "collection")}</small>}</span><b>{t(i18n)({ message: "Review", context: "Connect interface" })}</b></summary>
         <div className="connect-application-body">
           {installationScopes(group.installations).map(({ collectionId, entries }) => <div className="connect-grant connect-row" key={collectionId ?? "creation"}>

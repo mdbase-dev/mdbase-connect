@@ -115,6 +115,7 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
     await user.click(await screen.findByRole("button", { name: "Sign out of this browser" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
     expect(localStorage.getItem("connect-overview-v1:person")).toBeNull();
     expect(sessionStorage.getItem("connect-overview-account")).toBeNull();
   });
@@ -421,6 +422,7 @@ describe("ConnectApp", () => {
     expect([...container.querySelectorAll("time")].map(time => time.dateTime)).toEqual(sessions.map(session => session.created_at));
     expect(screen.getAllByRole("button", { name: /^Sign out$/ })).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /^Sign out$/ }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "DELETE").map(([input]) => new URL(String(input)).pathname)).toEqual(["/v1/account/sessions/other-22222222"]));
   });
 
@@ -442,6 +444,7 @@ describe("ConnectApp", () => {
     expect(signOut.compareDocumentPosition(container.querySelector(".connect-row")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(signOut);
     fireEvent.click(signOut);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
     expect(logout).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled();
     await act(async () => complete());
@@ -457,9 +460,10 @@ describe("ConnectApp", () => {
     render(<AccountManagement client={client} overview={overview} onOverviewRefresh={vi.fn()} onSignedOut={vi.fn()} onDeleted={vi.fn()} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Sign out of this browser" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Sign-out failed. Try again.");
-    expect(screen.getByRole("button", { name: "Sign out of this browser" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "Sign out of this browser" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent("Sign-out failed. Try again.");
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" })).toBeEnabled();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
     expect(logout).toHaveBeenCalledTimes(2);
   });
 

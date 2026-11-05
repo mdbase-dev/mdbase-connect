@@ -1,7 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
 import { Dialog } from "./Dialog.js";
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject, type ReactNode } from "react";
 
 export interface Command {
   readonly id: string;
@@ -23,12 +23,14 @@ export function isApplePlatform(): boolean {
 
 /** "mod+shift+f" as the platform writes it: ⌘⇧F on Apple systems, Ctrl+Shift+F elsewhere. */
 export function shortcutLabel(shortcut: string): string {
+  if (/^[a-z] [a-z]$/iu.test(shortcut)) return shortcut.toUpperCase();
   const apple = isApplePlatform();
   return shortcut
     .split("+")
     .map((part) => {
       switch (part.toLowerCase()) {
         case "mod": return apple ? "⌘" : "Ctrl";
+        case "ctrl": return apple ? "⌃" : "Ctrl";
         case "shift": return apple ? "⇧" : "Shift";
         case "alt": return apple ? "⌥" : "Alt";
         default: return part.length === 1 ? part.toUpperCase() : part;
@@ -70,7 +72,7 @@ export function matchingCommands(
  * Find or run anything: every mdbase app opens it with Mod+K. Typing filters commands; the
  * arrows move, Enter runs, Shift+Enter runs a command's alternate, Escape closes.
  */
-export function CommandPalette({ open, commands, onClose, label = t({ message: "Commands" }), placeholder = t({ message: "Search commands" }), showAll, groupLabel }: {
+export function CommandPalette({ open, commands, onClose, label = t({ message: "Commands" }), placeholder = t({ message: "Search commands" }), showAll, groupLabel, returnFocusRef, emptyState }: {
   readonly open: boolean;
   readonly commands: readonly Command[];
   readonly onClose: () => void;
@@ -79,14 +81,16 @@ export function CommandPalette({ open, commands, onClose, label = t({ message: "
   readonly showAll?: readonly string[] | undefined;
   /** Presentation only: translate headings without changing group or showAll IDs. */
   readonly groupLabel?: ((group: string) => string) | undefined;
+  readonly returnFocusRef?: RefObject<HTMLElement | null> | undefined;
+  readonly emptyState?: ReactNode;
 }): JSX.Element | null {
   useLocaleRevision();
-  return <Dialog open={open} title={label} onClose={onClose} className="mdbase-command-palette">
-    <OpenCommandPalette open={open} commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} groupLabel={groupLabel} />
+  return <Dialog open={open} title={label} onClose={onClose} returnFocusRef={returnFocusRef} className="mdbase-command-palette">
+    <OpenCommandPalette open={open} commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} groupLabel={groupLabel} returnFocusRef={returnFocusRef} emptyState={emptyState} />
   </Dialog>;
 }
 
-function OpenCommandPalette({ open, commands, onClose, label, placeholder, showAll, groupLabel }: {
+function OpenCommandPalette({ open, commands, onClose, label, placeholder, showAll, groupLabel, returnFocusRef, emptyState }: {
   readonly open: boolean;
   readonly commands: readonly Command[];
   readonly onClose: () => void;
@@ -94,6 +98,8 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   readonly placeholder: string;
   readonly showAll?: readonly string[] | undefined;
   readonly groupLabel?: ((group: string) => string) | undefined;
+  readonly returnFocusRef?: RefObject<HTMLElement | null> | undefined;
+  readonly emptyState?: ReactNode;
 }): JSX.Element {
   useLocaleRevision();
   const [query, setQuery] = useState("");
@@ -102,6 +108,8 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   const matches = useMemo(() => matchingCommands(commands, query, showAll), [commands, query, showAll]);
   useEffect(() => { if (open) { setQuery(""); setActive(0); } }, [open]);
   const run = (command: Command, alternate = false): void => {
+    inputRef.current?.closest("dialog")?.close();
+    returnFocusRef?.current?.focus({ preventScroll: true });
     onClose();
     (alternate && command.alternate ? command.alternate.run : command.run)();
   };
@@ -122,18 +130,23 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
             setQuery(event.target.value);
             setActive(0);
           }}
-          onKeyDown={(event) => handleKeys(event, matches, active, setActive, run, onClose)}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded="true"
+          aria-controls={`${hintId}-results`}
+          aria-activedescendant={matches[active] ? `${hintId}-${matches[active].id}` : undefined}
+          onKeyDown={(event) => { if (!event.nativeEvent.isComposing) handleKeys(event, matches, active, setActive, run, onClose); }}
         />
       </label>
-      <div className="mdbase-command-results" role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
+      <div id={`${hintId}-results`} className="mdbase-command-results" role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
             {command.group !== matches[index - 1]?.group
               ? <div className="mdbase-command-group" role="presentation">{groupLabel ? groupLabel(command.group) : command.group}</div>
               : null}
-            <CommandRow command={command} active={index === active} onRun={run} />
+            <CommandRow id={`${hintId}-${command.id}`} command={command} active={index === active} onRun={run} />
           </Fragment>)
-          : <div className="mdbase-command-empty">{t({ message: "Nothing matches" })}</div>}
+          : <div className="mdbase-command-empty" role="status">{emptyState ?? t({ message: "Nothing matches" })}</div>}
       </div>
       <footer className="mdbase-command-footer" id={hintId}>
         <span><kbd>↑</kbd><kbd>↓</kbd>  {t({ message: "to move" })}</span>
@@ -146,7 +159,8 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   </>;
 }
 
-function CommandRow({ command, active, onRun }: {
+function CommandRow({ id, command, active, onRun }: {
+  readonly id: string;
   readonly command: Command;
   readonly active: boolean;
   readonly onRun: (command: Command, alternate?: boolean) => void;
@@ -156,7 +170,7 @@ function CommandRow({ command, active, onRun }: {
   useEffect(() => {
     if (active) ref.current?.scrollIntoView({ block: "nearest" });
   }, [active]);
-  return <button ref={ref} type="button" role="option" aria-selected={active} onMouseDown={(event) => onRun(command, event.shiftKey)}>
+  return <button id={id} ref={ref} tabIndex={-1} type="button" role="option" aria-selected={active} onMouseDown={event => event.preventDefault()} onClick={(event) => onRun(command, event.shiftKey)}>
     <span>
       <strong>{command.label}</strong>
       {command.detail ? <small>{command.detail}</small> : null}

@@ -1,7 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { InfoIcon as Info } from "@phosphor-icons/react/Info";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 
@@ -37,7 +37,7 @@ export function ConnectPage({ title, intro, status, action, reading = false, chi
 }) {
   useLocaleRevision();
   const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.title = `${title} - mdbase connect`;
     const main = heading.current?.closest(".connect-main");
     if (main instanceof HTMLElement) main.scrollTo?.({ top: 0 });
@@ -101,7 +101,8 @@ export function InlineRename({ value, label, inputLabel, busy = false, onSubmit 
 }
 
 export function ListFilter({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {
-  return <label className="connect-list-filter"><span className="mdbase-visually-hidden">{label}</span><input className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} /></label>;
+  useLocaleRevision();
+  return <div className="connect-list-filter"><label><span className="mdbase-visually-hidden">{label}</span><input className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} /></label><kbd>/</kbd><button type="button" className="mdbase-button is-tertiary" hidden={!value} onClick={() => onChange("")}><Trans>Clear filter</Trans></button></div>;
 }
 
 export function DesktopLink({ href, role, children }: { href: string; role?: "menuitem"; children: ReactNode }) {
