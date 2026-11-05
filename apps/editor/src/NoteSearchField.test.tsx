@@ -52,6 +52,17 @@ describe("Search filters", () => {
     expect(input).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("leaves Enter and Escape to the input method while composing", () => {
+    const onResults = vi.fn();
+    render(<SearchHarness onResults={onResults} />);
+    const input = screen.getByRole("combobox", { name: "Search notes and files" });
+    fireEvent.change(input, { target: { value: "かな" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(input, { key: "Escape", isComposing: true });
+    expect(onResults).not.toHaveBeenCalled();
+    expect(input).toHaveValue("かな");
+  });
+
   it("clears with Escape, returns with the second, and enters results with ArrowDown or Enter", () => {
     const onResults = vi.fn();
     render(<SearchHarness onResults={onResults} />);

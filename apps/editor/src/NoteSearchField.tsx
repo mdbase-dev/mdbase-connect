@@ -46,6 +46,7 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
       {filter && <button className="search-filter-chip" aria-label={t`Remove ${filter.kind} filter ${filter.value}`} onClick={() => onFilter(undefined)}><span>{filter.kind === "tag" ? `#${filter.value}` : filter.kind === "type" ? t`type:${filter.value}` : filter.value}</span><X aria-hidden="true" /></button>}
       <label className="sr-only" htmlFor="note-search"><Trans>Search notes and files</Trans></label>
       <input ref={input} id="note-search" value={search} onChange={(event) => { onSearch(event.target.value); setDismissed(false); setActive(0); }} onFocus={() => setDismissed(false)} placeholder={t`Search`} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} aria-activedescendant={open && suggestions.length ? `note-filter-${Math.min(active, suggestions.length - 1)}` : undefined} onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing) return;
         if (event.key === "Escape") {
           event.preventDefault(); event.stopPropagation(); setBrowse(false); setDismissed(true);
           if (search) onSearch(""); else onResults?.(false);
