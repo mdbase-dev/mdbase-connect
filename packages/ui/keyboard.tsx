@@ -6,7 +6,7 @@ import { i18n, useLocaleRevision } from "@mdbase-dev/ui/i18n";
 
 export const navigationShortcuts = {
   collections: "g c", applications: "g a", computers: "g o", account: "g u",
-  overview: "g v", storage: "g t", access: "g r", settings: "g s"
+  overview: "g v", storage: "g t", access: "g r", settings: "g s", activity: "g l"
 } as const;
 
 export function useConnectKeyboard({ commands, enabled, root, filter, listFocus, onShow }: {
@@ -40,6 +40,19 @@ export function useConnectKeyboard({ commands, enabled, root, filter, listFocus,
       if (!enabled || event.defaultPrevented || event.isComposing || event.repeat || event.altKey
         || document.querySelector("dialog[open], [role=dialog], [role=menu], [role=listbox]")) { prefixUntil = 0; return; }
       const target = event.target instanceof Element ? event.target : null;
+      if (target?.matches(`${root} ${filter}`) && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+        prefixUntil = 0;
+        const key = event.key;
+        if (key === "ArrowDown" || key === "Enter" || key === "Escape" && !(target as HTMLInputElement).value) {
+          const row = target.closest("section")!.querySelector<HTMLElement>("[data-list-item]");
+          if (row) {
+            event.preventDefault();
+            const focus = row.querySelector<HTMLElement>(listFocus) ?? row;
+            focus.focus(); focus.scrollIntoView({ block: "nearest" });
+          }
+        }
+        return;
+      }
       if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable=false]), [role=textbox], [role=combobox]")) { prefixUntil = 0; return; }
       const key = event.key.toLowerCase();
       const modifier = event.metaKey || event.ctrlKey;
@@ -73,7 +86,7 @@ export function useConnectKeyboard({ commands, enabled, root, filter, listFocus,
     window.addEventListener("keydown", keydown);
     return () => { window.removeEventListener("keydown", palette, true); window.removeEventListener("keydown", keydown); };
   }, [enabled, root, filter, listFocus]);
-  return { open, close: () => setOpen(false), show, helpOpen, showHelp: () => setHelpOpen(true), closeHelp: () => setHelpOpen(false), invoker };
+  return { open, close: () => setOpen(false), show, helpOpen, showHelp: () => setHelpOpen(true), closeHelp: () => setHelpOpen(false), invoker, filter: `${root} ${filter}` };
 }
 
 export function KeyboardShortcuts({ keyboard, commands }: {
@@ -86,7 +99,7 @@ export function KeyboardShortcuts({ keyboard, commands }: {
     <dl className="connect-shortcuts">
       <div><dt>{t(i18n)({ message: "Search", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("mod+k")}</kbd></dd></div>
       {commands.filter(command => command.shortcut).map(command => <div key={command.id}><dt>{command.label}</dt><dd><kbd>{shortcutLabel(command.shortcut!)}</kbd>{command.id === "shortcuts" && <> / <kbd>{shortcutLabel("Ctrl+/")}</kbd></>}</dd></div>)}
-      <div><dt>{t(i18n)({ message: "Filter the current list", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>/</kbd></dd></div>
+      {keyboard.helpOpen && document.querySelector(keyboard.filter) && <div><dt>{t(i18n)({ message: "Filter the current list", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>/</kbd></dd></div>}
       <div><dt>{t(i18n)({ message: "Move through the list", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("j")}</kbd> / <kbd>{shortcutLabel("k")}</kbd></dd></div>
       <div><dt>{t(i18n)({ message: "Open the focused item", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("Enter")}</kbd></dd></div>
     </dl>

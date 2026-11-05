@@ -551,7 +551,7 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Выберите, где создать папку."
 
-#: src/renderer/collections-view.tsx
+#: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "Сбросить фильтр"
 
@@ -781,6 +781,14 @@ msgstr "Сквозное шифрование: mdbase не может прочи
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Введите имя этого компьютера."
+
+#: src/renderer/activity-view.tsx
+msgid "Filter activity"
+msgstr "Фильтр активности"
+
+#: src/renderer/access-view.tsx
+msgid "Filter apps"
+msgstr "Фильтр приложений"
 
 #: src/renderer/collections-view.tsx
 msgid "Filter collections"
@@ -1384,11 +1392,6 @@ msgstr "Возобновить"
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "Возврат к старому механизму"
-
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "Проверить"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx

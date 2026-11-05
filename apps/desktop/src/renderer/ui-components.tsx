@@ -16,6 +16,12 @@ import type { ConnectionDotState } from "./daemon-view.mjs";
 import { message, type Route } from "./view-model";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
 
+export function ListFilter({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {
+  useLocaleRevision();
+  const input = useRef<HTMLInputElement>(null);
+  return <div className="collection-filter"><input ref={input} className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} />{value && <button className="mdbase-button is-tertiary" onClick={() => { onChange(""); input.current!.focus(); }}>{t(i18n)`Clear filter`}</button>}</div>;
+}
+
 export function ProductSidebar({
   route,
   collectionCount,

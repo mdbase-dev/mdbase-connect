@@ -8,7 +8,7 @@ import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
 import { CollectionModeControl } from "@mdbase-dev/ui/collection-mode";
 import { groupedApprovalCode, presentCollection } from "./daemon-view.mjs";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
-import { Empty, SectionHeading } from "./ui-components";
+import { Empty, ListFilter, SectionHeading } from "./ui-components";
 import { message, relativeTime, syncEnableMessage } from "./view-model";
 import type { TakeoverHold } from "./takeover-state.mjs";
 
@@ -37,7 +37,7 @@ export function CollectionsView({ collections, computerName, busy, onAdd, onCrea
           <button className="mdbase-button" disabled={busy} onClick={onAdd}><Trans>Add existing</Trans></button>
           <button className="mdbase-button is-primary" disabled={busy} onClick={onCreate}><Trans>Create</Trans></button>
         </SectionHeading>
-        {(collections.length >= 10 || query) && <div className="collection-filter"><input type="search" aria-label={t(i18n)`Filter collections`} placeholder={t(i18n)`Filter collections`} value={query} onChange={event => setQuery(event.target.value)} />{query && <button className="mdbase-button is-tertiary" onClick={() => setQuery("")}><Trans>Clear filter</Trans></button>}</div>}
+        {(collections.length >= 10 || query) && <ListFilter label={t(i18n)`Filter collections`} value={query} onChange={setQuery} />}
         {collections.length === 0
           ? <Empty title={t(i18n)({ message: "No collections yet", context: "Local collection management" })} text={t(i18n)({ message: "Add a folder of Markdown notes or create a new collection." })} />
           : <div className="collection-list">{sorted.map((collection) => (
@@ -78,25 +78,30 @@ function CollectionCard({ collection, computerName, busy, onAct, onNotice, onTur
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const closeMenu = (refocus: boolean) => { setMenuOpen(false); if (refocus) menuTrigger.current?.focus(); };
   return (
-    <article className="collection-card" data-list-item tabIndex={-1}>
+    <article className="collection-card" data-list-item tabIndex={-1} onKeyDown={event => {
+      if (event.key === "Enter" && event.target === event.currentTarget && !busy) {
+        event.preventDefault();
+        menuTrigger.current!.focus();
+        setMenuOpen(true);
+      }
+    }}>
       <div className="collection-card-main">
-        <svg viewBox="0 0 256 256" fill="none" stroke="currentColor" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="32" y="48" width="192" height="144" rx="16" /><path d="M32 152h192M96 224h64M128 192v32" /></svg>
+        <svg viewBox="0 0 256 256" fill="none" stroke="currentColor" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label={computerName}><rect x="32" y="48" width="192" height="144" rx="16" /><path d="M32 152h192M96 224h64M128 192v32" /></svg>
         <div>
           <h3>{collection.name}</h3>
-          <small>{computerName}</small>
-          {collection.description && <small className="collection-description">{collection.description}</small>}
-          <code>{collection.root}</code>
-          <small>{view.mode} · {view.status}{view.detail ? ` · ${view.detail}` : ""}</small>
-          {collection.approval_code && <div className="approval-check" aria-live="polite">
-            <span><Trans>Check this code matches on your other computer:</Trans></span>
-            <strong className="approval-code">{groupedApprovalCode(collection.approval_code)}</strong>
-          </div>}
-          {collection.notices.filter((notice) => notice.code !== "file_held" && notice.code !== "collection_deleted" && notice.code !== "sync_revoked").map((notice, index) => <small key={`${notice.code}:${notice.path ?? index}`} className="collection-notice">{notice.path && <><code>{notice.path}</code>{": "}</>}{notice.message}</small>)}
+          <code title={collection.root}>{collection.root}</code>
         </div>
       </div>
+      <div className="collection-card-status"><span>{view.status}</span><small title={view.mode}>{view.mode}</small></div>
       <button ref={menuTrigger} className="mdbase-button is-tertiary collection-menu-trigger" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId} disabled={busy} onClick={() => setMenuOpen((open) => !open)}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="13" cy="8" r="1" /></svg>
       </button>
+      {view.detail && <p className="collection-status-detail">{view.detail}</p>}
+      {collection.approval_code && <div className="approval-check" aria-live="polite">
+        <span><Trans>Check this code matches on your other computer:</Trans></span>
+        <strong className="approval-code">{groupedApprovalCode(collection.approval_code)}</strong>
+      </div>}
+      {collection.notices.filter((notice) => notice.code !== "file_held" && notice.code !== "collection_deleted" && notice.code !== "sync_revoked").map((notice, index) => <small key={`${notice.code}:${notice.path ?? index}`} className="collection-notice">{notice.path && <><code>{notice.path}</code>{": "}</>}{notice.message}</small>)}
       <Menu open={menuOpen} triggerRef={menuTrigger} onClose={closeMenu} id={menuId} label={collection.name}>
         <button role="menuitem" className="mdbase-menu-item" disabled={busy} onClick={() => { closeMenu(true); void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id)); }}><Trans>Open folder</Trans></button>
         <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setDetailsOpen((open) => !open); }}><Trans>Details</Trans></button>

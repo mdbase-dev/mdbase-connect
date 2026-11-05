@@ -551,7 +551,7 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Scegli dove creare la cartella."
 
-#: src/renderer/collections-view.tsx
+#: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "Cancella filtro"
 
@@ -781,6 +781,14 @@ msgstr "Crittografia end-to-end: mdbase non può leggere il contenuto. Le app we
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Inserisci un nome per questo computer."
+
+#: src/renderer/activity-view.tsx
+msgid "Filter activity"
+msgstr "Filtra attività"
+
+#: src/renderer/access-view.tsx
+msgid "Filter apps"
+msgstr "Filtra app"
 
 #: src/renderer/collections-view.tsx
 msgid "Filter collections"
@@ -1384,11 +1392,6 @@ msgstr "Riprendi"
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "Ritorno al vecchio motore"
-
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "Verifica"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx

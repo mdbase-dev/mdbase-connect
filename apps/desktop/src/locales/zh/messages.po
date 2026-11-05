@@ -551,7 +551,7 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "选择创建文件夹的位置。"
 
-#: src/renderer/collections-view.tsx
+#: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "清除筛选"
 
@@ -781,6 +781,14 @@ msgstr "端到端加密：mdbase 无法读取。只有你的某台设备在线�
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "输入此电脑的名称。"
+
+#: src/renderer/activity-view.tsx
+msgid "Filter activity"
+msgstr "筛选活动"
+
+#: src/renderer/access-view.tsx
+msgid "Filter apps"
+msgstr "筛选应用"
 
 #: src/renderer/collections-view.tsx
 msgid "Filter collections"
@@ -1384,11 +1392,6 @@ msgstr "恢复"
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "已退回旧引擎"
-
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "审查"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx

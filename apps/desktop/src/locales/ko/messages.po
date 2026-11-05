@@ -551,7 +551,7 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "폴더를 만들 위치를 선택하세요."
 
-#: src/renderer/collections-view.tsx
+#: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "필터 지우기"
 
@@ -781,6 +781,14 @@ msgstr "종단 간 암호화: mdbase에서 읽을 수 없습니다. 웹 앱은 �
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "이 컴퓨터의 이름을 입력하세요."
+
+#: src/renderer/activity-view.tsx
+msgid "Filter activity"
+msgstr "활동 필터링"
+
+#: src/renderer/access-view.tsx
+msgid "Filter apps"
+msgstr "앱 필터링"
 
 #: src/renderer/collections-view.tsx
 msgid "Filter collections"
@@ -1384,11 +1392,6 @@ msgstr "재개"
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "이전 엔진으로 복귀함"
-
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "검토"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
