@@ -6,11 +6,44 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { MdbaseMark } from "./brand.js";
 import { CommandPalette } from "./CommandPalette.js";
+import { Dialog } from "./Dialog.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const host = document.body.appendChild(document.createElement("div"));
 const root = createRoot(host);
 afterEach(() => { act(() => root.render(null)); vi.useRealTimers(); });
+
+it("keeps an inspector open beneath quick open and returns focus to it", () => {
+  const inspectorClose = vi.fn();
+  const openPalette = (open: boolean) => <><Dialog open title="Properties" onClose={inspectorClose}><button data-autofocus>Property</button></Dialog>
+    <CommandPalette open={open} commands={[]} onClose={vi.fn()} /></>;
+  act(() => root.render(openPalette(false)));
+  const invoker = document.activeElement;
+  act(() => root.render(openPalette(true)));
+  expect(document.querySelectorAll("dialog[open]")).toHaveLength(2);
+  expect(inspectorClose).not.toHaveBeenCalled();
+  act(() => root.render(openPalette(false)));
+  expect(document.querySelectorAll("dialog[open]")).toHaveLength(1);
+  expect(document.activeElement).toBe(invoker);
+});
+
+it("uses ranked results, highlighted content and Home/End in the shared palette", () => {
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+  const run = vi.fn();
+  const results = vi.fn(() => Array.from({ length: 20 }, (_, index) => ({
+    id: `note-${index}`, label: `Note ${index}`, group: "Notes", content: <strong><mark>Note</mark> {index}</strong>, run
+  })));
+  act(() => root.render(<CommandPalette open commands={[]} initialQuery=">" getResults={results} onClose={vi.fn()} />));
+  const input = document.querySelector("input")!;
+  expect(input.value).toBe(">");
+  expect(results).toHaveBeenCalledWith(">");
+  act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  expect(document.getElementById(input.getAttribute("aria-activedescendant")!)?.textContent).toBe("Note 19");
+  act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+  expect(document.getElementById(input.getAttribute("aria-activedescendant")!)?.querySelector("mark")?.textContent).toBe("Note");
+  act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  expect(run).toHaveBeenCalledOnce();
+});
 
 it("closes a palette before running its action and does not steal the action's focus", () => {
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });

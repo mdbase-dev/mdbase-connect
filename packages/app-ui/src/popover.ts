@@ -113,6 +113,7 @@ export function useSelectPopover(
 }
 
 export interface MenuPopoverOptions {
+  readonly point?: { readonly left: number; readonly top: number } | undefined;
   readonly open?: boolean;
   /** Preferred width; narrow viewports shrink it. Omit it to leave the width to CSS. */
   readonly width?: number | undefined;
@@ -132,7 +133,7 @@ export function useMenuPopover(
   menuRef: RefObject<HTMLElement | null>,
   triggerRef: RefObject<HTMLElement | null>,
   onClose: (refocus: boolean) => void,
-  { open = true, width, align = "start", focus = '[aria-checked="true"], [role^="menuitem"]', busy = false }: MenuPopoverOptions
+  { open = true, width, align = "start", focus = '[aria-checked="true"], [role^="menuitem"]:not(:disabled)', busy = false, point }: MenuPopoverOptions
 ): void {
   const close = useEffectEvent(onClose);
   const locked = useEffectEvent(() => busy);
@@ -142,9 +143,13 @@ export function useMenuPopover(
     if (!menu || !trigger || !open) return undefined;
     showInTopLayer(menu);
     if (width !== undefined) menu.style.width = `${Math.min(width, window.innerWidth - 16)}px`;
-    place(trigger, menu, { gap: 6, align, matchWidth: false });
+    if (point) {
+      const bounds = menu.getBoundingClientRect();
+      menu.style.left = `${Math.max(8, Math.min(point.left, window.innerWidth - bounds.width - 8))}px`;
+      menu.style.top = `${Math.max(8, Math.min(point.top, window.innerHeight - bounds.height - 8))}px`;
+    } else place(trigger, menu, { gap: 6, align, matchWidth: false });
     (menu.querySelector<HTMLElement>(focus) ?? menu).focus({ preventScroll: true });
-  }, [menuRef, triggerRef, width, align, focus, open]);
+  }, [menuRef, triggerRef, width, align, focus, open, point]);
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: PointerEvent): void => {
@@ -163,15 +168,18 @@ export function useMenuPopover(
       }
     };
     const onResize = (): void => close(false);
+    const onScroll = (event: Event): void => { if (point && !menuRef.current?.contains(event.target as Node)) close(false); };
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("resize", onResize);
+    document.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("resize", onResize);
+      document.removeEventListener("scroll", onScroll, true);
     };
-  }, [menuRef, triggerRef, open]);
+  }, [menuRef, triggerRef, open, point]);
 }
 
 /**
@@ -193,4 +201,5 @@ export function moveMenuFocus(event: KeyboardEvent, menu: HTMLElement | null): v
         ? 0
         : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
   items[next]?.focus({ preventScroll: true });
+  items[next]?.scrollIntoView?.({ block: "nearest" });
 }

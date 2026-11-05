@@ -53,7 +53,7 @@ export function FeedbackMarkup({ open, screenshot, onApply, onClose }: { open: b
   }
   useEffect(() => {
     if (!open) return;
-    setReady(false); setTool("draw"); setCount(0); setError("");
+    setReady(false); setTool("draw"); setCount(0); setError(""); cursor.current = null;
     let live = true;
     const decoded = new Image(); decoded.src = screenshotUrl(screenshot);
     void decoded.decode().then(() => {
