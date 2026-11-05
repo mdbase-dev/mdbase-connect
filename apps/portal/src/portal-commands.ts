@@ -93,6 +93,13 @@ export function usePortalCommands({ data, collections, applications, sessions, s
   useEffect(() => () => pending.current?.disconnect(), []);
   useEffect(() => {
     let prefixUntil = 0;
+    // A chord cannot be typed as text, and Dialog stops key events: capture it ahead of both.
+    const palette = (event: KeyboardEvent) => {
+      if (!enabled || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      if (document.querySelector("dialog.mdbase-command-palette[open]")) setOpen(false);
+      else if (!document.querySelector("dialog[open], [role=dialog], [role=menu], [role=listbox]")) show();
+    };
     const keydown = (event: KeyboardEvent) => {
       if (!enabled || event.defaultPrevented || event.isComposing || event.repeat || event.altKey
         || document.querySelector("dialog[open], [role=dialog], [role=menu], [role=listbox]")) { prefixUntil = 0; return; }
@@ -100,7 +107,6 @@ export function usePortalCommands({ data, collections, applications, sessions, s
       if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable=false]), [role=textbox], [role=combobox]")) { prefixUntil = 0; return; }
       const key = event.key.toLowerCase();
       const modifier = event.metaKey || event.ctrlKey;
-      if (modifier && key === "k" && !event.shiftKey) { event.preventDefault(); show(); return; }
       if ((!modifier && key === "?") || (event.ctrlKey && !event.metaKey && key === "/")) {
         event.preventDefault(); prefixUntil = 0; setHelpOpen(true); return;
       }
@@ -127,8 +133,9 @@ export function usePortalCommands({ data, collections, applications, sessions, s
         event.preventDefault(); target.querySelector<HTMLElement>("button, a")?.focus();
       }
     };
+    window.addEventListener("keydown", palette, true);
     window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
+    return () => { window.removeEventListener("keydown", palette, true); window.removeEventListener("keydown", keydown); };
   }, [enabled]);
   return { commands, groupLabels, open, close: () => setOpen(false), show, helpOpen, closeHelp: () => setHelpOpen(false), invoker, cancel };
 }

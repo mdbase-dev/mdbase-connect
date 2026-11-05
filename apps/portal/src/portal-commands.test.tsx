@@ -49,16 +49,13 @@ describe("Portal keyboard scope", () => {
     expect(screen.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
   });
 
-  it("does not steal Mod+K from an input or bind sign out or revoke to a key", () => {
+  it("opens the palette with Mod+K from an input and binds no single key to sign out or revoke", () => {
     create.mockClear(); navigate.mockClear();
     render(<Host />);
-    const input = screen.getByRole("textbox", { name: "Filter" });
-    fireEvent.keyDown(input, { key: "k", ctrlKey: true });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.keyDown(document.body, { key: "s" });
     fireEvent.keyDown(document.body, { key: "r" });
     expect(create).not.toHaveBeenCalled(); expect(navigate).not.toHaveBeenCalled();
-    fireEvent.keyDown(document.body, { key: "k", ctrlKey: true });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Filter" }), { key: "k", ctrlKey: true });
     expect(screen.getByRole("dialog", { name: "Commands" })).toBeInTheDocument();
   });
 

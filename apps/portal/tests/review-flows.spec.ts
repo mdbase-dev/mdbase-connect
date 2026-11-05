@@ -39,7 +39,6 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     const filter = page.getByRole("searchbox", { name: "Filter collections" });
     await expect(filter).toBeFocused();
     await page.keyboard.type("c?g");
-    await page.keyboard.press("Control+k");
     await expect(filter).toHaveValue("c?g");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await filter.fill("");
@@ -433,4 +432,14 @@ for (const provider of ["Google", "GitHub"]) test(`${provider} sign-in never lea
   await page.getByRole(provider === "Google" ? "button" : "link", { name: `Continue with ${provider}`, exact: true }).click();
   await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
   expect(external).toEqual([]);
+});
+
+test("Control+K opens the palette from a field and closes it again", async ({ page }) => {
+  await openScenario(page, "heavy-account");
+  await page.getByRole("searchbox").first().focus();
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+  await expect(palette.getByRole("combobox")).toBeFocused();
+  await page.keyboard.press("Control+k");
+  await expect(palette).toHaveCount(0);
 });
