@@ -107,7 +107,9 @@ export async function rollback(previous,options,{source,sleep=ms=>new Promise(re
    }
    for(const expected of previous.probes) {
     const actual=await fingerprint(alias,expected.path,options.fetchImpl??fetch,performance.now()+Math.max(1,deadline-now()));
-    need(actual.bytes===expected.bytes && actual.sha256===expected.sha256 && isDeepStrictEqual(actual.headers,expected.headers),'alias does not serve previous deployment');
+    // The edge can keep another build's headers on unchanged bytes, except on documents.
+    const document=expected.headers['content-type']?.includes('text/html');
+    need(actual.bytes===expected.bytes && actual.sha256===expected.sha256 && (!document || isDeepStrictEqual(actual.headers,expected.headers)),'alias does not serve previous deployment');
    }
    // An accepted upload can become canonical after the first clean pass.
    heldSince??=now();

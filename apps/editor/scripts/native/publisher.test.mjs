@@ -179,6 +179,14 @@ it('rolls production back, verifies the previous id and every transitive asset, 
   const broken=await rollback(previous,{...options,fetchImpl:async(url,init)=>url===plan.origin+probe.path?new Response('wrong bytes'):options.fetchImpl(url,init)},{source,settleMs:100});
   assert.equal(broken.ok,false,'rollback must match '+probe.path);
  }
+ const staleHeaders=(path,type)=>async(url,init)=>{
+  if(url!==plan.origin+path)return options.fetchImpl(url,init);
+  const response=await options.fetchImpl(url,init);
+  return new Response(response.body,{headers:{'content-type':type,'content-security-policy':"default-src 'self'"}});
+ };
+ assert.equal((await rollback(previous,{...options,fetchImpl:staleHeaders('/assets/engine.wasm','application/wasm')},recovery)).ok,true,'unchanged bytes may keep another build\'s headers at the edge');
+ const htmlPrevious={...previous,probes:previous.probes.map(p=>p.path==='/'?{...p,headers:{...p.headers,'content-type':'text/html'}}:p)};
+ assert.equal((await rollback(htmlPrevious,{...options,fetchImpl:staleHeaders('/','text/html')},{source,settleMs:100})).ok,false,'documents must match exactly');
  await assert.rejects(capturePrevious({...options,fetchImpl:async(url,init)=>url===plan.origin+'/assets/entry.js'?new Response('missing',{status:404}):options.fetchImpl(url,init)}),/bytes unavailable/);
  assert.equal(createReceipt({plan,verification:{ok:false},previous,rollback:report}).status,'failed-or-incomplete');
 });
@@ -244,6 +252,17 @@ it('accounts for ALL static bytes plus SOURCE-owned headers/redirects; refuses t
   const badUrls=[],badTransport=transport(f.files,true);
   assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:async(...args)=>{badUrls.push(String(args[0]));return badTransport(...args);}})).ok,false);
   assert.equal(new Set(badUrls).size,badUrls.length,'Security-header failures must not be retried as transient transport errors');
+  const staleEdge=match=>async(url,init)=>{
+   const response=await transport(f.files)(url,init);
+   if(!match(new URL(url).pathname,response))return response;
+   response.headers.set('content-security-policy',"default-src 'self'");
+   return response;
+  };
+  const staleAsset=staleEdge(path=>path==='/assets/a.js');
+  assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:staleAsset})).ok,true,'unchanged asset may keep previous headers on the alias');
+  assert.equal((await verifyHosting({origin:deployment.url,inventory:f.inventory,deployment,fetchImpl:staleAsset})).ok,false,'the immutable URL proves the policy on every file');
+  const staleDocument=staleEdge((path,response)=>response.headers.get('content-type')==='text/html');
+  assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:staleDocument})).ok,false,'documents prove the policy on the alias');
   await writeFile(join(f.root,'_headers'),headersPolicy+'# changed\n');
   await assert.rejects(assertHostingSource(f.root,f.inventory),/changed/);
   await assert.rejects(verifyHosting({origin,inventory:[...f.inventory,{path:'nested/_headers',bytes:0,sha256:sha('')}],deployment}),/Unreviewed/);

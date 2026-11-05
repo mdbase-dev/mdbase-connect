@@ -98,7 +98,10 @@ approvals. UI repins change only the manifest and regenerated lock.
 7. Verify all served bytes, headers and routes on the immutable deployment URL
    within three minutes, then on the custom alias. After immutable success, the
    alias gets complete verification attempts every 15 seconds in a five-minute
-   settle window. Failed attempts never count as success.
+   settle window. Failed attempts never count as success. The edge can revalidate
+   an unchanged file and keep the previous build's headers, so the alias proves
+   the document security headers on HTML; bytes, MIME and cache rules on every
+   file. The immutable URL proves the full policy on every file.
 8. Upload and verification run in one job. Any failure there, including a
    timeout, a lost receipt or a cancelled run, goes to the recovery job in step 10.
    Staging does not roll back. No automatic rebuild or redispatch is performed.
