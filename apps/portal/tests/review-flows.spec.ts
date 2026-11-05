@@ -72,8 +72,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     await openScenario(page, "collection-storage");
-    const trigger = page.getByRole("button", { name: "Delete", exact: true }).first();
+    const trigger = page.getByRole("button", { name: "Actions for Shared research library" });
     await trigger.click();
+    await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toHaveCount(1);
     await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
@@ -97,6 +98,71 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(dialog).toHaveCount(0);
   });
 }
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`phone navigation is a dismissible sheet in ${colorScheme}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme });
+    await openScenario(page, "typical-account");
+    const trigger = page.getByRole("button", { name: "Open menu" });
+    await trigger.click();
+    const sheet = page.getByRole("dialog", { name: "Navigation" });
+    await expect(sheet.getByRole("link", { name: "Collections", exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("navigation.png") });
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await sheet.getByRole("link", { name: "Computers", exact: true }).click();
+    await expect(sheet).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Computers", level: 1 })).toBeVisible();
+  });
+}
+
+test("collection filters appear at ten rows and explain no matches", async ({ page }) => {
+  await openScenario(page, "typical-account");
+  await expect(page.getByRole("searchbox")).toHaveCount(0);
+  await openScenario(page, "heavy-account");
+  await page.getByRole("searchbox", { name: "Filter collections" }).fill("No such collection");
+  await expect(page.getByText("No collections match", { exact: true })).toBeVisible();
+  await expect(page.locator(".connect-collection-row")).toHaveCount(0);
+});
+
+test("hosted creation validates on blur without moving its action", async ({ page }, testInfo) => {
+  await openScenario(page, "empty-account");
+  await page.getByRole("button", { name: /^Hosted by mdbase/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Add collection" });
+  const name = dialog.getByRole("textbox");
+  const create = dialog.getByRole("button", { name: "Create", exact: true });
+  const before = await create.evaluate(element => (element as HTMLElement).offsetTop);
+  await name.focus();
+  await page.keyboard.press("Tab");
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  await expect(dialog.getByRole("alert")).toHaveText("Enter a collection name.");
+  expect(await create.evaluate(element => (element as HTMLElement).offsetTop)).toBe(before);
+  await page.screenshot({ path: testInfo.outputPath("creation-validation.png") });
+});
+
+test("failed revocation stays visible and never removes a grant optimistically", async ({ page }, testInfo) => {
+  await openScenario(page, "applications");
+  await page.locator(".connect-application > summary").first().click();
+  await page.getByRole("button", { name: "Revoke application", exact: true }).first().click();
+  const dialog = page.getByRole("dialog");
+  await page.route("**/v1/grants/revoke-batch", async route => {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    await route.fulfill({ status: 503, json: { error: { message: "Reader access could not be revoked. Try again." } } });
+  });
+  const grants = page.locator(".connect-grant");
+  const count = await grants.count();
+  await dialog.getByRole("button", { name: "Revoke application", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "Revoking access…" })).toHaveAttribute("aria-busy", "true");
+  await expect(grants).toHaveCount(count);
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Revoke application", exact: true })).toBeEnabled();
+  await page.screenshot({ path: testInfo.outputPath("revocation-error.png") });
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+});
 
 test("closing the palette during entry reverses from the current opacity", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -130,7 +196,8 @@ test("closing the palette during entry reverses from the current opacity", async
 
 test("rename survives navigation and reload", async ({ page }) => {
   await openScenario(page, "collection-storage");
-  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.getByRole("button", { name: "Actions for Shared research library" }).click();
+  await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
   await page.getByRole("textbox", { name: "Rename Shared research library" }).fill("Coastal research library");
   const saved = page.waitForResponse(response => response.request().method() === "PATCH" && new URL(response.url()).pathname === "/v1/hosted/collections/hosted-0");
   await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -138,6 +205,7 @@ test("rename survives navigation and reload", async ({ page }) => {
   await expect(page.getByText("Coastal research library", { exact: true }).first()).toBeVisible();
   await page.reload();
   await expect(page.getByText("Coastal research library", { exact: true }).first()).toBeVisible();
+  if (await page.getByRole("button", { name: "Open menu" }).isVisible()) await page.getByRole("button", { name: "Open menu" }).click();
   await page.getByRole("link", { name: "Overview", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Coastal research library", exact: true })).toBeVisible();
 });

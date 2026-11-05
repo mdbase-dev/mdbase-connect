@@ -615,13 +615,13 @@ async function auditPortalManagement() {
   await page.getByRole("heading", { name: "Accessibility collection" }).waitFor();
   await auditPage(page, "portal management workspace", { keyboard: true });
 
-  await page.getByRole("link", { name: "Applications", exact: true }).click();
-  await page.getByRole("heading", { name: "Application access" }).waitFor();
+  await page.getByRole("link", { name: "Apps", exact: true }).click();
+  await page.getByRole("heading", { name: "Apps", level: 1, exact: true }).waitFor();
   await page.getByText("Photo catalog", { exact: true }).click();
   await page.getByText("Permissions", { exact: true }).click();
   await auditPage(page, "portal management expanded permissions", { keyboard: true });
 
-  await page.getByRole("link", { name: "Account & sessions" }).click();
+  await page.getByRole("link", { name: "Account", exact: true }).click();
   await page.getByRole("heading", { name: "Hosted storage" }).waitFor();
   await page.getByRole("button", { name: "Change password" }).click();
   await page.getByRole("button", { name: "Delete account…" }).click();
@@ -630,8 +630,8 @@ async function auditPortalManagement() {
   await page.getByRole("dialog").waitFor({ state: "detached" });
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: /Account & sessions.*Open menu/ }).click();
-  await page.getByRole("link", { name: "Applications", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Open menu", exact: true }).click();
+  await page.getByRole("link", { name: "Apps", exact: true }).waitFor();
   await auditPage(page, "portal management mobile navigation", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();

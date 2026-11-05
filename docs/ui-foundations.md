@@ -4,6 +4,8 @@
 
 `@mdbase-dev/ui/confirm-dialog`: `ConfirmDialog({open, title, consequence?, confirmLabel, pendingLabel, onConfirm, onClose, children?})`. Cancel takes initial focus; an awaited callback keeps the modal pending. The caller closes only after acknowledged success. `disabled` gates validation and `busy` reflects externally owned work.
 
+`@mdbase/connect-ui/confirm-action`: keep `question` to a short dialog title and put explanatory sentences in `consequence`. `pendingLabel` names the work while the callback is awaited. Returning `false` from that callback keeps the dialog open and displays the supplied `error`; acknowledged success closes it.
+
 `@mdbase-dev/ui/menu`: `Menu({open, triggerRef, id, onClose, children})`; `onClose(refocus)` distinguishes Escape from an outside pointer. Existing menu item roles and arrow navigation remain.
 
 `@mdbase-dev/ui/overlay`: `useOverlay<Element>(open)` returns `{ref, present}`. Render while present, put the ref and `mdbase-overlay` / `data-open={open}` on the transitioning node. CSS owns reversal; the node leaves after the exit duration. Motion, focus and palette geometry tokens have one definition. No data-screen entrance choreography is added.

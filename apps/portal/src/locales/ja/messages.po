@@ -68,6 +68,12 @@ msgstr "{0, plural, other {# 件のコレクションを利用できません}}"
 msgid "{0, plural, one {# permission} other {# permissions}}"
 msgstr "{0, plural, other {# 件の権限}}"
 
+#. placeholder {0}: literal(entry.application_origin)
+#. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
+#: src/ApplicationAccess.tsx
+msgid "{0} · {1}"
+msgstr "{0} · {1}"
+
 #. placeholder {0}: countLabel(usage.record_count, "record")
 #. placeholder {1}: countLabel(usage.file_count, "file")
 #. placeholder {2}: formatBytes(usage.content_bytes)
@@ -76,15 +82,8 @@ msgstr "{0, plural, other {# 件の権限}}"
 msgid "{0} · {1} · {2} Markdown · {3} files"
 msgstr "{0} · {1} · {2} 件の Markdown · {3} 件のファイル"
 
-#. placeholder {0}: literal(entry.application_origin)
-#. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
-#. placeholder {2}: entry.installation_id.slice(-8)
-#: src/ApplicationAccess.tsx
-msgid "{0} · {1} · ID {2}"
-msgstr "{0} · {1} · ID {2}"
-
 #. placeholder {0}: invitation.role === "editor" ? t(i18n)({ message: "Editor", context: "Connect interface" }) : t(i18n)({ message: "Viewer", context: "Connect interface" })
-#. placeholder {1}: relativeTime(invitation.expires_at)
+#. placeholder {1}: i18n.date(new Date(invitation.expires_at), {dateStyle: "short"})
 #: src/ConnectApp.tsx
 msgid "{0} · Expires {1}"
 msgstr "{0} · 有効期限 {1}"
@@ -116,6 +115,22 @@ msgstr "{0} と保存されているデータ"
 #: src/compatibility.ts
 msgid "{0} can no longer be used: {1} Choose another collection."
 msgstr "{0} は利用できなくなりました: {1} 別のコレクションを選んでください。"
+
+#. placeholder {0}: application.applicationName
+#. placeholder {0}: grant.application_name
+#. placeholder {0}: group.applicationName
+#. placeholder {1}: collection.name
+#. placeholder {1}: entries[0]!.collection_name
+#. placeholder {1}: grant.collection_name
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "{0} can no longer use {1}"
+msgstr "{0} は {1} を使用できなくなりました"
+
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+msgid "{0} can no longer use {collectionName}"
+msgstr "{0} は {collectionName} を使用できなくなりました"
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
@@ -252,21 +267,6 @@ msgstr "{0} はすべてのデバイスで {1} にアクセスできなくなり
 msgid "{0}, and {1}"
 msgstr "{0}、{1}"
 
-#. placeholder {0}: Math.floor(seconds / 86_400)
-#: src/AccountManagement.tsx
-msgid "{0}d ago"
-msgstr "{0} 日前"
-
-#. placeholder {0}: Math.floor(seconds / 3_600)
-#: src/AccountManagement.tsx
-msgid "{0}h ago"
-msgstr "{0} 時間前"
-
-#. placeholder {0}: Math.floor(seconds / 60)
-#: src/AccountManagement.tsx
-msgid "{0}m ago"
-msgstr "{0} 分前"
-
 #: src/authority-workflows.tsx
 msgid "{app} now has this file access in {collection}. Return to {app} to continue."
 msgstr "{app} に {collection} でのこのファイルへのアクセスが許可されました。続行するには {app} に戻ってください。"
@@ -369,10 +369,6 @@ msgstr "{value, plural, other {# 件のレコード}}"
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
 msgstr "{value, plural, other {# 件の同期フォルダー}}"
 
-#: src/ConnectApp.tsx
-msgid "<0/>Add collection"
-msgstr "<0/>コレクションを追加"
-
 #: src/authorization-view.tsx
 msgid "<0/>Already connected"
 msgstr "<0/>接続済み"
@@ -390,10 +386,6 @@ msgstr "<0/>{0} を含みます。"
 msgid "<0/>Invite person"
 msgstr "<0/>ユーザーを招待"
 
-#: src/ConnectApp.tsx
-msgid "<0/>Sync a folder"
-msgstr "<0/>フォルダーを同期"
-
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
 #. placeholder {3}: request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
@@ -403,6 +395,10 @@ msgstr "<0>アプリケーションの出所は未確認です。</0> ご自身�
 #: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "コレクションが共有されました"
+
+#: src/ConnectApp.tsx
+msgid "A folder on this computer"
+msgstr "このコンピューターのフォルダー"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -439,6 +435,12 @@ msgctxt "Connect interface"
 msgid "Accepting…"
 msgstr "承諾中…"
 
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Access"
+msgstr "アクセス"
+
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "Access approved"
@@ -471,13 +473,17 @@ msgstr "アクセスは mdbase Connect で削除するまで継続します。"
 msgid "Access to this collection is paused on its computer."
 msgstr "このコレクションへのアクセスは、そのコンピューターで一時停止中です。"
 
-#: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "Account"
 msgstr "アカウント"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
+msgid "Account"
+msgstr "アカウント"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
 msgid "Account"
 msgstr "アカウント"
 
@@ -526,8 +532,12 @@ msgstr "アカウントのアップグレードを予定しました"
 msgid "Account: {0}"
 msgstr "アカウント: {0}"
 
-#: src/AccountManagement.tsx
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
+msgid "Actions for {0}"
+msgstr "{0} の操作"
+
+#: src/AccountManagement.tsx
 msgid "Add a collection to get started."
 msgstr "まずコレクションを追加してください。"
 
@@ -535,6 +545,10 @@ msgstr "まずコレクションを追加してください。"
 #: src/authorization-review.tsx
 msgid "Add a new {0} type"
 msgstr "新しい {0} 型を追加"
+
+#: src/ConnectApp.tsx
+msgid "Add collection"
+msgstr "コレクションを追加"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -590,14 +604,15 @@ msgctxt "Connect interface"
 msgid "All collections"
 msgstr "すべてのコレクション"
 
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "All hosted data in {0} will be permanently deleted. This cannot be undone."
+msgstr "{0} のホストされたデータはすべて完全に削除されます。この操作は取り消せません。"
+
 #. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "All permissions listed below are required by {0}. You can allow them together or deny this request."
 msgstr "以下の権限はすべて {0} に必要です。まとめて許可するか、このリクエストを拒否できます。"
-
-#: src/ConnectApp.tsx
-msgid "All statuses"
-msgstr "すべての状態"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -693,11 +708,6 @@ msgstr "アプリのインストール"
 msgid "App key <0>{0}</0>. Your computer will show this key when you approve the app."
 msgstr "アプリのキー <0>{0}</0>。アプリを承認する際、コンピューターにこのキーが表示されます。"
 
-#: src/ApplicationAccess.tsx
-msgctxt "Connect interface"
-msgid "Application access"
-msgstr "アプリケーションへのアクセス"
-
 #. placeholder {0}: countLabel(account.deletion.computers, "computer")
 #: src/AccountManagement.tsx
 msgid "Application access and {0}"
@@ -716,7 +726,6 @@ msgstr "デバイスコードを使うアプリケーション"
 msgid "Applications"
 msgstr "アプリケーション"
 
-#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Applications"
@@ -729,6 +738,10 @@ msgstr "このコレクションへのアクセスを承認すると、アプリ
 #: src/ApplicationAccess.tsx
 msgid "Applications appear here after you approve access."
 msgstr "アクセスを承認すると、ここにアプリケーションが表示されます。"
+
+#: src/ConnectApp.tsx
+msgid "Applications will lose access through this computer. Your local files will not be deleted."
+msgstr "アプリはこのコンピューター経由でアクセスできなくなります。ローカルファイルは削除されません。"
 
 #: src/authority-workflows.tsx
 msgid "Applies to the collection you chose to open and any new collections selected here. Other collections are not included."
@@ -762,6 +775,7 @@ msgid "Approving…"
 msgstr "承認中…"
 
 #: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Apps"
 msgstr "アプリ"
@@ -783,6 +797,11 @@ msgstr "Connect に戻る"
 msgctxt "Account management"
 msgid "Beta"
 msgstr "ベータ版"
+
+#: src/authorization-view.tsx
+msgctxt "Collection connection"
+msgid "browser extension"
+msgstr "ブラウザ拡張機能"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -849,6 +868,11 @@ msgstr "このコレクションへの招待を取り消しますか？"
 msgid "Cancel transfer"
 msgstr "転送をキャンセル"
 
+#. placeholder {0}: collection.display_name ?? collection.id
+#: src/ConnectApp.tsx
+msgid "Cancelled invitation to {0}"
+msgstr "{0} への招待をキャンセルしました"
+
 #: src/authorization-view.tsx
 msgid "Change"
 msgstr "変更"
@@ -870,11 +894,6 @@ msgstr "パスワードを変更"
 msgctxt "Account sign-in"
 msgid "Change password"
 msgstr "パスワードを変更"
-
-#: src/AccountManagement.tsx
-#: src/ConnectApp.tsx
-msgid "Change saved."
-msgstr "変更を保存しました。"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename existing records."
@@ -910,6 +929,10 @@ msgstr "再確認"
 msgid "Check the application."
 msgstr "アプリケーションを確認してください。"
 
+#: src/ConnectPrimitives.tsx
+msgid "Check your connection and try again."
+msgstr "接続を確認して、もう一度お試しください。"
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
@@ -918,10 +941,6 @@ msgstr "メールを確認してください"
 #: src/AccountManagement.tsx
 msgid "Checking active sessions…"
 msgstr "有効なセッションを確認中…"
-
-#: src/ConnectPrimitives.tsx
-msgid "Checking the latest account details…"
-msgstr "最新のアカウント情報を確認しています…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -943,9 +962,8 @@ msgid "Choose a field"
 msgstr "フィールドを選択"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Choose a location"
-msgstr "場所を選択"
+msgid "Choose a Markdown folder in the desktop app. Your files stay here."
+msgstr "デスクトップアプリで Markdown フォルダーを選択します。ファイルはこのコンピューターに残ります。"
 
 #. placeholder {0}: unmapped.label
 #: src/authorization-review.tsx
@@ -982,19 +1000,19 @@ msgstr "自分のユーザーレコードを選択または作成"
 msgid "Choose the folder in mdbase connect."
 msgstr "mdbase connect でフォルダーを選んでください。"
 
+#: src/ConnectApp.tsx
+msgid "Choose where your first collection lives."
+msgstr "最初のコレクションの保存場所を選択してください。"
+
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Choose whether to add a new {0} type or use one you already have."
 msgstr "新しい {0} 型を追加するか、既存の型を使うか選んでください。"
 
+#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
-msgid "Close"
-msgstr "閉じる"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Close menu"
-msgstr "メニューを閉じる"
+msgid "Clear filter"
+msgstr "フィルターをクリア"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1006,7 +1024,6 @@ msgid "Cloud collection required"
 msgstr "クラウドコレクションが必要です"
 
 #: src/AccountManagement.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy"
 msgstr "クラウドコピー"
@@ -1080,18 +1097,8 @@ msgstr "コンピューターを承認しました"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Computer filter results"
-msgstr "コンピューターの絞り込み結果"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Computer not connected"
 msgstr "コンピューターは未接続です"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Computer status"
-msgstr "コンピューターの状態"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1126,10 +1133,6 @@ msgstr "削除を確認"
 msgid "Confirm your identity"
 msgstr "本人確認"
 
-#: src/ConnectApp.tsx
-msgid "Connect a computer to add a collection."
-msgstr "コレクションを追加するにはコンピューターを接続してください。"
-
 #: src/authorization-view.tsx
 msgid "Connect an app"
 msgstr "アプリを接続"
@@ -1150,6 +1153,10 @@ msgstr "アカウントに戻れる方法を確保するため、複数のログ
 msgid "Connect this device to your tailnet, then reload the page."
 msgstr "このデバイスを tailnet に接続してからページを再読み込みしてください。"
 
+#: src/ConnectApp.tsx
+msgid "Connected"
+msgstr "接続済み"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Connected"
@@ -1159,11 +1166,6 @@ msgstr "接続済み"
 msgctxt "Connect interface"
 msgid "Connected"
 msgstr "接続済み"
-
-#: src/ApplicationAccess.tsx
-msgctxt "Connect interface"
-msgid "Connected applications"
-msgstr "接続済みアプリケーション"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
@@ -1287,6 +1289,16 @@ msgstr "レコードの作成とファイルの追加"
 msgid "Create, change, and delete saved view definitions."
 msgstr "保存済みビューの定義を作成、変更、削除します。"
 
+#. placeholder {0}: original.displayName
+#: src/ConnectApp.tsx
+msgid "Created {0}"
+msgstr "{0} を作成しました"
+
+#. placeholder {0}: collection.display_name ?? collection.id
+#: src/ConnectApp.tsx
+msgid "Created an invitation to {0}"
+msgstr "{0} への招待を作成しました"
+
 #: src/ConnectApp.tsx
 msgid "Created, but this browser could not clear its request. Retrying will use the same collection."
 msgstr "作成は完了しましたが、このブラウザーでは要求を消去できませんでした。再試行しても同じコレクションを使用します。"
@@ -1333,14 +1345,13 @@ msgid "Current password"
 msgstr "現在のパスワード"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Delete"
 msgstr "削除"
 
-#. placeholder {0}: collection.display_name
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
-msgid "Delete {0} and all of its hosted data? This cannot be undone."
-msgstr "{0} とそのホスト型データをすべて削除しますか？ この操作は元に戻せません。"
+msgid "Delete {0}?"
+msgstr "{0} を削除しますか？"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1380,10 +1391,19 @@ msgctxt "Application access approval"
 msgid "Delete records and files"
 msgstr "レコードとファイルを削除"
 
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "Deleted {0}"
+msgstr "{0} を削除しました"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Deleting account…"
 msgstr "アカウントを削除中…"
+
+#: src/ConnectApp.tsx
+msgid "Deleting…"
+msgstr "削除中…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1432,6 +1452,15 @@ msgstr "接続を解除"
 #: src/ConnectApp.tsx
 msgid "Disconnect {0}?"
 msgstr "{0} の接続を解除しますか？"
+
+#. placeholder {0}: replica.name
+#: src/ConnectApp.tsx
+msgid "Disconnecting {0}"
+msgstr "{0} を切断中"
+
+#: src/ConnectApp.tsx
+msgid "Disconnecting…"
+msgstr "接続を解除中…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1523,6 +1552,10 @@ msgstr "<0>{0}</0> に <1>{1}</1> が含まれるようにする"
 msgid "Enter {0}."
 msgstr "{0}を入力してください。"
 
+#: src/ConnectApp.tsx
+msgid "Enter a collection name."
+msgstr "コレクション名を入力してください。"
+
 #: src/auth-view.tsx
 msgid "Enter a valid email address."
 msgstr "有効なメールアドレスを入力してください。"
@@ -1534,6 +1567,10 @@ msgstr "アプリケーションに表示されるコードを入力してくだ
 #: src/authorization-view.tsx
 msgid "Enter the eight-character code shown by the application."
 msgstr "アプリケーションに表示される 8 文字のコードを入力してください。"
+
+#: src/AccountManagement.tsx
+msgid "Enter your current password."
+msgstr "現在のパスワードを入力してください。"
 
 #: src/ApplicationAccess.tsx
 msgid "Entire collection"
@@ -1573,6 +1610,10 @@ msgstr "既存の型"
 msgid "Expert details"
 msgstr "詳細情報"
 
+#: src/ApplicationAccess.tsx
+msgid "Explore apps"
+msgstr "アプリを探す"
+
 #: src/FeedbackPage.tsx
 msgid "Feedback goes privately to the mdbase team."
 msgstr "フィードバックは mdbase チームに非公開で送られます。"
@@ -1607,9 +1648,21 @@ msgstr "ファイル"
 msgid "Fill in {0} in {label}."
 msgstr "{label} の {0} を入力してください。"
 
+#: src/ApplicationAccess.tsx
+msgid "Filter apps"
+msgstr "アプリを絞り込む"
+
 #: src/ConnectApp.tsx
-msgid "Find a computer"
-msgstr "コンピューターを探す"
+msgid "Filter collections"
+msgstr "コレクションを絞り込む"
+
+#: src/ConnectApp.tsx
+msgid "Filter computers"
+msgstr "コンピューターを絞り込む"
+
+#: src/AccountManagement.tsx
+msgid "Filter sessions"
+msgstr "セッションを絞り込む"
 
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
@@ -1690,6 +1743,7 @@ msgstr "ホスト型のアクセスは直ちに削除されました。ホスト
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 msgid "Hosted by mdbase"
 msgstr "mdbase がホスト"
 
@@ -1697,11 +1751,6 @@ msgstr "mdbase がホスト"
 msgctxt "Connect interface"
 msgid "Hosted by mdbase"
 msgstr "mdbase がホスト"
-
-#. placeholder {0}: countLabel(replicas.length, "folder")
-#: src/ConnectApp.tsx
-msgid "Hosted by mdbase · {0}"
-msgstr "mdbase がホスト · {0}"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
@@ -1763,9 +1812,9 @@ msgstr "そのアドレスを使う mdbase connect アカウントがあれば�
 msgid "If that address can be used, its one-time verification link is on the way."
 msgstr "そのアドレスが利用できる場合、一回限りの確認リンクを送信します。"
 
-#: src/ConnectApp.tsx
-msgid "If the desktop app does not open when you {action}, <0>install the latest release</0> and try again."
-msgstr "{action}してもデスクトップアプリが開かない場合は、<0>最新版をインストール</0>して再試行してください。"
+#: src/ConnectPrimitives.tsx
+msgid "If the desktop app did not open, <0>install the latest release</0> and try again."
+msgstr "デスクトップアプリが開かない場合は、<0>最新バージョンをインストール</0>して、もう一度お試しください。"
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
@@ -1846,9 +1895,8 @@ msgctxt "Account sign-in"
 msgid "Just a moment…"
 msgstr "少々お待ちください…"
 
-#: src/AccountManagement.tsx
-msgctxt "Account management"
-msgid "just now"
+#: src/ConnectPrimitives.tsx
+msgid "Just now"
 msgstr "たった今"
 
 #: src/authority-workflows.tsx
@@ -1863,6 +1911,10 @@ msgstr "オフラインのレプリカを保持"
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
 msgstr "ホスト型のままにする"
+
+#: src/ConnectApp.tsx
+msgid "Keep the main copy in mdbase, with optional synced folders."
+msgstr "メインコピーを mdbase に保存し、必要に応じてフォルダーを同期します。"
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
@@ -1893,10 +1945,9 @@ msgstr "アカウントをこのコレクション内の編集可能なレコー
 msgid "List file names and metadata"
 msgstr "ファイル名とメタデータを一覧表示"
 
-#: src/AccountManagement.tsx
-msgctxt "Account management"
-msgid "Loading account details…"
-msgstr "アカウントの詳細を読み込み中…"
+#: src/ConnectPrimitives.tsx
+msgid "Loading {title}…"
+msgstr "{title} を読み込み中…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
@@ -1926,15 +1977,6 @@ msgid "Local collection files stay on your computers and are not measured here."
 msgstr "ローカルコレクションのファイルはコンピューター上に残り、ここでは使用量を計測しません。"
 
 #: src/ConnectApp.tsx
-msgid "Location"
-msgstr "場所"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Location"
-msgstr "場所"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "正本"
@@ -1950,11 +1992,6 @@ msgstr "正本をコンピューターに移動しました"
 #: src/authority-workflows.tsx
 msgid "Main copy on {mirrorName}"
 msgstr "{mirrorName} 上の正本"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Manage"
-msgstr "管理"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -2011,8 +2048,7 @@ msgstr "Markdown とファイルの使用量を一時的に取得できません
 msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
 msgstr "Markdown の編集内容は双方向に同期されます。同時編集は、バージョンを選択するまで別々に保持されます。"
 
-#: src/AccountManagement.tsx
-#: src/ConnectApp.tsx
+#: src/ConnectPrimitives.tsx
 msgid "mdbase connect could not be reached. Check your connection and try again."
 msgstr "mdbase connect に接続できませんでした。接続を確認して再試行してください。"
 
@@ -2046,6 +2082,11 @@ msgstr "mdbase は選択を記憶し、{app} はそれに従います。いず�
 msgctxt "Connect interface"
 msgid "Missing required types"
 msgstr "必要な型がありません"
+
+#: src/authorization-view.tsx
+msgctxt "Collection connection"
+msgid "mobile app"
+msgstr "モバイルアプリ"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
@@ -2111,11 +2152,6 @@ msgctxt "Connect interface"
 msgid "Moved to newer runtime"
 msgstr "新しいランタイムに移行済み"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Moving to a computer"
-msgstr "コンピューターに移動中"
-
 #: src/AccountManagement.tsx
 msgid "Name"
 msgstr "名前"
@@ -2126,9 +2162,8 @@ msgid "Name"
 msgstr "名前"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Name or registration ID"
-msgstr "名前または登録 ID"
+msgid "Navigation"
+msgstr "ナビゲーション"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
@@ -2138,6 +2173,19 @@ msgstr "mdbase 0.3 が必要です"
 #: src/authorization-review.tsx
 msgid "New"
 msgstr "新規"
+
+#: src/ApplicationAccess.tsx
+msgid "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely."
+msgstr "すべてのインストールで新たなアクセスとコレクションの作成が停止します。ダウンロード済みのコピーはリモートで削除できません。"
+
+#: src/ApplicationAccess.tsx
+msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely."
+msgstr "すべてのインストールで新たなアクセスが停止します。ダウンロード済みのコピーはリモートで削除できません。"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
+msgstr "新たなアクセスが停止します。アプリがダウンロード済みのコピーはリモートで削除できません。"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
@@ -2171,6 +2219,15 @@ msgid "No active code shown"
 msgstr "有効なコードは表示されていません"
 
 #: src/ApplicationAccess.tsx
+msgid "No apps match"
+msgstr "一致するアプリはありません"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "No apps with access"
+msgstr "アクセス可能なアプリはありません"
+
+#: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
 msgstr "コレクションへのアクセス権なし"
@@ -2184,6 +2241,10 @@ msgstr "コレクションなし"
 #: src/authorization-review.tsx
 msgid "No collections are available."
 msgstr "利用できるコレクションはありません。"
+
+#: src/ConnectApp.tsx
+msgid "No collections match"
+msgstr "一致するコレクションはありません"
 
 #: src/authorization-review.tsx
 msgid "No collections match. Try another name."
@@ -2203,14 +2264,13 @@ msgctxt "Connect interface"
 msgid "No computers match"
 msgstr "一致するコンピューターはありません"
 
-#: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
-msgid "No connected applications"
-msgstr "接続済みアプリケーションはありません"
-
 #: src/authorization-view.tsx
 msgid "No requesting origin is available. Continue only if you started this connection intentionally."
 msgstr "リクエスト元のオリジンを確認できません。この接続を意図的に開始した場合のみ続行してください。"
+
+#: src/AccountManagement.tsx
+msgid "No sessions match"
+msgstr "一致するセッションはありません"
 
 #: src/AccountManagement.tsx
 msgid "No supported reauthentication method is connected."
@@ -2234,10 +2294,6 @@ msgstr "未設定"
 msgctxt "Account management"
 msgid "Not connected"
 msgstr "未接続"
-
-#: src/ConnectApp.tsx
-msgid "Not connected yet"
-msgstr "まだ接続されていません"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2265,39 +2321,19 @@ msgctxt "Connect interface"
 msgid "Offline"
 msgstr "オフライン"
 
-#. placeholder {0}: computer.name
-#: src/ConnectApp.tsx
-msgid "On {0}"
-msgstr "{0} 上"
-
-#. placeholder {0}: computer.name
-#: src/ConnectApp.tsx
-msgid "On {0}: offline"
-msgstr "{0} 上: オフライン"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "On this computer"
-msgstr "このコンピューター上"
-
-#. placeholder {0}: relativeTime(sharingCode.expiresAt)
+#. placeholder {0}: formatters(i18n.locale).date(new Date(sharingCode.expiresAt), { dateStyle: "short", timeStyle: "short" })
 #: src/AccountManagement.tsx
 msgid "One use · expires {0}"
 msgstr "一回限り · 有効期限 {0}"
-
-#: src/ConnectApp.tsx
-msgid "Online"
-msgstr "オンライン"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Online"
-msgstr "オンライン"
 
 #. placeholder {0}: files.scope.folders.join(", ")
 #: src/authorization-review.tsx
 msgid "Only {0}. Hidden folders are always excluded."
 msgstr "{0} のみ。隠しフォルダーは常に除外されます。"
+
+#: src/authorization-view.tsx
+msgid "Only continue if you recognize this exact app."
+msgstr "このアプリに間違いないと確認できる場合のみ続行してください。"
 
 #: src/authorization-view.tsx
 msgid "Only continue if you recognize this exact site."
@@ -2306,10 +2342,6 @@ msgstr "このサイトに確実に心当たりがある場合のみ続行して
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "変更されるのはこの型定義だけです。既存のレコードはそのまま残ります。アクセスが有効になる前に設定が検証されます。"
-
-#: src/ConnectApp.tsx
-msgid "Open"
-msgstr "開く"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
@@ -2391,11 +2423,6 @@ msgstr "メールのリンクをもう一度開くか、アカウント設定で
 #: src/ConnectApp.tsx
 msgid "Open the mdbase connect desktop app and choose Connect this computer."
 msgstr "mdbase connect デスクトップアプリを開き、「このコンピューターを接続」を選んでください。"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "open this collection"
-msgstr "このコレクションを開く"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
@@ -2526,6 +2553,10 @@ msgctxt "Connect interface"
 msgid "person@example.com"
 msgstr "taro@example.com"
 
+#: src/AccountManagement.tsx
+msgid "Preferences"
+msgstr "環境設定"
+
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Preparing {0}…"
@@ -2586,13 +2617,12 @@ msgstr "最近使用"
 msgid "Recovery"
 msgstr "復元"
 
-#. placeholder {0}: new Date(connector.created_at).toLocaleString()
-#. placeholder {1}: connector.id.slice(-8)
+#. placeholder {0}: new Date(connector.created_at).toLocaleDateString(i18n.locale, { dateStyle: "short" })
 #: src/ConnectApp.tsx
-msgid "Registered {0} · ID {1}"
-msgstr "登録日 {0} · ID {1}"
+msgid "Registered {0}"
+msgstr "登録日：{0}"
 
-#. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })
+#. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
 msgstr "登録済み <0>{0}</0>"
@@ -2630,13 +2660,13 @@ msgstr "削除"
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name
 #: src/ConnectApp.tsx
-msgid "Remove {0} from {1}? Their application and folder access will also be revoked."
-msgstr "{0} を {1} から削除しますか？ そのユーザーのアプリとフォルダーへのアクセスも取り消されます。"
+msgid "Remove {0} from {1}?"
+msgstr "{1} から {0} を削除しますか？"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
-msgid "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
-msgstr "{0} を名前のないコレクションから削除しますか？ そのユーザーのアプリとフォルダーへのアクセスも取り消されます。"
+msgid "Remove {0} from the unnamed collection?"
+msgstr "名前のないコレクションから {0} を削除しますか？"
 
 #: src/authority-workflows.tsx
 msgid "Remove access"
@@ -2647,10 +2677,20 @@ msgctxt "Connect interface"
 msgid "Remove access"
 msgstr "アクセスを削除"
 
+#. placeholder {0}: member.name
+#. placeholder {1}: collection.display_name ?? collection.id
+#: src/ConnectApp.tsx
+msgid "Removing {0} from {1}"
+msgstr "{1} から {0} を削除中"
+
 #. placeholder {0}: literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
 msgstr "{0} へのアクセスを削除中…"
+
+#: src/ConnectApp.tsx
+msgid "Removing access…"
+msgstr "アクセス権を削除中…"
 
 #: src/ConnectApp.tsx
 msgid "Removing application and folder access…"
@@ -2661,16 +2701,31 @@ msgctxt "Connect interface"
 msgid "Removing…"
 msgstr "削除中…"
 
+#: src/ConnectApp.tsx
+msgid "Rename"
+msgstr "名前を変更"
+
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Rename"
 msgstr "名前を変更"
 
-#. placeholder {0}: collection.display_name
+#. placeholder {0}: collection.name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Rename {0}"
 msgstr "{0} の名前を変更"
+
+#. placeholder {0}: collection.name
+#. placeholder {1}: name.trim()
+#: src/ConnectApp.tsx
+msgid "Renamed {0} to {1}"
+msgstr "{0} を {1} に変更しました"
+
+#. placeholder {0}: connector.name
+#: src/ConnectApp.tsx
+msgid "Renamed {0} to {name}"
+msgstr "{0} を {name} に変更しました"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -2726,6 +2781,11 @@ msgstr "必須"
 msgctxt "Account sign-in"
 msgid "Reset your password"
 msgstr "パスワードをリセット"
+
+#. placeholder {0}: inverse.name
+#: src/ConnectApp.tsx
+msgid "Restored {0}."
+msgstr "{0} を復元しました。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2848,14 +2908,11 @@ msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "取り消す"
 
+#. placeholder {0}: application.applicationName
 #. placeholder {0}: group.applicationName
+#. placeholder {1}: collection.name
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
-msgid "Revoke {0} access to {1} across all its installations?"
-msgstr "すべてのインストールで {0} の {1} へのアクセスを取り消しますか？"
-
-#. placeholder {0}: application.applicationName
-#. placeholder {1}: collection.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0} access to {1}?"
 msgstr "{0} の {1} へのアクセスを取り消しますか？"
@@ -2866,11 +2923,8 @@ msgid "Revoke {0} access to {collectionName}?"
 msgstr "{0} の {collectionName} へのアクセスを取り消しますか？"
 
 #. placeholder {0}: connector.name
-#: src/ConnectApp.tsx
-msgid "Revoke {0} and the application grants routed through it?"
-msgstr "{0} と、それを経由するアプリケーションの許可を取り消しますか？"
-
-#. placeholder {0}: replica.name
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "Revoke {0}?"
 msgstr "{0} を取り消しますか？"
@@ -2886,11 +2940,6 @@ msgstr "アクセスを取り消す"
 msgid "Revoke access to {0}?"
 msgstr "{0} へのアクセスを取り消しますか？"
 
-#. placeholder {0}: group.applicationName
-#: src/ApplicationAccess.tsx
-msgid "Revoke all {0} access and collection creation permission?"
-msgstr "{0} のすべてのアクセス権とコレクション作成権限を取り消しますか？"
-
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke application"
@@ -2905,6 +2954,18 @@ msgstr "コレクションへのアクセスを取り消す"
 msgctxt "Connect interface"
 msgid "Revoke computer"
 msgstr "コンピューターの許可を取り消す"
+
+#. placeholder {0}: connector.name
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "Revoked {0}"
+msgstr "{0} を取り消しました"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "Revoking access…"
+msgstr "アクセスを取り消し中…"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
@@ -2927,6 +2988,10 @@ msgstr "役割"
 msgid "Role for {0}"
 msgstr "{0} の役割"
 
+#: src/ConnectApp.tsx
+msgid "Save"
+msgstr "保存"
+
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Save"
@@ -2935,6 +3000,10 @@ msgstr "保存"
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
 msgstr "アクセス範囲を狭めて保存"
+
+#: src/ConnectApp.tsx
+msgid "Saving…"
+msgstr "保存中…"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
@@ -3057,12 +3126,6 @@ msgstr "共有コード"
 msgid "Short approval code"
 msgstr "短い承認コード"
 
-#. placeholder {0}: visible.length
-#. placeholder {1}: data.connectors.length
-#: src/ConnectApp.tsx
-msgid "Showing {0} of {1} registered computers."
-msgstr "登録済みコンピューター {1} 台中 {0} 台を表示しています。"
-
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
@@ -3115,11 +3178,19 @@ msgstr "このアカウントのログイン方法は Tailscale で管理され�
 msgid "Sign-in was cancelled. You can try again or choose another method."
 msgstr "ログインをキャンセルしました。再試行するか、別の方法を選んでください。"
 
-#. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })
-#. placeholder {1}: session.id.slice(-8)
+#. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/AccountManagement.tsx
-msgid "Signed in <0>{0}</0> · ID {1}"
-msgstr "ログイン中 <0>{0}</0> · ID {1}"
+msgid "Signed in <0>{0}</0>"
+msgstr "サインイン日時：<0>{0}</0>"
+
+#. placeholder {0}: session.client_name
+#: src/AccountManagement.tsx
+msgid "Signed out {0}"
+msgstr "{0} からサインアウトしました"
+
+#: src/AccountManagement.tsx
+msgid "Signed out other browser sessions."
+msgstr "他のブラウザーセッションからサインアウトしました。"
 
 #: src/authority-workflows.tsx
 msgid "Signing in finishes on that computer."
@@ -3149,13 +3220,14 @@ msgstr "ログアウト中…"
 msgid "Start signup again"
 msgstr "新規登録をやり直す"
 
-#: src/ConnectApp.tsx
-msgid "Status"
-msgstr "状態"
-
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
 msgstr "このリンクが届いた種類のメールの受信を停止します。アカウントに関するメッセージは引き続き送信されます。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Storage"
+msgstr "ストレージ"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3168,8 +3240,7 @@ msgid "Sync"
 msgstr "同期"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "sync a folder"
+msgid "Sync a folder"
 msgstr "フォルダーを同期"
 
 #: src/ConnectApp.tsx
@@ -3182,10 +3253,6 @@ msgid "Sync this collection"
 msgstr "このコレクションを同期"
 
 #: src/ConnectApp.tsx
-msgid "Synced folders"
-msgstr "同期フォルダー"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
 msgstr "同期フォルダー"
@@ -3193,6 +3260,10 @@ msgstr "同期フォルダー"
 #: src/authorization-capabilities.ts
 msgid "Synchronize an application-controlled local copy of this collection."
 msgstr "このコレクションのアプリケーション管理下のローカルコピーを同期します。"
+
+#: src/ConnectApp.tsx
+msgid "Syncing will stop after the computer confirms. Files already downloaded will remain."
+msgstr "コンピューターが確認すると同期が停止します。ダウンロード済みのファイルは残ります。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3342,6 +3413,10 @@ msgstr "同期する Markdown フォルダーが正本になります。"
 msgid "The value has changed again. Undo is no longer available."
 msgstr "値が再度変更されました。元に戻すことはできません。"
 
+#: src/ConnectApp.tsx
+msgid "Their application and folder access will also be revoked."
+msgstr "そのユーザーのアプリとフォルダーのアクセス権も取り消されます。"
+
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
 msgstr "このアカウントでは、mdbase デスクトップアプリで新しいデバイスを承認します。デスクトップアプリからこのデバイスを追加し、{app} で再度ログインしてください。"
@@ -3435,6 +3510,10 @@ msgstr "このフォルダーは mdbase から Markdown を受け取り、ロー
 msgid "This installation has no approved collections."
 msgstr "このインストールには承認済みのコレクションがありません。"
 
+#: src/ConnectApp.tsx
+msgid "This invitation will no longer grant access to the collection."
+msgstr "この招待ではコレクションにアクセスできなくなります。"
+
 #. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "This is a Private collection: it stays on your computer. {0} can use it while a computer that has it is running mdbase and is signed in to your account."
@@ -3486,8 +3565,8 @@ msgid "Transfer ended"
 msgstr "転送が終了しました"
 
 #: src/ConnectApp.tsx
-msgid "Try a different name, registration ID or status. Filtering does not revoke access."
-msgstr "別の名前、登録 ID、状態で試してください。絞り込んでもアクセス権は取り消されません。"
+msgid "Try a different computer name. Filtering does not revoke access."
+msgstr "別のコンピューター名をお試しください。絞り込みでアクセス権が取り消されることはありません。"
 
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
@@ -3499,10 +3578,22 @@ msgstr "別の名前、登録 ID、状態で試してください。絞り込ん
 msgid "Try again"
 msgstr "再試行"
 
+#: src/ApplicationAccess.tsx
+msgid "Try another app name."
+msgstr "別のアプリ名をお試しください。"
+
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Two-way sync"
-msgstr "双方向同期"
+msgid "Try another collection or computer name."
+msgstr "別のコレクション名またはコンピューター名をお試しください。"
+
+#: src/AccountManagement.tsx
+msgid "Try another name."
+msgstr "別の名前を試してください。"
+
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "Type {0} to confirm"
+msgstr "確認のため {0} と入力してください"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3552,13 +3643,18 @@ msgid "Update recommended for current policy protection"
 msgstr "現在のポリシーを保護するため更新を推奨します"
 
 #: src/ConnectApp.tsx
-msgid "Update required"
-msgstr "更新が必要です"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Update required"
 msgstr "更新が必要です"
+
+#. placeholder {0}: grant.application_name
+#. placeholder {0}: member.name
+#. placeholder {1}: collection.display_name ?? collection.id
+#. placeholder {1}: grant.collection_name
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "Updated {0} access to {1}"
+msgstr "{0} の {1} へのアクセス権を更新しました"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3694,6 +3790,10 @@ msgstr "コレクションを作成できませんでした"
 msgid "We couldn't identify your account. Sign in again to continue."
 msgstr "アカウントを特定できませんでした。再度ログインして続行してください。"
 
+#: src/ConnectPrimitives.tsx
+msgid "We couldn't load {title}"
+msgstr "{title} を読み込めませんでした"
+
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "We couldn't prepare {0}."
@@ -3815,3 +3915,7 @@ msgstr "ほかのブラウザーセッションはログアウトしました。
 msgctxt "Connect interface"
 msgid "Your person record"
 msgstr "自分のユーザーレコード"
+
+#: src/auth-view.tsx
+msgid "Your session expired. Sign in to pick up where you left off."
+msgstr "セッションの有効期限が切れました。サインインすると、中断したところから続行できます。"

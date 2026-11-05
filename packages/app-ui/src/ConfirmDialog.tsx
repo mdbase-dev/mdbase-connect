@@ -24,7 +24,7 @@ export function ConfirmDialog({ open, title, consequence, confirmLabel, pendingL
     {children}
     <footer className="mdbase-dialog-actions">
       <button type="button" className="mdbase-button is-tertiary" data-autofocus disabled={working} onClick={onClose}>{t({ message: "Cancel" })}</button>
-      <button type="button" className="mdbase-button is-danger" disabled={working || disabled} onClick={async () => {
+      <button type="button" className="mdbase-button is-danger" aria-busy={working || undefined} disabled={working || disabled} onClick={async () => {
         setPending(true);
         try { await onConfirm(); } finally { setPending(false); }
       }}>{working ? pendingLabel : confirmLabel}</button>

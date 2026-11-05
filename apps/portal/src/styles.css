@@ -43,8 +43,6 @@ body,
   --control-height: 2.4rem;
 }
 
-.connect-nav-footer .language-setting .mdbase-select { width: 100%; }
-
 .eyebrow {
   margin: 0 0 0.7rem;
   color: var(--color-text-muted);

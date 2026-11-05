@@ -142,17 +142,17 @@ const definitions = [
   ["authorization-approved", consent, "TaskNotes can now use Field research", 5, state => { state.authorizationStatus = "approved"; state.authorization.collection_id = "collection-0"; state.overview.pending_authorizations = []; }],
   ["authorization-denied", consent, "Access denied", 5, state => { state.authorizationStatus = "denied"; state.overview.pending_authorizations = []; }],
   ["collection-overview", "/?collection=hosted-0", "Shared research library", 5],
-  ["collection-storage", "/storage?collection=hosted-0", "Storage & sync", 5],
+  ["collection-storage", "/storage?collection=hosted-0", "Storage", 5],
   ["collection-access", "/access?collection=hosted-0", "Sam Okafor", 5],
-  ["applications", "/applications", "Applications", 5],
+  ["applications", "/applications", "Apps", 5],
   ["computers", "/computers", "Computers", 5],
   ["account-sessions", "/account", "Travel Safari", 5],
   ["feedback", "/feedback", "Send feedback", 5],
-  ["computer-offline", "/storage?collection=collection-2", "Storage & sync", 5],
+  ["computer-offline", "/storage?collection=collection-2", "Storage", 5],
   ["sync-conflict", "/access?collection=hosted-0", "Sync conflict: reconcile the Studio and Travel replicas before changing access.", 5],
   ["revoking", "/storage?collection=hosted-0", "Disconnecting…", 5, state => { state.overview.hosted_collections[0].replicas[0].revocation_status = "revoking"; state.overview.grants[0].revocation_status = "revoking"; }],
   ["provider-unavailable", "/access?collection=hosted-0", "The hosted provider is unavailable. Try again shortly.", 5],
-  ["server-500", "/collections", "The review server could not load your account. Try again.", 5],
+  ["server-500", "/collections", "We couldn't load Collections", 5],
   ["session-expired", "/account", "Sign in", 5, state => { state.signedIn = false; }]
 ];
 

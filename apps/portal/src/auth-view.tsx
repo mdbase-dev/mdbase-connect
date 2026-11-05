@@ -150,6 +150,7 @@ export function Login() {
         <h1>{continuingAuthorization ? t(i18n)({ message: "Sign in to continue", context: "Account sign-in" }) : t(i18n)({ message: "Sign in", context: "Account sign-in" })}</h1>
         <p><Trans>Connect apps to your Markdown files, on your computers or hosted by mdbase.</Trans></p>
         {continuingAuthorization && <p><Trans>Sign in, review the request, and return to the application.</Trans></p>}
+        {new URLSearchParams(location.search).get("reason") === "session-expired" && <p role="status"><Trans>Your session expired. Sign in to pick up where you left off.</Trans></p>}
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         <AuthProviders providers={providers} divider={false} onError={setError} />
         {config.password_login && !emailVisible && <button className="mdbase-button email-choice" type="button" aria-expanded={false} onClick={() => setEmailVisible(true)}><Trans>Continue with email</Trans></button>}

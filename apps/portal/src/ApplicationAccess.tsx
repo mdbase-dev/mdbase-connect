@@ -8,14 +8,14 @@ import { ConnectManagementClient, type ManagementOverview, type ManagementReques
 import { groupApplicationAccess, authorizationOperationLabel, applicationAccessOriginLabel } from "@mdbase/connect-ui/access";
 import { usePermissionSelection } from "@mdbase-dev/ui/permission-selection";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
-import { ConnectPage as Page, ConnectSectionTitle as SectionTitle, ConnectEmpty as Empty } from "./ConnectPrimitives";
+import { ConnectPage as Page, ConnectSectionTitle as SectionTitle, ConnectEmpty as Empty, ListFilter } from "./ConnectPrimitives";
 import { literal } from "./literal";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import type { PerformOperation } from "./optimistic-action";
 
 type Grant = ManagementOverview["grants"][number];
 type Installation = NonNullable<ManagementOverview["installation_access"]>[number];
 type BusyOperations = ReadonlySet<string>;
-type PerformOperation = (id: string, action: (options: ManagementRequestOptions) => Promise<void>) => Promise<boolean>;
 const allOperations = [
   "describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate",
   "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source",
@@ -65,47 +65,52 @@ export async function revokeApplicationGroup(
   if (group.grants.length) await client.revokeApplication(group.grants.map(g => g.id), options);
 }
 
-export function AppAccess({ groups, client, busy, perform, collectionName, editorOrigin, children }: {
+export function AppAccess({ error, groups, client, busy, perform, collectionName, editorOrigin, children }: {
   children?: ReactNode;
   groups: ReturnType<typeof applicationGroups>;
   client: ConnectManagementClient;
   busy: BusyOperations;
+  error?: string;
   perform: PerformOperation;
   collectionName?: string;
   editorOrigin?: string;
 }) {
   useLocaleRevision();
-  return <Page title={collectionName ? t(i18n)({ message: "Application access", context: "Connect interface" }) : t(i18n)({ message: "Applications", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each application has to ${collectionName}.` : t(i18n)({ message: "Review applications connected to your account. Your browser sign-in is never shared with them." })}>
-    <section><SectionTitle title={collectionName ? t(i18n)({ message: "Connected applications", context: "Connect interface" }) : t(i18n)({ message: "Application access", context: "Connect interface" })} count={groups.length} />
-      {groups.map(group => <details className="connect-application" key={group.applicationId}>
+  const [query, setQuery] = useState("");
+  const visible = groups.filter(group => group.applicationName.toLocaleLowerCase(i18n.locale).includes(query.trim().toLocaleLowerCase(i18n.locale)));
+  return <Page title={collectionName ? t(i18n)({ message: "Access", context: "Connect interface" }) : t(i18n)({ message: "Apps", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each application has to ${collectionName}.` : t(i18n)({ message: "Review applications connected to your account. Your browser sign-in is never shared with them." })}>
+    <section>{collectionName && <SectionTitle title={t(i18n)({ message: "Apps", context: "Connect interface" })} count={groups.length} />}
+      {groups.length >= 10 && <ListFilter label={t(i18n)`Filter apps`} value={query} onChange={setQuery} />}
+      {visible.map(group => <details className="connect-application" key={group.applicationId}>
         <summary><span><strong>{group.applicationName}</strong>{!collectionName && <small>{countLabel(group.collectionCount, "collection")}</small>}</span><b>{t(i18n)({ message: "Review", context: "Connect interface" })}</b></summary>
         <div className="connect-application-body">
           {installationScopes(group.installations).map(({ collectionId, entries }) => <div className="connect-grant connect-row" key={collectionId ?? "creation"}>
             <div>{!collectionName && <strong>{entries[0]!.collection_name ?? t(i18n)({ message: "No collection access", context: "Connect interface" })}</strong>}<small>{countLabel(entries.length, "installation")}</small>
               <details className="connect-installation-details"><summary><Trans>Installation details</Trans></summary>
                 {entries.map(entry => <div key={entry.connector_id}>
-                  <small><Trans>{literal(entry.application_origin)} · {entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })} · ID {entry.installation_id.slice(-8)}</Trans></small>
-                  <small><Trans>Registered <time dateTime={entry.created_at}>{formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })}</time></Trans></small>
+                  <small><Trans>{literal(entry.application_origin)} · {entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })}</Trans></small>
+                  <small><Trans>Registered <time dateTime={entry.created_at}>{formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })}</time></Trans></small>
                   <small>{entry.collection_id ? entry.available ? t(i18n)`Entire collection · Access as your account (${entry.role})` : t(i18n)({ message: "Previously approved · Collection no longer visible to your account" }) : t(i18n)({ message: "This installation has no approved collections." })}</small>
                   {entry.create_collections && <small><Trans>Can create collections for your account</Trans></small>}
                   {entry.approved_optional_file_actions.length > 0 && <small><Trans>Additional file actions approved: {entry.approved_optional_file_actions.join(", ")}</Trans></small>}
                 </div>)}
               </details>
             </div>
-            {collectionId && !collectionName && <ConfirmAction className="mdbase-button is-tertiary is-danger" label={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} question={t(i18n)`Revoke ${group.applicationName} access to ${entries[0]!.collection_name} across all its installations?`} confirmLabel={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} busy={busy.has(`scope-${group.applicationId}-${collectionId}`)} onConfirm={() => perform(`scope-${group.applicationId}-${collectionId}`, async options => {
+            {collectionId && !collectionName && <ConfirmAction error={error} className="mdbase-button is-tertiary is-danger" label={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} question={t(i18n)`Revoke ${group.applicationName} access to ${entries[0]!.collection_name}?`} consequence={t(i18n)`New access will stop across all installations. Copies already downloaded cannot be removed remotely.`} pendingLabel={t(i18n)`Revoking access…`} confirmLabel={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} busy={busy.has(`scope-${group.applicationId}-${collectionId}`)} onConfirm={() => perform(`scope-${group.applicationId}-${collectionId}`, async options => {
               for (const applicationId of new Set(entries.map(entry => entry.application_id))) await client.removeInstallationAccess(applicationId, collectionId, options);
-            })} />}
+            }, false, undefined, t(i18n)`${group.applicationName} can no longer use ${entries[0]!.collection_name}`)} />}
           </div>)}
-          {group.grants.map(grant => <GrantEditor key={grant.id} grant={grant} client={client} busy={busy} perform={perform} />)}
-          <ConfirmAction className="mdbase-button is-danger connect-revoke-application" label={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} question={collectionName ? t(i18n)`Revoke ${group.applicationName} access to ${collectionName}?` : t(i18n)`Revoke all ${group.applicationName} access and collection creation permission?`} confirmLabel={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => perform(`application-${group.applicationId}`, async options => {
+          {group.grants.map(grant => <GrantEditor error={error} key={grant.id} grant={grant} client={client} busy={busy} perform={perform} />)}
+          <ConfirmAction error={error} className="mdbase-button is-danger connect-revoke-application" label={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} question={collectionName ? t(i18n)`Revoke ${group.applicationName} access to ${collectionName}?` : t(i18n)`Revoke ${group.applicationName}?`} consequence={collectionName ? t(i18n)`New access will stop. Copies already downloaded by the app cannot be removed remotely.` : t(i18n)`New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely.`} pendingLabel={t(i18n)`Revoking access…`} confirmLabel={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => perform(`application-${group.applicationId}`, async options => {
             await revokeApplicationGroup(group, client, Boolean(collectionName), options);
-          })} />
+          }, false, undefined, collectionName ? t(i18n)`${group.applicationName} can no longer use ${collectionName}` : t(i18n)`Revoked ${group.applicationName}`)} />
         </div>
       </details>)}
-      {groups.length === 0 && <Empty title={t(i18n)({ message: "No connected applications" })} body={t(i18n)({ message: "Applications appear here after you approve access." })} />}
+      {groups.length > 0 && visible.length === 0 && <Empty title={t(i18n)`No apps match`} body={t(i18n)`Try another app name.`} action={<button className="mdbase-button is-tertiary" onClick={() => setQuery("")}><Trans>Clear filter</Trans></button>} />}
+      {groups.length === 0 && <Empty title={t(i18n)({ message: "No apps with access" })} body={t(i18n)({ message: "Applications appear here after you approve access." })} />}
     </section>
     {!collectionName && <section>
-      <SectionTitle title={t(i18n)({ message: "Apps", context: "Connect interface" })} note={t(i18n)({ message: "Open an app, then choose which collections it can access." })} />
+      <SectionTitle title={t(i18n)`Explore apps`} note={t(i18n)({ message: "Open an app, then choose which collections it can access." })} />
       <div className="connect-row-actions">
         {withAppUrls({ editor: editorOrigin }).filter(app => app.id !== "editor" || editorOrigin).map(app => <a key={app.id} href={app.url}>{app.name}</a>)}
         <a href="https://journal.mdbase.dev">Journal</a>
@@ -116,10 +121,11 @@ export function AppAccess({ groups, client, busy, perform, collectionName, edito
   </Page>;
 }
 
-function GrantEditor({ grant, client, busy, perform }: {
+function GrantEditor({ error, grant, client, busy, perform }: {
   client: ConnectManagementClient;
   grant: Grant;
   busy: BusyOperations;
+  error?: string;
   perform: PerformOperation;
 }) {
   useLocaleRevision();
@@ -140,7 +146,7 @@ function GrantEditor({ grant, client, busy, perform }: {
       <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input className="mdbase-checkbox" type="checkbox" checked={operations.has(operation)} onChange={() => setSelected((current) => current.includes(operation)
         ? current.filter((value) => value !== operation) : [...current, operation])} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div>
       <div className="connect-grant-meta"><span><Trans>Collection ID</Trans></span><strong>{grant.collection_id}</strong><span><Trans>Scope</Trans></span><strong><Trans>Entire collection</Trans></strong><span><Trans>Origin</Trans></span><strong>{grant.application_origin}</strong></div>
-      <div className="connect-row-actions"><button className="connect-primary-action mdbase-button is-primary" disabled={needsReview || !changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => client.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}><Trans>Save narrower access</Trans></button><ConfirmAction className="mdbase-button is-tertiary is-danger" label={t(i18n)({ message: "Revoke", context: "Connect interface" })} question={t(i18n)`Revoke access to ${grant.collection_name}?`} confirmLabel={t(i18n)({ message: "Revoke", context: "Connect interface" })} busy={busy.has(`grant-${grant.id}`)} onConfirm={() => perform(`grant-${grant.id}`, (options) => client.revokeGrant(grant.id, options))} /></div>
+      <div className="connect-row-actions"><button className="connect-primary-action mdbase-button is-primary" disabled={needsReview || !changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => client.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options), false, undefined, t(i18n)`Updated ${grant.application_name} access to ${grant.collection_name}`)}><Trans>Save narrower access</Trans></button><ConfirmAction error={error} className="mdbase-button is-tertiary is-danger" label={t(i18n)({ message: "Revoke", context: "Connect interface" })} question={t(i18n)`Revoke access to ${grant.collection_name}?`} consequence={t(i18n)`New access will stop. Copies already downloaded by the app cannot be removed remotely.`} pendingLabel={t(i18n)`Revoking access…`} confirmLabel={t(i18n)({ message: "Revoke", context: "Connect interface" })} busy={busy.has(`grant-${grant.id}`)} onConfirm={() => perform(`grant-${grant.id}`, (options) => client.revokeGrant(grant.id, options), false, undefined, t(i18n)`${grant.application_name} can no longer use ${grant.collection_name}`)} /></div>
     </div>
   </details>;
 }
