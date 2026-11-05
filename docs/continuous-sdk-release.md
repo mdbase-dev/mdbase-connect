@@ -35,13 +35,14 @@ built tarballs. The unprivileged pack job preserves their compiled files and
 rewrites only package metadata: the computed version, exact selected/published
 workspace dependencies, and source commit. It does not rebuild qualified code.
 The protected publisher rechecks each archive's identity/source before OIDC
-publication with `--ignore-scripts --tag next --provenance`.
+publication with `--ignore-scripts --tag latest --provenance`. Prerelease
+versions need the tag stated, so `latest` stays explicit.
 
 For `@mdbase-dev/sdk`, the existing locked verifier/WASM build, committed
 WASM/SQLite/trust integrity checks, cold consumers and extracted-package checks
 remain. CI stamps the root and SDK version only **after** frozen tool installs.
 The three environment archives are built once from the same source and bytes.
-Production goes only to npmjs `next`; staging and LAB retain private manifests
+Production goes only to npmjs `latest`; staging and LAB retain private manifests
 and their individually attested `sdk-v<computed-version>` immutable prerelease
 assets. All assets are uploaded to the draft before publication. The original
 trust roots, pins, policy keys and consumer admission rules are not modified.

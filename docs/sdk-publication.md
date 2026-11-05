@@ -14,7 +14,7 @@ keep their current originals until their guarded npm intake migration lands.
 | Staging | `@mdbase-dev/sdk-staging` | `sdk-v<version>/sdk-staging.tgz` prerelease asset | Staging only |
 | LAB | `@mdbase-dev/sdk-lab` | `sdk-v<version>/sdk-lab.tgz` prerelease asset | LAB only |
 
-Only production goes to `registry.npmjs.org`, initially with the `next` tag.
+Only production goes to `registry.npmjs.org`, with the `latest` tag.
 Dist-tags are discovery pointers, **not security boundaries**. Production apps
 pin a version, never a tag/range; staging/LAB pin the exact prerelease asset URL
 and lockfile integrity. These internal-environment packages are publicly
@@ -187,8 +187,11 @@ publication authority. The three environment packages share the computed
 version; their package names distinguish trust. The internal `sdk-v<version>`
 tag records the original main producer SHA after npm publication; it is not a
 source-version commit. The Obsidian runtime's own version remains independent.
-Stable SDK versions and the first `latest` promotion need a separate owner
-decision. Versions below are illustrative historical pins, not latest selectors.
+Continuous delivery moves `latest` on every publish. A package only moves when
+it has a qualified change, so an unchanged package keeps its older `latest`. The
+`next` tag is retired: nothing reads it, and it stays frozen on npm because
+removing a tag needs an interactive login. Versions below are illustrative
+historical pins, not latest selectors.
 
 Production manifest:
 

@@ -173,7 +173,7 @@ test("workflow builds all variants once, isolates both publisher credentials and
   assert(!workflow.includes("NODE_AUTH_TOKEN"));
   assert(!workflow.includes("NPM_SDK_BOOTSTRAP_TOKEN"));
   assert.match(publish, /npm publish "\$RUNNER_TEMP\/sdk-packages\/sdk-production.tgz"/);
-  assert.match(publish, /--registry https:\/\/registry.npmjs.org\/ --tag next --provenance/);
+  assert.match(publish, /--registry https:\/\/registry.npmjs.org\/ --tag latest --provenance/);
   assert(!publish.includes("contents: write"));
   assert(!publish.includes("*.tgz"));
   assert.match(attest, /id-token: write/);

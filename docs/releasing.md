@@ -104,7 +104,7 @@ adds a public package, a scope owner must bootstrap that package once:
    and exact-candidate guard described in [the release contract](release-contract.md#public-client-release-publication);
    bootstrap publication is also public and must not precede enablement.
    Authenticate interactively with `npm login` and publish that audited tarball
-   with `npm publish <tarball> --access public --tag next`.
+   with `npm publish <tarball> --access public --tag latest`.
 3. Configure `publish-npm.yml` in `mdbase-dev/mdbase-connect` as the package's
    GitHub Actions trusted publisher, restricted to the `npm` environment and
    the `npm publish` operation.
