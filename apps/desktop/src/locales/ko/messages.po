@@ -265,14 +265,14 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "계정"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Account and startup."
-msgstr "계정 및 시작 설정"
-
 #: src/renderer/daemon-view.mts
 msgid "Account connection needs attention"
 msgstr "계정 연결 확인 필요"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "Actions for {0}"
+msgstr "{0} 작업"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -330,12 +330,6 @@ msgstr "Obsidian 같은 다른 앱이 현재 이 폴더를 사용하고 있습�
 msgid "another program is writing to the folder"
 msgstr "다른 프로그램이 폴더에 쓰고 있음"
 
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "앱 액세스"
-
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
 msgstr "이 컴퓨터의 앱 액세스 및 컬렉션 변경 사항이 여기에 표시됩니다."
@@ -370,6 +364,12 @@ msgstr "브라우저에서 이 컴퓨터를 승인하세요. 이 창은 자동�
 msgctxt "Connect interface"
 msgid "Approve…"
 msgstr "승인하는 중…"
+
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "앱"
 
 #: src/renderer/daemon-view.mts
 msgid "Apps cannot use it until you resume it."
@@ -682,11 +682,6 @@ msgstr "컬렉션 만들기"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "폴더를 만들 위치"
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Decide what apps can do."
-msgstr "앱에서 할 수 있는 작업을 결정하세요."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -1383,6 +1378,10 @@ msgctxt "Desktop application"
 msgid "Remove and add"
 msgstr "제거하고 추가"
 
+#: src/renderer/collections-view.tsx
+msgid "Removing…"
+msgstr "삭제 중…"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "이름 바꾸기"
@@ -1448,6 +1447,7 @@ msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "저장 중…"
 
+#: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Search"
@@ -1780,11 +1780,6 @@ msgstr "이 컬렉션의 동기화 설정을 검증하지 못했습니다. 동�
 msgid "This computer"
 msgstr "이 컴퓨터"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "This computer"
-msgstr "이 컴퓨터"
-
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
@@ -1912,11 +1907,6 @@ msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "켜는 중…"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "명령 입력"
-
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx
 msgid "Unavailable"
@@ -2021,17 +2011,9 @@ msgctxt "Local connection status"
 msgid "Waiting to open."
 msgstr "열기 대기 중"
 
-#: src/renderer/main.tsx
-msgid "What reached this computer."
-msgstr "이 컴퓨터에 도착한 내용"
-
 #: src/renderer/collections-view.tsx
 msgid "What this collection is for"
 msgstr "이 컬렉션의 용도"
-
-#: src/renderer/main.tsx
-msgid "What this computer is doing right now."
-msgstr "이 컴퓨터의 현재 작업"
 
 #: src/renderer/takeover-panel.tsx
 msgid "What to do: "
@@ -2083,19 +2065,9 @@ msgstr "컬렉션 이동 대기 중"
 msgid "Your collections moved to mdbase"
 msgstr "컬렉션이 mdbase로 이동됨"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your collections."
-msgstr "내 컬렉션"
-
 #: src/renderer/takeover-state.mts
 msgid "Your local collections are safe on disk."
 msgstr "로컬 컬렉션은 디스크에 안전하게 보관됩니다."
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your local connection."
-msgstr "내 로컬 연결"
 
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."

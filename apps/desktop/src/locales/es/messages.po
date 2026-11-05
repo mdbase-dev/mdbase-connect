@@ -265,14 +265,14 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Cuenta"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Account and startup."
-msgstr "Cuenta e inicio."
-
 #: src/renderer/daemon-view.mts
 msgid "Account connection needs attention"
 msgstr "La conexión de la cuenta necesita atención"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "Actions for {0}"
+msgstr "Acciones para {0}"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -330,12 +330,6 @@ msgstr "Otra aplicación, como Obsidian, está usando esta carpeta. mdbase la ab
 msgid "another program is writing to the folder"
 msgstr "otro programa está escribiendo en la carpeta"
 
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "Acceso de aplicaciones"
-
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
 msgstr "El acceso de las aplicaciones y los cambios en las colecciones de este ordenador aparecerán aquí."
@@ -370,6 +364,12 @@ msgstr "Aprueba este ordenador en tu navegador. Esta ventana se actualizará aut
 msgctxt "Connect interface"
 msgid "Approve…"
 msgstr "Aprobando…"
+
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "Aplicaciones"
 
 #: src/renderer/daemon-view.mts
 msgid "Apps cannot use it until you resume it."
@@ -682,11 +682,6 @@ msgstr "Crear colección"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Crear la carpeta en"
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Decide what apps can do."
-msgstr "Decide qué pueden hacer las aplicaciones."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -1383,6 +1378,10 @@ msgctxt "Desktop application"
 msgid "Remove and add"
 msgstr "Eliminar y añadir"
 
+#: src/renderer/collections-view.tsx
+msgid "Removing…"
+msgstr "Eliminando…"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "Cambiar nombre"
@@ -1448,6 +1447,7 @@ msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Guardando…"
 
+#: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Search"
@@ -1780,11 +1780,6 @@ msgstr "No se pudieron verificar los ajustes de sincronización de esta colecci�
 msgid "This computer"
 msgstr "Este ordenador"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "This computer"
-msgstr "Este ordenador"
-
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
@@ -1912,11 +1907,6 @@ msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Activando…"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "Escribe un comando"
-
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx
 msgid "Unavailable"
@@ -2021,17 +2011,9 @@ msgctxt "Local connection status"
 msgid "Waiting to open."
 msgstr "Esperando para abrir."
 
-#: src/renderer/main.tsx
-msgid "What reached this computer."
-msgstr "Lo que llegó a este ordenador."
-
 #: src/renderer/collections-view.tsx
 msgid "What this collection is for"
 msgstr "Para qué sirve esta colección"
-
-#: src/renderer/main.tsx
-msgid "What this computer is doing right now."
-msgstr "Qué está haciendo este ordenador ahora mismo."
 
 #: src/renderer/takeover-panel.tsx
 msgid "What to do: "
@@ -2083,19 +2065,9 @@ msgstr "Tus colecciones están esperando el traslado"
 msgid "Your collections moved to mdbase"
 msgstr "Tus colecciones se trasladaron a mdbase"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your collections."
-msgstr "Tus colecciones."
-
 #: src/renderer/takeover-state.mts
 msgid "Your local collections are safe on disk."
 msgstr "Tus colecciones locales están seguras en el disco."
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your local connection."
-msgstr "Tu conexión local."
 
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."

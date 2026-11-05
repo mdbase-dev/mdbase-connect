@@ -265,14 +265,14 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Conta"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Account and startup."
-msgstr "Conta e inicialização."
-
 #: src/renderer/daemon-view.mts
 msgid "Account connection needs attention"
 msgstr "A conexão da conta precisa de atenção"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "Actions for {0}"
+msgstr "Ações para {0}"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -330,12 +330,6 @@ msgstr "Outro aplicativo, como o Obsidian, está usando esta pasta agora. O mdba
 msgid "another program is writing to the folder"
 msgstr "outro programa está gravando na pasta"
 
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "Acesso dos aplicativos"
-
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
 msgstr "O acesso dos aplicativos e as alterações nas coleções deste computador serão listados aqui."
@@ -370,6 +364,12 @@ msgstr "Aprove este computador no navegador. Esta janela é atualizada automatic
 msgctxt "Connect interface"
 msgid "Approve…"
 msgstr "Aprovando…"
+
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "Aplicativos"
 
 #: src/renderer/daemon-view.mts
 msgid "Apps cannot use it until you resume it."
@@ -682,11 +682,6 @@ msgstr "Criar coleção"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Criar a pasta em"
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Decide what apps can do."
-msgstr "Decida o que os aplicativos podem fazer."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -1383,6 +1378,10 @@ msgctxt "Desktop application"
 msgid "Remove and add"
 msgstr "Remover e adicionar"
 
+#: src/renderer/collections-view.tsx
+msgid "Removing…"
+msgstr "Removendo…"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "Renomear"
@@ -1448,6 +1447,7 @@ msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Salvando…"
 
+#: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Search"
@@ -1780,11 +1780,6 @@ msgstr "Não foi possível verificar as configurações de sincronização desta
 msgid "This computer"
 msgstr "Este computador"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "This computer"
-msgstr "Este computador"
-
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
@@ -1912,11 +1907,6 @@ msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Ativando…"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "Digite um comando"
-
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx
 msgid "Unavailable"
@@ -2021,17 +2011,9 @@ msgctxt "Local connection status"
 msgid "Waiting to open."
 msgstr "Aguardando para abrir."
 
-#: src/renderer/main.tsx
-msgid "What reached this computer."
-msgstr "O que chegou a este computador."
-
 #: src/renderer/collections-view.tsx
 msgid "What this collection is for"
 msgstr "Para que serve esta coleção"
-
-#: src/renderer/main.tsx
-msgid "What this computer is doing right now."
-msgstr "O que este computador está fazendo agora."
 
 #: src/renderer/takeover-panel.tsx
 msgid "What to do: "
@@ -2083,19 +2065,9 @@ msgstr "Suas coleções aguardam transferência"
 msgid "Your collections moved to mdbase"
 msgstr "Suas coleções foram transferidas para o mdbase"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your collections."
-msgstr "Suas coleções."
-
 #: src/renderer/takeover-state.mts
 msgid "Your local collections are safe on disk."
 msgstr "Suas coleções locais estão seguras no disco."
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your local connection."
-msgstr "Sua conexão local."
 
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."

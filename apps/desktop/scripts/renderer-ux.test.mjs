@@ -59,6 +59,8 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       getSettings: async () => ({ require_grant_approval: fixture.requireApproval }),
       getLaunchAtLogin: async () => ({ enabled: false, available: false }),
       addCollection: record("addCollection"),
+      openCollectionFolder: record("openCollectionFolder"),
+      setCollectionEnabled: record("setCollectionEnabled"),
       chooseCreateFolder: async () => "/disposable/parent",
       createCollection: async (input) => { calls.push(["createCollection", input]); return { name: input.name }; },
       enableSync: async (...args) => {
@@ -122,6 +124,11 @@ test("renderer loads real locale chunks and restores the preload language prefer
 
 const nav = (page, name) => page.locator(".product-sidebar-link").filter({ hasText: name });
 
+async function collectionAction(page, name, card = page.locator(".collection-card")) {
+  await card.getByRole("button", { name: /^Actions for / }).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
+}
+
 async function screenshot(page, name) {
   if (process.env.CONNECTOR_UX_SHOTS) await page.screenshot({ path: `${process.env.CONNECTOR_UX_SHOTS}/${name}.png`, fullPage: true });
 }
@@ -131,12 +138,90 @@ const collection = (overrides = {}) => ({
   mode: "local", origin: "local", log: "none", state: "ready", notices: [], ...overrides
 });
 
+for (const theme of ["light", "dark"]) {
+  test(`desktop parity: overview links, collection search and overflow in ${theme}`, async () => {
+    const { page, errors, calls } = await desktop({ collections: [collection(), collection({ id: "c-work", name: "Work" })] });
+    try {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      assert.equal(await page.getByRole("heading", { name: "Overview", exact: true }).count(), 1);
+      assert.equal(await page.locator(".overview-row").count(), 3);
+      assert.equal(await page.locator(".overview-row button").count(), 0);
+      await screenshot(page, `parity-overview-${theme}`);
+      await page.getByRole("link", { name: /^Apps / }).click();
+      await page.getByRole("heading", { name: "Apps", exact: true }).waitFor();
+      for (const name of ["Collections", "Apps", "Activity", "Settings"]) {
+        await nav(page, name).click();
+        await page.getByRole("heading", { name, exact: true }).waitFor();
+      }
+      await page.keyboard.press("Control+k");
+      const palette = page.getByRole("dialog", { name: "Commands" });
+      await palette.getByText("Commands", { exact: true }).last().waitFor();
+      await palette.getByRole("textbox").fill("Work");
+      await palette.getByRole("option", { name: /Work/ }).waitFor();
+      await screenshot(page, `parity-palette-${theme}`);
+      await page.keyboard.press("Enter");
+      assert.deepEqual(await calls("openCollectionFolder"), [["c-work"]]);
+      await nav(page, "Collections").click();
+      const card = page.locator(".collection-card").filter({ has: page.getByRole("heading", { name: "Notes", exact: true }) });
+      assert.equal(await card.getByRole("button").count(), 1);
+      const trigger = card.getByRole("button", { name: "Actions for Notes" });
+      await screenshot(page, `parity-collections-${theme}`);
+      await trigger.click();
+      const menu = page.getByRole("menu", { name: "Notes" });
+      await menu.getByRole("menuitem", { name: "Open folder", exact: true }).waitFor();
+      await screenshot(page, `parity-menu-${theme}`);
+      await page.keyboard.press("Escape");
+      assert.equal(await trigger.evaluate((element) => element === document.activeElement), true);
+      await collectionAction(page, "Pause", card);
+      assert.deepEqual(await calls("setCollectionEnabled"), [["c-notes", false]]);
+      await collectionAction(page, "Remove", card);
+      const confirm = page.getByRole("dialog", { name: /^Remove Notes/ });
+      assert.deepEqual(await calls("removeCollection"), []);
+      await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+      await confirm.waitFor({ state: "hidden" });
+      assert.equal(await trigger.evaluate((element) => element === document.activeElement), true);
+      await collectionAction(page, "Remove", card);
+      await confirm.getByRole("button", { name: "Remove", exact: true }).click();
+      await page.getByText("Notes was removed. Its files were not touched.", { exact: true }).waitFor();
+      assert.deepEqual(await calls("removeCollection"), [["c-notes"]]);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
+
+test("removal waits for the daemon and reports a failure without removing the row", async () => {
+  const { page, errors } = await desktop({ collections: [collection()] });
+  try {
+    await nav(page, "Collections").click();
+    await page.evaluate(() => {
+      window.mdbaseConnect.removeCollection = () => new Promise((_resolve, reject) => {
+        window.fixture.rejectRemoval = () => reject(new Error("The collection could not be removed."));
+      });
+    });
+    await collectionAction(page, "Remove");
+    const dialog = page.getByRole("dialog", { name: /^Remove Notes/ });
+    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+    await dialog.getByRole("button", { name: "Removing…", exact: true }).waitFor();
+    assert.equal(await dialog.getByRole("button", { name: "Cancel" }).isDisabled(), true);
+    assert.equal(await page.locator(".collection-card").count(), 1);
+    await page.evaluate(() => window.fixture.rejectRemoval());
+    await dialog.waitFor({ state: "hidden" });
+    await page.getByRole("alert").filter({ hasText: "The collection could not be removed." }).waitFor();
+    assert.equal(await page.locator(".collection-card").count(), 1);
+    assert.equal(await page.getByText("Notes was removed. Its files were not touched.", { exact: true }).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test("ready synced collections do not offer the unavailable turn-off action", async () => {
   const { page, errors } = await desktop({ signedIn: true, collections: [collection({ mode: "synced", log: "hosted", sync: { pending: 0, holds: 0, unresolved: 0, connection: "online" } })] });
   try {
     await nav(page, "Collections").click();
     await page.locator(".collection-card").waitFor();
-    assert.equal(await page.getByRole("button", { name: "Turn off sync" }).count(), 0);
+    await page.getByRole("button", { name: "Actions for Notes" }).click();
+    assert.equal(await page.getByRole("menuitem", { name: "Turn off sync" }).count(), 0);
+    assert.equal(await page.getByRole("menuitem", { name: "Turn on sync" }).count(), 0);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
@@ -213,13 +298,13 @@ test("turning on sync defaults to private and removal is confirmed; long paths s
     await card.getByText("On this computer only · Ready").waitFor();
     await screenshot(page, "collections-minimum");
     assert.equal(await page.locator(".content").evaluate((element) => element.scrollWidth > element.clientWidth), false);
-    await card.getByRole("button", { name: "Turn on sync" }).click();
+    await collectionAction(page, "Turn on sync", card);
     const dialog = page.getByRole("dialog");
     assert.equal(await dialog.getByRole("radio", { name: /Private/ }).isChecked(), true);
     await dialog.getByRole("button", { name: "Turn on sync" }).click();
     await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
     assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
-    await card.getByRole("button", { name: "Remove" }).click();
+    await collectionAction(page, "Remove", card);
     const confirmation = page.getByRole("dialog", { name: /^Remove / });
     await confirmation.getByText(/^Remove Notes from mdbase/).waitFor();
     await confirmation.getByRole("button", { name: "Cancel" }).click();
@@ -233,7 +318,7 @@ test("a failed turn-on of sync is explained inside the dialog, which stays open 
   try {
     await nav(page, "Collections").click();
     const card = page.locator(".collection-card").filter({ hasText: "Notes" });
-    await card.getByRole("button", { name: "Turn on sync" }).click();
+    await collectionAction(page, "Turn on sync", card);
     const dialog = page.getByRole("dialog");
     await page.evaluate(() => {
       window.fixture.failEnableSync = "Error invoking remote method 'connect:collections:sync-enable': DaemonControlError: this build has no authenticated trust for synced collections";
@@ -262,7 +347,7 @@ test("turning on sync for a taken-over folder shows the files held at takeover a
       };
     });
     await nav(page, "Collections").click();
-    await page.locator(".collection-card").filter({ hasText: "Notes" }).getByRole("button", { name: "Turn on sync" }).click();
+    await collectionAction(page, "Turn on sync");
     const dialog = page.getByRole("dialog");
     await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor();
     const confirm = dialog.getByRole("button", { name: "Turn on sync" });
@@ -287,7 +372,7 @@ test("files held at the takeover are resolved one by one before sync turns on", 
       };
     });
     await nav(page, "Collections").click();
-    await page.locator(".collection-card").filter({ hasText: "Notes" }).getByRole("button", { name: "Turn on sync" }).click();
+    await collectionAction(page, "Turn on sync");
     const dialog = page.getByRole("dialog");
     await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor();
     const confirm = dialog.getByRole("button", { name: "Turn on sync" });
@@ -312,8 +397,8 @@ test("access: pending approvals, new-access notices and revocation reach the dae
   ];
   const { page, errors, calls } = await desktop({ collections: [collection(), collection({ id: "c-private", name: "Diary", mode: "synced_e2e" })], access });
   try {
-    assert.equal(await nav(page, "App access").innerText(), "App access\n3");
-    await nav(page, "App access").click();
+    assert.equal(await nav(page, "Apps").innerText(), "Apps\n3");
+    await nav(page, "Apps").click();
     const journal = page.locator(".approval-prompt").filter({ hasText: "Journal wants to use Diary" });
     await journal.getByText("mdbase could not fetch what this app is asking for", { exact: false }).waitFor();
     assert.equal(await journal.getByRole("button", { name: "Approve…" }).isDisabled(), true);
@@ -342,7 +427,7 @@ test("access: markup-shaped app names are shown literally in the key check", asy
   ];
   const { page, errors } = await desktop({ collections: [collection(), collection({ id: "c-private", name: "Diary" })], access });
   try {
-    await nav(page, "App access").click();
+    await nav(page, "Apps").click();
     await page.getByText(`Check that ${name} shows the same key.`, { exact: true }).waitFor();
     await page.getByText(`mdbase shows the app's key when you approve. Check that ${name} shows the same key.`, { exact: true }).waitFor();
     assert.deepEqual(errors, []);
@@ -459,7 +544,7 @@ test("collection details keep the draft when saving fails, then save name and de
   try {
     await nav(page, "Collections").click();
     const card = page.locator(".collection-card").filter({ hasText: "Notes" });
-    await card.getByRole("button", { name: "Details" }).click();
+    await collectionAction(page, "Details", card);
     await card.getByLabel("Name").fill("Journal");
     await card.getByLabel("Description").fill("Daily notes");
     await page.evaluate(() => { window.fixture.failUpdate = "Error invoking remote method 'connect:collections:update': DaemonControlError: a collection name is 1 to 100 characters"; });
@@ -538,7 +623,8 @@ test("deleted collection keeps skipped-file details without repeating the deleti
     const notice = card.locator(".collection-notice");
     assert.equal(await notice.locator("code").innerText(), "notes/latin.md");
     assert.ok((await notice.innerText()).includes("Not valid UTF-8"));
-    assert.equal(await card.getByRole("button", { name: "Remove", exact: true }).count(), 1);
+    await card.getByRole("button", { name: "Actions for Notes" }).click();
+    assert.equal(await page.getByRole("menuitem", { name: "Remove", exact: true }).count(), 1);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
@@ -550,7 +636,7 @@ test("a view-only new file can be discarded without a synced version", async () 
       window.fixture.holds = [{ id: "viewer:1", path: "new.md", reason: "read_only", since: Date.now(), saves: 1, has_theirs: false, binary: false }];
     });
     await nav(page, "Collections").click();
-    await page.getByRole("button", { name: "Review 1 file", exact: true }).click();
+    await collectionAction(page, "Review 1 file");
     await page.getByText("new.md", { exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: "Keep both", exact: true }).count(), 1);
     const discard = page.getByRole("button", { name: "Discard local changes", exact: true });

@@ -265,14 +265,14 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Account"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Account and startup."
-msgstr "Account e avvio."
-
 #: src/renderer/daemon-view.mts
 msgid "Account connection needs attention"
 msgstr "La connessione dell'account richiede attenzione"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "Actions for {0}"
+msgstr "Azioni per {0}"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -330,12 +330,6 @@ msgstr "Un'altra app, ad esempio Obsidian, sta usando questa cartella. mdbase la
 msgid "another program is writing to the folder"
 msgstr "un altro programma sta scrivendo nella cartella"
 
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "Accesso delle app"
-
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
 msgstr "Qui saranno elencati l'accesso delle app e le modifiche alle raccolte su questo computer."
@@ -370,6 +364,12 @@ msgstr "Approva questo computer nel browser. Questa finestra si aggiorna automat
 msgctxt "Connect interface"
 msgid "Approve…"
 msgstr "Approvazione…"
+
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "App"
 
 #: src/renderer/daemon-view.mts
 msgid "Apps cannot use it until you resume it."
@@ -682,11 +682,6 @@ msgstr "Crea raccolta"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Crea la cartella in"
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Decide what apps can do."
-msgstr "Decidi cosa possono fare le app."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -1383,6 +1378,10 @@ msgctxt "Desktop application"
 msgid "Remove and add"
 msgstr "Rimuovi e aggiungi"
 
+#: src/renderer/collections-view.tsx
+msgid "Removing…"
+msgstr "Rimozione…"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "Rinomina"
@@ -1448,6 +1447,7 @@ msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Salvataggio in corso…"
 
+#: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Search"
@@ -1780,11 +1780,6 @@ msgstr "Impossibile verificare le impostazioni di sincronizzazione di questa rac
 msgid "This computer"
 msgstr "Questo computer"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "This computer"
-msgstr "Questo computer"
-
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
@@ -1912,11 +1907,6 @@ msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Attivazione in corso…"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "Digita un comando"
-
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx
 msgid "Unavailable"
@@ -2021,17 +2011,9 @@ msgctxt "Local connection status"
 msgid "Waiting to open."
 msgstr "In attesa di apertura."
 
-#: src/renderer/main.tsx
-msgid "What reached this computer."
-msgstr "Cosa è arrivato a questo computer."
-
 #: src/renderer/collections-view.tsx
 msgid "What this collection is for"
 msgstr "A cosa serve questa raccolta"
-
-#: src/renderer/main.tsx
-msgid "What this computer is doing right now."
-msgstr "Cosa sta facendo questo computer adesso."
 
 #: src/renderer/takeover-panel.tsx
 msgid "What to do: "
@@ -2083,19 +2065,9 @@ msgstr "Le raccolte attendono lo spostamento"
 msgid "Your collections moved to mdbase"
 msgstr "Le raccolte sono state spostate su mdbase"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your collections."
-msgstr "Le raccolte."
-
 #: src/renderer/takeover-state.mts
 msgid "Your local collections are safe on disk."
 msgstr "Le raccolte locali sono al sicuro sul disco."
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your local connection."
-msgstr "La connessione locale."
 
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."

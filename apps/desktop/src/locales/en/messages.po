@@ -265,14 +265,14 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Account"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Account and startup."
-msgstr "Account and startup."
-
 #: src/renderer/daemon-view.mts
 msgid "Account connection needs attention"
 msgstr "Account connection needs attention"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "Actions for {0}"
+msgstr "Actions for {0}"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -330,12 +330,6 @@ msgstr "Another app, such as Obsidian, is using this folder right now. mdbase op
 msgid "another program is writing to the folder"
 msgstr "another program is writing to the folder"
 
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "App access"
-
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
 msgstr "App access and collection changes on this computer will be listed here."
@@ -370,6 +364,12 @@ msgstr "Approve this computer in your browser. This window updates automatically
 msgctxt "Connect interface"
 msgid "Approve…"
 msgstr "Approve…"
+
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "Apps"
 
 #: src/renderer/daemon-view.mts
 msgid "Apps cannot use it until you resume it."
@@ -682,11 +682,6 @@ msgstr "Create collection"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Create the folder in"
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Decide what apps can do."
-msgstr "Decide what apps can do."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -1383,6 +1378,10 @@ msgctxt "Desktop application"
 msgid "Remove and add"
 msgstr "Remove and add"
 
+#: src/renderer/collections-view.tsx
+msgid "Removing…"
+msgstr "Removing…"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "Rename"
@@ -1448,6 +1447,7 @@ msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Saving…"
 
+#: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Search"
@@ -1780,11 +1780,6 @@ msgstr "This collection's sync settings could not be verified. Turn sync off and
 msgid "This computer"
 msgstr "This computer"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "This computer"
-msgstr "This computer"
-
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
@@ -1912,11 +1907,6 @@ msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Turning on…"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "Type a command"
-
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx
 msgid "Unavailable"
@@ -2021,17 +2011,9 @@ msgctxt "Local connection status"
 msgid "Waiting to open."
 msgstr "Waiting to open."
 
-#: src/renderer/main.tsx
-msgid "What reached this computer."
-msgstr "What reached this computer."
-
 #: src/renderer/collections-view.tsx
 msgid "What this collection is for"
 msgstr "What this collection is for"
-
-#: src/renderer/main.tsx
-msgid "What this computer is doing right now."
-msgstr "What this computer is doing right now."
 
 #: src/renderer/takeover-panel.tsx
 msgid "What to do: "
@@ -2083,19 +2065,9 @@ msgstr "Your collections are waiting to move"
 msgid "Your collections moved to mdbase"
 msgstr "Your collections moved to mdbase"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your collections."
-msgstr "Your collections."
-
 #: src/renderer/takeover-state.mts
 msgid "Your local collections are safe on disk."
 msgstr "Your local collections are safe on disk."
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your local connection."
-msgstr "Your local connection."
 
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."

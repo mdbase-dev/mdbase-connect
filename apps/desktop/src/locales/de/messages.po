@@ -265,14 +265,14 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Konto"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Account and startup."
-msgstr "Konto und Startverhalten."
-
 #: src/renderer/daemon-view.mts
 msgid "Account connection needs attention"
 msgstr "Kontoverbindung benötigt Ihre Aufmerksamkeit"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "Actions for {0}"
+msgstr "Aktionen für {0}"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -330,12 +330,6 @@ msgstr "Eine andere App, etwa Obsidian, verwendet diesen Ordner gerade. mdbase �
 msgid "another program is writing to the folder"
 msgstr "ein anderes Programm schreibt in den Ordner"
 
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "App-Zugriff"
-
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
 msgstr "App-Zugriffe und Sammlungsänderungen auf diesem Computer werden hier aufgeführt."
@@ -370,6 +364,12 @@ msgstr "Genehmigen Sie diesen Computer im Browser. Dieses Fenster wird automatis
 msgctxt "Connect interface"
 msgid "Approve…"
 msgstr "Genehmigen…"
+
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "Anwendungen"
 
 #: src/renderer/daemon-view.mts
 msgid "Apps cannot use it until you resume it."
@@ -682,11 +682,6 @@ msgstr "Sammlung erstellen"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Ordner erstellen in"
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Decide what apps can do."
-msgstr "Legen Sie fest, was Apps tun dürfen."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -1383,6 +1378,10 @@ msgctxt "Desktop application"
 msgid "Remove and add"
 msgstr "Entfernen und hinzufügen"
 
+#: src/renderer/collections-view.tsx
+msgid "Removing…"
+msgstr "Wird entfernt…"
+
 #: src/renderer/main.tsx
 msgid "Rename"
 msgstr "Umbenennen"
@@ -1448,6 +1447,7 @@ msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Wird gespeichert…"
 
+#: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Search"
@@ -1780,11 +1780,6 @@ msgstr "Die Synchronisierungseinstellungen dieser Sammlung konnten nicht überpr
 msgid "This computer"
 msgstr "Dieser Computer"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "This computer"
-msgstr "Dieser Computer"
-
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
@@ -1912,11 +1907,6 @@ msgctxt "Local collection management"
 msgid "Turning on…"
 msgstr "Wird aktiviert…"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "Befehl eingeben"
-
 #: src/renderer/daemon-view.mts
 #: src/renderer/main.tsx
 msgid "Unavailable"
@@ -2021,17 +2011,9 @@ msgctxt "Local connection status"
 msgid "Waiting to open."
 msgstr "Wartet auf Öffnung."
 
-#: src/renderer/main.tsx
-msgid "What reached this computer."
-msgstr "Was auf diesem Computer angekommen ist."
-
 #: src/renderer/collections-view.tsx
 msgid "What this collection is for"
 msgstr "Wofür diese Sammlung gedacht ist"
-
-#: src/renderer/main.tsx
-msgid "What this computer is doing right now."
-msgstr "Was dieser Computer gerade tut."
 
 #: src/renderer/takeover-panel.tsx
 msgid "What to do: "
@@ -2083,19 +2065,9 @@ msgstr "Ihre Sammlungen warten darauf, verschoben zu werden"
 msgid "Your collections moved to mdbase"
 msgstr "Ihre Sammlungen wurden zu mdbase verschoben"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your collections."
-msgstr "Ihre Sammlungen."
-
 #: src/renderer/takeover-state.mts
 msgid "Your local collections are safe on disk."
 msgstr "Ihre lokalen Sammlungen sind auf dem Datenträger sicher."
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your local connection."
-msgstr "Ihre lokale Verbindung."
 
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."

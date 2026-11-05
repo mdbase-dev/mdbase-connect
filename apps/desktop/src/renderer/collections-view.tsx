@@ -1,8 +1,10 @@
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { Dialog } from "@mdbase-dev/ui/dialog";
+import { Menu } from "@mdbase-dev/ui/menu";
+import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
 import { CollectionModeControl } from "@mdbase-dev/ui/collection-mode";
 import { groupedApprovalCode, presentCollection } from "./daemon-view.mjs";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
@@ -66,6 +68,11 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
   const view = presentCollection(collection);
   const [holdsOpen, setHoldsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const menuId = useId();
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  const closeMenu = (refocus: boolean) => { setMenuOpen(false); if (refocus) menuTrigger.current?.focus(); };
   return (
     <article className="collection-card">
       <div className="collection-card-main">
@@ -82,17 +89,24 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
           {collection.notices.filter((notice) => notice.code !== "file_held" && notice.code !== "collection_deleted" && notice.code !== "sync_revoked").map((notice, index) => <small key={`${notice.code}:${notice.path ?? index}`} className="collection-notice">{notice.path && <><code>{notice.path}</code>{": "}</>}{notice.message}</small>)}
         </div>
       </div>
-      <div className="collection-config-actions">
-        <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id))}><Trans>Open folder</Trans></button>
-        <button className="mdbase-button is-tertiary" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><Trans>Details</Trans></button>
-        {view.holds > 0 && <button className="mdbase-button is-tertiary" onClick={() => setHoldsOpen((open) => !open)}>{holdsOpen ? t(i18n)`Hide ${plural(view.holds, { one: "# file", other: "# files" })}` : t(i18n)`Review ${plural(view.holds, { one: "# file", other: "# files" })}`}</button>}
-        {view.canEnableSync && <button className="mdbase-button is-tertiary" disabled={busy} onClick={onTurnOnSync}><Trans>Turn on sync</Trans></button>}
-        <button className="mdbase-button is-tertiary" disabled={busy || collection.state === "opening"} onClick={() => void onAct(() => window.mdbaseConnect.setCollectionEnabled(collection.id, view.paused))}>{view.paused ? t(i18n)({ message: "Resume", context: "Local collection management" }) : t(i18n)({ message: "Pause", context: "Local collection management" })}</button>
-        <ConfirmAction className="mdbase-button is-tertiary is-danger" busy={busy} label={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} confirmLabel={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} question={t(i18n)`Remove ${collection.name} from mdbase? Apps stop using it. The folder and its files stay where they are.`} onConfirm={() => onAct(async () => {
+      <button ref={menuTrigger} className="mdbase-button is-tertiary collection-menu-trigger" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId} disabled={busy} onClick={() => setMenuOpen((open) => !open)}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="13" cy="8" r="1" /></svg>
+      </button>
+      <Menu open={menuOpen} triggerRef={menuTrigger} onClose={closeMenu} id={menuId} label={collection.name}>
+        <button role="menuitem" className="mdbase-menu-item" disabled={busy} onClick={() => { closeMenu(true); void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id)); }}><Trans>Open folder</Trans></button>
+        <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setDetailsOpen((open) => !open); }}><Trans>Details</Trans></button>
+        {view.holds > 0 && <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setHoldsOpen((open) => !open); }}>{holdsOpen ? t(i18n)`Hide ${plural(view.holds, { one: "# file", other: "# files" })}` : t(i18n)`Review ${plural(view.holds, { one: "# file", other: "# files" })}`}</button>}
+        {view.canEnableSync && <button role="menuitem" className="mdbase-menu-item" disabled={busy} onClick={() => { closeMenu(true); onTurnOnSync(); }}><Trans>Turn on sync</Trans></button>}
+        <button role="menuitem" className="mdbase-menu-item" disabled={busy || collection.state === "opening"} onClick={() => { closeMenu(true); void onAct(() => window.mdbaseConnect.setCollectionEnabled(collection.id, view.paused)); }}>{view.paused ? t(i18n)({ message: "Resume", context: "Local collection management" }) : t(i18n)({ message: "Pause", context: "Local collection management" })}</button>
+        <button role="menuitem" className="mdbase-menu-item collection-remove" disabled={busy} onClick={() => { closeMenu(false); setRemoveOpen(true); }}><Trans context="Remove a local collection connection">Remove</Trans></button>
+      </Menu>
+      <ConfirmDialog open={removeOpen} returnFocusRef={menuTrigger} busy={busy} title={t(i18n)`Remove ${collection.name} from mdbase? Apps stop using it. The folder and its files stay where they are.`} confirmLabel={t(i18n)({ message: "Remove", context: "Remove a local collection connection" })} pendingLabel={t(i18n)`Removing…`} onClose={() => setRemoveOpen(false)} onConfirm={async () => {
+        await onAct(async () => {
           await window.mdbaseConnect.removeCollection(collection.id);
           onNotice(t(i18n)`${collection.name} was removed. Its files were not touched.`);
-        })} />
-      </div>
+        });
+        setRemoveOpen(false);
+      }} />
       {detailsOpen && <Details collection={collection} onDone={(saved) => { setDetailsOpen(false); if (saved) onNotice(t(i18n)`${saved.name} was saved.`); }} />}
       {holdsOpen && <Holds collection={collection} busy={busy} onAct={onAct} />}
     </article>
