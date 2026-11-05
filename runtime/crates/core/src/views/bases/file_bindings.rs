@@ -1,27 +1,28 @@
 //! Borrowed immutable file facts for the explicit TaskSlice1 component profile.
 //! No path -> metadata inference, ambient stat/graph or implicit empty tag list.
 use super::{
-    CapturedFile, EvaluationFailure, MAX_CAPTURE_ITEMS, MAX_CAPTURE_TEXT_BYTES, WorkBudget,
+    CapturedFile, EvaluationFailure, MAX_CAPTURE_ITEMS, MAX_CAPTURE_TEXT_BYTES, SourceTags,
+    WorkBudget,
 };
 /// Captured file identity/facts and an explicitly known or unavailable tag set.
 /// Pure host data: this value does not authorize reads or authenticate a replica.
 #[derive(Clone, Copy)]
 pub struct CapturedFileBindings<'a> {
     pub(super) file: &'a CapturedFile,
-    pub(super) tags: Option<&'a [String]>,
+    pub(super) tags: Option<&'a SourceTags>,
 }
 impl<'a> CapturedFileBindings<'a> {
-    /// Borrow once after checking all supplied tags. `None` is unavailable;
-    /// `Some(&[])` is known-empty. Never derive tags from labels/defaults here.
+    /// Borrow once after checking all supplied tags. `None` is unavailable; an
+    /// exact empty set is known-empty. Never derive tags from labels/defaults here.
     pub fn capture(
         file: &'a CapturedFile,
-        tags: Option<&'a [String]>,
+        tags: Option<&'a SourceTags>,
         budget: &mut WorkBudget,
     ) -> Result<Self, EvaluationFailure> {
         if !budget.charge(1, 0) {
             return Err(budget.failure().expect("file capture budget"));
         }
-        if let Some(tags) = tags {
+        if let Some(tags) = tags.map(SourceTags::spellings) {
             if tags.len() > MAX_CAPTURE_ITEMS {
                 return fail(budget, EvaluationFailure::BudgetExceeded("file_tag_count"));
             }

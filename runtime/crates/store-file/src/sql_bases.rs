@@ -78,12 +78,8 @@ fn capture(row: &RecordRow, tag_steps_left: &mut u64) -> Option<Payload> {
     *tag_steps_left -= initial_steps - budget.remaining_steps();
     let tags = tags.ok()?;
     let mut facts = Vec::new();
-    let fact_bytes = candidate::capture(row, &document, tags.as_deref(), &mut facts);
-    let tags = cbor::encode(&match tags {
-        Some(tags) => tags.to_cbor(),
-        None => Cbor::Null,
-    })
-    .ok()?;
+    let fact_bytes = candidate::capture(row, &document, tags.as_ref(), &mut facts);
+    let tags = cbor::encode(&paging::encode_tags(tags.as_ref())).ok()?;
     (fields.len().checked_add(tags.len())? <= MAX_PAYLOAD).then_some(Payload {
         fields,
         tags,

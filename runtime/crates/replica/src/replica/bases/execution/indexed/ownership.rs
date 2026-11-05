@@ -65,7 +65,7 @@ pub(super) fn frame(
             }
         }
         if let Some(tags) = &row.tags {
-            for tag in tags {
+            for tag in tags.spellings() {
                 work(budget, 1 + tag.len() as u64, 0)?;
                 bytes += 32 + tag.len() as u64;
             }

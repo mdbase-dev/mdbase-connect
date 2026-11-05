@@ -3,7 +3,7 @@ use super::*;
 use mdbn_core::views::bases::{
     AdmittedBasesView, BasesDisplayCell, BasesProjectedRow, BasesTimezone, CapturedClock,
     CapturedFileBindings, DateGroupMode, FileTimeAvailability, OrderingCapture, PropertySelector,
-    RawFrontmatter, RuntimeValue, TypedSortRow, order_typed_rows, partition_typed,
+    RawFrontmatter, RuntimeValue, SourceTags, TypedSortRow, order_typed_rows, partition_typed,
 };
 /// Explicit frozen ordering policies. No locale/null/day/tie defaults.
 #[derive(Clone, Copy)]
@@ -132,7 +132,10 @@ impl<S: Store> Replica<S> {
             FileTimeAvailability {
                 created: false,
                 modified: false,
-                tags: input.tags.iter().all(|v| v.is_some()),
+                tags: input
+                    .tags
+                    .iter()
+                    .all(|v| v.as_ref().is_some_and(SourceTags::is_exact)),
             },
             work,
         )
@@ -157,7 +160,7 @@ impl<S: Store> Replica<S> {
                 .with_file(
                     CapturedFileBindings::capture(
                         &input.files[index],
-                        input.tags[index].as_deref(),
+                        input.tags[index].as_ref(),
                         work,
                     )
                     .map_err(failure)?,

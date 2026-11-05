@@ -391,7 +391,7 @@ impl<S: Store> Replica<S> {
                         let raw = ownership::fields(&requirements.fields, row.fields, work)?;
                         let file =
                             CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
-                        let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), work)?;
+                        let file = CapturedFileBindings::capture(&file, row.tags.as_ref(), work)?;
                         let bindings = types
                             .projected_bindings(&raw, work)?
                             .with_clock(captured_clock)
@@ -447,7 +447,7 @@ impl<S: Store> Replica<S> {
                     let raw = ownership::fields(&requirements.fields, row.fields, work)?;
                     let file =
                         CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
-                    let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), work)?;
+                    let file = CapturedFileBindings::capture(&file, row.tags.as_ref(), work)?;
                     let bindings = types
                         .projected_bindings(&raw, work)?
                         .with_clock(captured_clock)

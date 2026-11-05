@@ -87,7 +87,7 @@ pub(super) fn render<S: Store>(
             .project_admitted(|work| {
                 let raw = ownership::fields(&context.requirements.fields, row.fields, work)?;
                 let file = CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
-                let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), work)?;
+                let file = CapturedFileBindings::capture(&file, row.tags.as_ref(), work)?;
                 let bindings = context
                     .types
                     .projected_bindings(&raw, work)?
@@ -178,7 +178,7 @@ pub(super) fn render<S: Store>(
                             ownership::fields(&context.requirements.fields, row.fields, work)?;
                         let file =
                             CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
-                        let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), work)?;
+                        let file = CapturedFileBindings::capture(&file, row.tags.as_ref(), work)?;
                         let bindings = context
                             .types
                             .projected_bindings(&raw, work)?

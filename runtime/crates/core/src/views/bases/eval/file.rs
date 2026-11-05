@@ -1,4 +1,5 @@
 //! TaskSlice1 file fields/predicates dispatch to the qualified captured helpers.
+use super::super::SourceTags;
 use super::*;
 impl Evaluator<'_, '_> {
     fn missing_file(&mut self, detail: &'static str) -> RuntimeValue {
@@ -41,7 +42,7 @@ impl Evaluator<'_, '_> {
                 self.date_value(date)
             }
             "tags" => {
-                let Some(tags) = binding.tags else {
+                let Some(tags) = binding.tags.and_then(SourceTags::known) else {
                     return self.missing_file("file_tags_not_captured");
                 };
                 if !self.budget.vector(tags.len()) {
@@ -140,8 +141,12 @@ impl Evaluator<'_, '_> {
                 let Some(tags) = binding.tags else {
                     return self.missing_file("file_tags_not_captured");
                 };
-                match super::super::CapturedFile::has_tag(tags, &needles, self.budget) {
-                    Ok(value) => RuntimeValue::Bool(value),
+                match super::super::CapturedFile::has_tag(tags.spellings(), &needles, self.budget) {
+                    // Absence of the spelling decides `false` even for a bound.
+                    Ok(false) => RuntimeValue::Bool(false),
+                    Ok(true) if tags.is_exact() => RuntimeValue::Bool(true),
+                    // Null here would turn `!= true` into a silent match.
+                    Ok(true) => self.missing_file("file_tags_not_captured"),
                     Err(e) => {
                         self.budget.fail(e);
                         RuntimeValue::Null

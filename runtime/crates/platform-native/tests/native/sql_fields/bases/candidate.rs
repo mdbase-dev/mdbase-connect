@@ -53,7 +53,7 @@ fn evaluate(
     let mut work = WorkBudget::new();
     let types = CapturedPropertyTypes::capture(hints, &mut work)?;
     let file = CapturedFile::new(&row.path, Some(row.source_bytes), None, None, &mut work)?;
-    let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), &mut work)?;
+    let file = CapturedFileBindings::capture(&file, row.tags.as_ref(), &mut work)?;
     let bindings = types
         .projected_bindings(&raw, &mut work)?
         .with_clock(clock)
@@ -235,11 +235,37 @@ fn all_five_unchanged_shared_views_keep_membership_and_failure_domain() {
     );
 }
 #[test]
+fn negated_tag_filters_keep_bounded_rows_and_decide_absent_names_in_rust() {
+    let body = |n, text: &str| {
+        let mut row = row(n, "status: open");
+        row.doc.push_str(text);
+        row.revision = revision(row.doc.as_bytes());
+        row
+    };
+    let rows = vec![
+        body(1, "verified in #16/#18\n"),
+        body(2, "**#other** and #archived\n"),
+        body(3, "**#other** only\n"),
+        body(4, "**#archived**\n"),
+    ];
+    let (store, _, _, _, _) = open("bases_candidate_negated_bounded", rows, &[]);
+    for filter in [
+        "!file.hasTag('archived')",
+        "file.hasTag('archived') != true",
+    ] {
+        let p = plan(filter);
+        let (matches, selected) = differential(&store, &p, &BTreeMap::new(), clock("UTC"));
+        assert_eq!(matches, BTreeSet::from([id(1), id(3)]));
+        // Row 4 stays selected so its refusal reaches the executor.
+        assert!(selected.contains(&id(4)));
+    }
+}
+#[test]
 fn selective_dates_do_not_hide_unknown_tags_typed_null_links_or_earlier_errors() {
     let unknown_tags = row(8, "tags: [task, 7]\ndue: 2026-06-01\nstatus: open");
     // No raw frontmatter answer, so only the unavailable body capture decides.
     let mut unknown_body_tags = row(11, "due: 2026-06-10\nstatus: open");
-    unknown_body_tags.doc.push_str("[x](y) #task\n");
+    unknown_body_tags.doc.push_str("**#task**\n");
     unknown_body_tags.revision = revision(unknown_body_tags.doc.as_bytes());
     let rows = vec![
         row(1, "tags: [task]\ndue: 2026-06-10\nstatus: open"),

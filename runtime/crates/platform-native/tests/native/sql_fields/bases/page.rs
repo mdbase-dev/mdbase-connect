@@ -132,7 +132,12 @@ fn raw_uuid_pages_cross_legacy_window_without_source_hydration() {
         assert!(page.encoded_bytes <= req.max_bytes);
         for r in &page.rows {
             assert!(matches!(r.fields[0], RawField::Missing));
-            assert_eq!(r.tags, Some(vec!["#task".into()]));
+            assert_eq!(
+                r.tags,
+                Some(mdbn_core::views::bases::SourceTags::exact(vec![
+                    "#task".into()
+                ]))
+            );
             ids.push(r.id);
         }
         req.after = page.rows.last().map(|r| r.id);
@@ -271,9 +276,12 @@ fn unavailable_tags_and_unrequested_values_do_not_become_empty_tags() {
     let r = row(1, "priority: 1\ntags: [7]");
     let (store, _, _, _, _) = open("raw_tag_availability", vec![r], &["priority"]);
     let mut req = request(&store);
+    let tags = store.query_projection_page(&req).unwrap().rows[0]
+        .tags
+        .clone();
     assert_eq!(
-        store.query_projection_page(&req).unwrap().rows[0].tags,
-        None
+        tags,
+        Some(mdbn_core::views::bases::SourceTags::bounded(vec![]))
     );
     req.fields.clear();
     req.tags = false;

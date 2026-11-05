@@ -54,12 +54,12 @@ pub(crate) fn run(args: &Map) -> Option<Value> {
                 let e = budget.failure()?;
                 return Some(refusal(e.code(), e.detail()));
             }
-            Some(
+            Some(SourceTags::exact(
                 values
                     .iter()
                     .map(|v| v.as_str().map(str::to_owned))
                     .collect::<Option<Vec<_>>>()?,
-            )
+            ))
         }
     };
     let hints = args.get("property_types")?.as_map()?;
@@ -107,7 +107,7 @@ pub(crate) fn run(args: &Map) -> Option<Value> {
             integer("modified_ms"),
             &mut budget,
         )?;
-        let facts = CapturedFileBindings::capture(&file, tags.as_deref(), &mut budget)?;
+        let facts = CapturedFileBindings::capture(&file, tags.as_ref(), &mut budget)?;
         let types = CapturedPropertyTypes::capture(&hints, &mut budget)?;
         let raw = RawFrontmatter::capture(&document, Some(types), &mut budget)?;
         program.evaluate(
