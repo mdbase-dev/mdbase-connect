@@ -458,3 +458,5 @@ fieldset legend { margin-bottom: 6px; }
 .collection-details textarea { min-height: 64px; resize: vertical; }
 .collection-card-main .collection-description { color: var(--ink); }
 .computer-name-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.collection-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.collection-filter input { flex: 1; min-width: 120px; }

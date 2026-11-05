@@ -1,4 +1,5 @@
-import { createElement, useEffect, useEffectEvent, useRef, useState } from "react";
+import { navigationShortcuts, useConnectKeyboard } from "@mdbase/connect-ui/keyboard";
+import { createElement, useEffect, useRef } from "react";
 import { flushSync } from "react-dom";
 import { type Command } from "@mdbase-dev/ui/command-palette";
 import { t } from "@lingui/core/macro";
@@ -25,16 +26,8 @@ export function usePortalCommands({ data, collections, applications, sessions, s
   openEditor: (() => void) | undefined;
   reviewRequest: (() => void) | undefined;
 }) {
-  const [open, setOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const invoker = useRef<HTMLElement | null>(null);
   const pending = useRef<MutationObserver | null>(null);
   const cancel = () => { pending.current?.disconnect(); pending.current = null; };
-  const show = () => {
-    cancel();
-    invoker.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setOpen(true);
-  };
   const activate = (navigate: () => void, selectors: readonly string[], click = false) => {
     cancel();
     flushSync(navigate);
@@ -65,7 +58,7 @@ export function usePortalCommands({ data, collections, applications, sessions, s
     ...applications.map(application => ({ id: `app:${application.applicationId}`, label: application.applicationName, detail: countLabel(application.collectionCount, "collection"), keywords: [...application.grants.map(grant => grant.collection_name), ...application.installations.map(entry => entry.collection_name)].filter(Boolean).join(" "), icon: createElement(SquaresFourIcon), group: "apps", run: () => reveal("applications", [`${target(`app:${application.applicationId}`)} > summary`], true) })),
     ...(data?.connectors ?? []).map(computer => ({ id: `computer:${computer.id}`, label: computer.name, detail: countLabel(data!.collections.filter(collection => collection.connector_id === computer.id).length, "collection"), icon: createElement(DesktopIcon), group: "computers", run: () => reveal("computers", [target(`computer:${computer.id}`)]) })),
     ...(sessions ?? []).map(session => ({ id: `session:${session.id}`, label: session.client_name, detail: session.current ? t(i18n)`This browser, active now` : t(i18n)`Last used ${relativeTime(session.last_seen_at)}`, group: "sessions", run: () => reveal("account", [target(`session:${session.id}`)]) })),
-    ...(["collections", "applications", "computers", "account", ...(selectedCollectionId ? ["overview", "storage", "access"] as const : [])] as const).map(view => ({ id: view, label: t(i18n)`Go to ${viewLabel(view)}`, shortcut: `g ${{ collections: "c", applications: "a", computers: "o", account: "u", overview: "v", storage: "t", access: "r" }[view]}`, group: "navigation", run: () => navigate(view, selectedCollectionId) })),
+    ...(["collections", "applications", "computers", "account", ...(selectedCollectionId ? ["overview", "storage", "access"] as const : [])] as const).map(view => ({ id: view, label: t(i18n)`Go to ${viewLabel(view)}`, shortcut: navigationShortcuts[view], group: "navigation", run: () => navigate(view, selectedCollectionId) })),
     { id: "create", label: t(i18n)`Add collection`, shortcut: "c", group: "commands", run: () => reveal("collections", [target("create")], true) },
     ...collections.flatMap(collection => {
       if (collection.kind !== "hosted") return [];
@@ -86,59 +79,12 @@ export function usePortalCommands({ data, collections, applications, sessions, s
     ...(["system", "light", "dark"] as const).map(value => ({ id: `theme:${value}`, label: value === "system" ? t(i18n)({ message: "System", context: "Color theme" }) : value === "light" ? t(i18n)({ message: "Light", context: "Color theme" }) : t(i18n)({ message: "Dark", context: "Color theme" }), detail: t(i18n)`Theme`, group: "commands", run: () => reveal("account", [".connect-preferences > button.theme-select", `[role=option][data-value=${value}]`], true) })),
     { id: "language", label: t(i18n)`Language`, group: "commands", run: () => reveal("account", [".connect-preferences .language-setting button, .connect-preferences .language-setting select"], true) },
     { id: "feedback", label: viewLabel("feedback"), group: "commands", run: () => navigate("feedback", selectedCollectionId) },
-    { id: "shortcuts", label: t(i18n)`Keyboard shortcuts`, shortcut: "?", group: "commands", run: () => setHelpOpen(true) },
+    { id: "shortcuts", label: t(i18n)`Keyboard shortcuts`, shortcut: "?", group: "commands", run: () => keyboard.showHelp() },
     ...(data?.authentication.provider !== "tailscale" ? [{ id: "sign-out", label: t(i18n)`Sign out`, group: "commands", run: () => reveal("account", [`${target("sign-out")} button`], true) }] : [])
   );
   if (openEditor) commands.push({ id: "editor", label: t(i18n)({ message: "Open in editor", context: "Connect interface" }), group: "commands", run: openEditor });
   if (reviewRequest) commands.push({ id: "review", label: t(i18n)({ message: "Review request", context: "Connect interface" }), group: "commands", run: reviewRequest });
-  const registry = useEffectEvent(() => commands);
+  const keyboard = useConnectKeyboard({ commands, enabled, root: ".connect-main", filter: ".connect-list-filter input", listFocus: ".connect-collection-link, summary", onShow: cancel });
   useEffect(() => () => pending.current?.disconnect(), []);
-  useEffect(() => {
-    let prefixUntil = 0;
-    // A chord cannot be typed as text, and Dialog stops key events: capture it ahead of both.
-    const palette = (event: KeyboardEvent) => {
-      if (!enabled || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== "k") return;
-      event.preventDefault();
-      const retained = document.querySelector<HTMLDialogElement>("dialog.mdbase-command-palette[open]");
-      if (retained) setOpen(retained.dataset.open === "false");
-      else if (!document.querySelector("dialog[open], [role=dialog], [role=menu], [role=listbox]")) show();
-    };
-    const keydown = (event: KeyboardEvent) => {
-      if (!enabled || event.defaultPrevented || event.isComposing || event.repeat || event.altKey
-        || document.querySelector("dialog[open], [role=dialog], [role=menu], [role=listbox]")) { prefixUntil = 0; return; }
-      const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable=false]), [role=textbox], [role=combobox]")) { prefixUntil = 0; return; }
-      const key = event.key.toLowerCase();
-      const modifier = event.metaKey || event.ctrlKey;
-      if ((!modifier && key === "?") || (event.ctrlKey && !event.metaKey && key === "/")) {
-        event.preventDefault(); prefixUntil = 0; setHelpOpen(true); return;
-      }
-      if (modifier || event.shiftKey && key !== "j" && key !== "k") { prefixUntil = 0; return; }
-      const shortcut = Date.now() < prefixUntil ? `g ${key}` : key;
-      prefixUntil = 0;
-      const command = registry().find(command => command.shortcut?.toLowerCase() === shortcut);
-      if (command) { event.preventDefault(); command.run(); return; }
-      if (key === "g") { event.preventDefault(); prefixUntil = Date.now() + 1000; return; }
-      if (key === "/") {
-        const filter = document.querySelector<HTMLInputElement>(".connect-main .connect-list-filter input");
-        if (filter) { event.preventDefault(); filter.focus(); }
-      }
-      if (key === "j" || key === "k") {
-        const rows = [...document.querySelectorAll<HTMLElement>(".connect-main [data-list-item]")];
-        if (!rows.length) return;
-        const current = rows.findIndex(row => row.contains(document.activeElement));
-        const index = current < 0 ? key === "j" ? 0 : rows.length - 1 : Math.max(0, Math.min(rows.length - 1, current + (key === "j" ? 1 : -1)));
-        const row = rows[index];
-        const focus = row.querySelector<HTMLElement>(".connect-collection-link, summary") ?? row;
-        event.preventDefault(); focus.focus(); focus.scrollIntoView({ block: "nearest" });
-      }
-      if (key === "enter" && target?.matches("[data-list-item]")) {
-        event.preventDefault(); target.querySelector<HTMLElement>("button, a")?.focus();
-      }
-    };
-    window.addEventListener("keydown", palette, true);
-    window.addEventListener("keydown", keydown);
-    return () => { window.removeEventListener("keydown", palette, true); window.removeEventListener("keydown", keydown); };
-  }, [enabled]);
-  return { commands, groupLabels, open, close: () => setOpen(false), show, helpOpen, closeHelp: () => setHelpOpen(false), invoker, cancel };
+  return { commands, groupLabels, ...keyboard, cancel };
 }

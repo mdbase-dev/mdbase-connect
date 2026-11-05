@@ -19,6 +19,7 @@ import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation
 import { Brand, ThemeMenu } from "./portal-ui";
 import { readRememberedCollection, rememberCollection, sessionExpiredUrl } from "./portal-model";
 import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
+import { KeyboardShortcuts } from "@mdbase/connect-ui/keyboard";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
@@ -396,16 +397,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       </>}
     </main>
     <CommandPalette open={keyboard.open} commands={commands} onClose={keyboard.close} returnFocusRef={keyboard.invoker} showAll={["navigation", "commands"]} groupLabel={group => keyboard.groupLabels[group]} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)`Search collections, apps, computers, sessions and actions`} emptyState={<><strong><Trans>No results</Trans></strong><p><Trans>Try an object name, its location, or an action such as Rename. Clear the search to browse.</Trans></p></>} />
-    <Dialog open={keyboard.helpOpen} title={t(i18n)`Keyboard shortcuts`} onClose={keyboard.closeHelp}>
-      <p className="connect-muted"><Trans>Shortcuts are off while typing or while a dialog is open.</Trans></p>
-      <dl className="connect-shortcuts">
-        <div><dt><Trans>Search</Trans></dt><dd><kbd>{shortcutLabel("mod+k")}</kbd></dd></div>
-        {commands.filter(command => command.shortcut).map(command => <div key={command.id}><dt>{command.label}</dt><dd><kbd>{shortcutLabel(command.shortcut!)}</kbd>{command.id === "shortcuts" && <> / <kbd>{shortcutLabel("Ctrl+/")}</kbd></>}</dd></div>)}
-        <div><dt><Trans>Filter the current list</Trans></dt><dd><kbd>/</kbd></dd></div>
-        <div><dt><Trans>Move through the list</Trans></dt><dd><kbd>{shortcutLabel("j")}</kbd> / <kbd>{shortcutLabel("k")}</kbd></dd></div>
-        <div><dt><Trans>Open the focused item</Trans></dt><dd><kbd>{shortcutLabel("Enter")}</kbd></dd></div>
-      </dl>
-    </Dialog>
+    <KeyboardShortcuts keyboard={keyboard} commands={commands} />
   </div>;
 }
 

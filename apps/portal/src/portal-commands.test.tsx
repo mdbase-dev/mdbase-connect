@@ -8,6 +8,31 @@ beforeEach(() => Object.defineProperty(HTMLElement.prototype, "scrollIntoView", 
 describe("Portal keyboard scope", () => {
   const create = vi.fn();
   const navigate = vi.fn();
+  it("opening the palette cancels an unfinished action reveal", async () => {
+    render(<Host />);
+    screen.getByRole("button", { name: "Create" }).remove();
+    fireEvent.keyDown(document.body, { key: "c" });
+    fireEvent.keyDown(document.body, { key: "k", ctrlKey: true });
+    const target = document.createElement("button");
+    const click = vi.fn();
+    target.dataset.command = "create";
+    target.addEventListener("click", click);
+    document.querySelector(".connect-main")!.append(target);
+    await Promise.resolve();
+    expect(click).not.toHaveBeenCalled();
+  });
+  it("reopens a command-closed palette while its exit content is retained", () => {
+    render(<Host />);
+    const retained = document.createElement("dialog");
+    retained.className = "mdbase-command-palette";
+    retained.dataset.open = "false";
+    retained.innerHTML = '<div role="listbox"></div>';
+    document.body.append(retained);
+    try {
+      fireEvent.keyDown(document.body, { key: "k", ctrlKey: true });
+      expect(screen.getByRole("dialog", { name: "Commands" })).toBeInTheDocument();
+    } finally { retained.remove(); }
+  });
   function Host({ enabled = true }: { enabled?: boolean }) {
     const keyboard = usePortalCommands({ data: undefined, collections: [], applications: [], sessions: undefined, selectedCollectionId: undefined, navigate, viewLabel: view => view, enabled, openEditor: undefined, reviewRequest: undefined });
     return <><input aria-label="Filter" /><div contentEditable aria-label="Editor" />

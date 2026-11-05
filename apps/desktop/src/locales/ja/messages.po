@@ -326,6 +326,10 @@ msgstr "アプリ"
 msgid "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
 msgstr "Obsidian などの別のアプリが現在このフォルダーを使用中です。そのアプリが解放すると mdbase が開きます。"
 
+#: src/renderer/main.tsx
+msgid "Another device"
+msgstr "別のデバイス"
+
 #: src/renderer/takeover-state.mts
 msgid "another program is writing to the folder"
 msgstr "別のプログラムがフォルダーに書き込み中です"
@@ -546,6 +550,10 @@ msgstr "コレクションのフォルダーを作成する場所を選択"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "フォルダーを作成する場所を選んでください。"
+
+#: src/renderer/collections-view.tsx
+msgid "Clear filter"
+msgstr "フィルターをクリア"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -774,6 +782,10 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "このコンピューターの名前を入力してください。"
 
+#: src/renderer/collections-view.tsx
+msgid "Filter collections"
+msgstr "コレクションを絞り込む"
+
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Finish in your browser."
@@ -887,6 +899,10 @@ msgstr "ほかのデバイス上のアプリから、このコンピューター
 #: src/renderer/activity-view.tsx
 msgid "Kept on this computer only: the last 200 changes."
 msgstr "このコンピューター上のみ保持: 直近 200 件の変更。"
+
+#: src/renderer/main.tsx
+msgid "Keyboard shortcuts"
+msgstr "キーボードショートカット"
 
 #: src/renderer/language-setting.tsx
 msgid "Language"
@@ -1378,6 +1394,12 @@ msgstr "確認"
 #: src/renderer/collections-view.tsx
 msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "{0, plural, other {# 件のファイルを確認}}"
+
+#. placeholder {0}: device.name ?? unnamedDevice
+#. placeholder {0}: entry.app_name
+#: src/renderer/main.tsx
+msgid "Review {0}"
+msgstr "{0} を確認"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1968,6 +1990,7 @@ msgid "Waiting for you"
 msgstr "操作を待っています"
 
 #: src/renderer/access-view.tsx
+#: src/renderer/main.tsx
 msgid "Waiting for your approval"
 msgstr "承認を待っています"
 

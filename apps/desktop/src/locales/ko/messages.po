@@ -326,6 +326,10 @@ msgstr "앱"
 msgid "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
 msgstr "Obsidian 같은 다른 앱이 현재 이 폴더를 사용하고 있습니다. 해당 앱이 폴더 사용을 마치면 mdbase에서 엽니다."
 
+#: src/renderer/main.tsx
+msgid "Another device"
+msgstr "다른 기기"
+
 #: src/renderer/takeover-state.mts
 msgid "another program is writing to the folder"
 msgstr "다른 프로그램이 폴더에 쓰고 있음"
@@ -546,6 +550,10 @@ msgstr "컬렉션 폴더를 만들 위치 선택"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "폴더를 만들 위치를 선택하세요."
+
+#: src/renderer/collections-view.tsx
+msgid "Clear filter"
+msgstr "필터 지우기"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -774,6 +782,10 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "이 컴퓨터의 이름을 입력하세요."
 
+#: src/renderer/collections-view.tsx
+msgid "Filter collections"
+msgstr "컬렉션 필터링"
+
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Finish in your browser."
@@ -887,6 +899,10 @@ msgstr "다른 기기의 앱이 이 컴퓨터에 계속 연결되도록 합니�
 #: src/renderer/activity-view.tsx
 msgid "Kept on this computer only: the last 200 changes."
 msgstr "이 컴퓨터에만 보관됨: 최근 변경 사항 200개"
+
+#: src/renderer/main.tsx
+msgid "Keyboard shortcuts"
+msgstr "키보드 단축키"
 
 #: src/renderer/language-setting.tsx
 msgid "Language"
@@ -1378,6 +1394,12 @@ msgstr "검토"
 #: src/renderer/collections-view.tsx
 msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "{0, plural, other {파일 #개 검토}}"
+
+#. placeholder {0}: device.name ?? unnamedDevice
+#. placeholder {0}: entry.app_name
+#: src/renderer/main.tsx
+msgid "Review {0}"
+msgstr "{0} 검토"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1968,6 +1990,7 @@ msgid "Waiting for you"
 msgstr "결정 대기 중"
 
 #: src/renderer/access-view.tsx
+#: src/renderer/main.tsx
 msgid "Waiting for your approval"
 msgstr "내 승인 대기 중"
 

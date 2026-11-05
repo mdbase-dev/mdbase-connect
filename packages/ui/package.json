@@ -20,6 +20,7 @@
     "./state-transition": "./dist/state-transition.js",
     "./confirm-action": "./dist/confirm-action.js",
     "./nav-pill": "./dist/nav-pill.js",
+    "./keyboard": "./dist/keyboard.js",
     "./styles.css": "./styles.css"
   },
   "devDependencies": {

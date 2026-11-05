@@ -24,11 +24,12 @@ export function CollectionsView({ collections, computerName, busy, onAdd, onCrea
   onNotice(value: string): void;
 }) {
   useLocaleRevision();
+  const [query, setQuery] = useState("");
   const [syncTarget, setSyncTarget] = useState<DaemonCollection | null>(null);
   const [lastSyncTarget, setLastSyncTarget] = useState<DaemonCollection | null>(null);
   const [syncFailure, setSyncFailure] = useState<string | null>(null);
   const openSync = (collection: DaemonCollection | null) => { setSyncFailure(null); setSyncTarget(collection); if (collection) setLastSyncTarget(collection); };
-  const sorted = [...collections].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = collections.filter(collection => `${collection.name} ${collection.root}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).sort((a, b) => a.name.localeCompare(b.name));
   return (
     <div className="workspace-stack">
       <section>
@@ -36,7 +37,8 @@ export function CollectionsView({ collections, computerName, busy, onAdd, onCrea
           <button className="mdbase-button" disabled={busy} onClick={onAdd}><Trans>Add existing</Trans></button>
           <button className="mdbase-button is-primary" disabled={busy} onClick={onCreate}><Trans>Create</Trans></button>
         </SectionHeading>
-        {sorted.length === 0
+        {(collections.length >= 10 || query) && <div className="collection-filter"><input type="search" aria-label={t(i18n)`Filter collections`} placeholder={t(i18n)`Filter collections`} value={query} onChange={event => setQuery(event.target.value)} />{query && <button className="mdbase-button is-tertiary" onClick={() => setQuery("")}><Trans>Clear filter</Trans></button>}</div>}
+        {collections.length === 0
           ? <Empty title={t(i18n)({ message: "No collections yet", context: "Local collection management" })} text={t(i18n)({ message: "Add a folder of Markdown notes or create a new collection." })} />
           : <div className="collection-list">{sorted.map((collection) => (
             <CollectionCard key={collection.id} collection={collection} computerName={computerName} busy={busy} onAct={onAct} onNotice={onNotice} onTurnOnSync={() => openSync(collection)} />
@@ -76,7 +78,7 @@ function CollectionCard({ collection, computerName, busy, onAct, onNotice, onTur
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const closeMenu = (refocus: boolean) => { setMenuOpen(false); if (refocus) menuTrigger.current?.focus(); };
   return (
-    <article className="collection-card">
+    <article className="collection-card" data-list-item tabIndex={-1}>
       <div className="collection-card-main">
         <svg viewBox="0 0 256 256" fill="none" stroke="currentColor" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="32" y="48" width="192" height="144" rx="16" /><path d="M32 152h192M96 224h64M128 192v32" /></svg>
         <div>

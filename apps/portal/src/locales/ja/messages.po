@@ -1664,10 +1664,6 @@ msgstr "コンピューターを絞り込む"
 msgid "Filter sessions"
 msgstr "セッションを絞り込む"
 
-#: src/ConnectApp.tsx
-msgid "Filter the current list"
-msgstr "現在のリストを絞り込む"
-
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
 msgstr "コレクションの設定を完了中…"
@@ -1925,7 +1921,6 @@ msgstr "メインコピーを mdbase に保存し、必要に応じてフォル�
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "現在のレコードを残し、同じ意味を持つフィールドを指定してください。"
 
-#: src/ConnectApp.tsx
 #: src/portal-commands.ts
 msgid "Keyboard shortcuts"
 msgstr "キーボードショートカット"
@@ -2158,10 +2153,6 @@ msgstr "正本を移動"
 msgctxt "Collection connection"
 msgid "Move this collection"
 msgstr "このコレクションを移動"
-
-#: src/ConnectApp.tsx
-msgid "Move through the list"
-msgstr "リスト内を移動"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2432,10 +2423,6 @@ msgstr "メールに記載された完全なパスワードリセットリンク
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
 msgstr "デスクトップアプリを開き、このコンピューターを接続してフォルダーを追加すると、同じ要求を続行できます。"
-
-#: src/ConnectApp.tsx
-msgid "Open the focused item"
-msgstr "フォーカスした項目を開く"
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
@@ -3112,10 +3099,6 @@ msgstr "共有コード"
 #: src/authorization-view.tsx
 msgid "Short approval code"
 msgstr "短い承認コード"
-
-#: src/ConnectApp.tsx
-msgid "Shortcuts are off while typing or while a dialog is open."
-msgstr "入力中またはダイアログが開いている間はショートカットが無効になります。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

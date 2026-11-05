@@ -326,6 +326,10 @@ msgstr "一个应用"
 msgid "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
 msgstr "另一个应用（如 Obsidian）目前正在使用此文件夹。该应用释放文件夹后，mdbase 就会打开它。"
 
+#: src/renderer/main.tsx
+msgid "Another device"
+msgstr "其他设备"
+
 #: src/renderer/takeover-state.mts
 msgid "another program is writing to the folder"
 msgstr "另一个程序正在写入文件夹"
@@ -546,6 +550,10 @@ msgstr "选择创建集合文件夹的位置"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "选择创建文件夹的位置。"
+
+#: src/renderer/collections-view.tsx
+msgid "Clear filter"
+msgstr "清除筛选"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -774,6 +782,10 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "输入此电脑的名称。"
 
+#: src/renderer/collections-view.tsx
+msgid "Filter collections"
+msgstr "筛选集合"
+
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Finish in your browser."
@@ -887,6 +899,10 @@ msgstr "让其他设备上的应用继续连接此电脑"
 #: src/renderer/activity-view.tsx
 msgid "Kept on this computer only: the last 200 changes."
 msgstr "仅保留在此电脑上：最近 200 项更改。"
+
+#: src/renderer/main.tsx
+msgid "Keyboard shortcuts"
+msgstr "键盘快捷键"
 
 #: src/renderer/language-setting.tsx
 msgid "Language"
@@ -1378,6 +1394,12 @@ msgstr "审查"
 #: src/renderer/collections-view.tsx
 msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "{0, plural, other {检查 # 个文件}}"
+
+#. placeholder {0}: device.name ?? unnamedDevice
+#. placeholder {0}: entry.app_name
+#: src/renderer/main.tsx
+msgid "Review {0}"
+msgstr "审核 {0}"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1968,6 +1990,7 @@ msgid "Waiting for you"
 msgstr "等待您的决定"
 
 #: src/renderer/access-view.tsx
+#: src/renderer/main.tsx
 msgid "Waiting for your approval"
 msgstr "等待你批准"
 

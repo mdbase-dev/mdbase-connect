@@ -167,8 +167,11 @@ no undo, because restoring access is a new approval.
 quiet `Search` item in the sidebar. It covers navigation and the page's actions.
 Every command also exists elsewhere in the interface.
 
-Portal navigation uses the same registry for keyboard handling, palette hints,
-and shortcut help. Chords are disabled while typing or using an overlay.
+Portal and Desktop share one keyboard table, handler and shortcut help. Their
+command registries supply the available destinations and palette hints. Chords
+are disabled while typing or using an overlay. `/` focuses a list's filter and
+J/K move list focus. Pending Desktop requests in Search only open their existing
+approval prompts; choosing a search result never approves access.
 
 | Chord | Destination |
 | --- | --- |
@@ -176,9 +179,10 @@ and shortcut help. Chords are disabled while typing or using an overlay.
 | G A | Apps |
 | G O | Computers |
 | G U | Account |
-| G V | Selected collection Overview |
+| G V | Selected collection Overview (Portal), Overview (Desktop) |
 | G T | Selected collection Storage |
 | G R | Selected collection Access |
+| G S | Settings (Desktop) |
 
 ### Other controls
 
