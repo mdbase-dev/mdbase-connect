@@ -170,7 +170,7 @@ export function Authorization({ requestId }: { requestId: string }) {
         } else if (reason instanceof ApiError && reason.status === 404) {
           // The request is no longer pending. Once loaded, the status poll owns
           // the outcome; before that, nothing on this page can be decided.
-          if (!loaded.current) setStatus("expired");
+          if (!loaded.current) setStatus(current => current === "pending" ? "expired" : current);
         } else {
           setError(message(reason));
         }
@@ -185,6 +185,8 @@ export function Authorization({ requestId }: { requestId: string }) {
   }, [requestId]);
 
   useEffect(() => {
+    // Each answered read mints a new authorization code; one is enough to return.
+    if (returnUrl) return;
     async function checkStatus() {
       try {
         const value = await api<{
@@ -207,17 +209,18 @@ export function Authorization({ requestId }: { requestId: string }) {
     void checkStatus();
     const timer = window.setInterval(() => void checkStatus(), 1_000);
     return () => window.clearInterval(timer);
-  }, [decisionError, requestId]);
+  }, [decisionError, requestId, returnUrl]);
 
   if (!request) {
-    if (status !== "expired") return <RequestShell busy={!error}>
+    if (status === "pending" || status === "setting_up") return <RequestShell busy={!error}>
       <h1><Trans>Review app access</Trans></h1>
       <p role={error ? "alert" : "status"}>{error || t(i18n)`Loading the request…`}</p>
       {error && <button className="mdbase-button is-primary" onClick={() => location.reload()}><Trans>Try again</Trans></button>}
     </RequestShell>;
     return (
       <RequestShell>
-          <RequestOutcome status="expired" applicationName={t(i18n)({ message: "the application", context: "Application access approval" })} standalone />
+          {/* A Private approval is answered on the pairing page, so its request can arrive here already complete. */}
+          <RequestOutcome status={status} applicationName={t(i18n)({ message: "the application", context: "Application access approval" })} returnUrl={returnUrl} standalone />
       </RequestShell>
     );
   }
