@@ -876,7 +876,10 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     ? /Only attachments.*Hidden folders are always excluded/s
     : /Every visible folder.*Hidden folders are always excluded.*approved together/s);
   assert.match(await page.locator(".notification-access summary").innerText(), /can turn on this rule.*never contain record content/s);
-  assert.equal(await page.getByText(/until you revoke/).count(), 1, "approval discloses persistent access once");
+  assert.equal(await page.locator(".request-expiry").getByText(/This request link expires .*Access you allow continues until you revoke it/).count(), 1,
+    "approval distinguishes request-link expiry from persistent access");
+  assert.equal(await page.locator(".approval-footer").getByText(/until you revoke/).count(), 1,
+    "approval receipt discloses persistent access once");
   const checkbox = (label) => page.getByRole("checkbox", { name: new RegExp(`^${label}`) });
   if (atomic) {
     assert.equal(await permissions.getByRole("checkbox").count(), 3,
@@ -937,7 +940,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   authorization.user_code = "ABCD-EFGH";
   authorization.project_url = "https://journal.example";
   await page.reload();
-  await page.getByText("Application origin unverified.", { exact: true }).waitFor();
+  await page.getByText("App origin unverified.", { exact: true }).waitFor();
   assert.match(await page.getByRole("note").innerText(), /Continue only if you started this connection intentionally and it shows ABCD-EFGH/);
   assert.match(await page.getByRole("note").innerText(), /journal\.example does not verify its origin/);
   assert.equal(await page.getByText(/until you revoke/).count(), 0, "portable approval does not promise durability");

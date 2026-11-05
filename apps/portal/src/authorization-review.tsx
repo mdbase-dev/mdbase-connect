@@ -12,7 +12,7 @@ import {
   type SetupContract,
   type SetupType
 } from "@mdbase/connect-ui/contract-setup";
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Brand } from "./portal-ui";
 import { SignedOutFooter } from "./auth-view";
 import { initials, readRememberedCollection } from "./portal-model";
@@ -54,6 +54,24 @@ export function CollectionPicker({ label, labelledBy, collections, value, onChoo
   const filtered = sorted.filter(collection => terms.every(term => collection.name.toLocaleLowerCase(i18n.locale).includes(term)));
   const active = filtered.findIndex(collection => collection.id === highlighted);
   const selected = collections.find(collection => collection.id === value);
+
+  useLayoutEffect(() => {
+    const scrollport = list.current!;
+    const footer = scrollport.closest(".authorization-panel")!.querySelector(".approval-footer")!;
+    const resize = () => {
+      const available = window.innerHeight - Math.max(0, scrollport.getBoundingClientRect().top)
+        - footer.getBoundingClientRect().height - 16;
+      const rows = Math.max(1, Math.floor((available - 2) / 64));
+      scrollport.style.setProperty("--collection-picker-space", `${rows * 64 + 2}px`);
+      const activeId = input.current?.getAttribute("aria-activedescendant");
+      if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(footer);
+    window.addEventListener("resize", resize);
+    resize();
+    return () => { observer.disconnect(); window.removeEventListener("resize", resize); };
+  }, [value, query, creationSelected]);
 
   useEffect(() => {
     if (active >= 0) list.current?.children[active]?.scrollIntoView?.({ block: "nearest" });
@@ -143,7 +161,7 @@ export function GrantMoment({ applicationName, collectionName, collectionKind }:
       <svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" /></svg>
     </span>
     {collectionKind && <span className="grant-collection-glyph" aria-hidden="true">{collectionKind === "hosted" || collectionKind === "cloud_copy" ? <CloudIcon /> : <DesktopIcon />}</span>}
-    <h1>{t(i18n)`${applicationName} can now use ${collectionName}`}</h1>
+    <h1 tabIndex={-1}>{t(i18n)`${applicationName} can now use ${collectionName}`}</h1>
   </div>;
 }
 
@@ -314,7 +332,7 @@ export function PermissionList({
     {people && <div className="permission-files">
       <p className="permission-files-heading">
         <strong><Trans>People</Trans></strong>
-        <small><Trans>Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</Trans></small>
+        <small><Trans>Account identifiers are the same in every collection, so this app can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</Trans></small>
       </p>
       <ul className="permission-list" aria-label={t(i18n)({ message: "People permissions", context: "Application access approval" })}>
         {[...(people.required ?? []).map((permission) => ({ permission, required: true })),
@@ -412,7 +430,7 @@ export function ContractSetupEditor({
             <summary><Trans>Expert details</Trans></summary>
             <code>{contract.id} · {contract.version}</code>
             {contract.description && <p>{contract.description}</p>}
-            {!canGuideExistingType && suggestions.length > 0 && <p><Trans>This application uses advanced behavior settings, so an existing type cannot be connected during approval.</Trans></p>}
+            {!canGuideExistingType && suggestions.length > 0 && <p><Trans>This app uses advanced behavior settings, so an existing type cannot be connected during approval.</Trans></p>}
           </details>
         </div>
       </div>
@@ -457,7 +475,7 @@ export function ContractSetupEditor({
           const typeField = availableFields.find((candidate) => candidate.reference === mapped);
           const assessment = assessMapping(field, typeField);
           return <label key={field.reference}>
-            <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? t(i18n)`The application’s ${field.label.toLocaleLowerCase()} value.`}</small></span>
+            <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? t(i18n)`The app’s ${field.label.toLocaleLowerCase()} value.`}</small></span>
             <Select
               aria-label={field.label}
               value={mapped}

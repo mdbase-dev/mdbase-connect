@@ -609,9 +609,7 @@ export function Signup({
         <p role={requestSubmitted ? "status" : undefined} aria-live={requestSubmitted ? "polite" : undefined}>
           {requestSubmitted
             ? t(i18n)({ message: "If that address can be used, its one-time verification link is on the way." })
-            : config.external_public_registration
-              ? config.password_public_registration ? t(i18n)({ message: "Use a connected account, or verify your email to get started." }) : t(i18n)({ message: "Use a connected account to get started." })
-              : t(i18n)({ message: "We’ll email you a link to verify your address. Then you can choose a password." })}
+            : t(i18n)`Connect apps to your Markdown files, on your computers or hosted by mdbase.`}
         </p>
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         {!requestSubmitted && config.external_public_registration && (

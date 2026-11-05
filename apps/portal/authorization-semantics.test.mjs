@@ -33,8 +33,8 @@ test("device-code entry describes the application without assuming it is a file"
   globalThis.localStorage = { getItem: () => null };
   try {
     const html = render(DeviceAuthorization);
-    assert.match(html, /Check the application/);
-    assert.match(html, /key created by that application/);
+    assert.match(html, /Check the app/);
+    assert.match(html, /key created by that app/);
     assert.doesNotMatch(html, /downloaded|file/i);
   } finally {
     if (previousLocation === undefined) delete globalThis.location;
@@ -53,9 +53,11 @@ test("portable device-code identity retains unverified-origin and code guidance"
   for (const project_url of [request.project_url, null]) {
     const html = render(RequestIdentity, { request: { ...request, project_url } });
     assert.match(html, /mdbase Reader browser extension/);
-    assert.match(html, /Application using a device code/);
-    assert.match(html, /Application origin unverified/);
+    assert.match(html, /App using a device code/);
+    assert.match(html, /App origin unverified/);
     assert.match(html, /ABCD-EFGH/);
+    assert.match(html, /This request link expires/);
+    assert.doesNotMatch(html, /Access you allow continues until you revoke it/);
     assert.doesNotMatch(html, /Downloaded HTML file|Downloaded file|opened it intentionally/);
     if (project_url) {
       assert.match(html, /reader\.example does not verify its origin/);
@@ -66,12 +68,13 @@ test("portable device-code identity retains unverified-origin and code guidance"
 });
 
 for (const status of ["approved", "denied"]) {
-  test(`portable ${status} outcome returns to the named application`, () => {
+  test(`portable ${status} outcome explains the device-code handoff without a dead return instruction`, () => {
     const html = render(RequestOutcome, {
       status, applicationName: "mdbase Reader browser extension", portable: true
     });
-    assert.match(html, /Return to mdbase Reader browser extension/);
-    assert.match(html, /The application will/);
+    assert.doesNotMatch(html, /Return to/);
+    assert.match(html, /The app will/);
+    assert.match(html, /You can close this window/);
     assert.doesNotMatch(html, /downloaded|The file/i);
   });
 }
