@@ -533,6 +533,7 @@ msgid "Actions"
 msgstr "Acciones"
 
 #. placeholder {0}: collection.name
+#. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Actions for {0}"
 msgstr "Acciones para {0}"
@@ -775,10 +776,6 @@ msgstr "Apps con acceso a toda la colección"
 msgid "Authentication"
 msgstr "Autenticación"
 
-#: src/FeedbackPage.tsx
-msgid "Back to Connect"
-msgstr "Volver a Connect"
-
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Beta"
@@ -831,7 +828,6 @@ msgstr "Puede ver y conectar aplicaciones de solo lectura"
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
-#: src/ConnectPrimitives.tsx
 msgid "Cancel"
 msgstr "Cancelar"
 
@@ -1617,10 +1613,6 @@ msgstr "Detalles avanzados"
 #: src/ApplicationAccess.tsx
 msgid "Explore apps"
 msgstr "Explorar aplicaciones"
-
-#: src/FeedbackPage.tsx
-msgid "Feedback goes privately to the mdbase team."
-msgstr "Los comentarios se envían de forma privada al equipo de mdbase."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2642,11 +2634,6 @@ msgstr "Usado recientemente"
 msgid "Recovery"
 msgstr "Recuperación"
 
-#. placeholder {0}: new Date(connector.created_at).toLocaleDateString(i18n.locale, { dateStyle: "short" })
-#: src/ConnectApp.tsx
-msgid "Registered {0}"
-msgstr "Registrado el {0}"
-
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
@@ -2730,11 +2717,6 @@ msgstr "Eliminando…"
 msgid "Rename"
 msgstr "Cambiar nombre"
 
-#: src/ConnectPrimitives.tsx
-msgctxt "Connect interface"
-msgid "Rename"
-msgstr "Cambiar nombre"
-
 #. placeholder {0}: collection.name
 #. placeholder {0}: computer.name
 #. placeholder {0}: connector.name
@@ -2744,15 +2726,11 @@ msgid "Rename {0}"
 msgstr "Cambiar el nombre de {0}"
 
 #. placeholder {0}: collection.name
+#. placeholder {0}: connector.name
 #. placeholder {1}: name.trim()
 #: src/ConnectApp.tsx
 msgid "Renamed {0} to {1}"
 msgstr "Se ha cambiado el nombre de {0} a {1}"
-
-#. placeholder {0}: connector.name
-#: src/ConnectApp.tsx
-msgid "Renamed {0} to {name}"
-msgstr "Se ha cambiado el nombre de {0} a {name}"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -2868,11 +2846,6 @@ msgstr "Vuelve a tu ordenador."
 #: src/authorization-view.tsx
 msgid "Returning to {applicationName}…"
 msgstr "Volviendo a {applicationName}…"
-
-#: src/ApplicationAccess.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "Revisar"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
@@ -2995,7 +2968,6 @@ msgid "Revoking access…"
 msgstr "Revocando acceso…"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoking…"
 msgstr "Revocando…"
@@ -3019,21 +2991,11 @@ msgstr "Rol de {0}"
 msgid "Save"
 msgstr "Guardar"
 
-#: src/ConnectPrimitives.tsx
-msgctxt "Connect interface"
-msgid "Save"
-msgstr "Guardar"
-
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
 msgstr "Guardar acceso más limitado"
 
 #: src/ConnectApp.tsx
-msgid "Saving…"
-msgstr "Guardando…"
-
-#: src/ConnectPrimitives.tsx
-msgctxt "Connect interface"
 msgid "Saving…"
 msgstr "Guardando…"
 
@@ -3087,7 +3049,6 @@ msgid "Selected: <0>{0}</0>"
 msgstr "Seleccionado: <0>{0}</0>"
 
 #: src/ConnectApp.tsx
-#: src/FeedbackPage.tsx
 msgctxt "Connect interface"
 msgid "Send feedback"
 msgstr "Enviar comentarios"

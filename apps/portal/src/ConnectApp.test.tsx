@@ -69,7 +69,8 @@ describe("ConnectApp", () => {
     vi.spyOn(ConnectManagementClient.prototype, "renameConnector").mockImplementation(() => new Promise((_, reject) => { rejectRename = reject; }));
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("button", { name: "Rename" }));
+    await user.click(await screen.findByRole("button", { name: "Actions for Home computer" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
     await user.clear(screen.getByRole("textbox", { name: "Rename Home computer" }));
     await user.type(screen.getByRole("textbox", { name: "Rename Home computer" }), "Desk computer");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -85,7 +86,8 @@ describe("ConnectApp", () => {
     const rename = vi.spyOn(ConnectManagementClient.prototype, "renameConnector").mockImplementation(async (_, name) => { overview.connectors[0].name = name; });
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("button", { name: "Rename" }));
+    await user.click(await screen.findByRole("button", { name: "Actions for Home computer" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
     await user.clear(screen.getByRole("textbox", { name: "Rename Home computer" }));
     await user.type(screen.getByRole("textbox", { name: "Rename Home computer" }), "Desk computer");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -100,10 +102,11 @@ describe("ConnectApp", () => {
     vi.spyOn(ConnectManagementClient.prototype, "revokeConnector").mockImplementation(() => new Promise(resolve => { resolveRevoke = () => { overview.connectors = []; resolve(); }; }));
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("button", { name: "Revoke" }));
+    await user.click(await screen.findByRole("button", { name: "Actions for Home computer" }));
+    await user.click(screen.getByRole("menuitem", { name: "Revoke" }));
     await user.click(screen.getByRole("button", { name: "Revoke computer" }));
     expect(screen.getByText("Home computer", { exact: true })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Revoking…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Revoking access…" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
     await act(async () => resolveRevoke());
     await waitFor(() => expect(screen.queryByText("Home computer", { exact: true })).not.toBeInTheDocument());
@@ -393,7 +396,7 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     const { container } = render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Computers" }));
-    const rows = () => [...container.querySelectorAll(".connect-main .connect-row")];
+    const rows = () => [...container.querySelectorAll(".connect-main .connect-collection-row")];
     expect(screen.getByRole("heading", { name: "Registered computers" })).toBeInTheDocument();
     expect(rows()).toHaveLength(4);
     expect(screen.queryByText(/ID 11111111/)).not.toBeInTheDocument();

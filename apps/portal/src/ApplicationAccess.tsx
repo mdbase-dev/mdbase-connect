@@ -82,7 +82,7 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
     <section>{collectionName && <SectionTitle title={t(i18n)({ message: "Apps", context: "Connect interface" })} count={groups.length} />}
       {groups.length >= 10 && <ListFilter label={t(i18n)`Filter apps`} value={query} onChange={setQuery} />}
       {visible.map(group => <details className="mdbase-disclosure connect-application" key={group.applicationId} data-list-item data-command={`app:${group.applicationId}`}>
-        <summary><span><strong>{group.applicationName}</strong>{!collectionName && <small>{countLabel(group.collectionCount, "collection")}</small>}</span><b>{t(i18n)({ message: "Review", context: "Connect interface" })}</b></summary>
+        <summary><span><strong>{group.applicationName}</strong>{!collectionName && <small>{countLabel(group.collectionCount, "collection")}</small>}</span></summary>
         <div className="connect-application-body">
           {installationScopes(group.installations).map(({ collectionId, entries }) => <div className="connect-grant connect-row" key={collectionId ?? "creation"}>
             <div>{!collectionName && <strong>{entries[0]!.collection_name ?? t(i18n)({ message: "No collection access", context: "Connect interface" })}</strong>}<small>{countLabel(entries.length, "installation")}</small>

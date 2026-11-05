@@ -1,9 +1,8 @@
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { InfoIcon as Info } from "@phosphor-icons/react/Info";
-import { Dialog } from "@mdbase-dev/ui/dialog";
 
 export function ConnectPreview({ title, rows, pending, error, retry }: {
   title: string;
@@ -99,30 +98,6 @@ export function ConnectEmpty({ title, body, action, icon = true }: {
     {icon && <Info aria-hidden="true" />}
     <div><strong>{title}</strong><p>{body}</p>{action}</div>
   </div>;
-}
-
-export function InlineRename({ value, label, inputLabel, busy = false, onSubmit }: {
-  value: string;
-  label?: string;
-  inputLabel: string;
-  busy?: boolean;
-  onSubmit(value: string): Promise<boolean>;
-}) {
-  useLocaleRevision();
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(value);
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const next = draft.trim();
-    if (!next || next === value) return;
-    if (await onSubmit(next)) setOpen(false);
-  }
-  return <><button className="mdbase-button is-tertiary" disabled={busy} onClick={() => { setDraft(value); setOpen(true); }}>{label ?? t(i18n)({ message: "Rename", context: "Connect interface" })}</button>
-  <Dialog open={open} title={inputLabel} closeDisabled={busy} onClose={() => setOpen(false)}><form className="connect-edit-form" onSubmit={(event) => void submit(event)}>
-    <label><span className="mdbase-visually-hidden">{inputLabel}</span><input className="mdbase-field" data-autofocus onFocus={event => event.currentTarget.select()} maxLength={200} value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
-    <button className="mdbase-button is-tertiary" type="button" disabled={busy} onClick={() => setOpen(false)}><Trans>Cancel</Trans></button>
-    <button className="connect-primary-action mdbase-button is-primary" disabled={busy || !draft.trim() || draft.trim() === value}>{busy ? t(i18n)({ message: "Saving…", context: "Connect interface" }) : t(i18n)({ message: "Save", context: "Connect interface" })}</button>
-  </form></Dialog></>;
 }
 
 export function ListFilter({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {

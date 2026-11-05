@@ -65,6 +65,14 @@ describe("Portal keyboard scope", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it.each([["c", "collections"], ["a", "applications"], ["o", "computers"], ["u", "account"]])("uses G %s for %s", (key, view) => {
+    navigate.mockClear();
+    render(<Host />);
+    fireEvent.keyDown(document.body, { key: "g" });
+    fireEvent.keyDown(document.body, { key });
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(view, undefined);
+  });
+
   it("reopens a retained palette instead of closing it again", () => {
     render(<Host />);
     const leaving = document.body.appendChild(document.createElement("dialog"));

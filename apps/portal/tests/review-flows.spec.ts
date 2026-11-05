@@ -2,6 +2,103 @@ import { expect, openScenario, test } from "./review/fixture";
 import { authorizationId, pairingId } from "./review/scenarios.mjs";
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const colorScheme of ["light", "dark"] as const) test(`W11 list slots and shell ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ colorScheme, reducedMotion: "no-preference" });
+    await page.route("**/v1/me", async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.connectors[0].compatibility = "upgrade_required";
+      data.connectors[0].minimum_connector_version = "0.1.0-beta.155";
+      await route.fulfill({ response, json: data });
+    });
+    await openScenario(page, "typical-account");
+    const rows = page.locator(".connect-collections-list .connect-collection-row");
+    const geometry = await rows.evaluateAll(elements => elements.map(element => {
+      const row = element.getBoundingClientRect();
+      const statusElement = element.querySelector<HTMLElement>(".connect-status")!;
+      const status = statusElement.getBoundingClientRect();
+      const menu = element.querySelector(".connect-collection-menu button")!.getBoundingClientRect();
+      return { height: row.height, statusLeft: status.left, statusOverflow: statusElement.scrollWidth - statusElement.clientWidth, menuLeft: menu.left, centre: menu.top + menu.height / 2 - row.top - row.height / 2, menuHeight: menu.height };
+    }));
+    expect(geometry).toHaveLength(7);
+    expect(new Set(geometry.map(row => row.statusLeft)).size).toBe(1);
+    expect(new Set(geometry.map(row => row.menuLeft)).size).toBe(1);
+    expect(geometry.every(row => row.statusOverflow <= 1)).toBe(true);
+    if (viewport.width === 390) {
+      expect(new Set(geometry.map(row => row.height)).size).toBe(1);
+      expect(geometry.every(row => Math.abs(row.centre) <= 1 && row.menuHeight >= 44)).toBe(true);
+      expect((await rows.first().boundingBox())!.y).toBeLessThan(300);
+    }
+    const hosted = rows.filter({ hasText: "Shared research library" });
+    await expect(hosted.locator(".connect-status")).toHaveText("");
+    await expect(hosted.locator(".connect-status svg")).toHaveCount(0);
+    await expect(rows.locator(".connect-collection-unavailable")).toHaveCount(0);
+    expect(await page.locator(".connect-nav .mdbase-mark").evaluate(mark => mark.getAnimations({ subtree: true }).length)).toBe(0);
+    expect(await page.locator(".connect-nav .mdbase-mark rect").evaluateAll(segments => segments.every(segment => getComputedStyle(segment).opacity === "1"))).toBe(true);
+    await testInfo.attach("W11-collections", { body: await page.screenshot({ path: testInfo.outputPath("collections.png") }), contentType: "image/png" });
+    await rows.filter({ hasText: "Field research" }).getByRole("button", { name: "Actions for Field research" }).click();
+    await expect(page.getByRole("menuitem", { name: "Overview", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await page.keyboard.press("g"); await page.keyboard.press("o");
+    await expect(page.getByRole("heading", { name: "Computers", exact: true })).toBeVisible();
+    const upgraded = page.locator('[data-command="computer:computer-0"]');
+    const upgradeStatus = await upgraded.locator(".connect-status").boundingBox();
+    const upgradeLink = await upgraded.getByRole("link", { name: "Install version 0.1.0-beta.155 or later" }).boundingBox();
+    expect(upgradeLink!.y).toBeGreaterThanOrEqual(upgradeStatus!.y + upgradeStatus!.height);
+    expect(await upgraded.locator(".connect-status").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    if (viewport.width === 390) expect(upgradeLink!.height).toBeGreaterThanOrEqual(44);
+    await expect(page.getByRole("button", { name: "Revoke", exact: true })).toHaveCount(0);
+    const computer = page.getByRole("button", { name: "Actions for Studio MacBook" });
+    await computer.click();
+    await page.getByRole("menuitem", { name: "Revoke", exact: true }).click();
+    const confirmation = page.getByRole("dialog", { name: "Revoke Studio MacBook?" });
+    await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(confirmation).toHaveAttribute("data-open", "false");
+    await expect(confirmation).toHaveCount(0);
+    await expect(computer).toBeFocused();
+    await testInfo.attach("W11-computers", { body: await page.screenshot({ path: testInfo.outputPath("computers.png") }), contentType: "image/png" });
+    await page.keyboard.press("g"); await page.keyboard.press("u");
+    await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+    await page.keyboard.press("g"); await page.keyboard.press("a");
+    await expect(page.getByRole("heading", { name: "Apps", exact: true })).toBeVisible();
+    await expect(page.locator(".connect-application > summary b")).toHaveCount(0);
+    const firstColumns = await page.locator(".connect-application > summary > span").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().width));
+    expect(new Set(firstColumns).size).toBe(1);
+    await testInfo.attach("W11-apps", { body: await page.screenshot({ path: testInfo.outputPath("apps.png") }), contentType: "image/png" });
+    await openScenario(page, "heavy-account");
+    await page.getByRole("searchbox", { name: "Filter collections" }).fill("zzqq");
+    const empty = page.locator(".connect-empty");
+    const alignment = await empty.evaluate(element => {
+      const title = element.querySelector("strong")!.getBoundingClientRect();
+      const icon = element.querySelector("svg")!.getBoundingClientRect();
+      const label = document.createRange();
+      label.selectNodeContents(element.querySelector("button")!);
+      return { titleLeft: title.left, buttonLeft: label.getBoundingClientRect().left, titleTop: title.top, iconTop: icon.top };
+    });
+    expect(alignment.buttonLeft).toBe(alignment.titleLeft);
+    expect(Math.abs(alignment.titleTop - alignment.iconTop)).toBeLessThanOrEqual(2);
+    await testInfo.attach("W11-filter", { body: await page.screenshot({ path: testInfo.outputPath("filter.png") }), contentType: "image/png" });
+  });
+}
+
+test("offline route changes have one inline recovery state", async ({ page }) => {
+  await openScenario(page, "typical-account");
+  await page.route("**/v1/**", route => route.abort("internetdisconnected"));
+  await page.getByRole("button", { name: "Actions for Shared research library" }).click();
+  await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+  await page.getByRole("textbox", { name: "Rename Shared research library" }).fill("Changed offline");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator(".connect-load-error")).toBeVisible();
+  await page.getByRole("link", { name: "Apps", exact: true }).click();
+  await expect(page.locator(".connect-load-error")).toContainText("We couldn't load Apps");
+  await expect(page.locator(".connect-notice.error")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(1);
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   for (const colorScheme of ["light", "dark"] as const) test(`Portal keyboard and cached palette ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme });
@@ -55,12 +152,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(await first.evaluate(element => getComputedStyle(element, "::after").outlineStyle)).not.toBe("none");
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(new URL(destination!, page.url()).href);
-    await page.keyboard.press("g"); await page.keyboard.press("p");
+    await page.keyboard.press("g"); await page.keyboard.press("o");
     await expect(page.getByRole("heading", { name: "Computers", exact: true })).toBeVisible();
     await page.keyboard.press("j");
     await expect(page.locator('[data-command="computer:computer-0"]')).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(page.locator('[data-command="computer:computer-0"]').getByRole("button", { name: "Rename", exact: true })).toBeFocused();
+    await expect(page.locator('[data-command="computer:computer-0"]').getByRole("button", { name: "Actions for Studio MacBook", exact: true })).toBeFocused();
     await page.keyboard.press("c");
     await expect(page.getByRole("dialog", { name: "Add collection", exact: true })).toBeVisible();
     await expect(page.getByRole("dialog").getByRole("button", { name: /^Hosted by mdbase/ })).toBeFocused();
@@ -84,8 +181,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(filter).toBeFocused();
     if (viewport.width === 390) {
       await expect(page.getByRole("link", { name: "Open in editor", exact: true }).filter({ visible: true })).toHaveCount(0);
-      await expect(page.locator(".connect-collection-unavailable").first()).toContainText("Travel laptop");
-      const offline = page.locator(".connect-collection-row").filter({ has: page.locator(".connect-collection-unavailable") }).first();
+      const offline = page.locator(".connect-collection-row").filter({ hasText: "Offline" }).first();
+      await expect(offline.locator(".connect-collection-name small")).toContainText("Travel laptop");
       const name = await offline.locator(".connect-collection-name").boundingBox();
       const status = await offline.locator(".connect-status").boundingBox();
       expect(status!.y).toBeGreaterThanOrEqual(name!.y + name!.height);
@@ -280,7 +377,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toHaveCount(1);
-    await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    await expect(dialog.getByRole("textbox")).toBeFocused();
     await expect(dialog.getByRole("button", { name: "Delete permanently", exact: true })).toBeDisabled();
     for (let step = 0; step < 8; step++) {
       await page.keyboard.press("Tab");

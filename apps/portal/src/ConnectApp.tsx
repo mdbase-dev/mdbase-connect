@@ -19,7 +19,7 @@ import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation
 import { Brand, ThemeMenu } from "./portal-ui";
 import { readRememberedCollection, rememberCollection, sessionExpiredUrl } from "./portal-model";
 import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
-import { signalMdbaseMark, useMdbaseMarkActivity } from "@mdbase-dev/ui/mark-activity";
+import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
@@ -36,7 +36,6 @@ import {
   ConnectEmpty as Empty,
   ConnectPage as Page,
   ConnectSectionTitle as SectionTitle,
-  InlineRename,
   ConnectPreview,
   ListFilter,
   DesktopLink,
@@ -369,13 +368,13 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const footer = <footer className="connect-nav-footer"><FeedbackButton /><div className="connect-account-slot">{data && <RouteLink view="account" navigate={navigate}><strong title={data.user.name}>{data.user.name}</strong><small title={data.user.email ?? undefined}>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink>}</div></footer>;
   return <div className="connect-shell">
     <aside className="connect-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
-      <header><ActivityBrand /><button className="connect-mobile-nav-toggle mdbase-icon-button" aria-label={t(i18n)({ message: "Open menu", context: "Connect interface" })} aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><List aria-hidden="true" /></button></header>
+      <header><Brand productLabel /><button className="connect-mobile-nav-toggle mdbase-icon-button" aria-label={t(i18n)({ message: "Open menu", context: "Connect interface" })} aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><List aria-hidden="true" /></button></header>
       <button className="sidebar-search" onClick={keyboard.show}><span><Trans>Search</Trans></span><kbd>{shortcutLabel("mod+k")}</kbd></button>
       {!navigationOpen && <>{navigation}{footer}</>}
     </aside>
     <Dialog open={navigationOpen} title={t(i18n)`Navigation`} className="connect-navigation-sheet" onClose={() => setNavigationOpen(false)}><Brand productLabel />{navigation}{footer}</Dialog>
     <main className="connect-main" aria-busy={refreshing}>
-      {mutationError && <div className="connect-notice error" role="alert"><Warning aria-hidden="true" />{mutationError}<button className="mdbase-button is-tertiary" onClick={() => setMutationError("")}><Trans>Dismiss</Trans></button></div>}
+      {mutationError && !refreshError && <div className="connect-notice error" role="alert"><Warning aria-hidden="true" />{mutationError}<button className="mdbase-button is-tertiary" onClick={() => setMutationError("")}><Trans>Dismiss</Trans></button></div>}
       {(!data || refreshError) && <ConnectPreview title={viewLabel(view)} rows={view === "computers" ? preview?.computers : isCollectionView(view) || view === "collections" ? preview?.collections : undefined} pending={refreshing} error={refreshError} retry={() => void refresh()} />}
       {data && !refreshError && <>{invitationToken && <CollectionInvitationBanner
         busy={busy.has("accept-collection-invitation")}
@@ -411,18 +410,6 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       </dl>
     </Dialog>
   </div>;
-}
-
-function ActivityBrand() {
-  const { signal, busy } = useMdbaseMarkActivity();
-  const [entry] = useState(() => {
-    try {
-      if (sessionStorage.getItem("mdbase-connect-mark-seen")) return undefined;
-      sessionStorage.setItem("mdbase-connect-mark-seen", "1");
-    } catch { return undefined; }
-    return "keys-first" as const;
-  });
-  return <Brand productLabel markMotion={busy ?? entry} markSignal={signal} />;
 }
 
 function CollectionInvitationBanner({ busy, onAccept, onDismiss }: {
@@ -721,6 +708,9 @@ function Computers({ error, data, busy, perform }: {
 }) {
   useLocaleRevision();
   const [search, setSearch] = useState("");
+  const [selection, setSelection] = useState<{ id: string; kind: "menu" | "rename" | "revoke" } | null>(null);
+  const [name, setName] = useState("");
+  const trigger = useRef<HTMLButtonElement>(null);
   const query = search.trim().toLocaleLowerCase(i18n.locale);
   const visible = data.connectors.filter(connector => connector.name.toLocaleLowerCase(i18n.locale).includes(query));
   return <Page title={t(i18n)({ message: "Computers", context: "Connect interface" })} intro={t(i18n)({ message: "Registered computers stay listed when offline. Revoking one also invalidates grants routed through it." })}>
@@ -728,16 +718,30 @@ function Computers({ error, data, busy, perform }: {
       <SectionTitle title={t(i18n)({ message: "Registered computers", context: "Connect interface" })} count={data.connectors.length} />
       {data.connectors.length >= 10 && <ListFilter label={t(i18n)`Filter computers`} value={search} onChange={setSearch} />}
       {visible.map((connector) => {
+        const working = busy.has(`computer-${connector.id}`) || busy.has(`rename-computer-${connector.id}`);
         const upgradeRequired = connector.compatibility === "upgrade_required";
         const updateRecommended = connector.update_recommended === true;
         const online = !upgradeRequired && isConnectorOnline(connector.last_seen_at);
         const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
-        return <div className="connect-row" key={connector.id} data-list-item data-command={`computer:${connector.id}`} tabIndex={-1}>
-          <div><strong>{connector.name}</strong><small>{countLabel(collections.length, "collection")} · {connector.last_seen_at ? t(i18n)`Seen ${relativeTime(connector.last_seen_at)}` : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</small><small><Trans>Registered {new Date(connector.created_at).toLocaleDateString(i18n.locale, { dateStyle: "short" })}</Trans></small></div>
+        return <div className="connect-collection-row connect-computer-row" key={connector.id} data-list-item data-command={`computer:${connector.id}`} tabIndex={-1}>
+          <span className="connect-location-glyph"><Computer aria-hidden="true" /></span>
+          <div className="connect-collection-name"><strong>{connector.name}</strong><small>{countLabel(collections.length, "collection")} · {connector.last_seen_at ? t(i18n)`Seen ${relativeTime(connector.last_seen_at)}` : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</small></div>
           <span className="connect-status"><StatusGlyph state={upgradeRequired ? "attention" : online ? "online" : connector.last_seen_at ? "offline" : "idle"} />{upgradeRequired ? t(i18n)({ message: "Update required", context: "Connect interface" }) : online ? t(i18n)({ message: "Connected", context: "Connect interface" }) : connector.last_seen_at ? t(i18n)({ message: "Offline", context: "Connect interface" }) : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</span>
           {upgradeRequired && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Install {connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })}</Trans></a>}
           {!upgradeRequired && updateRecommended && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Update recommended for current policy protection</Trans></a>}
-          <div className="connect-row-actions"><InlineRename value={connector.name} inputLabel={t(i18n)`Rename ${connector.name}`} busy={busy.has(`computer-${connector.id}`) || busy.has(`rename-computer-${connector.id}`)} onSubmit={(name) => perform(`rename-computer-${connector.id}`, (options) => management.renameConnector(connector.id, name, options), false, { kind: "rename-computer", id: connector.id, name, previous: connector.name }, t(i18n)`Renamed ${connector.name} to ${name}`)} /><ConfirmAction error={error} className="mdbase-button is-tertiary is-danger" label={busy.has(`computer-${connector.id}`) ? t(i18n)({ message: "Revoking…", context: "Connect interface" }) : t(i18n)({ message: "Revoke", context: "Connect interface" })} question={t(i18n)`Revoke ${connector.name}?`} consequence={t(i18n)`Applications will lose access through this computer. Your local files will not be deleted.`} pendingLabel={t(i18n)`Revoking access…`} confirmLabel={t(i18n)({ message: "Revoke computer", context: "Connect interface" })} busy={busy.has(`computer-${connector.id}`) || busy.has(`rename-computer-${connector.id}`)} onConfirm={() => perform(`computer-${connector.id}`, (options) => management.revokeConnector(connector.id, options), false, undefined, t(i18n)`Revoked ${connector.name}`)} /></div>
+          <span className="connect-collection-menu"><button className="mdbase-icon-button" aria-label={t(i18n)`Actions for ${connector.name}`} aria-haspopup="menu" aria-expanded={selection?.id === connector.id && selection.kind === "menu"} disabled={working} onClick={event => { trigger.current = event.currentTarget; setSelection({ id: connector.id, kind: "menu" }); }}><DotsThree aria-hidden="true" /></button>
+            <Menu open={selection?.id === connector.id && selection.kind === "menu"} triggerRef={trigger} id={`computer-menu-${connector.id}`} label={connector.name} onClose={refocus => { setSelection(null); if (refocus) trigger.current?.focus(); }}>
+              <button role="menuitem" className="mdbase-menu-item" data-action="rename" onClick={() => { setName(connector.name); setSelection({ id: connector.id, kind: "rename" }); }}><Trans>Rename</Trans></button>
+              <button role="menuitem" className="mdbase-menu-item is-danger" data-action="revoke" onClick={() => setSelection({ id: connector.id, kind: "revoke" })}>{t(i18n)({ message: "Revoke", context: "Connect interface" })}</button>
+            </Menu>
+          </span>
+          <Dialog open={selection?.id === connector.id && selection.kind === "rename"} title={t(i18n)`Rename ${connector.name}`} returnFocusRef={trigger} closeDisabled={working} onClose={() => setSelection(null)}><form className="connect-edit-form" onSubmit={async event => {
+            event.preventDefault();
+            if (await perform(`rename-computer-${connector.id}`, options => management.renameConnector(connector.id, name.trim(), options), false, { kind: "rename-computer", id: connector.id, name: name.trim(), previous: connector.name }, t(i18n)`Renamed ${connector.name} to ${name.trim()}`)) setSelection(null);
+          }}><label><span className="mdbase-visually-hidden"><Trans>Rename {connector.name}</Trans></span><input className="mdbase-field" data-autofocus maxLength={200} value={name} onFocus={event => event.currentTarget.select()} onChange={event => setName(event.target.value)} /></label><footer className="mdbase-dialog-actions"><button type="button" className="mdbase-button is-tertiary" disabled={working} onClick={() => setSelection(null)}><Trans>Cancel</Trans></button><button className="mdbase-button is-primary" disabled={working || !name.trim() || name.trim() === connector.name}>{working ? t(i18n)`Saving…` : t(i18n)`Save`}</button></footer></form></Dialog>
+          <ConfirmDialog open={selection?.id === connector.id && selection.kind === "revoke"} title={t(i18n)`Revoke ${connector.name}?`} consequence={t(i18n)`Applications will lose access through this computer. Your local files will not be deleted.`} confirmLabel={t(i18n)({ message: "Revoke computer", context: "Connect interface" })} pendingLabel={t(i18n)`Revoking access…`} busy={working} returnFocusRef={trigger} onClose={() => setSelection(null)} onConfirm={async () => {
+            if (await perform(`computer-${connector.id}`, options => management.revokeConnector(connector.id, options), false, undefined, t(i18n)`Revoked ${connector.name}`)) setSelection(null);
+          }}>{error && <p role="alert">{error}</p>}</ConfirmDialog>
         </div>;
       })}
       {data.connectors.length > 0 && visible.length === 0 && <Empty title={t(i18n)({ message: "No computers match", context: "Connect interface" })} body={t(i18n)({ message: "Try a different computer name. Filtering does not revoke access." })} />}
@@ -745,7 +749,6 @@ function Computers({ error, data, busy, perform }: {
     </section>
   </Page>;
 }
-
 interface CollectionRowBase {
   glyph: StatusGlyphState;
   id: string;
@@ -755,7 +758,6 @@ interface CollectionRowBase {
   available: boolean;
   upgradeRequired?: boolean;
 }
-
 type CollectionRow =
   | CollectionRowBase & { kind: "local"; paused: boolean }
   | CollectionRowBase & { kind: "hosted"; source: HostedCollection }
@@ -834,23 +836,25 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
   const locationIcon = hosted || collection.kind === "native" && collection.source.sync === "cloud_copy" ? <Cloud aria-hidden="true" /> : <Computer aria-hidden="true" />;
   return <div className={`connect-collection-row ${className}`} data-list-item data-command={`collection:${collection.id}`}>
     <span className="connect-location-glyph">{locationIcon}</span>
-    <div className="connect-collection-name">{navigate ? <RouteLink className="connect-collection-link" view="overview" collectionId={collection.id} navigate={navigate}><strong>{collection.name}</strong></RouteLink> : <strong>{collection.name}</strong>}<small>{collection.detail}{folders > 0 && <> · {countLabel(folders, "folder")}</>}</small>{collection.kind === "local" && !collection.available && <small className="connect-collection-unavailable">{connectionDescription(collection)}</small>}</div>
+    <div className="connect-collection-name">{navigate ? <RouteLink className="connect-collection-link" view="overview" collectionId={collection.id} navigate={navigate}><strong>{collection.name}</strong></RouteLink> : <strong>{collection.name}</strong>}<small>{collection.detail}{folders > 0 && <> · {countLabel(folders, "folder")}</>}</small></div>
     <span className="connect-status">{collection.glyph !== "idle" && !hosted && <StatusGlyph state={collection.glyph} />}{hosted && active ? "" : collection.status}</span>
     <span className="connect-collection-open">{editorOrigin && editorId && (collection.kind !== "local" || collection.available) && <a className="mdbase-button is-tertiary" href={editorCollectionUrl(editorId, editorOrigin)}><Trans>Open in editor</Trans></a>}</span>
-    <span className="connect-collection-menu">{hosted && <><button ref={trigger} className="mdbase-icon-button" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><DotsThree aria-hidden="true" /></button>
+    <span className="connect-collection-menu"><button ref={trigger} className="mdbase-icon-button" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><DotsThree aria-hidden="true" /></button>
       <Menu open={menuOpen} triggerRef={trigger} id={`collection-menu-${collection.id}`} label={collection.name} onClose={refocus => { setMenuOpen(false); if (refocus) trigger.current?.focus(); }}>
+        {navigate && <button role="menuitem" className="mdbase-menu-item" onClick={() => { setMenuOpen(false); navigate("overview", collection.id); }}>{t(i18n)({ message: "Overview", context: "Connect interface" })}</button>}
+        {!hosted && <DesktopLink role="menuitem" href="mdbase-connect://open"><Trans>Open mdbase connect</Trans></DesktopLink>}
         {active && hosted.access.can_rename_collection && <button role="menuitem" className="mdbase-menu-item" data-action="rename" onClick={() => { setMenuOpen(false); setName(collection.name); setEditing("rename"); }}><Trans>Rename</Trans></button>}
         {active && <DesktopLink role="menuitem" href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.id)}`}><Trans>Sync folder</Trans></DesktopLink>}
-        {hosted.access.can_delete_collection && <button role="menuitem" data-action="delete" className="mdbase-menu-item is-danger" onClick={() => { setMenuOpen(false); setName(""); setEditing("delete"); }}><Trans>Delete</Trans></button>}
+        {hosted?.access.can_delete_collection && <button role="menuitem" data-action="delete" className="mdbase-menu-item is-danger" onClick={() => { setMenuOpen(false); setName(""); setEditing("delete"); }}><Trans>Delete</Trans></button>}
       </Menu>
-    </>}</span>
+    </span>
     {hosted && <><Dialog open={editing === "rename"} title={t(i18n)`Rename ${collection.name}`} returnFocusRef={trigger} closeDisabled={working} onClose={() => setEditing(null)}><form className="connect-edit-form" onSubmit={async event => {
       event.preventDefault();
       if (await perform(`collection-${collection.id}`, options => management.renameHostedCollection(collection.id, name.trim(), options), false, {kind: "rename-collection", id: collection.id, name: name.trim(), previous: collection.name}, t(i18n)`Renamed ${collection.name} to ${name.trim()}`)) setEditing(null);
     }}><label><span><Trans>Collection name</Trans></span><input className="mdbase-field" aria-label={t(i18n)`Rename ${collection.name}`} data-autofocus onFocus={event => event.currentTarget.select()} maxLength={200} value={name} onChange={event => setName(event.target.value)} /></label><footer className="mdbase-dialog-actions"><button type="button" className="mdbase-button is-tertiary" onClick={() => setEditing(null)} disabled={working}><Trans>Cancel</Trans></button><button className="mdbase-button is-primary" disabled={working || !name.trim() || name.trim() === collection.name}>{working ? t(i18n)`Saving…` : t(i18n)`Save`}</button></footer></form></Dialog>
     <ConfirmDialog open={editing === "delete"} title={t(i18n)`Delete ${collection.name}?`} consequence={t(i18n)`All hosted data in ${collection.name} will be permanently deleted. This cannot be undone.`} confirmLabel={t(i18n)({ message: "Delete permanently", context: "Connect interface" })} pendingLabel={t(i18n)`Deleting…`} busy={working} disabled={name !== collection.name} returnFocusRef={trigger} onClose={() => setEditing(null)} onConfirm={async () => {
       if (await perform(`collection-${collection.id}`, options => management.deleteHostedCollection(collection.id, options), false, undefined, t(i18n)`Deleted ${collection.name}`)) setEditing(null);
-    }}>{error && <p role="alert">{error}</p>}<label><span><Trans>Type {collection.name} to confirm</Trans></span><input className="mdbase-field" value={name} autoComplete="off" spellCheck={false} onChange={event => setName(event.target.value)} /></label></ConfirmDialog></>}
+    }}>{error && <p role="alert">{error}</p>}<label><span><Trans>Type {collection.name} to confirm</Trans></span><input className="mdbase-field" data-autofocus value={name} autoComplete="off" spellCheck={false} onChange={event => setName(event.target.value)} /></label></ConfirmDialog></>}
   </div>;
 }
 
@@ -987,7 +991,6 @@ function editorCollectionUrl(collectionId: string | undefined, editorOrigin: str
 function host(value: string): string {
   try { return new URL(value).host; } catch { return value; }
 }
-
 function feedbackFailure(reason: unknown): FeedbackFailure {
   if (!(reason instanceof ManagementApiError)) return { code: "unknown_error" };
   const codes = ["cancelled", "http_error", "invalid_response", "outcome_unknown", "partial_failure", "timeout", "network_error"] as const;

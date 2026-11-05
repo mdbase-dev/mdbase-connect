@@ -167,6 +167,19 @@ no undo, because restoring access is a new approval.
 quiet `Search` item in the sidebar. It covers navigation and the page's actions.
 Every command also exists elsewhere in the interface.
 
+Portal navigation uses the same registry for keyboard handling, palette hints,
+and shortcut help. Chords are disabled while typing or using an overlay.
+
+| Chord | Destination |
+| --- | --- |
+| G C | Collections |
+| G A | Apps |
+| G O | Computers |
+| G U | Account |
+| G V | Selected collection Overview |
+| G T | Selected collection Storage |
+| G R | Selected collection Access |
+
 ### Other controls
 
 - Switches use `.mdbase-switch` on a native button with `role="switch"` and
@@ -212,6 +225,8 @@ changed, and it never delays the person.
   on first appearance, `stream` while syncing, `orbit` while connecting, and
   `saved` or `error` once when a write finishes. The mark never replaces the
   status glyph and text. Apps report work through `mark-activity`.
+  The Portal's signed-in shell keeps the mark static at full strength from
+  first paint; sign-in and onboarding retain their entrance.
 - **One thing at a time.** Status pages do not stagger entrances or run ambient
   loops. A loop runs only while work is running.
 - Duration tokens collapse under `prefers-reduced-motion`, nonessential loops
