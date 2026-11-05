@@ -15,7 +15,7 @@
     "pg": "8.23.1",
     "workerd": "1.20261014.1",
     "typescript": "5.9.3",
-    "wrangler": "4.147.0",
+    "wrangler": "4.155.0",
     "ws": "^8.21.0"
   },
   "dependencies": {
