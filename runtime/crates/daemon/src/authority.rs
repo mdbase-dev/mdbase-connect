@@ -212,6 +212,7 @@ impl Authority {
         };
         if matching().any(|entry| entry.is_refused())
             && !(matches!(auth, Auth::Link { .. })
+                && mode == Some(SyncMode::Local)
                 && matching().any(|entry| entry.state == crate::access::AccessState::Active))
         {
             return Err(Refusal::RevokedLocally);

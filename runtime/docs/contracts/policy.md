@@ -385,7 +385,8 @@ and on established-session rechecks. This cache gate only denies; the signed log
 still owns Private capabilities. Delisting denies without waiting for log delivery,
 including an unreachable log or parked policy outbox. Local refusal tombstones deny
 granted sessions on every transport, including IPC, and localhost-link sessions
-using the refused client key unless an Active replacement grant uses that key.
+using the refused client key. A locally approved replacement grant on that key
+lifts the link refusal on a Local collection; a Private feed row cannot.
 The old grant ID remains refused. The independently authenticated host is not an app
 grant. The feed lease is not required for Private IPC or link use, so confirmed
 signed policy remains usable offline. Native cloud-copy daemon behavior is unchanged.

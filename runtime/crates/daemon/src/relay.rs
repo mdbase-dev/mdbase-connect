@@ -711,7 +711,7 @@ async fn close_dead<H: RelayHost>(
                 Some(
                     host.grant_refusal(&p.collection, &p.grant)
                         .await
-                        .unwrap_or_else(|| "grant_inactive".into()),
+                        .unwrap_or_else(|| crate::access::Refusal::Unavailable.reason().into()),
                 )
             }
         } else {
@@ -797,7 +797,7 @@ async fn open_pipe<H: RelayHost>(
                         &secrets::uuid_string(&grant),
                     )
                     .await
-                    .unwrap_or_else(|| "grant_inactive".into());
+                    .unwrap_or_else(|| crate::access::Refusal::Unavailable.reason().into());
                 let _ = out2.send(PipeOut::Close(pipe, reason)).await;
                 return;
             }

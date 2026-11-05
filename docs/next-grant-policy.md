@@ -70,9 +70,10 @@ This is deny-only: a feed entry cannot supply Private capabilities or replace
 signed log policy. Admission and established-session rechecks deny delisted or
 locally refused grants even when the log is unreachable or a revocation remains
 parked in the policy outbox. Local refusal tombstones also deny granted IPC
-sessions and localhost-link sessions using the refused client key, unless an
-Active replacement grant uses that key (the refused grant ID stays refused); the host's
-independently authenticated session is not an app grant. Private IPC and link
+sessions and localhost-link sessions using the refused client key. On a Local
+collection a locally approved replacement grant on that key lifts the link
+refusal; on Private a feed row cannot, and the refused grant ID always stays
+refused. The host's independently authenticated session is not an app grant. Private IPC and link
 sessions do not require a feed lease and can keep using confirmed signed policy
 offline. Native cloud-copy (`SyncMode::Synced`) daemon behavior is unchanged;
 its feed reconciliation still excludes that mode.

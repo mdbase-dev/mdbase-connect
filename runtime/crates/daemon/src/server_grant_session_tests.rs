@@ -234,7 +234,7 @@ async fn relay_refusals_follow_the_shared_server_close_contract() {
 }
 
 #[tokio::test]
-async fn reapproved_link_key_does_not_reactivate_the_refused_grant() {
+async fn a_feed_row_does_not_lift_a_private_link_key_refusal() {
     let dir = crate::testutil::TestDir::new("reapproved-link");
     let daemon = private_daemon(&dir).await;
     feed(&daemon, 1, true).await;
@@ -251,16 +251,14 @@ async fn reapproved_link_key_does_not_reactivate_the_refused_grant() {
         )
         .await
         .unwrap();
-    assert!(
-        daemon
-            .authority
-            .authorize_session(
-                &COLLECTION.to_uuid_string(),
-                Auth::Link {
-                    client_pk: CLIENT_KEY
-                },
-            )
-            .is_ok()
+    assert_eq!(
+        daemon.authority.authorize_session(
+            &COLLECTION.to_uuid_string(),
+            Auth::Link {
+                client_pk: CLIENT_KEY
+            },
+        ),
+        Err(crate::access::Refusal::RevokedLocally)
     );
     assert_eq!(
         daemon
