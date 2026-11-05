@@ -551,7 +551,7 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Choisissez où créer le dossier."
 
-#: src/renderer/collections-view.tsx
+#: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "Effacer le filtre"
 
@@ -781,6 +781,14 @@ msgstr "Chiffré de bout en bout : mdbase ne peut pas lire ces données. Les app
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Saisissez un nom pour cet ordinateur."
+
+#: src/renderer/activity-view.tsx
+msgid "Filter activity"
+msgstr "Filtrer l’activité"
+
+#: src/renderer/access-view.tsx
+msgid "Filter apps"
+msgstr "Filtrer les applications"
 
 #: src/renderer/collections-view.tsx
 msgid "Filter collections"
@@ -1384,11 +1392,6 @@ msgstr "Reprendre"
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "Retour à l’ancien moteur"
-
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "Examiner"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx

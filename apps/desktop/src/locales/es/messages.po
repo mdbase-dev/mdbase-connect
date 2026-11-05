@@ -551,7 +551,7 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Elige dónde crear la carpeta."
 
-#: src/renderer/collections-view.tsx
+#: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "Borrar filtro"
 
@@ -781,6 +781,14 @@ msgstr "Cifrado de extremo a extremo: mdbase no puede leerlo. Las aplicaciones w
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Introduce un nombre para este ordenador."
+
+#: src/renderer/activity-view.tsx
+msgid "Filter activity"
+msgstr "Filtrar actividad"
+
+#: src/renderer/access-view.tsx
+msgid "Filter apps"
+msgstr "Filtrar aplicaciones"
 
 #: src/renderer/collections-view.tsx
 msgid "Filter collections"
@@ -1384,11 +1392,6 @@ msgstr "Reanudar"
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "Se volvió al motor anterior"
-
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "Revisar"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx

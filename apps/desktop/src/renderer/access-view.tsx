@@ -2,10 +2,10 @@ import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
-import React from "react";
+import React, { useState } from "react";
 import { ApprovalPrompt } from "./approval-prompt";
 import { capabilityPhrase, groupedFingerprint, type AccessGroups } from "./daemon-view.mjs";
-import { Empty, SectionHeading } from "./ui-components";
+import { Empty, ListFilter, SectionHeading } from "./ui-components";
 import { relativeTime } from "./view-model";
 
 type Act = (action: () => Promise<unknown>) => Promise<void>;
@@ -61,6 +61,9 @@ export function AccessView({ groups, names, busy, requireApproval, movedWaiting 
   onNotice(value: string): void;
 }) {
   useLocaleRevision();
+  const [query, setQuery] = useState("");
+  const matches = (name: string) => name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
+  const apps = groups.apps.filter(app => matches(app.appName));
   return (
     <div className="workspace-stack">
       {(requireApproval || groups.pending.length > 0) && <section>
@@ -74,16 +77,16 @@ export function AccessView({ groups, names, busy, requireApproval, movedWaiting 
 
       <section>
         <SectionHeading title={t(i18n)({ message: "Connected apps", context: "Connect interface" })} note={t(i18n)({ message: "Apps that can use your collections through this computer." })} count={groups.apps.length} />
+        {(groups.apps.length >= 10 || query) && <ListFilter label={t(i18n)`Filter apps`} value={query} onChange={setQuery} />}
         {groups.apps.length === 0
           ? movedWaiting > 0
             ? <Empty title={t(i18n)({ message: "Your apps reconnect soon", context: "Connect interface" })} text={t(i18n)`Apps you used with mdbase Connect appear here once Private sync is on for the ${plural(movedWaiting, { one: "collection", other: "collections" })} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again.`} />
             : <Empty title={t(i18n)({ message: "No apps connected", context: "Connect interface" })} text={t(i18n)({ message: "Open the app you want to use and connect it to mdbase. You approve it in your browser, and it appears here." })} />
-          : <div className="application-access-list">{groups.apps.map((app) => (
-            <details key={app.appId} className="application-grant-group" data-list-item open={app.unacknowledged > 0}>
+          : <div className="application-access-list">{apps.map((app) => (
+            <details key={app.appId} className="mdbase-disclosure application-grant-group" data-list-item open={app.unacknowledged > 0}>
               <summary>
                 <div><strong>{app.appName}</strong>{app.unacknowledged > 0 && <b className="new-access">{t(i18n)({ message: "New", context: "Connect interface" })}</b>}</div>
                 <span>{t(i18n)`${plural(app.grants.length, { one: "# collection", other: "# collections" })}`}</span>
-                <b>{t(i18n)({ message: "Review", context: "Connect interface" })}</b>
               </summary>
               <div className="application-grant-body">
                 <div className="grant-list">{app.grants.map((entry) => (

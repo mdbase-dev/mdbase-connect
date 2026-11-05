@@ -551,7 +551,7 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Choose where to create the folder."
 
-#: src/renderer/collections-view.tsx
+#: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "Clear filter"
 
@@ -781,6 +781,14 @@ msgstr "End-to-end encrypted: mdbase cannot read it. Web apps work only while on
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Enter a name for this computer."
+
+#: src/renderer/activity-view.tsx
+msgid "Filter activity"
+msgstr "Filter activity"
+
+#: src/renderer/access-view.tsx
+msgid "Filter apps"
+msgstr "Filter apps"
 
 #: src/renderer/collections-view.tsx
 msgid "Filter collections"
@@ -1384,11 +1392,6 @@ msgstr "Resume"
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "Returned to the old engine"
-
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "Review"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx

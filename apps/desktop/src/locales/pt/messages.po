@@ -551,7 +551,7 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Escolha onde criar a pasta."
 
-#: src/renderer/collections-view.tsx
+#: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "Limpar filtro"
 
@@ -781,6 +781,14 @@ msgstr "Criptografia de ponta a ponta: o mdbase não consegue ler os dados. Apli
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Digite um nome para este computador."
+
+#: src/renderer/activity-view.tsx
+msgid "Filter activity"
+msgstr "Filtrar atividade"
+
+#: src/renderer/access-view.tsx
+msgid "Filter apps"
+msgstr "Filtrar aplicativos"
 
 #: src/renderer/collections-view.tsx
 msgid "Filter collections"
@@ -1384,11 +1392,6 @@ msgstr "Retomar"
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "Retornou ao mecanismo antigo"
-
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "Revisar"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx

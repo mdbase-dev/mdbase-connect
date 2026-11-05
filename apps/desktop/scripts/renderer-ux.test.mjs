@@ -32,17 +32,17 @@ after(async () => {
 
 // Lean UX checks for the daemon-backed renderer, on a mocked preload API. Pure
 // presentation (wording, grouping) is covered by test/daemon-view.test.mjs.
-async function desktop({ signedIn = true, collections = [], access = [], devices = [] } = {}) {
+async function desktop({ signedIn = true, collections = [], access = [], devices = [], activity = [] } = {}) {
   const page = await browser.newPage({ viewport: { width: 1060, height: 720 } });
   await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.clock.install();
-  await page.addInitScript(({ signedIn, collections, access, devices }) => {
+  await page.addInitScript(({ signedIn, collections, access, devices, activity }) => {
     const calls = [];
     const record = (name) => async (...args) => { calls.push([name, ...args]); return null; };
     const fixture = {
-      calls, collections, access, devices, requireApproval: false,
+      calls, collections, access, devices, activity, requireApproval: false,
       account: { configured: signedIn, serverUrl: signedIn ? "https://connect.example.test" : null, online: signedIn, pairing: null, lastError: null },
       status: () => ({ target: "isolated_profile", state_dir: "/disposable", account: { signed_in: fixture.account.configured, online: fixture.account.configured }, collections: fixture.collections })
     };
@@ -95,7 +95,7 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       reopenSignIn: async () => {},
       onNavigate: () => () => {}, onUpdateStatus: () => () => {}
     };
-  }, { signedIn, collections, access, devices });
+  }, { signedIn, collections, access, devices, activity });
   await page.goto(origin);
   await page.getByText(signedIn ? "Connected securely" : "Not signed in", { exact: true }).first().waitFor().catch(error => { throw new Error(`${error.message}\nRenderer errors: ${errors.join("; ")}`); });
   const calls = (name) => page.evaluate((name) => window.fixture.calls.filter((call) => call[0] === name).map((call) => call.slice(1)), name);
@@ -231,6 +231,91 @@ const entry = (overrides = {}) => ({
   state: "active", first_seen_ms: Date.now(), acknowledged: true, ...overrides
 });
 
+for (const theme of ["light", "dark"]) {
+  test(`W25 two-line collection slots and shared disclosures in ${theme}`, async () => {
+    const { page, errors } = await desktop({
+      collections: [collection(), collection({ id: "c-team", name: "Team library", mode: "synced", sync: { pending: 0, holds: 0, unresolved: 0, connection: "online" } })],
+      access: [entry()]
+    });
+    try {
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      for (const width of [1440, 820]) {
+        await page.setViewportSize({ width, height: width === 820 ? 580 : 900 });
+        await nav(page, "Collections").click();
+        const geometry = await page.locator(".collection-card").evaluateAll(rows => rows.map(row => {
+          const name = row.querySelector("h3").getBoundingClientRect();
+          const path = row.querySelector(".collection-card-main code").getBoundingClientRect();
+          const status = row.querySelector(".collection-card-status").getBoundingClientRect();
+          const menu = row.querySelector(".collection-menu-trigger").getBoundingClientRect();
+          return { height: row.getBoundingClientRect().height, nameY: name.y - row.getBoundingClientRect().y, pathX: path.x, pathY: path.y - row.getBoundingClientRect().y, nameX: name.x, statusX: status.x, menuX: menu.x };
+        }));
+        assert.equal(geometry[0].statusX, geometry[1].statusX);
+        assert.equal(geometry[0].menuX, geometry[1].menuX);
+        assert.equal(geometry[0].nameX, geometry[0].pathX);
+        assert.ok(geometry[0].pathY > geometry[0].nameY);
+        assert.ok(geometry.every(row => row.height < 80));
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        await screenshot(page, `w25-collections-${width}-${theme}`);
+      }
+      await nav(page, "Apps").click();
+      const summary = page.locator(".application-grant-group > summary");
+      assert.equal(await summary.locator("b:not(.new-access)").count(), 0);
+      assert.equal(await summary.evaluate(element => getComputedStyle(element, "::after").rotate), "-45deg");
+      await summary.click();
+      await page.waitForFunction(() => getComputedStyle(document.querySelector(".application-grant-group > summary"), "::after").rotate === "45deg");
+      await screenshot(page, `w25-apps-${theme}`);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
+
+test("W25 growing lists filter, return focus to their results and advertise only available filters", async () => {
+  const { page, errors, calls } = await desktop({
+    collections: Array.from({ length: 12 }, (_, index) => collection({ id: `c-${index}`, name: `Collection ${index}` })),
+    access: [...Array.from({ length: 12 }, (_, index) => entry({ grant: `g-${index}`, app_id: `app-${index}`, app_name: `App ${index}` })), entry({ grant: "pending", app_name: "Reader", state: "pending_approval" })],
+    devices: [{ collection: "c-0", device: "d-laptop", name: "Laptop", kind: "desktop", sas: "012345" }],
+    activity: Array.from({ length: 12 }, (_, index) => ({ at_ms: Date.now() - index * 1000, kind: "collection_added", collection_name: `Collection ${index}` }))
+  });
+  try {
+    for (const [route, label, rows, query] of [
+      ["Collections", "Filter collections", ".collection-card", "Collection 11"],
+      ["Apps", "Filter apps", ".application-grant-group", "App 11"],
+      ["Activity", "Filter activity", ".activity-list > li", "Collection 11"]
+    ]) {
+      await nav(page, route).click();
+      await page.keyboard.press("?");
+      const help = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+      await help.getByText("Filter the current list", { exact: true }).waitFor();
+      await page.keyboard.press("Escape");
+      await help.waitFor({ state: "hidden" });
+      await page.keyboard.press("/");
+      const filter = page.getByRole("searchbox", { name: label });
+      assert.equal(await filter.getAttribute("class"), "mdbase-field");
+      assert.equal(await filter.evaluate(element => element === document.activeElement), true);
+      for (const key of ["ArrowDown", "Enter"]) {
+        await filter.fill(query);
+        assert.equal(await page.locator(rows).count(), 1);
+        await page.keyboard.press(key);
+        assert.equal(await page.locator(rows).first().evaluate(element => element.contains(document.activeElement)), true);
+        await page.keyboard.press("/");
+      }
+      await filter.fill("no matching result");
+      assert.equal(await page.locator(rows).count(), 0);
+      await page.keyboard.press("Escape");
+      assert.equal(await filter.inputValue(), "");
+      assert.equal(await filter.evaluate(element => element === document.activeElement), true);
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator(rows).first().evaluate(element => element.contains(document.activeElement)), true);
+      await page.keyboard.press("j");
+      assert.equal(await filter.inputValue(), "");
+      await screenshot(page, `w25-filter-${route}`);
+    }
+    assert.deepEqual(await calls("approveAccess"), []);
+    assert.deepEqual(await calls("approveDevice"), []);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test("shared keyboard shortcuts navigate, filter and move list focus without approving", async () => {
   const { page, errors, calls } = await desktop({ collections: Array.from({ length: 14 }, (_, index) => collection({ id: `c-${index}`, name: `Notes ${String(index).padStart(2, "0")}` })) });
   try {
@@ -243,7 +328,10 @@ test("shared keyboard shortcuts navigate, filter and move list focus without app
     assert.equal(await page.locator(".collection-card").nth(1).evaluate(element => element === document.activeElement), true);
     await page.keyboard.press("k");
     await page.keyboard.press("Enter");
-    assert.equal(await page.getByRole("button", { name: "Actions for Notes 00" }).evaluate(element => element === document.activeElement), true);
+    await page.getByRole("menu", { name: "Notes 00" }).waitFor();
+    assert.equal(await page.getByRole("menuitem", { name: "Open folder", exact: true }).evaluate(element => element === document.activeElement), true);
+    await page.keyboard.press("Escape");
+    await page.getByRole("menu").waitFor({ state: "hidden" });
     await page.keyboard.press("/");
     const filter = page.getByRole("searchbox", { name: "Filter collections" });
     assert.equal(await filter.evaluate(element => element === document.activeElement), true);
@@ -252,23 +340,34 @@ test("shared keyboard shortcuts navigate, filter and move list focus without app
     await page.keyboard.type("ga?/");
     assert.equal(await page.getByRole("heading", { name: "Collections", exact: true }).count(), 1);
     assert.equal(await page.getByRole("dialog").count(), 0);
-    await filter.fill("");
-    await filter.evaluate(element => element.blur());
+    await page.keyboard.press("Escape");
+    assert.equal(await filter.inputValue(), "");
+    assert.equal(await filter.evaluate(element => element === document.activeElement), true);
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator(".collection-card").first().evaluate(element => element === document.activeElement), true);
+    await page.keyboard.press("j");
+    assert.equal(await page.locator(".collection-card").nth(1).evaluate(element => element === document.activeElement), true);
+    assert.equal(await filter.inputValue(), "");
     await page.keyboard.press("g");
     await page.keyboard.press("a");
     await page.getByRole("heading", { name: "Apps", exact: true }).waitFor();
     await page.keyboard.press("g");
     await page.keyboard.press("s");
     await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
+    await page.keyboard.press("g");
+    await page.keyboard.press("l");
+    await page.getByRole("heading", { name: "Activity", exact: true }).waitFor();
     await page.keyboard.press("?");
     const help = page.getByRole("dialog", { name: "Keyboard shortcuts" });
     await help.waitFor();
     assert.match(await help.innerText(), /G C/);
     assert.match(await help.innerText(), /G A/);
     assert.match(await help.innerText(), /G S/);
+    assert.match(await help.innerText(), /G L/);
+    assert.equal(await help.getByText("Filter the current list", { exact: true }).count(), 0);
     await page.keyboard.press("g");
     await page.keyboard.press("c");
-    assert.equal(await page.getByRole("heading", { name: "Settings", exact: true }).count(), 1);
+    assert.equal(await page.getByRole("heading", { name: "Activity", exact: true }).count(), 1);
     await page.keyboard.press("Escape");
     await help.waitFor({ state: "hidden" });
     await page.keyboard.press("Control+/");
@@ -296,6 +395,13 @@ for (const theme of ["light", "dark"]) {
           await page.keyboard.press("Control+k");
           const palette = page.getByRole("dialog", { name: "Commands" });
           await palette.getByRole("option", { name: new RegExp(`Review ${name}`) }).waitFor();
+          assert.match(await palette.getByRole("option").first().innerText(), /Review Reader/);
+          await palette.evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished)));
+          assert.equal(await palette.getByRole("option").first().evaluate(element => {
+            const bounds = element.getBoundingClientRect();
+            return element.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+          }), true);
+          await screenshot(page, `w25-palette-first-${viewport.width}-${theme}`);
           await palette.getByRole("combobox").fill(name);
           await palette.evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished)));
           await screenshot(page, `w19-palette-${name}-${viewport.width}-${theme}`);
@@ -381,8 +487,8 @@ for (const theme of ["light", "dark"]) {
           assert.equal(await page.evaluate(() => document.querySelector("main").scrollWidth > document.querySelector("main").clientWidth), false);
           if (route === "Collections") {
             const card = page.locator(".collection-card");
-            await card.getByText("Studio workstation", { exact: true }).waitFor();
-            assert.equal(await card.locator(".collection-card-main > svg[aria-hidden=true]").count(), 1);
+            await card.getByRole("img", { name: "Studio workstation", exact: true }).waitFor();
+            assert.equal(await card.locator(".collection-card-main > svg").count(), 1);
             assert.equal(await card.locator(".collection-card-main > .status-glyph").count(), 0);
             assert.equal(await card.locator(".collection-card-main code").first().innerText(), collection().root);
           }
@@ -492,7 +598,8 @@ test("turning on sync defaults to private and removal is confirmed; long paths s
     await page.setViewportSize({ width: 820, height: 580 });
     await nav(page, "Collections").click();
     const card = page.locator(".collection-card").filter({ hasText: "Notes" });
-    await card.getByText("On this computer only · Ready").waitFor();
+    await card.locator(".collection-card-status").getByText("Ready", { exact: true }).waitFor();
+    assert.equal(await card.locator(".collection-card-status small").innerText(), "On this computer only");
     await screenshot(page, "collections-minimum");
     assert.equal(await page.locator(".content").evaluate((element) => element.scrollWidth > element.clientWidth), false);
     await collectionAction(page, "Turn on sync", card);

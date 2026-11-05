@@ -551,7 +551,7 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "フォルダーを作成する場所を選んでください。"
 
-#: src/renderer/collections-view.tsx
+#: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "フィルターをクリア"
 
@@ -781,6 +781,14 @@ msgstr "エンドツーエンドで暗号化され、mdbase は内容を読め�
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "このコンピューターの名前を入力してください。"
+
+#: src/renderer/activity-view.tsx
+msgid "Filter activity"
+msgstr "アクティビティを絞り込む"
+
+#: src/renderer/access-view.tsx
+msgid "Filter apps"
+msgstr "アプリを絞り込む"
 
 #: src/renderer/collections-view.tsx
 msgid "Filter collections"
@@ -1384,11 +1392,6 @@ msgstr "再開"
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "旧エンジンに戻しました"
-
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "確認"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
