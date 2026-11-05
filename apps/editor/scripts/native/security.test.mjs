@@ -72,7 +72,7 @@ it('protected jobs only execute workflow-owned helpers, with ancestry checks bef
  assert.equal(deploy.steps[0].run,'test "$GITHUB_RUN_ATTEMPT" = 1');
  const point=deploy.steps.findIndex(s=>s.with?.name?.startsWith('editor-production-recovery-point-'));
  assert.ok(point>=0 && point<deploy.steps.indexOf(upload),'recovery point is stored before upload');
- const smokeJob=jobs['production-smoke'];
+ const smokeJob=jobs.smoke;
  assert.equal(smokeJob.environment,undefined);
  assert.doesNotMatch(JSON.stringify(smokeJob),/secrets\./);
  assert.ok(smokeJob.steps.filter(s=>s.uses?.startsWith('actions/checkout@')).every(s=>s.with.ref==='${{ github.sha }}'));
@@ -80,7 +80,7 @@ it('protected jobs only execute workflow-owned helpers, with ancestry checks bef
  const recovery=jobs['production-recovery'];
  assert.match(recovery.if,/^always\(\)/);
  assert.match(recovery.if,/native-deploy.result != 'skipped'/);
- assert.match(recovery.if,/production-smoke.result != 'success'/);
+ assert.match(recovery.if,/needs\.smoke\.result != 'success'/);
  assert.doesNotMatch(recovery.if,/native-deploy.result == 'success'/);
  assert.equal(recovery.steps.find(s=>s.run?.includes('rollback.mjs')).run.match(/rollback\.mjs (\w+)/)[1],'recover');
 });
@@ -116,6 +116,9 @@ it('smoke checks a fresh source-bound entry and sign-in, ignores beacon CSP cons
  assert.equal((await smoke(good.chromium,source)).ok,true);
  assert.ok(good.events.includes('Network.setCacheDisabled'));assert.ok(good.events.includes('closed'));
  assert.throws(()=>assertEntryAsset('https://editor.mdbase.dev/assets/index-other.js',source),/source-mismatch/);
+ assert.doesNotThrow(()=>assertEntryAsset(`https://editor-staging.mdbase.dev/assets/index-x-${source.slice(0,12)}.js`,source,'staging'));
+ assert.throws(()=>assertEntryAsset(`https://editor.mdbase.dev/assets/index-x-${source.slice(0,12)}.js`,source,'staging'),/source-mismatch/);
+ assert.throws(()=>assertEntryAsset(`https://editor.mdbase.dev/assets/index-x-${source.slice(0,12)}.js`,source,'lab'),/invalid-source/);
  for(const options of [{pageError:true},{fence:true},{missingSignIn:true},{entrySource:'1'.repeat(40)}]) {
   const bad=browserDouble(options);
   await assert.rejects(smoke(bad.chromium,source));assert.ok(bad.events.includes('closed'));
