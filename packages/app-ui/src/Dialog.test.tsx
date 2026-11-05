@@ -5,11 +5,37 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { MdbaseMark } from "./brand.js";
+import { CommandPalette } from "./CommandPalette.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const host = document.body.appendChild(document.createElement("div"));
 const root = createRoot(host);
 afterEach(() => { act(() => root.render(null)); vi.useRealTimers(); });
+
+it("closes a palette before running its action and does not steal the action's focus", () => {
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+  vi.useFakeTimers();
+  document.documentElement.style.setProperty("--motion-exit", "120ms");
+  let openPalette: () => void;
+  function Host() {
+    const [open, setOpen] = useState(false);
+    openPalette = () => setOpen(true);
+    return <><button data-invoker>Search</button><button data-target>Rename</button>
+      <CommandPalette open={open} onClose={() => setOpen(false)} returnFocusRef={{ current: host.querySelector<HTMLElement>("[data-invoker]") }} commands={[{
+        id: "rename", label: "Rename", group: "actions", run: () => {
+          expect(host.querySelector("dialog")?.open).toBe(false);
+          host.querySelector<HTMLButtonElement>("[data-target]")!.focus();
+        }
+      }]} /></>;
+  }
+  act(() => root.render(<Host />));
+  host.querySelector<HTMLButtonElement>("[data-invoker]")!.focus();
+  act(() => openPalette!());
+  act(() => host.querySelector<HTMLButtonElement>('[role="option"]')!.click());
+  act(() => vi.advanceTimersByTime(120));
+  expect(host.querySelector("dialog")).toBeNull();
+  expect(document.activeElement).toBe(host.querySelector("[data-target]"));
+});
 
 it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus", () => {
   vi.useFakeTimers();

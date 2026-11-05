@@ -487,11 +487,6 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Account"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Account & sessions"
-msgstr "Account & sessions"
-
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
 msgstr "Account deletion is temporarily unavailable while we complete a service correction."
@@ -532,6 +527,10 @@ msgstr "Account upgrade scheduled"
 msgid "Account: {0}"
 msgstr "Account: {0}"
 
+#: src/portal-commands.ts
+msgid "Actions"
+msgstr "Actions"
+
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Actions for {0}"
@@ -547,6 +546,7 @@ msgid "Add a new {0} type"
 msgstr "Add a new {0} type"
 
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgid "Add collection"
 msgstr "Add collection"
 
@@ -598,11 +598,6 @@ msgstr "After the move, {0} stays as a synced folder. It will not be a second ma
 #: src/authority-workflows.tsx
 msgid "After the move, the original local files are no longer the main copy."
 msgstr "After the move, the original local files are no longer the main copy."
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "All collections"
-msgstr "All collections"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
@@ -693,11 +688,6 @@ msgctxt "Account management"
 msgid "Announcements"
 msgstr "Announcements"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "App access"
-
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "App installation"
@@ -723,11 +713,6 @@ msgid "Application using a device code"
 msgstr "Application using a device code"
 
 #: src/authority-workflows.tsx
-msgid "Applications"
-msgstr "Applications"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Applications"
 msgstr "Applications"
 
@@ -812,6 +797,10 @@ msgstr "Browser session"
 msgctxt "Account management"
 msgid "Browser session actions"
 msgstr "Browser session actions"
+
+#: src/portal-commands.ts
+msgid "Browser sessions"
+msgstr "Browser sessions"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1011,6 +1000,7 @@ msgstr "Choose whether to add a new {0} type or use one you already have."
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
+#: src/ConnectPrimitives.tsx
 msgid "Clear filter"
 msgstr "Clear filter"
 
@@ -1349,6 +1339,11 @@ msgid "Delete"
 msgstr "Delete"
 
 #. placeholder {0}: collection.name
+#: src/portal-commands.ts
+msgid "Delete {0}"
+msgstr "Delete {0}"
+
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Delete {0}?"
 msgstr "Delete {0}?"
@@ -1664,6 +1659,10 @@ msgstr "Filter computers"
 msgid "Filter sessions"
 msgstr "Filter sessions"
 
+#: src/ConnectApp.tsx
+msgid "Filter the current list"
+msgstr "Filter the current list"
+
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
 msgstr "Finishing collection setup…"
@@ -1713,9 +1712,10 @@ msgstr "Generating…"
 msgid "GitHub account @{login}"
 msgstr "GitHub account @{login}"
 
-#: src/ConnectApp.tsx
-msgid "Go to {label}"
-msgstr "Go to {label}"
+#. placeholder {0}: viewLabel(view)
+#: src/portal-commands.ts
+msgid "Go to {0}"
+msgstr "Go to {0}"
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
@@ -1920,7 +1920,13 @@ msgstr "Keep the main copy in mdbase, with optional synced folders."
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "Keep your current records and explain which fields mean the same thing."
 
+#: src/ConnectApp.tsx
+#: src/portal-commands.ts
+msgid "Keyboard shortcuts"
+msgstr "Keyboard shortcuts"
+
 #: src/LanguageSetting.tsx
+#: src/portal-commands.ts
 msgid "Language"
 msgstr "Language"
 
@@ -1930,6 +1936,7 @@ msgstr "Last known details"
 
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
+#: src/portal-commands.ts
 msgid "Last used {0}"
 msgstr "Last used {0}"
 
@@ -2143,6 +2150,10 @@ msgid "Move this collection"
 msgstr "Move this collection"
 
 #: src/ConnectApp.tsx
+msgid "Move through the list"
+msgstr "Move through the list"
+
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved"
 msgstr "Moved"
@@ -2162,6 +2173,7 @@ msgid "Name"
 msgstr "Name"
 
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgid "Navigation"
 msgstr "Navigation"
 
@@ -2267,6 +2279,10 @@ msgstr "No computers match"
 #: src/authorization-view.tsx
 msgid "No requesting origin is available. Continue only if you started this connection intentionally."
 msgstr "No requesting origin is available. Continue only if you started this connection intentionally."
+
+#: src/ConnectApp.tsx
+msgid "No results"
+msgstr "No results"
 
 #: src/AccountManagement.tsx
 msgid "No sessions match"
@@ -2378,7 +2394,7 @@ msgstr "Open in {0}"
 msgid "Open in editor"
 msgstr "Open in editor"
 
-#: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "Open in editor"
@@ -2415,6 +2431,10 @@ msgstr "Open the complete password reset link from your email."
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
 msgstr "Open the desktop app to connect this computer, add a folder, and continue this same request."
+
+#: src/ConnectApp.tsx
+msgid "Open the focused item"
+msgstr "Open the focused item"
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
@@ -2711,8 +2731,10 @@ msgid "Rename"
 msgstr "Rename"
 
 #. placeholder {0}: collection.name
+#. placeholder {0}: computer.name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgid "Rename {0}"
 msgstr "Rename {0}"
 
@@ -2889,6 +2911,7 @@ msgid "Review request"
 msgstr "Review request"
 
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgctxt "Connect interface"
 msgid "Review request"
 msgstr "Review request"
@@ -2907,6 +2930,12 @@ msgstr "Revocation is pending. Waiting for {0} to confirm enforcement."
 msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "Revoke"
+
+#. placeholder {0}: application.applicationName
+#. placeholder {0}: computer.name
+#: src/portal-commands.ts
+msgid "Revoke {0}"
+msgstr "Revoke {0}"
 
 #. placeholder {0}: application.applicationName
 #. placeholder {0}: group.applicationName
@@ -3027,6 +3056,10 @@ msgstr "Search"
 msgid "Search collections by name"
 msgstr "Search collections by name"
 
+#: src/ConnectApp.tsx
+msgid "Search collections, apps, computers, sessions and actions"
+msgstr "Search collections, apps, computers, sessions and actions"
+
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "see collection members"
@@ -3126,6 +3159,10 @@ msgstr "Sharing code"
 msgid "Short approval code"
 msgstr "Short approval code"
 
+#: src/ConnectApp.tsx
+msgid "Shortcuts are off while typing or while a dialog is open."
+msgstr "Shortcuts are off while typing or while a dialog is open."
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
@@ -3149,8 +3186,19 @@ msgid "Sign in, review the request, and return to the application."
 msgstr "Sign in, review the request, and return to the application."
 
 #: src/AccountManagement.tsx
+#: src/portal-commands.ts
 msgid "Sign out"
 msgstr "Sign out"
+
+#. placeholder {0}: session.client_name
+#: src/portal-commands.ts
+msgid "Sign out {0}"
+msgstr "Sign out {0}"
+
+#. placeholder {0}: session.client_name
+#: src/AccountManagement.tsx
+msgid "Sign out {0}?"
+msgstr "Sign out {0}?"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3158,8 +3206,17 @@ msgid "Sign out of this browser"
 msgstr "Sign out of this browser"
 
 #: src/AccountManagement.tsx
+msgid "Sign out of this browser?"
+msgstr "Sign out of this browser?"
+
+#: src/AccountManagement.tsx
+#: src/portal-commands.ts
 msgid "Sign out other sessions"
 msgstr "Sign out other sessions"
+
+#: src/AccountManagement.tsx
+msgid "Sign out other sessions?"
+msgstr "Sign out other sessions?"
 
 #: src/authority-workflows.tsx
 msgid "Sign-in cancelled"
@@ -3212,6 +3269,10 @@ msgid "Signing in…"
 msgstr "Signing in…"
 
 #: src/AccountManagement.tsx
+msgid "Signing out…"
+msgstr "Signing out…"
+
+#: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Signing out…"
 msgstr "Signing out…"
@@ -3231,11 +3292,6 @@ msgstr "Storage"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Storage & sync"
-msgstr "Storage & sync"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Sync"
 msgstr "Sync"
 
@@ -3246,6 +3302,11 @@ msgstr "Sync a folder"
 #: src/ConnectApp.tsx
 msgid "Sync folder"
 msgstr "Sync folder"
+
+#. placeholder {0}: collection.name
+#: src/portal-commands.ts
+msgid "Sync folder · {0}"
+msgstr "Sync folder · {0}"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -3273,6 +3334,10 @@ msgstr "Tailscale identity"
 #: src/auth-view.tsx
 msgid "Terms"
 msgstr "Terms"
+
+#: src/AccountManagement.tsx
+msgid "That browser will need to sign in again. Copies already downloaded will remain."
+msgstr "That browser will need to sign in again. Copies already downloaded will remain."
 
 #: src/authority-workflows.tsx
 msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
@@ -3417,6 +3482,10 @@ msgstr "The value has changed again. Undo is no longer available."
 msgid "Their application and folder access will also be revoked."
 msgstr "Their application and folder access will also be revoked."
 
+#: src/portal-commands.ts
+msgid "Theme"
+msgstr "Theme"
+
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
 msgstr "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
@@ -3452,6 +3521,10 @@ msgstr "This application uses advanced behavior settings, so an existing type ca
 #: src/ConnectApp.tsx
 msgid "This browser could not keep your creation request. No request was sent."
 msgstr "This browser could not keep your creation request. No request was sent."
+
+#: src/portal-commands.ts
+msgid "This browser, active now"
+msgstr "This browser, active now"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3552,6 +3625,10 @@ msgstr "This reset link can’t be opened"
 msgid "This unsubscribe link can’t be opened"
 msgstr "This unsubscribe link can’t be opened"
 
+#: src/AccountManagement.tsx
+msgid "Those browsers will need to sign in again. This browser stays signed in."
+msgstr "Those browsers will need to sign in again. This browser stays signed in."
+
 #: src/authority-workflows.tsx
 msgid "Transfer approved"
 msgstr "Transfer approved"
@@ -3578,6 +3655,10 @@ msgstr "Try a different computer name. Filtering does not revoke access."
 msgid "Try again"
 msgstr "Try again"
 
+#: src/ConnectApp.tsx
+msgid "Try an object name, its location, or an action such as Rename. Clear the search to browse."
+msgstr "Try an object name, its location, or an action such as Rename. Clear the search to browse."
+
 #: src/ApplicationAccess.tsx
 msgid "Try another app name."
 msgstr "Try another app name."
@@ -3594,11 +3675,6 @@ msgstr "Try another name."
 #: src/ConnectApp.tsx
 msgid "Type {0} to confirm"
 msgstr "Type {0} to confirm"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "Type a command"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"
@@ -3845,6 +3921,10 @@ msgstr "You allowed reminders for the selected collections."
 #: src/authority-workflows.tsx
 msgid "You can close this tab."
 msgstr "You can close this tab."
+
+#: src/AccountManagement.tsx
+msgid "You will need to sign in again to manage your collections."
+msgstr "You will need to sign in again to manage your collections."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

@@ -487,11 +487,6 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Conta"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Account & sessions"
-msgstr "Conta e sessões"
-
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
 msgstr "A exclusão da conta está temporariamente indisponível enquanto concluímos uma correção do serviço."
@@ -532,6 +527,10 @@ msgstr "Atualização da conta agendada"
 msgid "Account: {0}"
 msgstr "Conta: {0}"
 
+#: src/portal-commands.ts
+msgid "Actions"
+msgstr "Ações"
+
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Actions for {0}"
@@ -547,6 +546,7 @@ msgid "Add a new {0} type"
 msgstr "Adicionar um novo tipo {0}"
 
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgid "Add collection"
 msgstr "Adicionar coleção"
 
@@ -598,11 +598,6 @@ msgstr "Após a transferência, {0} continuará como pasta sincronizada. Ela nã
 #: src/authority-workflows.tsx
 msgid "After the move, the original local files are no longer the main copy."
 msgstr "Após a transferência, os arquivos locais originais deixam de ser a cópia principal."
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "All collections"
-msgstr "Todas as coleções"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
@@ -693,11 +688,6 @@ msgctxt "Account management"
 msgid "Announcements"
 msgstr "Avisos"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "Acesso dos aplicativos"
-
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "App installation"
@@ -723,11 +713,6 @@ msgid "Application using a device code"
 msgstr "Aplicativo usando um código do dispositivo"
 
 #: src/authority-workflows.tsx
-msgid "Applications"
-msgstr "Aplicativos"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Applications"
 msgstr "Aplicativos"
 
@@ -812,6 +797,10 @@ msgstr "Sessão do navegador"
 msgctxt "Account management"
 msgid "Browser session actions"
 msgstr "Ações da sessão do navegador"
+
+#: src/portal-commands.ts
+msgid "Browser sessions"
+msgstr "Sessões do navegador"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1011,6 +1000,7 @@ msgstr "Escolha entre adicionar um novo tipo {0} ou usar um que você já tem."
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
+#: src/ConnectPrimitives.tsx
 msgid "Clear filter"
 msgstr "Limpar filtro"
 
@@ -1349,6 +1339,11 @@ msgid "Delete"
 msgstr "Excluir"
 
 #. placeholder {0}: collection.name
+#: src/portal-commands.ts
+msgid "Delete {0}"
+msgstr "Excluir {0}"
+
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Delete {0}?"
 msgstr "Excluir {0}?"
@@ -1664,6 +1659,10 @@ msgstr "Filtrar computadores"
 msgid "Filter sessions"
 msgstr "Filtrar sessões"
 
+#: src/ConnectApp.tsx
+msgid "Filter the current list"
+msgstr "Filtrar a lista atual"
+
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
 msgstr "Finalizando a configuração da coleção…"
@@ -1713,9 +1712,10 @@ msgstr "Gerando…"
 msgid "GitHub account @{login}"
 msgstr "Conta do GitHub @{login}"
 
-#: src/ConnectApp.tsx
-msgid "Go to {label}"
-msgstr "Ir para {label}"
+#. placeholder {0}: viewLabel(view)
+#: src/portal-commands.ts
+msgid "Go to {0}"
+msgstr "Ir para {0}"
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
@@ -1920,7 +1920,13 @@ msgstr "Guarde a cópia principal no mdbase, com pastas sincronizadas opcionais.
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "Mantenha seus registros atuais e indique quais campos têm o mesmo significado."
 
+#: src/ConnectApp.tsx
+#: src/portal-commands.ts
+msgid "Keyboard shortcuts"
+msgstr "Atalhos de teclado"
+
 #: src/LanguageSetting.tsx
+#: src/portal-commands.ts
 msgid "Language"
 msgstr "Idioma"
 
@@ -1930,6 +1936,7 @@ msgstr "Últimos dados conhecidos"
 
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
+#: src/portal-commands.ts
 msgid "Last used {0}"
 msgstr "Usado pela última vez {0}"
 
@@ -2143,6 +2150,10 @@ msgid "Move this collection"
 msgstr "Transferir esta coleção"
 
 #: src/ConnectApp.tsx
+msgid "Move through the list"
+msgstr "Percorrer a lista"
+
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved"
 msgstr "Transferida"
@@ -2162,6 +2173,7 @@ msgid "Name"
 msgstr "Nome"
 
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgid "Navigation"
 msgstr "Navegação"
 
@@ -2267,6 +2279,10 @@ msgstr "Nenhum computador corresponde"
 #: src/authorization-view.tsx
 msgid "No requesting origin is available. Continue only if you started this connection intentionally."
 msgstr "Nenhuma origem disponível. Continue apenas se você iniciou esta conexão intencionalmente."
+
+#: src/ConnectApp.tsx
+msgid "No results"
+msgstr "Nenhum resultado"
 
 #: src/AccountManagement.tsx
 msgid "No sessions match"
@@ -2378,7 +2394,7 @@ msgstr "Abrir em {0}"
 msgid "Open in editor"
 msgstr "Abrir no editor"
 
-#: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "Abrir no editor"
@@ -2415,6 +2431,10 @@ msgstr "Abra o link completo de redefinição de senha enviado por e-mail."
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
 msgstr "Abra o aplicativo para desktop para conectar este computador, adicionar uma pasta e continuar a mesma solicitação."
+
+#: src/ConnectApp.tsx
+msgid "Open the focused item"
+msgstr "Abrir o item em foco"
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
@@ -2711,8 +2731,10 @@ msgid "Rename"
 msgstr "Renomear"
 
 #. placeholder {0}: collection.name
+#. placeholder {0}: computer.name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgid "Rename {0}"
 msgstr "Renomear {0}"
 
@@ -2889,6 +2911,7 @@ msgid "Review request"
 msgstr "Revisar solicitação"
 
 #: src/ConnectApp.tsx
+#: src/portal-commands.ts
 msgctxt "Connect interface"
 msgid "Review request"
 msgstr "Revisar solicitação"
@@ -2907,6 +2930,12 @@ msgstr "A revogação está pendente. Aguardando {0} confirmar sua aplicação."
 msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "Revogar"
+
+#. placeholder {0}: application.applicationName
+#. placeholder {0}: computer.name
+#: src/portal-commands.ts
+msgid "Revoke {0}"
+msgstr "Revogar {0}"
 
 #. placeholder {0}: application.applicationName
 #. placeholder {0}: group.applicationName
@@ -3027,6 +3056,10 @@ msgstr "Pesquisar"
 msgid "Search collections by name"
 msgstr "Pesquisar coleções pelo nome"
 
+#: src/ConnectApp.tsx
+msgid "Search collections, apps, computers, sessions and actions"
+msgstr "Buscar coleções, apps, computadores, sessões e ações"
+
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "see collection members"
@@ -3126,6 +3159,10 @@ msgstr "Código de compartilhamento"
 msgid "Short approval code"
 msgstr "Código curto de aprovação"
 
+#: src/ConnectApp.tsx
+msgid "Shortcuts are off while typing or while a dialog is open."
+msgstr "Os atalhos ficam desativados durante a digitação ou quando há uma caixa de diálogo aberta."
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
@@ -3149,8 +3186,19 @@ msgid "Sign in, review the request, and return to the application."
 msgstr "Entre, revise a solicitação e volte ao aplicativo."
 
 #: src/AccountManagement.tsx
+#: src/portal-commands.ts
 msgid "Sign out"
 msgstr "Sair"
+
+#. placeholder {0}: session.client_name
+#: src/portal-commands.ts
+msgid "Sign out {0}"
+msgstr "Sair de {0}"
+
+#. placeholder {0}: session.client_name
+#: src/AccountManagement.tsx
+msgid "Sign out {0}?"
+msgstr "Sair de {0}?"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3158,8 +3206,17 @@ msgid "Sign out of this browser"
 msgstr "Sair deste navegador"
 
 #: src/AccountManagement.tsx
+msgid "Sign out of this browser?"
+msgstr "Sair deste navegador?"
+
+#: src/AccountManagement.tsx
+#: src/portal-commands.ts
 msgid "Sign out other sessions"
 msgstr "Encerrar outras sessões"
+
+#: src/AccountManagement.tsx
+msgid "Sign out other sessions?"
+msgstr "Sair das outras sessões?"
 
 #: src/authority-workflows.tsx
 msgid "Sign-in cancelled"
@@ -3212,6 +3269,10 @@ msgid "Signing in…"
 msgstr "Entrando…"
 
 #: src/AccountManagement.tsx
+msgid "Signing out…"
+msgstr "Saindo…"
+
+#: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Signing out…"
 msgstr "Saindo…"
@@ -3231,11 +3292,6 @@ msgstr "Armazenamento"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Storage & sync"
-msgstr "Armazenamento e sincronização"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Sync"
 msgstr "Sincronização"
 
@@ -3246,6 +3302,11 @@ msgstr "Sincronizar uma pasta"
 #: src/ConnectApp.tsx
 msgid "Sync folder"
 msgstr "Sincronizar pasta"
+
+#. placeholder {0}: collection.name
+#: src/portal-commands.ts
+msgid "Sync folder · {0}"
+msgstr "Sincronizar pasta · {0}"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -3273,6 +3334,10 @@ msgstr "Identidade do Tailscale"
 #: src/auth-view.tsx
 msgid "Terms"
 msgstr "Termos"
+
+#: src/AccountManagement.tsx
+msgid "That browser will need to sign in again. Copies already downloaded will remain."
+msgstr "Esse navegador precisará entrar novamente. As cópias já baixadas serão mantidas."
 
 #: src/authority-workflows.tsx
 msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
@@ -3417,6 +3482,10 @@ msgstr "O valor voltou a mudar. Já não é possível anular."
 msgid "Their application and folder access will also be revoked."
 msgstr "O acesso por aplicativos e pastas também será revogado."
 
+#: src/portal-commands.ts
+msgid "Theme"
+msgstr "Tema"
+
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
 msgstr "Esta conta aprova novos dispositivos pelo aplicativo mdbase para desktop. Adicione este dispositivo por lá e entre novamente em {app}."
@@ -3452,6 +3521,10 @@ msgstr "Este aplicativo usa configurações avançadas de comportamento, por iss
 #: src/ConnectApp.tsx
 msgid "This browser could not keep your creation request. No request was sent."
 msgstr "Este navegador não conseguiu guardar sua solicitação de criação. Nenhuma solicitação foi enviada."
+
+#: src/portal-commands.ts
+msgid "This browser, active now"
+msgstr "Este navegador, ativo agora"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3552,6 +3625,10 @@ msgstr "Não é possível abrir este link de redefinição"
 msgid "This unsubscribe link can’t be opened"
 msgstr "Não é possível abrir este link de cancelamento de assinatura"
 
+#: src/AccountManagement.tsx
+msgid "Those browsers will need to sign in again. This browser stays signed in."
+msgstr "Esses navegadores precisarão entrar novamente. Este navegador continuará conectado."
+
 #: src/authority-workflows.tsx
 msgid "Transfer approved"
 msgstr "Transferência aprovada"
@@ -3578,6 +3655,10 @@ msgstr "Tente outro nome de computador. Filtrar não revoga o acesso."
 msgid "Try again"
 msgstr "Tentar novamente"
 
+#: src/ConnectApp.tsx
+msgid "Try an object name, its location, or an action such as Rename. Clear the search to browse."
+msgstr "Tente um nome, um local ou uma ação como Renomear. Limpe a busca para explorar."
+
 #: src/ApplicationAccess.tsx
 msgid "Try another app name."
 msgstr "Tente outro nome de aplicativo."
@@ -3594,11 +3675,6 @@ msgstr "Tente outro nome."
 #: src/ConnectApp.tsx
 msgid "Type {0} to confirm"
 msgstr "Digite {0} para confirmar"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Type a command"
-msgstr "Digite um comando"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"
@@ -3845,6 +3921,10 @@ msgstr "Você permitiu lembretes para as coleções selecionadas."
 #: src/authority-workflows.tsx
 msgid "You can close this tab."
 msgstr "Pode fechar este separador."
+
+#: src/AccountManagement.tsx
+msgid "You will need to sign in again to manage your collections."
+msgstr "Você precisará entrar novamente para gerenciar suas coleções."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

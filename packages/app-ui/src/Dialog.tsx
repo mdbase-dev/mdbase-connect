@@ -30,8 +30,9 @@ export function Dialog({ open, onClose, title, className, closeDisabled = false,
   useLayoutEffect(() => {
     const dialog = ref.current;
     return () => {
+      const wasOpen = dialog?.open;
       dialog?.close();
-      if (!document.querySelector("dialog[open]")) (returnFocusRef?.current ?? invoker.current)?.focus({ preventScroll: true });
+      if (wasOpen && !document.querySelector("dialog[open]")) (returnFocusRef?.current ?? invoker.current)?.focus({ preventScroll: true });
     };
   }, [present, ref, returnFocusRef]);
   if (!present) return null;

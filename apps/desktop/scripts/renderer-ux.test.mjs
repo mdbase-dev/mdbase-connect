@@ -157,7 +157,7 @@ for (const theme of ["light", "dark"]) {
       await page.keyboard.press("Control+k");
       const palette = page.getByRole("dialog", { name: "Commands" });
       await palette.getByText("Commands", { exact: true }).last().waitFor();
-      await palette.getByRole("textbox").fill("Work");
+      await palette.getByRole("combobox").fill("Work");
       await palette.getByRole("option", { name: /Work/ }).waitFor();
       await screenshot(page, `parity-palette-${theme}`);
       await page.keyboard.press("Enter");

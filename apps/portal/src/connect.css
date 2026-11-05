@@ -438,7 +438,7 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 .connect-collection-open .mdbase-button { white-space: nowrap; padding-inline: 6px; font-size: var(--font-size-caption); }
 .connect-collection-menu .mdbase-icon-button { width: 32px; height: 32px; }
 .connect-collection-menu svg { width: 20px; height: 20px; }
-.connect-list-filter { display: block; margin-bottom: 16px; }
+.connect-list-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
 .connect-list-filter input { width: 100%; }
 .connect-edit-form { display: grid; gap: 16px; }
 .connect-edit-form label { display: grid; gap: 8px; }
@@ -930,8 +930,9 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 @media (max-width: 760px) {
   body:has(.connect-shell) { overflow: auto; }
   .connect-shell { min-height: 100dvh; height: auto; display: block; }
-  .connect-nav { padding: 0; border-right: 0; border-bottom: 1px solid var(--line); }
-  .connect-shell .connect-nav > :is(nav, footer, .sidebar-search), .nav-pill { display: none; }
+  .connect-nav { position: relative; padding: 0; border-right: 0; border-bottom: 1px solid var(--line); }
+  .connect-shell .connect-nav > :is(nav, footer), .nav-pill { display: none; }
+  .connect-nav > .sidebar-search { position: absolute; inset: 8px 68px auto auto; display: flex; align-items: center; gap: 8px; width: auto; min-height: 44px; margin: 0; }
   .connect-nav > header { min-height: 60px; margin: 0; justify-content: space-between; padding: 8px 16px; }
   .connect-mobile-nav-toggle { display: inline-flex; width: 44px; height: 44px; }
   .connect-navigation-sheet { width: min(340px, calc(100% - 32px)); max-height: calc(100dvh - 32px); margin: 16px 16px 16px auto; }
@@ -992,4 +993,13 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 
 .connect-empty {
   justify-content: flex-start;
+}
+.connect-shortcuts { display: grid; gap: 12px; }
+.connect-shortcuts > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.connect-shortcuts dd { margin: 0; white-space: nowrap; }
+.connect-list-filter > label { flex: 1; min-width: 0; }
+.connect-main [data-list-item]:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+@media (pointer: coarse) {
+  .sidebar-search kbd,
+  .connect-list-filter > kbd { display: none; }
 }

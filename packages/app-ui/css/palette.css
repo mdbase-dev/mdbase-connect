@@ -148,3 +148,9 @@
     display: none;
   }
 }
+
+@media (pointer: coarse) {
+  .mdbase-command-results kbd,
+  .mdbase-command-footer,
+  .mdbase-command-alternate { display: none; }
+}

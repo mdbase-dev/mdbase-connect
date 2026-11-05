@@ -10,6 +10,12 @@
 
 `@mdbase-dev/ui/overlay`: `useOverlay<Element>(open)` returns `{ref, present}`. Render while present, put the ref and `mdbase-overlay` / `data-open={open}` on the transitioning node. CSS owns reversal; the node leaves after the exit duration. Motion, focus and palette geometry tokens have one definition. No data-screen entrance choreography is added.
 
+## Portal commands
+
+Portal commands live in `apps/portal/src/portal-commands.ts`: one cached registry and one keyboard hook, replacing the navigation-only palette and independent Mod+K listener. Object entries reveal existing rows; actions activate their existing controls and confirmation flows, never a second mutation path. Opening or filtering the palette does not fetch data. Account-page entry focus and scrolling finish in the layout phase before a command hands focus to a row or preference control.
+
+The shared shortcut vocabulary is Mod+K for search, `?` / Ctrl+/ for help, `c` for Add collection, `/` for the current list filter, J/K and Enter for visible list focus. Navigation is `g c` Collections, `g a` Apps, `g p` Computers, `g s` Account; inside a collection, `g o` Overview, `g t` Storage and `g r` Access. The prefix expires after one second but survives ordinary renders. Typing, composition, dialogs and menus suspend these shortcuts. Sign out and revoke have no single-key binding. Pointer-coarse surfaces keep Search available but hide shortcut hints. Palette dismissal restores its invoker; running a command closes the modal before handing focus to its destination.
+
 ## Editor publication boundary
 
 The Editor still consumes an exact npm `@mdbase-dev/ui` pin. This PR does not substitute workspace source or adopt unavailable APIs. Its existing Dialog, ActionMenu, ContextMenu, QuickOpen and toast adapters must be migrated and their bespoke lifecycle/traps deleted in the repin follow-up; the Editor's palette/focus/type CSS must then consume these shared tokens too.

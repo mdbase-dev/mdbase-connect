@@ -18,7 +18,7 @@ import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
 import { readRememberedCollection, rememberCollection, sessionExpiredUrl } from "./portal-model";
-import { CommandPalette, shortcutLabel, type Command } from "@mdbase-dev/ui/command-palette";
+import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
 import { signalMdbaseMark, useMdbaseMarkActivity } from "@mdbase-dev/ui/mark-activity";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { Dialog } from "@mdbase-dev/ui/dialog";
@@ -58,13 +58,13 @@ import "./connect.css";
 import "@mdbase-dev/ui/feedback.css";
 import { Select } from "@mdbase-dev/ui/select";
 import { literal } from "./literal";
+import { usePortalCommands, type ConnectView } from "./portal-commands";
 
 type MemberRole = "viewer" | "editor";
 
 // The owner row shows "Owner" instead of a role choice, so only assignable roles are listed.
 const memberRoles: ReadonlyArray<{ value: MemberRole; label: string }> = [{ value: "viewer", get label() { return t(i18n)({ message: "Viewer", context: "Connect interface" }); } }, { value: "editor", get label() { return t(i18n)({ message: "Editor", context: "Connect interface" }); } }];
 
-type ConnectView = "overview" | "storage" | "access" | "collections" | "applications" | "computers" | "account" | "feedback";
 type Grant = ManagementOverview["grants"][number];
 type BusyOperations = ReadonlySet<string>;
 
@@ -110,7 +110,6 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const mutationRevisionRef = useRef(0);
   const optimisticRef = useRef(new Map<string, OptimisticAction>());
   const actionVersionsRef = useRef(new Map<string, number>());
-  const [commandsOpen, setCommandsOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const navPillRef = useRef<HTMLSpanElement>(null);
   const lifecycleRef = useRef<AbortController | null>(null);
@@ -278,6 +277,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   }
 
   function navigate(next: ConnectView, collectionId?: string) {
+    keyboard.cancel();
     const path = next === "overview" ? "/" : `/${next}`;
     const url = new URL(location.href);
     url.pathname = path;
@@ -320,20 +320,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     }
   }, [accountDeleted, data, requestedCollectionId, selectedCollectionId, view]);
 
-  useEffect(() => {
-    const toggle = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setCommandsOpen((open) => !open);
-      }
-    };
-    window.addEventListener("keydown", toggle);
-    return () => window.removeEventListener("keydown", toggle);
-  }, []);
-
   useNavPill(navRef, navPillRef);
-
-  if (accountDeleted) return <DeletedAccount client={management} />;
 
   const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
   const freshlyAuthorized = new Set(data?.grants
@@ -354,12 +341,14 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const pendingCollection = pendingRequest?.collection_id
     ? collections.find((collection) => collection.id === pendingRequest.collection_id)
     : undefined;
-  const commands: Command[] = [
-    ...(selectedCollection ? ([["overview", t(i18n)({ message: "Overview", context: "Connect interface" })], ["storage", t(i18n)({ message: "Storage & sync", context: "Connect interface" })], ["access", t(i18n)({ message: "App access", context: "Connect interface" })]] as const) : []),
-    ...([["collections", t(i18n)({ message: "All collections", context: "Connect interface" })], ["applications", t(i18n)({ message: "Applications", context: "Connect interface" })], ["computers", t(i18n)({ message: "Computers", context: "Connect interface" })], ["account", t(i18n)({ message: "Account & sessions", context: "Connect interface" })]] as const)
-  ].map(([id, label]) => ({ id, label: t(i18n)`Go to ${label}`, group: "commands", run: () => navigate(id, selectedCollection?.id) }));
-  if (selectedCollection && editorOrigin) commands.push({ id: "editor", label: t(i18n)({ message: "Open in editor", context: "Connect interface" }), group: "commands", run: () => location.assign(editorCollectionUrl(selectedCollection.id, editorOrigin)) });
-  if (pendingRequest) commands.push({ id: "review", label: t(i18n)({ message: "Review request", context: "Connect interface" }), group: "commands", run: () => location.assign(new URL(`/authorize/${pendingRequest.id}`, management.baseUrl).href) });
+  const keyboard = usePortalCommands({
+    data, collections, applications, sessions, selectedCollectionId, navigate, viewLabel,
+    enabled: Boolean(data) && !accountDeleted && !refreshError,
+    openEditor: selectedCollection && editorOrigin ? () => location.assign(editorCollectionUrl(selectedCollection.id, editorOrigin)) : undefined,
+    reviewRequest: pendingRequest ? () => location.assign(new URL(`/authorize/${pendingRequest.id}`, management.baseUrl).href) : undefined
+  });
+  if (accountDeleted) return <DeletedAccount client={management} />;
+  const commands = keyboard.commands;
   const navigation = <nav ref={navRef} aria-label={t(i18n)`Navigation`}>
     <span ref={navPillRef} className="nav-pill" aria-hidden="true" hidden />
     {selectedCollection && isCollectionView(activeView) && <section className="connect-nav-group" aria-label={selectedCollection.name}>
@@ -381,7 +370,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   return <div className="connect-shell">
     <aside className="connect-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
       <header><ActivityBrand /><button className="connect-mobile-nav-toggle mdbase-icon-button" aria-label={t(i18n)({ message: "Open menu", context: "Connect interface" })} aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><List aria-hidden="true" /></button></header>
-      <button className="sidebar-search" onClick={() => setCommandsOpen(true)}><span><Trans>Search</Trans></span><kbd>{shortcutLabel("mod+k")}</kbd></button>
+      <button className="sidebar-search" onClick={keyboard.show}><span><Trans>Search</Trans></span><kbd>{shortcutLabel("mod+k")}</kbd></button>
       {!navigationOpen && <>{navigation}{footer}</>}
     </aside>
     <Dialog open={navigationOpen} title={t(i18n)`Navigation`} className="connect-navigation-sheet" onClose={() => setNavigationOpen(false)}>{navigation}{footer}</Dialog>
@@ -410,7 +399,17 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       {activeView === "feedback" && !feedbackEnabled && <Page title={t(i18n)({ message: "Feedback unavailable", context: "Connect interface" })} intro={t(i18n)({ message: "This deployment has not configured a feedback destination." })}><section><Empty title={t(i18n)({ message: "Feedback is unavailable", context: "Connect interface" })} body={t(i18n)({ message: "Contact the person who operates this mdbase connect deployment." })} /></section></Page>}
       </>}
     </main>
-    <CommandPalette open={commandsOpen} commands={commands} onClose={() => setCommandsOpen(false)} showAll={["commands"]} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)({ message: "Type a command", context: "Connect interface" })} />
+    <CommandPalette open={keyboard.open} commands={commands} onClose={keyboard.close} returnFocusRef={keyboard.invoker} showAll={["navigation", "commands"]} groupLabel={group => keyboard.groupLabels[group]} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)`Search collections, apps, computers, sessions and actions`} emptyState={<><strong><Trans>No results</Trans></strong><p><Trans>Try an object name, its location, or an action such as Rename. Clear the search to browse.</Trans></p></>} />
+    <Dialog open={keyboard.helpOpen} title={t(i18n)`Keyboard shortcuts`} onClose={keyboard.closeHelp}>
+      <p className="connect-muted"><Trans>Shortcuts are off while typing or while a dialog is open.</Trans></p>
+      <dl className="connect-shortcuts">
+        <div><dt><Trans>Search</Trans></dt><dd><kbd>{shortcutLabel("mod+k")}</kbd></dd></div>
+        {commands.filter(command => command.shortcut).map(command => <div key={command.id}><dt>{command.label}</dt><dd><kbd>{shortcutLabel(command.shortcut!)}</kbd>{command.id === "shortcuts" && <> / <kbd>{shortcutLabel("Ctrl+/")}</kbd></>}</dd></div>)}
+        <div><dt><Trans>Filter the current list</Trans></dt><dd><kbd>/</kbd></dd></div>
+        <div><dt><Trans>Move through the list</Trans></dt><dd><kbd>{shortcutLabel("j")}</kbd> / <kbd>{shortcutLabel("k")}</kbd></dd></div>
+        <div><dt><Trans>Open the focused item</Trans></dt><dd><kbd>{shortcutLabel("Enter")}</kbd></dd></div>
+      </dl>
+    </Dialog>
   </div>;
 }
 
@@ -694,7 +693,7 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
     <button className="connect-location-choice" disabled={!hostedEnabled || !canCreate} onClick={() => choose("hosted")}><Cloud aria-hidden="true" /><span><strong><Trans>Hosted by mdbase</Trans></strong><small><Trans>Keep the main copy in mdbase, with optional synced folders.</Trans></small></span></button>
     <button className="connect-location-choice" onClick={() => choose("native")}><Computer aria-hidden="true" /><span><strong><Trans>A folder on this computer</Trans></strong><small><Trans>Choose a Markdown folder in the desktop app. Your files stay here.</Trans></small></span></button>
   </div>;
-  return <Page title={t(i18n)({ message: "Collections", context: "Connect interface" })} intro={t(i18n)({ message: "Open a collection in the editor or manage where its main copy lives." })} action={rows.length > 0 && <button className="mdbase-button is-secondary" onClick={() => choose()}><Plus aria-hidden="true" /><Trans>Add collection</Trans></button>}>
+  return <Page title={t(i18n)({ message: "Collections", context: "Connect interface" })} intro={t(i18n)({ message: "Open a collection in the editor or manage where its main copy lives." })} action={<button data-command="create" className="mdbase-button is-secondary" onClick={() => choose()}><Plus aria-hidden="true" /><Trans>Add collection</Trans></button>}>
     <section className="connect-collections-list" aria-label={t(i18n)({ message: "Collections", context: "Connect interface" })}>
       {rows.length >= 10 && <ListFilter label={t(i18n)`Filter collections`} value={query} onChange={setQuery} />}
       {visible.map(collection => <CollectionSummary error={error} key={collection.id} className={initialIds.current.has(collection.id) ? "" : "is-new"} collection={collection} navigate={navigate} editorOrigin={editorOrigin} busy={busy} perform={perform} />)}
@@ -735,7 +734,7 @@ function Computers({ error, data, busy, perform }: {
         const updateRecommended = connector.update_recommended === true;
         const online = !upgradeRequired && isConnectorOnline(connector.last_seen_at);
         const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
-        return <div className="connect-row" key={connector.id}>
+        return <div className="connect-row" key={connector.id} data-list-item data-command={`computer:${connector.id}`} tabIndex={-1}>
           <div><strong>{connector.name}</strong><small>{countLabel(collections.length, "collection")} · {connector.last_seen_at ? t(i18n)`Seen ${relativeTime(connector.last_seen_at)}` : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</small><small><Trans>Registered {new Date(connector.created_at).toLocaleDateString(i18n.locale, { dateStyle: "short" })}</Trans></small></div>
           <span className="connect-status"><StatusGlyph state={upgradeRequired ? "attention" : online ? "online" : connector.last_seen_at ? "offline" : "idle"} />{upgradeRequired ? t(i18n)({ message: "Update required", context: "Connect interface" }) : online ? t(i18n)({ message: "Connected", context: "Connect interface" }) : connector.last_seen_at ? t(i18n)({ message: "Offline", context: "Connect interface" }) : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</span>
           {upgradeRequired && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Install {connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })}</Trans></a>}
@@ -835,16 +834,16 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
   const working = busy.has(`collection-${collection.id}`);
   const folders = hosted?.replicas.filter(replica => replica.revocation_status !== "revoked").length ?? 0;
   const locationIcon = hosted || collection.kind === "native" && collection.source.sync === "cloud_copy" ? <Cloud aria-hidden="true" /> : <Computer aria-hidden="true" />;
-  return <div className={`connect-collection-row ${className}`}>
+  return <div className={`connect-collection-row ${className}`} data-list-item data-command={`collection:${collection.id}`}>
     <span className="connect-location-glyph">{locationIcon}</span>
     <div className="connect-collection-name">{navigate ? <RouteLink className="connect-collection-link" view="overview" collectionId={collection.id} navigate={navigate}><strong>{collection.name}</strong></RouteLink> : <strong>{collection.name}</strong>}<small>{collection.detail}{folders > 0 && <> · {countLabel(folders, "folder")}</>}</small></div>
     <span className="connect-status">{collection.glyph !== "idle" && !hosted && <StatusGlyph state={collection.glyph} />}{hosted && active ? "" : collection.status}</span>
     <span className="connect-collection-open">{editorOrigin && editorId && <a className="mdbase-button is-tertiary" href={editorCollectionUrl(editorId, editorOrigin)}><Trans>Open in editor</Trans></a>}</span>
     <span className="connect-collection-menu">{hosted && <><button ref={trigger} className="mdbase-icon-button" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><DotsThree aria-hidden="true" /></button>
       <Menu open={menuOpen} triggerRef={trigger} id={`collection-menu-${collection.id}`} label={collection.name} onClose={refocus => { setMenuOpen(false); if (refocus) trigger.current?.focus(); }}>
-        {active && hosted.access.can_rename_collection && <button role="menuitem" onClick={() => { setMenuOpen(false); setName(collection.name); setEditing("rename"); }}><Trans>Rename</Trans></button>}
+        {active && hosted.access.can_rename_collection && <button role="menuitem" data-action="rename" onClick={() => { setMenuOpen(false); setName(collection.name); setEditing("rename"); }}><Trans>Rename</Trans></button>}
         {active && <DesktopLink role="menuitem" href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.id)}`}><Trans>Sync folder</Trans></DesktopLink>}
-        {hosted.access.can_delete_collection && <button role="menuitem" className="is-danger" onClick={() => { setMenuOpen(false); setName(""); setEditing("delete"); }}><Trans>Delete</Trans></button>}
+        {hosted.access.can_delete_collection && <button role="menuitem" data-action="delete" className="is-danger" onClick={() => { setMenuOpen(false); setName(""); setEditing("delete"); }}><Trans>Delete</Trans></button>}
       </Menu>
     </>}</span>
     {hosted && <><Dialog open={editing === "rename"} title={t(i18n)`Rename ${collection.name}`} returnFocusRef={trigger} closeDisabled={working} onClose={() => setEditing(null)}><form className="connect-edit-form" onSubmit={async event => {

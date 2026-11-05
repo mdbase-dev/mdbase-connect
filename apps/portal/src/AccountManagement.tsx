@@ -1,4 +1,5 @@
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
+import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { countLabel } from "./count-label";
 import { formatters } from "@mdbase-dev/i18n";
 import { t, plural } from "@lingui/core/macro";
@@ -137,16 +138,18 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   }
 
   async function signOutCurrentBrowser() {
-    if (!beginOperation("logout")) return;
+    if (!beginOperation("logout")) return false;
     setError("");
     try {
       await client.logout();
       clearOverviewPreview();
       onSignedOut();
       location.href = loginUrl(client);
+      return true;
     } catch (reason) {
       handleError(reason);
       finishOperation("logout");
+      return false;
     }
   }
 
@@ -294,17 +297,17 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     </section>}
 
     {account.authentication.managed && <section>
-      <SectionTitle title={t(i18n)({ message: "Browser sessions", context: "Account management" })} count={sessions?.length} action={otherSessions.length > 0 && <button className="mdbase-button is-tertiary is-danger" disabled={busy.has("sessions-others")} onClick={() => void run("sessions-others", () => client.revokeOtherSessions(), t(i18n)`Signed out other browser sessions.`)}><Trans>Sign out other sessions</Trans></button>} />
-      <div className="connect-row-actions connect-session-actions" role="group" aria-label={t(i18n)({ message: "Browser session actions", context: "Account management" })}>
-        <button className="mdbase-button is-tertiary is-danger" disabled={busy.has("logout")} aria-busy={busy.has("logout") || undefined} onClick={() => void signOutCurrentBrowser()}>{busy.has("logout") ? t(i18n)({ message: "Signing out…", context: "Account management" }) : t(i18n)({ message: "Sign out of this browser", context: "Account management" })}</button>
+      <SectionTitle title={t(i18n)({ message: "Browser sessions", context: "Account management" })} count={sessions?.length} action={otherSessions.length > 0 && <span data-command="sign-out-others"><ConfirmAction className="mdbase-button is-tertiary is-danger" label={t(i18n)`Sign out other sessions`} question={t(i18n)`Sign out other sessions?`} consequence={t(i18n)`Those browsers will need to sign in again. This browser stays signed in.`} confirmLabel={t(i18n)`Sign out`} pendingLabel={t(i18n)`Signing out…`} error={error} busy={busy.has("sessions-others")} onConfirm={() => run("sessions-others", () => client.revokeOtherSessions(), t(i18n)`Signed out other browser sessions.`)} /></span>} />
+      <div data-command="sign-out" className="connect-row-actions connect-session-actions" role="group" aria-label={t(i18n)({ message: "Browser session actions", context: "Account management" })}>
+        <ConfirmAction className="mdbase-button is-tertiary is-danger" label={t(i18n)({ message: "Sign out of this browser", context: "Account management" })} question={t(i18n)`Sign out of this browser?`} consequence={t(i18n)`You will need to sign in again to manage your collections.`} confirmLabel={t(i18n)`Sign out`} pendingLabel={t(i18n)({ message: "Signing out…", context: "Account management" })} error={error} busy={busy.has("logout")} onConfirm={signOutCurrentBrowser} />
       </div>
       {!sessions && <p className="connect-muted"><Trans>Checking active sessions…</Trans></p>}
       {sessions && sessions.length >= 10 && <ListFilter label={t(i18n)`Filter sessions`} value={sessionQuery} onChange={setSessionQuery} />}
       {sessions && visibleSessions?.length === 0 && <Empty title={t(i18n)`No sessions match`} body={t(i18n)`Try another name.`} />}
-      {visibleSessions?.map((session) => <div className="connect-row" key={session.id}>
+      {visibleSessions?.map((session) => <div className="connect-row" key={session.id} data-list-item data-command={`session:${session.id}`} tabIndex={-1}>
         <div><strong>{session.client_name}</strong><small>{session.current ? t(i18n)({ message: "This browser, active now", context: "Account management" }) : t(i18n)`Last used ${relativeTime(session.last_seen_at)}`}</small><small><Trans>Signed in <time dateTime={session.created_at}>{formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "short", timeStyle: "short" })}</time></Trans></small></div>
         <span>{providerLabel(session.provider)}</span>
-        {session.current ? <span className="connect-current"><Trans context="Browser session status">Current</Trans></span> : <button className="mdbase-button is-tertiary is-danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id), t(i18n)`Signed out ${session.client_name}`)}><Trans>Sign out</Trans></button>}
+        {session.current ? <span className="connect-current"><Trans context="Browser session status">Current</Trans></span> : <ConfirmAction className="mdbase-button is-tertiary is-danger" label={t(i18n)`Sign out`} question={t(i18n)`Sign out ${session.client_name}?`} consequence={t(i18n)`That browser will need to sign in again. Copies already downloaded will remain.`} confirmLabel={t(i18n)`Sign out`} pendingLabel={t(i18n)`Signing out…`} error={error} busy={busy.has(`session-${session.id}`)} onConfirm={() => run(`session-${session.id}`, () => client.revokeSession(session.id), t(i18n)`Signed out ${session.client_name}`)} />}
       </div>)}
     </section>}
 
