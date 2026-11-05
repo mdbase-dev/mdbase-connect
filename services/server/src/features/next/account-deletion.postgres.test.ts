@@ -1,16 +1,19 @@
 import { ensureDevelopmentEntitlement } from "../../entitlements.js";
-import { randomBytes, randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { deleteAccountLocally } from "../../account-management.js";
-import { revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
+import { changeHostedCollectionMembershipRole, revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
 import { createHostedCollectionMembership, type CollectionMembershipPolicy } from "../../collection-policy.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
-import { registerNextCollection } from "./policy-outbox.js";
+import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
+import { LogServiceClient } from "./log-service-client.js";
+import { ed25519RawPublicKey } from "./policy-keys.js";
+import { FakeLogService, certify } from "../../../test/policy-log.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -51,8 +54,8 @@ describePg("account deletion on native collections (dedicated local Postgres)", 
   }
   type Account = Awaited<ReturnType<typeof account>>;
 
-  async function collection(owner: Account) {
-    const id = randomUUID(), root = randomBytes(32);
+  async function collection(owner: Account, root = randomBytes(32)) {
+    const id = randomUUID();
     await inTransaction(db, client => registerNextCollection(client, {
       collectionId: id, ownerUserId: owner.id, runtime: "next", sync: "cloud_copy", rootKeyId: root,
       ops: [{ op: "genesis", owner: owner.id, root, state: "cloud-copy" }, { op: "member-set", account: owner.id, role: "owner" }]
@@ -77,6 +80,48 @@ describePg("account deletion on native collections (dedicated local Postgres)", 
   const ops = async (collectionId: string, accountId: string): Promise<Op[]> =>
     (await db.query<{ ops: { ops: Op[] } }>("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id", [collectionId]))
       .rows.flatMap(row => row.ops.ops).filter(op => op.account === accountId);
+
+  it.each(["account-delete", "revoke-then-delete", "membership-remove", "role-change", "grant-delete"])(
+    "publishes exactly one grant revocation before dependent membership changes: %s", async action => {
+      const owner = await account(), member = await account();
+      const root = generateKeyPairSync("ed25519").privateKey, policy = generateKeyPairSync("ed25519").privateKey;
+      const signer = certify(root, policy, Date.now());
+      const shared = await collection(owner, Buffer.from(signer.cert.root));
+      const membership = await join(shared, owner, member), grantId = await grant(member, membership), logGrant = randomUUID();
+      await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$2,$3,$4)",
+        [grantId, shared, logGrant, randomBytes(32)]);
+      await queueNextPolicy(db, shared, [
+        { op: "device-enrol", device: member.device, account: member.id, kind: "desktop",
+          signPublicKey: randomBytes(32), kemPublicKey: randomBytes(32), noisePublicKey: randomBytes(32) },
+        { op: "grant", grant: logGrant, installation: randomUUID(), appId: "test.app", account: member.id,
+          capabilities: ["collection.read"], clientPublicKey: randomBytes(32) }
+      ]);
+      const issuer = generateKeyPairSync("ed25519").privateKey;
+      const service = new FakeLogService(ed25519RawPublicKey(issuer));
+      const client = new LogServiceClient({ url: "http://log.test", tokenIssuerKeyPem: issuer.export({ format: "pem", type: "pkcs8" }).toString(),
+        transportKeyPem: generateKeyPairSync("ed25519").privateKey.export({ format: "pem", type: "pkcs8" }).toString() }, service.fetch);
+      const emitter = new PolicyEmitter(db, client, signer);
+      try {
+        await emitter.drainCollection(shared);
+        if (action === "revoke-then-delete") await db.query("UPDATE grants SET revoked_at=now() WHERE id=$1", [grantId]);
+        if (action === "membership-remove") {
+          await revokeHostedCollectionMembership(db, { collectionId: shared, actorUserId: owner.id, membershipId: membership.membershipId });
+        } else if (action === "role-change") {
+          await changeHostedCollectionMembershipRole(db, { collectionId: shared, actorUserId: owner.id, membershipId: membership.membershipId, role: "viewer" });
+        } else if (action === "grant-delete") {
+          await db.query("DELETE FROM grants WHERE id=$1", [grantId]);
+        } else {
+          await deleteAccountLocally(db, { userId: member.id, sessionId: randomUUID(), authorized: true, queueProviderCleanup: false });
+        }
+        await emitter.drainCollection(shared);
+        const expected = action === "grant-delete" ? ["7"] : ["7", action === "role-change" ? "4" : "5"];
+        expect(service.policyOps(shared, ed25519RawPublicKey(policy))).toEqual([["1", "4", "4", "2", "6"], expected]);
+        const revocations = await db.query("SELECT id FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb",
+          [shared, JSON.stringify([{ op: "grant-revoke", grant: logGrant }])]);
+        expect(revocations.rows).toHaveLength(1);
+      } finally { await emitter.close(); }
+    }
+  );
 
   /** Rows still pointing at `value` through any single-column foreign key to `table`. */
   async function references(table: string, value: string) {
