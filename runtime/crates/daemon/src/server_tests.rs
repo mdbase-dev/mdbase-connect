@@ -7,6 +7,10 @@ mod conflict_tests;
 #[path = "server_mirror_join_tests.rs"]
 mod mirror_join_tests;
 use super::*;
+
+#[cfg(unix)]
+#[path = "server_grant_session_tests.rs"]
+mod grant_sessions;
 use crate::access::{AccessState, FeedCursor};
 use crate::confirm::{Answer, Confirmer};
 use std::collections::BTreeMap;

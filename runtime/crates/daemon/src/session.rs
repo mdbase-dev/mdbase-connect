@@ -116,6 +116,8 @@ pub enum Auth {
         grant: [u8; 16],
         /// The client's Noise static key, as authenticated by the handshake.
         client_pk: [u8; 32],
+        /// Transport origin; only relay sessions require a Private feed lease.
+        origin: Origin,
     },
 }
 
@@ -472,6 +474,7 @@ where
                 Auth::Grant {
                     grant: prologue.grant,
                     client_pk,
+                    origin,
                 }
             };
             handler.open(prologue, auth, req).await

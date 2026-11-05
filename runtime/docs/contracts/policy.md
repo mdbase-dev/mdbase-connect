@@ -378,8 +378,24 @@ these contracts:
 ### 5.1 Account consent and Private scope materialization
 
 Account consent is the sole user approval for Private collections, as for cloud
-collections. The daemon serves only while running and signed in to that account,
-under a fresh account-bound grant feed. It automatically materializes the exact
+collections. The daemon serves only while running and signed in to that account.
+Private relay sessions additionally require the exact cached grant, collection
+and authenticated client key under a live account-bound feed lease, at admission
+and on established-session rechecks. This cache gate only denies; the signed log
+still owns Private capabilities. Delisting denies without waiting for log delivery,
+including an unreachable log or parked policy outbox. Local refusal tombstones deny
+granted sessions on every transport, including IPC, and localhost-link sessions
+using the refused client key. The independently authenticated host is not an app
+grant. The feed lease is not required for Private IPC or link use, so confirmed
+signed policy remains usable offline. Native cloud-copy daemon behavior is unchanged.
+
+Log-first admission waits for the feed; feed-first relay admission waits for signed
+policy through the existing bounded activation wait. A pre-live relay close remains
+retryable (`4000`, `grant_inactive`), not a terminal authority refusal. No new consent
+is needed when both arrive. Restart recovery requires a newer snapshot sequence:
+replaying the persisted feed cursor deliberately cannot renew its lease.
+
+The daemon automatically materializes the exact
 client key, capabilities and folder scope as the existing sealed, device-signed
 `grant_approval` item (`sealed-envelope.md` §2). The wire name and effective-grant
 rules stay unchanged; this is scope publication, not another user decision:

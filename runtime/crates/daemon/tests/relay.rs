@@ -356,7 +356,8 @@ async fn relay_feed_and_pipe() {
             *auth,
             Auth::Grant {
                 grant: p.grant,
-                client_pk
+                client_pk,
+                origin: mdbn_daemon::session::Origin::RelayPipe,
             }
         );
     }
