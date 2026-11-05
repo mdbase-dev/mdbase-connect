@@ -3,7 +3,7 @@
 .mdbase-toast-slot[data-open="false"] { grid-template-rows: 0fr; opacity: 0; transform: translateY(8px); pointer-events: none; transition-duration: var(--motion-exit); }
 @starting-style { .mdbase-toast-slot[data-open="true"] { grid-template-rows: 0fr; opacity: 0; transform: translateY(8px); } }
 .mdbase-toast-clip { min-height: 0; overflow: hidden; }
-.mdbase-toast { display: flex; align-items: center; gap: 9px; padding: 8px 8px 8px 13px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-soft); box-shadow: var(--elevation-high); font-size: var(--font-size-ui); }
+.mdbase-toast { display: flex; align-items: center; gap: 9px; padding: 8px 8px 8px 13px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface-overlay); color: var(--color-text-soft); box-shadow: var(--elevation-high); font-size: var(--font-size-ui); }
 .mdbase-toast-clip > .mdbase-toast { margin-top: 8px; }
 .mdbase-toast span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .mdbase-toast button { flex: none; font-size: inherit; }

@@ -2,6 +2,7 @@
   /* Transitions share durations and easing; settled confirmations hold then fade. */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --motion-fast: 120ms;
   --motion-quick: 150ms;
   --motion-base: 180ms;
@@ -21,12 +22,13 @@
   transition: opacity var(--motion-enter) var(--ease-out), transform var(--motion-enter) var(--ease-out);
 }
 .mdbase-overlay::backdrop { opacity: 1; transition: opacity var(--motion-enter) var(--ease-out); }
-.mdbase-overlay[data-open="false"]::backdrop { opacity: 0; transition-duration: var(--motion-exit); }
+.mdbase-overlay[data-open="false"]::backdrop { opacity: 0; transition-duration: var(--motion-exit); transition-timing-function: var(--ease-exit); }
 .mdbase-overlay[data-open="false"] {
   opacity: 0;
   transform: scale(.98);
   pointer-events: none;
   transition-duration: var(--motion-exit);
+  transition-timing-function: var(--ease-exit);
 }
 @starting-style {
   .mdbase-overlay[data-open="true"] { opacity: 0; transform: scale(.98); }

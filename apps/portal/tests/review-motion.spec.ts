@@ -13,7 +13,7 @@ async function observe(page: Page, selector: string) {
           property: animation instanceof CSSTransition ? animation.transitionProperty : animation.id,
           duration: animation.effect!.getTiming().duration
         })) });
-      if (performance.now() - started < 450) requestAnimationFrame(sample);
+      if (frames.at(-1)!.time < 450) requestAnimationFrame(sample);
     };
     Object.assign(window, { motionFrames: frames });
     requestAnimationFrame(sample);
