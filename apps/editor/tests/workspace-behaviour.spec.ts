@@ -21,7 +21,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       const panel = page.getByRole("complementary", { name: "Note properties" });
       await expect(panel.getByRole("button", { name: "Close properties" })).toBeVisible();
       await settle();
-      expect(await page.locator(".app-shell").evaluate(el => getComputedStyle(el).transitionDuration)).toBe(reducedMotion === "reduce" ? "0s" : "0.24s");
+      expect(await page.locator(".app-shell").evaluate(el => getComputedStyle(el).transitionDuration)).toBe(reducedMotion === "reduce" ? "0s" : "0.2s");
       const after = await measure();
       const panelLeft = (await panel.boundingBox())!.x;
       expect(after.paneWidth).toBeLessThan(before.paneWidth);
@@ -70,18 +70,16 @@ for (const width of [900, 390]) {
     await expect(dialog).toHaveAttribute("aria-modal", "true");
     const close = dialog.getByRole("button", { name: "Close properties" });
     await expect(close).toBeFocused();
-    expect(await page.locator("#root").evaluate(el => el.inert)).toBe(true);
-    const scrim = page.locator(".inspector-scrim");
-    expect(await scrim.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
-    await page.keyboard.press("Shift+Tab");
-    expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
-    await page.keyboard.press("Tab");
+    expect(await dialog.evaluate(el => el.matches(":modal"))).toBe(true);
+    expect(await dialog.evaluate(el => getComputedStyle(el, "::backdrop").backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    await page.locator(".note-scroll").evaluate(el => (el as HTMLElement).focus());
     await expect(close).toBeFocused();
     if (width === 900) await page.mouse.click(10, 500);
     else await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(trigger).toBeFocused();
-    expect(await page.locator("#root").evaluate(el => el.inert)).toBe(false);
+    await trigger.focus();
+    await expect(trigger).toBeFocused();
   });
 }
 

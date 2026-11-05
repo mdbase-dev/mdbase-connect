@@ -2,9 +2,7 @@
 
 .collection-rail nav button,
 .collection-rail nav .editor-rail-link,
-.icon-button,
-.action-menu button,
-.context-menu button {
+.icon-button {
   border-radius: var(--radius-sm);
 }
 
@@ -13,23 +11,20 @@
 .collection-rail nav .editor-rail-link.selected,
 .note-scroll .note-row.selected,
 .type-row.selected,
-.type-pack-entry.selected,
-.quick-open-results > button.selected {
+.type-pack-entry.selected {
   background: var(--selected);
   color: var(--ink);
 }
 
 .note-scroll .note-row.selected,
 .type-row.selected,
-.type-pack-entry.selected,
-.quick-open-results > button.selected {
+.type-pack-entry.selected {
   border-left-color: var(--line-strong);
 }
 
 .note-scroll:focus-within .note-row.selected,
 .type-list:focus-within .type-row.selected,
-.type-resource-nav:focus-within .type-pack-entry.selected,
-.quick-open:focus-within .quick-open-results > button.selected {
+.type-resource-nav:focus-within .type-pack-entry.selected {
   border-left-color: var(--accent);
 }
 
@@ -39,21 +34,12 @@
 }
 
 .combobox-popover,
-.quick-open,
-.shortcut-help,
-.confirm-dialog,
-.action-menu,
-.context-menu,
 .note-preview,
-.toast,
 .icon-picker-popover {
   border-radius: var(--radius-sm);
   box-shadow: none;
 }
 
-.dialog-scrim {
-  background: var(--color-scrim);
-}
 
 .field-conversion-warning,
 .type-definition-changes {
@@ -144,7 +130,6 @@
 }
 
 .note-preview,
-.toast,
 .folder-loading i,
 .status-dot.reconnecting {
   animation: none;

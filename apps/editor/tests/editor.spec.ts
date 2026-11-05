@@ -470,7 +470,7 @@ test("wraps long titles and gives narrow editor panes a usable writing measure",
   await page.setViewportSize({ width: 834, height: 900 });
   await page.goto("?demo=12");
   const title = page.getByRole("textbox", { name: "Note title" });
-  const longTitle = "A longer note title that stays readable in a narrow editor pane";
+  const longTitle = "A longer note title that stays readable in a narrow editor pane without clipping or hiding the rest of the title";
   await title.fill(longTitle);
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
@@ -1559,7 +1559,9 @@ test("protects an unfinished note draft with a modal confirmation", async ({ pag
 
   const confirmation = page.getByRole("alertdialog", { name: "Discard this note?" });
   await expect(confirmation).toBeVisible();
-  await expect(page.locator("#root")).toHaveAttribute("aria-hidden", "true");
+  expect(await confirmation.evaluate(element => element.matches(":modal"))).toBe(true);
+  await page.getByRole("textbox", { name: "Title", includeHidden: true, exact: true }).evaluate(element => (element as HTMLElement).focus());
+  await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
   await confirmation.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue("A draft worth keeping");
 

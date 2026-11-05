@@ -79,17 +79,19 @@
 .code-editor-writer .cm-note-embed.missing_fragment,
 .code-editor-writer .cm-note-embed.error { border-color: var(--warning); }
 
-.dialog-scrim:has(.file-viewer) { z-index: 120; place-items: center; padding: clamp(14px, 3vw, 36px); }
-.file-viewer { width: min(1180px, 100%); height: min(900px, 100%); min-height: 0; display: grid; grid-template-rows: 54px minmax(0, 1fr); overflow: hidden; border: 1px solid color-mix(in srgb, var(--line-strong) 74%, transparent); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--elevation-high); }
-.file-viewer > header { min-width: 0; display: flex; align-items: center; gap: 14px; padding: 0 10px 0 17px; border-bottom: 1px solid var(--line); }
-.file-viewer > header > div { min-width: 0; flex: 1; display: grid; gap: 1px; }
-.file-viewer > header strong,
-.file-viewer > header span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-viewer > header strong { font-size: var(--font-size-ui); }
-.file-viewer > header span { color: var(--faint); font-family: var(--mono); font-size: var(--font-size-ui); }
-.file-viewer > header a,
+
+.mdbase-dialog.file-viewer { width: min(1180px, calc(100vw - 32px)); height: min(900px, calc(100dvh - 48px)); overflow: hidden; }
+.file-viewer > .mdbase-dialog-body { padding: 0; height: 100%; gap: 0; grid-template-rows: 54px minmax(0, 1fr); }
+.file-viewer > .mdbase-dialog-body > .mdbase-dialog-header { display: none; }
+.file-viewer > .mdbase-dialog-body > header { min-width: 0; display: flex; align-items: center; gap: 14px; padding: 0 10px 0 17px; border-bottom: 1px solid var(--line); }
+.file-viewer > .mdbase-dialog-body > header > div { min-width: 0; flex: 1; display: grid; gap: 1px; }
+.file-viewer > .mdbase-dialog-body > header strong,
+.file-viewer > .mdbase-dialog-body > header span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-viewer > .mdbase-dialog-body > header strong { font-size: var(--font-size-ui); }
+.file-viewer > .mdbase-dialog-body > header span { color: var(--faint); font-family: var(--mono); font-size: var(--font-size-ui); }
+.file-viewer > .mdbase-dialog-body > header a,
 .file-open-original { flex: 0 0 auto; padding: 6px var(--space-2); border-radius: var(--radius-sm); color: var(--accent); font-size: var(--font-size-ui); font-weight: var(--font-weight-semibold); }
-.file-viewer > header a:hover,
+.file-viewer > .mdbase-dialog-body > header a:hover,
 .file-open-original:hover { background: var(--selected); }
 .file-viewer-content { min-width: 0; min-height: 0; display: grid; place-items: center; overflow: auto; background: color-mix(in srgb, var(--canvas) 88%, var(--ink)); }
 .file-viewer-image img { max-width: 100%; max-height: 100%; display: block; object-fit: contain; }
@@ -124,13 +126,16 @@
 @media (max-width: 760px) {
   .code-editor-writer .cm-embed-actions button { min-height: 44px; }
   .code-editor-writer .cm-file-embed-pdf-viewer { height: min(68dvh, 560px); }
-  .dialog-scrim:has(.file-viewer) { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-  .file-viewer { height: 100%; border: 0; border-radius: 0; grid-template-rows: auto minmax(0, 1fr); }
-  .file-viewer > header { min-height: 64px; gap: var(--space-1); padding: 6px var(--space-2) 6px var(--space-4); }
-  .file-viewer > header a, .file-open-original { min-height: 44px; display: inline-flex; align-items: center; }
+  .file-viewer > .mdbase-dialog-body { grid-template-rows: auto minmax(0, 1fr); }
+  .file-viewer > .mdbase-dialog-body > header { min-height: 64px; gap: var(--space-1); padding: 6px var(--space-2) 6px var(--space-4); }
+  .file-viewer > .mdbase-dialog-body > header a, .file-open-original { min-height: 44px; display: inline-flex; align-items: center; }
   .file-workspace .editor-bar { flex-wrap: wrap; }
   .file-workspace-path { flex-basis: calc(100% - 52px); }
   .file-workspace-size { margin-left: var(--space-12); }
   .editor-pane.file-workspace { grid-template-rows: auto minmax(0, 1fr); }
 }
+
+
+.file-viewer > .mdbase-dialog-body { padding: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; }
+.file-viewer .mdbase-dialog-header { display: none; }
 

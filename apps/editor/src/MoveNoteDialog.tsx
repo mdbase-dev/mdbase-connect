@@ -2,7 +2,7 @@ import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useState } from "react";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@mdbase-dev/ui/dialog";
 import { Select } from "@mdbase-dev/ui/select";
 
 export function MoveNoteDialog({ paths, folders, onMove, onClose }: {
@@ -14,8 +14,7 @@ export function MoveNoteDialog({ paths, folders, onMove, onClose }: {
   useLingui();
   const [folder, setFolder] = useState("");
   const [busy, setBusy] = useState(false);
-  return <Dialog titleId="move-note-title" onClose={() => { if (!busy) onClose(); }} className="confirm-dialog move-note-dialog">
-    <h2 id="move-note-title">{paths.length > 1 ? t`Move ${paths.length} notes` : t`Move note`}</h2>
+  return <Dialog open title={paths.length > 1 ? t`Move ${paths.length} notes` : t`Move note`} closeDisabled={busy} onClose={onClose} className="move-note-dialog">
     <p><Trans>Choose a folder. Incoming links will be updated too.</Trans></p>
     <label htmlFor="move-note-folder"><Trans>Destination folder</Trans></label>
     <Select id="move-note-folder" aria-label={t`Destination folder`} value={folder} onChange={setFolder} disabled={busy} options={[{ value: "", label: "Collection root" }, ...folders.map((path) => ({ value: path, label: path }))]} />
