@@ -1,4 +1,5 @@
 import { generateKeyPairSync, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import pg from "pg";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
@@ -206,6 +207,44 @@ describePostgres("grant revocation append confirmation (real Postgres)", () => {
     await db.query("DELETE FROM applications WHERE id=$1", [id]);
     expect((await db.query("SELECT 1 FROM grants WHERE id=$1", [id])).rows).toEqual([]);
     expect(await emitter.drainCollection(id)).toBe(1);
+  });
+
+  it("completes a native revocation that has no active binding, but not a repeated pending one", async () => {
+    const pending = await fixture();
+    await revoke(pending.id);
+    await revoke(pending.id);
+    expect(await status(pending.id)).toBe("revoking");
+
+    const { id } = await fixture();
+    await db.query("DELETE FROM next_grant_bindings WHERE grant_id=$1", [id]);
+    await revoke(id);
+    expect(await status(id)).toBe("revoked");
+  });
+
+  it("lets a connector confirm a grant restored to its legacy target after its log revoke appended", async () => {
+    const { id, emitter, logGrant } = await fixture("migrated");
+    await db.query("UPDATE next_grant_bindings SET active=false WHERE grant_id=$1", [id]);
+    await queueNextPolicy(db, id, [{ op: "grant-revoke", grant: logGrant }]);
+    await emitter.drainCollection(id);
+    await revoke(id);
+    expect(await status(id)).toBe("revoking");
+    await confirmLocalGrantRevocations(db, id, "1", Number.MAX_SAFE_INTEGER);
+    expect(await status(id)).toBe("revoked");
+  });
+
+  it("keeps earlier revocation outcomes: appended and unbound complete, unappended pending", async () => {
+    const appended = await fixture();
+    await revoke(appended.id);
+    await appended.emitter.drainCollection(appended.id);
+    const unbound = await fixture();
+    await db.query("DELETE FROM next_grant_bindings WHERE grant_id=$1", [unbound.id]);
+    await revoke(unbound.id);
+    const queued = await fixture();
+    await revoke(queued.id);
+    await db.query("UPDATE grants SET revocation_confirmed_at=NULL WHERE id = ANY($1::uuid[])", [[appended.id, unbound.id]]);
+
+    await db.query(await readFile(new URL("../../../migrations/0096_grant_revocation_append_confirmation.sql", import.meta.url), "utf8"));
+    expect([await status(appended.id), await status(unbound.id), await status(queued.id)]).toEqual(["revoked", "revoked", "revoking"]);
   });
 
   it.each([false, true])("loss recovery confirms only exact landed sending bytes (landed: %s)", async landed => {
