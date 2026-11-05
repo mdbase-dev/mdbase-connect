@@ -27,7 +27,7 @@ shared runtime/Cargo/build inputs, committed asset/trust pins and packer.
 Each selected package receives an independently computed `0.1.0-beta.N`, above
 all its published versions and its source manifest version. Package versions
 need not equal the server, desktop or each other. A published stable or another
-incompatible version line stops this beta allocator for owner review. Versions
+incompatible version line stops this beta allocator for release-agent review. Versions
 are stamped only into CI outputs; no release-version commits/PRs are created.
 
 For workspace packages, exact full Server CI qualification supplies the already
@@ -116,21 +116,24 @@ non-cancelling and global per existing publishing workflow, so a run can queue
 behind another for the same commit and plan while npm still hides the version.
 When the recheck then reads HTTP 200 with verified provenance for this exact
 commit and publisher workflow, the run publishes nothing and ends successfully.
-Any other HTTP 200 still fails for owner review.
+Any other HTTP 200 still fails for release-agent reconciliation.
 
-The owner must inspect all outcomes, immutable package provenance and internal
-release assets before acknowledging a failed attempt. Only then set repository
-variable **`NPM_RELEASE_ACKNOWLEDGED_RUN`** (workspace line) or
+Release agents own acknowledgements and stops; they need no owner approval. An
+agent must inspect all outcomes, immutable package provenance and internal
+release assets before acknowledging a failed attempt, reconcile a partial or
+unknown outcome until it is known, and record the evidence in the deployment
+report or release dashboard. Only then does the agent set repository variable **`NPM_RELEASE_ACKNOWLEDGED_RUN`** (workspace line) or
 **`SDK_RELEASE_ACKNOWLEDGED_RUN`** (source-built line) to that reviewed run's
 numeric ID. Acknowledgement is not a retry command and does not modify packages,
 tags or assets. The next plan independently verifies registry history and
 selects only still-changed packages. An SDK npm success followed by an internal
 release failure is not silently repaired: retain the original run artifacts
-and follow the existing SDK prerelease recovery contract with owner review.
+and follow the existing SDK prerelease recovery contract. An agent clears
+`SDK_RELEASE_STOPPED` the same way, once the cause is reconciled and recorded.
 Never delete or retarget a tag, replace an immutable asset, or replay an
 uncertain npm publish.
 
-## Owner setup and first release
+## Setup and first release
 
 No new publication secret or long-lived npm token is required. Preserve:
 
@@ -150,9 +153,9 @@ its implementation. Keep npm token publication disabled. OIDC/provenance and
 GitHub environment protection remain authoritative.
 
 `SDK_RELEASE_STOPPED` and the two acknowledgement variables are optional; no
-acknowledgement should be set during healthy setup. To retain owner control of
-the first release, set `SDK_RELEASE_STOPPED=true` **before merging**, then clear
-it after reviewing main CI and environment policy. Dry-run from main first:
+acknowledgement should be set during healthy setup. To hold a first release, set
+`SDK_RELEASE_STOPPED=true` **before merging**, then clear it after reviewing main
+CI and environment policy. Dry-run from main first:
 
 ```sh
 gh workflow run publish-npm.yml --repo mdbase-dev/mdbase-connect --ref main -f dry_run=true
@@ -160,7 +163,7 @@ gh workflow run publish-sdk-npm.yml --repo mdbase-dev/mdbase-connect --ref main 
 ```
 
 Review each exact run, plan and packed artifacts. To make the first real
-publication, the owner uses the same commands with `dry_run=false`. Subsequent
+publication, a release agent uses the same commands with `dry_run=false`. Subsequent
 qualified package changes publish automatically. Packages without a qualified
 baseline still require their documented one-time scope-owner bootstrap; this
 workflow never creates placeholder packages or bypasses first-publication policy.

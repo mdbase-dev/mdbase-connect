@@ -27,7 +27,7 @@ CI allocates the next `0.1.0-beta.N` above the source version, every existing
 `v*` version tag and every published desktop version, so the desktop stays on
 the same numbered beta line as earlier releases. Tags cannot be deleted or
 moved, so a reserved number is never reused. A published version that
-cannot be exceeded on this beta line stops allocation for owner review. An
+cannot be exceeded on this beta line stops allocation for release-agent review. An
 annotated `v0.1.0-beta.N` tag reserves the version on the qualified main commit;
 the tag records the originating run and time. The source tree is not rewritten
 and no version PR is created. The tag worker stamps the root and desktop
@@ -42,14 +42,16 @@ The current release-tag rules prevent updates/deletions, not creation; neither
 those rules nor any trust or policy keys are changed here.
 
 An unfulfilled automatic tag is an ambiguous or failed attempt, not permission
-to skip to another version. The line stops until the owner inspects its exact
-run. No side-effecting operation is retried automatically. The coordinator and
+to skip to another version. The line stops until a release agent inspects its
+exact run. No side-effecting operation is retried automatically. The coordinator and
 tag workers share one non-cancelling live concurrency group.
 
 Tags cannot be moved, and a tag worker runs the code at its tag, so a failed
-attempt cannot be fixed in place. Once the owner has confirmed that the attempt
-published nothing, they set repository variable
-**`DESKTOP_RELEASE_ACKNOWLEDGED_TAG`** to that exact tag. The coordinator then
+attempt cannot be fixed in place. Release agents own this acknowledgement and
+need no owner approval. Once an agent has confirmed that the attempt published
+nothing, reconciling a partial or unknown outcome until it is known and
+recording the evidence in the deployment report or release dashboard, it sets
+repository variable **`DESKTOP_RELEASE_ACKNOWLEDGED_TAG`** to that exact tag. The coordinator then
 ignores unfinished reservations up to and including it and takes the next
 number. Acknowledgement is not a retry command and changes no tag or release.
 
@@ -90,7 +92,7 @@ The tag worker signs and verifies both manifests, computes their checksums,
 then creates a draft with every release asset. Only after all uploads succeed
 does it recheck production compatibility, the stop switch and the workflow's
 active state, then publish that complete draft. An upload or final-check failure
-leaves an unpublished attempt for owner inspection. An unknown publication
+leaves an unpublished attempt for release-agent inspection. An unknown publication
 outcome must be reconciled against the exact tag, run and release; never retry
 blindly. The coordinator refuses any unfinished automatic tag reservation and
 still respects an existing `Continuous desktop status: stopped` notes marker.
@@ -102,6 +104,8 @@ disable **Desktop Release** and cancel its active runs: the workflow's active
 state is also read through the API immediately before publication.
 Malformed/unreadable state fails closed. There is no automated rollback or
 user-data deletion, and no token with variable-management authority is needed.
+Release agents own this switch too, including a stop set for a reported crash:
+an agent reconciles the cause, records the evidence, and deletes the variable.
 
 The existing committed minimum and `UPDATE_BLOCKED_VERSIONS` remain in force:
 required updates bypass rollout, and manual downloads/Store submissions are
@@ -110,12 +114,12 @@ minimum remain required updates. Altering that policy is a separate
 owner decision, not part of this PR. `UPDATE_ROLLOUT_PERCENTAGE` is replaced by
 fixed 100% rollout and is no longer read.
 
-## Setup and first release (release owner)
+## Setup and first release
 
 1. `DESKTOP_RELEASE_STOPPED=true` is already set and remains set during this
    implementation and review. Keep repository immutable releases enabled.
-   Only the release owner should change the stop switch to `false` when ready
-   to enable publication; the default for an unset switch remains running.
+   A release agent changes the stop switch to `false` when ready to enable
+   publication; the default for an unset switch remains running.
 2. Keep the existing `desktop-release` environment. Its publication job must
    be allowed to run unattended for continuous delivery; required reviewer
    approvals would intentionally pause it. Its branch policy must allow `v*`.
@@ -131,7 +135,7 @@ fixed 100% rollout and is no longer read.
    `RELEASE_AUTOMATION_APP_PRIVATE_KEY`. No new secret is required. Workflow
    permissions grant the coordinator contents/actions write and the signing
    jobs OIDC; the built-in token creates tags and dispatches the tagged worker.
-5. After review, merge and a green full main Server CI, the owner may clear the
+5. After review, merge and a green full main Server CI, a release agent may clear the
    stop switch and either wait for the next six-hour coordinator wake or run
    `gh workflow run desktop-release.yml --repo mdbase-dev/mdbase-connect --ref main`.
    Do not supply a version, server SHA or tag. Review the coordinator and

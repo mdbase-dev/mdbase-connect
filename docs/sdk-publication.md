@@ -150,8 +150,8 @@ rechecks the tag SHA, then publishes with `prerelease: true` and
 Latest status. No update/delete operation on an existing tag or asset exists.
 
 A partial failure stops: do not delete, retarget, replace or automatically replay
-the same version. An owner must investigate and prepare a new version if the
-tag was already created. The npm and prerelease jobs are not a transaction; one
+the same version. A release agent reconciles it until the outcome is known,
+records the evidence, and prepares a new version if the tag was already created. The npm and prerelease jobs are not a transaction; one
 may succeed while the other fails. Neither is silently republished or repaired.
 
 The active repository tag ruleset blocks updates and deletions of `v*` and
@@ -165,8 +165,8 @@ attached attestation against the reviewed producer SHA.
 
 Manual dispatch defaults to `dry_run: true`. PRs and changed-package dry runs
 build and verify all three packages without npm credentials, attestations or
-publication. Healthy main changes publish automatically. The first live owner
-dispatch is on main, for example:
+publication. Healthy main changes publish automatically. A live dispatch is on
+main, for example:
 
 ```sh
 gh workflow run publish-sdk-npm.yml --repo mdbase-dev/mdbase-connect \
