@@ -25,7 +25,7 @@ function assertPolicyInventory(inventory) {
 export async function assertHostingSource(root,inventory) {
  for(const [name,bytes] of Object.entries(assertPolicyInventory(inventory)))if(await readFile(join(root,name),'utf8')!==bytes)throw Error('Source policy bytes changed '+name);
 }
-function checkHeaders(response,path) {
+function checkHeaders(response,path,immutable) {
  // Pages canonical HTML redirects are validated by the shared helper. Header
  // policy applies to the final static response, not CDN-generated redirects.
  if([301,302,303,307,308].includes(response.status))return;
@@ -35,6 +35,10 @@ function checkHeaders(response,path) {
   if(line && !line.startsWith(' ')){section=line;continue;}
   const match=/^  ([^:]+): (.+)$/.exec(line);
   if(!match || section!=='/*')continue;
+  // The edge can revalidate an unchanged file on the alias and keep the previous
+  // build's headers. The immutable URL proves the policy on every file; documents
+  // are where these headers take effect, so the alias must prove it there.
+  if(!immutable && !response.headers.get('content-type')?.includes('text/html'))continue;
   if(response.headers.get(match[1])!==match[2])throw Error('Live source-owned header policy mismatch: '+match[1]);
  }
  if(path==='/.well-known/mdbase-app.json' && response.headers.get('cache-control')!=='no-store')throw Error('Manifest cache policy mismatch');
@@ -60,7 +64,7 @@ export async function verifyHosting({origin,inventory,deployment,fetchImpl=fetch
  const failures=[],probes=[];
  const transport=async(url,init)=>{
   const response=await fetchImpl(url,init);
-  try {checkHeaders(response,new URL(url).pathname);}
+  try {checkHeaders(response,new URL(url).pathname,origin===deployment.url);}
   catch {
    // A security-policy refusal is terminal policy evidence, NOT a transient
    // network exception. Still account for the body, without refetching it.
