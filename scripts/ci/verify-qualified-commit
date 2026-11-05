@@ -20,9 +20,10 @@ sha256_file() {
 }
 
 if [[ -z $run_id ]]; then
+  # GitHub's status filter can omit a finished run, so read the conclusion here.
   runs=$(gh api --method GET \
     "repos/$GITHUB_REPOSITORY/actions/workflows/server-ci.yml/runs" \
-    --field head_sha="$commit" --field event="$expected_event" --field status=completed)
+    --field head_sha="$commit" --field event="$expected_event")
   run_id=$(jq -er --arg commit "$commit" --arg event "$expected_event" '
     [.workflow_runs[] | select(
       .head_sha == $commit and .event == $event and .conclusion == "success"
