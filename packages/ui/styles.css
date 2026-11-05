@@ -531,12 +531,12 @@ code,
   flex: none;
   overflow: visible;
   color: var(--muted);
-  transition: color var(--motion-base) var(--ease-standard);
+  transition: color var(--motion-slow) var(--ease-standard);
 }
 
 .status-glyph circle,
 .status-glyph rect {
-  transition: opacity var(--motion-base) var(--ease-standard), stroke-dashoffset var(--motion-base) linear;
+  transition: opacity var(--motion-slow) var(--ease-standard), stroke-dashoffset var(--motion-slow) linear;
 }
 
 .status-glyph-dot { fill: currentColor; opacity: 0; }

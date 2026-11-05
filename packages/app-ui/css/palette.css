@@ -44,6 +44,7 @@
   overflow: auto;
   padding: 4px 6px 8px;
   scroll-padding: 28px 0 8px;
+  transition: height var(--motion-enter) var(--ease-out);
 }
 
 .mdbase-command-group {
@@ -75,6 +76,8 @@
   color: var(--color-text);
   background: var(--color-selected);
 }
+
+.mdbase-command-results > button:active { background: var(--color-border-strong); }
 
 .mdbase-command-results .mdbase-command-copy {
   min-width: 0;

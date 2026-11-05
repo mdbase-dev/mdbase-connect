@@ -443,7 +443,6 @@ msgctxt "Connect interface"
 msgid "Access"
 msgstr "접근 권한"
 
-#: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "Access approved"
 msgstr "액세스 승인됨"

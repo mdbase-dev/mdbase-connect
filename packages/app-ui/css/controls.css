@@ -325,6 +325,9 @@ textarea.mdbase-field {
 .mdbase-disclosure > summary::-webkit-details-marker { display: none; }
 .mdbase-disclosure > summary::after { content: ""; flex: none; width: 6px; height: 6px; margin-left: auto; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; rotate: -45deg; transition: rotate var(--motion-quick) var(--ease-standard); }
 .mdbase-disclosure[open] > summary::after { rotate: 45deg; }
+.mdbase-disclosure { interpolate-size: allow-keywords; }
+.mdbase-disclosure::details-content { height: 0; overflow: hidden; transition: height var(--motion-enter) var(--ease-out), content-visibility var(--motion-enter) allow-discrete; }
+.mdbase-disclosure[open]::details-content { height: auto; }
 @media (prefers-reduced-motion: reduce) { .mdbase-disclosure > summary::after { transition: none; } }
 
 .mdbase-menu-copy {
@@ -450,7 +453,9 @@ textarea.mdbase-field {
 
 .mdbase-button:active:not(:disabled) {
   transform: scale(0.97);
+  transition-duration: 0s;
 }
+@media (prefers-reduced-motion: reduce) { .mdbase-button:active:not(:disabled) { transform: none; } }
 
 .mdbase-button.is-primary {
   border-color: var(--color-accent);

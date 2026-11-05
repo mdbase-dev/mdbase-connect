@@ -64,4 +64,15 @@ describe("Portal keyboard scope", () => {
     fireEvent.keyDown(document.body, { key: "?" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("reopens a retained palette instead of closing it again", () => {
+    render(<Host />);
+    const leaving = document.body.appendChild(document.createElement("dialog"));
+    leaving.className = "mdbase-command-palette";
+    leaving.open = true;
+    leaving.dataset.open = "false";
+    fireEvent.keyDown(document.body, { key: "k", ctrlKey: true });
+    expect(screen.getByRole("dialog", { name: "Commands" })).toBeInTheDocument();
+    leaving.remove();
+  });
 });

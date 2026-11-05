@@ -443,7 +443,6 @@ msgctxt "Connect interface"
 msgid "Access"
 msgstr "Accès"
 
-#: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "Access approved"
 msgstr "Accès approuvé"

@@ -15,12 +15,12 @@ function mount() {
 }
 afterEach(async () => { act(() => root.unmount()); await Promise.resolve(); vi.useRealTimers(); document.body.innerHTML = ""; });
 
-it("announces one toast at a time and runs Undo once", () => {
+it("stacks receipts and runs Undo once", () => {
   mount();
   const undo = vi.fn();
   act(() => { toast("Renamed", undo); toast("Second change"); });
   expect(host.querySelector('[role="status"]')?.textContent).toContain("Renamed");
-  expect(host.textContent).not.toContain("Second change");
+  expect(host.textContent).toContain("Second change");
   act(() => host.querySelector("button")!.click());
   expect(undo).toHaveBeenCalledTimes(1);
   expect(host.textContent).toContain("Second change");
@@ -32,11 +32,11 @@ it("pauses expiry while hovered or keyboard-focused", () => {
   mount();
   act(() => toast("Saved", vi.fn()));
   act(() => vi.advanceTimersByTime(3_000));
-  act(() => host.querySelector('[role="status"]')!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+  act(() => host.querySelector('.mdbase-toast-slot')!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
   act(() => vi.advanceTimersByTime(20_000));
   expect(host.textContent).toContain("Saved");
   act(() => host.querySelector("button")!.focus());
-  act(() => host.querySelector('[role="status"]')!.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
+  act(() => host.querySelector('.mdbase-toast-slot')!.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
   act(() => vi.advanceTimersByTime(20_000));
   expect(host.textContent).toContain("Saved");
   act(() => host.querySelector("button")!.blur());
@@ -66,8 +66,11 @@ it("preserves a mount-time announcement through StrictMode effect replay", () =>
 
 it("bounds the queue and clears it when its owner unmounts", () => {
   mount();
+  act(() => root.render(<StrictMode><Toaster /></StrictMode>));
   act(() => { for (const message of ["one", "two", "three", "four", "five"]) toast(message); });
   expect(host.textContent).toContain("one");
+  expect(host.querySelectorAll('.mdbase-toast-slot[data-open="true"]')).toHaveLength(4);
+  expect(host.textContent).not.toContain("two");
   act(() => vi.advanceTimersByTime(5_000));
-  expect(host.textContent).toContain("three");
+  expect(host.textContent).not.toContain("three");
 });

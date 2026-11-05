@@ -23,7 +23,7 @@ it("closes a palette before running its action and does not steal the action's f
     return <><button data-invoker>Search</button><button data-target>Rename</button>
       <CommandPalette open={open} onClose={() => setOpen(false)} returnFocusRef={{ current: host.querySelector<HTMLElement>("[data-invoker]") }} commands={[{
         id: "rename", label: "Rename", group: "actions", run: () => {
-          expect(host.querySelector("dialog")?.open).toBe(false);
+          expect(document.querySelector("dialog")?.open).toBe(false);
           host.querySelector<HTMLButtonElement>("[data-target]")!.focus();
         }
       }]} /></>;
@@ -31,9 +31,9 @@ it("closes a palette before running its action and does not steal the action's f
   act(() => root.render(<Host />));
   host.querySelector<HTMLButtonElement>("[data-invoker]")!.focus();
   act(() => openPalette!());
-  act(() => host.querySelector<HTMLButtonElement>('[role="option"]')!.click());
+  act(() => document.querySelector<HTMLButtonElement>('[role="option"]')!.click());
   act(() => vi.advanceTimersByTime(120));
-  expect(host.querySelector("dialog")).toBeNull();
+  expect(document.querySelector("dialog")).toBeNull();
   expect(document.activeElement).toBe(host.querySelector("[data-target]"));
 });
 
@@ -52,21 +52,22 @@ it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus",
   const trigger = host.querySelector("button")!;
   trigger.focus();
   act(() => trigger.click());
-  const dialog = host.querySelector("dialog")!;
+  const dialog = document.querySelector("dialog")!;
   expect(document.getElementById(dialog.getAttribute("aria-describedby")!)?.textContent).toBe("The hosted data will be deleted.");
   dialog.style.setProperty("transition-duration", "0.12s");
   expect(document.activeElement?.textContent).toBe("Cancel");
+  expect(dialog.parentElement).toBe(document.body);
   act(() => changeOpen!(false));
-  expect(host.querySelector("dialog")).toBe(dialog);
+  expect(document.querySelector("dialog")).toBe(dialog);
   act(() => vi.advanceTimersByTime(60));
   act(() => changeOpen!(true));
   act(() => vi.advanceTimersByTime(120));
-  expect(host.querySelector("dialog")).toBe(dialog);
+  expect(document.querySelector("dialog")).toBe(dialog);
   act(() => changeOpen!(false));
   act(() => vi.advanceTimersByTime(119));
-  expect(host.querySelector("dialog")).toBe(dialog);
+  expect(document.querySelector("dialog")).toBe(dialog);
   act(() => vi.advanceTimersByTime(1));
-  expect(host.querySelector("dialog")).toBeNull();
+  expect(document.querySelector("dialog")).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
 
@@ -76,13 +77,13 @@ it("keeps a pending confirmation modal and labels its work", async () => {
   const pending = new Promise<void>(complete => { resolve = complete; });
   act(() => root.render(<ConfirmDialog open title="Revoke Reader" consequence="Reader will lose access."
     confirmLabel="Revoke" pendingLabel="Revoking access…" onConfirm={() => pending} onClose={close} />));
-  const buttons = [...host.querySelectorAll("button")];
+  const buttons = [...document.querySelectorAll("button")];
   act(() => buttons.find(button => button.textContent === "Revoke")!.click());
-  expect(host.textContent).toContain("Revoking access…");
-  act(() => host.querySelector("dialog")!.dispatchEvent(new Event("cancel", { cancelable: true })));
+  expect(document.body.textContent).toContain("Revoking access…");
+  act(() => document.querySelector("dialog")!.dispatchEvent(new Event("cancel", { cancelable: true })));
   expect(close).not.toHaveBeenCalled();
   await act(async () => resolve!());
-  expect(host.textContent).not.toContain("Revoking access…");
+  expect(document.body.textContent).not.toContain("Revoking access…");
 });
 
 it("keeps the first mark build under StrictMode but does not replay on navigation", () => {

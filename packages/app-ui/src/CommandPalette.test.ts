@@ -1,12 +1,20 @@
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import "../test/dialog.js";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CommandPalette, matchingCommands, shortcutLabel, type Command } from "./CommandPalette.js";
 
 const command = (id: string, group: string, label = id): Command => ({ id, group, label, run: () => {} });
 
 const headings = (markup: string) => [...markup.matchAll(/class="mdbase-command-group" role="presentation">(.*?)<\/div>/g)].map((match) => match[1]);
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+const host = document.body.appendChild(document.createElement("div"));
+const root = createRoot(host);
+afterEach(() => act(() => root.render(null)));
 
 it("presents sequential shortcuts without turning them into chords", () => {
   expect(shortcutLabel("g c")).toBe("G C");
@@ -17,9 +25,13 @@ describe("CommandPalette group labels", () => {
     ...Array.from({ length: 8 }, (_, i) => command(`tab-${i}`, "tabs")),
     command("settings", "app"),
   ];
-  const render = (props: Partial<Parameters<typeof CommandPalette>[0]> = {}) => renderToStaticMarkup(createElement(CommandPalette, {
-    open: true, commands, onClose: () => {}, ...props,
-  }));
+  const render = (props: Partial<Parameters<typeof CommandPalette>[0]> = {}) => {
+    act(() => root.render(null));
+    act(() => root.render(createElement(CommandPalette, {
+      open: true, commands, onClose: () => {}, ...props,
+    })));
+    return document.querySelector("dialog")?.outerHTML ?? "";
+  };
 
   it("keeps existing headings when no callback is supplied", () => {
     expect(headings(render())).toEqual(["tabs", "app"]);

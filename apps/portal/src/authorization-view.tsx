@@ -139,7 +139,7 @@ export function Authorization({ requestId }: { requestId: string }) {
   } | null>(null);
   const [status, setStatus] = useState<RequestStatus>("pending");
   const [returnUrl, setReturnUrl] = useState("");
-  const [approvedCollectionName, setApprovedCollectionName] = useState("");
+  const [approvedCollection, setApprovedCollection] = useState<AvailableCollection>();
   const [continuingInDesktop, setContinuingInDesktop] = useState(
     () => new URLSearchParams(location.search).get("continue_in_desktop") === "1"
   );
@@ -209,13 +209,6 @@ export function Authorization({ requestId }: { requestId: string }) {
     return () => window.clearInterval(timer);
   }, [decisionError, requestId]);
 
-  useEffect(() => {
-    if (!returnUrl) return;
-    const timer = window.setTimeout(() => location.replace(returnUrl),
-      status === "approved" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 300 : 0);
-    return () => window.clearTimeout(timer);
-  }, [returnUrl, status]);
-
   if (!request) {
     if (status !== "expired") return <RequestShell busy={!error}>
       <h1><Trans>Review app access</Trans></h1>
@@ -252,8 +245,8 @@ export function Authorization({ requestId }: { requestId: string }) {
             collections={request.collections}
             unavailableConnectors={request.unavailable_connectors}
             onContinueInDesktop={() => continueInDesktop(true)}
-            onDecision={(decision, collectionName) => {
-              setApprovedCollectionName(collectionName ?? "");
+            onDecision={(decision, collection) => {
+              setApprovedCollection(collection);
               setStatus(decision === "approved" ? "setting_up" : decision);
             }}
             onDecisionError={(detail) => { setDecisionError(detail); setStatus("pending"); }}
@@ -269,7 +262,8 @@ export function Authorization({ requestId }: { requestId: string }) {
           applicationName={authorization.application_name}
           portable={authorization.distribution === "portable"}
           returnUrl={returnUrl}
-          collectionName={approvedCollectionName || request.collections.find(collection => collection.id === authorization.collection_id)?.display_name}
+          collectionName={(approvedCollection ?? request.collections.find(collection => collection.id === authorization.collection_id))?.display_name}
+          collectionKind={(approvedCollection ?? request.collections.find(collection => collection.id === authorization.collection_id))?.kind}
         />}
     </RequestShell>
   );
@@ -278,10 +272,11 @@ export function Authorization({ requestId }: { requestId: string }) {
 const RETURN_LINK_DELAY_MS = 4_000;
 const SLOW_SETUP_MS = 20_000;
 
-export function RequestOutcome({ status, applicationName, collectionName, portable = false, returnUrl = "", standalone = false }: {
+export function RequestOutcome({ status, applicationName, collectionName, collectionKind, portable = false, returnUrl = "", standalone = false }: {
   status: Exclude<RequestStatus, "pending">;
   applicationName: string;
   collectionName?: string;
+  collectionKind?: "local" | "hosted" | "private" | "cloud_copy";
   portable?: boolean;
   returnUrl?: string;
   // Without a loaded request there is no application heading above the outcome.
@@ -292,6 +287,22 @@ export function RequestOutcome({ status, applicationName, collectionName, portab
   // Show a manual return link or a slow-setup note only if the automatic step
   // has not already taken the user away.
   const [late, setLate] = useState(false);
+  const [seconds, setSeconds] = useState(3);
+  useEffect(() => {
+    if (!returnUrl || portable || (status !== "approved" && status !== "denied")) return;
+    if (status === "denied") {
+      const timer = window.setTimeout(() => location.replace(returnUrl), 0);
+      return () => window.clearTimeout(timer);
+    }
+    let remaining = 3;
+    setSeconds(remaining);
+    const timer = window.setInterval(() => {
+      remaining -= 1;
+      setSeconds(remaining);
+      if (remaining === 0) { window.clearInterval(timer); location.replace(returnUrl); }
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [returnUrl, portable, status]);
   useEffect(() => {
     setLate(false);
     const delay = status === "setting_up" ? SLOW_SETUP_MS : RETURN_LINK_DELAY_MS;
@@ -315,10 +326,11 @@ export function RequestOutcome({ status, applicationName, collectionName, portab
   </div>;
   const approved = status === "approved";
   return <div className="request-outcome" role="status">
-    {approved && collectionName ? <GrantMoment applicationName={applicationName} collectionName={collectionName} />
+    {approved && collectionName ? <GrantMoment applicationName={applicationName} collectionName={collectionName} collectionKind={collectionKind} />
       : <h1>{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</h1>}
     {approved && collectionName && <p className="mdbase-visually-hidden"><Trans>Access approved</Trans></p>}
-    <p>{portable ? t(i18n)`Return to ${applicationName}.` : t(i18n)`Returning to ${applicationName}…`}</p>
+    <p>{portable || !returnUrl ? t(i18n)`Return to ${applicationName}.` : t(i18n)`Returning to ${applicationName}…`}{approved && !portable && returnUrl && <output className="request-return-countdown" aria-live="off">{i18n.number(seconds, { style: "unit", unit: "second", unitDisplay: "long" })}</output>}</p>
+    {approved && returnUrl && <a className="mdbase-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>}
     <p>{portable
       ? approved
         ? t(i18n)({ message: "The application will finish connecting with its one-time device code. You can close this window." })
@@ -326,7 +338,7 @@ export function RequestOutcome({ status, applicationName, collectionName, portab
       : approved
         ? t(i18n)({ message: "Your approved collection and permissions will follow you back." })
         : t(i18n)({ message: "The application will show that access was not granted." })}</p>
-    {returnLink}
+    {!approved && returnLink}
   </div>;
 }
 /** Plain label for an exact non-web app origin shown on the consent screen. */
@@ -414,7 +426,7 @@ function SupportedApprovalForm({
   canCreateHosted: boolean;
   unavailableConnectors?: UnavailableConnector[];
   onContinueInDesktop?(): void;
-  onDecision(decision: "approved" | "denied", collectionName?: string): void | Promise<void>;
+  onDecision(decision: "approved" | "denied", collection?: AvailableCollection): void | Promise<void>;
   onDecisionError(detail: string): void;
   onSetupActivityChange?(active: boolean): void;
   onCollectionCreated(collection: AvailableCollection): void;
@@ -697,7 +709,7 @@ function SupportedApprovalForm({
         } : {})
       });
       clearAuthorizationReview(request.id);
-      await onDecision(decision, selected?.display_name);
+      await onDecision(decision, selected);
     } catch (decisionError) {
       if (preparingSetup) onSetupActivityChange?.(false);
       onDecisionError(message(decisionError));
