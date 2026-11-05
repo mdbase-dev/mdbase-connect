@@ -1611,6 +1611,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         setQuickOpen(true);
         return;
       }
+      // Ctrl+K belongs to the writer's link insertion; elsewhere in a field it must not reach the browser.
+      if (modifier && !event.altKey && !event.shiftKey && key === "k"
+          && !(event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content"))) {
+        event.preventDefault();
+        return;
+      }
       if (quickOpen || shortcutsOpen) return;
       if (phase !== "ready") return;
       if (!typing && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))) {
