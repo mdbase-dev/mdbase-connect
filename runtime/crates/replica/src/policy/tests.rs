@@ -548,6 +548,43 @@ fn revocation_requires_rekey_and_voids_content_until_then() {
 }
 
 #[test]
+fn grant_revoke_must_precede_member_remove_in_one_policy_item() {
+    let mut initial = setup(CState::E2e);
+    initial
+        .apply_control(
+            3,
+            &CH,
+            &policy(3, vec![grant(50, EDITOR, &[capability::CREATE], None)]),
+            &env(),
+        )
+        .unwrap();
+    let revoke = PolicyOp::GrantRevoke(GrantRevoke {
+        grant: B16([50; 16]),
+    });
+    let remove = PolicyOp::MemberRemove(MemberRemove { account: EDITOR });
+    let mut invalid = initial.clone();
+    let error = invalid
+        .apply_control(
+            4,
+            &CH,
+            &policy(4, vec![remove.clone(), revoke.clone()]),
+            &env(),
+        )
+        .unwrap_err();
+    assert_eq!(error.rule(), "grant-revoke");
+    assert!(invalid.members.contains_key(&EDITOR));
+    assert!(invalid.devices[&dev(11)].active);
+    assert!(invalid.grants[&B16([50; 16])].active);
+    initial
+        .apply_control(4, &CH, &policy(4, vec![revoke, remove]), &env())
+        .unwrap();
+    assert!(!initial.members.contains_key(&EDITOR));
+    assert!(!initial.devices[&dev(11)].active);
+    assert!(!initial.grants[&B16([50; 16])].active);
+    assert!(initial.rekey_required);
+}
+
+#[test]
 fn member_remove_revokes_devices_and_grants() {
     let mut s = setup(CState::E2e);
     s.apply_control(
