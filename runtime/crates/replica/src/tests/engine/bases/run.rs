@@ -252,7 +252,7 @@ fn simple(source: &str) -> Node {
     a.create(
         1,
         "Task.md",
-        "---\nstatus: open\n---\n[link](target) #still-unqualified-rich-markdown",
+        "---\nstatus: open\n---\n**#still-unqualified-rich-markdown**",
     );
     settle(&mut [&mut a]);
     a

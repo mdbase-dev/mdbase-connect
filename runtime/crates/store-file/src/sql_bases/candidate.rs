@@ -2,7 +2,9 @@
 //! Facts update in the SAME raw/record transaction and raw version fence.
 use super::*;
 use crate::index_codec::CodecLimits;
-use mdbn_core::views::bases::{BasesCandidate, BasesCandidateAtom, BasesCandidateCompare};
+use mdbn_core::views::bases::{
+    BasesCandidate, BasesCandidateAtom, BasesCandidateCompare, SourceTags,
+};
 const MAX_FACTS: usize = 64;
 const MAX_FACT_BYTES: usize = 65_536;
 
@@ -22,17 +24,21 @@ pub(super) fn clear(out: &mut Vec<Stmt>) {
 pub(super) fn capture(
     row: &RecordRow,
     document: &Document,
-    tags: Option<&[String]>,
+    tags: Option<&SourceTags>,
     out: &mut Vec<Stmt>,
 ) -> usize {
     delete(&row.id.0, out);
     let map = document.frontmatter();
+    // A bound cannot decide a match, so its row stays a candidate for evaluation.
+    let exact = tags.is_none_or(SourceTags::is_exact);
+    let tags = tags.map(SourceTags::spellings);
     let size = map
         .iter()
         .map(|(k, v)| k.len() + v.as_str().map_or(0, str::len) + 64)
         .sum::<usize>()
         + tags.map_or(0, |ts| ts.iter().map(|t| t.len() + 64).sum::<usize>());
-    let known = map.len() <= MAX_FACTS
+    let known = exact
+        && map.len() <= MAX_FACTS
         && tags.is_none_or(|ts| ts.len() <= MAX_FACTS)
         && size <= MAX_FACT_BYTES
         && mdbn_core::paths::check_path(&row.path).is_ok();

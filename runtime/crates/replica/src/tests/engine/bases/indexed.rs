@@ -177,7 +177,7 @@ fn actual_signed_actor_streams_all_five_unchanged_views_with_exact_residual_cell
 fn frontmatter_task_membership_survives_code_and_unknown_body_in_both_executors() {
     for body in [
         "Private `#cppLive` and PR #123\n```js\n#hidden\n```",
-        "[link](target) #unknown",
+        "**#unknown**",
     ] {
         let (svc, mut a, _) = configured();
         let source = "filters: file.hasTag('task')\nviews: [{type: table, order: [file.name, formula.member]}]\nformulas: {member: \"file.hasTag('task')\"}\n";
@@ -216,16 +216,97 @@ fn frontmatter_task_membership_survives_code_and_unknown_body_in_both_executors(
         );
     }
 }
+// Note text reported in mdbase-connect#1198: a filter that names one tag must not
+// depend on how the rest of a rich note parses.
+fn run_both(
+    mut a: Node,
+    svc: &FakeLogService,
+    source: &str,
+) -> (Result<Vec<String>, String>, Result<Vec<String>, String>) {
+    let paths = |result: &BasesExecutionResult| {
+        let mut paths: Vec<_> = result.rows.iter().map(|r| r.path.clone()).collect();
+        paths.sort();
+        paths
+    };
+    let selected = selection(source, 0);
+    let hints = BTreeMap::new();
+    let input =
+        a.r.capture_bases_execution_inputs(selected, Some(&hints), Some("UTC"))
+            .unwrap();
+    let captured =
+        a.r.execute_captured_bases_view(input, policies(), &|| false)
+            .map(|result| paths(&result))
+            .map_err(|e| e.to_string());
+    let mut r = projected(svc, a);
+    let indexed = r
+        .execute_indexed_bases_view(selected, Some(&hints), Some("UTC"), policies(), &|| false)
+        .map(|result| paths(&result))
+        .map_err(|e| e.to_string());
+    (captured, indexed)
+}
+#[test]
+fn reported_references_and_url_fragments_keep_an_unrelated_tag_filter_usable() {
+    let (svc, mut a, _) = configured();
+    let source =
+        "filters: file.hasTag('archived') != true\nviews: [{type: table, order: [file.name]}]\n";
+    a.create(11, "View.base", source);
+    for (id, path, doc) in [
+        (
+            1,
+            "a.md",
+            "Server side was verified healthy in #16/#18; ~see~ `this`",
+        ),
+        (
+            2,
+            "b.md",
+            "Linked #400, #1115, #914/#926, #1403, and the #226\u{2192}#264 caching rollback. **Done**",
+        ),
+        (
+            3,
+            "c.md",
+            "[docs](https://x.invalid/#overview) https://x.invalid/a#issuecomment-1 *see*",
+        ),
+        (4, "d.md", "**Bold** [link](target) #personal"),
+        (5, "e.md", "[[unclosed #personal"),
+        (6, "f.md", "<b>rich</b> $5 **#personal**"),
+        (7, "gone.md", "---\ntags: [archived]\n---\nPlain"),
+        (8, "gone-body.md", "Body #archived/2025"),
+    ] {
+        a.create(id, path, doc);
+    }
+    settle(&mut [&mut a]);
+    let want: Vec<String> = ["View.base", "a.md", "b.md", "c.md", "d.md", "e.md", "f.md"]
+        .map(String::from)
+        .into();
+    let (captured, indexed) = run_both(a, &svc, source);
+    assert_eq!(captured, Ok(want.clone()));
+    assert_eq!(indexed, Ok(want));
+}
+#[test]
+fn a_spelled_tag_in_an_unqualified_position_refuses_rather_than_guessing() {
+    // `**#archived**` is a real tag in Obsidian while `*#archived` is not, so
+    // neither answer is safe: `!= true` would show one and hide the other.
+    for doc in ["**#archived** done", "*#archived done"] {
+        let (svc, mut a, _) = configured();
+        let source = "filters: file.hasTag('archived') != true\nviews: [{type: table, order: [file.name]}]\n";
+        a.create(11, "View.base", source);
+        a.create(1, "a.md", doc);
+        settle(&mut [&mut a]);
+        let (captured, indexed) = run_both(a, &svc, source);
+        for result in [captured, indexed] {
+            assert!(
+                result.unwrap_err().contains("file_tags_not_captured"),
+                "{doc}"
+            );
+        }
+    }
+}
 #[test]
 fn undecidable_body_tag_membership_still_refuses_both_executors() {
     let (svc, mut a, _) = configured();
     let source = "filters: file.hasTag('task')\nviews: [{type: table, order: [file.name]}]\n";
     a.create(11, "View.base", source);
-    a.create(
-        1,
-        "Task.md",
-        "---\ntags: [other]\n---\n[link](target) #task",
-    );
+    a.create(1, "Task.md", "---\ntags: [other]\n---\n**#task**");
     settle(&mut [&mut a]);
     let selected = selection(source, 0);
     let hints = BTreeMap::new();
