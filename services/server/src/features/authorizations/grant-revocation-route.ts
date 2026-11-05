@@ -82,7 +82,7 @@ export function registerGrantRevocationRoute(
          WHEN g.hosted_replica_id IS NOT NULL THEN CASE WHEN g.id IN (
            SELECT grant_id FROM provider_revocation_jobs WHERE completed_at IS NULL
          ) THEN 'revoking' ELSE 'revoked' END
-         WHEN g.revocation_confirmed_at IS NOT NULL OR g.next_collection_id IS NOT NULL THEN 'revoked'
+         WHEN g.revocation_confirmed_at IS NOT NULL THEN 'revoked'
          ELSE 'revoking' END AS status
        FROM grants g WHERE g.id IN (${grantParameters}) AND g.user_id = $${grantIds.length + 1}`,
       [...grantIds, user.id]
