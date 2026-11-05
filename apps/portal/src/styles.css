@@ -646,5 +646,4 @@ h1 {
 
 @media (prefers-reduced-motion: reduce) {
   .minimal-auth-shell * { transition: none; }
-  .auth-spinner { animation: none; }
 }
