@@ -1,4 +1,5 @@
 .new-note-composer {
+  container-type: inline-size;
   grid-column: 3;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
@@ -6,10 +7,10 @@
 }
 
 .new-note-composer > form {
-  width: min(100%, 760px);
+  width: min(var(--writing-measure), calc(100% - var(--writing-gutter) - var(--writing-gutter)));
   display: flex;
   flex-direction: column;
-  padding: clamp(34px, 6vh, var(--space-16)) 42px 0;
+  padding: clamp(34px, 6vh, var(--space-16)) 0 0;
   margin: 0 auto;
   overflow-y: auto;
 }

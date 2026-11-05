@@ -577,7 +577,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
 
   return <TypeEditorDisclosure
     className="type-contracts-section"
-    title={t`Works with applications`}
+    title={t`Works with apps`}
     description={t`Tell compatible apps what this type’s fields mean.`}
     summary={contractSummary}
     attention={contractErrors > 0}
@@ -585,7 +585,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
 
     {!contracts.length && <div className="contract-empty">
       <Link2 aria-hidden="true" />
-      <div><strong><Trans>No application contracts are installed</Trans></strong><p><Trans>Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself.</Trans></p></div>
+      <div><strong><Trans>No app contracts are installed</Trans></strong><p><Trans>Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself.</Trans></p></div>
       {onBrowsePacks && <button onClick={onBrowsePacks}><Trans>Browse ready-made types</Trans></button>}
     </div>}
 

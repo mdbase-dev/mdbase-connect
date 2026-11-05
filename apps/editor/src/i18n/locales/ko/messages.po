@@ -1000,9 +1000,9 @@ msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "이 유형의 레코드를 표시할 때 사용하는 참고용 레이블과 색상입니다."
 
 #: src/App.tsx
+#: src/editor-commands.ts
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
-#: src/NoteListViewOptions.tsx
 msgid "All notes"
 msgstr "모든 노트"
 
@@ -2418,6 +2418,14 @@ msgstr "파일 뷰어, {filename}"
 msgid "Fill in the required properties."
 msgstr "필수 속성을 입력하세요."
 
+#: src/editor-commands.ts
+msgid "Filter by tag"
+msgstr "태그로 필터링"
+
+#: src/editor-commands.ts
+msgid "Filter by type"
+msgstr "유형으로 필터링"
+
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "유형별 링크 필터"
@@ -3124,7 +3132,7 @@ msgstr "누락된 필수 속성"
 msgid "Modified"
 msgstr "수정됨"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Modified newest"
 msgstr "최근 수정순"
 
@@ -3132,7 +3140,7 @@ msgstr "최근 수정순"
 msgid "modified oldest"
 msgstr "오래된 수정순"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "오래된 수정순"
 
@@ -3303,12 +3311,12 @@ msgid "Next note in the list"
 msgstr "목록의 다음 노트"
 
 #: src/TypeBrowser.tsx
-msgid "No app contracts installed"
-msgstr "설치된 앱 계약 없음"
+msgid "No app contracts are installed"
+msgstr "설치된 앱 계약이 없습니다"
 
 #: src/TypeBrowser.tsx
-msgid "No application contracts are installed"
-msgstr "설치된 애플리케이션 계약이 없습니다."
+msgid "No app contracts installed"
+msgstr "설치된 앱 계약 없음"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
@@ -3764,7 +3772,7 @@ msgstr "일부 설치됨"
 msgid "Path"
 msgstr "경로"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "경로 오름차순"
 
@@ -4510,6 +4518,7 @@ msgstr "스키마 관리 필드"
 msgid "Scope"
 msgstr "범위"
 
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "검색"
@@ -4523,6 +4532,7 @@ msgid "Search is incomplete."
 msgstr "검색이 완료되지 않았습니다."
 
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "노트 및 파일 검색"
@@ -5564,7 +5574,7 @@ msgstr "이 값은 필수 형식과 일치하지 않습니다."
 msgid "Title"
 msgstr "제목"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "제목 오름차순"
 
@@ -5950,8 +5960,8 @@ msgid "Working…"
 msgstr "작업 중…"
 
 #: src/TypeBrowser.tsx
-msgid "Works with applications"
-msgstr "애플리케이션과 호환"
+msgid "Works with apps"
+msgstr "앱 호환성"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

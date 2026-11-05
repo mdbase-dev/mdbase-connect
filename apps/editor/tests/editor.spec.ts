@@ -971,7 +971,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(localField).toHaveValue("field");
   await localField.fill("local_context");
   await localField.press("Tab");
-  await page.getByRole("heading", { name: "Works with applications" }).click();
+  await page.getByRole("heading", { name: "Works with apps" }).click();
   await expect(page.getByText("Mapping ready")).toBeVisible();
   const contractSettings = page.locator(".contract-settings");
   await contractSettings.locator("summary").click();

@@ -184,7 +184,8 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
       return;
     }
     if (event.key === "Escape") {
-      event.preventDefault(); onSelection?.({ ...currentSelection, paths: [] }); return;
+      event.preventDefault();
+      onSelection?.({ ...currentSelection, paths: focusedPath ? [focusedPath] : [] }); return;
     }
     const selected = entries[selectedEntryIndex];
     if (selected?.kind === "note") {
@@ -227,7 +228,14 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   return <section className="note-list-pane" aria-label={t`Notes and files`}>
     <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && contentError)))}{structureError && <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button>}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry search</Trans></button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label={t`New note`} onClick={onCreate}><FilePlus2 aria-hidden="true" /><span className="mobile-label"><Trans>New note</Trans></span></button>}</header>
     <div className="note-list-controls">
-      <NoteSearchField search={search} filter={filter} tags={tags} types={filterTypes} onSearch={onSearch} onFilter={onFilter ?? onClearScope} onQuickOpen={onQuickOpen} />
+      <NoteSearchField search={search} filter={filter} tags={tags} types={filterTypes} onSearch={onSearch} onFilter={onFilter ?? onClearScope} onQuickOpen={onQuickOpen} onResults={(first) => {
+        if (first && entries[0]) {
+          const entry = entries[0];
+          if (entry.kind === "note") chooseNote(entry.path, "single", true);
+          else openEntry(entry, { keyboard: true });
+        }
+        scrollRef.current?.focus({ preventScroll: true });
+      }} />
       <NoteListViewOptions sort={sort} scopeLabel={filter ? undefined : scopeLabel} onSort={onSort} onClearScope={onClearScope} />
     </div>
     <div className="note-selection-slot">{selectionBar}</div>

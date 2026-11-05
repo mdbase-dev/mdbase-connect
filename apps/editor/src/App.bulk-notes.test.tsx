@@ -43,7 +43,7 @@ describe("bulk notes", () => {
     fireEvent.keyDown(list, { key: "a", metaKey: true });
     expect(screen.getByText("5 selected")).toBeInTheDocument();
     fireEvent.keyDown(list, { key: "Escape" });
-    expect(screen.queryAllByRole("option", { selected: true })).toHaveLength(0);
+    expect(screen.queryAllByRole("option", { selected: true })).toHaveLength(1);
     expect(screen.queryByText(/\d+ selected/)).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
     fireEvent.click(screen.getByRole("option", { name: /A quiet interface 3/ }), { shiftKey: true });

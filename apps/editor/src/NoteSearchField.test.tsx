@@ -4,10 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import { NoteSearchField } from "./NoteSearchField";
 import type { NoteFilter } from "./note-list-view";
 
-function SearchHarness() {
+function SearchHarness({ onResults = vi.fn() }: { onResults?: (first: boolean) => void }) {
   const [search, onSearch] = useState("");
   const [filter, onFilter] = useState<NoteFilter>();
-  return <NoteSearchField search={search} filter={filter} onSearch={onSearch} onFilter={onFilter} tags={[{ name: "ideas", count: 4 }, { name: "writing", count: 2 }]} types={[{ name: "note", count: 3 }]} onQuickOpen={() => {}} />;
+  return <NoteSearchField search={search} filter={filter} onSearch={onSearch} onFilter={onFilter} tags={[{ name: "ideas", count: 4 }, { name: "writing", count: 2 }]} types={[{ name: "note", count: 3 }]} onQuickOpen={() => {}} onResults={onResults} />;
 }
 
 describe("Search filters", () => {
@@ -45,9 +45,27 @@ describe("Search filters", () => {
     fireEvent.keyDown(input, { key: "Escape" });
     expect(input).toHaveAttribute("aria-expanded", "false");
     fireEvent.focus(input);
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    fireEvent.change(input, { target: { value: "#" } });
     expect(input).toHaveAttribute("aria-expanded", "true");
     fireEvent.blur(input, { relatedTarget: document.body });
     expect(input).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("clears with Escape, returns with the second, and enters results with ArrowDown or Enter", () => {
+    const onResults = vi.fn();
+    render(<SearchHarness onResults={onResults} />);
+    const input = screen.getByRole("combobox");
+    fireEvent.change(input, { target: { value: "garden" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(input).toHaveValue("");
+    expect(onResults).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onResults).toHaveBeenLastCalledWith(false);
+    for (const key of ["ArrowDown", "Enter"]) {
+      fireEvent.keyDown(input, { key });
+      expect(onResults).toHaveBeenLastCalledWith(true);
+    }
   });
 
   it("has an explicit empty state and leaves unrelated prose alone", () => {

@@ -2,10 +2,22 @@ import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
 import { noteTitle } from "./note";
+import { buildEditorCommands, command, commandDefinitions, type EditorCommand } from "./editor-commands";
 
 export const NOTE_PATHS_MIME = "application/x-mdbase-note-paths";
 export type NoteFilter = { kind: "folder" | "tag" | "type"; value: string };
 export interface SearchFacet { name: string; count: number }
+export function noteFilterCommand(filter: NoteFilter & { kind: "tag" | "type" }, onFilter: (filter: NoteFilter) => void): EditorCommand {
+  const entry = command(filter.kind === "tag" ? "filter-tag" : "filter-type", () => onFilter(filter));
+  return { ...entry, id: `${entry.id}:${filter.value}`, label: `${entry.label}: ${filter.value}` };
+}
+
+export function noteViewCommands(onSort: (sort: NoteSort) => void, onFilter: (filter: NoteFilter) => void, onClear: () => void, tags: SearchFacet[], types: SearchFacet[]): EditorCommand[] {
+  return buildEditorCommands({ ...Object.fromEntries(noteSorts.map((sort) => [`sort-${sort}`, () => onSort(sort)])), "clear-filter": onClear }).concat(
+    tags.map(({ name }) => noteFilterCommand({ kind: "tag", value: name }, onFilter)),
+    types.map(({ name }) => noteFilterCommand({ kind: "type", value: name }, onFilter))
+  );
+}
 export interface NoteRowStatus {
   label?: string;
   tone: "quiet" | "busy" | "error";
@@ -35,10 +47,10 @@ export const noteSortOptions: ReadonlyArray<{
   label: string;
   summary: string;
 }> = [
-  { value: "modified-desc", get label() { return t`Modified newest`; }, summary: "" },
-  { value: "modified-asc", get label() { return t`Modified oldest`; }, get summary() { return t`modified oldest`; } },
-  { value: "title-asc", get label() { return t`Title A–Z`; }, summary: "title A–Z" },
-  { value: "path-asc", get label() { return t`Path A–Z`; }, summary: "path A–Z" }
+  { value: "modified-desc", get label() { return commandDefinitions["sort-modified-desc"].label; }, summary: "" },
+  { value: "modified-asc", get label() { return commandDefinitions["sort-modified-asc"].label; }, get summary() { return t`modified oldest`; } },
+  { value: "title-asc", get label() { return commandDefinitions["sort-title-asc"].label; }, summary: "title A–Z" },
+  { value: "path-asc", get label() { return commandDefinitions["sort-path-asc"].label; }, summary: "path A–Z" }
 ];
 
 const storageKey = "mdbase-editor:note-sort";

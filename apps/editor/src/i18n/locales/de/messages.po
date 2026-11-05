@@ -1000,9 +1000,9 @@ msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "Hinweisende Beschriftungen und Farben für die Anzeige von Datensätzen dieses Typs."
 
 #: src/App.tsx
+#: src/editor-commands.ts
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
-#: src/NoteListViewOptions.tsx
 msgid "All notes"
 msgstr "Alle Notizen"
 
@@ -2418,6 +2418,14 @@ msgstr "Dateiansicht, {filename}"
 msgid "Fill in the required properties."
 msgstr "Füllen Sie die erforderlichen Eigenschaften aus."
 
+#: src/editor-commands.ts
+msgid "Filter by tag"
+msgstr "Nach Tag filtern"
+
+#: src/editor-commands.ts
+msgid "Filter by type"
+msgstr "Nach Typ filtern"
+
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "Links nach Typ filtern"
@@ -3124,7 +3132,7 @@ msgstr "Fehlende erforderliche Eigenschaften"
 msgid "Modified"
 msgstr "Geändert"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Modified newest"
 msgstr "Neueste Änderung zuerst"
 
@@ -3132,7 +3140,7 @@ msgstr "Neueste Änderung zuerst"
 msgid "modified oldest"
 msgstr "älteste Änderung zuerst"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "Älteste Änderung zuerst"
 
@@ -3303,11 +3311,11 @@ msgid "Next note in the list"
 msgstr "Nächste Notiz in der Liste"
 
 #: src/TypeBrowser.tsx
-msgid "No app contracts installed"
+msgid "No app contracts are installed"
 msgstr "Keine App-Verträge installiert"
 
 #: src/TypeBrowser.tsx
-msgid "No application contracts are installed"
+msgid "No app contracts installed"
 msgstr "Keine App-Verträge installiert"
 
 #: src/TypeBrowser.tsx
@@ -3764,7 +3772,7 @@ msgstr "Teilweise installiert"
 msgid "Path"
 msgstr "Pfad"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "Pfad A–Z"
 
@@ -4510,6 +4518,7 @@ msgstr "Schemaverwaltete Felder"
 msgid "Scope"
 msgstr "Umfang"
 
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "Suche"
@@ -4523,6 +4532,7 @@ msgid "Search is incomplete."
 msgstr "Suche ist unvollständig."
 
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "Notizen und Dateien durchsuchen"
@@ -5564,7 +5574,7 @@ msgstr "Dieser Wert entspricht nicht dem erforderlichen Format."
 msgid "Title"
 msgstr "Titel"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "Titel A–Z"
 
@@ -5950,7 +5960,7 @@ msgid "Working…"
 msgstr "Wird ausgeführt…"
 
 #: src/TypeBrowser.tsx
-msgid "Works with applications"
+msgid "Works with apps"
 msgstr "Funktioniert mit Apps"
 
 #: src/settings/SettingsView.tsx

@@ -18,11 +18,11 @@
   --inspector-display: var(--inspector-track);
 }
 
-.editor-opening .note-list-pane { padding: var(--space-4); }
 .editor-opening p { color: var(--muted); font-size: var(--font-size-ui); }
 .opening-list-skeleton { display: grid; gap: var(--space-4); padding: var(--space-4); }
 .opening-list-skeleton span { height: 44px; border-radius: var(--radius-sm); background: var(--skeleton); }
 .opening-brand-skeleton { width: 120px; height: 20px; border-radius: var(--radius-sm); background: var(--skeleton); }
+.editor-opening .opening-brand-skeleton { display: block; }
 
 .app-shell.resizing-pane {
   transition: none;

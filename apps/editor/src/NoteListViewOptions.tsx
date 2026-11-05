@@ -4,6 +4,7 @@ import { useLingui } from "@lingui/react";
 import { CheckIcon as Check, SlidersHorizontalIcon as SlidersHorizontal } from "./icons";
 import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { noteSortOptions, type NoteSort } from "./note-list-view";
+import { command, commandDefinitions } from "./editor-commands";
 
 export function NoteListViewOptions({ sort, scopeLabel, onSort, onClearScope }: {
   sort: NoteSort;
@@ -33,7 +34,7 @@ export function NoteListViewOptions({ sort, scopeLabel, onSort, onClearScope }: 
         className="mdbase-menu-item"
         role="menuitemradio"
         aria-checked={sort === option.value}
-        onClick={() => select(() => onSort(option.value))}
+        onClick={() => select(command(`sort-${option.value}`, () => onSort(option.value)).run)}
       ><span className="view-option-check">{sort === option.value && <Check aria-hidden="true" />}</span><span>{option.label}</span></button>)}
       <div className="view-options-divider" role="separator" />
       <p className="view-options-heading"><Trans>Scope</Trans></p>
@@ -48,8 +49,8 @@ export function NoteListViewOptions({ sort, scopeLabel, onSort, onClearScope }: 
         className="mdbase-menu-item"
         role="menuitemradio"
         aria-checked={!scopeLabel}
-        onClick={() => select(onClearScope)}
-      ><span className="view-option-check">{!scopeLabel && <Check aria-hidden="true" />}</span><span><Trans>All notes</Trans></span></button>
+        onClick={() => select(command("clear-filter", onClearScope).run)}
+      ><span className="view-option-check">{!scopeLabel && <Check aria-hidden="true" />}</span><span>{commandDefinitions["clear-filter"].label}</span></button>
     </Menu>
   </div>;
 }
