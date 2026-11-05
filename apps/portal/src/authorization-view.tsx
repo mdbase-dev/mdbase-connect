@@ -69,7 +69,7 @@ export function DeviceAuthorization() {
   async function openRequest(value: string) {
     const userCode = formatDeviceCode(value);
     if (userCode.replace("-", "").length !== 8) {
-      setError(t(i18n)({ message: "Enter the eight-character code shown by the application." }));
+      setError(t(i18n)({ message: "Enter the eight-character code shown by the app." }));
       return;
     }
     setBusy(true);
@@ -103,8 +103,8 @@ export function DeviceAuthorization() {
         void openRequest(code);
       }}>
         <p className="eyebrow"><Trans>Short approval code</Trans></p>
-        <h1><Trans>Check the application.</Trans></h1>
-        <p><Trans>Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed.</Trans></p>
+        <h1><Trans>Check the app.</Trans></h1>
+        <p><Trans>Enter the code it shows. You will review the app, collection, and exact permissions before anything is allowed.</Trans></p>
         <label className="device-code-field">
           <span><Trans>Approval code</Trans></span>
           <input className="mdbase-field"
@@ -117,7 +117,7 @@ export function DeviceAuthorization() {
             placeholder="ABCD-EFGH"
           />
         </label>
-        <p className="field-note"><Trans>Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application.</Trans></p>
+        <p className="field-note"><Trans>Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that app.</Trans></p>
         {error && <div className="mdbase-message is-error" role="alert">{error}</div>}
         <button className="mdbase-button is-primary" disabled={busy || code.replace("-", "").length !== 8}>
           {busy ? t(i18n)({ message: "Checking…", context: "Application access approval" }) : t(i18n)({ message: "Review request", context: "Application access approval" })}
@@ -220,7 +220,7 @@ export function Authorization({ requestId }: { requestId: string }) {
     return (
       <RequestShell>
           {/* A Private approval is answered on the pairing page, so its request can arrive here already complete. */}
-          <RequestOutcome status={status} applicationName={t(i18n)({ message: "the application", context: "Application access approval" })} returnUrl={returnUrl} standalone />
+          <RequestOutcome status={status} applicationName={t(i18n)({ message: "the app", context: "Application access approval" })} returnUrl={returnUrl} standalone />
       </RequestShell>
     );
   }
@@ -291,6 +291,8 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
   // has not already taken the user away.
   const [late, setLate] = useState(false);
   const [seconds, setSeconds] = useState(3);
+  const outcome = useRef<HTMLDivElement>(null);
+  useEffect(() => { outcome.current?.querySelector<HTMLElement>("h1, h2")?.focus(); }, [status]);
   useEffect(() => {
     if (!returnUrl || portable || (status !== "approved" && status !== "denied")) return;
     if (status === "denied") {
@@ -324,23 +326,23 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
     <p className="eyebrow outcome-label"><Trans>Approval recorded</Trans></p>
     <h2><Trans>Finishing collection setup…</Trans></h2>
     <div className="collection-setup-progress" aria-hidden="true" />
-    <p><Trans>Your choices are being checked with the collection’s main copy. The application does not have access yet.</Trans></p>
+    <p><Trans>Your choices are being checked with the collection’s main copy. The app does not have access yet.</Trans></p>
     {late && <p><Trans>This is taking longer than usual. Keep this page open; it continues automatically when setup finishes.</Trans></p>}
   </div>;
   const approved = status === "approved";
-  return <div className="request-outcome" role="status">
+  return <div className="request-outcome" role="status" ref={outcome}>
     {approved && collectionName ? <GrantMoment applicationName={applicationName} collectionName={collectionName} collectionKind={collectionKind} />
-      : <h1>{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</h1>}
+      : <h1 tabIndex={-1}>{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</h1>}
     {approved && collectionName && <p className="mdbase-visually-hidden"><Trans>Access approved</Trans></p>}
-    <p>{portable || !returnUrl ? t(i18n)`Return to ${applicationName}.` : t(i18n)`Returning to ${applicationName}…`}{approved && !portable && returnUrl && <output className="request-return-countdown" aria-live="off">{i18n.number(seconds, { style: "unit", unit: "second", unitDisplay: "long" })}</output>}</p>
+    {approved && !portable && returnUrl && <p>{t(i18n)`Returning to ${applicationName}…`}<output className="request-return-countdown" aria-live="polite">{i18n.number(seconds, { style: "unit", unit: "second", unitDisplay: "long" })}</output></p>}
     {approved && returnUrl && <a className="mdbase-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>}
     <p>{portable
       ? approved
-        ? t(i18n)({ message: "The application will finish connecting with its one-time device code. You can close this window." })
-        : t(i18n)({ message: "The application will learn that access was not granted. You can close this window." })
+        ? t(i18n)({ message: "The app will finish connecting with its one-time device code. You can close this window." })
+        : t(i18n)({ message: "The app will learn that access was not granted. You can close this window." })
       : approved
         ? t(i18n)({ message: "Your approved collection and permissions will follow you back." })
-        : t(i18n)({ message: "The application will show that access was not granted." })}</p>
+        : t(i18n)({ message: "The app will show that access was not granted." })}</p>
     {!approved && returnLink}
   </div>;
 }
@@ -364,19 +366,19 @@ export function RequestIdentity({ request, showClientKey = true }: { request: Pi
       <div>
         <h1>{native ? t(i18n)`Connect an app` : request.application_name}</h1>
         <p className="request-origin">{native ? t(i18n)`an app running on this computer` : portable
-          ? <>{t(i18n)({ message: "Application using a device code" })}{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
+          ? <>{t(i18n)({ message: "App using a device code" })}{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
           : request.application_origin?.trim() ? <><code>{request.application_origin}</code>{originKind && ` · ${originKind}`}</> : null}</p>
         {native
-          ? <p className="request-guidance" role="note"><Trans>Application identity unverified. This app calls itself {literal(request.application_name)}. Continue only if you started this connection intentionally.</Trans></p>
+          ? <p className="request-guidance" role="note"><Trans>App identity unverified. This app calls itself {literal(request.application_name)}. Continue only if you started this connection intentionally.</Trans></p>
           : portable
-          ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null}</Trans></p>
+          ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>App origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null}</Trans></p>
           : request.application_origin?.trim()
           ? <p className="request-guidance request-origin-guidance">{originKind ? <Trans>Continue only if you started this and recognize this app.</Trans> : <Trans>Continue only if you started this and recognize this site.</Trans>}</p>
           : <p className="request-guidance" role="note"><Trans>No requesting origin is available. Continue only if you started this connection intentionally.</Trans></p>}
         {showClientKey && request.client_fingerprint
           ? <p className="request-fingerprint"><Trans>App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</Trans></p>
           : null}
-        {request.expires_at && <p className="request-expiry"><Trans>Request expires {relativeTime(request.expires_at)}</Trans></p>}
+        {request.expires_at && <p className="request-expiry"><Trans>This request link expires {relativeTime(request.expires_at)}.</Trans>{!portable && <> <Trans>Access you allow continues until you revoke it.</Trans></>}</p>}
       </div>
     </header>
   );
@@ -483,6 +485,8 @@ function SupportedApprovalForm({
     Boolean(initialSelection.collectionId)
   );
   const [reviewing, setReviewing] = useState(initialSelection.reviewing);
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (reviewing) reviewHeading.current?.focus(); }, [reviewing]);
   const [chosenOperations, setOperations] = useState(() => {
     const selected = jointPermissions
       ? selectedNextAuthorizationOperations(requestedPermissionGroups, savedReview?.operations, savedReview?.fileActions)
@@ -768,7 +772,7 @@ function SupportedApprovalForm({
       </section>}
       <div key={reviewing ? "review" : "choose"} className={reviewing ? "consent-step" : undefined}>
       <section className="approval-section" aria-labelledby={`collection-${request.id}`}>
-        <h2 className="approval-section-title" id={`collection-${request.id}`}>{reviewing ? t(i18n)({ message: "Collection", context: "Application access approval" }) : t(i18n)({ message: "Choose a collection", context: "Application access approval" })}</h2>
+        <h2 className="approval-section-title" id={`collection-${request.id}`} tabIndex={-1} ref={reviewHeading}>{reviewing ? t(i18n)({ message: "Collection", context: "Application access approval" }) : t(i18n)({ message: "Choose a collection", context: "Application access approval" })}</h2>
         {lostCollection && <p className="mdbase-message is-error compact" role="alert">{lostCollection}</p>}
         {reviewing && selected ? <div className="selected-collection-summary">
           <div>
@@ -787,9 +791,9 @@ function SupportedApprovalForm({
                 hint: request.existing_access?.some(access => access.collection_id === collection.id) ? t(i18n)`Already connected` : undefined }))} />
           </div>}
           {compatible.length === 0 && <p className="field-note">{request.collection_id
-            ? t(i18n)({ message: "The collection requested by this application is not available." })
+            ? t(i18n)({ message: "The collection requested by this app is not available." })
             : request.requirements.collection_kind === "hosted"
-              ? t(i18n)({ message: "This application needs a collection hosted by mdbase, and none is ready yet." })
+              ? t(i18n)({ message: "This app needs a collection hosted by mdbase, and none is ready yet." })
               : t(i18n)({ message: "No compatible collection is ready." })}</p>}
           {(unavailable.length > 0
             || unavailableConnectors.length > 0
@@ -843,7 +847,7 @@ function SupportedApprovalForm({
                       onChange={(event) => setCollectionName(event.target.value)}
                     />
                   </label>
-                  <small><Trans>Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately.</Trans></small>
+                  <small><Trans>Creates a plain mdbase collection hosted by mdbase. App access is still approved separately.</Trans></small>
                   <div>
                     <button
                       className="mdbase-button is-tertiary"
@@ -907,7 +911,7 @@ function SupportedApprovalForm({
           && !people?.optional?.length && <p className="approval-section-note"><Trans>All permissions listed below are required by {literal(request.application_name)}. You can allow them together or deny this request.</Trans></p>}
         <p className="approval-section-note"><Trans>
           Covers every record in {literal(selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" }))}.
-          {existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""}
+          {existingOperations.size > 0 ? t(i18n)({ message: " Permissions this app does not already have are marked New." }) : ""}
         </Trans></p>
         <PermissionList
           groups={permissionGroups}
@@ -933,8 +937,8 @@ function SupportedApprovalForm({
                 <span aria-hidden="true">+</span>
                 <div>
                   <strong>{provision.manifest.name ?? provision.manifest.id} <code>{provision.manifest.version}</code></strong>
-                  <small>{provision.manifest.description ?? t(i18n)({ message: "Install or update the application definitions declared by this version." })}</small>
-                  {provision.manifest.resources.some((resource) => resource.upgrade_from) && <small><Trans>Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade.</Trans></small>}
+                  <small>{provision.manifest.description ?? t(i18n)({ message: "Install or update the app definitions declared by this version." })}</small>
+                  {provision.manifest.resources.some((resource) => resource.upgrade_from) && <small><Trans>Upgrades starter types this app added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade.</Trans></small>}
                 </div>
               </li>
             ))}

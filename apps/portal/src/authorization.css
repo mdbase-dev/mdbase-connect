@@ -183,7 +183,7 @@
 .collection-picker { display: grid; gap: var(--space-2); min-width: 0; margin-block: var(--space-4); }
 .collection-picker > label { font-weight: var(--font-weight-semibold); }
 .collection-picker input { width: 100%; min-width: 0; }
-.collection-picker-list { max-height: min(32rem, 48svh); overflow-y: auto; overscroll-behavior: contain; border-block: 1px solid var(--line); scroll-padding-block: var(--space-2); }
+.collection-picker-list { max-height: min(calc(32rem + 2px), var(--collection-picker-space)); overflow-y: auto; overscroll-behavior: contain; border-block: 1px solid var(--line); }
 .collection-picker input::placeholder { color: var(--color-text-muted); }
 .collection-picker-option > span[aria-hidden] { min-width: 0; }
 .installation-additional-collection { padding-right: var(--space-3); }
@@ -893,6 +893,7 @@
 @media (prefers-reduced-motion: reduce) { .collection-setup-progress::after { animation: none; width: 100%; } }
 
 .approval-actions .mdbase-button { min-height: 44px; white-space: normal; overflow-wrap: anywhere; }
+.approval-actions .mdbase-button:not(.is-primary) { flex-shrink: 0; }
 .approval-actions .mdbase-button.is-primary { transition-property: border-color; }
 .consent-step { opacity: 1; transition: opacity var(--motion-base) var(--ease-out); }
 @starting-style { .consent-step { opacity: 0; } }

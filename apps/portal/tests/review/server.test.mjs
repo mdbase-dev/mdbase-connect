@@ -99,3 +99,25 @@ test("review configuration and onboarding expose the demo Editor handoff", async
   const ready = await request(cookie, "/v1/onboarding/starter-collection", "POST", {});
   assert.equal((await ready.json()).editor_url, editor_url);
 });
+
+test("OAuth signup previews agreements without a session and completes at getting started", async context => {
+  const { origin, select, request, read } = await harness(context);
+  for (const provider of ["github", "google"]) {
+    for (const target of ["/", "/collections", `/pair/${pairingId}`]) {
+      const cookie = await select("signup");
+      const started = await fetch(`${origin}/auth/${provider}?return_to=${encodeURIComponent(target)}`, { headers: { cookie }, redirect: "manual" });
+      const destination = provider === "github" ? started.headers.get("location")
+        : (await (await request(cookie, "/auth/google/callback", "POST", { credential: "local-review-only" })).json()).redirect_to;
+      assert.equal(destination, `/signup?external=1&return_to=${encodeURIComponent(target)}`);
+      assert.equal((await request(cookie, "/v1/me")).status, 401);
+      const preview = await (await request(cookie, "/v1/auth/external/signup/preview", "POST", {})).json();
+      assert.equal(preview.email, "maya@chen.example");
+      const body = { proof_id: preview.proof_id, name: "Maya Chen", terms_version: "1", privacy_version: "1", product_updates: false };
+      assert.equal((await request(cookie, "/v1/auth/external/signup", "POST", { ...body, terms_version: "old" })).status, 400);
+      assert.equal((await request(cookie, "/v1/me")).status, 401);
+      const completed = await (await request(cookie, "/v1/auth/external/signup", "POST", body)).json();
+      assert.equal(completed.redirect_to, target === "/" ? "/getting-started" : target);
+      assert.equal((await read(cookie)).user.name, "Maya Chen");
+    }
+  }
+});

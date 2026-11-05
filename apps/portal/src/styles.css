@@ -454,11 +454,19 @@ h1 {
 
 .minimal-auth-page .mdbase-page-panel .auth-field-error {
   color: var(--color-danger);
-  font-size: var(--font-size-ui);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-regular);
-  min-height: 2.8em;
+  height: 1.4em;
   line-height: 1.4;
 }
+
+.minimal-auth-page .auth-input .mdbase-field[aria-invalid="true"] {
+  border-color: var(--color-danger);
+  outline: 2px solid var(--color-danger);
+  outline-offset: -2px;
+}
+
+.minimal-auth-page .password-auth-form > .mdbase-button { margin-top: var(--space-2); }
 
 .minimal-auth-page > .product-brand { width: 100%; margin-bottom: var(--space-8); }
 .minimal-auth-page .email-choice { margin-top: var(--space-3); }

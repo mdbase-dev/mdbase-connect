@@ -35,15 +35,15 @@ describe("one explicit collection consent", () => {
     const view = await fixture({ requested_create_collections: true, scope_only: true });
     const receipt = within(document.querySelector<HTMLElement>(".approval-receipt")!);
     expect(receipt.getByText("Allow Reader to create new collections")).toBeVisible();
-    expect(receipt.getByText("Already-allowed access stays in place. Remove access separately if you no longer want it.")).toBeVisible();
-    fireEvent.click(screen.getByText("Allow access to additional collections"));
+    expect(receipt.getByText("Already-allowed access stays in place. Revoke access separately if you no longer want it.")).toBeVisible();
+    fireEvent.click(screen.getByText("Allow offline access to additional collections"));
     fireEvent.click(screen.getByRole("checkbox", { name: "Allow Reader to create new collections" }));
     expect(receipt.queryByText("Allow Reader to create new collections")).not.toBeInTheDocument();
     expect(view.posts()).toEqual([]);
   });
   it("describes native pairing as an unverified app running on this computer", async () => {
     const f = await fixture({app_platform:"native",app_origin:"http://127.0.0.1:49152"});
-    expect(screen.getByRole("note")).toHaveTextContent("Application identity unverified. This app calls itself Reader.");
+    expect(screen.getByRole("note")).toHaveTextContent("App identity unverified. This app calls itself Reader.");
     expect(f.posts()).toEqual([]);
   });
   it.each(["https://remote.example.test", "http://localhost:49152", "http://[::1]:49152", undefined])("shows the actual pairing origin instead of native wording for %s", async app_origin => {

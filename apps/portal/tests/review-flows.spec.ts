@@ -99,6 +99,90 @@ test("offline route changes have one inline recovery state", async ({ page }) =>
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`consent picker clears the real footer ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme });
+      await openScenario(page, "pairing-many");
+      const picker = page.getByRole("combobox", { name: "Open in Reader" });
+      await expect(page.getByText(/This request link expires .*Access you allow continues until you revoke it/)).toBeVisible();
+      expect(await page.locator(".collection-picker-list").evaluate(element => (element.getBoundingClientRect().height - 2) % 64)).toBe(0);
+      for (const selected of [false, true]) {
+        if (selected) {
+          const longName = "Coastal restoration research archive with a very long selected collection name — field notebooks";
+          const option = page.getByRole("option").last();
+          const name = await option.getAttribute("aria-label");
+          await page.route(`**/v1/pairing-requests/${pairingId}`, async route => {
+            const response = await route.fetch();
+            const data = await response.json();
+            data.pairing.collections.find((collection: { display_name: string }) => collection.display_name === name).display_name = longName;
+            await route.fulfill({ response, json: data });
+          });
+          await page.reload();
+          await page.getByRole("option", { name: longName }).click();
+          await expect(page.getByRole("button", { name: `Open Reader with ${longName}` })).toBeEnabled();
+        }
+        await picker.focus();
+        for (let index = 0; index < 30; index++) await picker.press("ArrowDown");
+        await expect.poll(() => picker.evaluate(input => {
+          const option = document.getElementById(input.getAttribute("aria-activedescendant")!)!;
+          const bounds = option.getBoundingClientRect();
+          const footer = document.querySelector(".approval-footer")!.getBoundingClientRect();
+          const list = document.querySelector(".collection-picker-list")!.getBoundingClientRect();
+          return list.bottom <= footer.top && bounds.top >= list.top && bounds.bottom <= list.bottom
+            && option.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2));
+        })).toBe(true);
+        expect(await page.locator(".collection-picker-list").evaluate(element => element.scrollTop % 64)).toBe(0);
+        expect(await page.getByRole("button", { name: "Cancel", exact: true }).evaluate(button => {
+          const text = document.createRange();
+          text.selectNodeContents(button);
+          return text.getClientRects().length;
+        })).toBe(1);
+        const path = testInfo.outputPath(selected ? "long-selected-picker.png" : "unselected-picker.png");
+        await page.screenshot({ path });
+        await testInfo.attach(selected ? "long-selected-picker" : "unselected-picker", { path, contentType: "image/png" });
+      }
+    });
+    test(`signup compact validation paints clearly ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme });
+      await openScenario(page, "signup");
+      const email = page.getByRole("textbox", { name: "Email", exact: true });
+      const submit = page.getByRole("button", { name: "Send verification link" });
+      const field = (await email.boundingBox())!;
+      expect((await submit.boundingBox())!.y - field.y - field.height).toBeLessThan(40);
+      await email.fill("notanemail");
+      await submit.click();
+      await expect(email).toHaveAttribute("aria-invalid", "true");
+      const errorId = await email.getAttribute("aria-describedby");
+      await expect(page.locator(`[id="${errorId}"]`)).toHaveText("Enter a valid email address.");
+      await expect(email).toHaveCSS("outline-width", "2px");
+      await expect(page.getByText("Connect apps to your Markdown files, on your computers or hosted by mdbase.")).toBeVisible();
+      const pagePath = testInfo.outputPath("signup-invalid.png"), fieldPath = testInfo.outputPath("signup-invalid-field.png");
+      await page.screenshot({ path: pagePath });
+      await email.screenshot({ path: fieldPath });
+      await testInfo.attach("signup-invalid", { path: pagePath, contentType: "image/png" });
+      await testInfo.attach("signup-invalid-field", { path: fieldPath, contentType: "image/png" });
+    });
+  }
+}
+
+for (const provider of ["GitHub", "Google"]) test(`OAuth signup with ${provider} requires agreements before getting started`, async ({ page }) => {
+  await openScenario(page, "signup");
+  await page.getByRole(provider === "GitHub" ? "link" : "button", { name: `Continue with ${provider}` }).click();
+  await expect(page).toHaveURL(/\/signup\?external=1/);
+  await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("Maya Chen");
+  const create = page.getByRole("button", { name: "Create account", exact: true });
+  await expect(create).toBeDisabled();
+  expect((await page.request.get("/v1/me")).status()).toBe(401);
+  await page.getByRole("checkbox", { name: /I agree to the/ }).check();
+  await expect(page.getByRole("checkbox", { name: /Send me occasional product updates/ })).not.toBeChecked();
+  const gettingStarted = page.waitForURL(/\/getting-started$/, { waitUntil: "commit" });
+  await create.click();
+  await gettingStarted;
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   for (const colorScheme of ["light", "dark"] as const) test(`Portal keyboard and cached palette ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme });
@@ -331,13 +415,15 @@ test("grant waits for acknowledged status and resolves stripes to a check", asyn
   await expect(page.getByRole("button", { name: "Allow access", exact: true })).toHaveCount(0);
   await expect.poll(async () => (await (await page.request.get("/v1/me")).json()).pending_authorizations.length).toBe(1);
   await page.getByRole("button", { name: "Review access", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Collection", exact: true })).toBeFocused();
   const reviewHeader = await page.locator(".request-identity").elementHandle();
   await page.getByRole("button", { name: "Allow access", exact: true }).click();
-  await expect(page.getByText("The application does not have access yet.", { exact: false })).toBeVisible();
+  await expect(page.getByText("The app does not have access yet.", { exact: false })).toBeVisible();
   await expect(page.locator(".grant-moment")).toHaveCount(0);
   expect(await reviewHeader!.evaluate(element => element.isConnected && getComputedStyle(element).position === "sticky")).toBe(true);
   approved = true;
   await expect(page.getByRole("heading", { name: "TaskNotes can now use Field research", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "TaskNotes can now use Field research", exact: true })).toBeFocused();
   await page.evaluate(() => document.getAnimations().forEach(animation => animation.pause()));
   for (const time of [0, 60, 120, 180, 240, 300]) {
     await page.evaluate(time => document.getAnimations().forEach(animation => { animation.currentTime = time; }), time);
@@ -572,7 +658,7 @@ test("consent adds a real grant and removes the pending request", async ({ page 
 for (const reducedMotion of ["reduce", "no-preference"] as const) test(`setup progress stays non-optimistic with ${reducedMotion} motion`, async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion });
   await openScenario(page, "authorization-setting-up");
-  await expect(page.getByText("The application does not have access yet.", { exact: false })).toBeVisible();
+  await expect(page.getByText("The app does not have access yet.", { exact: false })).toBeVisible();
   await expect(page.getByText("Access approved", { exact: true })).toHaveCount(0);
   const line = page.locator(".collection-setup-progress");
   await expect(line).toHaveCSS("animation-delay", "0.4s");

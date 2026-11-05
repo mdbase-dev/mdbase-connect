@@ -40,7 +40,7 @@ msgid " File actions are included in the collection permissions above."
 msgstr " Действия с файлами входят в указанные выше разрешения для коллекции."
 
 #: src/authorization-view.tsx
-msgid " Permissions this application does not already have are marked New."
+msgid " Permissions this app does not already have are marked New."
 msgstr " Разрешения, которых у приложения ещё нет, помечены как новые."
 
 #: src/authority-workflows.tsx
@@ -391,7 +391,7 @@ msgstr "<0/>Пригласить пользователя"
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
 #. placeholder {3}: request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
-msgid "<0>Application origin unverified.</0> Continue only if you started this connection intentionally{1}.{3}"
+msgid "<0>App origin unverified.</0> Continue only if you started this connection intentionally{1}.{3}"
 msgstr "<0>Происхождение приложения не подтверждено.</0> Продолжайте, только если вы сами начали подключение{1}.{3}"
 
 #: src/ConnectApp.tsx
@@ -461,18 +461,22 @@ msgstr "Доступ от имени вашей учётной записи"
 msgid "Access changed elsewhere. Review the current permissions before saving. <0>Review current access</0>"
 msgstr "Доступ изменён в другом месте. Проверьте текущие разрешения перед сохранением. <0>Проверить текущий доступ</0>"
 
+#: src/authority-workflows.tsx
+msgid "Access continues until you revoke it in mdbase connect."
+msgstr "Доступ сохраняется, пока вы не отзовёте его в mdbase connect."
+
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Access denied"
 msgstr "В доступе отказано"
 
-#: src/authority-workflows.tsx
-msgid "Access lasts until you remove it in mdbase Connect."
-msgstr "Доступ действует, пока вы не удалите его в mdbase Connect."
-
 #: src/ConnectApp.tsx
 msgid "Access to this collection is paused on its computer."
 msgstr "Доступ к этой коллекции приостановлен на её компьютере."
+
+#: src/authorization-view.tsx
+msgid "Access you allow continues until you revoke it."
+msgstr "Разрешённый доступ сохраняется, пока вы его не отзовёте."
 
 #: src/portal-ui.tsx
 msgid "Account"
@@ -502,7 +506,7 @@ msgid "Account email"
 msgstr "Адрес электронной почты"
 
 #: src/authorization-review.tsx
-msgid "Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership."
+msgid "Account identifiers are the same in every collection, so this app can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership."
 msgstr "Идентификаторы учётной записи одинаковы во всех коллекциях, поэтому приложение может распознать одного и того же пользователя в разных коллекциях. Адреса электронной почты и ожидающие приглашения не передаются; управлять участниками это не позволяет."
 
 #: src/portal-model.ts
@@ -631,17 +635,17 @@ msgctxt "Application access approval"
 msgid "Allow access"
 msgstr "Предоставить доступ"
 
-#: src/authority-workflows.tsx
-msgid "Allow access to additional collections"
-msgstr "Разрешить доступ к дополнительным коллекциям"
-
 #: src/authorization-view.tsx
 msgid "Allow at least one permission to continue."
 msgstr "Чтобы продолжить, выберите хотя бы одно разрешение."
 
 #: src/authority-workflows.tsx
-msgid "Allow mdbase on this computer to use your account. This is needed after installing or updating the desktop app, even on a computer you used before. It will publish collection names and route application requests, but not local folder paths."
+msgid "Allow mdbase on this computer to use your account. This is needed after installing or updating the desktop app, even on a computer you used before. It will publish collection names and route app requests, but not local folder paths."
 msgstr "Разрешите mdbase на этом компьютере использовать вашу учётную запись. Это необходимо после установки или обновления настольного приложения, даже на компьютере, который вы уже использовали. Приложение передаст названия коллекций и направит запросы приложений, но не пути к локальным папкам."
+
+#: src/authority-workflows.tsx
+msgid "Allow offline access to additional collections"
+msgstr "Разрешить офлайн-доступ к другим коллекциям"
 
 #: src/authority-workflows.tsx
 msgid "Allowed"
@@ -674,8 +678,8 @@ msgid "Already have an account? <0>Sign in</0>"
 msgstr "Уже есть учётная запись? <0>Войти</0>"
 
 #: src/authority-workflows.tsx
-msgid "Already-allowed access stays in place. Remove access separately if you no longer want it."
-msgstr "Ранее предоставленный доступ сохранится. Если он вам больше не нужен, отзовите его отдельно."
+msgid "Already-allowed access stays in place. Revoke access separately if you no longer want it."
+msgstr "Ранее разрешённый доступ сохраняется. Если он больше не нужен, отзовите его отдельно."
 
 #: src/AccountManagement.tsx
 msgid "Always on"
@@ -690,6 +694,11 @@ msgctxt "Account management"
 msgid "Announcements"
 msgstr "Объявления"
 
+#. placeholder {0}: literal(request.application_name)
+#: src/authorization-view.tsx
+msgid "App identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
+msgstr "Подлинность приложения не подтверждена. Это приложение называет себя {0}. Продолжайте, только если вы намеренно начали это подключение."
+
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "App installation"
@@ -700,19 +709,14 @@ msgstr "Установка приложения"
 msgid "App key <0>{0}</0>. Your computer will show this key when you approve the app."
 msgstr "Ключ приложения <0>{0}</0>. При одобрении доступа компьютер покажет вам этот ключ."
 
+#: src/authorization-view.tsx
+msgid "App using a device code"
+msgstr "Приложение с кодом устройства"
+
 #. placeholder {0}: countLabel(account.deletion.computers, "computer")
 #: src/AccountManagement.tsx
 msgid "Application access and {0}"
 msgstr "Доступ приложений и {0}"
-
-#. placeholder {0}: literal(request.application_name)
-#: src/authorization-view.tsx
-msgid "Application identity unverified. This app calls itself {0}. Continue only if you started this connection intentionally."
-msgstr "Подлинность приложения не подтверждена. Это приложение называет себя {0}. Продолжайте, только если вы намеренно начали это подключение."
-
-#: src/authorization-view.tsx
-msgid "Application using a device code"
-msgstr "Приложение с кодом устройства"
 
 #: src/authority-workflows.tsx
 msgid "Applications"
@@ -912,7 +916,7 @@ msgid "Check again"
 msgstr "Проверить ещё раз"
 
 #: src/authorization-view.tsx
-msgid "Check the application."
+msgid "Check the app."
 msgstr "Проверьте приложение."
 
 #: src/ConnectPrimitives.tsx
@@ -1024,7 +1028,7 @@ msgid "Cloud copy configured"
 msgstr "Облачная копия настроена"
 
 #: src/authorization-view.tsx
-msgid "Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application."
+msgid "Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that app."
 msgstr "Регистр букв в коде не важен. Код действует десять минут и может разрешить доступ только для ключа, созданного этим приложением."
 
 #: src/authorization-view.tsx
@@ -1112,8 +1116,8 @@ msgstr "Подтвердите пароль"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
-msgid "Confirm removal"
-msgstr "Подтвердить удаление"
+msgid "Confirm revocation"
+msgstr "Подтвердить отзыв доступа"
 
 #: src/AccountManagement.tsx
 msgid "Confirm your identity"
@@ -1208,7 +1212,7 @@ msgid "Couldn’t connect"
 msgstr "Не удалось подключиться"
 
 #. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" }))
-#. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""
+#. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this app does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
 msgid "Covers every record in {0}.{1}"
 msgstr "Охватывает все записи в {0}.{1}"
@@ -1294,7 +1298,7 @@ msgid "Created, but this browser could not clear its request. Retrying will use 
 msgstr "Создано, но браузеру не удалось убрать запрос. При повторной попытке будет использована та же коллекция."
 
 #: src/authorization-view.tsx
-msgid "Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately."
+msgid "Creates a plain mdbase collection hosted by mdbase. App access is still approved separately."
 msgstr "Создаёт обычную коллекцию mdbase, размещённую в mdbase. Доступ приложения одобряется отдельно."
 
 #: src/auth-view.tsx
@@ -1561,11 +1565,11 @@ msgid "Enter a valid email address."
 msgstr "Введите действительный адрес электронной почты."
 
 #: src/authorization-view.tsx
-msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
+msgid "Enter the code it shows. You will review the app, collection, and exact permissions before anything is allowed."
 msgstr "Введите код, который показывает приложение. До предоставления доступа вы сможете проверить приложение, коллекцию и конкретные разрешения."
 
 #: src/authorization-view.tsx
-msgid "Enter the eight-character code shown by the application."
+msgid "Enter the eight-character code shown by the app."
 msgstr "Введите восьмизначный код, показанный приложением."
 
 #: src/AccountManagement.tsx
@@ -1849,7 +1853,7 @@ msgid "Install {0}"
 msgstr "Установить {0}"
 
 #: src/authorization-view.tsx
-msgid "Install or update the application definitions declared by this version."
+msgid "Install or update the app definitions declared by this version."
 msgstr "Установить или обновить определения приложения, указанные этой версией."
 
 #: src/ConnectApp.tsx
@@ -2680,10 +2684,6 @@ msgstr "Удалить {0} из {1}?"
 msgid "Remove {0} from the unnamed collection?"
 msgstr "Удалить {0} из безымянной коллекции?"
 
-#: src/authority-workflows.tsx
-msgid "Remove access"
-msgstr "Отозвать доступ"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove access"
@@ -2694,11 +2694,6 @@ msgstr "Отозвать доступ"
 #: src/ConnectApp.tsx
 msgid "Removing {0} from {1}"
 msgstr "Удаление {0} из {1}"
-
-#. placeholder {0}: literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
-#: src/authority-workflows.tsx
-msgid "Removing access to {0}…"
-msgstr "Отзыв доступа для {0}…"
 
 #: src/ConnectApp.tsx
 msgid "Removing access…"
@@ -2744,11 +2739,6 @@ msgstr "При смене пароля завершатся все осталь�
 #: src/ConnectApp.tsx
 msgid "Replicas sync between your devices. Application access is managed separately."
 msgstr "Реплики синхронизируются между вашими устройствами. Доступ приложений настраивается отдельно."
-
-#. placeholder {0}: relativeTime(request.expires_at)
-#: src/authorization-view.tsx
-msgid "Request expires {0}"
-msgstr "Срок действия запроса: {0}"
 
 #. placeholder {0}: response.status
 #: src/api.ts
@@ -2821,10 +2811,6 @@ msgstr "Вернуться в {applicationName}"
 #: src/authorization-view.tsx
 msgid "Return to {applicationName} and connect again to start a new request."
 msgstr "Вернитесь в {applicationName} и подключитесь снова, чтобы создать новый запрос."
-
-#: src/authorization-view.tsx
-msgid "Return to {applicationName}."
-msgstr "Вернитесь в {applicationName}."
 
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
@@ -2930,6 +2916,10 @@ msgstr "Отозвать для {0} доступ к {collectionName}?"
 msgid "Revoke {0}?"
 msgstr "Отозвать доступ для {0}?"
 
+#: src/authority-workflows.tsx
+msgid "Revoke access"
+msgstr "Отозвать доступ"
+
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
@@ -2961,6 +2951,11 @@ msgstr "Отозвать доступ компьютера"
 #: src/ConnectApp.tsx
 msgid "Revoked {0}"
 msgstr "Доступ для {0} отозван"
+
+#. placeholder {0}: literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
+#: src/authority-workflows.tsx
+msgid "Revoking access to {0}…"
+msgstr "Отзыв доступа к {0}…"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
@@ -3303,30 +3298,30 @@ msgstr "Условия использования"
 msgid "That browser will need to sign in again. Copies already downloaded will remain."
 msgstr "В этом браузере потребуется войти снова. Уже загруженные копии сохранятся."
 
+#: src/authorization-view.tsx
+msgctxt "Application access approval"
+msgid "the app"
+msgstr "приложение"
+
 #: src/authority-workflows.tsx
 msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
 msgstr "Приложение загружает и проверяет окончательный снимок коллекции. Основная копия переместится только после завершения проверки именно этого снимка."
 
 #: src/authorization-view.tsx
-msgctxt "Application access approval"
-msgid "the application"
-msgstr "приложение"
-
-#: src/authorization-view.tsx
-msgid "The application will finish connecting with its one-time device code. You can close this window."
+msgid "The app will finish connecting with its one-time device code. You can close this window."
 msgstr "Приложение завершит подключение с помощью своего одноразового кода устройства. Это окно можно закрыть."
 
 #: src/authorization-view.tsx
-msgid "The application will learn that access was not granted. You can close this window."
+msgid "The app will learn that access was not granted. You can close this window."
 msgstr "Приложение получит уведомление, что доступ не предоставлен. Это окно можно закрыть."
 
 #: src/authorization-view.tsx
-msgid "The application will show that access was not granted."
+msgid "The app will show that access was not granted."
 msgstr "Приложение покажет, что доступ не предоставлен."
 
 #. placeholder {0}: field.label.toLocaleLowerCase()
 #: src/authorization-review.tsx
-msgid "The application’s {0} value."
+msgid "The app’s {0} value."
 msgstr "Значение {0} для приложения."
 
 #: src/authority-workflows.tsx
@@ -3343,7 +3338,7 @@ msgid "The collection could not be opened."
 msgstr "Не удалось открыть коллекцию."
 
 #: src/authorization-view.tsx
-msgid "The collection requested by this application is not available."
+msgid "The collection requested by this app is not available."
 msgstr "Коллекция, запрошенная этим приложением, недоступна."
 
 #: src/ApplicationAccess.tsx
@@ -3462,13 +3457,17 @@ msgstr "Этой учётной записью управляет ваша се�
 msgid "This account setup link can’t be opened"
 msgstr "Не удаётся открыть ссылку настройки учётной записи"
 
+#: src/authorization-view.tsx
+msgid "This app needs a collection hosted by mdbase, and none is ready yet."
+msgstr "Этому приложению нужна коллекция, размещённая в mdbase, но подходящей пока нет."
+
 #: src/authorization-capabilities.ts
 msgid "This app needs an update before it can connect. Try again after it updates."
 msgstr "Это приложение нужно обновить перед подключением. Попробуйте снова после обновления."
 
-#: src/authorization-view.tsx
-msgid "This application needs a collection hosted by mdbase, and none is ready yet."
-msgstr "Этому приложению нужна коллекция, размещённая в mdbase, но подходящей пока нет."
+#: src/authorization-review.tsx
+msgid "This app uses advanced behavior settings, so an existing type cannot be connected during approval."
+msgstr "Это приложение использует расширенные настройки поведения, поэтому во время одобрения нельзя подключить существующий тип."
 
 #: src/compatibility.ts
 msgid "This application needs a collection hosted by mdbase."
@@ -3477,10 +3476,6 @@ msgstr "Этому приложению нужна коллекция, разм�
 #: src/portal-model.ts
 msgid "This application request has expired. Return to the application and start again."
 msgstr "Срок запроса приложения истёк. Вернитесь в приложение и начните заново."
-
-#: src/authorization-review.tsx
-msgid "This application uses advanced behavior settings, so an existing type cannot be connected during approval."
-msgstr "Это приложение использует расширенные настройки поведения, поэтому во время одобрения нельзя подключить существующий тип."
 
 #: src/ConnectApp.tsx
 msgid "This browser could not keep your creation request. No request was sent."
@@ -3575,6 +3570,11 @@ msgstr "Будет безвозвратно удалено:"
 #: src/authorization-view.tsx
 msgid "This request has expired or was already answered."
 msgstr "Срок действия запроса истёк или на него уже ответили."
+
+#. placeholder {0}: relativeTime(request.expires_at)
+#: src/authorization-view.tsx
+msgid "This request link expires {0}."
+msgstr "Срок действия этой ссылки на запрос истекает {0}."
 
 #. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
@@ -3702,7 +3702,7 @@ msgid "Updating access…"
 msgstr "Обновление доступа…"
 
 #: src/authorization-view.tsx
-msgid "Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade."
+msgid "Upgrades starter types this app added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade."
 msgstr "Обновляет начальные типы, добавленные этим приложением ранее, сохраняя ваши настройки и заметки. Типы, которые нельзя связать с этими начальными типами, останутся без изменений. При конфликтах или если другие типы всё ещё используют старый контракт, обновление полностью остановится."
 
 #: src/AccountManagement.tsx
@@ -3713,14 +3713,6 @@ msgstr "Данные об использовании временно недос
 msgctxt "Account management"
 msgid "Usage unavailable"
 msgstr "Данные об использовании недоступны"
-
-#: src/auth-view.tsx
-msgid "Use a connected account to get started."
-msgstr "Чтобы начать, используйте подключённую учётную запись."
-
-#: src/auth-view.tsx
-msgid "Use a connected account, or verify your email to get started."
-msgstr "Чтобы начать, используйте подключённую учётную запись или подтвердите адрес электронной почты."
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"
@@ -3850,10 +3842,6 @@ msgid "We couldn't prepare {0}. Make sure the app is up to date."
 msgstr "Не удалось подготовить {0}. Убедитесь, что приложение обновлено."
 
 #: src/auth-view.tsx
-msgid "We’ll email you a link to verify your address. Then you can choose a password."
-msgstr "Мы отправим вам письмо со ссылкой для подтверждения адреса. После этого вы сможете выбрать пароль."
-
-#: src/auth-view.tsx
 msgid "We’ll email you a reset link. It expires in one hour."
 msgstr "Мы отправим вам ссылку для сброса пароля. Она действует один час."
 
@@ -3912,7 +3900,7 @@ msgid "Your change was saved, but account details could not refresh. Reload to c
 msgstr "Изменение сохранено, но не удалось обновить данные учётной записи. Перезагрузите страницу, чтобы проверить актуальные сведения."
 
 #: src/authorization-view.tsx
-msgid "Your choices are being checked with the collection’s main copy. The application does not have access yet."
+msgid "Your choices are being checked with the collection’s main copy. The app does not have access yet."
 msgstr "Ваш выбор проверяется по основной копии коллекции. Приложение пока не получило доступ."
 
 #: src/ConnectApp.tsx

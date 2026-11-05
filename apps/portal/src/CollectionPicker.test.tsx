@@ -8,7 +8,7 @@ function show(extra: Partial<ComponentProps<typeof CollectionPicker>> = {}) {
   const change = vi.fn();
   function Fixture() {
     const [value, setValue] = useState(extra.value ?? "");
-    return <CollectionPicker label="Open in TaskNotes" collections={choices} {...extra} value={value} onChoose={id => { change(id); setValue(id); }} />;
+    return <div className="authorization-panel"><CollectionPicker label="Open in TaskNotes" collections={choices} {...extra} value={value} onChoose={id => { change(id); setValue(id); }} /><footer className="approval-footer" /></div>;
   }
   const view = render(<Fixture />);
   return { ...view, change, input: screen.getByRole("combobox", { name: "Open in TaskNotes" }), list: screen.getByRole("listbox", { name: "Open in TaskNotes" }) };
@@ -87,9 +87,9 @@ describe("manual collection consent combobox", () => {
     expect(f.change).not.toHaveBeenCalled();
   });
   it("does not choose a replacement when the highlighted collection disappears", () => {
-    const change = vi.fn(), f = render(<CollectionPicker label="Collections" collections={choices} value="" onChoose={change} />);
+    const change = vi.fn(), f = render(<div className="authorization-panel"><CollectionPicker label="Collections" collections={choices} value="" onChoose={change} /><footer className="approval-footer" /></div>);
     const input = screen.getByRole("combobox");fireEvent.keyDown(input, { key: "ArrowDown" });
-    f.rerender(<CollectionPicker label="Collections" collections={[choices[0]!]} value="" onChoose={change} />);
+    f.rerender(<div className="authorization-panel"><CollectionPicker label="Collections" collections={[choices[0]!]} value="" onChoose={change} /><footer className="approval-footer" /></div>);
     expect(input).not.toHaveAttribute("aria-activedescendant");fireEvent.keyDown(input, { key: "Enter" });
     expect(change).not.toHaveBeenCalled();
   });
