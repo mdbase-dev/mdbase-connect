@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { it } from 'node:test';
 import { parse } from 'yaml';
-import { assertDispatch, assertCheckout, deploymentFor } from './refs.mjs';
+import { assertDispatch, assertCheckout, assertAncestor, deploymentFor } from './refs.mjs';
 import { loadOriginals, productionPin, compareInstalled, protectedHashes } from './originals.mjs';
 import { authenticateProduction, stagingArchive } from './authentication.mjs';
 import { prepareInstall } from './install-inputs.mjs';
@@ -41,6 +41,7 @@ it('admits an exact clean ancestor even when main and the dispatch SHA move ahea
   git('checkout','--orphan','unrelated');git('commit','--allow-empty','-m','not main');
   const other=git('rev-parse','HEAD');
   assert.throws(()=>assertCheckout({...binding,sha:other},root),/ancestor/);
+  assert.throws(()=>assertAncestor({...binding,sha:other},root),/ancestor/);
   for(const patch of [{SOURCE_SHA:'abcd'},{GITHUB_EVENT_NAME:'push'},{GITHUB_REF:'refs/tags/v1'},{TARGET:'lab'}])assert.throws(()=>assertDispatch({...env,...patch}));
  }finally{await rm(root,{recursive:true,force:true});}
 });
@@ -115,6 +116,8 @@ it('derives the staging frozen install without changing any other dependency',as
  const f=await originalsFixture();
  try {
   const plan={target:'staging',sdkTrust:await loadOriginals(f.options)};
+  const originalLock=await readFile(join(f.root,'pnpm-lock.yaml'),'utf8');
+  const originalPackage=JSON.parse(await readFile(join(f.app,'package.json'),'utf8'));
   const bytes=Buffer.from('authenticated staging archive');
   plan.sdkTrust.archives.sdk={path:'https://example.invalid/sdk-staging.tgz',sha256:sha(bytes),sri:'sha512-staging'};
   await prepareInstall(plan,f.root,async()=>new Response(bytes));
@@ -122,6 +125,16 @@ it('derives the staging frozen install without changing any other dependency',as
   assert.equal(pkg.dependencies['@mdbase-dev/sdk'],'file:vendor/sdk-staging.tgz');
   const lock=await readFile(join(f.root,'pnpm-lock.yaml'),'utf8');
   assert.ok(lock.includes('sha512-staging'));assert.ok(!lock.includes(plan.sdkTrust.production.sri));
+  const stagingPath='file:apps/editor/vendor/sdk-staging.tgz',alias='@mdbase-dev/sdk-staging@'+stagingPath;
+  assert.equal(parse(lock).importers['apps/editor'].dependencies['@mdbase-dev/sdk'].version,alias);
+  const restored=lock.replaceAll("version: '"+alias+"'",'version: '+stagingPath)
+   .replaceAll("'@mdbase-dev/sdk': '"+alias+"'","'@mdbase-dev/sdk': "+stagingPath)
+   .replaceAll(alias,'@mdbase-dev/sdk@'+stagingPath)
+   .replaceAll('sdk-staging.tgz',plan.sdkTrust.production.path.split('/').at(-1))
+   .replaceAll('sha512-staging',plan.sdkTrust.production.sri);
+  assert.equal(restored,originalLock,'only the SDK file alias, integrity and peer identity change');
+  pkg.dependencies['@mdbase-dev/sdk']=originalPackage.dependencies['@mdbase-dev/sdk'];
+  assert.deepEqual(pkg,originalPackage);
  }finally{await rm(f.root,{recursive:true,force:true});}
 });
 it('rolls production back after alias failure, verifies the previous id and alias bytes, and keeps failure evidence',async()=>{
@@ -131,9 +144,12 @@ it('rolls production back after alias failure, verifies the previous id and alia
   calls.push({url,method:init.method});
   if(url.includes('/rollback')){restored=true;return Response.json({success:true,result:{id:previousId}});}
   if(url.includes('api.cloudflare.com'))return Response.json({success:true,result:{name:'mdbase-editor',production_branch:'main',canonical_deployment:{id:previousId,url:previousUrl,environment:'production'}}});
-  return new Response(url.endsWith('.json')?'manifest':'previous index');
+  return new Response(new URL(url).pathname==='/'?'<script type="module" src="/assets/entry.js"></script><link href="/style.css" rel="stylesheet">':url.endsWith('.json')?'manifest':'previous asset');
  }};
  const previous=await capturePrevious(options);
+ assert.ok(previous.probes.some(p=>p.path==='/assets/entry.js'));
+ assert.ok(previous.probes.some(p=>p.path==='/style.css'));
+ assert.ok(calls.some(c=>c.url==='https://editor.mdbase.dev/assets/entry.js'));
  const plan={target:'production',origin:'https://editor.mdbase.dev'};
  const report=await recoverOnFailure({plan,verification:{ok:false,origins:[{origin:plan.origin,ok:false}]},previous,options});
  assert.equal(restored,true);assert.equal(report.ok,true);assert.equal(report.previousId,previousId);
@@ -143,8 +159,11 @@ it('rolls production back after alias failure, verifies the previous id and alia
  const no=await recoverOnFailure({plan:{...plan,target:'staging'},verification:{ok:false},recover:()=>{throw Error('must not recover staging');}});
  assert.equal(no.attempted,false);
  assert.equal((await recoverOnFailure({plan,verification:{ok:true}})).attempted,false);
- const broken=await rollback(previous,{...options,fetchImpl:async(url,init)=>url.startsWith(plan.origin)?new Response('wrong bytes'):options.fetchImpl(url,init)},{settleMs:1});
- assert.equal(broken.ok,false);
+ for(const probe of previous.probes) {
+  const broken=await rollback(previous,{...options,fetchImpl:async(url,init)=>url===plan.origin+probe.path?new Response('wrong bytes'):options.fetchImpl(url,init)},{settleMs:100});
+  assert.equal(broken.ok,false,'rollback must match '+probe.path);
+ }
+ await assert.rejects(capturePrevious({...options,fetchImpl:async(url,init)=>url===plan.origin+'/assets/entry.js'?new Response('missing',{status:404}):options.fetchImpl(url,init)}),/bytes unavailable/);
  assert.equal(createReceipt({plan,verification:{ok:false},previous,rollback:report}).status,'failed-or-incomplete');
 });
 it('binds immutable artifact metadata AND the exact workflow/run attempt/manual ref',()=>{
@@ -237,7 +256,7 @@ it('runs main pushes as checks only and isolates build from protected upload dep
  const protectedJob=workflow.jobs['native-deploy'];assert.ok(protectedJob.environment);
  const commands=protectedJob.steps.map(s=>s.run??'').join('\n');
  assert.doesNotMatch(commands,/pnpm (install|build|rebuild)|npm run|npx/);
- assert.doesNotMatch(commands,/refs\.mjs|CURRENT|release\/native-/);assert.match(commands,/--commit-hash/);assert.match(commands,/--no-bundle/);
+ assert.doesNotMatch(commands,/CURRENT|release\/native-/);assert.match(commands,/--commit-hash/);assert.match(commands,/--no-bundle/);
  assert.match(workflow.jobs.test.if,/github.event_name != 'workflow_dispatch'/);
  assert.equal(workflow.on.workflow_dispatch.inputs.source_sha.required,true);
  assert.ok(commands.includes('rollback.mjs recover'));

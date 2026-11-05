@@ -104,8 +104,13 @@ jobs:
     # Validate dispatch shape before acquiring an environment.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - env:
           TARGET: ${{ inputs.target }}
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -115,15 +120,26 @@ jobs:
           [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$GITHUB_REF" == refs/heads/main ]]
+          node apps/editor/scripts/native/refs.mjs
 
   native-inputs:
     needs: native-dispatch
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 3
     environment: editor-${{ inputs.target }}
     outputs:
       trust: ${{ steps.hashes.outputs.trust }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Workflow-owned ancestry check before reading environment inputs
+        env:
+          TARGET: ${{ inputs.target }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: node apps/editor/scripts/native/refs.mjs
       - id: hashes
         env:
           EDITOR_TRUST_ASSET_SHA256: ${{ vars.EDITOR_TRUST_ASSET_SHA256 }}
@@ -138,6 +154,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     # No GitHub environment or Cloudflare secrets. Original intake before hooks.
+    defaults:
+      run:
+        working-directory: candidate
     env:
       TARGET: ${{ inputs.target }}
       SOURCE_SHA: ${{ inputs.source_sha }}
@@ -151,7 +170,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
+          path: publisher
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Workflow-owned ancestry check before candidate checkout or execution
+        working-directory: publisher
+        run: node apps/editor/scripts/native/refs.mjs
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           ref: ${{ inputs.source_sha }}
+          path: candidate
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -192,8 +221,13 @@ jobs:
     name: Protected immutable Editor upload
     needs: [native-inputs, native-build]
     runs-on: ubuntu-24.04
-    # Includes immutable verification, alias settling and production recovery.
-    timeout-minutes: 25
+    # Upload has a separate 7-minute bound; leave time for checks and recovery.
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: publisher
+    outputs:
+      receipt-id: ${{ steps.receipt.outputs.artifact-id }}
     concurrency:
       group: editor-native-upload-${{ inputs.target }}
       cancel-in-progress: false
@@ -207,24 +241,37 @@ jobs:
       EDITOR_TRUST_ASSET_SHA256: ${{ vars.EDITOR_TRUST_ASSET_SHA256 }}
       ARTIFACT_ID: ${{ needs.native-build.outputs.artifact-id }}
       ARTIFACT_DIGEST: ${{ needs.native-build.outputs.artifact-digest }}
+      EDITOR_SOURCE_ROOT: ${{ github.workspace }}/candidate
       WRANGLER_SEND_METRICS: 'false'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
+          path: publisher
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Workflow-owned ancestry check before candidate data is read
+        run: node apps/editor/scripts/native/refs.mjs
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           ref: ${{ inputs.source_sha }}
+          path: candidate
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - name: Reviewed-source guard; no app modules installed
+      - name: Workflow-owned guard; candidate is data only
+        timeout-minutes: 4
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/editor-receipt" "$RUNNER_TEMP/editor-upload"
           node apps/editor/scripts/native/publisher.mjs guard > "$RUNNER_TEMP/editor-receipt/plan.json"
       - name: Isolated official tool lock only; no app hooks
+        timeout-minutes: 3
         run: node apps/editor/scripts/native/tool.mjs "$RUNNER_TEMP/editor-tool-path"
       - name: Immutable artifact identity and full original inventory
+        timeout-minutes: 4
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -237,22 +284,26 @@ jobs:
           cmp "$RUNNER_TEMP/editor-receipt/inventory.json" "$RUNNER_TEMP/editor-receipt/revalidated-inventory.json"
           chmod -R a-w "$RUNNER_TEMP/editor-upload/artifact"
       - name: Existing project identity (never provision)
+        timeout-minutes: 1
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node apps/editor/scripts/native/publisher.mjs project > "$RUNNER_TEMP/editor-receipt/project.json"
       - name: Capture production recovery point before upload
+        timeout-minutes: 4
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node apps/editor/scripts/native/rollback.mjs snapshot "$RUNNER_TEMP/editor-receipt"
       - name: Recheck immutable inventory and upload once
         id: upload
+        timeout-minutes: 7
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
+          node apps/editor/scripts/native/refs.mjs
           branch=$(jq -er .pagesBranch "$RUNNER_TEMP/editor-receipt/plan.json")
           node apps/editor/scripts/native/publisher.mjs assert-inventory "$RUNNER_TEMP/editor-upload/artifact/publish" "$RUNNER_TEMP/editor-receipt/inventory.json"
           cli=$(cat "$RUNNER_TEMP/editor-tool-path")
@@ -260,31 +311,113 @@ jobs:
           node "$cli" pages deploy artifact/publish --no-bundle --project-name mdbase-editor --branch "$branch" --commit-hash "$SOURCE_SHA" --commit-dirty=false > "$RUNNER_TEMP/editor-upload/wrangler-output.txt" 2>&1
       - name: Resolve actual full deployment UUID before served checks
         id: deployment
-        if: always() && (steps.upload.outcome == 'success' || steps.upload.outcome == 'failure')
+        timeout-minutes: 1
+        if: always() && (steps.upload.outcome == 'success' || steps.upload.outcome == 'failure' || steps.upload.outcome == 'cancelled')
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node apps/editor/scripts/native/publisher.mjs capture "$RUNNER_TEMP/editor-upload/wrangler-output.txt" > "$RUNNER_TEMP/editor-receipt/deployment.json"
       - name: All deployment URL AND alias bytes, source-owned headers and routes
         id: verification
+        timeout-minutes: 9
         if: always() && steps.deployment.outcome == 'success'
         run: node apps/editor/scripts/native/hosting.mjs "$RUNNER_TEMP/editor-receipt/plan.json" "$RUNNER_TEMP/editor-receipt/inventory.json" "$RUNNER_TEMP/editor-receipt/deployment.json" > "$RUNNER_TEMP/editor-receipt/verification.json"
       - name: Restore and verify previous production alias after alias failure
-        if: always() && inputs.target == 'production' && (steps.upload.outcome == 'success' || steps.upload.outcome == 'failure') && steps.verification.outcome != 'success'
+        timeout-minutes: 7
+        if: always() && inputs.target == 'production' && (steps.upload.outcome == 'success' || steps.upload.outcome == 'failure' || steps.upload.outcome == 'cancelled') && steps.verification.outcome != 'success'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node apps/editor/scripts/native/rollback.mjs recover "$RUNNER_TEMP/editor-receipt"
       - name: Preserve honest failure or complete static-publication receipt
+        timeout-minutes: 1
         if: always()
         run: |
           if [ -f "$RUNNER_TEMP/editor-upload/artifact-metadata.json" ]; then cp "$RUNNER_TEMP/editor-upload/artifact-metadata.json" "$RUNNER_TEMP/editor-receipt/"; fi
           node apps/editor/scripts/native/publisher.mjs receipt "$RUNNER_TEMP/editor-receipt" > "$RUNNER_TEMP/editor-receipt/receipt.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: receipt
+        timeout-minutes: 2
         if: always()
         with:
           name: editor-native-receipt-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/editor-receipt/
           include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
+
+  production-smoke:
+    name: Production Editor fresh-browser smoke
+    needs: native-deploy
+    if: inputs.target == 'production'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # No environment, Cloudflare credentials, candidate checkout or app install.
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.editor-smoke-browsers
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Isolated pinned browser tool with install scripts disabled
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          node apps/editor/scripts/native/tool.mjs "$RUNNER_TEMP/editor-smoke-tool" smoke
+          module=$(cat "$RUNNER_TEMP/editor-smoke-tool")
+          node "$(dirname "$module")/cli.js" install --with-deps chromium
+      - name: Fresh production load, source entry asset, readiness and sign-in
+        timeout-minutes: 3
+        run: node apps/editor/scripts/native/smoke.mjs "$RUNNER_TEMP/editor-smoke-tool" "$RUNNER_TEMP/editor-smoke.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: editor-production-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/editor-smoke.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  production-smoke-recovery:
+    name: Restore production after failed or incomplete smoke
+    needs: [native-deploy, production-smoke]
+    if: always() && inputs.target == 'production' && needs.native-deploy.result == 'success' && needs.production-smoke.result != 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: editor-production
+    env:
+      TARGET: production
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Workflow-owned ancestry check
+        run: node apps/editor/scripts/native/refs.mjs
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          artifact-ids: ${{ needs.native-deploy.outputs.receipt-id }}
+          path: ${{ runner.temp }}/editor-receipt
+          merge-multiple: true
+      - name: Restore snapshot and verify every previous alias asset; keep run failed
+        timeout-minutes: 7
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node apps/editor/scripts/native/rollback.mjs recover-smoke "$RUNNER_TEMP/editor-receipt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: editor-production-smoke-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/editor-receipt/
           if-no-files-found: warn
           retention-days: 90

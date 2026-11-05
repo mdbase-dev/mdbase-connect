@@ -31,8 +31,9 @@ Staging downloads the **same version's** `sdk-v<version>/sdk-staging.tgz` and
 verify` authenticates the archive with that bundle against
 `mdbase-dev/mdbase-connect`, `publish-sdk-npm.yml`, the committed publication ref
 and producer commit. A staging install is mechanically derived from the frozen
-production lock by substituting only that SDK archive and its integrity; no
-archive is rewritten. Production trust cannot be used on staging.
+production lock by substituting only that SDK archive, integrity and actual
+`@mdbase-dev/sdk-staging` file-alias/peer identity; application imports retain
+`@mdbase-dev/sdk`. No archive is rewritten. Production trust cannot be used on staging.
 
 Both targets require the packaged trust hash, packaged provenance, and raw
 `config/next-trust/<target>.json` hash to match `config/release-components.json`
@@ -41,12 +42,15 @@ policy keys are generated or changed by this publisher.
 
 UI uses the exact npm version in `package.json` and SHA512 integrity in the
 ordinary frozen lock. The guard downloads that archive from npmjs, checks its
-identity and integrity, and inventories it. Protocol uses its committed archive
-and frozen lock integrity. There are no additional UI, SDK or protocol hash
+identity and integrity, and inventories it. The direct protocol archive must be byte-identical to the
+protocol archive bundled in the authenticated SDK, including the production
+metadata's `bundledDependencies` SHA256 and length. Staging must bundle the same
+protocol bytes. A self-consistent independent manifest/lock change is refused. There are no additional UI, SDK or protocol hash
 variables or duplicated target configs.
 
 The central ops SDK repin writes the production archive, matching versioned
-metadata/facts, manifest, Dockerfile references and frozen lock. Those are the
+metadata/facts, manifest, Dockerfile references, byte-identical direct protocol
+archive and frozen lock. Those are the
 inputs this guard reads; staging follows the same version automatically. The
 pin tests derive the version instead of asserting a historical SDK. The ops
 repin must not patch publisher test fixtures or preserve separate native
@@ -54,7 +58,11 @@ approvals. UI repins change only the manifest and regenerated lock.
 
 ## Build, upload and verification
 
-1. The input job exports only the protected public trust hash. The build has no
+1. Workflow-owned ancestry checks run in dispatch and input jobs, before reading
+   any candidate data. Every protected job checks out helpers from `github.sha`
+   on main. The upload job checks out the candidate separately and reads it only
+   as data; no helper, module, tool lock or hosting policy comes from that tree.
+   The input job exports only the protected public trust hash. The build has no
    GitHub environment, persisted checkout credentials, deployment secrets or
    OIDC permissions. SDK authentication and original inventories precede install.
 2. Frozen install disables lifecycle and pnpmfile hooks. Every installed original
@@ -70,10 +78,16 @@ approvals. UI repins change only the manifest and regenerated lock.
    attempt, workflow SHA, source SHA/tree, plan and full inventory. Workflow SHA
    and source SHA are separate: dispatch can target an older main ancestor.
 5. The existing `mdbase-editor` Pages project and `main` production channel are
-   checked, never provisioned. Production captures its current canonical
-   deployment UUID plus immutable index/manifest byte and header fingerprints
-   before upload. Missing recovery evidence blocks production upload.
-6. Inventory is rechecked immediately before upload. The actual deployment UUID
+   checked, never provisioned. Production snapshots the previous alias index,
+   manifest, service worker, shell runtime/registration scripts and every index
+   resource (scripts, stylesheets, preload assets and icons), with SHA256, length
+   and policy headers. The canonical deployment identity and alias index must
+   remain stable during capture. The injected, CSP-blocked Insights beacon is
+   not an Editor build asset. Missing recovery evidence blocks upload.
+6. Workflow-owned ancestry and inventory are rechecked immediately before
+   upload. Upload is bounded to seven minutes inside a 45-minute job; separate
+   step bounds reserve verification, recovery and receipt time. A timed-out
+   upload is a possible deployment and follows the same verification/recovery. The actual deployment UUID
    is resolved from its exact URL, source and Pages channel, including repeated
    uploads of the same source. Only static assets are accepted; source-owned
    controls reject Pages Functions, Workers and additional routing controls.
@@ -84,10 +98,24 @@ approvals. UI repins change only the manifest and regenerated lock.
 8. If the production alias fails verification, restore the captured deployment
    via `POST /accounts/<account>/pages/projects/mdbase-editor/deployments/<id>/rollback`.
    Verify the project reports that previous UUID and the alias serves its saved
-   index/manifest bytes and headers, allowing five minutes to settle. An unknown
+   complete snapshot bytes and headers, allowing five minutes to settle. A
+   mismatch in even one script, stylesheet or icon means rollback did not succeed. An unknown
    verification result also triggers recovery. The job still fails after a
    successful rollback; recovery failure is retained, not hidden. Staging does
    not roll back. No automatic rebuild or redispatch is performed.
+9. After a successful production upload job, a separate job with no environment
+   or deployment credentials installs only an isolated, locked Playwright with
+   lifecycle scripts disabled. A fresh Chromium context disables HTTP cache and
+   service workers, loads `https://editor.mdbase.dev`, checks the served entry
+   asset's 12-character source commit and reaches the Sign in button. An uncaught
+   page error or `readiness_fenced` fails smoke. The known Insights beacon CSP
+   console refusal is ignored. Only public served code executes in this browser;
+   no candidate repository scripts run in the smoke job.
+10. If smoke fails, times out, is cancelled or is otherwise incomplete after a
+    successful upload job, a following protected job downloads that job's exact
+    receipt artifact ID, restores its previous deployment and requires the same
+    full snapshot verification. It fails even if recovery succeeds. Production
+    is successful only when both publication and smoke pass.
 
 Receipts retain the plan, authenticated intake, immutable artifact binding,
 complete inventory, project/deployment identity, verification attempts, previous
@@ -135,4 +163,7 @@ rehearsals use `rpnpm --node 24.19.0 test:publisher:build production|staging <SH
 They authenticate public SDK inputs and run the real build/inventory, but never
 upload. The staging rehearsal requires `gh` on the builder; CI's Ubuntu runner
 provides it. These rehearsals do not replace dispatch admission or live Pages
-verification/rollback testing.
+verification/rollback testing. No live publication is performed by these
+checks. The direct protocol moved from beta.129 (`c280cd194ffd`) to the SDK's
+bundled beta.145 (`e6e66bcd172f`); its SHA256 is
+`e901144b8d93dc96fcf71d9d8f85dddbf647e9908913be21191c484e9224bb98`.

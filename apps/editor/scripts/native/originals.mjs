@@ -91,6 +91,15 @@ export async function compareInstalled(repoRoot,archives,{fetchImpl=fetch}={}) {
     equal(await installedMembers(installedRoot,ignored),members,name+' ALL installed original members differ');
   }
 }
+export function assertProtocolArchive(pin, sdkBytes, protocolBytes) {
+  const entries=pin.bundledDependencies?.filter(d=>d.name===packages.protocol)??[];
+  requireValue(entries.length===1,'one SDK bundled protocol required');
+  const dependency=entries[0];
+  requireValue(/^package\/vendor\/[\w.-]+\.tgz$/.test(dependency.member),'bundled protocol path');
+  const bundled=memberBytes(sdkBytes,originalMembers(sdkBytes),dependency.member.slice(8));
+  requireValue(bundled.length===dependency.bytes && hash(bundled)===dependency.sha256,'SDK bundled protocol metadata mismatch');
+  requireValue(protocolBytes.equals(bundled),'direct protocol must be byte-identical to authenticated SDK bundled protocol');
+}
 export async function loadOriginals({target,repoRoot,hashes,installed=false,fetchImpl=fetch,authenticate=authenticateProduction,stage=stagingArchive}) {
   requireValue(['staging','production'].includes(target),'unknown target');
   protectedHashes(hashes??{});
@@ -118,6 +127,8 @@ export async function loadOriginals({target,repoRoot,hashes,installed=false,fetc
   requireValue(/^file:vendor\/[\w.-]+\.tgz$/.test(protocolSpec??''),'protocol must be a committed file pin');
   const protocolPath=relative(repoRoot,resolve(app,protocolSpec.slice(5)));
   const protocolBytes=await regular(repoRoot,protocolPath);
+  assertProtocolArchive(pin,productionBytes,protocolBytes);
+  if(target==='staging')assertProtocolArchive(pin,sdkBytes,protocolBytes);
   frozenFile(packages.protocol,protocolSpec,protocolBytes);
   const version=pkg.dependencies[packages.ui];
   requireValue(/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version??''),'UI must be an exact npm version');

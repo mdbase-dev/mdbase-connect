@@ -56,19 +56,24 @@ export function provenanceSource(bundle, baseline, name) {
     identity: `https://github.com/${repository}/.github/workflows/${baseline.workflow}@${workflow.ref}` };
 }
 
-export async function provenSource(name, baseline) {
-  const attestations = await registryJson(`-/npm/v1/attestations/${encodeURIComponent(name)}@${baseline.version}`);
+export async function provenSource(name, baseline, { readRegistry = registryJson, verifyBundle = verifyProvenanceBundle } = {}) {
+  const attestations = await readRegistry(`-/npm/v1/attestations/${encodeURIComponent(name)}@${baseline.version}`);
   const proofs = attestations.attestations.filter(item => item.predicateType === "https://slsa.dev/provenance/v1");
   assert.equal(proofs.length, 1, "Exactly one npm provenance attestation is required.");
   const bundle = proofs[0].bundle;
   const source = provenanceSource(bundle, baseline, name);
+  await verifyBundle(bundle, source);
+  return source;
+}
+
+export async function verifyProvenanceBundle(bundle, source, verifier) {
   // Publish jobs install no workspace dependencies, so use the sigstore npm signs with.
   const npm = join(execFileSync("npm", ["root", "--global"], { encoding: "utf8" }).trim(), "npm/package.json");
-  const { verify } = createRequire(npm)("sigstore");
-  await verify(bundle, undefined, { certificateIssuer: "https://token.actions.githubusercontent.com",
+  const verify = verifier ?? createRequire(npm)("sigstore").verify;
+  // DSSE bundles use verify(bundle, options), not the detached-content overload.
+  await verify(bundle, { certificateIssuer: "https://token.actions.githubusercontent.com",
     certificateIdentityURI: source.identity, tlogThreshold: 1, ctLogThreshold: 1, timeout: 15_000,
     retry: { retries: 0 } });
-  return source;
 }
 
 async function published(item, workflow) {

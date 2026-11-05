@@ -199,8 +199,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/client
       '@mdbase-dev/connect-protocol':
-        specifier: file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz
-        version: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz
+        specifier: file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz
+        version: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz
       '@mdbase-dev/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
@@ -2302,9 +2302,9 @@ packages:
   '@marijn/find-cluster-break@1.0.4':
     resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
 
-  '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz':
-    resolution: {integrity: sha512-c0iOOWEcNJRstdyUJ6aqJ3puVR5C9jXW4MBHmQnHI2c4vgOeKi5VWfiuueWx3ArvtwB3nPuAaXHhll/OKH/+Yw==, tarball: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz}
-    version: 0.1.0-beta.129
+  '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz':
+    resolution: {integrity: sha512-uLeG6+yHiKmtpg5KY4XEa8kGx5mLg6pqLZ4H4+x0An7Q/bhfz5Hgh+P8Ngh6DWvGf6PIuJ3Smw8w6GmCK1gsvQ==, tarball: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz}
+    version: 0.1.0-beta.145
 
   '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-4370800f-production-beta156.tgz':
     resolution: {integrity: sha512-kseXPV3xoAabzirdPraV+osz6IG0te0lHDUOBWLklzG26XL4/jb8b/CMwd2fTEitE6lIINFFju6JpE5PfC8wag==, tarball: file:apps/editor/vendor/sdk-4370800f-production-beta156.tgz}
@@ -8135,7 +8135,7 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.4': {}
 
-  '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz':
+  '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz':
     dependencies:
       '@noble/hashes': 2.4.0
       yaml: 2.9.1

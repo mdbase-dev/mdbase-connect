@@ -10,7 +10,7 @@ import { assertCheckout, assertDispatch, deploymentFor } from './refs.mjs';
 import { assertHostingSource } from './hosting.mjs';
 import { assertArtifactMetadata, assertArtifactRun } from './artifact.mjs';
 const need=(ok,message)=>{if(!ok)throw Error(`Editor publisher refusal: ${message}`);};
-export async function sourcePlan({env=process.env,cwd=process.cwd(),installed=false}={}) {
+export async function sourcePlan({env=process.env,cwd=env.EDITOR_SOURCE_ROOT??process.cwd(),installed=false}={}) {
  const binding=assertDispatch(env),source=assertCheckout(binding,cwd);
  const sdkTrust=await loadOriginals({target:binding.target,repoRoot:cwd,hashes:protectedHashes(env),installed});
  const target=deploymentFor(binding.target);
@@ -99,7 +99,7 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
   else if(command==='receipt') {
    const optional=async path=>{try{return await json(path);}catch{return null;}};
    const dir=resolve(args[0]);
-   const plan=await optional(join(dir,'plan.json'))??{sha:process.env.SOURCE_SHA,tree:execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8'}).trim(),target:process.env.TARGET};
+   const plan=await optional(join(dir,'plan.json'))??{sha:process.env.SOURCE_SHA,tree:execFileSync('git',['rev-parse','HEAD^{tree}'],{cwd:process.env.EDITOR_SOURCE_ROOT??process.cwd(),encoding:'utf8'}).trim(),target:process.env.TARGET};
    const receipt=createReceipt({plan,inventory:await optional(join(dir,'inventory.json'))??[],deployment:await optional(join(dir,'deployment.json')),verification:await optional(join(dir,'verification.json')),artifact:await optional(join(dir,'artifact-metadata.json')),project:await optional(join(dir,'project.json')),previous:await optional(join(dir,'previous.json')),rollback:await optional(join(dir,'rollback.json'))});
    console.log(JSON.stringify(receipt,null,2));if(receipt.status!=='verified')process.exitCode=1;
   } else throw Error('Unknown native publisher command');
