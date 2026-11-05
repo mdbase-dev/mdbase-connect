@@ -16,10 +16,11 @@ import type { ReactNode } from "react";
 import { configuredConnectServerUrl, editorPortalUrl } from "./connect-endpoint";
 
 export function EditorEntryPage({ title, children }: { title: string; children: ReactNode }) {
+  // This page exists because the link was refused, so its branded action never follows `?server=`.
   const server = editorPortalUrl();
   return <ConnectLayout app="editor" title={title} lead={children}>
-    {server && <p className="editor-recovery-server"><Trans>Connect server: {server}</Trans></p>}
-    <a className="mdbase-button is-primary editor-recovery-action" href={server ?? configuredConnectServerUrl}><Trans>Back to mdbase Connect</Trans></a>
+    {server && server !== new URL(configuredConnectServerUrl).origin && <p className="editor-recovery-server"><Trans>Connect server: {server}</Trans></p>}
+    <a className="mdbase-button is-primary editor-recovery-action" href={configuredConnectServerUrl}><Trans>Back to mdbase Connect</Trans></a>
   </ConnectLayout>;
 }
 
