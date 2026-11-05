@@ -418,6 +418,55 @@ describe("collection deletion", () => {
   });
 });
 
+describe("grant lease recovery", () => {
+  it.each([1, 2])("retries lease refusals until durable access is restored (%i failed opens)", async failures => {
+    vi.useFakeTimers();
+    const base = new MemoryReplica().connector();
+    let opens = 0;
+    let port: Awaited<ReturnType<typeof base.open>>["port"] | undefined;
+    const expired = mdbaseError("unavailable", "grant lease expired", { reason: "grant_lease_expired", retryAfterMs: 1000 });
+    const client = await connect({ app, reconnect: { minDelayMs: 1, maxDelayMs: 1 }, connector: {
+      ...base,
+      async open(hello, signal) {
+        opens++;
+        if (opens > 1 && opens <= failures + 1) throw expired;
+        const opened = await base.open(hello, signal);
+        port = opened.port;
+        return opened;
+      },
+    } });
+    try {
+      port!.onframe?.(clientFrame.enc({ kind: "push", type: "closed", payload: problem.enc(expired.toProblem()) }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(client.link).toBe("reconnecting");
+      expect(client.linkProblem).toMatchObject({ code: "unavailable", recovery: "retry", reason: "grant_lease_expired" });
+      for (let attempt = 0; attempt < failures; attempt++) {
+        await vi.advanceTimersByTimeAsync(999);
+        expect(client.link).toBe("reconnecting");
+        expect(opens).toBe(attempt + 2);
+        await vi.advanceTimersByTimeAsync(1);
+      }
+      expect(client.link).toBe("open");
+      expect(opens).toBe(failures + 2);
+    } finally {
+      client.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not retry actual grant revocation", async () => {
+    const base = new MemoryReplica().connector();
+    const open = vi.fn(base.open.bind(base));
+    const client = await connect({ app, connector: { ...base, open } });
+    try {
+      client.currentSession().closeWith(mdbaseError("forbidden", "revoked", "grant_revoked_on_device"));
+      expect(client.link).toBe("closed");
+      expect(client.linkProblem?.reason).toBe("grant_revoked_on_device");
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally { client.close(); }
+  });
+});
+
 it("ordinary reconnects keep the reconnecting reason for immediate operations", async () => {
   const base = new MemoryReplica().connector();
   let port: Awaited<ReturnType<typeof base.open>>["port"] | undefined;

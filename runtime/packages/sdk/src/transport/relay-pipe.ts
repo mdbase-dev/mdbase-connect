@@ -37,7 +37,7 @@ export interface PipeAuth {
 /** Max binary frame: u32be length + one Noise message. */
 const MAX_PIPE_FRAME = 4 + 65535;
 
-const CLOSE_REASONS = new Set("unauthenticated grant_inactive connector_offline connector_busy device_mismatch device_key_mismatch closed client_closed handshake_timeout idle lifetime frame_too_large invalid_frame not_served relay_closing authorization_unavailable grant_revoked".split(" "));
+const CLOSE_REASONS = new Set("unauthenticated grant_inactive connector_offline connector_busy device_mismatch device_key_mismatch closed client_closed handshake_timeout idle lifetime frame_too_large invalid_frame not_served relay_closing authorization_unavailable grant_revoked grant_lease_expired grant_pending_approval grant_revoked_on_device unknown_grant".split(" "));
 
 export function pipeCloseError(code?: number, reason?: string): MdbaseError {
   // Only fixed protocol reasons survive: arbitrary close text can contain secrets.
@@ -57,6 +57,7 @@ export function pipeCloseError(code?: number, reason?: string): MdbaseError {
     case 4429:
       return error("rate_limited", r ?? "relay: busy", r ?? "connector_busy", 5000);
     case 4000:
+      if (r === "grant_lease_expired") return error("unavailable", "grant lease expired", r, 1000);
       if (r === "device_key_mismatch") return error("unauthenticated", "relay: the routed key is not the device's", r);
       return error("unavailable", `relay closed the pipe: ${r ?? "unknown"}`, r ?? "pipe_closed");
     default:

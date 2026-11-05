@@ -2753,8 +2753,8 @@ fn account_key_unlocks_a_new_device_without_another_device() {
     a.r.secrets.sign_sk = a_sign;
     struct WitnessSource(Rc<Cell<bool>>);
     impl crate::policy::GrantSource for WitnessSource {
-        fn grant(&self, _: &B16) -> Option<crate::policy::EffectiveGrant> {
-            None
+        fn grant(&self, _: &B16) -> crate::api::ApiResult<crate::policy::EffectiveGrant> {
+            Err(crate::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
         }
         fn active_account(&self) -> Option<B16> {
             self.0.get().then_some(crate::testkit::TEST_OWNER)

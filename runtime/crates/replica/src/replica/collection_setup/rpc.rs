@@ -105,9 +105,7 @@ impl<S: Store> Replica<S> {
         let crate::api::SessionAuth::Grant { grant, client_pk } = auth else {
             return Err(ErrorCode::Forbidden.err("setup requires an original app session"));
         };
-        self.grant_for_client(&grant, &client_pk).ok_or_else(|| {
-            ErrorCode::Unauthenticated.err("original app grant is no longer current")
-        })?;
+        self.grant_for_client(&grant, &client_pk)?;
         self.declared_setup_rpc_prune();
         if action == "assess" {
             // Cancellation/expiry never loans an outstanding original GET slot

@@ -833,7 +833,7 @@ recovery = &( fix_request: 0, refresh: 1, resolve_conflict: 2, reauthorize: 3,
 | 5 | `unauthenticated` | `reauthorize` | no or expired session, or a grant revoked during the session | — |
 | 6 | `forbidden` | `reauthorize` | the grant lacks the capability, or the member's role doesn't allow it | `details.capability` |
 | 7 | `collection_invalid` | `repair_collection` | the catalog can't be loaded, so writes can't be planned | `issues` of the config and type files |
-| 8 | `unavailable` | `retry` | the replica is starting, moving its lease, or not reachable (no route, relay down, no device online in an end-to-end collection) | `retry_after_ms` |
+| 8 | `unavailable` | `retry` | the replica is starting, moving its lease, its renewable grant lease has lapsed, or it is not reachable (no route, relay down, no device online in an end-to-end collection) | `grant_lease_expired`; `retry_after_ms` |
 | 9 | `rate_limited` | `retry` | the session is over its request or presence limits | `retry_after_ms` |
 | 10 | `quota_exceeded` | `free_space` | the collection is over its storage quota; new content can't be confirmed | — |
 | 11 | `too_large` | `fix_request` | a request, op count, presence state or file over its limit | `details.limit` |
@@ -1288,6 +1288,20 @@ policy item.
 - **Lifetime.** Sessions end after 24 hours, or 2^30 messages, whichever comes first.
   The client then reconnects with a new handshake. A grant revocation closes them
   immediately (`policy.md` §7).
+  A renewable local grant lease lapse instead refuses `hello` and closes existing
+  sessions with `unavailable`, reason `grant_lease_expired`, recovery `retry`, and
+  `retry_after_ms: 1000`. It is not revoked consent. Pending approval, local denial,
+  unknown grants and account/key mismatches retain their precise terminal reasons.
+  Relay pipes carry the same lapse reason with existing close code 4000; terminal
+  local consent refusals use existing 4403. N-1 SDK (beta.151) decodes the ordinary
+  Problem as retryable; it treats an unknown 4000 reason as `unavailable` /
+  `pipe_closed` and reconnects, while 4403 remains terminal `forbidden`.
+  The native daemon acknowledges a control-plane feed snapshot as `policy_applied`
+  only after persisting its grants and cursor together and completing session
+  rechecks. A failed save (including failure after rename) clears all serving
+  leases and keeps the in-memory cursor at the last successful commit. Identical
+  redelivery retries persistence; storage recovery needs no restart. A duplicate
+  of an already durable cursor is an ACK retry, not a lease renewal.
 - **The relay** is a dumb pipe. It pairs the client's connection with the target
   replica's relay connection by session ID, and forwards opaque Noise messages. It
   sees who connects to which replica, sizes and timing, never content.

@@ -11,8 +11,8 @@ pub(super) const CLIENT: B32 = B32([0x62; 32]);
 const CAPS: [&str; 3] = ["collection.read", "records.create", "records.edit"];
 struct Source(Rc<RefCell<Option<DeclaredSetupAuthorization>>>);
 impl GrantSource for Source {
-    fn grant(&self, _: &B16) -> Option<EffectiveGrant> {
-        None
+    fn grant(&self, _: &B16) -> crate::api::ApiResult<EffectiveGrant> {
+        Err(crate::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
     }
     fn declared_setup(&self, grant: &B16) -> Option<DeclaredSetupAuthorization> {
         (*grant == GRANT).then(|| self.0.borrow().clone()).flatten()

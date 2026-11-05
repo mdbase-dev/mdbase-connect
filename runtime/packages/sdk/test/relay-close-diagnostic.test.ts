@@ -42,9 +42,17 @@ describe("bounded relay close diagnostics", () => {
     [4000, "handshake_timeout", "unavailable", "handshake_timeout"],
     [4401, "unauthenticated", "unauthenticated", "relay_unauthenticated"],
     [4403, "grant_inactive", "forbidden", "grant_inactive"],
+    [4403, "grant_revoked_on_device", "forbidden", "grant_revoked_on_device"],
+    [4403, "grant_pending_approval", "forbidden", "grant_pending_approval"],
+    [4403, "unknown_grant", "forbidden", "unknown_grant"],
+    [4000, "grant_lease_expired", "unavailable", "grant_lease_expired"],
     [4404, "connector_offline", "unavailable", "no_device_online"],
     [4429, "connector_busy", "rate_limited", "connector_busy"],
   ] as const)("preserves known protocol recovery for %i/%s", (code, reason, wantCode, wantReason) => {
     expect(pipeCloseError(code, reason)).toMatchObject({ code: wantCode, reason: wantReason });
+  });
+
+  it("keeps lease expiry retryable with the existing retry hint", () => {
+    expect(pipeCloseError(4000, "grant_lease_expired")).toMatchObject({ code: "unavailable", recovery: "retry", reason: "grant_lease_expired", retryAfterMs: 1000 });
   });
 });

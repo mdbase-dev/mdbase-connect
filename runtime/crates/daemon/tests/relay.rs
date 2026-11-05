@@ -73,6 +73,11 @@ impl RelayHost for Host {
     fn grant_live<'a>(&'a self, _c: &'a str, _g: &'a str) -> BoxFuture<'a, bool> {
         Box::pin(async move { self.live.load(Ordering::SeqCst) })
     }
+    fn grant_refusal<'a>(&'a self, _c: &'a str, _g: &'a str) -> BoxFuture<'a, Option<String>> {
+        Box::pin(
+            async move { (!self.live.load(Ordering::SeqCst)).then(|| "grant_inactive".into()) },
+        )
+    }
     fn set_online(&self, _online: bool) {}
 }
 

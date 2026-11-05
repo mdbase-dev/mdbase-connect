@@ -162,7 +162,13 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
     return socket;
   }
 
-  it.each(["none", ...cookieNames])("carries frame-authenticated bytes both ways with ambient session cookie %s", async cookieName => {
+  it.each([
+    ["none", "unknown_grant", 4403],
+    ...cookieNames.map(name => [name, "unknown_grant", 4403]),
+    ["none", "grant_lease_expired", 4000],
+    ["none", "grant_pending_approval", 4403],
+    ["none", "grant_revoked_on_device", 4403],
+  ] as const)("carries frame-authenticated bytes with cookie %s and closes for %s", async (cookieName, closeReason, closeCode) => {
     await registerDevice();
     const device = await daemon();
     let app1: WebSocket | undefined;
@@ -186,9 +192,9 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
       expect(await toClient).toBe("noise reply");
 
       const closed = once(app1, "close");
-      device.send(JSON.stringify({ type: "pipe_close", pipe_id: pipeId, reason: "unknown_grant" }));
+      device.send(JSON.stringify({ type: "pipe_close", pipe_id: pipeId, reason: closeReason }));
       const [code, reason] = await closed;
-      expect([code, reason.toString()]).toEqual([4000, "unknown_grant"]);
+      expect([code, reason.toString()]).toEqual([closeCode, closeReason]);
     } finally { app1?.terminate(); device.terminate(); }
   });
 

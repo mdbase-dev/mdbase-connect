@@ -1303,7 +1303,6 @@ impl Daemon {
             // Nothing is served in either case; restart also needs a fresh lease.
             inner.access.leases.clear();
             inner.access.monotonic_leases.clear();
-            inner.access.feed_cursor = next.feed_cursor;
             self.authority.publish_access(&inner.access);
             let barrier = publish_grants(&inner);
             drop(inner);
@@ -5816,17 +5815,6 @@ impl crate::session::Handler for Daemon {
                     "collection is not authorized for this account",
                 );
             }
-            if let crate::session::Auth::Grant { grant, .. } = auth
-                && host.entry().mode == SyncMode::Local
-                && inner.access.lease_live(&id, fsutil::now_ms() as u64)
-                && source.grant(&mdbn_wire::common::B16(grant)).is_none()
-            {
-                return refuse(
-                    "forbidden",
-                    "grant_account_mismatch",
-                    "grant account is not authorized here",
-                );
-            }
             let replica_auth = match auth {
                 // the host key was checked above, before the lookup.
                 crate::session::Auth::Host { .. } => mdbn_replica::api::SessionAuth::Host,
@@ -5845,11 +5833,14 @@ impl crate::session::Handler for Daemon {
                             fsutil::now_ms() as u64,
                         )
                     {
-                        return refuse(
-                            "forbidden",
-                            r.reason(),
-                            "this app has no active access here",
-                        );
+                        return Opened {
+                            response: mdbn_wire::client::ClientResponse {
+                                id: hello.id,
+                                result: None,
+                                problem: Some(r.problem()),
+                            },
+                            session: None,
+                        };
                     }
                     mdbn_replica::api::SessionAuth::Grant {
                         grant: mdbn_wire::common::B16(grant),
@@ -6028,6 +6019,48 @@ struct NativeGrantWaitContext {
 }
 
 impl crate::relay::RelayHost for Daemon {
+    fn grant_refusal<'a>(
+        &'a self,
+        collection: &'a str,
+        grant: &'a str,
+    ) -> crate::session::BoxFuture<'a, Option<String>> {
+        Box::pin(async move {
+            if self.grant_live(collection, grant).await {
+                return None;
+            }
+            let inner = self.inner.lock().await;
+            if inner
+                .registry
+                .get(collection)
+                .is_some_and(|entry| entry.mode == SyncMode::Local)
+            {
+                return Some(
+                    match inner.access.entries.iter().find(|entry| {
+                        entry.grant.collection == collection && entry.grant.grant == grant
+                    }) {
+                        Some(entry) if entry.is_refused() => {
+                            crate::access::Refusal::RevokedLocally.reason()
+                        }
+                        Some(entry)
+                            if entry.state == crate::access::AccessState::PendingApproval =>
+                        {
+                            crate::access::Refusal::PendingApproval.reason()
+                        }
+                        Some(_)
+                            if !inner.access.lease_live(collection, fsutil::now_ms() as u64) =>
+                        {
+                            crate::access::Refusal::LeaseExpired.reason()
+                        }
+                        Some(_) => "grant_inactive",
+                        None => crate::access::Refusal::UnknownGrant.reason(),
+                    }
+                    .into(),
+                );
+            }
+            Some("grant_inactive".into())
+        })
+    }
+
     fn inventory(&self) -> crate::session::BoxFuture<'_, Vec<(String, Value)>> {
         Box::pin(self.inventory_entries())
     }

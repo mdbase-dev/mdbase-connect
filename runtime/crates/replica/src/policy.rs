@@ -294,9 +294,9 @@ pub struct DeclaredSetupAuthorization {
 /// Host authority, including local-only grants and separately verified declared
 /// setup. Synced ordinary grants still come from the signed policy, not this host.
 pub trait GrantSource {
-    /// The grant as it stands now; `None` when unknown, revoked or expired.
+    /// The grant as it stands now; refusals preserve their code and reason.
     /// Its account must come from authenticated grant metadata, not a default.
-    fn grant(&self, grant: &Uuid) -> Option<EffectiveGrant>;
+    fn grant(&self, grant: &Uuid) -> crate::api::ApiResult<EffectiveGrant>;
 
     /// Current declaration from the verified signed grant feed, under the live
     /// account, exact consent generation and monotonic lease. Missing evidence or

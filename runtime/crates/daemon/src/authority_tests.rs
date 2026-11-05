@@ -124,7 +124,7 @@ fn registry_account_device_and_collection_must_match_and_missing_never_backfills
         authority.publish_registry(&registry(entry));
         assert_eq!(source.authorize(None), Err(Deny::RegistrationMismatch));
         assert!(source.owner_identity().is_none());
-        assert!(source.grant(&account_id(GRANT).unwrap()).is_none());
+        assert!(source.grant(&account_id(GRANT).unwrap()).is_err());
     }
 }
 
@@ -143,7 +143,7 @@ fn grants_require_independent_account_consent_and_never_gain_owner() {
     ] {
         access.entries[0].grant.account_id = account;
         authority.publish_access(&access);
-        assert!(source.grant(&id).is_none());
+        assert!(source.grant(&id).is_err());
     }
     access.entries[0].grant.account_id = Some(ALICE.into());
     access.entries[0]
@@ -154,7 +154,16 @@ fn grants_require_independent_account_consent_and_never_gain_owner() {
     assert_eq!(source.grant(&id).unwrap().role, Role::Editor);
     access.revoke(GRANT).unwrap();
     authority.publish_access(&access);
-    assert!(source.grant(&id).is_none());
+    let error = source.grant(&id).unwrap_err();
+    assert_eq!(error.problem().code, "forbidden");
+    assert_eq!(
+        error.problem().reason.as_deref(),
+        Some("grant_revoked_on_device")
+    );
+    assert_eq!(
+        error.problem().recovery,
+        mdbn_wire::client::Recovery::Reauthorize
+    );
 }
 
 #[test]
@@ -165,7 +174,14 @@ fn monotonic_expiry_and_reopen_drop_grants_even_with_future_wall_deadline() {
         .monotonic_leases
         .insert(COLLECTION.into(), std::time::Instant::now());
     authority.publish_access(&access);
-    assert!(source.grant(&id).is_none());
+    let error = source.grant(&id).unwrap_err();
+    assert_eq!(error.problem().code, "unavailable");
+    assert_eq!(
+        error.problem().reason.as_deref(),
+        Some("grant_lease_expired")
+    );
+    assert_eq!(error.problem().recovery, mdbn_wire::client::Recovery::Retry);
+    assert_eq!(error.problem().retry_after_ms, Some(1000));
     let dir = crate::testutil::TestDir::new("authority-reopen");
     let file = dir.path().join("access.json");
     access.save(&file).unwrap();
@@ -173,7 +189,7 @@ fn monotonic_expiry_and_reopen_drop_grants_even_with_future_wall_deadline() {
     assert!(reopened.monotonic_leases.is_empty());
     assert_eq!(reopened.entries[0].grant.account_id.as_deref(), Some(ALICE));
     authority.publish_access(&reopened);
-    assert!(source.grant(&id).is_none());
+    assert!(source.grant(&id).is_err());
 }
 
 #[test]
@@ -182,16 +198,16 @@ fn logout_and_same_account_repair_never_revive_old_source() {
     authority.invalidate(2);
     assert_eq!(old.active_account(), None);
     assert_eq!(old.authorize(None), Err(Deny::AccountMissing));
-    assert!(old.grant(&account_id(GRANT).unwrap()).is_none());
+    assert!(old.grant(&account_id(GRANT).unwrap()).is_err());
     let (record, config) = fence(3, Some(ALICE));
     authority
         .publish_account(&record, &config, account_id(DEVICE).unwrap())
         .unwrap();
     authority.publish_access(&access);
     assert_eq!(old.active_account(), None);
-    assert!(old.grant(&account_id(GRANT).unwrap()).is_none());
+    assert!(old.grant(&account_id(GRANT).unwrap()).is_err());
     let fresh = authority.source(account_id(COLLECTION).unwrap()).unwrap();
-    assert!(fresh.grant(&account_id(GRANT).unwrap()).is_some());
+    assert!(fresh.grant(&account_id(GRANT).unwrap()).is_ok());
     let (record, config) = fence(1, Some(BOB));
     assert_eq!(
         authority.publish_account(&record, &config, account_id(DEVICE).unwrap()),
@@ -337,7 +353,7 @@ fn poisoned_projection_fails_closed() {
     assert_eq!(source.authority_epoch(), None);
     assert_eq!(source.device_noise_pk(), None);
     assert_eq!(source.owner_identity(), None);
-    assert!(source.grant(&account_id(GRANT).unwrap()).is_none());
+    assert!(source.grant(&account_id(GRANT).unwrap()).is_err());
 }
 
 #[test]

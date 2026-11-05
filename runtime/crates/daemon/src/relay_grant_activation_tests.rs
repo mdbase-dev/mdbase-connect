@@ -9,6 +9,7 @@ struct WaitingHost {
     eligible: AtomicBool,
     epoch: AtomicU64,
     changes: watch::Sender<()>,
+    close_reason: &'static str,
 }
 impl WaitingHost {
     fn new(eligible: bool) -> Arc<Self> {
@@ -17,6 +18,7 @@ impl WaitingHost {
             eligible: AtomicBool::new(eligible),
             epoch: AtomicU64::new(1),
             changes: watch::channel(()).0,
+            close_reason: "grant_inactive",
         })
     }
 }
@@ -36,6 +38,9 @@ impl Handler for WaitingHost {
     }
 }
 impl RelayHost for WaitingHost {
+    fn grant_refusal<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { (!self.live.load(Ordering::SeqCst)).then(|| self.close_reason.into()) })
+    }
     fn inventory(&self) -> BoxFuture<'_, Vec<(String, Value)>> {
         Box::pin(async { vec![] })
     }
@@ -107,6 +112,28 @@ async fn register(
     open_pipe(host, &id, &ids(), &mut pipes, &out).await;
     (pipes, rx, out)
 }
+#[tokio::test(start_paused = true)]
+async fn dead_pipe_uses_the_hosts_precise_refusal() {
+    for reason in [
+        "grant_lease_expired",
+        "grant_revoked_on_device",
+        "unknown_grant",
+    ] {
+        let h = Arc::new(WaitingHost {
+            live: AtomicBool::new(true),
+            eligible: AtomicBool::new(false),
+            epoch: AtomicU64::new(1),
+            changes: watch::channel(()).0,
+            close_reason: reason,
+        });
+        let (mut pipes, mut rx, out) = register(&h).await;
+        h.live.store(false, Ordering::SeqCst);
+        close_dead(&h, &mut pipes, &out).await;
+        assert!(pipes.is_empty());
+        assert!(matches!(rx.recv().await, Some(PipeOut::Close(_, why)) if why == reason));
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn pending_pipe_registered_and_swept_without_blocking_or_admitting() {
     let h = WaitingHost::new(true);

@@ -32,8 +32,8 @@ impl Clock for ClockRef {
 #[derive(Clone)]
 struct Source(Rc<Cell<Option<ApprovalAuthorityStamp>>>);
 impl GrantSource for Source {
-    fn grant(&self, _: &Uuid) -> Option<EffectiveGrant> {
-        None
+    fn grant(&self, _: &Uuid) -> crate::api::ApiResult<EffectiveGrant> {
+        Err(crate::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
     }
     fn active_account(&self) -> Option<Uuid> {
         self.0.get().map(|s| s.account)
@@ -477,8 +477,8 @@ fn approval_peer_signing_and_ingress_recheck_source_epoch() {
 
 struct RequesterSource(Source);
 impl GrantSource for RequesterSource {
-    fn grant(&self, _: &Uuid) -> Option<EffectiveGrant> {
-        None
+    fn grant(&self, _: &Uuid) -> crate::api::ApiResult<EffectiveGrant> {
+        Err(crate::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
     }
     fn active_account(&self) -> Option<Uuid> {
         self.0.active_account()

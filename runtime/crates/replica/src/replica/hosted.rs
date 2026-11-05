@@ -990,7 +990,7 @@ impl<S: Store> Replica<HostedCache<S>> {
             crate::api::SessionAuth::Host => true,
             crate::api::SessionAuth::Grant { grant, client_pk } => {
                 self.grant_for_client(grant, client_pk)
-                    .is_some_and(|g| self.serving_account_matches(&g.account))
+                    .is_ok_and(|g| self.serving_account_matches(&g.account))
                     && self.serves_apps().is_ok()
             }
         }
