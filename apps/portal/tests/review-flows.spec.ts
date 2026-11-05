@@ -61,6 +61,12 @@ test("grant waits for acknowledged status and resolves stripes to a check", asyn
   expect(await page.locator(".grant-moment").evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0);
 });
 
+test("an expired session says so and keeps the destination", async ({ page }) => {
+  await openScenario(page, "session-expired");
+  await expect(page.getByRole("status").filter({ hasText: "Your session expired." })).toBeVisible();
+  expect(new URL(new URL(page.url()).searchParams.get("return_to")!).pathname).toBe("/account");
+});
+
 test("required-only permission copy matches the declared request", async ({ page }) => {
   await openScenario(page, "authorization-required");
   await expect(page.getByText("All permissions listed below are required by TaskNotes. You can allow them together or deny this request.", { exact: true })).toBeVisible();
