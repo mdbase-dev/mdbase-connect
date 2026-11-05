@@ -71,21 +71,17 @@ settle it. No second mutation owner is introduced.
 
 ## Revocation has an authority-specific completion point
 
-For a local grant, server admission and tokens are revoked transactionally with
-an immutable barrier in the existing connector policy sequence. The response is
-`revoking` until the local connector acknowledges an exact current-generation
-policy snapshot at or above that barrier. Lease expiry, relay disconnect, an old
-sequence, a retired/wrong connector generation, a mismatched digest/acknowledgement,
-or a legacy snapshot does not establish confirmation.
+The [grant revocation status contract](next-grant-policy.md#revocation-status)
+defines completion for log-bound, local and hosted grants. In particular, a
+migrated local grant with a log binding waits for its log append, not the
+connector feed acknowledgement.
 
 Migration `0032_local_revocation_confirmation` adds the barrier and confirmation
 timestamp to grants. Historical unbound revocations receive a barrier under the
 same connector lock used to build policy snapshots. Concurrent snapshots cannot
 accidentally acknowledge a later revocation. Repeated single/batch revocations
 reuse their existing barrier. Pending rows remain visible in account/connector
-inventories. `revocation_status` is presentation-only, never an authorization
-input. Hosted grants continue to complete at their own hosted authority; the UI
-must not describe them as waiting for a local computer.
+inventories.
 
 ## Resource-scoped desktop refresh
 

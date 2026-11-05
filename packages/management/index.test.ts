@@ -7,6 +7,13 @@ afterEach(() => {
 });
 
 describe("ConnectManagementClient", () => {
+  it("accepts a pending grant revocation without retrying for immediate completion", async () => {
+    const fetch = vi.fn(async () => Response.json({ revocation_status: "revoking" }));
+    vi.stubGlobal("fetch", fetch);
+    const client = new ConnectManagementClient("https://connect.example");
+    await expect(client.revokeGrant("private-grant")).resolves.toEqual({ revocation_status: "revoking" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("binds durable mode intent/status to the collection and request, with account credentials only", async () => {
     const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ phase: "waiting_for_device" }));
     vi.stubGlobal("fetch", fetch);

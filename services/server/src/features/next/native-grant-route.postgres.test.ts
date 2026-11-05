@@ -238,7 +238,7 @@ describePostgres("Private native collection grants", () => {
     await db.query("UPDATE connectors SET token_hash = $2 WHERE id = $1", [desktop.connector, tokenHash("desktop-token")]);
     const refused = await app.inject({ method: "DELETE", url: `/v1/connectors/grants/${g.logGrant}`, headers: { authorization: "Bearer desktop-token" } });
     expect(refused.statusCode, refused.body).toBe(200);
-    expect(refused.json()).toEqual({ ok: true, revocation_status: "revoked" });
+    expect(refused.json()).toEqual({ ok: true, revocation_status: "revoking" });
     expect((await db.query("SELECT revoked_at FROM grants WHERE id = $1", [g.grant])).rows[0].revoked_at).not.toBeNull();
     expect((await snapshot(desktop.connector, true)).grants.map((row) => row.id)).not.toContain(g.logGrant);
   });
