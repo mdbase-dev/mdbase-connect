@@ -3,7 +3,7 @@ import { useLingui } from "@lingui/react";
 import { useRef, useState } from "react";
 import { MdbaseConnectError, type MdbaseFileProgress } from "@mdbase-dev/connect";
 import { trackMdbaseMarkProgress } from "@mdbase-dev/ui/mark-activity";
-import type { ActionMenuItem } from "./ActionMenu";
+import type { ActionMenuItem } from "./ContextMenu";
 import { FilePlusIcon as FilePlus } from "./icons";
 import type { FileInventoryController } from "./file-inventory-controller";
 import type { CollectionFile, CollectionGateway } from "./model";

@@ -1,6 +1,5 @@
-.quick-open-command > kbd { margin-left: auto; flex-shrink: 0; color: var(--color-text-muted); font: inherit; font-size: var(--font-size-caption); padding: 2px 6px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 @media (pointer: coarse) {
-  .search-field .quick-open-trigger, .quick-open kbd, .quick-open footer, .new-note-composer kbd { display: none; }
+  .search-field .quick-open-trigger, .new-note-composer kbd { display: none; }
 }
 .unlinked-mentions { margin-top: var(--space-4); color: var(--color-text-soft); font-size: var(--font-size-ui); }
 .unlinked-mentions > summary { cursor: pointer; padding: var(--space-3) 0; }

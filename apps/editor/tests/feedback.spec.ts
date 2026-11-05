@@ -131,7 +131,7 @@ test("feedback keeps application shortcuts out and restores the draft/focus afte
   await dialog.getByRole("textbox", { name: /What happened/ }).press("Control+Shift+N");
   await expect(page.locator(".new-note-composer")).toHaveCount(0);
   await dialog.getByRole("textbox", { name: /What happened/ }).press("Escape");
-  await expect(dialog).not.toBeVisible(); await expect(entry).toBeFocused();
+  await expect(dialog).toHaveCount(0); await expect(entry).toBeFocused();
   await entry.click();
   await expect(dialog.getByRole("textbox", { name: /What happened/ })).toHaveValue("Keep the editor unchanged while I report this.");
 });

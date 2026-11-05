@@ -720,10 +720,6 @@ msgstr "<0>{0}</0> · Bearbeiten Sie diese Notiz, um den Anzeigenamen der Sammlu
 msgid "<0>{linkedSchema}</0> is installed with this type. Field structure is edited at the schema source."
 msgstr "<0>{linkedSchema}</0> ist mit diesem Typ installiert. Die Feldstruktur wird an der Schemaquelle bearbeitet."
 
-#: src/QuickOpen.tsx
-msgid "<0>↑↓</0> choose · <1>Enter</1> open · <2>></2> actions · <3>Esc</3> close"
-msgstr "<0>↑↓</0> auswählen · <1>Enter</1> öffnen · <2>></2> Aktionen · <3>Esc</3> schließen"
-
 #. placeholder {0}: (changed - 20).toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "<0>More</0>{0} additional notes"
@@ -1207,10 +1203,6 @@ msgstr "Zurück zu Notizen und Dateien"
 msgid "Back to types"
 msgstr "Zurück zu den Typen"
 
-#: src/QuickOpen.tsx
-msgid "Best matches"
-msgstr "Beste Treffer"
-
 #. placeholder {0}: segments.join(".")
 #: src/type-contracts.ts
 msgid "Binding setting {0} is required by {contractId}."
@@ -1268,7 +1260,6 @@ msgstr "Diese Sammlung kann nicht geöffnet werden"
 
 #: src/App.tsx
 #: src/BulkNoteProperties.tsx
-#: src/Dialog.tsx
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 #: src/NewNoteComposer.tsx
@@ -1480,25 +1471,13 @@ msgstr "Typsuche leeren"
 msgid "Close file preview"
 msgstr "Dateivorschau schließen"
 
-#: src/QuickOpen.tsx
-msgid "Close keyboard shortcuts"
-msgstr "Tastenkürzel schließen"
-
 #: src/App.tsx
 msgid "Close note peek"
 msgstr "Notizvorschau schließen"
 
-#: src/WorkspaceChrome.tsx
-msgid "Close outline"
-msgstr "Gliederung schließen"
-
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Eigenschaften schließen"
-
-#: src/QuickOpen.tsx
-msgid "Close quick open"
-msgstr "Schnellauswahl schließen"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -1923,7 +1902,7 @@ msgstr "Meinen Personendatensatz erstellen"
 msgid "Create note"
 msgstr "Notiz erstellen"
 
-#. placeholder {0}: row.title
+#. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
 msgid "Create note ‘{0}’"
 msgstr "Notiz ‘{0}’ erstellen"
@@ -2146,10 +2125,6 @@ msgstr "Typ verwerfen"
 #: src/App.tsx
 msgid "Discard type changes?"
 msgstr "Typänderungen verwerfen?"
-
-#: src/Toasts.tsx
-msgid "Dismiss notification"
-msgstr "Benachrichtigung schließen"
 
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
@@ -2448,10 +2423,11 @@ msgstr "Füllen Sie die erforderlichen Eigenschaften aus."
 msgid "Filter links by type"
 msgstr "Links nach Typ filtern"
 
-#: src/QuickOpen.tsx
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "Notiz nach Titel oder Pfad suchen oder > für Aktionen eingeben"
 
+#: src/App.tsx
 #: src/QuickOpen.tsx
 msgid "Find a note or action"
 msgstr "Notiz oder Aktion suchen"
@@ -3047,17 +3023,9 @@ msgstr "Markdown-Pfad"
 msgid "Markdown preview unavailable."
 msgstr "Markdown-Vorschau nicht verfügbar."
 
-#: src/QuickOpen.tsx
-msgid "Matching actions"
-msgstr "Passende Aktionen"
-
 #: src/TypeBrowser.tsx
 msgid "Matching notes"
 msgstr "Passende Notizen"
-
-#: src/QuickOpen.tsx
-msgid "Matching notes and actions"
-msgstr "Passende Notizen und Aktionen"
 
 #: src/type-schema.ts
 msgid "Matching rules"
@@ -3395,10 +3363,6 @@ msgstr "Keine spätere Notiz"
 msgid "No matches."
 msgstr "Keine Treffer."
 
-#: src/QuickOpen.tsx
-msgid "No matching actions."
-msgstr "Keine passenden Aktionen."
-
 #: src/NoteSearchField.tsx
 msgid "No matching filters"
 msgstr "Keine passenden Filter"
@@ -3407,7 +3371,6 @@ msgstr "Keine passenden Filter"
 msgid "No matching icons."
 msgstr "Keine passenden Symbole."
 
-#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching notes."
 msgstr "Keine passenden Notizen."
@@ -3588,10 +3551,6 @@ msgstr "Notizen verwenden dieses Feld, um ihren Typ zu deklarieren. Bearbeiten S
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "Notizen ohne explizite Zuweisung gehören zu diesem Typ, wenn jede der unten konfigurierten Bedingungsgruppen erfüllt ist."
-
-#: src/Toasts.tsx
-msgid "Notifications"
-msgstr "Benachrichtigungen"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -3997,8 +3956,8 @@ msgstr "Eigenschaftsoptionen"
 msgid "Provided by the note's type, not stored in this file."
 msgstr "Vom Typ der Notiz bereitgestellt, nicht in dieser Datei gespeichert."
 
+#: src/App.tsx
 #: src/editor-commands.ts
-#: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "Schnellauswahl"
 
@@ -4089,10 +4048,6 @@ msgstr "Vorgefertigte Typen"
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
 msgstr "Zuletzt verwendete Sammlungen"
-
-#: src/QuickOpen.tsx
-msgid "Recent notes and actions"
-msgstr "Zuletzt verwendete Notizen und Aktionen"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
@@ -5992,7 +5947,7 @@ msgstr "Welche Notizen diesen Typ verwenden"
 msgid "Words"
 msgstr "Wörter"
 
-#: src/Dialog.tsx
+#: src/App.tsx
 msgid "Working…"
 msgstr "Wird ausgeführt…"
 

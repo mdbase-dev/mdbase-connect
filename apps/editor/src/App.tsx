@@ -7,6 +7,7 @@ import {
   ArrowRightIcon as ArrowRight,
   CheckIcon as Check,
   CopyIcon as Copy,
+  DotsThreeIcon as MoreHorizontal,
   FolderIcon as Folder,
   KeyboardIcon as Keyboard,
   ListBulletsIcon as ListBullets,
@@ -32,10 +33,12 @@ import {
   useState,
   useSyncExternalStore,
   Suspense,
+  Fragment,
   type CSSProperties,
   type ReactNode
 } from "react";
-import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
+import type { ActionMenuItem } from "./ContextMenu";
+import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { MoveNoteDialog } from "./MoveNoteDialog";
 import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
@@ -51,7 +54,9 @@ import type { EditorCollectionSwitcher } from "./editor-collections";
 import { ConflictResolver } from "./ConflictResolver";
 import { DraftRecovery, frontmatterPatch, recoveryDraftMatchesRecord } from "./draft-recovery";
 import { connectServerUrl } from "./connect-endpoint";
-import { ConfirmDialog } from "./Dialog";
+import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
+import { CommandPalette } from "@mdbase-dev/ui/command-palette";
+import { Toaster, type ToastItem } from "@mdbase-dev/ui/toast";
 import { ReadOnlyMarkdown } from "./read-only-markdown";
 import {
   loadContractCatalog,
@@ -121,9 +126,10 @@ import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-
 import { buildEditorCommands, command, formatShortcut, matchesCommandShortcut, type CommandId } from "./editor-commands";
 import { unlinkedMentions } from "./unlinked-mentions";
 import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
-import { QuickOpen, ShortcutHelp } from "./QuickOpen";
+import { quickOpenResults, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./settings/SettingsView";
-import { buildToastItems, ToastStack, type ToastTone } from "./Toasts";
+import { buildToastItems } from "./Toasts";
+type ToastTone = NonNullable<ToastItem["tone"]>;
 import { NEW_TYPE_SOURCE } from "./type-presentation";
 import { useCollectionIndex } from "./use-collection-index";
 import { CollectionSaveWarning } from "@mdbase-dev/ui/collections";
@@ -192,6 +198,8 @@ interface CollectionAppProps {
  * SDK gateway supplied by `SdkEditorRoot` once its scope is ready. */
 export function App({ gateway, collectionSwitcher, onFeedbackContext }: CollectionAppProps) {
   useLingui();
+  const noteMenu = useMenuTrigger();
+  const selectionMenu = useMenuTrigger();
   const { reportError } = useFeedback();
   const { controller: indexController, state: collectionIndex } = useCollectionIndex(gateway);
   const { controller: fileController, state: fileInventory } = useFileInventory(gateway);
@@ -1600,9 +1608,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       }
       if (modifier && !event.altKey && !event.shiftKey && key === "k"
           && !(event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content"))) {
-        // K belongs only to note text, not the browser's location bar or a
-        // second workspace shortcut when focus is on another control.
         event.preventDefault();
+        if (!isEditableTarget(event.target)) {
+          setShortcutsOpen(false);
+          setQuickOpenCommandMode(false);
+          setQuickOpen(true);
+        }
         return;
       }
       if (quickOpen || shortcutsOpen) return;
@@ -1654,7 +1665,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         else if (next) navigateToFile(next.file);
         return;
       }
-      if (event.key === "?" && !isEditableTarget(event.target)) {
+      if ((event.key === "?" || (event.ctrlKey && key === "/")) && !isEditableTarget(event.target)) {
         event.preventDefault();
         setQuickOpen(false);
         setShortcutsOpen(true);
@@ -1692,16 +1703,17 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       onOpen={(collectionId) => void openSavedCollection(collectionId)}
       onForget={requestForgetConnection}
     />
-    {confirmation && <ConfirmDialog
+    {confirmation && <ConfirmDialog role="alertdialog"
       title={confirmation.title}
-      body={confirmation.body}
+      open
+      pendingLabel={t`Working…`}
       confirmLabel={confirmation.confirmLabel}
       cancelLabel={confirmation.cancelLabel}
       tone={confirmation.tone}
-      initialFocus={confirmation.initialFocus}
-      onConfirm={confirmation.onConfirm}
+      initialFocus={confirmation.initialFocus ?? (confirmation.tone === "danger" ? "cancel" : "confirm")}
+      onConfirm={async () => { await confirmation.onConfirm(); confirmation.onDismiss?.(); setConfirmation(undefined); }}
       onClose={() => { confirmation.onDismiss?.(); setConfirmation(undefined); }}
-    />}
+    >{confirmation.body}</ConfirmDialog>}
   </>;
   if (phase === "loading" || !description) return <OpeningScreen />;
 
@@ -1872,7 +1884,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onSelection={setSelection}
         pinnedPaths={pinnedPaths}
         selectionBar={listSelection.paths.length > 1 && <div className="note-selection" role="group" aria-label={t`Selected notes`} aria-busy={bulkBusy}>
-          <div className="note-selection-bar"><span role="status"><Trans>{listSelection.paths.length} selected</Trans></span><ActionMenu label={t`Selection actions`} items={bulkActions(listSelection.paths)} /><button className="mdbase-button is-tertiary" aria-label={t`Clear selection`} onClick={() => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); }}><Trans>Clear</Trans></button></div>
+          <div className="note-selection-bar"><span role="status"><Trans>{listSelection.paths.length} selected</Trans></span>
+            <div className="note-actions">
+              <button {...selectionMenu.triggerProps} className="icon-button" aria-label={t`Selection actions`}><MoreHorizontal aria-hidden="true" /></button>
+              <Menu open={selectionMenu.open} id={selectionMenu.id} label={t`Selection actions`} triggerRef={selectionMenu.trigger} onClose={selectionMenu.close}>
+                {bulkActions(listSelection.paths).map(item => <button key={item.label} role="menuitem" className={`mdbase-menu-item${item.tone === "danger" ? " is-danger" : ""}`} disabled={item.disabled} title={item.title} onClick={() => { selectionMenu.close(true); item.onSelect(); }}>{item.icon}{item.label}</button>)}
+              </Menu>
+            </div>
+            <button className="mdbase-button is-tertiary" aria-label={t`Clear selection`} onClick={() => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); }}><Trans>Clear</Trans></button></div>
           {bulkPropertyKind && <Suspense fallback={<p><Trans>Loading properties…</Trans></p>}><BulkNoteProperties key={bulkPropertyKind} kind={bulkPropertyKind} fields={selectionFields} busy={bulkBusy} onApply={(change) => applyBulkProperties(listSelection.paths, change)} onClose={() => setBulkPropertyKind(undefined)} /></Suspense>}
         </div>}
         noteCount={visibleNotes.length}
@@ -1984,7 +2003,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               });
             }}><Info aria-hidden="true" /></button>}
             {focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
-            <ActionMenu label={t`More note actions`} items={[
+            <div className="note-actions">
+              <button {...noteMenu.triggerProps} className="icon-button" aria-label={t`More note actions`}><MoreHorizontal aria-hidden="true" /></button>
+              <Menu open={noteMenu.open} id={noteMenu.id} label={t`More note actions`} triggerRef={noteMenu.trigger} onClose={noteMenu.close}>
+              {[
               ...(mobileLayout ? [
                 ...(canCreateNotes ? [menuCommand("new-note", <FilePlus2 aria-hidden="true" />, beginCreate, mutationsFrozen)] : []),
                 menuCommand("quick-open", <Search aria-hidden="true" />, () => { setQuickOpenCommandMode(false); setQuickOpen(true); })
@@ -1997,7 +2019,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               { ...attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error)))), separatorBefore: true },
               { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
               menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
-            ]} />
+              ].map(item => <Fragment key={item.label}>
+                {item.separatorBefore && <div role="separator" className="action-menu-separator" />}
+                <button role="menuitem" className={`mdbase-menu-item${item.tone === "danger" ? " is-danger" : ""}`} disabled={item.disabled} title={item.title} onClick={() => { noteMenu.close(true); item.onSelect(); }}>{item.icon}{item.label}</button>
+              </Fragment>)}
+              </Menu>
+            </div>
           </header>
           {connectionSummary?.role === "viewer" && <p role="status"><Trans>You have view access, so changes can't be saved.</Trans></p>}
           {noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
@@ -2177,36 +2204,29 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onDragChange={(dragging) => setResizingPane(dragging ? "inspector" : undefined)}
       />}
     </aside>}
-    {quickOpen && <QuickOpen
-      initialCommandMode={quickOpenCommandMode}
-      index={searchIndex}
-      recentPaths={[...pinnedPaths, ...recentPaths.filter((path) => !pinnedPaths.includes(path))]}
-      types={typeDescriptors}
-      commands={quickOpenCommands}
-      onCreate={canCreateNotes && !mutationsFrozen ? (title) => { beginCreate(); setCreationContext((current) => ({ ...current, title })); } : undefined}
-      onSelect={(path) => {
-        setSearch("");
-        setNoteFilter(undefined);
-        setSurface("notes");
-        navigateToNote(path);
-      }}
-      onClose={() => setQuickOpen(false)}
-    />}
+    <CommandPalette open={quickOpen} commands={[]} initialQuery={quickOpenCommandMode ? ">" : ""}
+      label={t`Quick open`} inputLabel={t`Find a note or action`} placeholder={t`Find a note by title or path, or type > for actions`}
+      getResults={query => quickOpenResults({ index: searchIndex,
+        recentPaths: [...pinnedPaths, ...recentPaths.filter(path => !pinnedPaths.includes(path))], types: typeDescriptors, commands: quickOpenCommands,
+        onCreate: canCreateNotes && !mutationsFrozen ? title => { beginCreate(); setCreationContext(current => ({ ...current, title })); } : undefined,
+        onSelect: path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); navigateToNote(path); }
+      }, query)} onClose={() => setQuickOpen(false)} />
     {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
-    {confirmation && <ConfirmDialog
+    {confirmation && <ConfirmDialog role="alertdialog"
       title={confirmation.title}
-      body={confirmation.body}
+      open
+      pendingLabel={t`Working…`}
       confirmLabel={confirmation.confirmLabel}
       cancelLabel={confirmation.cancelLabel}
       tone={confirmation.tone}
-      initialFocus={confirmation.initialFocus}
-      onConfirm={confirmation.onConfirm}
+      initialFocus={confirmation.initialFocus ?? (confirmation.tone === "danger" ? "cancel" : "confirm")}
+      onConfirm={async () => { await confirmation.onConfirm(); confirmation.onDismiss?.(); setConfirmation(undefined); }}
       onClose={() => { confirmation.onDismiss?.(); setConfirmation(undefined); }}
-    />}
+    >{confirmation.body}</ConfirmDialog>}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}
     <NotePreviewCard preview={notePreviewController.preview} />
-    <ToastStack toasts={activeToasts} onDismiss={dismissToast} />
+    <Toaster items={activeToasts} onDismiss={dismissToast} />
   </div>;
 }
 

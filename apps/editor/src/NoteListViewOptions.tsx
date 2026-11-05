@@ -2,7 +2,7 @@ import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { CheckIcon as Check, SlidersHorizontalIcon as SlidersHorizontal } from "./icons";
-import { MenuPopover, useMenuTrigger } from "./ActionMenu";
+import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { defaultSortDirection, noteSortDirections, noteSortKey, noteSortOptions, type NoteSort, type NoteSortPreference, type SortField } from "./note-sort";
 
 export function NoteListViewOptions({ sort, fields, scopeLabel, onSort, onClearScope }: {
@@ -13,7 +13,7 @@ export function NoteListViewOptions({ sort, fields, scopeLabel, onSort, onClearS
   onClearScope: () => void;
 }) {
   useLingui();
-  const { open, close, trigger, triggerProps } = useMenuTrigger();
+  const { id, open, close, trigger, triggerProps } = useMenuTrigger();
 
   const select = (action: () => void) => {
     action();
@@ -24,6 +24,7 @@ export function NoteListViewOptions({ sort, fields, scopeLabel, onSort, onClearS
   const options = noteSortOptions(fields);
   const sortOption = (option: { key: string; label: string }) => <button
     key={option.key}
+    className="mdbase-menu-item"
     role="menuitemradio"
     aria-checked={activeKey === option.key}
     onClick={() => select(() => onSort({ key: option.key, direction: defaultSortDirection(option.key) }))}
@@ -36,7 +37,7 @@ export function NoteListViewOptions({ sort, fields, scopeLabel, onSort, onClearS
       aria-label={t`View options`}
       title={t`View options`}
     ><SlidersHorizontal aria-hidden="true" /></button>
-    {open && <MenuPopover label={t`Note view options`} className="note-view-options-menu" triggerRef={trigger} onClose={close}>
+    <Menu open={open} id={id} label={t`Note view options`} className="mdbase-menu note-view-options-menu" triggerRef={trigger} onClose={close}>
       <p className="view-options-heading"><Trans>Sort</Trans></p>
       {options.properties.map(sortOption)}
       {options.fields.length > 0 && <>
@@ -47,6 +48,7 @@ export function NoteListViewOptions({ sort, fields, scopeLabel, onSort, onClearS
       <p className="view-options-heading"><Trans>Order</Trans></p>
       {noteSortDirections(sort).map((option) => <button
         key={option.direction}
+        className="mdbase-menu-item"
         role="menuitemradio"
         aria-checked={sort.direction === option.direction}
         onClick={() => select(() => onSort({ key: activeKey, direction: option.direction }))}
@@ -54,16 +56,18 @@ export function NoteListViewOptions({ sort, fields, scopeLabel, onSort, onClearS
       <div className="view-options-divider" role="separator" />
       <p className="view-options-heading"><Trans>Scope</Trans></p>
       {scopeLabel && <button
+        className="mdbase-menu-item"
         role="menuitemradio"
         aria-checked="true"
         title={scopeLabel}
         onClick={() => select(() => undefined)}
       ><span className="view-option-check"><Check aria-hidden="true" /></span><span className="view-option-label">{scopeLabel}</span></button>}
       <button
+        className="mdbase-menu-item"
         role="menuitemradio"
         aria-checked={!scopeLabel}
         onClick={() => select(onClearScope)}
       ><span className="view-option-check">{!scopeLabel && <Check aria-hidden="true" />}</span><span><Trans>All notes</Trans></span></button>
-    </MenuPopover>}
+    </Menu>
   </div>;
 }
