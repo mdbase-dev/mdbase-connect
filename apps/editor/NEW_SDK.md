@@ -81,23 +81,26 @@ publication is implied.
 - Disposing the adapter aborts its lifetime and drops cached base views. It does
   not close the shared sign-in session's client.
 
-## LAB candidate and remaining qualification
+## SDK pins and target builds
 
-The LAB integration lane uses the original producer-qualified
-`sdk-dev-ff190f963.tgz` archive paired with the original shared UI archive
-`mdbase-dev-ui-dev-b2d7c464.tgz`, recorded in `vendor/mdbase-next-sdk.json` with
-verified SHA256/SHA512. The SDK includes the accepted original native runtime
-SHA256 `a57387f8…` from source `6ec021f6`, not from the SDK's source commit.
-Neither archive is rewritten. SDK sign-out attempts whole-store grant cleanup;
-SDK results report incomplete cleanup, and account-bound routing must still
-hide another account's surviving grants. The editor and workspace UI development
-dependency use the same SDK archive. Editor imports the exact npm UI version
-pinned in `config/native-publish/*.json`, not workspace UI source; its
-style-token gate checks the installed UI CSS. The shared UI owns
-opening progress, slow warnings, focus, storage warnings and Private entry; no
-app-side progress or warning shim is provided. `pnpm build:lab` generates the canonical
-`https://editor-lab.mdbase.dev/` declaration and selects the SDK's LAB environment.
-The ordinary build retains its production declaration defaults.
+The ordinary Editor dependency is the committed production SDK archive described
+by its matching `vendor/sdk-production-*.json` metadata. The central SDK repin
+updates the archive, metadata/facts, manifest and frozen lock together. The
+publisher verifies npm integrity and provenance for that exact version.
+Staging uses the same version's attested `sdk-staging.tgz` release asset, never
+the production archive or rewritten trust. See [NATIVE_PUBLISHER.md](./NATIVE_PUBLISHER.md).
+
+Editor imports the exact npm UI version in `package.json`; the ordinary frozen
+lock pins its integrity, and the style-token gate checks installed UI CSS.
+Shared UI owns opening progress, slow warnings, focus, storage warnings and
+Private entry; there is no app-side progress shim. SDK sign-out attempts
+whole-store grant cleanup and reports incomplete cleanup. Account-bound routing
+must still hide another account's surviving grants.
+
+LAB publication is a separate isolated rehearsal path. `pnpm build:lab` generates
+the canonical `https://editor-lab.mdbase.dev/` declaration and requires a
+separately authenticated LAB SDK. A production SDK refuses that declaration.
+The ordinary build retains production defaults.
 
 This native entry replaces the legacy `ConnectCollectionGateway` bootstrap for
 this lane. The old OAuth collection chooser does not expose next `cloud_copy`

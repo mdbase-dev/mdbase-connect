@@ -112,7 +112,7 @@ export async function verifyHosting({origin,inventory,deployment,fetchImpl=fetch
 // custom alias re-verified, read-only, inside a bounded settle window, because
 // the alias can keep serving the previous deployment while Pages propagates.
 // Every attempt is a complete verification; a failed attempt is never accepted,
-// and nothing is rebuilt, redeployed or rolled back here.
+// and nothing is rebuilt or redeployed. The protected job handles recovery.
 const ALIAS_SETTLE_MS=300000,ALIAS_RETRY_DELAY_MS=15000,ALIAS_MIN_ATTEMPT_MS=30000;
 const attemptSummary=(report,startedMs)=>({startedMs:Math.round(startedMs),ok:report.ok===true,
  failures:(report.failures??[]).slice(0,20),failureCount:report.failures?.length??0,unverifiedCount:report.unverified?.length??0});

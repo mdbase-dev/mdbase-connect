@@ -63,10 +63,10 @@ export async function captureDeployment({output,target,sha,accountId,apiToken,fe
  need(matches.length===1 && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(matches[0]?.id??''),'actual deployment UUID/source/channel mismatch');
  return {id:matches[0].id,url,sourceSha:sha,pagesBranch:branch};
 }
-export function createReceipt({plan,inventory=[],deployment,verification,artifact,project,env=process.env}) {
+export function createReceipt({plan,inventory=[],deployment,verification,artifact,project,previous,rollback,env=process.env}) {
  let artifactBound=false;
  try {
-  const expected={id:env.ARTIFACT_ID,digest:'sha256:'+(env.ARTIFACT_DIGEST??'').replace(/^sha256:/,''),repository:env.GITHUB_REPOSITORY,repositoryId:env.GITHUB_REPOSITORY_ID,run:env.GITHUB_RUN_ID,attempt:env.GITHUB_RUN_ATTEMPT,event:env.GITHUB_EVENT_NAME,ref:env.GITHUB_REF,source:plan.sha,tree:plan.tree,target:plan.target};
+  const expected={id:env.ARTIFACT_ID,digest:'sha256:'+(env.ARTIFACT_DIGEST??'').replace(/^sha256:/,''),repository:env.GITHUB_REPOSITORY,repositoryId:env.GITHUB_REPOSITORY_ID,run:env.GITHUB_RUN_ID,attempt:env.GITHUB_RUN_ATTEMPT,event:env.GITHUB_EVENT_NAME,ref:env.GITHUB_REF,workflowSha:env.GITHUB_SHA,source:plan.sha,tree:plan.tree,target:plan.target};
   need(isDeepStrictEqual(artifact.expected,expected),'receipt artifact identity');
   assertArtifactMetadata(artifact.before,expected);assertArtifactMetadata(artifact.after,expected);
   assertArtifactRun(artifact.run,expected);assertArtifactRun(artifact.runAfter,expected);
@@ -84,8 +84,8 @@ export function createReceipt({plan,inventory=[],deployment,verification,artifac
  return {schema:'mdbase-editor/native-publisher-receipt@1',status:complete && uuid && inventory.length && artifactBound && projectBound?'verified':'failed-or-incomplete',
    source:plan,run:{repository:env.GITHUB_REPOSITORY,id:env.GITHUB_RUN_ID,attempt:env.GITHUB_RUN_ATTEMPT,event:env.GITHUB_EVENT_NAME,ref:env.GITHUB_REF},
    protectedHashes:Object.fromEntries(digestNames.map(k=>[k,env[k]??null])),
-   project:project??null,artifact:artifact??{id:env.ARTIFACT_ID,digest:env.ARTIFACT_DIGEST},assets:inventory,deployment:deployment??null,verification:verification??{ok:false,reason:'not attempted/available'},
-   authentication:'OFF-CI owner handoff only; CI original-byte binding, not fresh authentication',admission:'not assessed'};
+   previous:previous??null,rollback:rollback??null,project:project??null,artifact:artifact??{id:env.ARTIFACT_ID,digest:env.ARTIFACT_DIGEST},assets:inventory,deployment:deployment??null,verification:verification??{ok:false,reason:'not attempted/available'},
+   authentication:plan.sdkTrust?.authentication??null,admission:'not assessed'};
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)) {
  const [command,...args]=process.argv.slice(2);
@@ -100,7 +100,7 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
    const optional=async path=>{try{return await json(path);}catch{return null;}};
    const dir=resolve(args[0]);
    const plan=await optional(join(dir,'plan.json'))??{sha:process.env.SOURCE_SHA,tree:execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8'}).trim(),target:process.env.TARGET};
-   const receipt=createReceipt({plan,inventory:await optional(join(dir,'inventory.json'))??[],deployment:await optional(join(dir,'deployment.json')),verification:await optional(join(dir,'verification.json')),artifact:await optional(join(dir,'artifact-metadata.json')),project:await optional(join(dir,'project.json'))});
+   const receipt=createReceipt({plan,inventory:await optional(join(dir,'inventory.json'))??[],deployment:await optional(join(dir,'deployment.json')),verification:await optional(join(dir,'verification.json')),artifact:await optional(join(dir,'artifact-metadata.json')),project:await optional(join(dir,'project.json')),previous:await optional(join(dir,'previous.json')),rollback:await optional(join(dir,'rollback.json'))});
    console.log(JSON.stringify(receipt,null,2));if(receipt.status!=='verified')process.exitCode=1;
   } else throw Error('Unknown native publisher command');
  }catch(error){console.error(error.message);process.exitCode=1;}

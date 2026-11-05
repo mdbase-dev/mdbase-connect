@@ -56,7 +56,7 @@ export function provenanceSource(bundle, baseline, name) {
     identity: `https://github.com/${repository}/.github/workflows/${baseline.workflow}@${workflow.ref}` };
 }
 
-async function provenSource(name, baseline) {
+export async function provenSource(name, baseline) {
   const attestations = await registryJson(`-/npm/v1/attestations/${encodeURIComponent(name)}@${baseline.version}`);
   const proofs = attestations.attestations.filter(item => item.predicateType === "https://slsa.dev/provenance/v1");
   assert.equal(proofs.length, 1, "Exactly one npm provenance attestation is required.");

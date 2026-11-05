@@ -22,6 +22,7 @@
     "test:entry": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && node ../../scripts/ci/vitest.mjs src/main.environment.test.ts",
     "test:deployment": "node --test scripts/verify-deployment-manifest.test.mjs",
     "test:publisher": "node --test scripts/sdk-pin.test.mjs scripts/native/publisher.test.mjs",
+    "test:publisher:build": "node scripts/native/dry-build.mjs",
     "test:e2e": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && pnpm --filter @mdbase/connect-portal build && playwright test",
     "preview": "vite preview --host 127.0.0.1",
     "icons": "node scripts/write-phosphor-icon-names.mjs",

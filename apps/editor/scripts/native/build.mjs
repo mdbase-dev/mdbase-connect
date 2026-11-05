@@ -2,12 +2,11 @@
 import { execFileSync } from 'node:child_process';
 import { cp, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { loadOriginals, protectedHashes } from './originals.mjs';
+import { compareInstalled } from './originals.mjs';
 import { publicationInventory, serializeInventory } from './publisher.mjs';
 const output=resolve(process.argv[2]);
 const plan=JSON.parse(await readFile(join(output,'plan.json'),'utf8'));
-const originals=await loadOriginals({target:plan.target,repoRoot:process.cwd(),hashes:protectedHashes(),installed:true});
-if(JSON.stringify(originals)!==JSON.stringify(plan.sdkTrust))throw Error('Installed original intake differs from guarded source');
+await compareInstalled(process.cwd(),plan.sdkTrust.archives);
 const run=args=>execFileSync('pnpm',args,{stdio:'inherit',env:{...process.env,
   MDBASE_ENV:plan.target,VITE_MDBASE_ENV:plan.target,MDBASE_EDITOR_ORIGIN:plan.origin,
   MDBASE_EDITOR_BASE_PATH:'/',MDBASE_CONNECT_URL:plan.sdkTrust.release.cpOrigin,

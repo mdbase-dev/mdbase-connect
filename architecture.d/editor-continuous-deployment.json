@@ -1,0 +1,9 @@
+{
+  "reason": "Keep credential-free SDK authentication, staging install derivation, Pages recovery and nonpublishing build rehearsal as explicit publisher boundaries. They replace duplicated native approval packets and obsolete ref checks; exported helpers support transport-double refusal/recovery tests without executing application code.",
+  "growth": {
+    "productionFiles": 4,
+    "apps/editor": 4,
+    "relativeImports": 5,
+    "typeScriptExportDeclarations": 9
+  }
+}

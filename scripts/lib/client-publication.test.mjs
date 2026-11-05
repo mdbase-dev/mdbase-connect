@@ -101,10 +101,9 @@ test("contract-sensitive commits get images of their own", async () => {
   assert.match(await workflow("publish-images"), /&& ! node scripts\/client-contract-changed\.mjs "\$parent" "\$SOURCE_COMMIT"/);
 });
 
-test("Editor publishes only through the native dispatch path; main never deploys", async () => {
+test("Editor publishes only through main-ref immutable-source dispatch; pushes never deploy", async () => {
   const text = await workflow("editor-pages");
-  // Main's Editor is the native one: the legacy main/tag Pages jobs are gone, so no
-  // push, pull request or blank-source dispatch can publish anywhere public.
+  // Tests and publication have disjoint triggers; there is one protected uploader.
   assert.doesNotMatch(text, /deploy-cloudflare/);
   assert.doesNotMatch(text, /production_verified_commit/);
   const jobs = text.split("\njobs:\n")[1];
@@ -114,14 +113,15 @@ test("Editor publishes only through the native dispatch path; main never deploys
   assert.match(upload, /pages deploy artifact\/publish/);
   assert.match(upload, /needs: \[native-inputs, native-build\]/);
   const dispatch = jobs.split("  native-dispatch:\n")[1].split("  native-inputs:\n")[0];
-  assert.match(dispatch, /if: github.event_name == 'workflow_dispatch' && inputs.source_sha != ''/);
-  assert.match(dispatch, /\[\[ "\$GITHUB_REF" == "refs\/heads\/release\/native-\$TARGET" \]\]/);
-  assert.match(dispatch, /\[\[ "\$GITHUB_SHA" == "\$SOURCE_SHA" \]\]/);
+  assert.match(dispatch, /if: github.event_name == 'workflow_dispatch'/);
+  assert.match(dispatch, /\[\[ "\$GITHUB_REF" == refs\/heads\/main \]\]/);
+  assert.doesNotMatch(text, /release\/native-|\[\[ "\$GITHUB_SHA" == "\$SOURCE_SHA"/);
   assert.match(jobs.split("  native-inputs:\n")[1], /needs: native-dispatch/);
-  assert.match(jobs.split("  test:\n")[1].split("\n  native-dispatch:")[0], /if: inputs.source_sha == ''/);
-  assert.match(text, /group: editor-pages-\$\{\{ github.ref \}\}/);
-  // Native source dispatches never cancel an uploader; check-only runs supersede.
-  assert.match(text, /cancel-in-progress: \$\{\{ inputs.source_sha == '' \}\}/);
+  assert.match(jobs.split("  test:\n")[1].split("\n  native-dispatch:")[0], /if: github.event_name != 'workflow_dispatch'/);
+  assert.match(text, /group: editor-pages-\$\{\{ github.event_name == 'workflow_dispatch' && inputs.target \|\| github.ref \}\}/);
+  assert.match(text, /cancel-in-progress: \$\{\{ github.event_name != 'workflow_dispatch' \}\}/);
+  assert.match(upload, /rollback.mjs snapshot/);
+  assert.match(upload, /rollback.mjs recover/);
   assert.match(text, /node --test scripts\/lib\/\*publication\*.test.mjs/);
 });
 
