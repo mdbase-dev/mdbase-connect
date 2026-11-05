@@ -74,7 +74,6 @@ export interface CollectionPresentation {
   mode: string;
   status: string;
   detail?: string;
-  dot: ConnectionDotState;
   canEnableSync: boolean;
   paused: boolean;
   holds: number;
@@ -122,36 +121,36 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
     holds
   };
   if (collection.reason === "collection_deleted") {
-    return { ...base, mode: t(i18n)`Sync stopped`, status: t(i18n)`Collection deleted`, detail: t(i18n)`This collection was deleted by its owner. Your local files are untouched. Choose Remove to remove its local registration.`, dot: "danger", canEnableSync: false };
+    return { ...base, mode: t(i18n)`Sync stopped`, status: t(i18n)`Collection deleted`, detail: t(i18n)`This collection was deleted by its owner. Your local files are untouched. Choose Remove to remove its local registration.`, canEnableSync: false };
   }
   const pendingText = collection.sync && collection.sync.pending > 0 ? t(i18n)`${plural(collection.sync.pending, { one: "# change to sync", other: "# changes to sync" })}` : undefined;
   switch (collection.state) {
     case "paused":
       // Taken over from mdbase Connect: an interrupted turn-on of Private sync, retried automatically.
       if (collection.reason === "private_sync_pending") {
-        return { ...base, status: t(i18n)`Turning on Private sync…`, detail: reasonText(collection.reason), dot: "connecting" };
+        return { ...base, status: t(i18n)`Turning on Private sync…`, detail: reasonText(collection.reason) };
       }
-      return { ...base, status: t(i18n)`Paused`, detail: t(i18n)`Apps cannot use it until you resume it.`, dot: "paused" };
+      return { ...base, status: t(i18n)`Paused`, detail: t(i18n)`Apps cannot use it until you resume it.` };
     case "opening":
-      return { ...base, status: t(i18n)`Opening…`, detail: pendingText ?? reasonText(collection.reason), dot: "connecting" };
+      return { ...base, status: t(i18n)`Opening…`, detail: pendingText ?? reasonText(collection.reason) };
     case "moving":
-      return { ...base, status: t(i18n)`Changing sync…`, detail: t(i18n)`Apps keep working while the change finishes.`, dot: "connecting" };
+      return { ...base, status: t(i18n)`Changing sync…`, detail: t(i18n)`Apps keep working while the change finishes.` };
     case "unavailable":
-      return { ...base, status: t(i18n)`Unavailable`, detail: reasonText(collection.reason), dot: "idle" };
+      return { ...base, status: t(i18n)`Unavailable`, detail: reasonText(collection.reason) };
     case "failed": {
       // The daemon owns the recovery instructions, including the manual rejoin
       // boundary. Keep its notice intact through the existing status projection.
       const recovery = collection.reason === "sync_revoked"
         ? collection.notices?.find((notice) => notice.code === "sync_revoked")?.message
         : undefined;
-      return { ...base, status: t(i18n)`Stopped`, detail: t(i18n)`${recovery ?? reasonText(collection.reason) ?? missingOpenReason()} Your files are untouched.`, dot: "danger" };
+      return { ...base, status: t(i18n)`Stopped`, detail: t(i18n)`${recovery ?? reasonText(collection.reason) ?? missingOpenReason()} Your files are untouched.` };
     }
     default:
       break;
   }
   const sync = collection.sync;
   if (collection.mode === "local" || !sync) {
-    return { ...base, status: t(i18n)({ message: "Ready", context: "Local connection status" }), detail: holds > 0 ? t(i18n)`${plural(holds, { one: "# file is waiting for you", other: "# files are waiting for you" })}` : undefined, dot: holds > 0 ? "paused" : "connected" };
+    return { ...base, status: t(i18n)({ message: "Ready", context: "Local connection status" }), detail: holds > 0 ? t(i18n)`${plural(holds, { one: "# file is waiting for you", other: "# files are waiting for you" })}` : undefined };
   }
   const waiting: string[] = [];
   if (pendingText) waiting.push(pendingText);
@@ -161,10 +160,7 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
   const status = sync.resyncing ? t(i18n)({ message: "Catching up…", context: "Local connection status" })
     : sync.connection === "online" ? (sync.pending > 0 ? t(i18n)({ message: "Syncing…", context: "Local connection status" }) : t(i18n)({ message: "Up to date", context: "Local connection status" }))
       : sync.connection === "connecting" ? t(i18n)({ message: "Connecting…", context: "Local connection status" }) : t(i18n)({ message: "Offline", context: "Local connection status" });
-  const dot: ConnectionDotState = sync.last_error ? "danger"
-    : holds > 0 || sync.unresolved > 0 ? "paused"
-      : sync.connection === "online" && !sync.resyncing ? "connected" : "connecting";
-  return { ...base, status, detail: waiting.join(" · ") || undefined, dot };
+  return { ...base, status, detail: waiting.join(" · ") || undefined };
 }
 
 interface EntryLike {
@@ -207,27 +203,13 @@ export function groupAccess<T extends EntryLike>(entries: T[]): AccessGroups<T> 
   };
 }
 
-/** Capability group names, for people. Unknown names are shown as they are. */
-export function capabilityLabel(capability: string): string {
-  const labels: Record<string, string> = {
-    read: t(i18n)({ message: "Read", context: "Local connection status" }),
-    write: t(i18n)({ message: "Create and edit", context: "Local connection status" }),
-    delete: t(i18n)({ message: "Delete", context: "Local connection status" }),
-    schema: t(i18n)({ message: "Change types", context: "Local connection status" }),
-    views: t(i18n)({ message: "Views", context: "Local connection status" }),
-    files: t(i18n)({ message: "Files", context: "Local connection status" }),
-    timers: t(i18n)({ message: "Reminders", context: "Local connection status" })
-  };
-  return labels[capability] ?? capability.replaceAll("_", " ");
-}
-
 /** What an app with these capabilities will be able to do, as one phrase. */
 export function capabilityPhrase(capabilities: readonly string[]): string {
   const phrases: Record<string, string> = {
-    read: t(i18n)({ message: "read notes", context: "Local connection status" }),
-    write: t(i18n)({ message: "create and edit notes", context: "Local connection status" }),
-    delete: t(i18n)({ message: "delete notes", context: "Local connection status" }),
-    schema: t(i18n)({ message: "change note types", context: "Local connection status" }),
+    read: t(i18n)({ message: "read records", context: "Local connection status" }),
+    write: t(i18n)({ message: "create and edit records", context: "Local connection status" }),
+    delete: t(i18n)({ message: "delete records", context: "Local connection status" }),
+    schema: t(i18n)({ message: "change record types", context: "Local connection status" }),
     views: t(i18n)({ message: "save views", context: "Local connection status" }),
     files: t(i18n)({ message: "read and add files", context: "Local connection status" }),
     timers: t(i18n)({ message: "set reminders", context: "Local connection status" })

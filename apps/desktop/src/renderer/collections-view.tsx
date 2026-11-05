@@ -8,14 +8,15 @@ import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
 import { CollectionModeControl } from "@mdbase-dev/ui/collection-mode";
 import { groupedApprovalCode, presentCollection } from "./daemon-view.mjs";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
-import { Empty, SectionHeading, StatusDot } from "./ui-components";
+import { Empty, SectionHeading } from "./ui-components";
 import { message, relativeTime, syncEnableMessage } from "./view-model";
 import type { TakeoverHold } from "./takeover-state.mjs";
 
 type Act = (action: () => Promise<unknown>) => Promise<void>;
 
-export function CollectionsView({ collections, busy, onAdd, onCreate, onAct, onNotice }: {
+export function CollectionsView({ collections, computerName, busy, onAdd, onCreate, onAct, onNotice }: {
   collections: DaemonCollection[];
+  computerName: string;
   busy: boolean;
   onAdd(): void;
   onCreate(): void;
@@ -38,7 +39,7 @@ export function CollectionsView({ collections, busy, onAdd, onCreate, onAct, onN
         {sorted.length === 0
           ? <Empty title={t(i18n)({ message: "No collections yet", context: "Local collection management" })} text={t(i18n)({ message: "Add a folder of Markdown notes or create a new collection." })} />
           : <div className="collection-list">{sorted.map((collection) => (
-            <CollectionCard key={collection.id} collection={collection} busy={busy} onAct={onAct} onNotice={onNotice} onTurnOnSync={() => openSync(collection)} />
+            <CollectionCard key={collection.id} collection={collection} computerName={computerName} busy={busy} onAct={onAct} onNotice={onNotice} onTurnOnSync={() => openSync(collection)} />
           ))}</div>}
       </section>
       {lastSyncTarget && <TurnOnSyncDialog key={lastSyncTarget.id} open={syncTarget !== null} collection={lastSyncTarget} busy={busy} error={syncFailure} onAct={onAct} onClose={() => openSync(null)} onConfirm={(mode, acceptTakeoverHolds) => onAct(async () => {
@@ -57,8 +58,9 @@ export function CollectionsView({ collections, busy, onAdd, onCreate, onAct, onN
   );
 }
 
-function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
+function CollectionCard({ collection, computerName, busy, onAct, onNotice, onTurnOnSync }: {
   collection: DaemonCollection;
+  computerName: string;
   busy: boolean;
   onAct: Act;
   onNotice(value: string): void;
@@ -76,9 +78,10 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
   return (
     <article className="collection-card">
       <div className="collection-card-main">
-        <StatusDot state={view.dot} />
+        <svg viewBox="0 0 256 256" fill="none" stroke="currentColor" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="32" y="48" width="192" height="144" rx="16" /><path d="M32 152h192M96 224h64M128 192v32" /></svg>
         <div>
           <h3>{collection.name}</h3>
+          <small>{computerName}</small>
           {collection.description && <small className="collection-description">{collection.description}</small>}
           <code>{collection.root}</code>
           <small>{view.mode} · {view.status}{view.detail ? ` · ${view.detail}` : ""}</small>

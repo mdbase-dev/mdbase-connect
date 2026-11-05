@@ -417,6 +417,11 @@ msgctxt "Connect interface"
 msgid "Background behavior"
 msgstr "Работа в фоновом режиме"
 
+#. placeholder {0}: capabilityPhrase(entry.capabilities)
+#: src/renderer/access-view.tsx
+msgid "Can {0}"
+msgstr "Может {0}"
+
 #: src/main/main.ts
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
@@ -430,13 +435,8 @@ msgstr "Получение последних изменений…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "change note types"
-msgstr "изменять типы заметок"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Change types"
-msgstr "Изменять типы"
+msgid "change record types"
+msgstr "изменять типы записей"
 
 #: src/renderer/collections-view.tsx
 msgid "Changed by a program mdbase does not recognise"
@@ -667,13 +667,8 @@ msgstr "Создать коллекцию"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Create and edit"
-msgstr "Создавать и редактировать"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "create and edit notes"
-msgstr "создавать и редактировать заметки"
+msgid "create and edit records"
+msgstr "создавать и редактировать записи"
 
 #: src/renderer/main.tsx
 msgid "Create collection"
@@ -699,13 +694,8 @@ msgstr "Отклонено или отозвано здесь"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Delete"
-msgstr "Удалять"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "delete notes"
-msgstr "удалять заметки"
+msgid "delete records"
+msgstr "удалять записи"
 
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
@@ -783,11 +773,6 @@ msgstr "Сквозное шифрование: mdbase не может прочи
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Введите имя этого компьютера."
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Files"
-msgstr "Файлы"
 
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
@@ -1153,11 +1138,6 @@ msgstr "Теперь новые приложения ждут вашего од�
 msgid "New collection"
 msgstr "Новая коллекция"
 
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "No actions"
-msgstr "Нет действий"
-
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "No activity yet"
@@ -1322,18 +1302,13 @@ msgstr "Полностью закройте mdbase connect (включая зн�
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Read"
-msgstr "Читать"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "читать и добавлять файлы"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "read notes"
-msgstr "читать заметки"
+msgid "read records"
+msgstr "читать записи"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -1357,11 +1332,6 @@ msgstr "Подключите диск снова или восстановите
 #: src/renderer/main.tsx
 msgid "Releases are checked against signed provenance before installation."
 msgstr "Перед установкой подлинность выпуска проверяется по криптографической подписи."
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Reminders"
-msgstr "Напоминания"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Remove a local collection connection"
@@ -1975,11 +1945,6 @@ msgstr "Версия {0} развёртывается для {1}% установ
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "Версия {0} проверена и готова к установке."
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Views"
-msgstr "Представления"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

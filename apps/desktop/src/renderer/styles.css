@@ -4,6 +4,7 @@ body { overflow: hidden; }
 .mdbase-message { margin: 18px 0 0; padding: 10px 0; font-size: var(--font-size-caption); }
 button { color: inherit; }
 .shell { height: 100vh; overflow: hidden; background: var(--paper); }
+.product-sidebar { background: var(--color-sidebar); border-right: 1px solid var(--line); }
 .desktop-canvas { height: 100vh; min-height: 0; display: flex; flex-direction: column; }
 .content { min-width: 0; flex: 1 1 auto; padding: 72px 48px 64px; overflow: auto; background: var(--paper); }
 .content > * { width: min(820px, 100%); margin-inline: auto; }
@@ -296,8 +297,9 @@ label > span, fieldset > legend { color: var(--muted); font-size: var(--font-siz
 .request-footer .decision-actions { display: flex; flex: 0 0 auto; }
 fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 fieldset legend { margin-bottom: 6px; }
-.decision-actions { display: grid; gap: 6px; }
+.decision-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .grant-review { display: grid; grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr); align-items: start; gap: 32px; padding: 22px 0; border-bottom: 1px solid var(--line); }
+.approval-prompt { grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .grant-identity { padding-top: 2px; }
 .grant-identity h3 { margin: 0; font-size: 16px; font-weight: var(--font-weight-semibold); }
 
@@ -434,8 +436,8 @@ fieldset legend { margin-bottom: 6px; }
 .collection-card > .collection-details, .collection-card > .collection-holds { grid-column: 1 / -1; }
 .collection-menu-trigger { min-width: 28px; }
 .collection-remove { color: var(--danger); }
-.collection-card-main { display: grid; grid-template-columns: 14px 1fr; align-items: start; gap: 8px; }
-.collection-card-main > .status-glyph { margin-top: 3px; }
+.collection-card-main { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 8px; min-width: 0; }
+.collection-card-main > svg { width: 20px; height: 20px; color: var(--muted); }
 .collection-card-main > div { display: grid; gap: 3px; min-width: 0; }
 .collection-card-main h3 { margin: 0; font-size: var(--font-size-ui); }
 .collection-card-main code { overflow: hidden; color: var(--muted); font-size: var(--font-size-caption); text-overflow: ellipsis; white-space: nowrap; }

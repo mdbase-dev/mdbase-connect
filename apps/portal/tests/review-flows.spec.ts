@@ -120,8 +120,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(page.getByRole("button", { name: "Allow access", exact: true })).toBeVisible();
     if (viewport.width === 390) await expect(page.locator(".request-origin-guidance")).toBeHidden();
     await openScenario(page, "signup");
-    const buttonSizes = await page.locator(".auth-providers .mdbase-button, .password-auth-form .mdbase-button").evaluateAll(buttons => buttons.map(button => getComputedStyle(button).fontSize));
-    expect(buttonSizes).toEqual(["13px", "13px", "13px"]);
+    const authButtons = page.locator(".auth-providers .mdbase-button, .password-auth-form .mdbase-button");
+    await expect(authButtons).toHaveCount(3);
+    for (const button of await authButtons.all()) await expect(button).toHaveCSS("font-size", "13px");
   });
 }
 

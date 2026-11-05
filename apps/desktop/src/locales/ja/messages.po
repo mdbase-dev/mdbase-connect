@@ -417,6 +417,11 @@ msgctxt "Connect interface"
 msgid "Background behavior"
 msgstr "バックグラウンド動作"
 
+#. placeholder {0}: capabilityPhrase(entry.capabilities)
+#: src/renderer/access-view.tsx
+msgid "Can {0}"
+msgstr "できること: {0}"
+
 #: src/main/main.ts
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
@@ -430,13 +435,8 @@ msgstr "追いついています…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "change note types"
-msgstr "ノートの型を変更"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Change types"
-msgstr "型を変更"
+msgid "change record types"
+msgstr "レコードの型を変更する"
 
 #: src/renderer/collections-view.tsx
 msgid "Changed by a program mdbase does not recognise"
@@ -667,13 +667,8 @@ msgstr "コレクションを作成"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Create and edit"
-msgstr "作成と編集"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "create and edit notes"
-msgstr "ノートを作成・編集"
+msgid "create and edit records"
+msgstr "レコードを作成・編集する"
 
 #: src/renderer/main.tsx
 msgid "Create collection"
@@ -699,13 +694,8 @@ msgstr "ここで拒否または取り消し"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Delete"
-msgstr "削除"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "delete notes"
-msgstr "ノートを削除"
+msgid "delete records"
+msgstr "レコードを削除する"
 
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
@@ -783,11 +773,6 @@ msgstr "エンドツーエンドで暗号化され、mdbase は内容を読め�
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "このコンピューターの名前を入力してください。"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Files"
-msgstr "ファイル"
 
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
@@ -1153,11 +1138,6 @@ msgstr "新しいアプリは、このコンピューターでの承認を待つ
 msgid "New collection"
 msgstr "新しいコレクション"
 
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "No actions"
-msgstr "操作なし"
-
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "No activity yet"
@@ -1322,18 +1302,13 @@ msgstr "mdbase Connect（メニューバーやトレイのアイコンも含む�
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Read"
-msgstr "読み取り"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "ファイルの読み取りと追加"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "read notes"
-msgstr "ノートを読み取る"
+msgid "read records"
+msgstr "レコードを読み取る"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -1357,11 +1332,6 @@ msgstr "ドライブを再接続するか、フォルダーを復元してくだ
 #: src/renderer/main.tsx
 msgid "Releases are checked against signed provenance before installation."
 msgstr "インストール前に署名済みの出所を使ってリリースを検証します。"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Reminders"
-msgstr "リマインダー"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Remove a local collection connection"
@@ -1975,11 +1945,6 @@ msgstr "バージョン {0} はインストールの {1}% に段階的に配信�
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "バージョン {0} は検証済みで、インストールできます。"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Views"
-msgstr "ビュー"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

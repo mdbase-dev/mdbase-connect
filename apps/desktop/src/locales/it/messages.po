@@ -417,6 +417,11 @@ msgctxt "Connect interface"
 msgid "Background behavior"
 msgstr "Comportamento in background"
 
+#. placeholder {0}: capabilityPhrase(entry.capabilities)
+#: src/renderer/access-view.tsx
+msgid "Can {0}"
+msgstr "Può {0}"
+
 #: src/main/main.ts
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
@@ -430,13 +435,8 @@ msgstr "Allineamento in corso…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "change note types"
-msgstr "modificare i tipi di nota"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Change types"
-msgstr "Modifica i tipi"
+msgid "change record types"
+msgstr "modificare i tipi di record"
 
 #: src/renderer/collections-view.tsx
 msgid "Changed by a program mdbase does not recognise"
@@ -667,13 +667,8 @@ msgstr "Crea una raccolta"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Create and edit"
-msgstr "Crea e modifica"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "create and edit notes"
-msgstr "creare e modificare note"
+msgid "create and edit records"
+msgstr "creare e modificare record"
 
 #: src/renderer/main.tsx
 msgid "Create collection"
@@ -699,13 +694,8 @@ msgstr "Rifiutato o revocato qui"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Delete"
-msgstr "Elimina"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "delete notes"
-msgstr "eliminare note"
+msgid "delete records"
+msgstr "eliminare record"
 
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
@@ -783,11 +773,6 @@ msgstr "Crittografia end-to-end: mdbase non può leggere il contenuto. Le app we
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Inserisci un nome per questo computer."
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Files"
-msgstr "File"
 
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
@@ -1153,11 +1138,6 @@ msgstr "Le nuove app ora attendono l'approvazione su questo computer."
 msgid "New collection"
 msgstr "Nuova raccolta"
 
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "No actions"
-msgstr "Nessuna operazione"
-
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "No activity yet"
@@ -1322,18 +1302,13 @@ msgstr "Esci da mdbase Connect (inclusa l'icona nella barra dei menu o nell'area
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Read"
-msgstr "Lettura"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "leggere e aggiungere file"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "read notes"
-msgstr "leggere note"
+msgid "read records"
+msgstr "leggere record"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -1357,11 +1332,6 @@ msgstr "Riconnetti l'unità o ripristina la cartella; i dati del vecchio motore 
 #: src/renderer/main.tsx
 msgid "Releases are checked against signed provenance before installation."
 msgstr "Prima dell'installazione, le versioni vengono verificate rispetto alla provenienza firmata."
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Reminders"
-msgstr "Promemoria"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Remove a local collection connection"
@@ -1975,11 +1945,6 @@ msgstr "La versione {0} viene distribuita al {1}% delle installazioni."
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "La versione {0} è verificata e pronta per l'installazione."
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Views"
-msgstr "Viste"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
