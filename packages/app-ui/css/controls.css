@@ -262,7 +262,7 @@ textarea.mdbase-field {
   border-radius: var(--control-radius);
   outline: 0;
   color: var(--color-text-soft);
-  background: var(--color-surface);
+  background: var(--color-surface-overlay);
   font-size: var(--control-font-size);
   overscroll-behavior: contain;
 }
@@ -715,8 +715,8 @@ textarea.mdbase-field {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--control-radius);
   color: var(--color-text);
-  background: var(--color-surface);
-  box-shadow: none;
+  background: var(--color-surface-overlay);
+  box-shadow: var(--elevation-high);
 }
 
 .mdbase-dialog::backdrop {

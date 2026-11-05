@@ -8,6 +8,7 @@
   --color-canvas: oklch(100% 0 0);
   --color-sidebar: oklch(98% 0.002 286);
   --color-surface: oklch(100% 0 0);
+  --color-surface-overlay: oklch(100% 0 0);
   --color-surface-subtle: oklch(97% 0.001 286);
   --color-text: oklch(21% 0.006 286);
   --color-text-soft: oklch(37% 0.012 286);
@@ -83,6 +84,7 @@
   --color-canvas: oklch(18.7% 0.002 286);
   --color-sidebar: oklch(16% 0.002 286);
   --color-surface: oklch(18.7% 0.002 286);
+  --color-surface-overlay: oklch(21.4% 0.003 286);
   --color-surface-subtle: oklch(23.6% 0.004 286);
   --color-text: oklch(94.7% 0.003 286);
   --color-text-soft: oklch(82% 0.007 286);
@@ -127,6 +129,7 @@
     --color-canvas: oklch(18.7% 0.002 286);
     --color-sidebar: oklch(16% 0.002 286);
     --color-surface: oklch(18.7% 0.002 286);
+    --color-surface-overlay: oklch(21.4% 0.003 286);
     --color-surface-subtle: oklch(23.6% 0.004 286);
     --color-text: oklch(94.7% 0.003 286);
     --color-text-soft: oklch(82% 0.007 286);
