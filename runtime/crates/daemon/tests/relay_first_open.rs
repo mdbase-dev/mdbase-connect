@@ -50,6 +50,7 @@ impl Handler for Host {
                 Auth::Grant {
                     grant: GRANT,
                     client_pk: noise::public_key(&CLIENT_SECRET),
+                    origin: Origin::RelayPipe,
                 }
             );
             if matches!(self.mode, Mode::Refused) {

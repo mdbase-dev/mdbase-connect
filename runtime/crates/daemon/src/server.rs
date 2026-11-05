@@ -5663,8 +5663,10 @@ fn link_client_secret(collection: &str) -> String {
 
 /// Open a replica session on a runtime and bridge its frames to the transport.
 async fn open_on_runtime(
+    daemon: Arc<Daemon>,
+    collection: String,
     rt: Arc<crate::runtime::Runtime>,
-    auth: mdbn_replica::api::SessionAuth,
+    auth: crate::session::Auth,
     hello: mdbn_wire::client::ClientRequest,
     restricted: bool,
 ) -> crate::session::Opened {
@@ -5672,13 +5674,36 @@ async fn open_on_runtime(
     use mdbn_wire::Wire;
     use mdbn_wire::client::ClientFrame;
     let id = hello.id;
+    let refuse = |reason: crate::access::Refusal| Opened {
+        response: mdbn_wire::client::ClientResponse {
+            id,
+            result: None,
+            problem: Some(reason.problem()),
+        },
+        session: None,
+    };
+    if let Err(error) = daemon.authority.authorize_session(&collection, auth) {
+        return refuse(error);
+    }
+    let replica_auth = match auth {
+        crate::session::Auth::Host { .. } | crate::session::Auth::Link { .. } => {
+            mdbn_replica::api::SessionAuth::Host
+        }
+        crate::session::Auth::Grant {
+            grant, client_pk, ..
+        } => mdbn_replica::api::SessionAuth::Grant {
+            grant: mdbn_wire::common::B16(grant),
+            client_pk,
+        },
+    };
+    let mut changes = daemon.changes.subscribe();
     let Ok(bytes) = ClientFrame::Request(hello).to_bytes() else {
         return Opened {
             response: problem_response(id, "invalid_request", "bad_hello", "hello does not encode"),
             session: None,
         };
     };
-    let Some((session, resp, mut out)) = rt.hello(auth, bytes).await else {
+    let Some((session, resp, mut out)) = rt.hello(replica_auth, bytes).await else {
         return Opened {
             response: problem_response(
                 id,
@@ -5699,35 +5724,85 @@ async fn open_on_runtime(
             session: None,
         };
     };
+    if let Err(error) = daemon.authority.authorize_session(&collection, auth) {
+        rt.close(session);
+        return refuse(error);
+    }
     let (in_tx, mut in_rx) = mpsc::channel::<ClientFrame>(64);
     let (out_tx, out_rx) = mpsc::channel::<ClientFrame>(64);
     let rt2 = rt.clone();
     tokio::spawn(async move {
         loop {
-            tokio::select! {
-                f = in_rx.recv() => match f {
-                    Some(ClientFrame::Request(r)) if restricted && !LINK_ALLOWED.contains(&r.method.as_str()) => {
-                        let resp = crate::session::problem_response(
-                            r.id,
-                            "forbidden",
-                            "confirm_in_daemon_ui",
-                            "approvals and recovery are confirmed in mdbase's own window",
-                        );
-                        if out_tx.send(ClientFrame::Response(resp)).await.is_err() { break; }
+            let (frame, incoming) = tokio::select! {
+                changed = changes.changed() => {
+                    if changed.is_err() { break; }
+                    (None, false)
+                }
+                frame = in_rx.recv() => match frame {
+                    Some(frame) => (Some(frame), true),
+                    None => break,
+                },
+                bytes = out.recv() => match bytes {
+                    Some(bytes) => match ClientFrame::from_bytes(&bytes) {
+                        Ok(frame) => (Some(frame), false),
+                        Err(_) => break,
+                    },
+                    None => break,
+                },
+            };
+            let terminal = !incoming
+                && matches!(&frame, Some(ClientFrame::Push(push)) if push.kind == "closed");
+            if !terminal && let Err(reason) = daemon.authority.authorize_session(&collection, auth)
+            {
+                let problem = reason.problem();
+                if let (Some(ClientFrame::Request(request)), true) = (&frame, incoming) {
+                    let _ = out_tx
+                        .send(ClientFrame::Response(mdbn_wire::client::ClientResponse {
+                            id: request.id,
+                            result: None,
+                            problem: Some(problem.clone()),
+                        }))
+                        .await;
+                }
+                let _ = out_tx
+                    .send(ClientFrame::Push(mdbn_wire::client::ClientPush {
+                        kind: "closed".into(),
+                        payload: problem.to_cbor(),
+                    }))
+                    .await;
+                break;
+            }
+            match (frame, incoming) {
+                (Some(ClientFrame::Request(r)), true)
+                    if restricted && !LINK_ALLOWED.contains(&r.method.as_str()) =>
+                {
+                    let resp = crate::session::problem_response(
+                        r.id,
+                        "forbidden",
+                        "confirm_in_daemon_ui",
+                        "approvals and recovery are confirmed in mdbase's own window",
+                    );
+                    if out_tx.send(ClientFrame::Response(resp)).await.is_err() {
+                        break;
                     }
-                    Some(f) => match f.to_bytes() {
-                        Ok(b) => { if !rt2.frame(session, b) { break; } }
-                        Err(_) => break,
-                    },
-                    None => break,
+                }
+                (Some(f), true) => match f.to_bytes() {
+                    Ok(b) => {
+                        if !rt2.frame(session, b) {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
                 },
-                b = out.recv() => match b {
-                    Some(b) => match ClientFrame::from_bytes(&b) {
-                        Ok(f) => { if out_tx.send(f).await.is_err() { break; } }
-                        Err(_) => break,
-                    },
-                    None => break,
-                },
+                (Some(f), false) => {
+                    if out_tx.send(f).await.is_err() {
+                        break;
+                    }
+                    if terminal {
+                        break;
+                    }
+                }
+                (None, _) => continue,
             }
         }
         rt2.close(session);
@@ -5815,39 +5890,16 @@ impl crate::session::Handler for Daemon {
                     "collection is not authorized for this account",
                 );
             }
-            let replica_auth = match auth {
-                // the host key was checked above, before the lookup.
-                crate::session::Auth::Host { .. } => mdbn_replica::api::SessionAuth::Host,
-                // The Obsidian runtime on a collection the user linked (§12.4):
-                // its key was checked against the keychain below.
-                crate::session::Auth::Link { .. } => mdbn_replica::api::SessionAuth::Host,
-                // Local collections: the session's grant must match an active entry
-                // of the access list under a live lease. Synced
-                // collections check grants against the log's policy in the replica.
-                crate::session::Auth::Grant { grant, client_pk } => {
-                    if host.entry().mode == SyncMode::Local
-                        && let Err(r) = inner.access.authorize(
-                            &id,
-                            &secrets::uuid_string(&grant),
-                            &client_pk,
-                            fsutil::now_ms() as u64,
-                        )
-                    {
-                        return Opened {
-                            response: mdbn_wire::client::ClientResponse {
-                                id: hello.id,
-                                result: None,
-                                problem: Some(r.problem()),
-                            },
-                            session: None,
-                        };
-                    }
-                    mdbn_replica::api::SessionAuth::Grant {
-                        grant: mdbn_wire::common::B16(grant),
-                        client_pk,
-                    }
-                }
-            };
+            if let Err(reason) = self.authority.authorize_session(&id, auth) {
+                return Opened {
+                    response: mdbn_wire::client::ClientResponse {
+                        id: hello.id,
+                        result: None,
+                        problem: Some(reason.problem()),
+                    },
+                    session: None,
+                };
+            }
             let (true, Some(rt)) = (host.is_serving(), host.runtime()) else {
                 let s = host.status();
                 if s.reason.as_deref() == Some("collection_deleted") {
@@ -5889,7 +5941,15 @@ impl crate::session::Handler for Daemon {
                 );
             }
             let restricted = matches!(auth, crate::session::Auth::Link { .. });
-            open_on_runtime(rt, replica_auth, hello, restricted).await
+            open_on_runtime(
+                self.arc().expect("daemon owns its session"),
+                id,
+                rt,
+                auth,
+                hello,
+                restricted,
+            )
+            .await
         })
     }
 }
@@ -6029,17 +6089,19 @@ impl crate::relay::RelayHost for Daemon {
                 return None;
             }
             let inner = self.inner.lock().await;
-            if inner
-                .registry
-                .get(collection)
-                .is_some_and(|entry| entry.mode == SyncMode::Local)
-            {
+            let mode = inner.registry.get(collection).map(|entry| entry.mode);
+            if mode != Some(SyncMode::Synced) {
                 return Some(
                     match inner.access.entries.iter().find(|entry| {
                         entry.grant.collection == collection && entry.grant.grant == grant
                     }) {
                         Some(entry) if entry.is_refused() => {
                             crate::access::Refusal::RevokedLocally.reason()
+                        }
+                        _ if mode == Some(SyncMode::SyncedE2e)
+                            && !inner.access.lease_live(collection, fsutil::now_ms() as u64) =>
+                        {
+                            crate::access::Refusal::LeaseExpired.reason()
                         }
                         Some(entry)
                             if entry.state == crate::access::AccessState::PendingApproval =>
@@ -6050,6 +6112,9 @@ impl crate::relay::RelayHost for Daemon {
                             if !inner.access.lease_live(collection, fsutil::now_ms() as u64) =>
                         {
                             crate::access::Refusal::LeaseExpired.reason()
+                        }
+                        _ if mode != Some(SyncMode::Local) => {
+                            crate::access::Refusal::Unavailable.reason()
                         }
                         Some(_) => "grant_inactive",
                         None => crate::access::Refusal::UnknownGrant.reason(),
@@ -6087,23 +6152,38 @@ impl crate::relay::RelayHost for Daemon {
         grant: &'a str,
     ) -> crate::session::BoxFuture<'a, bool> {
         Box::pin(async move {
-            // Synced end-to-end collections: the replica's log policy decides,
-            // and a local refusal on this device cuts the pipe at once.
-            let (mode, refused) = {
+            let (mode, auth, grant16) = {
                 let inner = self.inner.lock().await;
                 let mode = inner.registry.get(collection).map(|c| c.mode);
-                let refused = inner.access.entries.iter().any(|e| {
-                    e.grant.grant == grant && e.grant.collection == collection && e.is_refused()
-                });
-                (mode, refused)
-            };
-            if mode == Some(SyncMode::SyncedE2e) {
-                if refused {
-                    return false;
+                if mode == Some(SyncMode::Synced) {
+                    return inner
+                        .access
+                        .grant_live(collection, grant, fsutil::now_ms() as u64);
                 }
-                let Some(grant16) = crate::attest::uuid_bytes(grant) else {
+                let Some(entry) = inner.access.entries.iter().find(|entry| {
+                    entry.grant.grant == grant && entry.grant.collection == collection
+                }) else {
                     return false;
                 };
+                let (Some(grant), Some(client_pk)) = (
+                    crate::attest::uuid_bytes(grant),
+                    secrets::hex_decode(&entry.grant.client_pk)
+                        .ok()
+                        .and_then(|bytes| bytes.try_into().ok()),
+                ) else {
+                    return false;
+                };
+                let auth = crate::session::Auth::Grant {
+                    grant,
+                    client_pk,
+                    origin: crate::session::Origin::RelayPipe,
+                };
+                if self.authority.authorize_session(collection, auth).is_err() {
+                    return false;
+                }
+                (mode, auth, grant)
+            };
+            if mode == Some(SyncMode::SyncedE2e) {
                 let Some(rt) = self.collection_runtime(collection).await else {
                     return false;
                 };
@@ -6113,13 +6193,9 @@ impl crate::relay::RelayHost for Daemon {
                     ))
                     .await,
                     Some(crate::runtime::GrantApprovalReply::Effective(true))
-                );
+                ) && self.authority.authorize_session(collection, auth).is_ok();
             }
-            self.inner
-                .lock()
-                .await
-                .access
-                .grant_live(collection, grant, fsutil::now_ms() as u64)
+            true
         })
     }
 

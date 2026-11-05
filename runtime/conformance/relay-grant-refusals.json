@@ -1,0 +1,10 @@
+[
+  { "name": "private expired lease", "mode": "synced_e2e", "state": "active", "live_lease": false, "reason": "grant_lease_expired", "close_code": 4000 },
+  { "name": "private pending after restart", "mode": "synced_e2e", "state": "pending_approval", "live_lease": false, "reason": "grant_lease_expired", "close_code": 4000 },
+  { "name": "private missing cache", "mode": "synced_e2e", "state": null, "live_lease": true, "reason": "authorization_unavailable", "close_code": 4000 },
+  { "name": "private pending live lease", "mode": "synced_e2e", "state": "pending_approval", "live_lease": true, "reason": "grant_pending_approval", "close_code": 4403 },
+  { "name": "private refused after restart", "mode": "synced_e2e", "state": "revoked_locally", "live_lease": false, "reason": "grant_revoked_on_device", "close_code": 4403 },
+  { "name": "local expired lease", "mode": "local", "state": "active", "live_lease": false, "reason": "grant_lease_expired", "close_code": 4000 },
+  { "name": "local missing cache", "mode": "local", "state": null, "live_lease": true, "reason": "unknown_grant", "close_code": 4403 },
+  { "name": "cloud copy missing cache", "mode": "synced", "state": null, "live_lease": true, "reason": "grant_inactive", "close_code": 4403 }
+]

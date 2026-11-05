@@ -663,14 +663,12 @@ export class MdbaseClient {
           return new MdbaseClient(opts, session);
         } catch (e) {
           if (signal?.aborted) throw stopped();
-          // 4403 is an authority refusal, NOT pending. Only the fixed pre-live
-          // Native pipe close may defer this original next-relay initial hello.
-          const pending = nextRelay && isMdbaseError(e, "unavailable") && e.reason === "grant_inactive"
-            && e.details instanceof Map && e.details.get("relayCloseCode") === 4000;
+          const pending = nextRelay && isMdbaseError(e, "unavailable")
+            && (e.reason === "grant_lease_expired" || e.reason === "authorization_unavailable");
           if (!(pending || opts.waitForDevice && isMdbaseError(e, "unavailable") && e.reason === "no_device_online")) throw e;
           if (pending && !deadline) {
             deadline = new AbortController();
-            timeout = mdbaseError("unavailable", "The approved grant did not become live within 30 seconds", { reason: "grant_activation_timeout", details: e.details });
+            timeout = mdbaseError("unavailable", "The approved grant did not become live within 30 seconds", { reason: "grant_activation_timeout", details: e.toProblem().details });
             signal = opts.signal ? AbortSignal.any([opts.signal, deadline.signal]) : deadline.signal;
             timer = setTimeout(() => deadline!.abort(), 30_000);
           }

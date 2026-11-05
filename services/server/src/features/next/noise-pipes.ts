@@ -234,7 +234,7 @@ function uuidString(bytes: Uint8Array): string {
  * `{type: "pipe_auth", access_token, collection, grant, device, device_noise_pk}`, the
  * target device and its Noise key as the routing endpoint returned them; after `pipe_opened`, binary
  * frames are the client's §12.3 stream bytes. Close codes: 4401 unauthenticated,
- * 4403 grant_inactive, 4404 connector_offline, 4429 connector_busy, 4000 any other
+ * 4403 terminal grant refusal, 4404 connector_offline, 4429 connector_busy, 4000 any other
  * close with the reason as text.
  */
 export function registerNoisePipeClientRoute(

@@ -135,6 +135,28 @@ async fn dead_pipe_uses_the_hosts_precise_refusal() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn pending_pipe_uses_the_precise_refusal_on_lease_loss_or_activation_timeout() {
+    for reason in ["grant_lease_expired", "authorization_unavailable"] {
+        let h = Arc::new(WaitingHost {
+            live: AtomicBool::new(false),
+            eligible: AtomicBool::new(true),
+            epoch: AtomicU64::new(1),
+            changes: watch::channel(()).0,
+            close_reason: reason,
+        });
+        let (mut pipes, mut rx, out) = register(&h).await;
+        tokio::task::yield_now().await;
+        if reason == "grant_lease_expired" {
+            h.eligible.store(false, Ordering::SeqCst);
+            close_dead(&h, &mut pipes, &out).await;
+        } else {
+            tokio::time::advance(Duration::from_secs(21)).await;
+        }
+        assert!(matches!(rx.recv().await, Some(PipeOut::Close(_, why)) if why == reason));
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn pending_pipe_registered_and_swept_without_blocking_or_admitting() {
     let h = WaitingHost::new(true);
     let (mut pipes, mut rx, out) = register(&h).await;
@@ -182,7 +204,7 @@ async fn original_context_change_before_first_task_poll_never_recaptures() {
     h.live.store(true, Ordering::SeqCst);
     close_dead(&h, &mut pipes, &out).await;
     assert!(pipes.is_empty());
-    assert!(matches!(rx.recv().await,Some(PipeOut::Close(_,why)) if why=="grant_inactive"));
+    assert!(matches!(rx.recv().await,Some(PipeOut::Close(_,why)) if why=="authorization_unavailable"));
 }
 #[tokio::test(start_paused = true)]
 async fn absent_positive_consent_is_refused_without_pending_task() {
