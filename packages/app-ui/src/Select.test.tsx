@@ -36,7 +36,7 @@ describe("Select", () => {
     const trigger = host.querySelector<HTMLButtonElement>('[role="combobox"]')!;
     act(() => trigger.click());
     const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
-    list.style.setProperty("--motion-exit", "120ms");
+    list.style.setProperty("transition-duration", "0.12s");
     act(() => list.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(document.activeElement).toBe(trigger);
     act(() => vi.advanceTimersByTime(60));

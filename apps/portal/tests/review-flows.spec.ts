@@ -296,3 +296,22 @@ for (const provider of ["Google", "GitHub"]) test(`${provider} sign-in never lea
   await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
   expect(external).toEqual([]);
 });
+
+test("overlays stay mounted through their exit in the built bundle", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await openScenario(page, "typical-account");
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await expect(page.getByRole("dialog", { name: "Commands" })).toBeVisible();
+  const exit = await page.evaluate(() => new Promise<number>(resolve => {
+    const palette = document.querySelector("dialog")!;
+    const start = performance.now();
+    new MutationObserver((_, observer) => {
+      if (palette.isConnected) return;
+      observer.disconnect();
+      resolve(performance.now() - start);
+    }).observe(document.body, { childList: true, subtree: true });
+    document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  }));
+  expect(exit).toBeGreaterThanOrEqual(100);
+  expect(exit).toBeLessThan(300);
+});
