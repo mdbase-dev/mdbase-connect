@@ -1,0 +1,6 @@
+{
+  "reason": "One shared post-commit delivery step replaces three unguarded policy pushes; only this step absorbs delivery failures so committed revocations still clear reauthorization and emit audit events.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}

@@ -10,7 +10,7 @@ import { COLLECTION_OPERATIONS } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
 import { collectionContractDescriptorSchema } from "../../protocol-schemas.js";
 import type { RelayHub } from "../../relay.js";
-import { localGrantRevocationStatus, queueLocalGrantRevocations } from "../../local-grant-revocation.js";
+import { deliverGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "../../local-grant-revocation.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
@@ -220,7 +220,7 @@ export function registerConnectorGrantRoutes(
       ));
     }
     await queueLocalGrantRevocations(options.db, connector.user_id, [resolved]);
-    await options.relay.pushPolicy(connector.id);
+    await deliverGrantRevocations(options.relay, [connector.id], request.log);
     const status = await localGrantRevocationStatus(options.db, connector.user_id, resolved);
     await audit(options.db, connector.user_id, status === "revoked" ? "grant.revoked" : "grant.revocation_requested", resolved, {
       connector_id: connector.id, revocation_status: status

@@ -1,5 +1,13 @@
 import type { DatabasePool } from "./db.js";
 
+export async function deliverGrantRevocations(relay: { pushPolicy(connectorId: string): Promise<void> }, connectorIds: Array<string | null>, log: { warn(message: string): void }): Promise<void> {
+  for (const connectorId of new Set(connectorIds)) {
+    if (!connectorId) continue;
+    try { await relay.pushPolicy(connectorId); }
+    catch { log.warn("Grant revocation delivery deferred to policy renewal."); }
+  }
+}
+
 /** Lock the same connector row as snapshot construction before narrowing grants.
  * Every policy at/above this barrier is therefore built after the revocation.
  * Repeating a request never replaces its original barrier or restores credentials.
