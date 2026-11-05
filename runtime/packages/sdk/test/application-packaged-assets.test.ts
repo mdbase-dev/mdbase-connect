@@ -34,7 +34,7 @@ describe("SDK packaged application assets",()=>{
     const fetch=vi.spyOn(globalThis,"fetch").mockImplementation(()=>{throw new Error("unexpected I/O");});
     try {
       const assets=select("lab","https://app.test");
-      expect(assets.runtime).toEqual({url:"https://app.test/sdk/native/runtime.wasm",sha256:"93fd98658889361ea502fd47367c489faef3686c3a20faf51cc778925d1f5ade",bytes:3782675,maxBytes:3782675});
+      expect(assets.runtime).toEqual({url:"https://app.test/sdk/native/runtime.wasm",sha256:"4a5453530ed3c270ad0d344e6bf029dda11d1c9b41d7ad0c43598e6f398a8871",bytes:3782675,maxBytes:3782675});
       expect(Object.isFrozen(assets.runtime)).toBe(true); expect(fetch).not.toHaveBeenCalled();
     } finally {fetch.mockRestore();}
   });
