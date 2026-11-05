@@ -611,8 +611,17 @@ impl<S: Store> Replica<S> {
         match self.ingest_resource_set(observations).await {
             Ok(Some(ready)) => Some(ready),
             Ok(None) => {
-                self.incident(mdbn_wire::client::IncidentKind::Integrity,
-                    Some(mdbn_wire::common::Value::Text("Resource ingestion deferred: incomplete, unstable, invalid, over-budget or previously refused registry; original observations retained.".into())));
+                if !self
+                    .incidents
+                    .contains_key(&mdbn_wire::client::IncidentKind::Integrity.value())
+                {
+                    self.incident(
+                        mdbn_wire::client::IncidentKind::Integrity,
+                        Some(mdbn_wire::common::Value::Text(
+                            resources::RESOURCE_INGEST_DEFERRED.into(),
+                        )),
+                    );
+                }
                 self.flush_status();
                 None
             }

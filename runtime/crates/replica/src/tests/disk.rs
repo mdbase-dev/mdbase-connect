@@ -2480,6 +2480,66 @@ fn queued_publication_model_resource_path_uses_the_complete_core_registry() {
 }
 
 #[test]
+fn repaired_resource_ingestion_clears_its_refusal_but_not_other_integrity_failures() {
+    for retained_failure in [None, Some("unrelated integrity failure")] {
+        let service = FakeLogService::new();
+        let mut node = node_mode(&service, 1, mdbn_wire::client::SyncMode::LocalOnly);
+        node.r.planner = Box::new(crate::plan::CorePlanner);
+        let config = "spec_version: 0.3.0\nsettings:\n  timezone: UTC\n";
+        node.disk
+            .borrow_mut()
+            .user_write("mdbase.yaml", Some(config));
+        node.r.observe(None).unwrap();
+        assert!(
+            node.r.sync_status().incidents.is_empty(),
+            "initial resource capture: {:?}",
+            node.r.sync_status().incidents
+        );
+        if let Some(message) = retained_failure {
+            node.r.incident(
+                mdbn_wire::client::IncidentKind::Integrity,
+                Some(mdbn_wire::common::Value::Text(message.into())),
+            );
+        }
+        node.disk
+            .borrow_mut()
+            .user_write("mdbase.yaml", Some(&config.replace("0.3.0", "99.0.0")));
+        node.r.observe(None).unwrap();
+        assert!(
+            node.r
+                .sync_status()
+                .incidents
+                .iter()
+                .any(|incident| { incident.kind == mdbn_wire::client::IncidentKind::Integrity })
+        );
+        let deferred = node.disk.borrow_mut().queued.pop().unwrap();
+        assert_eq!(deferred.path, "mdbase.yaml");
+        assert!(node.disk.borrow().queued.is_empty());
+        node.disk
+            .borrow_mut()
+            .user_write("mdbase.yaml", Some(config));
+        node.r.observe(None).unwrap();
+        let status = node.r.sync_status();
+        let integrity = status
+            .incidents
+            .iter()
+            .find(|incident| incident.kind == mdbn_wire::client::IncidentKind::Integrity);
+        match retained_failure {
+            Some(message) => assert_eq!(
+                integrity.unwrap().details,
+                Some(mdbn_wire::common::Value::Text(message.into()))
+            ),
+            None => assert!(
+                integrity.is_none(),
+                "repaired resource capture: {integrity:?}"
+            ),
+        }
+        assert!(node.r.resource_ingest_paths().is_empty());
+        assert!(node.disk.borrow().outstanding.contains_key(&deferred.token));
+    }
+}
+
+#[test]
 fn retained_resource_ingestion_model_waits_at_source_complete_set_and_currentness_without_recapture()
  {
     // Core/Replica + toy disk/publication model ONLY, not physical FileStore,

@@ -238,6 +238,61 @@ fn deferred_resource_reoffers_original_token_and_refuses_changed_source() {
 }
 
 #[test]
+fn resource_restored_to_confirmed_bytes_revalidates_without_acknowledging_old_source() {
+    let world = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut store = world.open_with(Config {
+        move_window_ms: 0,
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    let original = b"spec_version: '0.3.0'\n";
+    world.p.fs.write_replace("mdbase.yaml", original).unwrap();
+    let confirmed = store.observe(None).unwrap();
+    ack(&mut store, &confirmed);
+    world
+        .p
+        .fs
+        .write_replace("mdbase.yaml", b"spec_version: '99.0.0'\n")
+        .unwrap();
+    store.request_rescan();
+    let invalid = store.observe(None).unwrap();
+    assert_eq!(invalid.len(), 1);
+    assert!(
+        store
+            .resource_observation_text(&invalid[0], 1024)
+            .unwrap()
+            .is_some()
+    );
+    store.defer_disk_observations(&[invalid[0].token]).unwrap();
+    world.p.fs.write_replace("mdbase.yaml", original).unwrap();
+    store.request_rescan();
+    let corrected = store.observe(None).unwrap();
+    assert_eq!(corrected.len(), 1);
+    assert_ne!(corrected[0].token, invalid[0].token);
+    assert_eq!(corrected[0].base, Some(revision(original)));
+    assert_eq!(
+        store
+            .resource_observation_text(&corrected[0], 1024)
+            .unwrap(),
+        Some(String::from_utf8(original.to_vec()).unwrap())
+    );
+    assert!(
+        store
+            .resource_observation_batch_complete(&corrected)
+            .unwrap()
+    );
+    assert!(!store.resource_observation_current(&invalid[0]).unwrap());
+    assert!(store.resource_observation_current(&corrected[0]).unwrap());
+    world
+        .p
+        .fs
+        .write_replace("mdbase.yaml", b"spec_version: '99.0.0'\n")
+        .unwrap();
+    assert!(store.resource_observation_current(&invalid[0]).unwrap());
+    assert!(!store.resource_observation_current(&corrected[0]).unwrap());
+}
+
+#[test]
 fn terminal_resource_refusal_blocks_unchanged_observation_attempts() {
     // FileStore binding model only: not a synthesized native receipt.
     let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);

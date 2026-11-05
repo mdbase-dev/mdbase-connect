@@ -1929,8 +1929,21 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         if self.missing.remove(path).is_some() {
             // Came back (vim-style save, swap window): compare as usual.
         }
+        let revalidate_resource = known.as_ref().is_some_and(|known| {
+            self.outstanding_at
+                .get(path)
+                .into_iter()
+                .flatten()
+                .filter_map(|token| self.outstanding.get(token))
+                .any(|original| {
+                    original.resource_requested
+                        && original.evidence.is_none()
+                        && original.known_after.as_ref().map(|after| after.rev) != Some(known.rev)
+                })
+        });
         if let Some(k) = &known
             && Self::meta_unchanged(k, &meta)
+            && !revalidate_resource
         {
             return Ok(());
         }
@@ -1943,6 +1956,9 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 // Same bytes, new metadata (touch, our swap): just remember it.
                 let st = self.state_from(k.id, rev, &seen.meta, k.ours);
                 self.set_disk(changes, path, Some(st));
+                if revalidate_resource && !self.already_reported(path, Some(rev)) {
+                    self.emit(changes, out, path, Some(k.rev), Some(seen), None, k.id)?;
+                }
             }
             Some(k) => {
                 if seen.meta.size == 0 && k.size != 0 && !quiet_recheck {

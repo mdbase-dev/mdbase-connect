@@ -283,6 +283,134 @@ async fn terminal_capture_sync_enable_retains_original_paused_source_without_bas
 }
 
 #[tokio::test]
+async fn source_capture_rechecks_repaired_resources_in_same_actor() {
+    let fixture = capture_fixture("capture-repaired-live-source").await;
+    let config_path = fixture.folder.path().join("mdbase.yaml");
+    let config = std::fs::read(&config_path).unwrap();
+    let inventory = fixture.runtime.inventory().await.unwrap();
+    let invalid = String::from_utf8(config.clone())
+        .unwrap()
+        .replace("0.3.0", "99.0.0");
+    std::fs::write(&config_path, invalid).unwrap();
+    fixture.runtime.inventory().await;
+    let status = fixture.runtime.status().await.unwrap();
+    let failure = crate::sync_failure::Failure::project(&status, &None).unwrap();
+    assert_eq!(
+        failure.cause,
+        Some(crate::sync_failure::Cause::ResourceIngestDeferred)
+    );
+    std::fs::write(&config_path, &config).unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let frozen = fixture
+        .runtime
+        .freeze()
+        .await
+        .expect("a revalidated repaired resource set must not retain its stale refusal");
+    assert_eq!(frozen.inventory, inventory);
+    assert_eq!((frozen.holds, frozen.unresolved), (0, 0));
+    assert_eq!(std::fs::read(config_path).unwrap(), config);
+    assert_eq!(
+        std::fs::read(fixture.folder.path().join("original.md")).unwrap(),
+        fixture.note
+    );
+    assert_no_collection_bootstrap(&fixture);
+    close_fixture(&fixture).await;
+}
+
+#[tokio::test]
+async fn source_recapture_checks_current_files_without_replacing_identity() {
+    let fixture = capture_fixture("capture-corrected-source").await;
+    let config = std::fs::read(fixture.folder.path().join("mdbase.yaml")).unwrap();
+    let original = fixture
+        .daemon
+        .inner
+        .lock()
+        .await
+        .registry
+        .get(&fixture.id)
+        .unwrap()
+        .clone();
+    let inventory = fixture.runtime.inventory().await.unwrap();
+    let invalid = String::from_utf8(config.clone())
+        .unwrap()
+        .replace("0.3.0", "99.0.0");
+    assert_ne!(invalid.as_bytes(), config);
+    std::fs::write(fixture.folder.path().join("mdbase.yaml"), invalid).unwrap();
+    let refusal = fixture
+        .daemon
+        .enable_sync(EnableSync {
+            collection: fixture.id.clone(),
+            mode: None,
+            accept_takeover_holds: false,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(refusal.reason.as_deref(), Some("source_capture_incomplete"));
+    assert_retained_capture(&fixture, &original).await;
+    fixture
+        .daemon
+        .enable_sync(EnableSync {
+            collection: fixture.id.clone(),
+            mode: None,
+            accept_takeover_holds: false,
+        })
+        .await
+        .expect_err("sync setup must not reopen the paused source");
+    assert_retained_capture(&fixture, &original).await;
+
+    let unchanged = fixture.daemon.set_paused(&fixture.id, false).await.unwrap();
+    assert_eq!(unchanged["state"], "ready");
+    let refusal = fixture
+        .daemon
+        .enable_sync(EnableSync {
+            collection: fixture.id.clone(),
+            mode: None,
+            accept_takeover_holds: false,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(refusal.reason.as_deref(), Some("source_capture_incomplete"));
+    assert_retained_capture(&fixture, &original).await;
+
+    std::fs::write(fixture.folder.path().join("mdbase.yaml"), &config).unwrap();
+    let resumed = fixture.daemon.set_paused(&fixture.id, false).await.unwrap();
+    assert_eq!(resumed["state"], "ready");
+    let runtime = {
+        let inner = fixture.daemon.inner.lock().await;
+        let entry = inner.registry.get(&fixture.id).unwrap();
+        assert_eq!(entry.id, original.id);
+        assert_eq!(entry.replica_id, original.replica_id);
+        assert_eq!(entry.root, original.root);
+        assert_eq!(entry.mode, original.mode);
+        assert_eq!(entry.owner_account, original.owner_account);
+        assert_eq!(entry.device, original.device);
+        let host = inner
+            .hosts
+            .iter()
+            .find(|host| host.entry().id == fixture.id)
+            .unwrap();
+        assert!(host.status().last_sync_failure.is_some());
+        host.runtime().unwrap()
+    };
+    let frozen = runtime
+        .freeze()
+        .await
+        .expect("corrected source must pass the real capture fence");
+    assert_eq!(frozen.inventory, inventory);
+    assert_eq!((frozen.holds, frozen.unresolved), (0, 0));
+    assert_eq!(
+        std::fs::read(fixture.folder.path().join("original.md")).unwrap(),
+        fixture.note
+    );
+    assert_eq!(
+        std::fs::read(fixture.folder.path().join("mdbase.yaml")).unwrap(),
+        config
+    );
+    assert_no_collection_bootstrap(&fixture);
+    close_fixture(&fixture).await;
+}
+
+#[tokio::test]
 async fn stopped_original_actor_none_cannot_silently_restart_during_sync_enable() {
     let f = capture_fixture("capture-stopped-actor").await;
     let original = f
