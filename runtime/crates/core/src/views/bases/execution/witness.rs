@@ -125,10 +125,11 @@ pub(crate) fn run(args: &Map) -> Option<Value> {
         if !budget.charge(tags.len() as u64, (tagbytes + tags.len() * 24) as u64) {
             return Some(failure(budget.failure()?));
         }
-        let tags = tags
-            .iter()
-            .map(|v| v.as_str().expect("checked tag").into())
-            .collect::<Vec<String>>();
+        let tags = SourceTags::exact(
+            tags.iter()
+                .map(|v| v.as_str().expect("checked tag").into())
+                .collect(),
+        );
         let doc = Document::parse(source, RecordFormat::for_path(path));
         let file = match CapturedFile::new(path, Some(source.len() as u64), None, None, &mut budget)
         {

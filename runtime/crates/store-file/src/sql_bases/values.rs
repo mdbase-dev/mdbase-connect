@@ -2,6 +2,7 @@
 //! or a full Core map. Unrequested fields are still validated, not ignored.
 use super::*;
 use mdbn_core::value::{Map, Value};
+use mdbn_core::views::bases::SourceTags;
 use mdbn_replica::store_query::RawField;
 
 fn value(c: Cbor, retain: bool) -> StoreResult<Option<Value>> {
@@ -64,17 +65,35 @@ pub(super) fn fields(encoded: &[u8], names: &[String]) -> StoreResult<Vec<RawFie
     Ok(out)
 }
 
-pub(super) fn tags(encoded: &[u8]) -> StoreResult<Option<Vec<String>>> {
+// `null`, an exact tag array, or a one-entry map holding a bound's array.
+pub(crate) fn encode_tags(tags: Option<&SourceTags>) -> Cbor {
+    match tags {
+        None => Cbor::Null,
+        Some(tags) if tags.is_exact() => tags.spellings().to_vec().to_cbor(),
+        Some(tags) => Cbor::Map(vec![(Cbor::Uint(0), tags.spellings().to_vec().to_cbor())]),
+    }
+}
+
+fn tag_list(items: Vec<Cbor>) -> StoreResult<Vec<String>> {
+    items
+        .into_iter()
+        .map(|item| match item {
+            Cbor::Text(s) => Ok(s),
+            _ => Err(corrupt()),
+        })
+        .collect()
+}
+
+pub(super) fn tags(encoded: &[u8]) -> StoreResult<Option<SourceTags>> {
     match cbor::decode(encoded).map_err(|_| corrupt())? {
         Cbor::Null => Ok(None),
-        Cbor::Array(items) => items
-            .into_iter()
-            .map(|item| match item {
-                Cbor::Text(s) => Ok(s),
-                _ => Err(corrupt()),
-            })
-            .collect::<StoreResult<Vec<_>>>()
-            .map(Some),
+        Cbor::Array(items) => Ok(Some(SourceTags::exact(tag_list(items)?))),
+        Cbor::Map(mut entries) => match (entries.pop(), entries.is_empty()) {
+            (Some((Cbor::Uint(0), Cbor::Array(items))), true) => {
+                Ok(Some(SourceTags::bounded(tag_list(items)?)))
+            }
+            _ => Err(corrupt()),
+        },
         _ => Err(corrupt()),
     }
 }
@@ -163,10 +182,12 @@ mod tests {
     fn tags_keep_unknown_and_known_empty_distinct() {
         for tags in [
             None,
-            Some(vec![]),
-            Some(vec!["#task".into(), "#work/sub".into()]),
+            Some(SourceTags::exact(vec![])),
+            Some(SourceTags::exact(vec!["#task".into(), "#work/sub".into()])),
+            Some(SourceTags::bounded(vec![])),
+            Some(SourceTags::bounded(vec!["#task".into()])),
         ] {
-            let c = tags.as_ref().map_or(Cbor::Null, Wire::to_cbor);
+            let c = super::encode_tags(tags.as_ref());
             assert_eq!(super::tags(&cbor::encode(&c).unwrap()).unwrap(), tags);
         }
         assert!(super::tags(&cbor::encode(&Cbor::Array(vec![Cbor::Null])).unwrap()).is_err());

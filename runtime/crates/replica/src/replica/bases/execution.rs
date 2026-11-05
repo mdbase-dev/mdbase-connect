@@ -3,6 +3,7 @@
 use super::*;
 use mdbn_core::views::bases::{
     CapturedFile, CapturedPropertyTypes, MAX_PROPERTY_TYPE_HINT_BYTES, MAX_PROPERTY_TYPE_HINTS,
+    SourceTags,
 };
 use std::collections::BTreeMap;
 mod indexed;
@@ -32,7 +33,7 @@ pub struct CapturedBasesExecutionInputs {
     pub(super) property_types: BTreeMap<String, String>,
     pub(super) files: Vec<CapturedFile>,
     pub(super) documents: Vec<Document>,
-    pub(super) tags: Vec<Option<Vec<String>>>,
+    pub(super) tags: Vec<Option<SourceTags>>,
     pub(super) work: WorkBudget,
 }
 impl CapturedBasesExecutionInputs {
@@ -69,10 +70,13 @@ impl CapturedBasesExecutionInputs {
     pub fn raw_document_count(&self) -> usize {
         self.documents.len()
     }
-    /// Tag sets known within the narrow raw-frontmatter domain. Unqualified body
-    /// extraction or tag shapes stay unavailable, never empty false matches.
+    /// Tag sets known exactly. A bound still decides absent names, but its
+    /// matches and `file.tags` stay unavailable, never false matches.
     pub fn known_tag_observation_count(&self) -> usize {
-        self.tags.iter().filter(|v| v.is_some()).count()
+        self.tags
+            .iter()
+            .filter(|v| v.as_ref().is_some_and(SourceTags::is_exact))
+            .count()
     }
 }
 impl<S: Store> Replica<S> {

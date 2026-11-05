@@ -487,9 +487,9 @@ pub struct QueryProjectionRow {
     pub source_bytes: u64,
     /// One entry per requested field, in request order.
     pub fields: Vec<RawField>,
-    /// Qualified `file.tags`: `None` when unavailable (never "no tags"),
-    /// `Some(vec![])` when known empty. Always `None` unless requested.
-    pub tags: Option<Vec<String>>,
+    /// Qualified `file.tags`: `None` when unavailable (never "no tags"), an
+    /// exact empty set when known empty. Always `None` unless requested.
+    pub tags: Option<mdbn_core::views::bases::SourceTags>,
 }
 
 /// A bounded projection page.
@@ -724,7 +724,7 @@ mod projection_tests {
             },
             QueryProjectionPage {
                 rows: vec![QueryProjectionRow {
-                    tags: Some(vec![]),
+                    tags: Some(mdbn_core::views::bases::SourceTags::exact(vec![])),
                     ..row(6)
                 }],
                 ..ok.clone()

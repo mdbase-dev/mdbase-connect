@@ -82,7 +82,12 @@ fn check(r: &Replica<SqlStore<Trace>>) {
         assert!(
             matches!(row.fields[1], RawField::Present(CoreValue::Int(value)) if value == i64::from(n))
         );
-        assert_eq!(row.tags, Some(vec!["#task".into()]));
+        assert_eq!(
+            row.tags,
+            Some(mdbn_core::views::bases::SourceTags::exact(vec![
+                "#task".into()
+            ]))
+        );
     }
 }
 

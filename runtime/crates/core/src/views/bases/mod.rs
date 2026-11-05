@@ -17,7 +17,7 @@
 
 mod budget;
 mod source_tags;
-pub use source_tags::{BASES_TAG_CAPTURE_VERSION, capture_source_tags};
+pub use source_tags::{BASES_TAG_CAPTURE_VERSION, SourceTags, capture_source_tags};
 mod captured;
 mod date_value;
 mod discovery;
