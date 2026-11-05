@@ -26,7 +26,9 @@ export async function smoke(chromium,source,target='production') {
   });
   const response=await page.goto(origins[target]+'/',{waitUntil:'networkidle',timeout:90000});
   need(response?.status()===200,'entry-unavailable');
-  const entries=await page.locator('script[type="module"][src]').evaluateAll(nodes=>nodes.map(node=>node.src));
+  // Cloudflare injects its Insights beacon as a cross-origin module script.
+  const entries=(await page.locator('script[type="module"][src]').evaluateAll(nodes=>nodes.map(node=>node.src)))
+   .filter(url=>new URL(url).origin===origins[target]);
   need(entries.length===1,'entry-asset-required');
   assertEntryAsset(entries[0],source,target);
   const entry=await context.request.get(entries[0]);
@@ -43,7 +45,7 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
  try {
   const {chromium}=await import(pathToFileURL((await readFile(toolPath,'utf8')).trim()).href);
   report=await smoke(chromium,process.env.SOURCE_SHA,process.env.TARGET);
- }catch{report={ok:false,reason:'smoke-failed'};process.exitCode=1;}
+ }catch(error){report={ok:false,reason:/^[a-z,-]+$/.test(error?.message)?error.message:'smoke-failed'};process.exitCode=1;}
  await writeFile(receiptPath,JSON.stringify(report,null,2));
  console.log(report.ok?'Editor smoke passed':'Editor smoke failed');
 }

@@ -104,7 +104,7 @@ function browserDouble({pageError=false,fence=false,csp=false,entrySource=source
    if(csp)listeners.console({text:()=>"Loading https://static.cloudflareinsights.com/beacon.min.js violates Content Security Policy"});
    return {status:()=>200};
   },
-  locator:selector=>selector==='body'?{innerText:async()=>''}:{evaluateAll:async()=>[`https://editor.mdbase.dev/assets/index-a1-${entrySource.slice(0,12)}.js`]},
+  locator:selector=>selector==='body'?{innerText:async()=>''}:{evaluateAll:async()=>[`https://editor.mdbase.dev/assets/index-a1-${entrySource.slice(0,12)}.js`,'https://static.cloudflareinsights.com/beacon.min.js/v1']},
   getByRole:(role,options)=>{assert.equal(role,'button');assert.equal(options.name,'Sign in');return {waitFor:async()=>{if(missingSignIn)throw Error('not visible');}};}
  };
  const context={newPage:async()=>page,newCDPSession:async()=>({send:async(method,args)=>{events.push(method);if(method.endsWith('setCacheDisabled'))assert.equal(args.cacheDisabled,true);}}),
