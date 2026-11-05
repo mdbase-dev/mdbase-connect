@@ -1,6 +1,8 @@
-import type { ManagementOverview } from "@mdbase/connect-management";
+import type { ManagementOverview, ManagementRequestOptions } from "@mdbase/connect-management";
 
 export type OptimisticAction = { kind: "rename-computer" | "rename-collection"; id: string; name: string; previous: string };
+
+export type PerformOperation = (id: string, action: (options: ManagementRequestOptions) => Promise<void>, inlineErrors?: boolean, optimistic?: OptimisticAction, receipt?: string) => Promise<boolean>;
 
 export function applyOptimisticAction(data: ManagementOverview, action: OptimisticAction): ManagementOverview {
   switch (action.kind) {

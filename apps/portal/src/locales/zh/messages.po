@@ -82,6 +82,12 @@ msgstr "{0, plural, other {# 个集合不可用}}"
 msgid "{0, plural, one {# permission} other {# permissions}}"
 msgstr "{0, plural, other {# 项权限}}"
 
+#. placeholder {0}: literal(entry.application_origin)
+#. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
+#: src/ApplicationAccess.tsx
+msgid "{0} · {1}"
+msgstr "{0} · {1}"
+
 #. placeholder {0}: countLabel(usage.record_count, "record")
 #. placeholder {1}: countLabel(usage.file_count, "file")
 #. placeholder {2}: formatBytes(usage.content_bytes)
@@ -90,15 +96,8 @@ msgstr "{0, plural, other {# 项权限}}"
 msgid "{0} · {1} · {2} Markdown · {3} files"
 msgstr "{0} · {1} · {2} 个 Markdown 文件 · {3} 个文件"
 
-#. placeholder {0}: literal(entry.application_origin)
-#. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
-#. placeholder {2}: entry.installation_id.slice(-8)
-#: src/ApplicationAccess.tsx
-msgid "{0} · {1} · ID {2}"
-msgstr "{0} · {1} · ID {2}"
-
 #. placeholder {0}: invitation.role === "editor" ? t(i18n)({ message: "Editor", context: "Connect interface" }) : t(i18n)({ message: "Viewer", context: "Connect interface" })
-#. placeholder {1}: relativeTime(invitation.expires_at)
+#. placeholder {1}: i18n.date(new Date(invitation.expires_at), {dateStyle: "short"})
 #: src/ConnectApp.tsx
 msgid "{0} · Expires {1}"
 msgstr "{0} · 于 {1} 过期"
@@ -130,6 +129,22 @@ msgstr "{0} 及其存储的数据"
 #: src/compatibility.ts
 msgid "{0} can no longer be used: {1} Choose another collection."
 msgstr "{0} 已无法使用：{1} 请选择其他集合。"
+
+#. placeholder {0}: application.applicationName
+#. placeholder {0}: grant.application_name
+#. placeholder {0}: group.applicationName
+#. placeholder {1}: collection.name
+#. placeholder {1}: entries[0]!.collection_name
+#. placeholder {1}: grant.collection_name
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "{0} can no longer use {1}"
+msgstr "{0} 无法再使用 {1}"
+
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+msgid "{0} can no longer use {collectionName}"
+msgstr "{0} 无法再使用 {collectionName}"
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
@@ -266,21 +281,6 @@ msgstr "{0} 的所有设备都将失去对 {1} 的访问权限。已下载的数
 msgid "{0}, and {1}"
 msgstr "{0}，以及 {1}"
 
-#. placeholder {0}: Math.floor(seconds / 86_400)
-#: src/AccountManagement.tsx
-msgid "{0}d ago"
-msgstr "{0} 天前"
-
-#. placeholder {0}: Math.floor(seconds / 3_600)
-#: src/AccountManagement.tsx
-msgid "{0}h ago"
-msgstr "{0} 小时前"
-
-#. placeholder {0}: Math.floor(seconds / 60)
-#: src/AccountManagement.tsx
-msgid "{0}m ago"
-msgstr "{0} 分钟前"
-
 #: src/authority-workflows.tsx
 msgid "{app} now has this file access in {collection}. Return to {app} to continue."
 msgstr "{app} 现在已获得对 {collection} 的这项文件访问权限。请返回 {app} 继续操作。"
@@ -379,10 +379,6 @@ msgstr "{value, plural, other {# 条记录}}"
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
 msgstr "{value, plural, other {# 个同步文件夹}}"
 
-#: src/ConnectApp.tsx
-msgid "<0/>Add collection"
-msgstr "<0/>添加集合"
-
 #: src/authorization-view.tsx
 msgid "<0/>Already connected"
 msgstr "<0/>已连接"
@@ -400,10 +396,6 @@ msgstr "<0/>包括 {0}。"
 msgid "<0/>Invite person"
 msgstr "<0/>邀请成员"
 
-#: src/ConnectApp.tsx
-msgid "<0/>Sync a folder"
-msgstr "<0/>同步文件夹"
-
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
 #. placeholder {3}: request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
@@ -413,6 +405,10 @@ msgstr "<0>无法验证应用来源。</0>只有在你主动发起此连接时�
 #: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "有人与你共享了一个集合"
+
+#: src/ConnectApp.tsx
+msgid "A folder on this computer"
+msgstr "此电脑上的文件夹"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -444,6 +440,12 @@ msgstr "接受后即可将其添加到你的集合。邀请仅适用于此账户
 msgctxt "Connect interface"
 msgid "Accepting…"
 msgstr "正在接受…"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Access"
+msgstr "访问权限"
 
 #: src/authority-workflows.tsx
 msgid "Access approved"
@@ -478,13 +480,17 @@ msgstr "访问范围包括你所选集合中的笔记和文件。{0}{1}"
 msgid "Access to this collection is paused on its computer."
 msgstr "此集合所在的电脑已暂停对其访问。"
 
-#: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "Account"
 msgstr "账户"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
+msgid "Account"
+msgstr "账户"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
 msgid "Account"
 msgstr "账户"
 
@@ -533,8 +539,12 @@ msgstr "账户升级已安排"
 msgid "Account: {0}"
 msgstr "账户：{0}"
 
-#: src/AccountManagement.tsx
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
+msgid "Actions for {0}"
+msgstr "{0} 的操作"
+
+#: src/AccountManagement.tsx
 msgid "Add a collection to get started."
 msgstr "添加一个集合以开始使用。"
 
@@ -542,6 +552,10 @@ msgstr "添加一个集合以开始使用。"
 #: src/authorization-review.tsx
 msgid "Add a new {0} type"
 msgstr "添加新的 {0} 类型"
+
+#: src/ConnectApp.tsx
+msgid "Add collection"
+msgstr "添加集合"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -597,9 +611,10 @@ msgctxt "Connect interface"
 msgid "All collections"
 msgstr "所有集合"
 
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
-msgid "All statuses"
-msgstr "所有状态"
+msgid "All hosted data in {0} will be permanently deleted. This cannot be undone."
+msgstr "{0} 中的所有托管数据将被永久删除。此操作无法撤销。"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -691,11 +706,6 @@ msgstr "应用安装实例"
 msgid "App key <0>{0}</0>. Your computer will show this key when you approve the app."
 msgstr "应用密钥 <0>{0}</0>。你批准应用时，电脑会显示此密钥。"
 
-#: src/ApplicationAccess.tsx
-msgctxt "Connect interface"
-msgid "Application access"
-msgstr "应用访问权限"
-
 #. placeholder {0}: countLabel(account.deletion.computers, "computer")
 #: src/AccountManagement.tsx
 msgid "Application access and {0}"
@@ -724,7 +734,6 @@ msgstr "使用设备代码的应用"
 msgid "Applications"
 msgstr "应用"
 
-#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Applications"
@@ -737,6 +746,10 @@ msgstr "批准此集合的访问权限后，应用会显示在这里。"
 #: src/ApplicationAccess.tsx
 msgid "Applications appear here after you approve access."
 msgstr "批准访问权限后，应用会显示在这里。"
+
+#: src/ConnectApp.tsx
+msgid "Applications will lose access through this computer. Your local files will not be deleted."
+msgstr "应用将无法再通过此电脑访问。你的本地文件不会被删除。"
 
 #: src/authority-workflows.tsx
 msgid "Applies to the collection you chose to open and any new collections selected here. Other collections are not included."
@@ -770,6 +783,7 @@ msgid "Approving…"
 msgstr "正在批准…"
 
 #: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Apps"
 msgstr "应用"
@@ -862,6 +876,11 @@ msgstr "取消此集合邀请？"
 msgid "Cancel transfer"
 msgstr "取消迁移"
 
+#. placeholder {0}: collection.display_name ?? collection.id
+#: src/ConnectApp.tsx
+msgid "Cancelled invitation to {0}"
+msgstr "已取消加入 {0} 的邀请"
+
 #: src/authorization-view.tsx
 msgid "Change"
 msgstr "更改"
@@ -883,11 +902,6 @@ msgstr "更改密码"
 msgctxt "Account sign-in"
 msgid "Change password"
 msgstr "更改密码"
-
-#: src/AccountManagement.tsx
-#: src/ConnectApp.tsx
-msgid "Change saved."
-msgstr "更改已保存。"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename existing records."
@@ -923,6 +937,10 @@ msgstr "再次检查"
 msgid "Check the application."
 msgstr "检查应用。"
 
+#: src/ConnectPrimitives.tsx
+msgid "Check your connection and try again."
+msgstr "请检查连接后重试。"
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
@@ -931,10 +949,6 @@ msgstr "检查你的电子邮箱"
 #: src/AccountManagement.tsx
 msgid "Checking active sessions…"
 msgstr "正在检查活动会话…"
-
-#: src/ConnectPrimitives.tsx
-msgid "Checking the latest account details…"
-msgstr "正在检查最新的账户信息…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -956,9 +970,8 @@ msgid "Choose a field"
 msgstr "选择字段"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Choose a location"
-msgstr "选择位置"
+msgid "Choose a Markdown folder in the desktop app. Your files stay here."
+msgstr "在桌面应用中选择 Markdown 文件夹。文件仍保留在此电脑上。"
 
 #. placeholder {0}: unmapped.label
 #: src/authorization-review.tsx
@@ -995,19 +1008,19 @@ msgstr "选择或创建我的个人记录"
 msgid "Choose the folder in mdbase connect."
 msgstr "在 mdbase connect 中选择文件夹。"
 
+#: src/ConnectApp.tsx
+msgid "Choose where your first collection lives."
+msgstr "选择第一个集合的存储位置。"
+
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Choose whether to add a new {0} type or use one you already have."
 msgstr "选择添加新的 {0} 类型，或使用已有类型。"
 
+#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
-msgid "Close"
-msgstr "关闭"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Close menu"
-msgstr "关闭菜单"
+msgid "Clear filter"
+msgstr "清除筛选"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1019,7 +1032,6 @@ msgid "Cloud collection required"
 msgstr "需要云端集合"
 
 #: src/AccountManagement.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy"
 msgstr "云端副本"
@@ -1093,11 +1105,6 @@ msgstr "电脑已获批准"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Computer filter results"
-msgstr "筛选电脑的结果"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Computer not connected"
 msgstr "电脑未连接"
 
@@ -1105,11 +1112,6 @@ msgstr "电脑未连接"
 msgctxt "Collection connection"
 msgid "Computer pairing"
 msgstr "电脑配对"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Computer status"
-msgstr "电脑状态"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1144,10 +1146,6 @@ msgstr "确认移除"
 msgid "Confirm your identity"
 msgstr "确认你的身份"
 
-#: src/ConnectApp.tsx
-msgid "Connect a computer to add a collection."
-msgstr "连接一台电脑以添加集合。"
-
 #: src/authorization-view.tsx
 msgid "Connect an app"
 msgstr "连接应用"
@@ -1164,6 +1162,10 @@ msgstr "连接多种登录方式，以便始终能重新访问账户。"
 msgid "Connect this device to your tailnet, then reload the page."
 msgstr "将此设备连接到你的 tailnet，然后重新加载页面。"
 
+#: src/ConnectApp.tsx
+msgid "Connected"
+msgstr "已连接"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Connected"
@@ -1173,11 +1175,6 @@ msgstr "已连接"
 msgctxt "Connect interface"
 msgid "Connected"
 msgstr "已连接"
-
-#: src/ApplicationAccess.tsx
-msgctxt "Connect interface"
-msgid "Connected applications"
-msgstr "已连接的应用"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
@@ -1289,6 +1286,16 @@ msgstr "创建记录并添加文件"
 msgid "Create, change, and delete saved view definitions."
 msgstr "创建、更改和删除已保存视图的定义。"
 
+#. placeholder {0}: original.displayName
+#: src/ConnectApp.tsx
+msgid "Created {0}"
+msgstr "已创建 {0}"
+
+#. placeholder {0}: collection.display_name ?? collection.id
+#: src/ConnectApp.tsx
+msgid "Created an invitation to {0}"
+msgstr "已创建加入 {0} 的邀请"
+
 #: src/ConnectApp.tsx
 msgid "Created, but this browser could not clear its request. Retrying will use the same collection."
 msgstr "已创建，但此浏览器无法清除其请求。重试将使用同一个集合。"
@@ -1331,14 +1338,13 @@ msgid "Current password"
 msgstr "当前密码"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Delete"
 msgstr "删除"
 
-#. placeholder {0}: collection.display_name
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
-msgid "Delete {0} and all of its hosted data? This cannot be undone."
-msgstr "删除 {0} 及其所有托管数据？此操作无法撤销。"
+msgid "Delete {0}?"
+msgstr "删除 {0}？"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1378,10 +1384,19 @@ msgctxt "Application access approval"
 msgid "Delete records and files"
 msgstr "删除记录和文件"
 
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "Deleted {0}"
+msgstr "已删除 {0}"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Deleting account…"
 msgstr "正在删除账户…"
+
+#: src/ConnectApp.tsx
+msgid "Deleting…"
+msgstr "正在删除…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1430,6 +1445,15 @@ msgstr "断开连接"
 #: src/ConnectApp.tsx
 msgid "Disconnect {0}?"
 msgstr "断开 {0} 的连接？"
+
+#. placeholder {0}: replica.name
+#: src/ConnectApp.tsx
+msgid "Disconnecting {0}"
+msgstr "正在断开 {0}"
+
+#: src/ConnectApp.tsx
+msgid "Disconnecting…"
+msgstr "正在断开连接…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1516,6 +1540,10 @@ msgstr "电子邮箱和密码"
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
 msgstr "确保 <0>{0}</0> 包含 <1>{1}</1>"
 
+#: src/ConnectApp.tsx
+msgid "Enter a collection name."
+msgstr "请输入集合名称。"
+
 #: src/authorization-view.tsx
 msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
 msgstr "输入应用显示的代码。允许任何操作前，你可以查看应用、集合及具体权限。"
@@ -1523,6 +1551,10 @@ msgstr "输入应用显示的代码。允许任何操作前，你可以查看应
 #: src/authorization-view.tsx
 msgid "Enter the eight-character code shown by the application."
 msgstr "输入应用显示的八位代码。"
+
+#: src/AccountManagement.tsx
+msgid "Enter your current password."
+msgstr "请输入当前密码。"
 
 #: src/ApplicationAccess.tsx
 msgid "Entire collection"
@@ -1562,6 +1594,10 @@ msgstr "现有类型"
 msgid "Expert details"
 msgstr "高级详情"
 
+#: src/ApplicationAccess.tsx
+msgid "Explore apps"
+msgstr "探索应用"
+
 #: src/FeedbackPage.tsx
 msgid "Feedback goes privately to the mdbase team."
 msgstr "反馈将私下发送给 mdbase 团队。"
@@ -1596,9 +1632,21 @@ msgstr "文件"
 msgid "Fill in {0} in {label}."
 msgstr "填写 {label} 中的 {0}。"
 
+#: src/ApplicationAccess.tsx
+msgid "Filter apps"
+msgstr "筛选应用"
+
 #: src/ConnectApp.tsx
-msgid "Find a computer"
-msgstr "查找电脑"
+msgid "Filter collections"
+msgstr "筛选集合"
+
+#: src/ConnectApp.tsx
+msgid "Filter computers"
+msgstr "筛选电脑"
+
+#: src/AccountManagement.tsx
+msgid "Filter sessions"
+msgstr "筛选会话"
 
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
@@ -1678,6 +1726,7 @@ msgid "Hosted access was removed immediately. Hosted data deletion continues aut
 msgstr "托管访问权限已立即移除。托管数据会继续在后台自动删除。电脑上的所有本地集合及镜像文件都会保留。"
 
 #: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 msgid "Hosted by mdbase"
 msgstr "由 mdbase 托管"
 
@@ -1685,11 +1734,6 @@ msgstr "由 mdbase 托管"
 msgctxt "Connect interface"
 msgid "Hosted by mdbase"
 msgstr "由 mdbase 托管"
-
-#. placeholder {0}: countLabel(replicas.length, "folder")
-#: src/ConnectApp.tsx
-msgid "Hosted by mdbase · {0}"
-msgstr "由 mdbase 托管 · {0}"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
@@ -1751,9 +1795,9 @@ msgstr "如果有 mdbase connect 账户使用此地址，重置密码的一次�
 msgid "If that address can be used, its one-time verification link is on the way."
 msgstr "如果此地址可用，验证用的一次性链接正在发送。"
 
-#: src/ConnectApp.tsx
-msgid "If the desktop app does not open when you {action}, <0>install the latest release</0> and try again."
-msgstr "如果你{action}时桌面应用未打开，请<0>安装最新版本</0>后重试。"
+#: src/ConnectPrimitives.tsx
+msgid "If the desktop app did not open, <0>install the latest release</0> and try again."
+msgstr "如果桌面应用未打开，请<0>安装最新版本</0>后重试。"
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
@@ -1834,9 +1878,8 @@ msgctxt "Account sign-in"
 msgid "Just a moment…"
 msgstr "请稍候…"
 
-#: src/AccountManagement.tsx
-msgctxt "Account management"
-msgid "just now"
+#: src/ConnectPrimitives.tsx
+msgid "Just now"
 msgstr "刚刚"
 
 #: src/authority-workflows.tsx
@@ -1851,6 +1894,10 @@ msgstr "保留离线副本"
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
 msgstr "保留托管状态"
+
+#: src/ConnectApp.tsx
+msgid "Keep the main copy in mdbase, with optional synced folders."
+msgstr "将主副本保存在 mdbase 中，并可选择同步文件夹。"
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
@@ -1881,10 +1928,9 @@ msgstr "将你的账户关联到此集合中的一条可编辑记录。集合访
 msgid "List file names and metadata"
 msgstr "列出文件名和元数据"
 
-#: src/AccountManagement.tsx
-msgctxt "Account management"
-msgid "Loading account details…"
-msgstr "正在加载账户详情…"
+#: src/ConnectPrimitives.tsx
+msgid "Loading {title}…"
+msgstr "正在加载{title}…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
@@ -1909,15 +1955,6 @@ msgid "Local collection files stay on your computers and are not measured here."
 msgstr "本地集合文件保留在你的电脑上，不计入此处的用量。"
 
 #: src/ConnectApp.tsx
-msgid "Location"
-msgstr "位置"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Location"
-msgstr "位置"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "主副本"
@@ -1933,11 +1970,6 @@ msgstr "主副本已迁移到电脑"
 #: src/authority-workflows.tsx
 msgid "Main copy on {mirrorName}"
 msgstr "主副本位于 {mirrorName}"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Manage"
-msgstr "管理"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -1994,8 +2026,7 @@ msgstr "Markdown 和文件用量暂不可用。"
 msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
 msgstr "Markdown 编辑内容将双向同步。并发编辑会分别保留，直到你选择一个版本。"
 
-#: src/AccountManagement.tsx
-#: src/ConnectApp.tsx
+#: src/ConnectPrimitives.tsx
 msgid "mdbase connect could not be reached. Check your connection and try again."
 msgstr "无法连接到 mdbase connect。请检查网络连接后重试。"
 
@@ -2099,11 +2130,6 @@ msgctxt "Connect interface"
 msgid "Moved to newer runtime"
 msgstr "已迁移到新版运行环境"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Moving to a computer"
-msgstr "正在迁移到电脑"
-
 #: src/AccountManagement.tsx
 msgid "Name"
 msgstr "名称"
@@ -2114,9 +2140,8 @@ msgid "Name"
 msgstr "姓名"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Name or registration ID"
-msgstr "名称或注册 ID"
+msgid "Navigation"
+msgstr "导航"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
@@ -2126,6 +2151,19 @@ msgstr "需要 mdbase 0.3"
 #: src/authorization-review.tsx
 msgid "New"
 msgstr "新增"
+
+#: src/ApplicationAccess.tsx
+msgid "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely."
+msgstr "所有安装中的新访问和集合创建将停止。已下载的副本无法远程删除。"
+
+#: src/ApplicationAccess.tsx
+msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely."
+msgstr "所有安装中的新访问将停止。已下载的副本无法远程删除。"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
+msgstr "新访问将停止。应用已下载的副本无法远程删除。"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
@@ -2159,6 +2197,15 @@ msgid "No active code shown"
 msgstr "当前未显示有效代码"
 
 #: src/ApplicationAccess.tsx
+msgid "No apps match"
+msgstr "没有匹配的应用"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "No apps with access"
+msgstr "没有具有访问权限的应用"
+
+#: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
 msgstr "无集合访问权限"
@@ -2172,6 +2219,10 @@ msgstr "没有集合"
 #: src/CollectionPicker.tsx
 msgid "No collections are available."
 msgstr "没有可用的集合。"
+
+#: src/ConnectApp.tsx
+msgid "No collections match"
+msgstr "没有匹配的集合"
 
 #: src/CollectionPicker.tsx
 msgid "No collections match. Try another name."
@@ -2191,10 +2242,9 @@ msgctxt "Connect interface"
 msgid "No computers match"
 msgstr "没有匹配的电脑"
 
-#: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
-msgid "No connected applications"
-msgstr "没有已连接的应用"
+#: src/AccountManagement.tsx
+msgid "No sessions match"
+msgstr "没有匹配的会话"
 
 #: src/AccountManagement.tsx
 msgid "No supported reauthentication method is connected."
@@ -2218,10 +2268,6 @@ msgstr "未配置"
 msgctxt "Account management"
 msgid "Not connected"
 msgstr "未连接"
-
-#: src/ConnectApp.tsx
-msgid "Not connected yet"
-msgstr "尚未连接"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2249,34 +2295,10 @@ msgctxt "Connect interface"
 msgid "Offline"
 msgstr "离线"
 
-#. placeholder {0}: computer.name
-#: src/ConnectApp.tsx
-msgid "On {0}"
-msgstr "在 {0} 上"
-
-#. placeholder {0}: computer.name
-#: src/ConnectApp.tsx
-msgid "On {0}: offline"
-msgstr "在 {0} 上：离线"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "On this computer"
-msgstr "在此电脑上"
-
-#. placeholder {0}: relativeTime(sharingCode.expiresAt)
+#. placeholder {0}: formatters(i18n.locale).date(new Date(sharingCode.expiresAt), { dateStyle: "short", timeStyle: "short" })
 #: src/AccountManagement.tsx
 msgid "One use · expires {0}"
 msgstr "单次使用 · 于 {0} 过期"
-
-#: src/ConnectApp.tsx
-msgid "Online"
-msgstr "在线"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Online"
-msgstr "在线"
 
 #. placeholder {0}: files.scope.folders.join(", ")
 #: src/authorization-review.tsx
@@ -2290,10 +2312,6 @@ msgstr "只有在你确认是这个网站时才继续。"
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "只更改此类型定义。现有记录保持不变。访问权限生效前会验证设置。"
-
-#: src/ConnectApp.tsx
-msgid "Open"
-msgstr "打开"
 
 #. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {0}: pairing.connector_name
@@ -2380,11 +2398,6 @@ msgstr "重新打开邮件中的链接，或在账户设置中更改电子邮件
 #: src/ConnectApp.tsx
 msgid "Open the mdbase connect desktop app and choose Connect this computer."
 msgstr "打开 mdbase connect 桌面应用并选择“连接此电脑”。"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "open this collection"
-msgstr "打开此集合"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
@@ -2515,6 +2528,10 @@ msgctxt "Connect interface"
 msgid "person@example.com"
 msgstr "user@example.com"
 
+#: src/AccountManagement.tsx
+msgid "Preferences"
+msgstr "偏好设置"
+
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Preparing {0}…"
@@ -2579,13 +2596,12 @@ msgstr "最近使用"
 msgid "Recovery"
 msgstr "恢复"
 
-#. placeholder {0}: new Date(connector.created_at).toLocaleString()
-#. placeholder {1}: connector.id.slice(-8)
+#. placeholder {0}: new Date(connector.created_at).toLocaleDateString(i18n.locale, { dateStyle: "short" })
 #: src/ConnectApp.tsx
-msgid "Registered {0} · ID {1}"
-msgstr "注册于 {0} · ID {1}"
+msgid "Registered {0}"
+msgstr "注册于 {0}"
 
-#. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })
+#. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
 msgstr "已注册 <0>{0}</0>"
@@ -2623,13 +2639,13 @@ msgstr "移除"
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name
 #: src/ConnectApp.tsx
-msgid "Remove {0} from {1}? Their application and folder access will also be revoked."
-msgstr "从 {1} 中移除 {0}？他们对应用和文件夹的访问权限也将被撤销。"
+msgid "Remove {0} from {1}?"
+msgstr "将 {0} 从 {1} 中移除？"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
-msgid "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
-msgstr "从未命名的集合中移除 {0}？他们对应用和文件夹的访问权限也将被撤销。"
+msgid "Remove {0} from the unnamed collection?"
+msgstr "将 {0} 从未命名集合中移除？"
 
 #: src/authority-workflows.tsx
 msgid "Remove access"
@@ -2640,10 +2656,20 @@ msgctxt "Connect interface"
 msgid "Remove access"
 msgstr "移除访问权限"
 
+#. placeholder {0}: member.name
+#. placeholder {1}: collection.display_name ?? collection.id
+#: src/ConnectApp.tsx
+msgid "Removing {0} from {1}"
+msgstr "正在将 {0} 从 {1} 中移除"
+
 #. placeholder {0}: literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
 msgstr "正在移除对 {0} 的访问权限…"
+
+#: src/ConnectApp.tsx
+msgid "Removing access…"
+msgstr "正在移除访问权限…"
 
 #: src/ConnectApp.tsx
 msgid "Removing application and folder access…"
@@ -2654,16 +2680,31 @@ msgctxt "Connect interface"
 msgid "Removing…"
 msgstr "正在移除…"
 
+#: src/ConnectApp.tsx
+msgid "Rename"
+msgstr "重命名"
+
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Rename"
 msgstr "重命名"
 
-#. placeholder {0}: collection.display_name
+#. placeholder {0}: collection.name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Rename {0}"
 msgstr "重命名 {0}"
+
+#. placeholder {0}: collection.name
+#. placeholder {1}: name.trim()
+#: src/ConnectApp.tsx
+msgid "Renamed {0} to {1}"
+msgstr "已将 {0} 重命名为 {1}"
+
+#. placeholder {0}: connector.name
+#: src/ConnectApp.tsx
+msgid "Renamed {0} to {name}"
+msgstr "已将 {0} 重命名为 {name}"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -2731,6 +2772,11 @@ msgstr "必需"
 msgctxt "Account sign-in"
 msgid "Reset your password"
 msgstr "重置密码"
+
+#. placeholder {0}: inverse.name
+#: src/ConnectApp.tsx
+msgid "Restored {0}."
+msgstr "已恢复 {0}。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2848,14 +2894,11 @@ msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "撤销"
 
+#. placeholder {0}: application.applicationName
 #. placeholder {0}: group.applicationName
+#. placeholder {1}: collection.name
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
-msgid "Revoke {0} access to {1} across all its installations?"
-msgstr "撤销 {0} 所有安装实例对 {1} 的访问权限？"
-
-#. placeholder {0}: application.applicationName
-#. placeholder {1}: collection.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0} access to {1}?"
 msgstr "要撤销 {0} 对 {1} 的访问权限吗？"
@@ -2866,11 +2909,8 @@ msgid "Revoke {0} access to {collectionName}?"
 msgstr "撤销 {0} 对 {collectionName} 的访问权限？"
 
 #. placeholder {0}: connector.name
-#: src/ConnectApp.tsx
-msgid "Revoke {0} and the application grants routed through it?"
-msgstr "撤销 {0} 以及经由它转发的应用授权？"
-
-#. placeholder {0}: replica.name
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "Revoke {0}?"
 msgstr "撤销 {0}？"
@@ -2886,11 +2926,6 @@ msgstr "撤销访问权限"
 msgid "Revoke access to {0}?"
 msgstr "撤销对 {0} 的访问权限？"
 
-#. placeholder {0}: group.applicationName
-#: src/ApplicationAccess.tsx
-msgid "Revoke all {0} access and collection creation permission?"
-msgstr "撤销 {0} 的所有访问权限和创建集合的权限？"
-
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke application"
@@ -2905,6 +2940,18 @@ msgstr "撤销集合访问权限"
 msgctxt "Connect interface"
 msgid "Revoke computer"
 msgstr "撤销电脑权限"
+
+#. placeholder {0}: connector.name
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "Revoked {0}"
+msgstr "已撤销 {0}"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "Revoking access…"
+msgstr "正在撤销访问权限…"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
@@ -2927,6 +2974,10 @@ msgstr "角色"
 msgid "Role for {0}"
 msgstr "{0} 的角色"
 
+#: src/ConnectApp.tsx
+msgid "Save"
+msgstr "保存"
+
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Save"
@@ -2935,6 +2986,10 @@ msgstr "保存"
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
 msgstr "保存收窄后的访问权限"
+
+#: src/ConnectApp.tsx
+msgid "Saving…"
+msgstr "正在保存…"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
@@ -3057,12 +3112,6 @@ msgstr "共享代码"
 msgid "Short approval code"
 msgstr "短批准代码"
 
-#. placeholder {0}: visible.length
-#. placeholder {1}: data.connectors.length
-#: src/ConnectApp.tsx
-msgid "Showing {0} of {1} registered computers."
-msgstr "显示 {1} 台已注册电脑中的 {0} 台。"
-
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
@@ -3119,11 +3168,19 @@ msgstr "此账户的登录方式由 Tailscale 管理。"
 msgid "Sign-in was cancelled. You can try again or choose another method."
 msgstr "登录已取消。你可以重试或选择其他方式。"
 
-#. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })
-#. placeholder {1}: session.id.slice(-8)
+#. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/AccountManagement.tsx
-msgid "Signed in <0>{0}</0> · ID {1}"
-msgstr "已登录 <0>{0}</0> · ID {1}"
+msgid "Signed in <0>{0}</0>"
+msgstr "登录于 <0>{0}</0>"
+
+#. placeholder {0}: session.client_name
+#: src/AccountManagement.tsx
+msgid "Signed out {0}"
+msgstr "已退出 {0}"
+
+#: src/AccountManagement.tsx
+msgid "Signed out other browser sessions."
+msgstr "已退出其他浏览器会话。"
 
 #: src/authority-workflows.tsx
 msgid "Signing in finishes on that computer."
@@ -3153,13 +3210,14 @@ msgstr "正在退出登录…"
 msgid "Start signup again"
 msgstr "重新开始注册"
 
-#: src/ConnectApp.tsx
-msgid "Status"
-msgstr "状态"
-
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
 msgstr "停止接收此链接对应类别的电子邮件。与你账户有关的消息仍会发送。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Storage"
+msgstr "存储"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3172,8 +3230,7 @@ msgid "Sync"
 msgstr "同步"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "sync a folder"
+msgid "Sync a folder"
 msgstr "同步文件夹"
 
 #: src/ConnectApp.tsx
@@ -3186,10 +3243,6 @@ msgid "Sync this collection"
 msgstr "同步此集合"
 
 #: src/ConnectApp.tsx
-msgid "Synced folders"
-msgstr "同步文件夹"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
 msgstr "同步文件夹"
@@ -3197,6 +3250,10 @@ msgstr "同步文件夹"
 #: src/authorization-capabilities.ts
 msgid "Synchronize an application-controlled local copy of this collection."
 msgstr "同步此集合由应用管理的本地副本。"
+
+#: src/ConnectApp.tsx
+msgid "Syncing will stop after the computer confirms. Files already downloaded will remain."
+msgstr "电脑确认后将停止同步。已下载的文件仍会保留。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3342,6 +3399,10 @@ msgstr "同步的 Markdown 文件夹会成为主副本。"
 msgid "The value has changed again. Undo is no longer available."
 msgstr "该值已再次更改，无法撤销。"
 
+#: src/ConnectApp.tsx
+msgid "Their application and folder access will also be revoked."
+msgstr "其应用和文件夹访问权限也将被撤销。"
+
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
 msgstr "此账户从 mdbase 桌面应用批准新设备。请在桌面应用中添加此设备，然后在 {app} 中重新登录。"
@@ -3431,6 +3492,10 @@ msgstr "此文件夹将从 mdbase 接收 Markdown，不会上传本地编辑内�
 msgid "This installation has no approved collections."
 msgstr "此安装实例没有获批准的集合。"
 
+#: src/ConnectApp.tsx
+msgid "This invitation will no longer grant access to the collection."
+msgstr "此邀请将不再授予集合访问权限。"
+
 #. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "This is a Private collection: it stays on your computer. {0} can use it while a computer that has it is running mdbase and is signed in to your account."
@@ -3482,8 +3547,8 @@ msgid "Transfer ended"
 msgstr "迁移已结束"
 
 #: src/ConnectApp.tsx
-msgid "Try a different name, registration ID or status. Filtering does not revoke access."
-msgstr "请尝试其他名称、注册 ID 或状态。筛选不会撤销访问权限。"
+msgid "Try a different computer name. Filtering does not revoke access."
+msgstr "请尝试其他电脑名称。筛选不会撤销访问权限。"
 
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
@@ -3494,10 +3559,22 @@ msgstr "请尝试其他名称、注册 ID 或状态。筛选不会撤销访问�
 msgid "Try again"
 msgstr "重试"
 
+#: src/ApplicationAccess.tsx
+msgid "Try another app name."
+msgstr "请尝试其他应用名称。"
+
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Two-way sync"
-msgstr "双向同步"
+msgid "Try another collection or computer name."
+msgstr "请尝试其他集合或电脑名称。"
+
+#: src/AccountManagement.tsx
+msgid "Try another name."
+msgstr "请尝试其他名称。"
+
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "Type {0} to confirm"
+msgstr "输入 {0} 以确认"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3547,13 +3624,18 @@ msgid "Update recommended for current policy protection"
 msgstr "建议更新以获得当前的策略保护"
 
 #: src/ConnectApp.tsx
-msgid "Update required"
-msgstr "需要更新"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Update required"
 msgstr "需要更新"
+
+#. placeholder {0}: grant.application_name
+#. placeholder {0}: member.name
+#. placeholder {1}: collection.display_name ?? collection.id
+#. placeholder {1}: grant.collection_name
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "Updated {0} access to {1}"
+msgstr "已更新 {0} 对 {1} 的访问权限"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3679,6 +3761,10 @@ msgstr "无法确认集合已创建完成。请重试。"
 #: src/authority-workflows.tsx
 msgid "We couldn't identify your account. Sign in again to continue."
 msgstr "无法识别你的账户。请重新登录以继续。"
+
+#: src/ConnectPrimitives.tsx
+msgid "We couldn't load {title}"
+msgstr "无法加载{title}"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx

@@ -50,17 +50,26 @@ test("Italian portal picker loads its own chunk and renders singular/plural coll
     })),
     hosted_collections: [], grants: [], pending_authorizations: []
   };
-  await page.route(`${authPortal}/v1/**`, (route) => route.fulfill({
-    json: new URL(route.request().url()).pathname === "/v1/ui-configuration"
-      ? { editor_url: "http://editor.test/connect" } : overview
-  }));
-  await page.goto(`${authPortal}/computers`);
+  const account = {
+    backend: "next", user: overview.user,
+    authentication: { managed: true, current_provider: "session", identities: [], available_providers: { github: false, google: false, password: true },
+      password: { configured: true, change_available: true, current: true, email: overview.user.email } },
+    storage: { status: "available", collections: [], total_storage_bytes: 0 },
+    email_preferences: { announcements: true, product_updates: false },
+    deletion: { available: true, owned_collections: 0, hosted_collections: 0, local_collections: 0, computers: 2, development_confirmation: true }
+  };
+  await page.route(`${authPortal}/v1/**`, (route) => {
+    const path = new URL(route.request().url()).pathname;
+    return route.fulfill({ json: path === "/v1/ui-configuration" ? { editor_url: "http://editor.test/connect" }
+      : path === "/v1/account" ? account : path === "/v1/account/sessions" ? { sessions: [] } : overview });
+  });
+  await page.goto(`${authPortal}/account`);
   await chooseItalian(page, page.getByRole("combobox", { name: "Language", exact: true }),
     "mdbase:portal:locale", "raccolte");
+  await page.goto(`${authPortal}/computers`);
   await expect(page.getByText(/1 raccolta ·/)).toBeVisible();
   await expect(page.getByText(/2 raccolte ·/)).toBeVisible();
-  await page.reload();
+  await page.goto(`${authPortal}/account`);
   await expect(page.getByRole("combobox", { name: "Lingua", exact: true })).toHaveAttribute("data-value", "it");
-  await expect(page.getByText(/2 raccolte ·/)).toBeVisible();
   expect(errors).toEqual([]);
 });

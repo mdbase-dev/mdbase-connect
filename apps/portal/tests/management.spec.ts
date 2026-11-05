@@ -41,9 +41,9 @@ test("manages collections on the portal and links to the configured Editor witho
   await expect(page.getByRole("complementary", { name: "mdbase connect navigation" })).toBeVisible();
   await expect(page.getByText("Account", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open in editor" })).toHaveAttribute("href", `http://editor.test/?server=${encodeURIComponent(portalOrigin)}&collection=collection`);
-  await page.getByRole("link", { name: "Storage & sync" }).click();
+  await page.getByRole("link", { name: "Storage" }).click();
   expect(new URL(page.url()).pathname).toBe("/storage");
-  await expect(page.getByRole("heading", { name: "Storage & sync" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Storage" })).toBeVisible();
 });
 
 test("opens the shell before the network and reuses names without cached authority", async ({ page }) => {
@@ -124,15 +124,15 @@ test("styles footer links and separates account details on desktop and mobile", 
 
 test("opens Reader's manage-access route on Applications", async ({ page }) => {
   await page.goto(`${portalOrigin}/account/applications`);
-  await expect(page.getByRole("heading", { name: "Applications", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Apps", level: 1, exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Browser sessions" })).toHaveCount(0);
 });
 
 test("uses the UI face for section counts", async ({ page }) => {
   await page.goto(`${portalOrigin}/access?collection=collection`);
-  await expect(page.getByRole("heading", { name: "Application access", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Access", exact: true })).toBeVisible();
   const count = page.locator(".connect-section-title")
-    .filter({ has: page.getByRole("heading", { name: "Connected applications", exact: true }) })
+    .filter({ has: page.getByRole("heading", { name: "Apps", exact: true }) })
     .locator(":scope > div > span");
   await expect(count).toHaveText("0");
   for (const colorScheme of ["light", "dark"] as const) {
@@ -148,15 +148,15 @@ test("condenses portal navigation on mobile", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Garden notes" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open in editor" })).toBeVisible();
-  const menu = page.getByRole("button", { name: /Overview.*Open menu/ });
+  const menu = page.getByRole("button", { name: "Open menu" });
   await expect(menu).toBeVisible();
-  await expect(page.getByRole("link", { name: "All collections" })).toBeHidden();
+  await expect(page.getByRole("link", { name: "Collections" })).toBeHidden();
   await menu.click();
   await expect(page.getByRole("link", { name: "Overview" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "All collections" })).toBeVisible();
-  await expect(page.locator("#current-collection-navigation")).toBeVisible();
-  await expect(page.locator("#account-navigation")).toBeVisible();
-  await page.getByRole("link", { name: "Storage & sync" }).click();
+  await expect(page.getByRole("link", { name: "Collections" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Garden notes" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Navigation" })).toBeVisible();
+  await page.getByRole("link", { name: "Storage" }).click();
   const desktopLink = page.getByRole("link", { name: "Open desktop app", exact: true });
   await expect(desktopLink).toBeVisible();
   const alignment = await desktopLink.evaluate((element) => {
@@ -208,7 +208,7 @@ test("keeps application summaries and revoke actions separate at narrow widths",
       for (const difference of sectionLayout) expect(difference, `section action alignment at ${width}px`).toBeLessThan(3);
       if (width <= 760) {
         for (const margin of await page.locator(".connect-page > section").evaluateAll((sections) => sections.map((section) => parseFloat(getComputedStyle(section).marginTop)))) {
-          expect(margin).toBe(32);
+          expect(margin).toBe(0);
         }
       }
       await expect(page.locator(".connect-page > header .connect-status")).toHaveText(/^Connected/);
@@ -230,8 +230,8 @@ test("keeps application summaries and revoke actions separate at narrow widths",
         if (width <= 1020) {
           const [identity, summary, review] = layout.children;
           expect(summary.top, context).toBeGreaterThanOrEqual(identity.bottom + 8);
-          expect(review.top, context).toBeGreaterThanOrEqual(summary.bottom + 8);
-          expect(review.left, context).toBe(identity.left);
+          expect(review.left, context).toBeGreaterThanOrEqual(Math.max(identity.right, summary.right) + 8);
+          expect(review.right, context).toBeCloseTo(layout.right, 0);
           if (width <= 760) expect(review.bottom - review.top, context).toBeGreaterThanOrEqual(44);
         }
       }
@@ -244,8 +244,8 @@ test("keeps application summaries and revoke actions separate at narrow widths",
   await revoke.getByRole("button", { name: "Cancel" }).click();
   await expect(revoke).toBeHidden();
   await expect(rows.first().getByRole("button", { name: "Revoke", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "App access", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Application access", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Access", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Access", exact: true })).toBeVisible();
 });
 
 test("discovers registry-only native collections and reuses the normal invitation flow", async ({ page }) => {
@@ -272,11 +272,11 @@ test("discovers registry-only native collections and reuses the normal invitatio
   await page.getByRole("button", { name: "Create invitation" }).click();
   expect((await invitation).postDataJSON()).toEqual({ email: "member@example.test", role: "viewer" });
   await expect(page.getByText("Invitation ready", { exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "All collections", exact: true }).click();
+  await page.getByRole("link", { name: "Collections", exact: true }).click();
   await expect(page.getByRole("main").getByText("Native garden", { exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "Manage", exact: true }).click();
+  await page.getByRole("link", { name: "Native garden", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`collection=${id}`));
-  await page.getByRole("link", { name: "Storage & sync", exact: true }).click();
+  await page.getByRole("link", { name: "Storage", exact: true }).click();
   await expect(page.getByText("Cloud copy configured", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Sync folder", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
@@ -302,7 +302,7 @@ test("uses a collection chooser when direct entry is ambiguous", async ({ page }
 
   await expect(page).toHaveURL(/\/collections/);
   await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "All collections" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: "Collections" })).toHaveAttribute("aria-current", "page");
 });
 
 for (const width of [834, 900]) {
@@ -311,7 +311,7 @@ for (const width of [834, 900]) {
     await page.goto(`${portalOrigin}/?collection=collection`);
 
     await expect(page.getByRole("heading", { name: "Garden notes" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Storage & sync" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Storage" })).toBeVisible();
     const layout = await page.evaluate(() => ({
       viewport: window.innerWidth,
       documentWidth: document.documentElement.scrollWidth,

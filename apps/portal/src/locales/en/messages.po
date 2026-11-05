@@ -82,6 +82,12 @@ msgstr "{0, plural, one {# collection is unavailable} other {# collections are u
 msgid "{0, plural, one {# permission} other {# permissions}}"
 msgstr "{0, plural, one {# permission} other {# permissions}}"
 
+#. placeholder {0}: literal(entry.application_origin)
+#. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
+#: src/ApplicationAccess.tsx
+msgid "{0} · {1}"
+msgstr "{0} · {1}"
+
 #. placeholder {0}: countLabel(usage.record_count, "record")
 #. placeholder {1}: countLabel(usage.file_count, "file")
 #. placeholder {2}: formatBytes(usage.content_bytes)
@@ -90,15 +96,8 @@ msgstr "{0, plural, one {# permission} other {# permissions}}"
 msgid "{0} · {1} · {2} Markdown · {3} files"
 msgstr "{0} · {1} · {2} Markdown · {3} files"
 
-#. placeholder {0}: literal(entry.application_origin)
-#. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
-#. placeholder {2}: entry.installation_id.slice(-8)
-#: src/ApplicationAccess.tsx
-msgid "{0} · {1} · ID {2}"
-msgstr "{0} · {1} · ID {2}"
-
 #. placeholder {0}: invitation.role === "editor" ? t(i18n)({ message: "Editor", context: "Connect interface" }) : t(i18n)({ message: "Viewer", context: "Connect interface" })
-#. placeholder {1}: relativeTime(invitation.expires_at)
+#. placeholder {1}: i18n.date(new Date(invitation.expires_at), {dateStyle: "short"})
 #: src/ConnectApp.tsx
 msgid "{0} · Expires {1}"
 msgstr "{0} · Expires {1}"
@@ -130,6 +129,22 @@ msgstr "{0} and their stored data"
 #: src/compatibility.ts
 msgid "{0} can no longer be used: {1} Choose another collection."
 msgstr "{0} can no longer be used: {1} Choose another collection."
+
+#. placeholder {0}: application.applicationName
+#. placeholder {0}: grant.application_name
+#. placeholder {0}: group.applicationName
+#. placeholder {1}: collection.name
+#. placeholder {1}: entries[0]!.collection_name
+#. placeholder {1}: grant.collection_name
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "{0} can no longer use {1}"
+msgstr "{0} can no longer use {1}"
+
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+msgid "{0} can no longer use {collectionName}"
+msgstr "{0} can no longer use {collectionName}"
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
@@ -266,21 +281,6 @@ msgstr "{0} will lose access to {1} on all its devices. Previously downloaded da
 msgid "{0}, and {1}"
 msgstr "{0}, and {1}"
 
-#. placeholder {0}: Math.floor(seconds / 86_400)
-#: src/AccountManagement.tsx
-msgid "{0}d ago"
-msgstr "{0}d ago"
-
-#. placeholder {0}: Math.floor(seconds / 3_600)
-#: src/AccountManagement.tsx
-msgid "{0}h ago"
-msgstr "{0}h ago"
-
-#. placeholder {0}: Math.floor(seconds / 60)
-#: src/AccountManagement.tsx
-msgid "{0}m ago"
-msgstr "{0}m ago"
-
 #: src/authority-workflows.tsx
 msgid "{app} now has this file access in {collection}. Return to {app} to continue."
 msgstr "{app} now has this file access in {collection}. Return to {app} to continue."
@@ -379,10 +379,6 @@ msgstr "{value, plural, one {# record} other {# records}}"
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
 msgstr "{value, plural, one {# synced folder} other {# synced folders}}"
 
-#: src/ConnectApp.tsx
-msgid "<0/>Add collection"
-msgstr "<0/>Add collection"
-
 #: src/authorization-view.tsx
 msgid "<0/>Already connected"
 msgstr "<0/>Already connected"
@@ -400,10 +396,6 @@ msgstr "<0/>Includes {0}."
 msgid "<0/>Invite person"
 msgstr "<0/>Invite person"
 
-#: src/ConnectApp.tsx
-msgid "<0/>Sync a folder"
-msgstr "<0/>Sync a folder"
-
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
 #. placeholder {3}: request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
@@ -413,6 +405,10 @@ msgstr "<0>Application origin unverified.</0> Continue only if you started this 
 #: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "A collection was shared with you"
+
+#: src/ConnectApp.tsx
+msgid "A folder on this computer"
+msgstr "A folder on this computer"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -444,6 +440,12 @@ msgstr "Accept to add it to your collections. The invitation is bound to this ac
 msgctxt "Connect interface"
 msgid "Accepting…"
 msgstr "Accepting…"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Access"
+msgstr "Access"
 
 #: src/authority-workflows.tsx
 msgid "Access approved"
@@ -478,13 +480,17 @@ msgstr "Access includes the notes and files in the collection you pick.{0}{1}"
 msgid "Access to this collection is paused on its computer."
 msgstr "Access to this collection is paused on its computer."
 
-#: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "Account"
 msgstr "Account"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
+msgid "Account"
+msgstr "Account"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
 msgid "Account"
 msgstr "Account"
 
@@ -533,8 +539,12 @@ msgstr "Account upgrade scheduled"
 msgid "Account: {0}"
 msgstr "Account: {0}"
 
-#: src/AccountManagement.tsx
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
+msgid "Actions for {0}"
+msgstr "Actions for {0}"
+
+#: src/AccountManagement.tsx
 msgid "Add a collection to get started."
 msgstr "Add a collection to get started."
 
@@ -542,6 +552,10 @@ msgstr "Add a collection to get started."
 #: src/authorization-review.tsx
 msgid "Add a new {0} type"
 msgstr "Add a new {0} type"
+
+#: src/ConnectApp.tsx
+msgid "Add collection"
+msgstr "Add collection"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -597,9 +611,10 @@ msgctxt "Connect interface"
 msgid "All collections"
 msgstr "All collections"
 
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
-msgid "All statuses"
-msgstr "All statuses"
+msgid "All hosted data in {0} will be permanently deleted. This cannot be undone."
+msgstr "All hosted data in {0} will be permanently deleted. This cannot be undone."
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -691,11 +706,6 @@ msgstr "App installation"
 msgid "App key <0>{0}</0>. Your computer will show this key when you approve the app."
 msgstr "App key <0>{0}</0>. Your computer will show this key when you approve the app."
 
-#: src/ApplicationAccess.tsx
-msgctxt "Connect interface"
-msgid "Application access"
-msgstr "Application access"
-
 #. placeholder {0}: countLabel(account.deletion.computers, "computer")
 #: src/AccountManagement.tsx
 msgid "Application access and {0}"
@@ -724,7 +734,6 @@ msgstr "Application using a device code"
 msgid "Applications"
 msgstr "Applications"
 
-#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Applications"
@@ -737,6 +746,10 @@ msgstr "Applications appear after you approve access to this collection."
 #: src/ApplicationAccess.tsx
 msgid "Applications appear here after you approve access."
 msgstr "Applications appear here after you approve access."
+
+#: src/ConnectApp.tsx
+msgid "Applications will lose access through this computer. Your local files will not be deleted."
+msgstr "Applications will lose access through this computer. Your local files will not be deleted."
 
 #: src/authority-workflows.tsx
 msgid "Applies to the collection you chose to open and any new collections selected here. Other collections are not included."
@@ -770,6 +783,7 @@ msgid "Approving…"
 msgstr "Approving…"
 
 #: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Apps"
 msgstr "Apps"
@@ -862,6 +876,11 @@ msgstr "Cancel this collection invitation?"
 msgid "Cancel transfer"
 msgstr "Cancel transfer"
 
+#. placeholder {0}: collection.display_name ?? collection.id
+#: src/ConnectApp.tsx
+msgid "Cancelled invitation to {0}"
+msgstr "Cancelled invitation to {0}"
+
 #: src/authorization-view.tsx
 msgid "Change"
 msgstr "Change"
@@ -883,11 +902,6 @@ msgstr "Change password"
 msgctxt "Account sign-in"
 msgid "Change password"
 msgstr "Change password"
-
-#: src/AccountManagement.tsx
-#: src/ConnectApp.tsx
-msgid "Change saved."
-msgstr "Change saved."
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename existing records."
@@ -923,6 +937,10 @@ msgstr "Check again"
 msgid "Check the application."
 msgstr "Check the application."
 
+#: src/ConnectPrimitives.tsx
+msgid "Check your connection and try again."
+msgstr "Check your connection and try again."
+
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
@@ -931,10 +949,6 @@ msgstr "Check your email"
 #: src/AccountManagement.tsx
 msgid "Checking active sessions…"
 msgstr "Checking active sessions…"
-
-#: src/ConnectPrimitives.tsx
-msgid "Checking the latest account details…"
-msgstr "Checking the latest account details…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -956,9 +970,8 @@ msgid "Choose a field"
 msgstr "Choose a field"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Choose a location"
-msgstr "Choose a location"
+msgid "Choose a Markdown folder in the desktop app. Your files stay here."
+msgstr "Choose a Markdown folder in the desktop app. Your files stay here."
 
 #. placeholder {0}: unmapped.label
 #: src/authorization-review.tsx
@@ -995,19 +1008,19 @@ msgstr "Choose or create my person record"
 msgid "Choose the folder in mdbase connect."
 msgstr "Choose the folder in mdbase connect."
 
+#: src/ConnectApp.tsx
+msgid "Choose where your first collection lives."
+msgstr "Choose where your first collection lives."
+
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Choose whether to add a new {0} type or use one you already have."
 msgstr "Choose whether to add a new {0} type or use one you already have."
 
+#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
-msgid "Close"
-msgstr "Close"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Close menu"
-msgstr "Close menu"
+msgid "Clear filter"
+msgstr "Clear filter"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1019,7 +1032,6 @@ msgid "Cloud collection required"
 msgstr "Cloud collection required"
 
 #: src/AccountManagement.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy"
 msgstr "Cloud copy"
@@ -1093,11 +1105,6 @@ msgstr "Computer approved"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
-msgid "Computer filter results"
-msgstr "Computer filter results"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Computer not connected"
 msgstr "Computer not connected"
 
@@ -1105,11 +1112,6 @@ msgstr "Computer not connected"
 msgctxt "Collection connection"
 msgid "Computer pairing"
 msgstr "Computer pairing"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Computer status"
-msgstr "Computer status"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1144,10 +1146,6 @@ msgstr "Confirm removal"
 msgid "Confirm your identity"
 msgstr "Confirm your identity"
 
-#: src/ConnectApp.tsx
-msgid "Connect a computer to add a collection."
-msgstr "Connect a computer to add a collection."
-
 #: src/authorization-view.tsx
 msgid "Connect an app"
 msgstr "Connect an app"
@@ -1164,6 +1162,10 @@ msgstr "Connect more than one method so you always have a way back into your acc
 msgid "Connect this device to your tailnet, then reload the page."
 msgstr "Connect this device to your tailnet, then reload the page."
 
+#: src/ConnectApp.tsx
+msgid "Connected"
+msgstr "Connected"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Connected"
@@ -1173,11 +1175,6 @@ msgstr "Connected"
 msgctxt "Connect interface"
 msgid "Connected"
 msgstr "Connected"
-
-#: src/ApplicationAccess.tsx
-msgctxt "Connect interface"
-msgid "Connected applications"
-msgstr "Connected applications"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
@@ -1289,6 +1286,16 @@ msgstr "Create records and add files"
 msgid "Create, change, and delete saved view definitions."
 msgstr "Create, change, and delete saved view definitions."
 
+#. placeholder {0}: original.displayName
+#: src/ConnectApp.tsx
+msgid "Created {0}"
+msgstr "Created {0}"
+
+#. placeholder {0}: collection.display_name ?? collection.id
+#: src/ConnectApp.tsx
+msgid "Created an invitation to {0}"
+msgstr "Created an invitation to {0}"
+
 #: src/ConnectApp.tsx
 msgid "Created, but this browser could not clear its request. Retrying will use the same collection."
 msgstr "Created, but this browser could not clear its request. Retrying will use the same collection."
@@ -1331,14 +1338,13 @@ msgid "Current password"
 msgstr "Current password"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
 msgid "Delete"
 msgstr "Delete"
 
-#. placeholder {0}: collection.display_name
+#. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
-msgid "Delete {0} and all of its hosted data? This cannot be undone."
-msgstr "Delete {0} and all of its hosted data? This cannot be undone."
+msgid "Delete {0}?"
+msgstr "Delete {0}?"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1378,10 +1384,19 @@ msgctxt "Application access approval"
 msgid "Delete records and files"
 msgstr "Delete records and files"
 
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "Deleted {0}"
+msgstr "Deleted {0}"
+
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Deleting account…"
 msgstr "Deleting account…"
+
+#: src/ConnectApp.tsx
+msgid "Deleting…"
+msgstr "Deleting…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1430,6 +1445,15 @@ msgstr "Disconnect"
 #: src/ConnectApp.tsx
 msgid "Disconnect {0}?"
 msgstr "Disconnect {0}?"
+
+#. placeholder {0}: replica.name
+#: src/ConnectApp.tsx
+msgid "Disconnecting {0}"
+msgstr "Disconnecting {0}"
+
+#: src/ConnectApp.tsx
+msgid "Disconnecting…"
+msgstr "Disconnecting…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1516,6 +1540,10 @@ msgstr "Email and password"
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
 msgstr "Ensure <0>{0}</0> includes <1>{1}</1>"
 
+#: src/ConnectApp.tsx
+msgid "Enter a collection name."
+msgstr "Enter a collection name."
+
 #: src/authorization-view.tsx
 msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
 msgstr "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
@@ -1523,6 +1551,10 @@ msgstr "Enter the code it shows. You will review the application, collection, an
 #: src/authorization-view.tsx
 msgid "Enter the eight-character code shown by the application."
 msgstr "Enter the eight-character code shown by the application."
+
+#: src/AccountManagement.tsx
+msgid "Enter your current password."
+msgstr "Enter your current password."
 
 #: src/ApplicationAccess.tsx
 msgid "Entire collection"
@@ -1562,6 +1594,10 @@ msgstr "Existing type"
 msgid "Expert details"
 msgstr "Expert details"
 
+#: src/ApplicationAccess.tsx
+msgid "Explore apps"
+msgstr "Explore apps"
+
 #: src/FeedbackPage.tsx
 msgid "Feedback goes privately to the mdbase team."
 msgstr "Feedback goes privately to the mdbase team."
@@ -1596,9 +1632,21 @@ msgstr "Files"
 msgid "Fill in {0} in {label}."
 msgstr "Fill in {0} in {label}."
 
+#: src/ApplicationAccess.tsx
+msgid "Filter apps"
+msgstr "Filter apps"
+
 #: src/ConnectApp.tsx
-msgid "Find a computer"
-msgstr "Find a computer"
+msgid "Filter collections"
+msgstr "Filter collections"
+
+#: src/ConnectApp.tsx
+msgid "Filter computers"
+msgstr "Filter computers"
+
+#: src/AccountManagement.tsx
+msgid "Filter sessions"
+msgstr "Filter sessions"
 
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
@@ -1678,6 +1726,7 @@ msgid "Hosted access was removed immediately. Hosted data deletion continues aut
 msgstr "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 
 #: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 msgid "Hosted by mdbase"
 msgstr "Hosted by mdbase"
 
@@ -1685,11 +1734,6 @@ msgstr "Hosted by mdbase"
 msgctxt "Connect interface"
 msgid "Hosted by mdbase"
 msgstr "Hosted by mdbase"
-
-#. placeholder {0}: countLabel(replicas.length, "folder")
-#: src/ConnectApp.tsx
-msgid "Hosted by mdbase · {0}"
-msgstr "Hosted by mdbase · {0}"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
@@ -1751,9 +1795,9 @@ msgstr "If an mdbase connect account uses that address, its one-time reset link 
 msgid "If that address can be used, its one-time verification link is on the way."
 msgstr "If that address can be used, its one-time verification link is on the way."
 
-#: src/ConnectApp.tsx
-msgid "If the desktop app does not open when you {action}, <0>install the latest release</0> and try again."
-msgstr "If the desktop app does not open when you {action}, <0>install the latest release</0> and try again."
+#: src/ConnectPrimitives.tsx
+msgid "If the desktop app did not open, <0>install the latest release</0> and try again."
+msgstr "If the desktop app did not open, <0>install the latest release</0> and try again."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
@@ -1834,10 +1878,9 @@ msgctxt "Account sign-in"
 msgid "Just a moment…"
 msgstr "Just a moment…"
 
-#: src/AccountManagement.tsx
-msgctxt "Account management"
-msgid "just now"
-msgstr "just now"
+#: src/ConnectPrimitives.tsx
+msgid "Just now"
+msgstr "Just now"
 
 #: src/authority-workflows.tsx
 msgid "Keep access"
@@ -1851,6 +1894,10 @@ msgstr "Keep an offline replica"
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
 msgstr "Keep it hosted"
+
+#: src/ConnectApp.tsx
+msgid "Keep the main copy in mdbase, with optional synced folders."
+msgstr "Keep the main copy in mdbase, with optional synced folders."
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
@@ -1881,10 +1928,9 @@ msgstr "Link your account to an editable record in this collection. Collection a
 msgid "List file names and metadata"
 msgstr "List file names and metadata"
 
-#: src/AccountManagement.tsx
-msgctxt "Account management"
-msgid "Loading account details…"
-msgstr "Loading account details…"
+#: src/ConnectPrimitives.tsx
+msgid "Loading {title}…"
+msgstr "Loading {title}…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
@@ -1909,15 +1955,6 @@ msgid "Local collection files stay on your computers and are not measured here."
 msgstr "Local collection files stay on your computers and are not measured here."
 
 #: src/ConnectApp.tsx
-msgid "Location"
-msgstr "Location"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Location"
-msgstr "Location"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "Main copy"
@@ -1933,11 +1970,6 @@ msgstr "Main copy moved to a computer"
 #: src/authority-workflows.tsx
 msgid "Main copy on {mirrorName}"
 msgstr "Main copy on {mirrorName}"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Manage"
-msgstr "Manage"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -1994,8 +2026,7 @@ msgstr "Markdown and file usage is temporarily unavailable."
 msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
 msgstr "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
 
-#: src/AccountManagement.tsx
-#: src/ConnectApp.tsx
+#: src/ConnectPrimitives.tsx
 msgid "mdbase connect could not be reached. Check your connection and try again."
 msgstr "mdbase connect could not be reached. Check your connection and try again."
 
@@ -2099,11 +2130,6 @@ msgctxt "Connect interface"
 msgid "Moved to newer runtime"
 msgstr "Moved to newer runtime"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Moving to a computer"
-msgstr "Moving to a computer"
-
 #: src/AccountManagement.tsx
 msgid "Name"
 msgstr "Name"
@@ -2114,9 +2140,8 @@ msgid "Name"
 msgstr "Name"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Name or registration ID"
-msgstr "Name or registration ID"
+msgid "Navigation"
+msgstr "Navigation"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
@@ -2126,6 +2151,19 @@ msgstr "Needs mdbase 0.3"
 #: src/authorization-review.tsx
 msgid "New"
 msgstr "New"
+
+#: src/ApplicationAccess.tsx
+msgid "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely."
+msgstr "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely."
+
+#: src/ApplicationAccess.tsx
+msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely."
+msgstr "New access will stop across all installations. Copies already downloaded cannot be removed remotely."
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
+msgstr "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
@@ -2159,6 +2197,15 @@ msgid "No active code shown"
 msgstr "No active code shown"
 
 #: src/ApplicationAccess.tsx
+msgid "No apps match"
+msgstr "No apps match"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "No apps with access"
+msgstr "No apps with access"
+
+#: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
 msgstr "No collection access"
@@ -2172,6 +2219,10 @@ msgstr "No collections"
 #: src/CollectionPicker.tsx
 msgid "No collections are available."
 msgstr "No collections are available."
+
+#: src/ConnectApp.tsx
+msgid "No collections match"
+msgstr "No collections match"
 
 #: src/CollectionPicker.tsx
 msgid "No collections match. Try another name."
@@ -2191,10 +2242,9 @@ msgctxt "Connect interface"
 msgid "No computers match"
 msgstr "No computers match"
 
-#: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
-msgid "No connected applications"
-msgstr "No connected applications"
+#: src/AccountManagement.tsx
+msgid "No sessions match"
+msgstr "No sessions match"
 
 #: src/AccountManagement.tsx
 msgid "No supported reauthentication method is connected."
@@ -2218,10 +2268,6 @@ msgstr "Not configured"
 msgctxt "Account management"
 msgid "Not connected"
 msgstr "Not connected"
-
-#: src/ConnectApp.tsx
-msgid "Not connected yet"
-msgstr "Not connected yet"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2249,34 +2295,10 @@ msgctxt "Connect interface"
 msgid "Offline"
 msgstr "Offline"
 
-#. placeholder {0}: computer.name
-#: src/ConnectApp.tsx
-msgid "On {0}"
-msgstr "On {0}"
-
-#. placeholder {0}: computer.name
-#: src/ConnectApp.tsx
-msgid "On {0}: offline"
-msgstr "On {0}: offline"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "On this computer"
-msgstr "On this computer"
-
-#. placeholder {0}: relativeTime(sharingCode.expiresAt)
+#. placeholder {0}: formatters(i18n.locale).date(new Date(sharingCode.expiresAt), { dateStyle: "short", timeStyle: "short" })
 #: src/AccountManagement.tsx
 msgid "One use · expires {0}"
 msgstr "One use · expires {0}"
-
-#: src/ConnectApp.tsx
-msgid "Online"
-msgstr "Online"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Online"
-msgstr "Online"
 
 #. placeholder {0}: files.scope.folders.join(", ")
 #: src/authorization-review.tsx
@@ -2290,10 +2312,6 @@ msgstr "Only continue if you recognize this exact site."
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
-
-#: src/ConnectApp.tsx
-msgid "Open"
-msgstr "Open"
 
 #. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {0}: pairing.connector_name
@@ -2380,11 +2398,6 @@ msgstr "Open the link from the email again, or change email preferences in your 
 #: src/ConnectApp.tsx
 msgid "Open the mdbase connect desktop app and choose Connect this computer."
 msgstr "Open the mdbase connect desktop app and choose Connect this computer."
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "open this collection"
-msgstr "open this collection"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
@@ -2515,6 +2528,10 @@ msgctxt "Connect interface"
 msgid "person@example.com"
 msgstr "person@example.com"
 
+#: src/AccountManagement.tsx
+msgid "Preferences"
+msgstr "Preferences"
+
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Preparing {0}…"
@@ -2579,13 +2596,12 @@ msgstr "Recently used"
 msgid "Recovery"
 msgstr "Recovery"
 
-#. placeholder {0}: new Date(connector.created_at).toLocaleString()
-#. placeholder {1}: connector.id.slice(-8)
+#. placeholder {0}: new Date(connector.created_at).toLocaleDateString(i18n.locale, { dateStyle: "short" })
 #: src/ConnectApp.tsx
-msgid "Registered {0} · ID {1}"
-msgstr "Registered {0} · ID {1}"
+msgid "Registered {0}"
+msgstr "Registered {0}"
 
-#. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })
+#. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
 msgstr "Registered <0>{0}</0>"
@@ -2623,13 +2639,13 @@ msgstr "Remove"
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name
 #: src/ConnectApp.tsx
-msgid "Remove {0} from {1}? Their application and folder access will also be revoked."
-msgstr "Remove {0} from {1}? Their application and folder access will also be revoked."
+msgid "Remove {0} from {1}?"
+msgstr "Remove {0} from {1}?"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
-msgid "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
-msgstr "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
+msgid "Remove {0} from the unnamed collection?"
+msgstr "Remove {0} from the unnamed collection?"
 
 #: src/authority-workflows.tsx
 msgid "Remove access"
@@ -2640,10 +2656,20 @@ msgctxt "Connect interface"
 msgid "Remove access"
 msgstr "Remove access"
 
+#. placeholder {0}: member.name
+#. placeholder {1}: collection.display_name ?? collection.id
+#: src/ConnectApp.tsx
+msgid "Removing {0} from {1}"
+msgstr "Removing {0} from {1}"
+
 #. placeholder {0}: literal(pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
 msgstr "Removing access to {0}…"
+
+#: src/ConnectApp.tsx
+msgid "Removing access…"
+msgstr "Removing access…"
 
 #: src/ConnectApp.tsx
 msgid "Removing application and folder access…"
@@ -2654,16 +2680,31 @@ msgctxt "Connect interface"
 msgid "Removing…"
 msgstr "Removing…"
 
+#: src/ConnectApp.tsx
+msgid "Rename"
+msgstr "Rename"
+
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Rename"
 msgstr "Rename"
 
-#. placeholder {0}: collection.display_name
+#. placeholder {0}: collection.name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Rename {0}"
 msgstr "Rename {0}"
+
+#. placeholder {0}: collection.name
+#. placeholder {1}: name.trim()
+#: src/ConnectApp.tsx
+msgid "Renamed {0} to {1}"
+msgstr "Renamed {0} to {1}"
+
+#. placeholder {0}: connector.name
+#: src/ConnectApp.tsx
+msgid "Renamed {0} to {name}"
+msgstr "Renamed {0} to {name}"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -2731,6 +2772,11 @@ msgstr "Required"
 msgctxt "Account sign-in"
 msgid "Reset your password"
 msgstr "Reset your password"
+
+#. placeholder {0}: inverse.name
+#: src/ConnectApp.tsx
+msgid "Restored {0}."
+msgstr "Restored {0}."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2848,14 +2894,11 @@ msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "Revoke"
 
+#. placeholder {0}: application.applicationName
 #. placeholder {0}: group.applicationName
+#. placeholder {1}: collection.name
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
-msgid "Revoke {0} access to {1} across all its installations?"
-msgstr "Revoke {0} access to {1} across all its installations?"
-
-#. placeholder {0}: application.applicationName
-#. placeholder {1}: collection.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0} access to {1}?"
 msgstr "Revoke {0} access to {1}?"
@@ -2866,11 +2909,8 @@ msgid "Revoke {0} access to {collectionName}?"
 msgstr "Revoke {0} access to {collectionName}?"
 
 #. placeholder {0}: connector.name
-#: src/ConnectApp.tsx
-msgid "Revoke {0} and the application grants routed through it?"
-msgstr "Revoke {0} and the application grants routed through it?"
-
-#. placeholder {0}: replica.name
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "Revoke {0}?"
 msgstr "Revoke {0}?"
@@ -2886,11 +2926,6 @@ msgstr "Revoke access"
 msgid "Revoke access to {0}?"
 msgstr "Revoke access to {0}?"
 
-#. placeholder {0}: group.applicationName
-#: src/ApplicationAccess.tsx
-msgid "Revoke all {0} access and collection creation permission?"
-msgstr "Revoke all {0} access and collection creation permission?"
-
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke application"
@@ -2905,6 +2940,18 @@ msgstr "Revoke collection access"
 msgctxt "Connect interface"
 msgid "Revoke computer"
 msgstr "Revoke computer"
+
+#. placeholder {0}: connector.name
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "Revoked {0}"
+msgstr "Revoked {0}"
+
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "Revoking access…"
+msgstr "Revoking access…"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
@@ -2927,6 +2974,10 @@ msgstr "Role"
 msgid "Role for {0}"
 msgstr "Role for {0}"
 
+#: src/ConnectApp.tsx
+msgid "Save"
+msgstr "Save"
+
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Save"
@@ -2935,6 +2986,10 @@ msgstr "Save"
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
 msgstr "Save narrower access"
+
+#: src/ConnectApp.tsx
+msgid "Saving…"
+msgstr "Saving…"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
@@ -3057,12 +3112,6 @@ msgstr "Sharing code"
 msgid "Short approval code"
 msgstr "Short approval code"
 
-#. placeholder {0}: visible.length
-#. placeholder {1}: data.connectors.length
-#: src/ConnectApp.tsx
-msgid "Showing {0} of {1} registered computers."
-msgstr "Showing {0} of {1} registered computers."
-
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
@@ -3119,11 +3168,19 @@ msgstr "Sign-in methods for this account are controlled by Tailscale."
 msgid "Sign-in was cancelled. You can try again or choose another method."
 msgstr "Sign-in was cancelled. You can try again or choose another method."
 
-#. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })
-#. placeholder {1}: session.id.slice(-8)
+#. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/AccountManagement.tsx
-msgid "Signed in <0>{0}</0> · ID {1}"
-msgstr "Signed in <0>{0}</0> · ID {1}"
+msgid "Signed in <0>{0}</0>"
+msgstr "Signed in <0>{0}</0>"
+
+#. placeholder {0}: session.client_name
+#: src/AccountManagement.tsx
+msgid "Signed out {0}"
+msgstr "Signed out {0}"
+
+#: src/AccountManagement.tsx
+msgid "Signed out other browser sessions."
+msgstr "Signed out other browser sessions."
 
 #: src/authority-workflows.tsx
 msgid "Signing in finishes on that computer."
@@ -3153,13 +3210,14 @@ msgstr "Signing out…"
 msgid "Start signup again"
 msgstr "Start signup again"
 
-#: src/ConnectApp.tsx
-msgid "Status"
-msgstr "Status"
-
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
 msgstr "Stop receiving the kind of email this link came in. Messages about your account are still sent."
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Storage"
+msgstr "Storage"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3172,9 +3230,8 @@ msgid "Sync"
 msgstr "Sync"
 
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "sync a folder"
-msgstr "sync a folder"
+msgid "Sync a folder"
+msgstr "Sync a folder"
 
 #: src/ConnectApp.tsx
 msgid "Sync folder"
@@ -3186,10 +3243,6 @@ msgid "Sync this collection"
 msgstr "Sync this collection"
 
 #: src/ConnectApp.tsx
-msgid "Synced folders"
-msgstr "Synced folders"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
 msgstr "Synced folders"
@@ -3197,6 +3250,10 @@ msgstr "Synced folders"
 #: src/authorization-capabilities.ts
 msgid "Synchronize an application-controlled local copy of this collection."
 msgstr "Synchronize an application-controlled local copy of this collection."
+
+#: src/ConnectApp.tsx
+msgid "Syncing will stop after the computer confirms. Files already downloaded will remain."
+msgstr "Syncing will stop after the computer confirms. Files already downloaded will remain."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3342,6 +3399,10 @@ msgstr "The synced Markdown folder becomes the main copy."
 msgid "The value has changed again. Undo is no longer available."
 msgstr "The value has changed again. Undo is no longer available."
 
+#: src/ConnectApp.tsx
+msgid "Their application and folder access will also be revoked."
+msgstr "Their application and folder access will also be revoked."
+
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
 msgstr "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
@@ -3431,6 +3492,10 @@ msgstr "This folder will receive Markdown from mdbase and will not upload local 
 msgid "This installation has no approved collections."
 msgstr "This installation has no approved collections."
 
+#: src/ConnectApp.tsx
+msgid "This invitation will no longer grant access to the collection."
+msgstr "This invitation will no longer grant access to the collection."
+
 #. placeholder {0}: literal(request.application_name)
 #: src/authorization-view.tsx
 msgid "This is a Private collection: it stays on your computer. {0} can use it while a computer that has it is running mdbase and is signed in to your account."
@@ -3482,8 +3547,8 @@ msgid "Transfer ended"
 msgstr "Transfer ended"
 
 #: src/ConnectApp.tsx
-msgid "Try a different name, registration ID or status. Filtering does not revoke access."
-msgstr "Try a different name, registration ID or status. Filtering does not revoke access."
+msgid "Try a different computer name. Filtering does not revoke access."
+msgstr "Try a different computer name. Filtering does not revoke access."
 
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
@@ -3494,10 +3559,22 @@ msgstr "Try a different name, registration ID or status. Filtering does not revo
 msgid "Try again"
 msgstr "Try again"
 
+#: src/ApplicationAccess.tsx
+msgid "Try another app name."
+msgstr "Try another app name."
+
 #: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Two-way sync"
-msgstr "Two-way sync"
+msgid "Try another collection or computer name."
+msgstr "Try another collection or computer name."
+
+#: src/AccountManagement.tsx
+msgid "Try another name."
+msgstr "Try another name."
+
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "Type {0} to confirm"
+msgstr "Type {0} to confirm"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3547,13 +3624,18 @@ msgid "Update recommended for current policy protection"
 msgstr "Update recommended for current policy protection"
 
 #: src/ConnectApp.tsx
-msgid "Update required"
-msgstr "Update required"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Update required"
 msgstr "Update required"
+
+#. placeholder {0}: grant.application_name
+#. placeholder {0}: member.name
+#. placeholder {1}: collection.display_name ?? collection.id
+#. placeholder {1}: grant.collection_name
+#: src/ApplicationAccess.tsx
+#: src/ConnectApp.tsx
+msgid "Updated {0} access to {1}"
+msgstr "Updated {0} access to {1}"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3679,6 +3761,10 @@ msgstr "We couldn't confirm collection creation finished. Please try again."
 #: src/authority-workflows.tsx
 msgid "We couldn't identify your account. Sign in again to continue."
 msgstr "We couldn't identify your account. Sign in again to continue."
+
+#: src/ConnectPrimitives.tsx
+msgid "We couldn't load {title}"
+msgstr "We couldn't load {title}"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx

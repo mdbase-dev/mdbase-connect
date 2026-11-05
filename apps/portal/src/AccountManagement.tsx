@@ -16,11 +16,16 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import {
   ConnectEmpty as Empty,
   ConnectPage as Page,
-  ConnectSectionTitle as SectionTitle
+  ConnectSectionTitle as SectionTitle,
+  ListFilter,
+  relativeTime,
+  errorMessage,
+  ConnectPreview
 } from "./ConnectPrimitives";
 import { GoogleIdentityButton } from "./GoogleIdentityButton";
 import { clearOverviewPreview } from "./overview-cache";
 import { toast } from "@mdbase-dev/ui/toast";
+import { ThemeMenu } from "./portal-ui";
 import { clearPagePrefetch, takeAccountPrefetch } from "./page-prefetch";
 
 export function AccountManagement({ client, overview, sessions, onOverviewRefresh, onDeleted, onSignedOut }: {
@@ -33,6 +38,8 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 }) {
   useLocaleRevision();
   const [account, setAccount] = useState<AccountData>();
+  const [loading, setLoading] = useState(true);
+  const [sessionQuery, setSessionQuery] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const busyRef = useRef(new Set<string>());
@@ -40,6 +47,12 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [passwordTouched, setPasswordTouched] = useState({ current: false, next: false, confirmation: false });
+  const passwordErrors = {
+    current: !currentPassword ? t(i18n)`Enter your current password.` : "",
+    next: newPassword.length < 15 ? t(i18n)`Use at least 15 characters. Spaces are welcome.` : "",
+    confirmation: newPassword !== passwordConfirmation || !passwordConfirmation ? t(i18n)`New passwords do not match.` : ""
+  };
   const [deletionOpen, setDeletionOpen] = useState(false);
   const [deletionConfirmation, setDeletionConfirmation] = useState("");
   const [deletionPassword, setDeletionPassword] = useState("");
@@ -59,6 +72,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   }, [client, onSignedOut]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
     try {
       const next = await (takeAccountPrefetch(client) ?? client.account({ signal }));
       if (signal?.aborted) return;
@@ -66,6 +80,8 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     } catch (reason) {
       if (signal?.aborted) return;
       handleError(reason);
+    } finally {
+      if (!signal?.aborted) setLoading(false);
     }
   }, [client, handleError]);
 
@@ -92,7 +108,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     try {
       await action();
       saved = true;
-      if (success || id !== "password") toast(success ?? t(i18n)`Change saved.`);
+      if (success) toast(success);
       void refresh();
       return true;
     } catch (reason) {
@@ -162,15 +178,14 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
   async function changePassword(event: FormEvent) {
     event.preventDefault();
-    if (newPassword !== passwordConfirmation) {
-      setError(t(i18n)({ message: "New passwords do not match." }));
-      return;
-    }
+    setPasswordTouched({ current: true, next: true, confirmation: true });
+    if (Object.values(passwordErrors).some(Boolean)) return;
     const changed = await run("password", () => client.changePassword(currentPassword, newPassword));
     if (changed) {
       setCurrentPassword("");
       setNewPassword("");
       setPasswordConfirmation("");
+      setPasswordTouched({ current: false, next: false, confirmation: false });
       setPasswordOpen(false);
       toast(t(i18n)({ message: "Password changed. Other browser sessions were signed out." }));
     }
@@ -204,17 +219,14 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     setGoogleAction(null);
   }, [handleError]);
 
-  if (!account) {
-    return <Page title={t(i18n)({ message: "Account", context: "Account management" })} intro={t(i18n)({ message: "Manage collections, sign-in methods, and browser sessions." })}>
-      <p className="connect-muted" role="status">{error || t(i18n)({ message: "Loading account details…", context: "Account management" })}</p>
-    </Page>;
-  }
+  if (!account) return <ConnectPreview title={t(i18n)({ message: "Account", context: "Account management" })} pending={loading} error={error} retry={() => { setError(""); void refresh(); }} />;
 
   const linkedByProvider = new Map(account.authentication.identities.map((identity) => [identity.provider, identity]));
   const providers = (["github", "google"] as const).filter((provider) =>
     account.authentication.available_providers[provider] || linkedByProvider.has(provider));
   const ownedCollections = (overview.native_collections ?? []).filter(collection => collection.access.relationship === "owner");
   const otherSessions = sessions?.filter((session) => !session.current) ?? [];
+  const visibleSessions = sessions?.filter(session => session.client_name.toLocaleLowerCase(i18n.locale).includes(sessionQuery.trim().toLocaleLowerCase(i18n.locale)));
   const canPasswordDelete = account.authentication.password.configured;
   const canExternalDelete = account.authentication.identities.length > 0;
   const deletionAuthorized = account.deletion.development_confirmation
@@ -263,11 +275,10 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
           <div className="connect-account-row-main"><div><strong><Trans>Email and password</Trans></strong><small>{account.authentication.password.configured ? account.authentication.password.email ?? t(i18n)({ message: "Configured", context: "Account management" }) : t(i18n)({ message: "Not configured", context: "Account management" })}{account.authentication.password.current ? t(i18n)({ message: " · current session", context: "Account management" }) : ""}</small></div>
             {account.authentication.password.change_available && <button className="mdbase-button" onClick={() => setPasswordOpen((open) => !open)}>{passwordOpen ? t(i18n)({ message: "Cancel", context: "Account management" }) : t(i18n)({ message: "Change password", context: "Account management" })}</button>}
           </div>
-          {passwordOpen && <form className="connect-account-form" onSubmit={(event) => void changePassword(event)}>
-            <label><span><Trans>Current password</Trans></span><input className="mdbase-field" type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
-            <label><span><Trans>New password</Trans></span><input className="mdbase-field" type="password" autoComplete="new-password" minLength={15} required aria-describedby="account-password-guidance" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
-            <p className="connect-muted" id="account-password-guidance"><Trans>Use at least 15 characters. Spaces are welcome.</Trans></p>
-            <label><span><Trans>Confirm new password</Trans></span><input className="mdbase-field" type="password" autoComplete="new-password" minLength={15} required value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label>
+          {passwordOpen && <form className="connect-account-form" noValidate onSubmit={(event) => void changePassword(event)}>
+            <label><span><Trans>Current password</Trans></span><input className="mdbase-field" aria-label={t(i18n)`Current password`} type="password" autoComplete="current-password" aria-invalid={passwordTouched.current && Boolean(passwordErrors.current)} aria-describedby="account-current-error" value={currentPassword} onBlur={() => setPasswordTouched(current => ({ ...current, current: true }))} onChange={(event) => setCurrentPassword(event.target.value)} /><small className="connect-field-error" id="account-current-error">{passwordTouched.current && passwordErrors.current}</small></label>
+            <label><span><Trans>New password</Trans></span><input className="mdbase-field" aria-label={t(i18n)`New password`} type="password" autoComplete="new-password" aria-invalid={passwordTouched.next && Boolean(passwordErrors.next)} aria-describedby="account-password-guidance" value={newPassword} onBlur={() => setPasswordTouched(current => ({ ...current, next: true }))} onChange={(event) => setNewPassword(event.target.value)} /><small className={passwordTouched.next && passwordErrors.next ? "connect-field-error" : "connect-muted"} id="account-password-guidance"><Trans>Use at least 15 characters. Spaces are welcome.</Trans></small></label>
+            <label><span><Trans>Confirm new password</Trans></span><input className="mdbase-field" aria-label={t(i18n)`Confirm new password`} type="password" autoComplete="new-password" aria-invalid={passwordTouched.confirmation && Boolean(passwordErrors.confirmation)} aria-describedby="account-confirmation-error" value={passwordConfirmation} onBlur={() => setPasswordTouched(current => ({ ...current, confirmation: true }))} onChange={(event) => setPasswordConfirmation(event.target.value)} /><small className="connect-field-error" id="account-confirmation-error">{passwordTouched.confirmation && passwordErrors.confirmation}</small></label>
             <button className="connect-primary-action mdbase-button is-primary" disabled={busy.has("password")}>{busy.has("password") ? t(i18n)({ message: "Changing password…", context: "Account management" }) : t(i18n)({ message: "Change password", context: "Account management" })}</button>
           </form>}
         </div>}
@@ -277,21 +288,23 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     {overview.collection_sharing_available && <section>
       <SectionTitle title={t(i18n)({ message: "Sharing code", context: "Account management" })} note={t(i18n)({ message: "Use this when someone cannot invite your verified email address." })} />
       <div className="connect-account-row">
-        <div><strong>{sharingCode?.code ?? t(i18n)({ message: "No active code shown", context: "Account management" })}</strong><small>{sharingCode ? t(i18n)`One use · expires ${relativeTime(sharingCode.expiresAt)}` : t(i18n)({ message: "Generate a private code, then send it to the collection owner." })}</small></div>
+        <div><strong>{sharingCode?.code ?? t(i18n)({ message: "No active code shown", context: "Account management" })}</strong><small>{sharingCode ? t(i18n)`One use · expires ${formatters(i18n.locale).date(new Date(sharingCode.expiresAt), { dateStyle: "short", timeStyle: "short" })}` : t(i18n)({ message: "Generate a private code, then send it to the collection owner." })}</small></div>
         <button className="mdbase-button" disabled={busy.has("sharing-code")} onClick={() => void createSharingCode()}>{busy.has("sharing-code") ? t(i18n)({ message: "Generating…", context: "Account management" }) : sharingCode ? t(i18n)({ message: "Generate a new code", context: "Account management" }) : t(i18n)({ message: "Generate code", context: "Account management" })}</button>
       </div>
     </section>}
 
     {account.authentication.managed && <section>
-      <SectionTitle title={t(i18n)({ message: "Browser sessions", context: "Account management" })} count={sessions?.length} action={otherSessions.length > 0 && <button className="mdbase-button is-tertiary is-danger" disabled={busy.has("sessions-others")} onClick={() => void run("sessions-others", () => client.revokeOtherSessions())}><Trans>Sign out other sessions</Trans></button>} />
+      <SectionTitle title={t(i18n)({ message: "Browser sessions", context: "Account management" })} count={sessions?.length} action={otherSessions.length > 0 && <button className="mdbase-button is-tertiary is-danger" disabled={busy.has("sessions-others")} onClick={() => void run("sessions-others", () => client.revokeOtherSessions(), t(i18n)`Signed out other browser sessions.`)}><Trans>Sign out other sessions</Trans></button>} />
       <div className="connect-row-actions connect-session-actions" role="group" aria-label={t(i18n)({ message: "Browser session actions", context: "Account management" })}>
         <button className="mdbase-button is-tertiary is-danger" disabled={busy.has("logout")} aria-busy={busy.has("logout") || undefined} onClick={() => void signOutCurrentBrowser()}>{busy.has("logout") ? t(i18n)({ message: "Signing out…", context: "Account management" }) : t(i18n)({ message: "Sign out of this browser", context: "Account management" })}</button>
       </div>
       {!sessions && <p className="connect-muted"><Trans>Checking active sessions…</Trans></p>}
-      {sessions?.map((session) => <div className="connect-row" key={session.id}>
-        <div><strong>{session.client_name}</strong><small>{session.current ? t(i18n)({ message: "This browser, active now", context: "Account management" }) : t(i18n)`Last used ${relativeTime(session.last_seen_at)}`}</small><small><Trans>Signed in <time dateTime={session.created_at}>{formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })}</time> · ID {session.id.slice(-8)}</Trans></small></div>
+      {sessions && sessions.length >= 10 && <ListFilter label={t(i18n)`Filter sessions`} value={sessionQuery} onChange={setSessionQuery} />}
+      {sessions && visibleSessions?.length === 0 && <Empty title={t(i18n)`No sessions match`} body={t(i18n)`Try another name.`} />}
+      {visibleSessions?.map((session) => <div className="connect-row" key={session.id}>
+        <div><strong>{session.client_name}</strong><small>{session.current ? t(i18n)({ message: "This browser, active now", context: "Account management" }) : t(i18n)`Last used ${relativeTime(session.last_seen_at)}`}</small><small><Trans>Signed in <time dateTime={session.created_at}>{formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "short", timeStyle: "short" })}</time></Trans></small></div>
         <span>{providerLabel(session.provider)}</span>
-        {session.current ? <span className="connect-current"><Trans context="Browser session status">Current</Trans></span> : <button className="mdbase-button is-tertiary is-danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}><Trans>Sign out</Trans></button>}
+        {session.current ? <span className="connect-current"><Trans context="Browser session status">Current</Trans></span> : <button className="mdbase-button is-tertiary is-danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id), t(i18n)`Signed out ${session.client_name}`)}><Trans>Sign out</Trans></button>}
       </div>)}
     </section>}
 
@@ -357,6 +370,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         </ConfirmDialog>
       </>}
     </section>
+    <section><SectionTitle title={t(i18n)`Preferences`} /><div className="connect-preferences"><ThemeMenu /></div></section>
   </Page>;
 }
 
@@ -470,23 +484,9 @@ function formatBytes(value: number): string {
   return `${formatters(i18n.locale).number(amount, { maximumFractionDigits: amount < 10 ? 1 : 0 })} ${units[index]}`;
 }
 
-function relativeTime(value: string): string {
-  const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1_000));
-  if (seconds < 60) return t(i18n)({ message: "just now", context: "Account management" });
-  if (seconds < 3_600) return t(i18n)`${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86_400) return t(i18n)`${Math.floor(seconds / 3_600)}h ago`;
-  return t(i18n)`${Math.floor(seconds / 86_400)}d ago`;
-}
 
 function loginUrl(client: ConnectManagementClient): string {
   const url = new URL("/login", client.baseUrl);
   url.searchParams.set("return_to", "/account");
   return url.href;
-}
-
-function errorMessage(value: unknown): string {
-  const detail = value instanceof Error ? value.message : String(value);
-  return /failed to fetch|networkerror|network request failed/i.test(detail)
-    ? t(i18n)({ message: "mdbase connect could not be reached. Check your connection and try again." })
-    : detail;
 }
