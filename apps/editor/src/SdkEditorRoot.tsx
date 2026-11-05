@@ -80,7 +80,7 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
   const switcher: EditorCollectionSwitcher = (onBeforeLeave) => <CollectionSwitcher mdbase={sdk} app={editorCollectionApp} allowDelete
     variant="full" allowPrivate={false} className="editor-collection-switcher" sections={sections} onBeforeLeave={onBeforeLeave} />;
   const extraActions = (view: CollectionView) => <>
-    <a className="mdbase-button" href={editorPortalUrl() ?? configuredConnectServerUrl}><Trans>Back to Collections</Trans></a>
+    <a className="mdbase-button" href={editorPortalUrl() ?? configuredConnectServerUrl}><Trans>Back to mdbase Connect</Trans></a>
     {priv.section && view.kind === "choosing" && <button type="button" className="mdbase-button" onClick={priv.add}><Trans>Add a Private collection</Trans></button>}
     {priv.problem && <p className="editor-private-problem" role="alert">{priv.problem}</p>}
     <FeedbackButton />

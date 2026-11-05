@@ -2,11 +2,11 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { Dialog } from "@mdbase-dev/ui/dialog";
-import type { Command } from "@mdbase-dev/ui/command-palette";
+import { shortcutLabel, type Command } from "@mdbase-dev/ui/command-palette";
 import { noteTitle } from "./note";
 import { searchNoteResults, searchTextRanges, type NoteSearchEntry, type NoteSearchResult } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
-import { commandDefinitions, filterCommands, formatShortcut, rememberCommand, shortcutModifier, type EditorCommand } from "./editor-commands";
+import { commandDefinitions, filterCommands, rememberCommand, type CommandDefinition, type EditorCommand } from "./editor-commands";
 
 export function quickOpenResults({ index, recentPaths, types, commands, onSelect, onCreate }: {
   index: NoteSearchEntry[];
@@ -32,7 +32,9 @@ export function quickOpenResults({ index, recentPaths, types, commands, onSelect
   });
   if (!commandMode && commandQuery && !results.length && onCreate) entries.push({ id: "create-note", label: t`Create note ‘${query.trim()}’`, group: t`Notes`, run: () => onCreate(commandQuery) });
   if (commandMode || !commandQuery || !results.length) entries.push(...filterCommands(commands, commandQuery).map(command => ({
-    id: command.id, label: command.label, detail: command.hint, group: t`Actions`, shortcut: command.shortcut?.toLowerCase().replaceAll(" ", "+"),
+    id: command.id, label: command.label, detail: command.hint, group: t`Actions`, shortcut: command.shortcut,
+    content: <><strong><SearchMatchText text={command.label} ranges={searchTextRanges(command.label, commandQuery)} /></strong>
+      {command.hint && <small><SearchMatchText text={command.hint} ranges={searchTextRanges(command.hint, commandQuery)} /></small>}</>,
     run: () => { rememberCommand(command.id); command.run(); }
   })));
   return entries;
@@ -44,38 +46,21 @@ function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSearchResul
     const note = byPath.get(path);
     return note ? [{ note, context: { kind: "path" as const, text: note.path, ranges: [] } }] : [];
   });
-  if (recent.length) return recent;
-  return index.slice(0, 12).map((entry) => ({
+  return [...recent, ...index.filter(entry => !paths.includes(entry.note.path)).slice(0, 12).map((entry) => ({
     note: entry.note,
     context: { kind: "path" as const, text: entry.note.path, ranges: [] }
-  }));
+  }))];
 }
-
-export { shortcutModifier } from "./editor-commands";
 
 export function ShortcutHelp({ onClose }: { onClose: () => void }) {
   useLingui();
-  const modifier = shortcutModifier();
-  const shortcuts = [
-    ...Object.values(commandDefinitions).flatMap((definition) => {
-      const entry: { label: string; shortcut?: string; scope?: string } = definition;
-      return entry.shortcut ? [[formatShortcut(entry.shortcut), entry.label + (entry.scope ? `, ${entry.scope}` : "")]] : [];
-    }),
-    [">", t`Actions in quick open`],
-    [`${modifier} K`, t`Find a note or action`],
-    ["Ctrl /", commandDefinitions.shortcuts.label],
-    ["↑ / ↓", t`Move through the note list`],
-    [`${modifier} F`, t`Find in note`],
-    [`${modifier} B / I`, t`Bold or italic`],
-    [`${modifier} K`, t`Add a link, in the note text`],
-    ["/", t`Markdown commands`],
-    ["Alt ← / →", t`Back or forward`],
-    ["Alt J / K", t`Next or previous note`],
-    ["Shift F10", t`Note actions, in the list`],
-    ["Space", t`Peek at the focused note`],
-    ["Esc", t`Exit focus mode`]
-  ];
+  const groups = { Navigate: t`Navigate`, Note: t`Note`, Text: t`Text` };
   return <Dialog open title={t`Shortcuts`} className="shortcut-help" onClose={onClose}>
-      <dl>{shortcuts.map(([keys, label]) => <div key={label}><dt>{label}</dt><dd><kbd>{keys}</kbd></dd></div>)}</dl>
+    {Object.entries(groups).map(([group, label]) => <section key={group}><h3>{label}</h3><dl>
+      {(Object.values(commandDefinitions) as CommandDefinition[]).filter(entry => entry.group === group && entry.shortcut).map(entry => <div key={entry.label}>
+        <dt>{entry.label}{entry.scope ? `, ${entry.scope}` : ""}</dt>
+        <dd>{[entry.shortcut!, ...(entry.aliases ?? [])].map(keys => <kbd key={keys}>{shortcutLabel(keys)}</kbd>)}</dd>
+      </div>)}
+    </dl></section>)}
   </Dialog>;
 }

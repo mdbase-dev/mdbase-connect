@@ -11,9 +11,9 @@ function SearchHarness() {
 }
 
 describe("Search filters", () => {
-  it("includes the visible shortcut in the quick-open accessible name", () => {
+  it("includes the visible shortcut in the commands accessible name", () => {
     render(<SearchHarness />);
-    const button = screen.getByRole("button", { name: /Quick open/ });
+    const button = screen.getByRole("button", { name: /Commands/ });
     expect(button).toHaveAccessibleName(expect.stringContaining(button.textContent ?? ""));
   });
 

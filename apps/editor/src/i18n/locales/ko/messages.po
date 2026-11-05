@@ -282,11 +282,6 @@ msgstr "전체 {1}개 필드 중 {0}개가 일치합니다"
 msgid "{0} of {1} notes"
 msgstr "노트 {1}개 중 {0}개"
 
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "{0} P"
-msgstr "{0} P"
-
 #. placeholder {0}: directory.invalid.length
 #: src/YourPersonPanel.tsx
 msgid "{0} person records need attention"
@@ -813,10 +808,6 @@ msgstr "기존 연락처 정보"
 msgid "Actions"
 msgstr "작업"
 
-#: src/QuickOpen.tsx
-msgid "Actions in quick open"
-msgstr "빠른 열기의 작업"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add"
@@ -835,10 +826,6 @@ msgstr "노트를 만들려면 {0}을(를) 추가하세요."
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
 msgstr "사용자 지정 속성 추가…"
-
-#: src/QuickOpen.tsx
-msgid "Add a link, in the note text"
-msgstr "노트 텍스트에 링크 추가"
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
@@ -1153,6 +1140,7 @@ msgctxt "direct connection availability"
 msgid "Available"
 msgstr "사용 가능"
 
+#: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
 msgstr "뒤로"
@@ -1160,10 +1148,6 @@ msgstr "뒤로"
 #: src/App.tsx
 msgid "Back in note history"
 msgstr "노트 기록에서 뒤로"
-
-#: src/QuickOpen.tsx
-msgid "Back or forward"
-msgstr "뒤로 또는 앞으로"
 
 #: src/App.tsx
 msgid "Back to {historyBackPath} · Alt+Left"
@@ -1178,11 +1162,6 @@ msgstr "컬렉션으로 돌아가기"
 msgid "Back to collections"
 msgstr "컬렉션 목록으로 돌아가기"
 
-#: src/ConnectionScreens.tsx
-#: src/SdkEditorRoot.tsx
-msgid "Back to Collections"
-msgstr "컬렉션으로 돌아가기"
-
 #: src/TypeBrowser.tsx
 msgid "Back to editing"
 msgstr "편집으로 돌아가기"
@@ -1190,6 +1169,11 @@ msgstr "편집으로 돌아가기"
 #: src/PropertiesPanel.tsx
 msgid "Back to fields"
 msgstr "필드로 돌아가기"
+
+#: src/ConnectionScreens.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Back to mdbase Connect"
+msgstr "mdbase Connect로 돌아가기"
 
 #: src/App.tsx
 msgid "Back to notes"
@@ -1234,9 +1218,9 @@ msgstr "블록 · {0}"
 msgid "Body differences"
 msgstr "본문 차이"
 
-#: src/QuickOpen.tsx
-msgid "Bold or italic"
-msgstr "굵게 또는 기울임"
+#: src/editor-commands.ts
+msgid "Bold"
+msgstr "굵게"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Boolean"
@@ -1597,6 +1581,16 @@ msgstr "편안하게"
 msgid "Commands"
 msgstr "명령"
 
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0}"
+msgstr "명령 · {0}"
+
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0} outside text"
+msgstr "명령 · 텍스트 밖에서 {0}"
+
 #: src/TypeBrowser.tsx
 msgid "Common icons"
 msgstr "일반 아이콘"
@@ -1658,9 +1652,23 @@ msgstr "다른 컬렉션을 연결할까요?"
 msgid "Connect application contract"
 msgstr "애플리케이션 계약 연결"
 
+#: src/ConnectionScreens.tsx
+msgid "Connect server: {server}"
+msgstr "Connect 서버: {server}"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "연결됨"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected directly"
+msgstr "직접 연결됨"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected through mdbase"
+msgstr "mdbase를 통해 연결됨"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1898,6 +1906,7 @@ msgstr "첫 노트를 만들어 폴더를 만드세요. 빈 폴더는 저장되�
 msgid "Create my person record"
 msgstr "내 사람 레코드 만들기"
 
+#: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
 msgid "Create note"
 msgstr "노트 만들기"
@@ -1943,10 +1952,6 @@ msgstr "만드는 중"
 #: src/NewNoteComposer.tsx
 msgid "Creating folder"
 msgstr "폴더 만드는 중"
-
-#: src/NewNoteComposer.tsx
-msgid "Ctrl "
-msgstr "Ctrl 키 "
 
 #: src/editor-commands.ts
 msgid "Current note"
@@ -2021,8 +2026,8 @@ msgid "delete notes"
 msgstr "노트 삭제"
 
 #: src/App.tsx
-msgid "Deleted “{title}”."
-msgstr "“{title}” 삭제됨."
+msgid "Deleted {title}"
+msgstr "{title} 삭제됨"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
@@ -2030,8 +2035,8 @@ msgid "Deleting"
 msgstr "삭제 중"
 
 #: src/App.tsx
-msgid "Deleting “{title}”…"
-msgstr "“{title}” 삭제 중…"
+msgid "Deleting {title}…"
+msgstr "{title} 삭제 중…"
 
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
@@ -2334,7 +2339,6 @@ msgid "Existing person or contact"
 msgstr "기존 사람 또는 연락처"
 
 #: src/App.tsx
-#: src/QuickOpen.tsx
 msgid "Exit focus mode"
 msgstr "집중 모드 종료"
 
@@ -2423,7 +2427,6 @@ msgid "Find a note by title or path, or type > for actions"
 msgstr "제목이나 경로로 노트를 찾거나, 작업을 보려면 >를 입력하세요"
 
 #: src/App.tsx
-#: src/QuickOpen.tsx
 msgid "Find a note or action"
 msgstr "노트 또는 작업 찾기"
 
@@ -2431,7 +2434,7 @@ msgstr "노트 또는 작업 찾기"
 msgid "Find a property"
 msgstr "속성 찾기"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Find in note"
 msgstr "노트에서 찾기"
 
@@ -2543,6 +2546,10 @@ msgstr "이 브라우저에서 잊기"
 msgid "Format"
 msgstr "형식"
 
+#: src/editor-commands.ts
+msgid "Forward"
+msgstr "앞으로"
+
 #: src/App.tsx
 msgid "Forward in note history"
 msgstr "노트 기록에서 앞으로"
@@ -2619,9 +2626,9 @@ msgid "Hide types sidebar"
 msgstr "유형 사이드바 숨기기"
 
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Hosted"
-msgstr "호스팅됨"
+msgctxt "settings view"
+msgid "Hosted by mdbase"
+msgstr "mdbase에서 호스팅"
 
 #: src/TypeBrowser.tsx
 msgid "How notes are assigned to this type."
@@ -2647,9 +2654,17 @@ msgstr "영향은 현재 색인된 노트를 기준으로 합니다. 확인을 �
 msgid "in the list"
 msgstr "목록에"
 
+#: src/editor-commands.ts
+msgid "in the note composer"
+msgstr "노트 작성 화면에서"
+
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "호환되지 않음"
+
+#: src/editor-commands.ts
+msgid "Inline code"
+msgstr "인라인 코드"
 
 #: src/code-editor-completions.ts
 msgid "Insert a fenced code block"
@@ -2714,6 +2729,10 @@ msgstr "잘못된 JSON입니다."
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "추가된 이후 편집되지 않아 새 기본 유형으로 대체됩니다."
+
+#: src/editor-commands.ts
+msgid "Italic"
+msgstr "기울임꼴"
 
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
@@ -2953,6 +2972,11 @@ msgstr "현지 시간 ({0})"
 msgid "Loses"
 msgstr "잃음"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Main copy"
+msgstr "주 사본"
+
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
 msgstr "유형 정의 관리"
@@ -2982,7 +3006,7 @@ msgstr "작업 완료로 표시"
 msgid "Mark task incomplete"
 msgstr "작업 미완료로 표시"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Markdown 명령"
 
@@ -3163,10 +3187,6 @@ msgstr "노트 이동"
 msgid "move notes"
 msgstr "노트 이동"
 
-#: src/QuickOpen.tsx
-msgid "Move through the note list"
-msgstr "노트 목록에서 이동"
-
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
 msgid "Move to…"
@@ -3215,6 +3235,10 @@ msgstr "이름 필드"
 msgid "Name the folder to create it."
 msgstr "폴더를 만들 이름을 입력하세요."
 
+#: src/QuickOpen.tsx
+msgid "Navigate"
+msgstr "탐색"
+
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -3238,6 +3262,7 @@ msgstr "중첩 필수 필드"
 msgid "New folder"
 msgstr "새 폴더"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
@@ -3269,9 +3294,13 @@ msgstr "새 유형"
 msgid "New type definition"
 msgstr "새 유형 정의"
 
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "이전 또는 다음 노트"
+#: src/editor-commands.ts
+msgid "Next note"
+msgstr "다음 노트"
+
+#: src/editor-commands.ts
+msgid "Next note in the list"
+msgstr "목록의 다음 노트"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts installed"
@@ -3433,6 +3462,10 @@ msgid "Not now"
 msgstr "나중에"
 
 #: src/QuickOpen.tsx
+msgid "Note"
+msgstr "노트"
+
+#: src/editor-commands.ts
 msgid "Note actions, in the list"
 msgstr "목록의 노트 작업"
 
@@ -3460,10 +3493,6 @@ msgstr "노트 링크"
 #: src/App.tsx
 msgid "note path"
 msgstr "노트 경로"
-
-#: src/NoteList.tsx
-msgid "Note peek"
-msgstr "노트 미리보기"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -3618,6 +3647,10 @@ msgstr "파일 열기"
 msgid "open notes"
 msgstr "노트 열기"
 
+#: src/editor-commands.ts
+msgid "Open Notes"
+msgstr "노트 열기"
+
 #: src/FileViewer.tsx
 msgid "Open original"
 msgstr "원본 열기"
@@ -3710,6 +3743,10 @@ msgstr "다른 필드도 허용됩니다."
 msgid "outside text inputs"
 msgstr "텍스트 입력란 외부"
 
+#: src/editor-commands.ts
+msgid "outside text; add a link while typing"
+msgstr "텍스트 밖에서, 입력 중에는 링크 추가"
+
 #: src/TypeBrowser.tsx
 msgid "Pack"
 msgstr "팩"
@@ -3778,7 +3815,7 @@ msgstr "PDF 삽입, {filename}"
 msgid "PDF viewer, {filename}"
 msgstr "PDF 뷰어, {filename}"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Peek at the focused note"
 msgstr "포커스된 노트 미리보기"
 
@@ -3884,6 +3921,14 @@ msgstr "지난 30일"
 msgid "Previous 7 days"
 msgstr "지난 7일"
 
+#: src/editor-commands.ts
+msgid "Previous note"
+msgstr "이전 노트"
+
+#: src/editor-commands.ts
+msgid "Previous note in the list"
+msgstr "목록의 이전 노트"
+
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
 msgstr "이전에 mdbase editor에서 열림"
@@ -3933,16 +3978,6 @@ msgstr "노트 유형에서 제공되며 이 파일에는 저장되지 않습니
 #: src/editor-commands.ts
 msgid "Quick open"
 msgstr "빠른 열기"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P"
-msgstr "빠른 열기 · {0} P"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P anywhere"
-msgstr "빠른 열기 · 어디서나 {0} P"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4487,6 +4522,7 @@ msgstr "검색 필터"
 msgid "Search is incomplete."
 msgstr "검색이 완료되지 않았습니다."
 
+#: src/editor-commands.ts
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "노트 및 파일 검색"
@@ -4794,6 +4830,7 @@ msgstr "템플릿"
 msgid "text"
 msgstr "텍스트"
 
+#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
@@ -5377,11 +5414,6 @@ msgid "This collection's Person type was not added from a Person starter that ca
 msgstr "이 컬렉션의 Person 유형은 자동 업그레이드 가능한 Person 기본 유형에서 추가된 것이 아니므로 변경되지 않았습니다. "
 
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "This computer"
-msgstr "이 컴퓨터"
-
-#: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "This computer"
 msgstr "이 컴퓨터"
@@ -5871,11 +5903,6 @@ msgstr "검증 결과가 달라질 수 있음"
 #: src/TypeBrowser.tsx
 msgid "Version {0}"
 msgstr "버전 {0}"
-
-#: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Via mdbase"
-msgstr "mdbase를 통해"
 
 #: src/NoteListViewOptions.tsx
 msgid "View options"

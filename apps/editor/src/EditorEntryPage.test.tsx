@@ -15,6 +15,7 @@ describe("Editor entry recovery", () => {
   });
   it("offers a real Portal destination without a demo", () => {
     render(<EditorEntryPage title="Cannot open this collection">Return to Collections.</EditorEntryPage>);
-    expect(screen.getByRole("link", { name: "Back to Collections" })).toHaveAttribute("href", editorPortalUrl());
+    expect(screen.getByRole("link", { name: "Back to mdbase Connect" })).toHaveAttribute("href", editorPortalUrl());
+    expect(screen.getByText(`Connect server: ${editorPortalUrl()}`)).toBeInTheDocument();
   });
 });
