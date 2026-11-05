@@ -173,23 +173,24 @@ MDBASE_CLOUD_OPS_CHECKOUT=/absolute/path/to/mdbase-cloud-ops \
 
 ## Editor publication
 
-Editor is a separate deployment artifact and main's Editor is the native-SDK
-Editor. It publishes only through the native path of **Editor CI and release**
-(`editor-pages.yml`): dispatch it on the literal `release/native-<target>` branch
-with `target` and that branch's exact full HEAD as `source_sha`:
+Editor is a separate static deployment artifact. The ops server pipeline
+dispatches **Editor CI and release** (`editor-pages.yml`) on main with a
+full source SHA reachable from main and the target environment:
 
 ```sh
 gh workflow run editor-pages.yml --repo mdbase-dev/mdbase-connect \
-  --ref release/native-staging -f target=staging -f source_sha=<full HEAD>
+  --ref main -f target=staging -f source_sha=<full-40-character-main-ancestor>
 ```
 
-Pushes to main, pull requests and dispatches without `source_sha` run the Editor
-checks and publish nothing; no main or version-tag dispatch publishes the Editor.
-The unprivileged frozen build, protected `editor-<target>` environment, pinned
-SDK/protocol file hashes, exact npm UI version/SHA512 and served-byte verification are described in
-`apps/editor/NATIVE_PUBLISHER.md`. Production additionally requires its own
-target intake on `release/native-production` and Callum's separate reviewer GO.
-UI-only Editor changes do not require a new backend, npm package, or desktop
+Main pushes and pull requests test only. Main moving during a publication does
+not invalidate its immutable source. There is no per-publish human GO.
+The publisher authenticates the exact production npm SDK or same-version
+staging asset, checks one protected trust hash per environment, and keeps the
+unprivileged frozen build, protected upload and complete served-byte/header
+verification. Production alias failure restores and verifies the captured prior
+Pages deployment and still fails the job. See `apps/editor/NATIVE_PUBLISHER.md`
+for environment policy, App dispatch permissions and recovery evidence.
+UI-only Editor changes do not require a new backend, npm package or desktop
 release.
 
 ## Public client release publication
@@ -230,7 +231,7 @@ For coordinated client releases, and for semantic-v2 enablement, use this order:
    service, including unique service/deployment identity, image digests, hosted
    provider fresh-v2 readiness, and fresh authorization behavior.
 3. Only after that verification, dispatch the legacy `publish-npm.yml`, selecting
-   the existing version tag as the workflow ref. The Editor follows its native
+   the existing version tag as the workflow ref. The Editor follows its continuous
    publication path above. Supply the full verified candidate SHA as
    `production_verified_commit`. Desktop instead follows its continuous procedure
    above, without that input. Consumers may

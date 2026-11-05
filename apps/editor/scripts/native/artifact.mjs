@@ -14,11 +14,11 @@ const requireValue = (ok, reason) => { if (!ok) throw new ArtifactRefusal(reason
 // API/request headers, signed blob URLs, arbitrary response fields or errors.
 const publicStringPatterns={
  id:/^[1-9][0-9]*$/,repositoryId:/^[1-9][0-9]*$/,run:/^[1-9][0-9]*$/,attempt:/^[1-9][0-9]*$/,
- digest:/^sha256:[a-f0-9]{64}$/,source:/^[a-f0-9]{40}$/,tree:/^[a-f0-9]{40}$/,head_sha:/^[a-f0-9]{40}$/,
+ digest:/^sha256:[a-f0-9]{64}$/,source:/^[a-f0-9]{40}$/,tree:/^[a-f0-9]{40}$/,head_sha:/^[a-f0-9]{40}$/,workflowSha:/^[a-f0-9]{40}$/,
  repository:/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/,full_name:/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/,
  name:/^editor-native-build-(staging|production)-[1-9][0-9]*-[1-9][0-9]*$/,
- ref:/^refs\/heads\/release\/native-(staging|production)$/,
- head_branch:/^release\/native-(staging|production)$/,
+ ref:/^refs\/heads\/main$/,
+ head_branch:/^main$/,
  path:/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/,event:/^[a-z_]+$/,target:/^(staging|production)$/
 };
 function publicFields(value, keys) {
@@ -71,17 +71,17 @@ async function publicResponse(response,kind) {
   return {safe,value,json,complete,truncated};
 }
 export function assertArtifactMetadata(meta, expected) {
-  requireValue(/^[1-9][0-9]*$/.test(expected.id??'') && /^[1-9][0-9]*$/.test(expected.run??'') && /^[1-9][0-9]*$/.test(expected.attempt??'') && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(expected.repository??'') && expected.event==='workflow_dispatch' && expected.ref===`refs/heads/release/native-${expected.target}`, 'expected transport identity');
+  requireValue(/^[1-9][0-9]*$/.test(expected.id??'') && /^[1-9][0-9]*$/.test(expected.run??'') && /^[1-9][0-9]*$/.test(expected.attempt??'') && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(expected.repository??'') && expected.event==='workflow_dispatch' && expected.ref==='refs/heads/main' && /^[a-f0-9]{40}$/.test(expected.workflowSha??''), 'expected transport identity');
   requireValue(meta.id === Number(expected.id) && meta.expired === false && meta.digest === expected.digest && /^sha256:[a-f0-9]{64}$/.test(meta.digest), 'immutable ID/digest');
   requireValue(meta.name === `editor-native-build-${expected.target}-${expected.run}-${expected.attempt}`, 'attempt-bound name');
-  requireValue(meta.workflow_run?.id === Number(expected.run) && meta.workflow_run?.head_sha === expected.source && meta.workflow_run?.head_repository_id === Number(expected.repositoryId), 'repository/run/source');
+  requireValue(meta.workflow_run?.id === Number(expected.run) && meta.workflow_run?.head_sha === expected.workflowSha && meta.workflow_run?.head_repository_id === Number(expected.repositoryId), 'repository/run/source');
 }
 export function assertArtifactRun(run, expected) {
-  requireValue(run.id===Number(expected.run) && run.repository?.full_name===expected.repository && run.repository?.id===Number(expected.repositoryId) && run.head_sha===expected.source && run.run_attempt===Number(expected.attempt) && run.event==='workflow_dispatch' && run.head_branch===expected.ref.slice('refs/heads/'.length) && run.path==='.github/workflows/editor-pages.yml', 'run attempt/event/ref/workflow/repository');
+  requireValue(run.id===Number(expected.run) && run.repository?.full_name===expected.repository && run.repository?.id===Number(expected.repositoryId) && run.head_sha===expected.workflowSha && run.run_attempt===Number(expected.attempt) && run.event==='workflow_dispatch' && run.head_branch===expected.ref.slice('refs/heads/'.length) && run.path==='.github/workflows/editor-pages.yml', 'run attempt/event/ref/workflow/repository');
 }
 export async function assertArtifactDirectory(root, expected) {
   const envelope = JSON.parse(await readFile(join(root,'envelope.json'),'utf8'));
-  for (const key of ['repository','run','attempt','event','ref','source','tree','target']) requireValue(envelope[key] === expected[key], `envelope ${key}`);
+  for (const key of ['repository','run','attempt','event','ref','workflowSha','source','tree','target']) requireValue(envelope[key] === expected[key], `envelope ${key}`);
   const inventoryBytes = await readFile(join(root,'inventory.json'));
   const planBytes = await readFile(join(root,'plan.json'));
   requireValue(envelope.inventorySha256 === sha(inventoryBytes) && envelope.planSha256 === sha(planBytes), 'full inventory/plan binding');
@@ -108,7 +108,7 @@ export async function download(expected, root, transport = fetch) {
   };
   await mkdir(join(root,'..'),{recursive:true});
   const evidence = join(root,'../artifact-metadata.json');
-  const observed={expected:publicFields(expected,['id','digest','repository','repositoryId','run','attempt','event','ref','source','tree','target'])};
+  const observed={expected:publicFields(expected,['id','digest','repository','repositoryId','run','attempt','event','ref','workflowSha','source','tree','target'])};
   const persist=()=>writeFile(evidence,JSON.stringify(observed,null,2));
   const remember=async(key,value)=>{observed[key]=value;await persist();};
   let stage='before-metadata-fetch';
@@ -180,7 +180,7 @@ export async function download(expected, root, transport = fetch) {
 }
 if(process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
-    const expected={id:process.env.ARTIFACT_ID,digest:`sha256:${(process.env.ARTIFACT_DIGEST ?? '').replace(/^sha256:/,'')}`,repository:process.env.GITHUB_REPOSITORY,repositoryId:process.env.GITHUB_REPOSITORY_ID,run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,source:process.env.SOURCE_SHA,event:process.env.GITHUB_EVENT_NAME,ref:process.env.GITHUB_REF,tree:execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8'}).trim(),target:process.env.TARGET};
+    const expected={id:process.env.ARTIFACT_ID,digest:`sha256:${(process.env.ARTIFACT_DIGEST ?? '').replace(/^sha256:/,'')}`,repository:process.env.GITHUB_REPOSITORY,repositoryId:process.env.GITHUB_REPOSITORY_ID,run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,source:process.env.SOURCE_SHA,workflowSha:process.env.GITHUB_SHA,event:process.env.GITHUB_EVENT_NAME,ref:process.env.GITHUB_REF,tree:execFileSync('git',['rev-parse','HEAD^{tree}'],{cwd:process.env.EDITOR_SOURCE_ROOT??process.cwd(),encoding:'utf8'}).trim(),target:process.env.TARGET};
     await download(expected,process.argv[2]);
   } catch(error) {console.error(error.message); process.exitCode=1;}
 }

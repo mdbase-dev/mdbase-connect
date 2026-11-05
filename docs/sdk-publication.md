@@ -3,7 +3,9 @@
 The SDK uses an independent CI-computed version and publishes changed qualified
 main source after production-contract compatibility checks. See
 [continuous SDK publication](continuous-sdk-release.md) for triggers, selection,
-stop/recovery controls and required environment-policy setup. Existing apps
+stop/recovery controls and required environment-policy setup. Editor authenticates its committed production original against npm integrity
+and provenance and uses the same version's attested staging asset. See
+[Editor continuous deployment](../apps/editor/NATIVE_PUBLISHER.md). Other apps
 keep their current originals until their guarded npm intake migration lands.
 
 ## Decision: separate package identities, build-time trust (model a)
@@ -46,8 +48,10 @@ a production declaration paired with staging/LAB release metadata.
 This is not a claim that JavaScript can defend against an app deliberately
 replacing its entire dependency or rewriting its bundle. Production publishers
 must admit only the production package name, exact version, frozen-lock SRI and
-verified npm provenance, and reject every alias, URL/tarball specifier,
-linked/workspace SDK, patched source and installed-member drift. The shared
+verified npm provenance. Editor retains a committed original archive plus
+repin-generated metadata, authenticated against that exact npm version; this is
+not an arbitrary tarball override. Reject unverified aliases, URLs/archives,
+linked/workspace SDKs, patched source and installed-member drift. The shared
 `production-version` admission command accepts only an exact npm version; the
 first consumer migrations must wire this into their protected publishers before
 installing, and verify the lock resolves to npmjs. Preserve the complete
@@ -214,9 +218,10 @@ also checks the matching attached Sigstore bundle against the expected repo,
 downloaded tarball/bundle can be checked with `gh attestation verify <tarball>
 --bundle <bundle> --repo mdbase-dev/mdbase-connect --signer-workflow
 mdbase-dev/mdbase-connect/.github/workflows/publish-sdk-npm.yml --source-ref
-refs/tags/v0.1.0-beta.149 --source-digest <producer-SHA>`.
+refs/heads/main --source-digest <producer-SHA>`. Use the exact producer workflow
+ref recorded for that version (a protected version tag for tag-built versions).
 
-Native/web production publishers must reject these URLs and all aliases,
+Production publishers must reject staging/LAB URLs and all unverified aliases,
 including a URL claiming to contain the production package. Retain their
 target-origin/declaration checks. Do not dynamically select an
 environment at runtime, retarget production roots, or fall back to production
@@ -228,6 +233,30 @@ dependency version edit plus the mechanical lockfile change. Trust roots,
 archive facts and Dockerfile SHA values no longer need parallel repins. CI
 derives the allowed npm package or exact environment asset URL from that dependency and checks
 the lock's SRI rather than maintaining a second version/integrity inventory.
+
+## Editor consumption and deployment
+
+Editor uses its ordinary manifest, matching `vendor/sdk-production-*.json`
+metadata/facts and frozen lock as its SDK pin. The central ops repin writes
+those inputs and must not preserve publisher fixtures or separate native
+approvals. The guard discovers the matching metadata from the manifest, checks
+its bytes against the committed archive and npm, verifies npm provenance, and
+compares all installed members before execution. UI version/integrity comes
+only from the manifest and lock; protocol uses its committed file pin.
+
+Staging derives the same SDK version's exact `sdk-staging.tgz` and bundle URL,
+checks both release digests, and verifies the repository, publication workflow,
+producer ref and commit with `gh attestation verify`. Its unprivileged frozen
+install substitutes only that authenticated SDK and integrity. The packaged
+trust hash must match the release-components contract and the protected
+`EDITOR_TRUST_ASSET_SHA256` for the target. Repins never change that variable.
+
+The ops server pipeline dispatches Editor on main with an immutable source SHA
+reachable from main. Main advancing is allowed. Production alias verification
+failure triggers the Pages rollback API to the captured prior deployment,
+verifies the restored alias, retains a receipt and fails the job. This static
+rollback does not change any SDK version, trust roots, policy keys or registry
+release. See `apps/editor/NATIVE_PUBLISHER.md` for the full procedure.
 
 ## Migration dependency, deletions and rollback
 
@@ -263,7 +292,7 @@ this is a source audit, not live promotion qualification.
 
 Consumer follow-ups, only after the first qualified npm/prerelease cut:
 
-1. Migrate Editor, Reader and TaskNotes individually with the existing protected
+1. Migrate Reader and TaskNotes individually with the existing protected
    build/upload isolation, target admission, installed-member checks and served
    byte verification retained. Use PR 1068's npm UI intake as the starting point.
 2. In each migrated app delete the SDK `file:` dependency, SDK-original `.tgz`,
@@ -282,9 +311,9 @@ Read-only consumer inspection on October 30, 2026 found Reader's
 `packages/connect/package.json` still on `sdk-dce61ff5-production-beta141.tgz`
 with `packages/connect/vendor/sdk-production-beta141.json` using the old facts
 schema, and TaskNotes' `config/native-publish/production.json` still recording
-`sdk-eaa4e697-production-beta141.tgz` and its facts hash. Editor's configs and
-vendor record do the same. These repos/pins are deliberately not migrated by
-this PR. No one-line bump is safe until their first npm-intake migration lands.
+`sdk-eaa4e697-production-beta141.tgz` and its facts hash. Those consumers need
+their own authenticated intake migration. Editor uses the authenticated
+metadata/archive path described above.
 
 Production rollback is an exact prior npm version and frozen lock. Staging/LAB
 rollback is the exact prior **same-environment** version's asset URL and its

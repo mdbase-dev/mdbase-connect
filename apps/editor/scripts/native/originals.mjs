@@ -1,9 +1,9 @@
-// OFF-CI NX-TRUST/TNAPP authenticate once. CI binds original bytes only.
-// Canonical producer packet: nx-tnapp-public-target-sdk-verification-inputs.md.
+// Authenticated SDK and frozen original members; no application imports.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
+import { authenticateProduction, stagingArchive, publicBytes } from './authentication.mjs';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 const hash = (bytes, algorithm = 'sha256') => createHash(algorithm).update(bytes).digest(algorithm === 'sha512' ? 'base64' : 'hex');
@@ -11,10 +11,10 @@ const requireValue = (ok, reason) => { if (!ok) throw Error(`Refusing native ori
 const equal = (a, b, reason) => requireValue(isDeepStrictEqual(a, b), reason);
 const json = async (path) => JSON.parse(await readFile(path, 'utf8'));
 const packages = { sdk: '@mdbase-dev/sdk', ui: '@mdbase-dev/ui', protocol: '@mdbase-dev/connect-protocol' };
-export const digestNames = ['NATIVE_SDK_SHA256', 'NATIVE_PROTOCOL_SHA256', 'NATIVE_TRUST_ASSET_SHA256'];
+export const digestNames = ['EDITOR_TRUST_ASSET_SHA256'];
 export function protectedHashes(env = process.env) {
   const hashes = Object.fromEntries(digestNames.map(name => [name, env[name]]));
-  requireValue(Object.values(hashes).every(value => /^[a-f0-9]{64}$/.test(value ?? '')), 'three protected per-environment original SHA256 values required');
+  requireValue(Object.values(hashes).every(value => /^[a-f0-9]{64}$/.test(value ?? '')), 'protected EDITOR_TRUST_ASSET_SHA256 required');
   return hashes;
 }
 async function regular(root, name) {
@@ -28,7 +28,7 @@ export function originalMembers(bytes) {
 }
 function memberBytes(archive, members, path) {
   requireValue(members.some(m => m.path === path), `missing original ${path}`);
-  return execFileSync('tar', ['-xOzf', archive, `package/${path}`], { maxBuffer: 128 * 1024 * 1024 });
+  return execFileSync('tar', ['-xOzf', '-', `package/${path}`], { input: archive, maxBuffer: 128 * 1024 * 1024 });
 }
 export async function installedMembers(root, ignoredPaths = new Set()) {
   const out = [];
@@ -51,145 +51,138 @@ export async function installedMembers(root, ignoredPaths = new Set()) {
   await walk(root);
   return out.sort((a,b) => a.path < b.path ? -1 : 1);
 }
-export async function loadOriginals({ target, repoRoot, hashes, installed = false, fetchImpl = fetch }) {
-  requireValue(['staging','production'].includes(target), 'unknown target; no LAB retarget');
-  // Library callers must supply explicit expectations. Only the CLI's separate
-  // protectedHashes() call intentionally reads process.env; undefined here must
-  // not trigger that default overload and then leave `hashes` unvalidated.
-  protectedHashes(hashes ?? {});
-  repoRoot = await realpath(repoRoot);
-  const approvedBytes = await regular(repoRoot, `config/native-publish/${target}.json`);
-  const approved = JSON.parse(approvedBytes);
-  requireValue(approved.target === target && /^[a-f0-9]{64}$/.test(approved.factsSha256) && /^[a-f0-9]{40}$/.test(approved.sdkSource) && /^[a-f0-9]{40}$/.test(approved.sdkTree), 'approved source intake input');
-  const app = join(repoRoot, 'apps/editor');
-  const pkg = await json(join(app, 'package.json'));
-  const lockBytes = await regular(repoRoot, 'pnpm-lock.yaml');
-  const lock = lockBytes.toString();
-  const archives = {}, originals = {};
-  for (const [key, name] of Object.entries(packages)) {
-    const pin = pkg.dependencies?.[name];
-    let path, bytes;
-    const importer = lock.split('\n  apps/editor:\n')[1]?.split(/\n  [^ ]/)[0];
-    if (key === 'ui') {
-      requireValue(typeof pin === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(pin), `${name} must be an exact npm version`);
-      requireValue(approved.ui?.version === pin && /^sha512-[A-Za-z0-9+/]{86}==$/.test(approved.ui?.integrity ?? ''), 'UI committed version/integrity pin missing or mismatched');
-      const entry = lock.split(`\n  '${name}@${pin}':\n`)[1]?.split(/\n  [^ ]/)[0];
-      const dependency = importer?.split(`'${name}':\n        specifier: ${pin}\n        version: `)[1]?.split('\n')[0];
-      requireValue(dependency?.split('(')[0] === pin && entry?.includes(`    resolution: {integrity: ${approved.ui.integrity}}\n`), `${name} frozen registry integrity mismatch`);
-      path = `https://registry.npmjs.org/${name}/-/ui-${pin}.tgz`;
-      const response = await fetchImpl(path, { redirect: 'error', signal: AbortSignal.timeout(30000) });
-      requireValue(response.ok, `${name}@${pin} registry archive unavailable (${response.status})`);
-      bytes = Buffer.from(await response.arrayBuffer());
-      equal(`sha512-${hash(bytes, 'sha512')}`, approved.ui.integrity, 'UI registry archive integrity mismatch');
-    } else {
-      requireValue(typeof pin === 'string' && pin.startsWith('file:'), `${name} must remain a file pin`);
-      path = relative(repoRoot, resolve(app, pin.slice(5)));
-      bytes = await regular(repoRoot, path);
-      const sha256 = hash(bytes), sri = `sha512-${hash(bytes, 'sha512')}`;
-      equal(sha256, hashes[`NATIVE_${key.toUpperCase()}_SHA256`], `${key} protected archive hash mismatch`);
-      requireValue(importer?.includes(`'${name}':\n        specifier: ${pin}\n`), `${name} frozen importer pin mismatch`);
-      const escaped = `${name}@file:${path}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const resolution = new RegExp(`  '${escaped}':\\n    resolution: \\{integrity: ([^,]+), tarball: file:([^}]+)\\}`).exec(lock);
-      requireValue(resolution?.[1] === sri && resolution?.[2] === path, `${name} frozen archive integrity mismatch`);
-    }
-    const members = originalMembers(bytes);
-    if (key === 'ui') {
-      const manifest = JSON.parse(execFileSync('tar', ['-xOzf', '-', 'package/package.json'], { input: bytes }));
-      requireValue(manifest.name === name && manifest.version === pin, 'UI registry package identity mismatch');
-    }
-    if (installed) {
-      const installedRoot = await realpath(join(app, 'node_modules', name));
-      requireValue(!relative(repoRoot, installedRoot).startsWith('..'), 'installed package outside checkout');
-      // Editor uses hoisted pnpm installs. A package's installed dependencies
-      // and generated CLI links are not original package members. Never exclude
-      // ANY namespace owned by the archive (in particular SDK bundled modules).
-      // External dependency resolution remains governed by the frozen lock;
-      // this check proves original bytes, not fresh dependency authentication.
-      const owns = path => members.some(m => m.path === path || m.path.startsWith(path + '/'));
-      const ignored = !owns('node_modules') ? new Set(['node_modules'])
-        : !owns('node_modules/.bin') ? new Set(['node_modules/.bin']) : new Set();
-      const actual = await installedMembers(installedRoot, ignored);
-      const byPath = new Map(actual.map(m => [m.path,m]));
-      const originalPaths = new Set(members.map(m => m.path));
-      const extras = actual.filter(m => !originalPaths.has(m.path)).map(m => m.path).slice(0,3);
-      const differences = members.filter(m => !isDeepStrictEqual(m,byPath.get(m.path))).slice(0,3).map(m => ({expected:m,actual:byPath.get(m.path)??null}));
-      equal(actual, members, `${name} ALL installed original members differ: ${JSON.stringify({expectedCount:members.length,actualCount:actual.length,extras,differences})}`);
-    }
-    archives[key] = { path, ...(key === 'ui' ? { version: pin } : {}), bytes: bytes.length, sha256: hash(bytes), sri: `sha512-${hash(bytes, 'sha512')}`, members: members.length };
-    originals[key] = members;
+
+export async function productionPin(repoRoot) {
+  const app=join(repoRoot,'apps/editor'),pkg=await json(join(app,'package.json'));
+  const spec=pkg.dependencies['@mdbase-dev/sdk'];
+  requireValue(/^file:vendor\/[\w.-]+\.tgz$/.test(spec??''),'SDK must be a committed original archive');
+  const artifact=spec.slice('file:vendor/'.length);
+  const candidates=[];
+  for(const name of await readdir(join(app,'vendor'))) {
+    if(!/^sdk-production-[\w.-]+\.json$/.test(name))continue;
+    const value=await json(join(app,'vendor',name));
+    if(value.artifact===artifact)candidates.push(value);
   }
-  // This is a delivery location, not a new approval descriptor/schema.
-  const packet = `apps/editor/vendor/native-release/${target}`;
-  const packetFile = (path) => regular(repoRoot, `${packet}/${path}`);
-  const factsBytes = await packetFile('artifact-facts.json');
-  equal(hash(factsBytes), approved.factsSha256, 'approved facts digest mismatch');
-  const facts = JSON.parse(factsBytes);
-  equal([facts.source,facts.sourceTree],[approved.sdkSource,approved.sdkTree],'approved SDK source/tree mismatch');
-  const sdk = archives.sdk, sdkPath = join(repoRoot, sdk.path), members = originals.sdk;
-  const producerMembers = JSON.parse(await packetFile('members.json'));
-  requireValue(Array.isArray(producerMembers), 'producer complete SDK inventory type');
-  // Canonical producer sidecar retains npm archive order. Compare ALL entries
-  // by path without rewriting originals, deduplicating or dropping any entry.
-  equal(producerMembers.toSorted((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0), members, 'producer complete SDK inventory mismatch');
-  requireValue(facts.archive === sdk.path.split('/').at(-1) && facts.bytes === sdk.bytes && facts.sha256 === sdk.sha256 && facts.sri === sdk.sri && facts.members === sdk.members && /^[a-f0-9]{40}$/.test(facts.source) && /^[a-f0-9]{40}$/.test(facts.sourceTree), 'canonical artifact facts mismatch');
-  const provenanceBytes = await packetFile('provenance.json');
-  requireValue(provenanceBytes.equals(memberBytes(sdkPath, members, 'dist/native/provenance.json')), 'provenance not byte-identical to original');
-  const provenance = JSON.parse(provenanceBytes);
-  equal([facts.trust,facts.handoff,facts.verifier],[provenance.trust,provenance.handoff,provenance.verifier], 'approved facts/provenance trust/handoff/verifier mismatch');
-  requireValue(provenance.schema === 'mdbn-sdk/application-assets/1' && provenance.environment === target && provenance.trust?.environment === target, 'provenance target mismatch');
-  const contextBytes = await packetFile(`next-trust/${target}-context.json`), context = JSON.parse(contextBytes);
-  const asset = await packetFile(`next-trust/${target}.json`);
-  const receiptBytes = await packetFile('build-receipt.json'), receipt = JSON.parse(receiptBytes);
-  const cp = target === 'staging' ? 'https://connect-staging.mdbase.dev' : 'https://connect.mdbase.dev';
-  const t = provenance.trust, c = context.context, h = provenance.handoff, v = provenance.verifier;
-  requireValue(context.schema_version === 1 && context.kind === 'mdbase-next-build-trust-context', 'canonical context schema');
-  requireValue(c.environment === target && c.control_plane_origin === cp && c.source?.repository === 'mdbase-dev/mdbase-connect' && /^[a-f0-9]{40}$/.test(c.source.commit) && typeof c.source.version === 'string' && c.source.version.length > 0, 'target CP/source context mismatch');
-  const log = new URL(c.log_origin);
-  requireValue(log.protocol === 'https:' && log.origin === c.log_origin && !log.username && !log.password, 'exact authenticated log origin');
-  equal([hash(asset), t.sha256, c.sha256], Array(3).fill(hashes.NATIVE_TRUST_ASSET_SHA256), 'RAW signed asset hash differs (not module/context/receipt hash)');
-  equal([t.cpOrigin,t.logOrigin,t.sourceCommit,t.sourceVersion], [cp,c.log_origin,c.source.commit,c.source.version], 'trust context bindings');
-  requireValue(h.contextSha256 === hash(contextBytes) && h.receiptSha256 === hash(receiptBytes) && h.asset_length === asset.length && h.asset_path === `next-trust/${target}.json`, 'handoff original byte binding');
-  for (const [key,value] of Object.entries(context.provenance)) equal(h[key], value, `context provenance ${key}`);
-  const proofs = {};
-  for (const filename of ['release-trust-bundle.json','release-trust-bundle.sigstore.json','image-release-bundle.json','image-release-bundle.sigstore.json']) {
-    proofs[filename] = await packetFile(filename);
-    equal(hash(proofs[filename]), h.proof_sha256?.[filename], `original proof ${filename}`);
+  requireValue(candidates.length===1,'one production pin must describe the dependency');
+  const pin=candidates[0],bytes=await regular(repoRoot,'apps/editor/vendor/'+artifact);
+  requireValue(pin.schema==='tnapp/production-sdk-original/1' && pin.environment==='production' &&
+    /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(pin.version) && /^[a-f0-9]{40}$/.test(pin.sourceCommit),'production pin identity');
+  requireValue(pin.sha256===hash(bytes) && pin.bytes===bytes.length && pin.sri==='sha512-'+hash(bytes,'sha512'),'committed SDK archive mismatch');
+  requireValue(pin.publication.repository==='mdbase-dev/mdbase-connect' && pin.publication.workflow==='.github/workflows/publish-sdk-npm.yml' &&
+    ['refs/heads/main', 'refs/tags/v'+pin.version].includes(pin.publication.ref),'production publication identity');
+  requireValue(pin.publication.npm==='@mdbase-dev/sdk@'+pin.version && pin.publication.integrity===pin.sri &&
+    pin.publication.tarball===`https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-${pin.version}.tgz` &&
+    pin.publication.attestations===`https://registry.npmjs.org/-/npm/v1/attestations/@mdbase-dev%2fsdk@${pin.version}`,'committed npm publication mismatch');
+  const factsBytes=await regular(repoRoot,'apps/editor/vendor/'+pin.artifactFacts);
+  equal(hash(factsBytes),pin.artifactFactsSha256,'committed SDK facts digest mismatch');
+  const facts=JSON.parse(factsBytes);
+  equal([facts.source,facts.sha256,facts.packagedTrustModuleSha256],[pin.sourceCommit,pin.sha256,pin.packagedTrustModuleSha256],'committed SDK facts mismatch');
+  return {pin,bytes,spec};
+}
+export async function compareInstalled(repoRoot,archives,{fetchImpl=fetch}={}) {
+  for(const [key,archive] of Object.entries(archives)) {
+    const bytes=archive.path.startsWith('https:')?await publicBytes(archive.path,fetchImpl):await regular(repoRoot,archive.path);
+    requireValue(hash(bytes)===archive.sha256,'installed comparison archive mismatch');
+    const members=originalMembers(bytes),name=packages[key];
+    const installedRoot=await realpath(join(repoRoot,'apps/editor/node_modules',name));
+    requireValue(!relative(repoRoot,installedRoot).startsWith('..'),'installed package outside checkout');
+    const owns=path=>members.some(m=>m.path===path || m.path.startsWith(path+'/'));
+    const ignored=!owns('node_modules')?new Set(['node_modules']):!owns('node_modules/.bin')?new Set(['node_modules/.bin']):new Set();
+    equal(await installedMembers(installedRoot,ignored),members,name+' ALL installed original members differ');
   }
-  const inventory = JSON.parse(proofs['release-trust-bundle.json']), image = JSON.parse(proofs['image-release-bundle.json']);
-  const a = inventory.trustAssets?.[0], b = inventory.imageBundle;
-  const sourceMatches = value => value?.repository === c.source.repository && value?.commit === c.source.commit && value?.version === c.source.version;
-  requireValue(inventory.schemaVersion === 1 && inventory.kind === 'mdbase-release-trust-bundle' && sourceMatches(inventory) && sourceMatches(image) && inventory.trustAssets?.length === 1, 'canonical authenticated release inventory identity');
-  requireValue(a.path === h.asset_path && a.length === asset.length && a.sha256 === hashes.NATIVE_TRUST_ASSET_SHA256 && a.environment === target && a.controlPlaneOrigin === cp && a.logOrigin === c.log_origin && sourceMatches(a.source), 'release inventory RAW signed trust asset binding');
-  requireValue(b?.path === 'image-release-bundle.json' && b.length === proofs[b.path].length && b.sha256 === h.proof_sha256[b.path] && b.publicationRunId === h.image_publication.run_id && b.publicationRunAttempt === h.image_publication.run_attempt, 'image inventory binding');
-  equal([image.publication?.runId,image.publication?.runAttempt,inventory.publication?.runId,inventory.publication?.runAttempt,inventory.publication?.publisherCommit,inventory.qualification?.runId,inventory.qualification?.runAttempt], [h.image_publication.run_id,h.image_publication.run_attempt,h.trust_publication.run_id,h.trust_publication.run_attempt,h.trust_publication.publisher_commit,h.publisher_qualification.run_id,h.publisher_qualification.run_attempt], 'original publication/qualification bindings');
-  for (const key of ['image_publication','trust_publication','publisher_qualification']) requireValue(Number.isSafeInteger(h[key]?.run_id) && h[key].run_id > 0 && Number.isSafeInteger(h[key]?.run_attempt) && h[key].run_attempt > 0, `canonical ${key} identity`);
-  requireValue(/^[a-f0-9]{40}$/.test(h.trust_publication.publisher_commit), 'publisher commit identity');
-  requireValue(receipt.schema === 'mdbn-sdk/application-build/1' && receipt.contextSha256 === hash(contextBytes) && receipt.verifierSha256 === v.sha256 && receipt.verifierSourceCommit === v.source && v.clockOverride === false && /^[a-f0-9]{40}$/.test(v.source) && /^[a-f0-9]{64}$/.test(v.sha256), 'frozen receipt/verifier binding');
-  const module = memberBytes(sdkPath, members, 'dist/application/packaged-trust.js');
-  equal(hash(module), facts.packagedTrustModuleSha256, 'approved compiled trust module mismatch');
-  const literal = /const metadata = (\{[^\n]+\});/.exec(module.toString());
-  requireValue(literal, 'unknown canonical packaged trust literal');
-  const release = JSON.parse(literal[1]);
-  equal([release.schema,release.environment,release.cpOrigin,release.logOrigin,release.assetSha256,release.source], ['mdbn-app-trust/release/1',target,cp,c.log_origin,hash(asset),c.source], 'compiled appReleaseTrust asset/context binding');
-  const nativeAssets = {};
-  for (const [name,pin] of [['runtime.wasm',provenance.runtime],['sqlite3.wasm',provenance.sqlite],['sqlite3.js',provenance.sqlite.initializer]]) {
-    const bytes = memberBytes(sdkPath,members,`dist/native/${name}`);
-    requireValue(pin.sha256 === hash(bytes) && pin.bytes === bytes.length, `${name} provenance mismatch`);
-    nativeAssets[name] = { sha256:hash(bytes), bytes:bytes.length };
+}
+export function assertProtocolArchive(pin, sdkBytes, protocolBytes) {
+  const entries=pin.bundledDependencies?.filter(d=>d.name===packages.protocol)??[];
+  requireValue(entries.length===1,'one SDK bundled protocol required');
+  const dependency=entries[0];
+  requireValue(/^package\/vendor\/[\w.-]+\.tgz$/.test(dependency.member),'bundled protocol path');
+  const bundled=memberBytes(sdkBytes,originalMembers(sdkBytes),dependency.member.slice(8));
+  requireValue(bundled.length===dependency.bytes && hash(bundled)===dependency.sha256,'SDK bundled protocol metadata mismatch');
+  requireValue(protocolBytes.equals(bundled),'direct protocol must be byte-identical to authenticated SDK bundled protocol');
+}
+export async function loadOriginals({target,repoRoot,hashes,installed=false,fetchImpl=fetch,authenticate=authenticateProduction,stage=stagingArchive}) {
+  requireValue(['staging','production'].includes(target),'unknown target');
+  protectedHashes(hashes??{});
+  repoRoot=await realpath(repoRoot);
+  const {pin,bytes:productionBytes,spec}=await productionPin(repoRoot);
+  const app=join(repoRoot,'apps/editor'),pkg=await json(join(app,'package.json'));
+  const lockBytes=await regular(repoRoot,'pnpm-lock.yaml'),lock=lockBytes.toString();
+  const importer=lock.split('\n  apps/editor:\n')[1]?.split(/\n  [^ ]/)[0];
+  const archives={},originals={};
+  const frozenFile=(name,pin,bytes)=>{
+    const path=relative(repoRoot,resolve(app,pin.slice(5)));
+    requireValue(importer?.includes(`'${name}':\n        specifier: ${pin}\n`),name+' frozen importer mismatch');
+    const entry=lock.split(`\n  '${name}@file:${path}':\n`)[1]?.split(/\n  [^ ]/)[0];
+    requireValue(entry?.includes(`    resolution: {integrity: sha512-${hash(bytes,'sha512')}, tarball: file:${path}}\n`),name+' frozen archive integrity mismatch');
+    return path;
+  };
+  const productionPath=frozenFile(packages.sdk,spec,productionBytes);
+  const auth=await authenticate(pin,productionBytes,{fetchImpl});
+  let sdkBytes=productionBytes,sdkPath=productionPath,authentication=auth;
+  if(target==='staging') {
+    const result=await stage(pin,{fetchImpl});
+    sdkBytes=result.bytes;sdkPath=result.path;authentication=result.authentication;
   }
-  requireValue(provenance.runtime.source?.repository === 'mdbase-dev/mdbase-next' && facts.nativeSource === provenance.runtime.source.commit && facts.nativeSha256 === provenance.runtime.sha256 && facts.nativeBytes === provenance.runtime.bytes && provenance.runtime.bytes <= provenance.runtime.maxBytes && provenance.sqlite.bytes <= provenance.sqlite.maxBytes, 'native source/budget facts');
-  const dep = facts.dependencies?.find(d => d.name === packages.protocol);
-  const protocol = archives.protocol;
-  requireValue(dep && dep.file === `vendor/${protocol.path.split('/').at(-1)}` && dep.bytes === protocol.bytes && dep.sha256 === protocol.sha256 && dep.sri === protocol.sri, 'bundled protocol original custody');
-  // Canonical facts.file is SDK-relative original vendor custody, NOT an app path
-  // or invented basename alias. Bind that unchanged original tgz as well as every
-  // installed/bundled protocol member below.
-  const vendorProtocol = memberBytes(sdkPath, members, dep.file);
-  requireValue(vendorProtocol.length === protocol.bytes && hash(vendorProtocol) === protocol.sha256 && `sha512-${hash(vendorProtocol, 'sha512')}` === protocol.sri, 'SDK vendor protocol original archive differs');
-  const bundled = members.filter(m => m.path.startsWith('node_modules/@mdbase-dev/connect-protocol/')).map(m => ({...m,path:m.path.slice('node_modules/@mdbase-dev/connect-protocol/'.length)}));
-  equal(bundled, originals.protocol, 'SDK bundled protocol differs from pinned original');
-  return { environment:target, release, nativeAssets, archives, lockSha256:hash(lockBytes), protectedHashes:hashes,
-    packet: { path:packet, approvedInputSha256:hash(approvedBytes), factsSha256:hash(factsBytes), contextSha256:hash(contextBytes), receiptSha256:hash(receiptBytes), provenanceSha256:hash(provenanceBytes) },
-    trustModuleSha256:hash(module), appOrigin:target === 'staging' ? 'https://editor-staging.mdbase.dev' : 'https://editor.mdbase.dev',
-    connectOrigin:cp, editorOrigin:target === 'staging' ? 'https://editor-staging.mdbase.dev' : 'https://editor.mdbase.dev' };
+  const protocolSpec=pkg.dependencies[packages.protocol];
+  requireValue(/^file:vendor\/[\w.-]+\.tgz$/.test(protocolSpec??''),'protocol must be a committed file pin');
+  const protocolPath=relative(repoRoot,resolve(app,protocolSpec.slice(5)));
+  const protocolBytes=await regular(repoRoot,protocolPath);
+  assertProtocolArchive(pin,productionBytes,protocolBytes);
+  if(target==='staging')assertProtocolArchive(pin,sdkBytes,protocolBytes);
+  frozenFile(packages.protocol,protocolSpec,protocolBytes);
+  const version=pkg.dependencies[packages.ui];
+  requireValue(/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version??''),'UI must be an exact npm version');
+  const entry=lock.split(`\n  '${packages.ui}@${version}':\n`)[1]?.split(/\n  [^ ]/)[0];
+  const integrity=/resolution: \{integrity: (sha512-[A-Za-z0-9+/]+={0,2})\}/.exec(entry??'')?.[1];
+  const frozenUi=importer?.split(`'${packages.ui}':\n        specifier: ${version}\n        version: `)[1]?.split('\n')[0]?.split('(')[0];
+  requireValue(integrity && frozenUi===version,'UI frozen version/integrity missing');
+  const uiPath=`https://registry.npmjs.org/@mdbase-dev/ui/-/ui-${version}.tgz`;
+  const response=await fetchImpl(uiPath,{redirect:'error',signal:AbortSignal.timeout(30000)});
+  requireValue(response.ok,'UI registry archive unavailable');
+  const uiBytes=Buffer.from(await response.arrayBuffer());
+  equal('sha512-'+hash(uiBytes,'sha512'),integrity,'UI registry archive integrity mismatch');
+  for(const [key,path,bytes] of [['sdk',sdkPath,sdkBytes],['protocol',protocolPath,protocolBytes],['ui',uiPath,uiBytes]]) {
+    originals[key]=originalMembers(bytes);
+    archives[key]={path,bytes:bytes.length,sha256:hash(bytes),sri:'sha512-'+hash(bytes,'sha512'),members:originals[key].length};
+  }
+  const member=path=>memberBytes(sdkBytes,originals.sdk,path);
+  const manifest=JSON.parse(member('package.json'));
+  const publication=(await json(join(repoRoot,'config/release-components.json'))).sdkPublication;
+  const trust=publication.environments[target];
+  requireValue(manifest.name===trust.package && manifest.version===pin.version,'SDK package/version/target mismatch');
+  requireValue(target==='production' ? manifest.private!==true && manifest.publishConfig?.registry==='https://registry.npmjs.org/' : manifest.private===true && manifest.publishConfig===undefined,'SDK distribution policy mismatch');
+  const ui=JSON.parse(memberBytes(uiBytes,originals.ui,'package.json'));
+  requireValue(ui.name===packages.ui && ui.version===version,'UI package identity mismatch');
+  const provenance=JSON.parse(member('dist/native/provenance.json'));
+  equal(provenance.trust,trust,'SDK provenance trust differs from release components');
+  requireValue(provenance.schema==='mdbase-sdk/npm-publication/1' && provenance.environment===target && provenance.commit===pin.sourceCommit,'SDK provenance identity mismatch');
+  const module=member('dist/application/packaged-trust.js');
+  const literal=/^const metadata = (\{.*\});$/m.exec(module.toString());
+  requireValue(literal,'unknown packaged trust literal');
+  const release=JSON.parse(literal[1]);
+  requireValue(release.schema==='mdbn-app-trust/release/1' && release.environment===target && release.cpOrigin===trust.cpOrigin && release.logOrigin===trust.logOrigin,'packaged SDK target mismatch');
+  equal([release.assetSha256,provenance.trust.sha256,hash(await regular(repoRoot,`config/next-trust/${target}.json`))],
+    Array(3).fill(hashes.EDITOR_TRUST_ASSET_SHA256),'packaged trust hash differs from protected trust hash');
+  equal(release.source,{repository:'mdbase-dev/mdbase-connect',commit:trust.sourceCommit,version:trust.sourceVersion},'packaged trust source mismatch');
+  if(target==='production') {
+    equal(pin.trust,trust,'committed pin trust mismatch');
+    equal(pin.packagedTrustModuleSha256,hash(module),'committed packaged trust module mismatch');
+    equal(pin.runtime,provenance.runtime,'committed runtime mismatch');
+    for(const dependency of pin.bundledDependencies) {
+      requireValue(dependency.member.startsWith('package/vendor/'),'bundled dependency path mismatch');
+      const bytes=member(dependency.member.slice('package/'.length));
+      requireValue(bytes.length===dependency.bytes && hash(bytes)===dependency.sha256,'committed bundled archive mismatch');
+    }
+  }
+  const assetPins=JSON.parse(member('dist/application/asset-pins.json')),nativeAssets={};
+  equal(assetPins.runtime,provenance.runtime,'runtime provenance mismatch');
+  for(const [name,pin] of [['runtime.wasm',assetPins.runtime],['sqlite3.wasm',assetPins.sqlite],['sqlite3.js',assetPins.sqlite.initializer]]) {
+    const bytes=member('dist/native/'+name);
+    requireValue(pin.sha256===hash(bytes) && pin.bytes===bytes.length,'native asset integrity mismatch');
+    nativeAssets[name]={sha256:hash(bytes),bytes:bytes.length};
+  }
+  if(installed)await compareInstalled(repoRoot,archives,{fetchImpl});
+  return {environment:target,release,nativeAssets,archives,authentication,lockSha256:hash(lockBytes),protectedHashes:hashes,
+    production:{path:productionPath,sri:pin.sri},trustModuleSha256:hash(module),
+    appOrigin:target==='staging'?'https://editor-staging.mdbase.dev':'https://editor.mdbase.dev'};
 }

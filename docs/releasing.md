@@ -203,8 +203,8 @@ select the existing tag as the workflow ref and supply the exact full
 `production_verified_commit` SHA for the legacy npm publisher. Desktop no longer
 uses this sequence or input; use [continuous desktop releases](continuous-desktop-release.md).
 The Editor
-is not part of the tag-ref transition: it publishes only through its native
-dispatch path on `release/native-<target>` (see
+uses ops-dispatched continuous deployment on main with an immutable main-ancestor
+source SHA, authenticated SDK intake and verified production rollback (see
 [Editor publication](release-contract.md#editor-publication)). Reader is
 excluded from this rollout.
 
