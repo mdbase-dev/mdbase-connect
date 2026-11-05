@@ -355,7 +355,7 @@ impl<S: Store> Replica<S> {
             // lost after revocation: the only rejection of an
             // acknowledged write.
             if self.resurrected.contains_key(&row.mutation.id)
-                && row.grant.is_some_and(|g| self.grant_now(&g).is_none())
+                && row.grant.is_some_and(|g| self.grant_now(&g).is_err())
             {
                 let mut problem = crate::api::ErrorCode::Forbidden
                     .problem("the grant was revoked before this lost write could be restored");

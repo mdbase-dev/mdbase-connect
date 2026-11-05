@@ -114,21 +114,33 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
-    pub(crate) fn grant_now(&self, grant: &Uuid) -> Option<crate::policy::EffectiveGrant> {
+    pub(crate) fn grant_now(&self, grant: &Uuid) -> ApiResult<crate::policy::EffectiveGrant> {
         // no grant is effective while lost control is latched (only the
         // hosting app is served), and a latched grant stays revoked until the log
         // shows it again.
         if self.lost_control_pending() || self.grant_latched(grant) {
-            return None;
+            return Err(ErrorCode::Unauthenticated.err("the grant was revoked"));
         }
         if self.local_only() {
-            let mut grant = self.grant_source.as_ref()?.grant(grant)?;
-            grant.role = grant
-                .role
-                .min(self.authorize(grant.account, self.cfg.collection)?);
-            Some(grant)
+            let mut grant = self
+                .grant_source
+                .as_ref()
+                .ok_or_else(|| ErrorCode::Unauthenticated.err("no grant authority"))?
+                .grant(grant)?;
+            grant.role = grant.role.min(
+                self.authorize(grant.account, self.cfg.collection)
+                    .ok_or_else(|| {
+                        ErrorCode::Forbidden.err_with_reason(
+                            "grant_account_mismatch",
+                            "grant account is not authorized here",
+                        )
+                    })?,
+            );
+            Ok(grant)
         } else {
-            self.policy.effective_grant(grant)
+            self.policy
+                .effective_grant(grant)
+                .ok_or_else(|| ErrorCode::Unauthenticated.err("the grant was revoked"))
         }
     }
 
@@ -136,9 +148,13 @@ impl<S: Store> Replica<S> {
         &self,
         grant: &Uuid,
         client_pk: &[u8; 32],
-    ) -> Option<crate::policy::EffectiveGrant> {
-        self.grant_now(grant)
-            .filter(|g| g.client_pk.0 == *client_pk)
+    ) -> ApiResult<crate::policy::EffectiveGrant> {
+        let current = self.grant_now(grant)?;
+        if current.client_pk.0 != *client_pk {
+            return Err(ErrorCode::Unauthenticated
+                .err_with_reason("grant_key_mismatch", "the grant belongs to another client"));
+        }
+        Ok(current)
     }
 
     /// Current collection authority for an independently authenticated account.
@@ -258,9 +274,7 @@ impl<S: Store> Replica<S> {
                 if let Err(why) = self.serves_apps() {
                     return Err(ErrorCode::Unavailable.err_with_reason("untrusted", why));
                 }
-                let g = self.grant_for_client(grant, client_pk).ok_or_else(|| {
-                    ErrorCode::Unauthenticated.err("no active grant for this client")
-                })?;
+                let g = self.grant_for_client(grant, client_pk)?;
                 if !self.serving_account_matches(&g.account) {
                     return Err(ErrorCode::Forbidden.err_with_reason(
                         "grant_account_mismatch",
@@ -308,9 +322,7 @@ impl<S: Store> Replica<S> {
             }
             return Ok(());
         };
-        let g = self
-            .grant_for_client(grant, client_pk)
-            .ok_or_else(|| ErrorCode::Unauthenticated.err("the grant is no longer active"))?;
+        let g = self.grant_for_client(grant, client_pk)?;
         if !self.serving_account_matches(&g.account) {
             return Err(ErrorCode::Forbidden.err_with_reason(
                 "grant_account_mismatch",
@@ -339,6 +351,7 @@ impl<S: Store> Replica<S> {
         };
         match self
             .grant_now(grant)
+            .ok()
             .filter(|g| self.serving_account_matches(&g.account))
         {
             Some(g) => g.file_folders,
@@ -387,7 +400,7 @@ impl<S: Store> Replica<S> {
                 self.serves_apps().is_ok()
                     && self
                         .grant_for_client(grant, client_pk)
-                        .is_some_and(|g| self.serving_account_matches(&g.account))
+                        .is_ok_and(|g| self.serving_account_matches(&g.account))
             }
         }
     }
@@ -421,24 +434,34 @@ impl<S: Store> Replica<S> {
 
     /// Close granted sessions whose grant is no longer effective (`policy.md` §7.4).
     pub(crate) fn close_revoked_sessions(&mut self) {
-        let gone: Vec<SessionId> = self
+        let gone: Vec<_> = self
             .sessions
             .iter()
-            .filter(|(_, s)| match &s.auth {
-                SessionAuth::Grant { grant, client_pk } => self
+            .filter_map(|(id, s)| match &s.auth {
+                SessionAuth::Grant { grant, client_pk } => match self
                     .grant_for_client(grant, client_pk)
-                    .is_none_or(|g| self.local_only() && !self.serving_account_matches(&g.account)),
-                SessionAuth::Host => false,
+                {
+                    Err(error) => Some((*id, *error.0)),
+                    Ok(current)
+                        if self.local_only() && !self.serving_account_matches(&current.account) =>
+                    {
+                        Some((
+                            *id,
+                            ErrorCode::Forbidden.problem_with_reason(
+                                "grant_account_mismatch",
+                                "grant account is not authorized here",
+                            ),
+                        ))
+                    }
+                    Ok(_) => None,
+                },
+                SessionAuth::Host => None,
             })
-            .map(|(id, _)| *id)
             .collect();
-        for id in gone {
+        for (id, problem) in gone {
             self.pushes
                 .retain(|(session, p)| *session != id || matches!(p, Push::Closed(_)));
-            self.pushes.push((
-                id,
-                Push::Closed(ErrorCode::Unauthenticated.problem("the grant was revoked")),
-            ));
+            self.pushes.push((id, Push::Closed(problem)));
             self.client_files_close(id);
             self.sessions.remove(&id);
             self.bases_discovery.remove(id);

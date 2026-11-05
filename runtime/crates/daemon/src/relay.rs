@@ -294,6 +294,12 @@ pub trait RelayHost: crate::session::Handler {
         collection: &'a str,
         grant: &'a str,
     ) -> crate::session::BoxFuture<'a, bool>;
+    /// Current refusal for a pipe that no longer has a live grant.
+    fn grant_refusal<'a>(
+        &'a self,
+        collection: &'a str,
+        grant: &'a str,
+    ) -> crate::session::BoxFuture<'a, Option<String>>;
     /// Capture a positive pending grant once, before spawning the original pipe.
     /// Default hosts preserve immediate refusal, never infer readiness.
     fn grant_activation<'a>(
@@ -691,24 +697,25 @@ async fn close_dead<H: RelayHost>(
 ) {
     let mut dead = Vec::new();
     for (id, p) in open.iter() {
-        let allowed = if p
+        let reason = if p
             .waiting_for_grant
             .load(std::sync::atomic::Ordering::SeqCst)
         {
-            match &p.activation_guard {
+            let allowed = match &p.activation_guard {
                 Some(current) => current().await,
                 None => false,
-            }
+            };
+            (!allowed).then(|| "grant_inactive".into())
         } else {
-            host.grant_live(&p.collection, &p.grant).await
+            host.grant_refusal(&p.collection, &p.grant).await
         };
-        if !allowed {
-            dead.push(*id);
+        if let Some(reason) = reason {
+            dead.push((*id, reason));
         }
     }
-    for id in dead {
+    for (id, reason) in dead {
         if open.remove(&id).is_some() {
-            let _ = out.try_send(PipeOut::Close(id, "grant_inactive".into()));
+            let _ = out.try_send(PipeOut::Close(id, reason));
         }
     }
 }
@@ -745,15 +752,18 @@ async fn open_pipe<H: RelayHost>(
         secrets::uuid_string(&collection),
         secrets::uuid_string(&grant),
     );
-    let live = host.grant_live(&col_s, &grant_s).await;
+    let mut live = host.grant_live(&col_s, &grant_s).await;
     let activation = if live {
         None
     } else {
         host.grant_activation(&col_s, &grant_s).await
     };
     if !live && activation.is_none() {
-        crate::session_diagnostics::pre_live("grant_not_live");
-        return close("grant_inactive");
+        if let Some(reason) = host.grant_refusal(&col_s, &grant_s).await {
+            crate::session_diagnostics::pre_live("grant_not_live");
+            return close(&reason);
+        }
+        live = true;
     }
     let activation_guard = activation.as_ref().map(|a| a.current.clone());
     let waiting_for_grant = Arc::new(std::sync::atomic::AtomicBool::new(!live));
@@ -1126,7 +1136,7 @@ mod tests {
         assert_eq!(current.generation, access.entries[0].generation);
         assert_eq!(current.client_pk.0, crate::noise::public_key(&[9; 32]));
         assert!(
-            source.grant(&grant).is_none(),
+            source.grant(&grant).is_err(),
             "setup must not infer local owner permissions for synced grants"
         );
         // Uninterrupted renewal preserves a review; an expiry gap followed by

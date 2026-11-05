@@ -151,8 +151,8 @@ impl TokenSource for LabTokens {
 
 struct HostOnly;
 impl GrantSource for HostOnly {
-    fn grant(&self, _: &B16) -> Option<EffectiveGrant> {
-        None
+    fn grant(&self, _: &B16) -> mdbn_replica::api::ApiResult<EffectiveGrant> {
+        Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
     }
 }
 

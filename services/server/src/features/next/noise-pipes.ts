@@ -268,7 +268,7 @@ export function registerNoisePipeClientRoute(
       void binding?.close();
       if (pipeId && published) void options.broker.publishPipe(pipeSubject(pipeId, "device"), closeFrame(deviceReason)).catch(() => undefined);
       if (reason && socket.readyState < 2) {
-        const code = { unauthenticated: 4401, grant_inactive: 4403, connector_offline: 4404, connector_busy: 4429 }[reason] ?? 4000;
+        const code = { unauthenticated: 4401, grant_inactive: 4403, grant_revoked_on_device: 4403, grant_pending_approval: 4403, unknown_grant: 4403, connector_offline: 4404, connector_busy: 4429 }[reason] ?? 4000;
         socket.close(code, reason);
       }
     };

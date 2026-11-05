@@ -341,7 +341,10 @@ pub struct LocalGrantSet {
 pub struct AuthoritySource(pub crate::authority::CollectionAuthority);
 
 impl mdbn_replica::policy::GrantSource for AuthoritySource {
-    fn grant(&self, grant: &B16) -> Option<mdbn_replica::policy::EffectiveGrant> {
+    fn grant(
+        &self,
+        grant: &B16,
+    ) -> mdbn_replica::api::ApiResult<mdbn_replica::policy::EffectiveGrant> {
         self.0.grant(grant)
     }
 
@@ -2147,8 +2150,8 @@ mod tests {
         fn grant(
             &self,
             _: &mdbn_wire::common::Uuid,
-        ) -> Option<mdbn_replica::policy::EffectiveGrant> {
-            None
+        ) -> mdbn_replica::api::ApiResult<mdbn_replica::policy::EffectiveGrant> {
+            Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
         }
     }
 

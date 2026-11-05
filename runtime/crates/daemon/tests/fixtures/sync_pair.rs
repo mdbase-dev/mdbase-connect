@@ -160,8 +160,8 @@ impl TokenSource for Tokens {
 /// Host-only runtimes: no app grants.
 struct NoGrants;
 impl GrantSource for NoGrants {
-    fn grant(&self, _: &Uuid) -> Option<EffectiveGrant> {
-        None
+    fn grant(&self, _: &Uuid) -> mdbn_replica::api::ApiResult<EffectiveGrant> {
+        Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
     }
 }
 
@@ -253,8 +253,8 @@ struct Paired {
     noise_pk: B32,
 }
 impl GrantSource for Paired {
-    fn grant(&self, _: &Uuid) -> Option<EffectiveGrant> {
-        None
+    fn grant(&self, _: &Uuid) -> mdbn_replica::api::ApiResult<EffectiveGrant> {
+        Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
     }
     fn active_account(&self) -> Option<Uuid> {
         Some(self.account)

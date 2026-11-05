@@ -634,6 +634,120 @@ async fn silent_pending_removal_and_lease_renewal_are_durable() {
 }
 
 #[tokio::test]
+async fn local_open_and_pipe_refusals_preserve_consent_and_lease_reasons() {
+    use crate::relay::RelayHost;
+    use crate::session::{Auth, Handler, Prologue};
+    let dir = crate::testutil::TestDir::new("lease-refusals");
+    let d = paired_daemon(&dir).await;
+    let collection = [4; 16];
+    let grant_id = [5; 16];
+    let collection_id = secrets::uuid_string(&collection);
+    let grant_string = secrets::uuid_string(&grant_id);
+    let mut entry = d.inner.lock().await.registry.collections[0].clone();
+    entry.id = collection_id.clone();
+    entry.owner_account = Some("11111111-1111-4111-8111-111111111111".into());
+    entry.device = Some(secrets::uuid_string(&d.identity.get().unwrap().device_id));
+    {
+        let mut inner = d.inner.lock().await;
+        inner.registry.collections = vec![entry.clone()];
+        entry.paused = true;
+        inner.hosts.push(CollectionHost::open(entry, d.host_ctx()));
+        d.authority.publish_registry(&inner.registry);
+    }
+    for (state, present, live, reason) in [
+        (
+            AccessState::PendingApproval,
+            true,
+            true,
+            "grant_pending_approval",
+        ),
+        (AccessState::Denied, true, true, "grant_revoked_on_device"),
+        (
+            AccessState::RevokedLocally,
+            true,
+            true,
+            "grant_revoked_on_device",
+        ),
+        (AccessState::Active, false, true, "unknown_grant"),
+        (AccessState::Active, true, false, "grant_lease_expired"),
+        (
+            AccessState::RevokedLocally,
+            true,
+            false,
+            "grant_revoked_on_device",
+        ),
+    ] {
+        {
+            let mut cached = grant(1);
+            cached.collection = collection_id.clone();
+            cached.grant = grant_string.clone();
+            let mut inner = d.inner.lock().await;
+            inner.access = AccessList::default();
+            let now = fsutil::now_ms() as u64;
+            inner.access.sync_from_control_plane(
+                &collection_id,
+                &[cached],
+                now,
+                now + 60_000,
+                false,
+            );
+            inner.access.entries[0].state = state;
+            if !present {
+                inner.access.entries.clear();
+            }
+            if !live {
+                inner.access.monotonic_leases.clear();
+            }
+            d.authority.publish_access(&inner.access);
+        }
+        let opened = d
+            .open(
+                Prologue {
+                    collection,
+                    grant: grant_id,
+                    target: d.identity.get().unwrap().device_id,
+                },
+                Auth::Grant {
+                    grant: grant_id,
+                    client_pk: [1; 32],
+                },
+                mdbn_wire::client::ClientRequest {
+                    id: 1,
+                    method: "hello".into(),
+                    params: mdbn_wire::cbor::Cbor::Null,
+                },
+            )
+            .await;
+        assert!(opened.session.is_none());
+        let problem = opened.response.problem.unwrap();
+        let retry = reason == "grant_lease_expired";
+        assert_eq!(problem.reason.as_deref(), Some(reason));
+        assert_eq!(
+            problem.code,
+            if retry { "unavailable" } else { "forbidden" }
+        );
+        assert_eq!(
+            problem.recovery,
+            if retry {
+                mdbn_wire::client::Recovery::Retry
+            } else {
+                mdbn_wire::client::Recovery::Reauthorize
+            }
+        );
+        assert_eq!(
+            problem.retry_after_ms,
+            if retry { Some(1000) } else { None }
+        );
+        assert_eq!(
+            d.grant_refusal(&collection_id, &grant_string)
+                .await
+                .as_deref(),
+            Some(reason)
+        );
+    }
+}
+
+#[tokio::test]
 async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
     for after_rename in [false, true] {
         let dir = crate::testutil::TestDir::new("feed-failure");
@@ -656,13 +770,29 @@ async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
         assert!(result.is_err());
         let inner = d.inner.lock().await;
         assert!(!inner.access.grant_live("c", "g", fsutil::now_ms() as u64));
-        assert_eq!(inner.access.feed_cursor.as_ref().unwrap().sequence, 2);
+        assert_eq!(inner.access.feed_cursor.as_ref().unwrap().sequence, 1);
         drop(inner);
+        let mut attempted = false;
         assert!(
-            d.commit_control_plane_feed(&snapshot(1), &grants(Some(grant(1))))
+            d.commit_control_plane_feed_with(&next, &grants(None), |_| {
+                attempted = true;
+                Err(crate::access::AccessError::Io(std::io::Error::other(
+                    "still unwritable",
+                )))
+            })
+            .await
+            .is_err()
+        );
+        assert!(
+            attempted,
+            "identical redelivery must retry persistence, not acknowledge"
+        );
+        assert!(
+            !d.inner
+                .lock()
                 .await
-                .is_err(),
-            "failed attempt cannot roll back in-process cursor"
+                .access
+                .grant_live("c", "g", fsutil::now_ms() as u64)
         );
         let reopened = AccessList::load(&path).unwrap();
         assert!(
@@ -678,14 +808,19 @@ async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
             after_rename,
             "cursor and cache are never torn"
         );
-        d.inner.lock().await.access = reopened;
-        if after_rename {
-            assert!(
-                d.commit_control_plane_feed(&snapshot(1), &grants(Some(grant(1))))
-                    .await
-                    .is_err()
-            );
-        }
+        d.commit_control_plane_feed(&next, &grants(None))
+            .await
+            .unwrap();
+        assert_eq!(
+            AccessList::load(&path)
+                .unwrap()
+                .feed_cursor
+                .as_ref()
+                .unwrap()
+                .sequence,
+            2
+        );
+        assert!(d.inner.lock().await.access.entries.is_empty());
         // Successful reconciliation renews access with a cursor newer than either state.
         d.commit_control_plane_feed(&snapshot(3), &grants(Some(grant(1))))
             .await

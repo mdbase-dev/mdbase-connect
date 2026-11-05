@@ -216,8 +216,8 @@ async fn mirror_closed_sqlite_startup_reports_counts_without_opening_folder() {
             fn grant(
                 &self,
                 _: &mdbn_wire::common::Uuid,
-            ) -> Option<mdbn_replica::policy::EffectiveGrant> {
-                None
+            ) -> mdbn_replica::api::ApiResult<mdbn_replica::policy::EffectiveGrant> {
+                Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
             }
         }
         let direct = crate::runtime::Runtime::open(
@@ -917,8 +917,8 @@ fn a_refused_cache_is_refused_before_the_folder_is_opened() {
         fn grant(
             &self,
             _: &mdbn_wire::common::B16,
-        ) -> Option<mdbn_replica::policy::EffectiveGrant> {
-            None
+        ) -> mdbn_replica::api::ApiResult<mdbn_replica::policy::EffectiveGrant> {
+            Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
         }
     }
     let dir = scratch("preio");

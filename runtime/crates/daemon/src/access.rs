@@ -188,6 +188,21 @@ pub enum Refusal {
 }
 
 impl Refusal {
+    /// Client-facing refusal; a renewable lease lapse is not revoked consent.
+    pub fn problem(self) -> mdbn_wire::client::Problem {
+        let code = if self == Self::LeaseExpired {
+            mdbn_replica::api::ErrorCode::Unavailable
+        } else {
+            mdbn_replica::api::ErrorCode::Forbidden
+        };
+        let mut problem =
+            code.problem_with_reason(self.reason(), "this app has no active access here");
+        if self == Self::LeaseExpired {
+            problem.retry_after_ms = Some(1000);
+        }
+        problem
+    }
+
     /// Stable reason string.
     pub fn reason(self) -> &'static str {
         match self {
@@ -445,10 +460,6 @@ impl AccessList {
         client_pk: &[u8; 32],
         now_ms: u64,
     ) -> Result<&AccessEntry, Refusal> {
-        // Fail closed without a live lease, including after a restart.
-        if !self.lease_live(collection, now_ms) {
-            return Err(Refusal::LeaseExpired);
-        }
         let e = self
             .entries
             .iter()
@@ -463,10 +474,17 @@ impl AccessList {
             return Err(Refusal::KeyMismatch);
         }
         match e.state {
-            AccessState::Active => Ok(e),
-            AccessState::PendingApproval => Err(Refusal::PendingApproval),
-            AccessState::Denied | AccessState::RevokedLocally => Err(Refusal::RevokedLocally),
+            AccessState::Active => {}
+            AccessState::PendingApproval => return Err(Refusal::PendingApproval),
+            AccessState::Denied | AccessState::RevokedLocally => {
+                return Err(Refusal::RevokedLocally);
+            }
         }
+        // Fail closed without a live lease, including after a restart.
+        if !self.lease_live(collection, now_ms) {
+            return Err(Refusal::LeaseExpired);
+        }
+        Ok(e)
     }
 
     /// Whether `grant` is still active for `collection` under a live lease (open
@@ -686,7 +704,7 @@ mod tests {
         let mut l = AccessList::default();
         assert_eq!(
             l.authorize("c", "g1", &[1; 32], 0).unwrap_err(),
-            Refusal::LeaseExpired
+            Refusal::UnknownGrant
         );
         l.sync_from_control_plane("c", &[g("g1", 1, &["read"])], 5, 100, false);
         assert!(l.authorize("c", "g1", &[1; 32], 99).is_ok());
@@ -731,7 +749,7 @@ mod tests {
         );
         assert_eq!(
             l.authorize("other", "g1", &[1; 32], 10).unwrap_err(),
-            Refusal::LeaseExpired
+            Refusal::UnknownGrant
         );
         // Seen again unchanged: silent.
         assert!(

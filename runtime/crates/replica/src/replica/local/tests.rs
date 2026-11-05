@@ -57,11 +57,18 @@ impl Access {
     }
 }
 impl GrantSource for Access {
-    fn grant(&self, id: &Uuid) -> Option<EffectiveGrant> {
+    fn grant(&self, id: &Uuid) -> crate::api::ApiResult<EffectiveGrant> {
         if self.now.get() >= self.deadline.get() {
-            return None;
+            let mut problem = crate::api::ErrorCode::Unavailable
+                .problem_with_reason("grant_lease_expired", "grant lease expired");
+            problem.retry_after_ms = Some(1000);
+            return Err(problem.into());
         }
-        self.grants.borrow().get(id).cloned()
+        self.grants
+            .borrow()
+            .get(id)
+            .cloned()
+            .ok_or_else(|| crate::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
     }
     fn owner_identity(&self) -> Option<LocalOwnerIdentity> {
         self.owner.get()
@@ -324,13 +331,30 @@ fn lease_expiry_rechecks_calls_and_live_output_without_notification() {
     let session = app(&mut r).unwrap();
     r.pushes.push((session, Push::Conflicts(vec![])));
     access.now.set(access.deadline.get());
-    assert!(r.describe(session).is_err());
+    let error = r.describe(session).unwrap_err();
+    assert_eq!(error.problem().code, "unavailable");
+    assert_eq!(
+        error.problem().reason.as_deref(),
+        Some("grant_lease_expired")
+    );
+    assert_eq!(error.problem().recovery, mdbn_wire::client::Recovery::Retry);
+    let pushes = r.take_pushes();
     assert!(
-        r.take_pushes()
-            .iter()
-            .all(|(_, p)| matches!(p, Push::Closed(_)))
+        matches!(pushes.as_slice(), [(id, Push::Closed(problem))] if *id == session && problem.code == "unavailable" && problem.reason.as_deref() == Some("grant_lease_expired") && problem.retry_after_ms == Some(1000))
     );
     assert!(!r.sessions.contains_key(&session));
+    let error = app(&mut r).unwrap_err();
+    assert_eq!(
+        error.problem().reason.as_deref(),
+        Some("grant_lease_expired")
+    );
+    access.deadline.set(access.now.get() + 1000);
+    let renewed = app(&mut r).unwrap();
+    access.grants.borrow_mut().remove(&GRANT);
+    r.grants_changed();
+    assert!(
+        matches!(r.take_pushes().as_slice(), [(id, Push::Closed(problem))] if *id == renewed && problem.code == "unauthenticated" && problem.recovery == mdbn_wire::client::Recovery::Reauthorize)
+    );
 }
 
 #[test]
@@ -375,7 +399,7 @@ fn source_state_is_consulted_only_in_local_mode() {
         "current role downgrade is immediate"
     );
     assert!(
-        r.grant_now(&GRANT).is_none(),
+        r.grant_now(&GRANT).is_err(),
         "synced uses signed policy, not local grants"
     );
     assert!(
@@ -384,7 +408,7 @@ fn source_state_is_consulted_only_in_local_mode() {
     );
     access.owner.set(None);
     access.active.set(None);
-    assert!(r.grant_now(&GRANT).is_none());
+    assert!(r.grant_now(&GRANT).is_err());
     assert!(!r.serving_account_matches(&ACCOUNT));
     assert_eq!(
         r.authorize(ACCOUNT, COL),

@@ -2306,8 +2306,12 @@ fn local_only_grants_come_from_the_host() {
     #[derive(Clone, Default)]
     struct Access(Rc<RefCell<BTreeMap<Uuid, EffectiveGrant>>>);
     impl GrantSource for Access {
-        fn grant(&self, g: &Uuid) -> Option<EffectiveGrant> {
-            self.0.borrow().get(g).cloned()
+        fn grant(&self, g: &Uuid) -> crate::api::ApiResult<EffectiveGrant> {
+            self.0
+                .borrow()
+                .get(g)
+                .cloned()
+                .ok_or_else(|| crate::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
         }
         fn owner_identity(&self) -> Option<LocalOwnerIdentity> {
             Some(LocalOwnerIdentity {
