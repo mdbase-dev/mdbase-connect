@@ -19,7 +19,6 @@ import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation
 import { Brand, ThemeMenu } from "./portal-ui";
 import { readRememberedCollection, rememberCollection, sessionExpiredUrl } from "./portal-model";
 import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
-import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
@@ -224,7 +223,6 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     try {
       await action({ signal: controller.signal });
       succeeded = true;
-      signalMdbaseMark("saved");
       if (!lifecycle.aborted && receipt) toast(receipt, optimistic ? () => {
         if (actionVersionsRef.current.get(id) !== version || busyRef.current.has(id)) { toast(t(i18n)`The value has changed again. Undo is no longer available.`); return; }
         const inverse = { ...optimistic, name: optimistic.previous, previous: optimistic.name };
@@ -234,7 +232,6 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       } : undefined);
     } catch (reason) {
       if (!lifecycle.aborted) {
-        signalMdbaseMark("error");
         reportError(feedbackFailure(reason));
         if (!inlineErrors) setMutationError(errorMessage(reason));
         if (optimistic) {
