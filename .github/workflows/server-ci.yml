@@ -64,8 +64,7 @@ jobs:
           fi
           runs=$(gh api --method GET \
             "repos/$GITHUB_REPOSITORY/actions/workflows/server-ci.yml/runs" \
-            --field head_sha="$GITHUB_SHA" --field event=merge_group \
-            --field status=completed)
+            --field head_sha="$GITHUB_SHA" --field event=merge_group)
           upstream=$(jq -r --arg sha "$GITHUB_SHA" '
             [.workflow_runs[] | select(
               .head_sha == $sha and .event == "merge_group"
