@@ -31,6 +31,10 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       await expect(page.locator(".new-note-composer")).toHaveCount(0);
       await expect(list).toBeFocused();
       await page.keyboard.press("c");
+      await page.locator(".new-note-composer").getByRole("textbox", { name: "Note body", exact: true }).click();
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".new-note-composer")).toHaveCount(0);
+      await list.focus(); await page.keyboard.press("c");
       await page.getByRole("textbox", { name: "Title", exact: true }).fill("Keep this draft");
       await page.keyboard.press("Escape");
       await expect(page.locator(".new-note-composer")).toBeVisible();

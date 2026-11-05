@@ -1635,7 +1635,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       }
       if (quickOpen || shortcutsOpen) return;
       if (phase !== "ready") return;
-      if (event.key === "Escape" && !preferences.vim && !focusMode
+      if (event.key === "Escape" && !preferences.vim && !focusMode && !creationMode
           && event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content")
           && !event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')
           && !globalThis.document.querySelector(".cm-panels, .cm-tooltip")) {

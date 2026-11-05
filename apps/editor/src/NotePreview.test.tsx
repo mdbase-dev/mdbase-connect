@@ -14,6 +14,16 @@ describe("note previews", () => {
     expect(screen.queryByText("Preview unavailable.")).not.toBeInTheDocument();
     expect(screen.getByRole("region")).toHaveTextContent("Indexed content");
   });
+  it("sizes the peek to a failed read after an empty note", async () => {
+    const gateway = { read: vi.fn().mockRejectedValue(new Error("Unavailable")) } as unknown as CollectionGateway;
+    const view = render(<NotePeekBody path="empty.md" title="Empty" source="" gateway={gateway} />);
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ height: 40 } as DOMRect);
+    view.rerender(<NotePeekBody path="missing.md" title="Missing" gateway={gateway} />);
+    const message = await screen.findByText("Preview unavailable.");
+    await waitFor(() => expect(message.closest<HTMLElement>(".note-peek-pages")?.style.height).toBe("40px"));
+    rect.mockRestore();
+  });
+
   it("finds the first useful paragraph and removes Markdown markers", () => {
     expect(notePreviewExcerpt([
       "# Ada Lovelace",
