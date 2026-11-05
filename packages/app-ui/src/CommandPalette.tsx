@@ -7,6 +7,7 @@ export interface Command {
   readonly id: string;
   readonly label: string;
   readonly detail?: string | undefined;
+  readonly icon?: ReactNode;
   /** Stable group ID; headings follow first appearance and may be presented by groupLabel. */
   readonly group: string;
   readonly keywords?: string | undefined;
@@ -64,8 +65,10 @@ export function matchingCommands(
     const content = `${command.label} ${command.detail ?? ""} ${command.group} ${command.keywords ?? ""}`.toLocaleLowerCase();
     return terms.every((term) => content.includes(term));
   });
-  const groups = [...new Set(matches.map(({ group }) => group))];
-  return groups.flatMap((group) => matches.filter((command) => command.group === group)).slice(0, searchLimit);
+  const names = matches.filter(command => terms.every(term => command.label.toLocaleLowerCase().includes(term)));
+  const selected = [...names, ...matches.filter(command => !names.includes(command))].slice(0, searchLimit);
+  const groups = [...new Set(selected.map(({ group }) => group))];
+  return groups.flatMap((group) => selected.filter((command) => command.group === group));
 }
 
 /**
@@ -171,7 +174,8 @@ function CommandRow({ id, command, active, onRun }: {
     if (active) ref.current?.scrollIntoView({ block: "nearest" });
   }, [active]);
   return <button id={id} ref={ref} tabIndex={-1} type="button" role="option" aria-selected={active} onMouseDown={event => event.preventDefault()} onClick={(event) => onRun(command, event.shiftKey)}>
-    <span>
+    {command.icon && <span className="mdbase-command-icon" aria-hidden="true">{command.icon}</span>}
+    <span className="mdbase-command-copy">
       <strong>{command.label}</strong>
       {command.detail ? <small>{command.detail}</small> : null}
     </span>

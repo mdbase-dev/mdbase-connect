@@ -4398,7 +4398,7 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     }]);
     const page = await context.newPage();
     await page.goto(authorizationUrl);
-    await expect(page.getByRole("heading", { name: "Hosted SDK E2E" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Hosted SDK E2E", level: 1, exact: true })).toBeVisible();
     await page.locator(".approval-form").waitFor();
     const collection = page.getByRole("option", {
       name: "Hosted writing", exact: true
@@ -4443,9 +4443,9 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, re
     }]);
     const page = await context.newPage();
     await page.goto(authorizationUrl);
-    await expect(page.getByRole("heading", { name: "Workout Inline E2E" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workout Inline E2E", level: 1, exact: true })).toBeVisible();
     await expect(page.getByText("No compatible collection is ready.")).toBeVisible();
-    await expect(page.getByRole("combobox", { name: "Collection", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "Choose a collection", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Create hosted collection" }).click();
     await page.getByLabel("New collection name").fill("Workout records");
     await page.getByRole("button", { name: "Create collection" }).click();

@@ -116,14 +116,11 @@ msgstr "{0} e seus dados armazenados"
 msgid "{0} can no longer be used: {1} Choose another collection."
 msgstr "{0} não pode mais ser usada: {1} Escolha outra coleção."
 
-#. placeholder {0}: application.applicationName
 #. placeholder {0}: grant.application_name
 #. placeholder {0}: group.applicationName
-#. placeholder {1}: collection.name
 #. placeholder {1}: entries[0]!.collection_name
 #. placeholder {1}: grant.collection_name
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgid "{0} can no longer use {1}"
 msgstr "{0} não pode mais usar {1}"
 
@@ -151,6 +148,11 @@ msgstr "{0} desconectado."
 #: src/authorization-view.tsx
 msgid "{0} has remote access paused."
 msgstr "O acesso remoto de {0} está pausado."
+
+#. placeholder {0}: literal(request.application_name)
+#: src/authorization-view.tsx
+msgid "{0} is asking to"
+msgstr "{0} está solicitando permissão para"
 
 #. placeholder {0}: collection.display_name
 #: src/compatibility.ts
@@ -586,10 +588,6 @@ msgstr "Ações adicionais em arquivos aprovadas: {0}"
 msgid "Adds {0} to the collection"
 msgstr "Adiciona {0} à coleção"
 
-#: src/authority-workflows.tsx
-msgid "Advanced: allow more collections"
-msgstr "Avançado: permitir mais coleções"
-
 #. placeholder {0}: adoption.mirror_name ?? adoption.source_name
 #: src/authority-workflows.tsx
 msgid "After the move, {0} stays as a synced folder. It will not be a second main copy."
@@ -632,6 +630,10 @@ msgstr "Permitir que {app} tenha este acesso a arquivos?"
 msgctxt "Application access approval"
 msgid "Allow access"
 msgstr "Permitir acesso"
+
+#: src/authority-workflows.tsx
+msgid "Allow access to additional collections"
+msgstr "Permitir acesso a mais coleções"
 
 #: src/authorization-view.tsx
 msgid "Allow at least one permission to continue."
@@ -1000,9 +1002,12 @@ msgstr "Escolha entre adicionar um novo tipo {0} ou usar um que você já tem."
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
-#: src/ConnectPrimitives.tsx
 msgid "Clear filter"
 msgstr "Limpar filtro"
+
+#: src/ConnectPrimitives.tsx
+msgid "Clear search"
+msgstr "Limpar pesquisa"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1026,10 +1031,6 @@ msgstr "Cópia na nuvem configurada"
 #: src/authorization-view.tsx
 msgid "Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application."
 msgstr "Os códigos não diferenciam maiúsculas de minúsculas, expiram após dez minutos e só podem autorizar a chave criada por aquele aplicativo."
-
-#: src/authorization-view.tsx
-msgid "Collection"
-msgstr "Coleção"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1166,8 +1167,12 @@ msgid "Continue"
 msgstr "Continuar"
 
 #: src/authorization-view.tsx
-msgid "Continue only if you started this connection intentionally."
-msgstr "Continue apenas se você iniciou esta conexão intencionalmente."
+msgid "Continue only if you started this and recognize this app."
+msgstr "Continue apenas se você iniciou esta ação e reconhece este app."
+
+#: src/authorization-view.tsx
+msgid "Continue only if you started this and recognize this site."
+msgstr "Continue apenas se você iniciou esta ação e reconhece este site."
 
 #: src/auth-view.tsx
 msgid "Continue with email"
@@ -1333,6 +1338,11 @@ msgstr "Limite atual"
 #: src/AccountManagement.tsx
 msgid "Current password"
 msgstr "Senha atual"
+
+#: src/portal-commands.ts
+msgctxt "Color theme"
+msgid "Dark"
+msgstr "Escuro"
 
 #: src/ConnectApp.tsx
 msgid "Delete"
@@ -1944,6 +1954,11 @@ msgstr "Usado pela última vez {0}"
 msgid "Legacy scoped access is revoked. Reauthorize this application for the entire collection."
 msgstr "O acesso limitado antigo foi revogado. Autorize este aplicativo novamente para a coleção inteira."
 
+#: src/portal-commands.ts
+msgctxt "Color theme"
+msgid "Light"
+msgstr "Claro"
+
 #: src/ConnectApp.tsx
 msgid "Link your account to an editable record in this collection. Collection access is approved separately."
 msgstr "Vincule sua conta a um registro editável nesta coleção. O acesso à coleção é aprovado separadamente."
@@ -2195,7 +2210,6 @@ msgid "New access will stop across all installations. Copies already downloaded 
 msgstr "Novos acessos serão interrompidos em todas as instalações. Cópias já baixadas não podem ser removidas remotamente."
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "Novos acessos serão interrompidos. Cópias já baixadas pelo aplicativo não podem ser removidas remotamente."
 
@@ -2346,14 +2360,6 @@ msgstr "Uso único · expira {0}"
 #: src/authorization-review.tsx
 msgid "Only {0}. Hidden folders are always excluded."
 msgstr "Somente {0}. Pastas ocultas sempre são excluídas."
-
-#: src/authorization-view.tsx
-msgid "Only continue if you recognize this exact app."
-msgstr "Continue somente se reconhecer exatamente este aplicativo."
-
-#: src/authorization-view.tsx
-msgid "Only continue if you recognize this exact site."
-msgstr "Continue apenas se reconhecer exatamente este site."
 
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
@@ -2791,10 +2797,6 @@ msgstr "Solicitado por {0}. A origem da solicitação não está disponível."
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
 msgstr "Solicitado de <0>{0}</0>. A origem exibida aqui não comprova quem fez a solicitação."
 
-#: src/authorization-view.tsx
-msgid "Requests"
-msgstr "Solicitações"
-
 #: src/authorization-review.tsx
 msgid "Required"
 msgstr "Obrigatório"
@@ -2884,6 +2886,7 @@ msgid "Review {0}’s request for {collectionName}."
 msgstr "Revise a solicitação de {0} para {collectionName}."
 
 #: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 msgid "Review access"
 msgstr "Revisar acesso"
 
@@ -2937,12 +2940,9 @@ msgstr "Revogar"
 msgid "Revoke {0}"
 msgstr "Revogar {0}"
 
-#. placeholder {0}: application.applicationName
 #. placeholder {0}: group.applicationName
-#. placeholder {1}: collection.name
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgid "Revoke {0} access to {1}?"
 msgstr "Revogar o acesso de {0} a {1}?"
 
@@ -2959,7 +2959,6 @@ msgid "Revoke {0}?"
 msgstr "Revogar {0}?"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
 msgstr "Revogar acesso"
@@ -3325,6 +3324,11 @@ msgstr "Sincronizar uma cópia local desta coleção controlada pelo aplicativo.
 #: src/ConnectApp.tsx
 msgid "Syncing will stop after the computer confirms. Files already downloaded will remain."
 msgstr "A sincronização será interrompida após a confirmação do computador. Os arquivos já baixados permanecerão."
+
+#: src/portal-commands.ts
+msgctxt "Color theme"
+msgid "System"
+msgstr "Sistema"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"

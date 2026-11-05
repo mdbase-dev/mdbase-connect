@@ -17,7 +17,7 @@ it.each(["https://remote.example.test", "http://localhost:49152", "http://[::1]:
   render(<RequestIdentity request={request}/>);
   expect(screen.queryByText("an app running on this computer")).not.toBeInTheDocument();
   if (application_origin) {
-    expect(screen.getByText(/Only continue if you recognize this exact site\./)).toBeInTheDocument();
+    expect(screen.getByText(/Continue only if you started this and recognize this site\./)).toBeInTheDocument();
     expect(screen.getByText(application_origin)).toBeInTheDocument();
   } else expect(screen.getByText(/No requesting origin is available\./)).toBeInTheDocument();
 });

@@ -116,14 +116,11 @@ msgstr "{0} 及其存储的数据"
 msgid "{0} can no longer be used: {1} Choose another collection."
 msgstr "{0} 已无法使用：{1} 请选择其他集合。"
 
-#. placeholder {0}: application.applicationName
 #. placeholder {0}: grant.application_name
 #. placeholder {0}: group.applicationName
-#. placeholder {1}: collection.name
 #. placeholder {1}: entries[0]!.collection_name
 #. placeholder {1}: grant.collection_name
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgid "{0} can no longer use {1}"
 msgstr "{0} 无法再使用 {1}"
 
@@ -151,6 +148,11 @@ msgstr "{0} 已断开连接。"
 #: src/authorization-view.tsx
 msgid "{0} has remote access paused."
 msgstr "{0} 已暂停远程访问。"
+
+#. placeholder {0}: literal(request.application_name)
+#: src/authorization-view.tsx
+msgid "{0} is asking to"
+msgstr "{0} 请求执行以下操作"
 
 #. placeholder {0}: collection.display_name
 #: src/compatibility.ts
@@ -586,10 +588,6 @@ msgstr "已批准的额外文件操作：{0}"
 msgid "Adds {0} to the collection"
 msgstr "将 {0} 添加到集合"
 
-#: src/authority-workflows.tsx
-msgid "Advanced: allow more collections"
-msgstr "高级：允许访问更多集合"
-
 #. placeholder {0}: adoption.mirror_name ?? adoption.source_name
 #: src/authority-workflows.tsx
 msgid "After the move, {0} stays as a synced folder. It will not be a second main copy."
@@ -632,6 +630,10 @@ msgstr "允许 {app} 获得这项文件访问权限吗？"
 msgctxt "Application access approval"
 msgid "Allow access"
 msgstr "允许访问"
+
+#: src/authority-workflows.tsx
+msgid "Allow access to additional collections"
+msgstr "允许访问更多集合"
 
 #: src/authorization-view.tsx
 msgid "Allow at least one permission to continue."
@@ -1000,9 +1002,12 @@ msgstr "选择添加新的 {0} 类型，或使用已有类型。"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
-#: src/ConnectPrimitives.tsx
 msgid "Clear filter"
 msgstr "清除筛选"
+
+#: src/ConnectPrimitives.tsx
+msgid "Clear search"
+msgstr "清除搜索"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1026,10 +1031,6 @@ msgstr "已配置云端副本"
 #: src/authorization-view.tsx
 msgid "Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application."
 msgstr "代码不区分大小写，十分钟后过期，且只能授权该应用创建的密钥。"
-
-#: src/authorization-view.tsx
-msgid "Collection"
-msgstr "集合"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1166,8 +1167,12 @@ msgid "Continue"
 msgstr "继续"
 
 #: src/authorization-view.tsx
-msgid "Continue only if you started this connection intentionally."
-msgstr "仅当您主动发起此连接时才继续。"
+msgid "Continue only if you started this and recognize this app."
+msgstr "仅在您主动发起此操作且认识此应用时继续。"
+
+#: src/authorization-view.tsx
+msgid "Continue only if you started this and recognize this site."
+msgstr "仅在您主动发起此操作且认识此网站时继续。"
 
 #: src/auth-view.tsx
 msgid "Continue with email"
@@ -1333,6 +1338,11 @@ msgstr "当前额度"
 #: src/AccountManagement.tsx
 msgid "Current password"
 msgstr "当前密码"
+
+#: src/portal-commands.ts
+msgctxt "Color theme"
+msgid "Dark"
+msgstr "深色"
 
 #: src/ConnectApp.tsx
 msgid "Delete"
@@ -1944,6 +1954,11 @@ msgstr "上次使用时间：{0}"
 msgid "Legacy scoped access is revoked. Reauthorize this application for the entire collection."
 msgstr "旧版按范围划分的访问权限已撤销。请重新授权此应用访问整个集合。"
 
+#: src/portal-commands.ts
+msgctxt "Color theme"
+msgid "Light"
+msgstr "浅色"
+
 #: src/ConnectApp.tsx
 msgid "Link your account to an editable record in this collection. Collection access is approved separately."
 msgstr "将你的账户关联到此集合中的一条可编辑记录。集合访问权限需另行批准。"
@@ -2195,7 +2210,6 @@ msgid "New access will stop across all installations. Copies already downloaded 
 msgstr "所有安装中的新访问将停止。已下载的副本无法远程删除。"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "新访问将停止。应用已下载的副本无法远程删除。"
 
@@ -2346,14 +2360,6 @@ msgstr "单次使用 · 于 {0} 过期"
 #: src/authorization-review.tsx
 msgid "Only {0}. Hidden folders are always excluded."
 msgstr "仅 {0}。隐藏文件夹始终排除在外。"
-
-#: src/authorization-view.tsx
-msgid "Only continue if you recognize this exact app."
-msgstr "仅在你确认正是此应用时才继续。"
-
-#: src/authorization-view.tsx
-msgid "Only continue if you recognize this exact site."
-msgstr "只有在你确认是这个网站时才继续。"
 
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
@@ -2791,10 +2797,6 @@ msgstr "由 {0} 请求。无法获取请求来源。"
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
 msgstr "请求来自 <0>{0}</0>。此处显示的来源不能证明请求者的身份。"
 
-#: src/authorization-view.tsx
-msgid "Requests"
-msgstr "请求"
-
 #: src/authorization-review.tsx
 msgid "Required"
 msgstr "必需"
@@ -2884,6 +2886,7 @@ msgid "Review {0}’s request for {collectionName}."
 msgstr "审查 {0} 对 {collectionName} 的请求。"
 
 #: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 msgid "Review access"
 msgstr "审查访问权限"
 
@@ -2937,12 +2940,9 @@ msgstr "撤销"
 msgid "Revoke {0}"
 msgstr "撤销 {0}"
 
-#. placeholder {0}: application.applicationName
 #. placeholder {0}: group.applicationName
-#. placeholder {1}: collection.name
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgid "Revoke {0} access to {1}?"
 msgstr "要撤销 {0} 对 {1} 的访问权限吗？"
 
@@ -2959,7 +2959,6 @@ msgid "Revoke {0}?"
 msgstr "撤销 {0}？"
 
 #: src/ApplicationAccess.tsx
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
 msgstr "撤销访问权限"
@@ -3325,6 +3324,11 @@ msgstr "同步此集合由应用管理的本地副本。"
 #: src/ConnectApp.tsx
 msgid "Syncing will stop after the computer confirms. Files already downloaded will remain."
 msgstr "电脑确认后将停止同步。已下载的文件仍会保留。"
+
+#: src/portal-commands.ts
+msgctxt "Color theme"
+msgid "System"
+msgstr "系统"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"

@@ -81,12 +81,12 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
   return <Page title={collectionName ? t(i18n)({ message: "Access", context: "Connect interface" }) : t(i18n)({ message: "Apps", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each application has to ${collectionName}.` : t(i18n)({ message: "Review applications connected to your account. Your browser sign-in is never shared with them." })}>
     <section>{collectionName && <SectionTitle title={t(i18n)({ message: "Apps", context: "Connect interface" })} count={groups.length} />}
       {groups.length >= 10 && <ListFilter label={t(i18n)`Filter apps`} value={query} onChange={setQuery} />}
-      {visible.map(group => <details className="connect-application" key={group.applicationId} data-list-item data-command={`app:${group.applicationId}`}>
+      {visible.map(group => <details className="mdbase-disclosure connect-application" key={group.applicationId} data-list-item data-command={`app:${group.applicationId}`}>
         <summary><span><strong>{group.applicationName}</strong>{!collectionName && <small>{countLabel(group.collectionCount, "collection")}</small>}</span><b>{t(i18n)({ message: "Review", context: "Connect interface" })}</b></summary>
         <div className="connect-application-body">
           {installationScopes(group.installations).map(({ collectionId, entries }) => <div className="connect-grant connect-row" key={collectionId ?? "creation"}>
             <div>{!collectionName && <strong>{entries[0]!.collection_name ?? t(i18n)({ message: "No collection access", context: "Connect interface" })}</strong>}<small>{countLabel(entries.length, "installation")}</small>
-              <details className="connect-installation-details"><summary><Trans>Installation details</Trans></summary>
+              <details className="mdbase-disclosure connect-installation-details"><summary><Trans>Installation details</Trans></summary>
                 {entries.map(entry => <div key={entry.connector_id}>
                   <small><Trans>{literal(entry.application_origin)} · {entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })}</Trans></small>
                   <small><Trans>Registered <time dateTime={entry.created_at}>{formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })}</time></Trans></small>
@@ -139,7 +139,7 @@ function GrantEditor({ error, grant, client, busy, perform }: {
   }
   const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))];
   const changed = ordered.some((operation) => operations.has(operation) !== grant.operations.includes(operation));
-  return <details className="connect-grant">
+  return <details className="mdbase-disclosure connect-grant">
     <summary><span><strong>{grant.collection_name}</strong><small>{plural(grant.operations.length, { one: "# permission", other: "# permissions" })} · {applicationAccessOriginLabel(grant.application_origin)}</small></span><b>{t(i18n)({ message: "Permissions", context: "Connect interface" })}</b></summary>
     <div className="connect-grant-body">
       {needsReview && <p role="status"><Trans>Access changed elsewhere. Review the current permissions before saving. <button className="mdbase-button is-tertiary" onClick={acknowledge}>Review current access</button></Trans></p>}

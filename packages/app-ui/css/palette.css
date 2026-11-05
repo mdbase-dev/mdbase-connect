@@ -76,7 +76,7 @@
   background: var(--color-selected);
 }
 
-.mdbase-command-results button > span:first-child {
+.mdbase-command-results .mdbase-command-copy {
   min-width: 0;
   display: flex;
   align-items: baseline;
@@ -91,7 +91,8 @@
 }
 
 .mdbase-command-results strong {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
+  max-width: 100%;
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
 }
@@ -139,7 +140,7 @@
 }
 
 @media (max-width: 680px) {
-  .mdbase-command-results button > span:first-child {
+  .mdbase-command-results .mdbase-command-copy {
     display: grid;
     gap: 1px;
   }
@@ -148,6 +149,10 @@
     display: none;
   }
 }
+
+.mdbase-command-results > button:has(.mdbase-command-icon) { grid-template-columns: 18px minmax(0, 1fr) auto auto; }
+.mdbase-command-icon { display: flex; color: var(--color-text-muted); }
+.mdbase-command-icon svg { width: 18px; height: 18px; }
 
 @media (pointer: coarse) {
   .mdbase-command-results kbd,

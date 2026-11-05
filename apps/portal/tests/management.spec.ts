@@ -110,7 +110,7 @@ test("styles footer links and separates account details on desktop and mobile", 
     const footer = page.locator(".connect-nav-footer");
     for (const colorScheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme });
-      const styles = await footer.locator(":scope > a").evaluateAll(links => links.map(link => {
+      const styles = await footer.locator(".connect-account-slot > a").evaluateAll(links => links.map(link => {
         const style = getComputedStyle(link), name = link.querySelector("strong"), email = link.querySelector("small");
         return { decoration: style.textDecorationLine, display: style.display, font: style.fontFamily,
           separateLines: !name || !email || email.getBoundingClientRect().top >= name.getBoundingClientRect().bottom };
@@ -168,7 +168,7 @@ test("condenses portal navigation on mobile", async ({ page }) => {
   expect(alignment.linkTop).toBeGreaterThanOrEqual(alignment.identityBottom);
 });
 
-test("keeps application summaries and revoke actions separate at narrow widths", async ({ page }) => {
+test("keeps application summaries and access links separate at narrow widths", async ({ page }) => {
   await page.route(`${portalOrigin}/v1/me`, (route) => route.fulfill({
     json: {
       ...overview,
@@ -238,13 +238,8 @@ test("keeps application summaries and revoke actions separate at narrow widths",
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${colorScheme}/${width}`).toBe(true);
     }
   }
-  await rows.first().getByRole("button", { name: "Revoke", exact: true }).click();
-  const revoke = page.getByRole("dialog", { name: /^Revoke .+ access to Garden notes\?$/ });
-  await expect(revoke).toBeVisible();
-  await revoke.getByRole("button", { name: "Cancel" }).click();
-  await expect(revoke).toBeHidden();
-  await expect(rows.first().getByRole("button", { name: "Revoke", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "Access", exact: true }).click();
+  await expect(rows.first().getByRole("button", { name: "Revoke", exact: true })).toHaveCount(0);
+  await rows.first().getByRole("link", { name: "Review access", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Access", exact: true })).toBeVisible();
 });
 

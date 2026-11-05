@@ -462,6 +462,7 @@ h1 {
 
 .minimal-auth-page > .product-brand { width: 100%; margin-bottom: var(--space-8); }
 .minimal-auth-page .email-choice { margin-top: var(--space-3); }
+.minimal-auth-page .mdbase-button { --control-font-size: var(--font-size-ui); }
 .signed-out-preferences { display: flex; gap: var(--space-3); }
 .minimal-auth-footer { flex-wrap: wrap; align-items: center; }
 .minimal-auth-page .onboarding-actions { display: grid; gap: 12px; margin-top: var(--space-6); }
@@ -480,13 +481,13 @@ h1 {
   text-decoration: none;
 }
 
-.minimal-auth-shell a:not(.mdbase-button) {
+.minimal-auth-page a:not(.mdbase-button) {
   color: var(--color-accent-strong);
   text-decoration: none;
   text-underline-offset: 0.2em;
 }
 
-.minimal-auth-shell a:not(.mdbase-button):hover,
+.minimal-auth-page a:not(.mdbase-button):hover,
 .minimal-auth-shell :is(.auth-footnote, .auth-agreement) a {
   text-decoration: underline;
 }
@@ -571,7 +572,6 @@ h1 {
 .minimal-auth-page .provider-button {
   gap: var(--space-2);
   margin-top: 0;
-  font-size: var(--font-size-section);
   font-weight: var(--font-weight-medium);
 }
 
@@ -635,10 +635,14 @@ h1 {
 }
 
 .minimal-auth-footer a {
+  color: var(--color-text-muted);
+  text-decoration: none;
   min-height: 44px;
   display: inline-flex;
   align-items: center;
 }
+
+.minimal-auth-footer a:hover { color: var(--color-text); text-decoration: underline; }
 
 @media (max-width: 40rem) {
   .minimal-auth-shell { width: min(100% - var(--space-8), 25rem); }

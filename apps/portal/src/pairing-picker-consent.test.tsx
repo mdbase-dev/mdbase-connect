@@ -36,7 +36,7 @@ describe("one explicit collection consent", () => {
     const receipt = within(document.querySelector<HTMLElement>(".approval-receipt")!);
     expect(receipt.getByText("Allow Reader to create new collections")).toBeVisible();
     expect(receipt.getByText("Already-allowed access stays in place. Remove access separately if you no longer want it.")).toBeVisible();
-    fireEvent.click(screen.getByText("Advanced: allow more collections"));
+    fireEvent.click(screen.getByText("Allow access to additional collections"));
     fireEvent.click(screen.getByRole("checkbox", { name: "Allow Reader to create new collections" }));
     expect(receipt.queryByText("Allow Reader to create new collections")).not.toBeInTheDocument();
     expect(view.posts()).toEqual([]);
@@ -59,7 +59,7 @@ describe("one explicit collection consent", () => {
     expect(screen.queryByRole("button", { name: "Use this account" })).not.toBeInTheDocument();
     expect(screen.queryByText(/mdbase was upgraded/)).not.toBeInTheDocument();
     expect(document.querySelector(".request-origin code")).toHaveTextContent("https://reader.example");
-    expect(screen.getByText(/Only continue if you recognize this exact site\./)).toBeInTheDocument();
+    expect(screen.getByText(/Continue only if you started this and recognize this site\./)).toBeInTheDocument();
     expect(screen.getByText("Details")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ })).toBeDisabled();
     fireEvent.change(screen.getByRole("combobox", { name: "Open in Reader" }), { target: { value: "Notes" } });

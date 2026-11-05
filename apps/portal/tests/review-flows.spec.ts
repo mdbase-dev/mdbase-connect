@@ -12,7 +12,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await search.click();
     const palette = page.getByRole("dialog", { name: "Commands", exact: true });
     const query = palette.getByRole("combobox");
-    for (const [term, label] of [["Coastal restoration", /Coastal restoration/], ["Reader", /^Reader/], ["Travel laptop", /^Travel laptop/], ["Travel Safari", /^Travel Safari/], ["Rename Shared", /^Rename Shared research library/], ["Sign out", /^Sign out/]]) {
+    for (const [term, label] of [["Coastal restoration", /Coastal restoration/], ["coastal archive storage", /Coastal.*Storage/], ["coastal archive access", /Coastal.*Access/], ["Reader", /^Reader/], ["Travel laptop", /^Travel laptop/], ["Travel Safari", /^Travel Safari/], ["Rename Shared", /^Rename Shared research library/], ["Sign out", /^Sign out/]]) {
       await query.fill(term);
       await expect(palette.getByRole("option", { name: label }).first()).toBeVisible();
     }
@@ -63,7 +63,65 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(page.locator('[data-command="computer:computer-0"]').getByRole("button", { name: "Rename", exact: true })).toBeFocused();
     await page.keyboard.press("c");
     await expect(page.getByRole("dialog", { name: "Add collection", exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog").getByRole("button", { name: /^Hosted by mdbase/ })).toBeFocused();
     await page.keyboard.press("Escape");
+  });
+
+  for (const colorScheme of ["light", "dark"] as const) test(`Portal finish ${viewport.width} ${colorScheme}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ colorScheme });
+    await openScenario(page, "empty-account");
+    await expect(page.locator(".connect-page > header").getByRole("button", { name: "Add collection", exact: true })).toHaveCount(0);
+    await expect(page.locator(".connect-page > header > div > span")).toHaveCount(0);
+    await openScenario(page, "heavy-account");
+    const filter = page.getByRole("searchbox", { name: "Filter collections" });
+    await filter.fill("coastal archive");
+    await expect(page.locator(".connect-collection-row").first()).toContainText("Coastal restoration");
+    await filter.fill("No such collection");
+    await expect(page.getByRole("button", { name: "Clear filter", exact: true })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Clear search", exact: true })).toHaveCount(1);
+    await page.getByRole("button", { name: "Clear search", exact: true }).click();
+    await expect(filter).toBeFocused();
+    if (viewport.width === 390) {
+      await expect(page.getByRole("link", { name: "Open in editor", exact: true }).filter({ visible: true })).toHaveCount(0);
+      await expect(page.locator(".connect-collection-unavailable").first()).toContainText("Travel laptop");
+      const offline = page.locator(".connect-collection-row").filter({ has: page.locator(".connect-collection-unavailable") }).first();
+      const name = await offline.locator(".connect-collection-name").boundingBox();
+      const status = await offline.locator(".connect-status").boundingBox();
+      expect(status!.y).toBeGreaterThanOrEqual(name!.y + name!.height);
+      await page.getByRole("button", { name: "Open menu" }).click();
+      await expect(page.locator(".connect-navigation-sheet .product-brand")).toBeVisible();
+      await expect(page.locator(".connect-navigation-sheet .mdbase-motion-keys-first")).toHaveCount(0);
+      await page.keyboard.press("Escape");
+    }
+    await openScenario(page, "authorization");
+    const picker = page.getByRole("combobox", { name: "Choose a collection", exact: true });
+    await expect(picker).toBeVisible();
+    const contrast = await picker.evaluate(element => {
+      const canvas = document.createElement("canvas").getContext("2d")!;
+      const luminance = (color: string) => {
+        canvas.fillStyle = color;
+        canvas.fillRect(0, 0, 1, 1);
+        const channels = [...canvas.getImageData(0, 0, 1, 1).data].slice(0, 3).map(value => {
+          const channel = value / 255;
+          return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+        });
+        return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+      };
+      const foreground = luminance(getComputedStyle(element, "::placeholder").color);
+      const background = luminance(getComputedStyle(document.body).backgroundColor);
+      return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+    });
+    expect(contrast).toBeGreaterThanOrEqual(4.5);
+    const option = page.getByRole("option", { name: "Field research", exact: true });
+    await expect(option).toHaveAccessibleDescription(/Studio MacBook/);
+    await option.click();
+    await page.getByRole("button", { name: "Review access", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Allow access", exact: true })).toBeVisible();
+    if (viewport.width === 390) await expect(page.locator(".request-origin-guidance")).toBeHidden();
+    await openScenario(page, "signup");
+    const buttonSizes = await page.locator(".auth-providers .mdbase-button, .password-auth-form .mdbase-button").evaluateAll(buttons => buttons.map(button => getComputedStyle(button).fontSize));
+    expect(buttonSizes).toEqual(["13px", "13px", "13px"]);
   });
 }
 
@@ -96,6 +154,9 @@ test("palette actions reuse row dialogs, including non-optimistic revoke and ses
   };
   await run("rename shared", "Rename Shared research library Hosted by mdbase");
   await expect(page.getByRole("dialog", { name: "Rename Shared research library", exact: true })).toBeVisible();
+  const rename = page.getByRole("dialog").getByRole("textbox");
+  await expect(rename).toBeFocused();
+  expect(await rename.evaluate(element => (element as HTMLInputElement).selectionEnd! - (element as HTMLInputElement).selectionStart!)).toBe("Shared research library".length);
   await page.keyboard.press("Escape");
   await run("delete shared", "Delete Shared research library Hosted by mdbase");
   await expect(page.getByRole("dialog").getByRole("button", { name: "Delete permanently" })).toBeDisabled();
@@ -111,6 +172,7 @@ test("palette actions reuse row dialogs, including non-optimistic revoke and ses
   await expect(page.locator('[data-command="app:app-1"]')).toBeVisible();
   acknowledge();
   await expect(confirm).toHaveCount(0);
+  await expect(page.locator(".connect-main :focus")).toBeVisible();
   await expect(page.locator('[data-command="app:app-1"]')).toHaveCount(0);
   await run("Revoke Home workstation", "Revoke Home workstation");
   const computer = page.getByRole("dialog", { name: "Revoke Home workstation?", exact: true });
@@ -118,9 +180,8 @@ test("palette actions reuse row dialogs, including non-optimistic revoke and ses
   await expect(page.locator('[data-command="computer:computer-1"]')).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(computer).toHaveCount(0);
-  await run("Theme", "Theme");
+  await run("dark theme", "Dark Theme");
   await expect(page.getByRole("heading", { name: "Preferences", exact: true })).toBeVisible();
-  await page.getByRole("option", { name: "Dark", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await run("Language", "Language");
   await expect(page.getByRole("listbox")).toBeVisible();
@@ -166,7 +227,7 @@ test("grant waits for acknowledged status and resolves stripes to a check", asyn
   await page.route(`**/v1/authorization-requests/${authorizationId}/status`, route => route.fulfill({ json: { status: approved ? "approved" : "pending" } }));
   await openScenario(page, "authorization");
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("combobox", { name: "Collection", exact: true })).toBeFocused();
+  await expect(page.getByRole("combobox", { name: "Choose a collection", exact: true })).toBeFocused();
   await expect(page.getByText(/All permissions listed below are required/)).toHaveCount(0);
   await page.getByRole("option", { name: "Field research", exact: true }).click();
   await expect(page.getByRole("button", { name: "Allow access", exact: true })).toHaveCount(0);
@@ -336,7 +397,7 @@ test("closing the palette during entry reverses from the current opacity", async
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("rename survives navigation and reload", async ({ page }) => {
+test("rename survives navigation and reload", async ({ page }, testInfo) => {
   await openScenario(page, "collection-storage");
   await page.getByRole("button", { name: "Actions for Shared research library" }).click();
   await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
@@ -345,11 +406,32 @@ test("rename survives navigation and reload", async ({ page }) => {
   await page.getByRole("button", { name: "Save", exact: true }).click();
   expect((await saved).ok()).toBe(true);
   await expect(page.getByText("Coastal research library", { exact: true }).first()).toBeVisible();
+  const receipt = page.locator(".mdbase-toast");
+  await expect(receipt).toBeVisible();
+  await receipt.hover();
+  await expect(receipt).toHaveCSS("font-size", "13px");
+  await expect(receipt.getByRole("button", { name: "Undo", exact: true })).toHaveClass(/mdbase-button is-secondary/);
+  await expect(receipt.getByRole("button", { name: "Dismiss", exact: true })).toHaveClass(/mdbase-button is-tertiary/);
+  await page.screenshot({ path: testInfo.outputPath("rename-receipt.png") });
   await page.reload();
   await expect(page.getByText("Coastal research library", { exact: true }).first()).toBeVisible();
   if (await page.getByRole("button", { name: "Open menu" }).isVisible()) await page.getByRole("button", { name: "Open menu" }).click();
   await page.getByRole("link", { name: "Overview", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Coastal research library", exact: true })).toBeVisible();
+});
+
+test("successful collection deletion focuses the next surviving row", async ({ page }) => {
+  await openScenario(page, "typical-account");
+  await page.getByRole("button", { name: "Actions for Coastal survey team", exact: true }).click();
+  const remove = page.getByRole("menuitem", { name: "Delete", exact: true });
+  await expect(remove).toHaveClass(/mdbase-menu-item is-danger/);
+  await remove.click();
+  const dialog = page.getByRole("dialog", { name: "Delete Coastal survey team?", exact: true });
+  await expect(dialog).toHaveAccessibleDescription("All hosted data in Coastal survey team will be permanently deleted. This cannot be undone.");
+  await dialog.getByRole("textbox").fill("Coastal survey team");
+  await dialog.getByRole("button", { name: "Delete permanently", exact: true }).click();
+  await expect(page.locator('[data-command="collection:hosted-1"]')).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Field research", exact: true })).toBeFocused();
 });
 
 test("signed-out pairing signs in locally and remembers approval", async ({ page }) => {
@@ -387,6 +469,18 @@ test("consent adds a real grant and removes the pending request", async ({ page 
   expect(data.pending_authorizations).toEqual([]);
   expect(data.grants.filter(grant => grant.collection_id === "collection-0" && grant.application_id === "app-0")).toHaveLength(2);
   expect(await (await page.request.get(`/v1/authorization-requests/${authorizationId}/status`)).json()).toEqual({ status: "approved" });
+});
+
+for (const reducedMotion of ["reduce", "no-preference"] as const) test(`setup progress stays non-optimistic with ${reducedMotion} motion`, async ({ page }, testInfo) => {
+  await page.emulateMedia({ reducedMotion });
+  await openScenario(page, "authorization-setting-up");
+  await expect(page.getByText("The application does not have access yet.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Access approved", { exact: true })).toHaveCount(0);
+  const line = page.locator(".collection-setup-progress");
+  await expect(line).toHaveCSS("animation-delay", "0.4s");
+  expect(await line.evaluate(element => getComputedStyle(element, "::after").animationName)).toBe(reducedMotion === "reduce" ? "none" : "setup-progress");
+  await expect(line).toHaveCSS("opacity", "1");
+  await testInfo.attach(`setup-${reducedMotion}`, { body: await page.screenshot(), contentType: "image/png" });
 });
 
 test("account session revocation sticks after reload", async ({ page }) => {

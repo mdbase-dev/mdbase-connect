@@ -138,6 +138,7 @@ const definitions = [
   ["pairing-signed-out", pair, "Sign in", 5, state => { state.signedIn = false; }],
   ["authorization", consent, "TaskNotes", 5],
   ["authorization-review", consent, "Allow access", 1],
+  ["authorization-setting-up", consent, "Finishing collection setup", 1, state => { state.authorizationStatus = "setting_up"; state.authorization.collection_id = "collection-0"; }],
   ["authorization-required", consent, "All permissions listed below are required", 1, state => { state.authorization.requirements.capabilities.optional = []; }],
   ["authorization-approved", consent, "TaskNotes can now use Field research", 5, state => { state.authorizationStatus = "approved"; state.authorization.collection_id = "collection-0"; state.overview.pending_authorizations = []; }],
   ["authorization-denied", consent, "Access denied", 5, state => { state.authorizationStatus = "denied"; state.overview.pending_authorizations = []; }],

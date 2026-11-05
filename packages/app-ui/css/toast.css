@@ -1,4 +1,5 @@
-.mdbase-toaster { position: fixed; bottom: 24px; left: 24px; z-index: 1000; max-width: min(440px, calc(100vw - 48px)); }
-.mdbase-toast { display: flex; align-items: center; gap: 16px; padding: 16px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); box-shadow: var(--elevation-high); }
-.mdbase-toast span { flex: 1; }
+.mdbase-toaster { position: fixed; bottom: 20px; right: 20px; z-index: 1000; max-width: min(460px, calc(100vw - 40px)); }
+.mdbase-toast { display: flex; align-items: center; gap: 9px; padding: 8px 8px 8px 13px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-soft); box-shadow: var(--elevation-high); font-size: var(--font-size-ui); }
+.mdbase-toast span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.mdbase-toast button { flex: none; font-size: inherit; }
 @media (max-width: 640px) { .mdbase-toaster { top: max(16px, env(safe-area-inset-top)); bottom: auto; left: 16px; right: 16px; max-width: none; } }

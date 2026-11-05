@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import { useState, type ReactNode, type RefObject } from "react";
+import { useId, useState, type ReactNode, type RefObject } from "react";
 import { Dialog } from "./Dialog.js";
 import { useLocaleRevision } from "./i18n.js";
 
@@ -18,9 +18,10 @@ export function ConfirmDialog({ open, title, consequence, confirmLabel, pendingL
 }) {
   useLocaleRevision();
   const [pending, setPending] = useState(false);
+  const descriptionId = useId();
   const working = busy || pending;
-  return <Dialog open={open} title={title} onClose={onClose} closeDisabled={working} returnFocusRef={returnFocusRef} className="mdbase-confirm-dialog">
-    {consequence && <p>{consequence}</p>}
+  return <Dialog open={open} title={title} descriptionId={consequence ? descriptionId : undefined} onClose={onClose} closeDisabled={working} returnFocusRef={returnFocusRef} className="mdbase-confirm-dialog">
+    {consequence && <p id={descriptionId}>{consequence}</p>}
     {children}
     <footer className="mdbase-dialog-actions">
       <button type="button" className="mdbase-button is-tertiary" data-autofocus disabled={working} onClick={onClose}>{t({ message: "Cancel" })}</button>

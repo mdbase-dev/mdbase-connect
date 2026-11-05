@@ -190,8 +190,8 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     await choose("Work notes"); await approve().click(); await done();
     assert.deepEqual(posts.map(post => post.body), [{fingerprint: base.fingerprint, collection_ids: [second], create_collections: true, selected_collection_id: second}], "changing the picker does not silently accumulate access");
     await load(); await choose("Personal notes");
-    await page.getByText("Advanced: allow more collections", {exact: true}).click();
-    await page.getByRole("checkbox", {name: "Work notes", exact: true}).check();
+    await page.getByText("Allow access to additional collections", {exact: true}).click();
+    await page.getByRole("checkbox", {name: "Work notes Hosted by mdbase", exact: true}).check();
     await approve().click(); await done();
     assert.deepEqual([...posts[0].body.collection_ids].sort(), [first, second].sort());
     await load();
@@ -223,10 +223,10 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     await load();
     Object.assign(pairing, {collections: [], requested_create_collections: false, can_create_collection: false, timer_declaration: {environment: "lab", digest: "cd".repeat(32)}});
     await page.reload(); await picker().waitFor();
-    assert.equal(await page.getByText("Advanced: allow more collections").count(), 0, "no empty additional-access section");
+    assert.equal(await page.getByText("Allow access to additional collections").count(), 0, "no empty additional-access section");
     const reminders = page.getByRole("checkbox", {name: "Allow TaskNotes to send you reminders", exact: true});
     assert.deepEqual(await reminders.evaluate(element => [element.getBoundingClientRect().height <= 24, element.closest("label").getBoundingClientRect().height >= 44]), [true, true], "reminder checkbox keeps its size; its label is the 44px target");
-    await load(); await page.getByText("Advanced: allow more collections", {exact: true}).click();
+    await load(); await page.getByText("Allow access to additional collections", {exact: true}).click();
     assert.equal(await page.getByRole("group", {name: "Additional collection access", exact: true}).evaluate(element => getComputedStyle(element).borderTopStyle), "none", "additional access is not outlined like a text field");
     await page.setViewportSize({width: 640, height: 1000});
     await load(); await choose("Personal notes");
