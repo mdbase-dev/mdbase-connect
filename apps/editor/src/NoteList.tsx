@@ -5,6 +5,7 @@ import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useOverlay } from "@mdbase-dev/ui/overlay";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { FilePlusIcon as FilePlus2, SidebarSimpleIcon as PanelLeft } from "./icons";
 import { ContextMenu, type ActionMenuItem } from "./ContextMenu";
@@ -21,7 +22,7 @@ const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: tru
 
 import { matchesCommandShortcut } from "./editor-commands";
 
-export function NoteList({ entries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, search, searchQuery, searchContexts, sort, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, onClosePeek, onCreate, onCollections }: {
+export function NoteList({ entries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, search, searchQuery, searchContexts, sort, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCollections }: {
   entries: CollectionBrowserEntry[];
   selection?: NoteSelection;
   onSelection?: (selection: NoteSelection) => void;
@@ -71,13 +72,16 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   onDelete?: (path: string) => void;
   onPeek?: (path: string) => void;
   peek?: ReactNode;
+  peekTitle?: string;
   onClosePeek?: () => void;
   onCreate?: () => void;
   onCollections: () => void;
 }) {
   useLingui();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const peekRef = useRef<HTMLElement>(null);
+  const { ref: peekRef, present: peekPresent } = useOverlay<HTMLElement>(Boolean(peek));
+  const peekContent = useRef({ body: peek, title: peekTitle });
+  if (peek) peekContent.current = { body: peek, title: peekTitle };
   const revealedEntry = useRef<string | undefined>(undefined);
   const searching = Boolean(searchQuery.trim());
   const pins = useMemo(() => new Set(!searching && !filter ? pinnedPaths : []), [filter, pinnedPaths, searching, i18n.locale]);
@@ -116,11 +120,10 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
     return itemIndex >= 0 ? `note-entry-${itemIndex}` : undefined;
   }, [listItems, selectedEntryIndex, i18n.locale]);
 
-  const peeking = Boolean(peek);
   useLayoutEffect(() => {
     const card = peekRef.current;
     const list = scrollRef.current;
-    if (!peeking || !card || !list) return;
+    if (!peekPresent || !card || !list) return;
     const position = () => {
       const anchor = list.querySelector(`#${selectedItemId}`)?.getBoundingClientRect() ?? list.getBoundingClientRect();
       const width = Math.min(480, window.innerWidth - 24);
@@ -143,14 +146,13 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
     document.addEventListener("focusin", close);
     document.addEventListener("keydown", close, true);
     return () => {
-      card.hidePopover();
       window.removeEventListener("resize", position);
       list.removeEventListener("scroll", position);
       document.removeEventListener("pointerdown", close);
       document.removeEventListener("focusin", close);
       document.removeEventListener("keydown", close, true);
     };
-  }, [peeking, selectedItemId, onClosePeek]);
+  }, [peekPresent, selectedItemId, onClosePeek]);
 
   const openEntry = useCallback((entry: CollectionBrowserEntry, options?: { keyboard?: boolean }) => {
     if (entry.kind === "note") onSelect(entry.note.path, options);
@@ -185,13 +187,13 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
     if (selected?.kind === "note") {
       if (matchesCommandShortcut("rename", event)) { event.preventDefault(); onRename?.(selected.path); return; }
       if (matchesCommandShortcut("delete", event)) { event.preventDefault(); onDelete?.(selected.path); return; }
-      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      if (matchesCommandShortcut("note-actions", event)) {
         event.preventDefault();
         scrollRef.current?.querySelector(`#${selectedItemId}`)?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
         return;
       }
     }
-    if (event.key === " " && selected?.kind === "note") {
+    if (matchesCommandShortcut("peek", event) && selected?.kind === "note") {
       event.preventDefault();
       if (!statuses.get(selected.path)?.disabled) onPeek?.(selected.path);
       return;
@@ -204,9 +206,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
       }
       return;
     }
-    const key = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
-      ? event.key === "j" ? "ArrowDown" : event.key === "k" ? "ArrowUp" : event.key
-      : event.key;
+    const key = matchesCommandShortcut("list-next", event) ? "ArrowDown" : matchesCommandShortcut("list-previous", event) ? "ArrowUp" : event.key;
     if (!(key in listNavigationKeys) || !entries.length) return;
     event.preventDefault();
     let next = moveListIndex(selectedEntryIndex, entries.length, key as ListNavigationKey);
@@ -253,7 +253,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
         </button></ContextMenu>;
       })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status"><Trans>Reading notes and files…</Trans></div> : <div className="list-empty"><p>{structureError ? t`Notes could not finish loading.` : search && contentError ? t`Search is incomplete.` : search ? t`No notes or files found.` : t`This collection is empty.`}</p>{!search && !structureError && onCreate && <button onClick={onCreate}><Trans>Create the first note</Trans></button>}</div>}
     </div>
-    {peek && <aside ref={peekRef} popover="manual" className="note-peek" role="region" aria-label={t`Note peek`}>{peek}</aside>}
+    {peekPresent && <aside ref={peekRef} popover="manual" className="note-peek" data-open={Boolean(peek)} role="region" aria-label={peekContent.current.title}>{peekContent.current.body}</aside>}
   </section>;
 }
 
