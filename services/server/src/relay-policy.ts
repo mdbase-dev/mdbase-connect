@@ -250,8 +250,19 @@ function nextDeviceGrantFields(grant: { operations: string[]; file_capability: u
     ...(grant.client_pk ? { client_pk: grant.client_pk.toString("hex"), client_fingerprint: clientFingerprint(grant.client_pk) } : {}),
     // The app's attestation of client_pk under the binding's grant signing key; daemons
     // verify it before trusting client_pk.
-    ...(grant.client_pk && grant.client_key_signature ? { client_key_signature: grant.client_key_signature.toString("base64url") } : {})
+    ...(grant.client_pk && grant.client_key_signature ? { client_key_signature: canonicalClientKeySignature(grant.client_key_signature) } : {})
   };
+}
+
+function canonicalClientKeySignature(signature: Buffer): string {
+  const order = BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
+  if (signature.length === 64) {
+    const scalar = BigInt(`0x${signature.subarray(32).toString("hex")}`);
+    if (scalar > order / 2n && scalar < order) {
+      return Buffer.concat([signature.subarray(0, 32), Buffer.from((order - scalar).toString(16).padStart(64, "0"), "hex")]).toString("base64url");
+    }
+  }
+  return signature.toString("base64url");
 }
 
 export async function buildPolicySnapshot(
