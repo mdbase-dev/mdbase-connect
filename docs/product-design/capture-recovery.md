@@ -28,6 +28,11 @@ by an observation of those confirmed bytes. Preserve the old token and evidence;
 transfer only the existing dependency and redelivery hints as `emit` already
 does for other genuine source changes.
 
+Record the dependency-read hint after observation admission even when the
+quiet window, bounded read or UTF-8 check refuses source text. Those checks
+still refuse the read; the hint only ensures restored bytes are revalidated
+later rather than silently treated as an ordinary metadata touch.
+
 Retire only the resource-ingestion mechanism's own deferred-set incident, and
 only after the complete current resource set passes validation, completeness,
 currentness and capture admission. Never clear an unrelated Integrity incident.

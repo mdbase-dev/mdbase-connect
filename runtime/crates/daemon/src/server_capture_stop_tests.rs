@@ -284,37 +284,44 @@ async fn terminal_capture_sync_enable_retains_original_paused_source_without_bas
 
 #[tokio::test]
 async fn source_capture_rechecks_repaired_resources_in_same_actor() {
-    let fixture = capture_fixture("capture-repaired-live-source").await;
-    let config_path = fixture.folder.path().join("mdbase.yaml");
-    let config = std::fs::read(&config_path).unwrap();
-    let inventory = fixture.runtime.inventory().await.unwrap();
-    let invalid = String::from_utf8(config.clone())
-        .unwrap()
-        .replace("0.3.0", "99.0.0");
-    std::fs::write(&config_path, invalid).unwrap();
-    fixture.runtime.inventory().await;
-    let status = fixture.runtime.status().await.unwrap();
-    let failure = crate::sync_failure::Failure::project(&status, &None).unwrap();
-    assert_eq!(
-        failure.cause,
-        Some(crate::sync_failure::Cause::ResourceIngestDeferred)
-    );
-    std::fs::write(&config_path, &config).unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let frozen = fixture
-        .runtime
-        .freeze()
-        .await
-        .expect("a revalidated repaired resource set must not retain its stale refusal");
-    assert_eq!(frozen.inventory, inventory);
-    assert_eq!((frozen.holds, frozen.unresolved), (0, 0));
-    assert_eq!(std::fs::read(config_path).unwrap(), config);
-    assert_eq!(
-        std::fs::read(fixture.folder.path().join("original.md")).unwrap(),
-        fixture.note
-    );
-    assert_no_collection_bootstrap(&fixture);
-    close_fixture(&fixture).await;
+    for refusal in ["unsupported", "non-utf8", "oversized"] {
+        let fixture = capture_fixture("capture-repaired-live-source").await;
+        let config_path = fixture.folder.path().join("mdbase.yaml");
+        let config = std::fs::read(&config_path).unwrap();
+        let inventory = fixture.runtime.inventory().await.unwrap();
+        let invalid = match refusal {
+            "unsupported" => String::from_utf8(config.clone())
+                .unwrap()
+                .replace("0.3.0", "99.0.0")
+                .into_bytes(),
+            "non-utf8" => vec![0xff],
+            _ => vec![b'x'; 1024 * 1024 + 1],
+        };
+        std::fs::write(&config_path, invalid).unwrap();
+        fixture.runtime.inventory().await;
+        let status = fixture.runtime.status().await.unwrap();
+        let failure = crate::sync_failure::Failure::project(&status, &None).unwrap();
+        assert_eq!(
+            failure.cause,
+            Some(crate::sync_failure::Cause::ResourceIngestDeferred)
+        );
+        std::fs::write(&config_path, &config).unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let frozen = fixture
+            .runtime
+            .freeze()
+            .await
+            .unwrap_or_else(|failure| panic!("repaired {refusal} source retained {failure:?}"));
+        assert_eq!(frozen.inventory, inventory);
+        assert_eq!((frozen.holds, frozen.unresolved), (0, 0));
+        assert_eq!(std::fs::read(config_path).unwrap(), config);
+        assert_eq!(
+            std::fs::read(fixture.folder.path().join("original.md")).unwrap(),
+            fixture.note
+        );
+        assert_no_collection_bootstrap(&fixture);
+        close_fixture(&fixture).await;
+    }
 }
 
 #[tokio::test]
