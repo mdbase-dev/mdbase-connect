@@ -26,7 +26,8 @@ export async function portalLifecycleE2E({
     if (await page.getByRole("button", { name: "Add collection" }).isVisible()) {
       await page.getByRole("button", { name: "Add collection" }).click();
     }
-    await page.getByRole("button", { name: /^Hosted by mdbase/ }).click();
+    // An empty account also shows the choice inline; the dialog, when open, comes last.
+    await page.getByRole("button", { name: /^Hosted by mdbase/ }).last().click();
     await page.getByLabel("Collection name").fill("Browser E2E collection");
     await page.getByRole("button", { name: "Create", exact: true }).click();
     await page.getByRole("link", { name: "Collections", exact: true }).click();
@@ -140,7 +141,8 @@ export async function portalLifecycleE2E({
     if (await page.getByRole("button", { name: "Add collection" }).isVisible()) {
       await page.getByRole("button", { name: "Add collection" }).click();
     }
-    await page.getByRole("button", { name: /^Hosted by mdbase/ }).click();
+    // An empty account also shows the choice inline; the dialog, when open, comes last.
+    await page.getByRole("button", { name: /^Hosted by mdbase/ }).last().click();
     await page.getByLabel("Collection name").fill("Account deletion collection");
     await page.getByRole("button", { name: "Create", exact: true }).click();
     const deletionCollection = page.locator(".connect-collection-row").filter({
