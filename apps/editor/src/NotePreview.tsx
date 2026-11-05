@@ -36,13 +36,13 @@ export function NotePeekBody({ path, source, title, gateway }: { path: string; s
   }, [outgoing]);
   useLayoutEffect(() => {
     if (!incoming.current || !pages.current) return;
-    if (loading && pages.current.style.height) return;
+    if (loading && !unavailable && pages.current.style.height) return;
     const resize = () => { if (pages.current && incoming.current) pages.current.style.height = `${incoming.current.getBoundingClientRect().height}px`; };
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(incoming.current);
     return () => observer.disconnect();
-  }, [path, body, loading]);
+  }, [path, body, loading, unavailable]);
   return <div ref={pages} className="note-peek-pages">
     {outgoing?.source !== undefined && <div key={`outgoing-${outgoing.path}`} className="note-peek-body is-outgoing" aria-hidden="true" inert><ReadOnlyMarkdown source={outgoing.source} byteLength={new TextEncoder().encode(outgoing.source).length} previewTitle={outgoing.title} /></div>}
     <div ref={incoming} key={path} className="note-peek-body">{unavailable ? <p role="status"><Trans>Preview unavailable.</Trans></p> : body === undefined ? <p role="status"><Trans>Opening</Trans></p> : <ReadOnlyMarkdown source={body} byteLength={new TextEncoder().encode(body).length} previewTitle={title} />}</div>

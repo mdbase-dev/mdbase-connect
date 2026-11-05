@@ -67,6 +67,31 @@ describe("NoteList search presentation", () => {
     view.rerender(<NoteList {...props} selectedPath={second.path} />);
     expect(viewport.scrollToIndex).toHaveBeenCalledTimes(2);
   });
+  it("steps over attachments while a peek is open", () => {
+    const note = (path: string): NoteSummary => ({ path, frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } });
+    const first = note("Notes/one.md");
+    const second = note("Notes/two.md");
+    const noop = () => {};
+    const props = {
+      entries: [
+        { kind: "note" as const, path: first.path, note: first },
+        { kind: "file" as const, path: "Files/paper.pdf", file: { path: "Files/paper.pdf", name: "paper.pdf", folder: "Files", size: 1, mtime: "", mediaType: "application/pdf", mediaClass: "pdf" } },
+        { kind: "note" as const, path: second.path, note: second }
+      ] as never,
+      noteCount: 2, fileCount: 1, types: [], selectedPath: first.path, statuses: new Map(),
+      search: "", searchQuery: "", searchContexts: new Map(), sort: "modified-desc" as const,
+      collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
+      contentIndexing: false, contentLoaded: 2,
+      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
+      onSelectFile: vi.fn(), onCollections: noop
+    };
+    render(<NoteList {...props} peek={<p>Peek</p>} peekTitle="One" />);
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "j" });
+    expect(props.onSelect).toHaveBeenLastCalledWith(second.path, { keyboard: true });
+    expect(props.onSelectFile).not.toHaveBeenCalled();
+  });
+
   it("keeps partial-load failures visible and retryable instead of claiming complete results", () => {
     const retry = vi.fn();
     const noop = () => {};

@@ -213,7 +213,8 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
     if (!(key in listNavigationKeys) || !entries.length) return;
     event.preventDefault();
     let next = moveListIndex(selectedEntryIndex, entries.length, key as ListNavigationKey);
-    if (event.shiftKey) {
+    // Range selection and peek traversal only ever land on notes.
+    if (event.shiftKey || peek) {
       const direction = next < selectedEntryIndex ? -1 : 1;
       while (next >= 0 && next < entries.length && (entries[next].kind !== "note" || statuses.get(entries[next].path)?.disabled)) next += direction;
     }
