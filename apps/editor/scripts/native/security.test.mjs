@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { it } from 'node:test';
 import { parse } from 'yaml';
 import { assertProtocolArchive, productionPin } from './originals.mjs';
 import { assertEntryAsset, smoke } from './smoke.mjs';
+import { installTool } from './tool.mjs';
 import { verifyProvenanceBundle } from '../../../../scripts/continuous-sdk-release.mjs';
 const root=fileURLToPath(new URL('../../../../',import.meta.url));
 const source='abcdef123456'+'0'.repeat(28);
@@ -80,6 +83,16 @@ it('protected jobs only execute workflow-owned helpers, with ancestry checks bef
  assert.match(recovery.if,/production-smoke.result != 'success'/);
  assert.doesNotMatch(recovery.if,/native-deploy.result == 'success'/);
  assert.equal(recovery.steps.find(s=>s.run?.includes('rollback.mjs')).run.match(/rollback\.mjs (\w+)/)[1],'recover');
+});
+for(const kind of ['publisher','smoke']) it(`accepts the committed ${kind} lock and installs only with scripts disabled`,async()=>{
+ const base=await mkdtemp(join(tmpdir(),'editor-tool-test-'));
+ try {
+  const name=kind==='publisher'?'wrangler':'playwright';
+  await assert.rejects(installTool(base,{kind,run(file,args,{cwd}){
+   assert.equal(file,'npm');assert.ok(args.includes('--ignore-scripts'));
+   throw Error('install reached '+cwd.length);
+  }}),/install reached/,name);
+ }finally{await rm(base,{recursive:true,force:true});}
 });
 function browserDouble({pageError=false,fence=false,csp=false,entrySource=source,missingSignIn=false}={}) {
  const listeners={},events=[];
