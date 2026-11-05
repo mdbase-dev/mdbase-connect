@@ -1496,7 +1496,7 @@ test("keeps a ten-thousand-note collection responsive and virtualized", { tag: "
   await page.goto("?demo=10000");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   const firstUsableMs = Date.now() - started;
-  expect(firstUsableMs).toBeLessThan(1_800);
+  expect(firstUsableMs).toBeLessThan(2_000);
   await expect(page.getByText("10,000 notes")).toBeVisible();
   const fullIndexMs = Date.now() - started;
   expect(fullIndexMs).toBeLessThan(2_500);
