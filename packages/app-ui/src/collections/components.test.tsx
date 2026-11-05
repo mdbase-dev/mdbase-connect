@@ -431,7 +431,7 @@ describe("switcher keyboard", () => {
 
     act(() => trigger.click());
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("[role=dialog]")?.getAttribute("aria-label")).toBe("Collections");
+    expect(document.getElementById(document.querySelector("[role=dialog]")!.getAttribute("aria-labelledby")!)?.textContent).toBe("Collections");
     const radios = [...document.querySelectorAll<HTMLElement>("[role=radio]")];
     expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
     expect(document.activeElement).toBe(radios[0]);
@@ -465,7 +465,7 @@ describe("controlled switcher", () => {
     render(<CollectionSwitcher mdbase={entry} app={app} open onOpenChange={onOpenChange} />);
     const trigger = button("Switch collection, current: Beta");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("[role=dialog]")?.getAttribute("aria-label")).toBe("Collections");
+    expect(document.getElementById(document.querySelector("[role=dialog]")!.getAttribute("aria-labelledby")!)?.textContent).toBe("Collections");
 
     key(document.activeElement!, "Escape");
     expect(onOpenChange).toHaveBeenLastCalledWith(false);

@@ -7,5 +7,5 @@
 .mdbase-toast-clip > .mdbase-toast { margin-top: 8px; }
 .mdbase-toast span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .mdbase-toast button { flex: none; font-size: inherit; }
-@media (max-width: 640px) { .mdbase-toaster { top: max(16px, env(safe-area-inset-top)); bottom: auto; left: 16px; right: 16px; max-width: none; } }
+@media (max-width: 640px) { .mdbase-toaster { bottom: max(16px, env(safe-area-inset-bottom)); left: 16px; right: 16px; max-width: none; } }
 @media (prefers-reduced-motion: reduce) { .mdbase-toast-slot { transition: none; transform: none; } }
