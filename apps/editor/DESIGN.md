@@ -219,6 +219,10 @@ Ctrl/⌘Shift+P opens commands directly. Commands use the same registry as note
 menus and shortcut help, with fuzzy matching, shortcut chips and recent commands
 first. C creates a note, / focuses search, and G N, G T and G S open Notes,
 Types and Settings outside text inputs. X remains reserved and unbound.
+Fresh loads focus the list, not the note body. Explicit opens and creation keep
+the writing path immediate. Outside focus mode, Escape leaves the body for the
+list unless Vim owns it; G N always lands on the list. Escape dismisses an empty
+composer only.
 Pin/Unpin and available selection actions use that registry too. With
 multiple notes selected, Move and Delete target the selection; Add tag, Remove
 tag, Set property and Clear selection appear only when applicable. Property
@@ -288,6 +292,9 @@ Space peeks at the focused note; J/K move through the list while it stays open.
 The region uses the note title and politely announces changes. Peek enters with
 opacity and a 4px vertical translation over 120ms, leaves over 90ms, and
 cross-fades note bodies over 120ms. Reduced motion makes these changes static.
+Peek uses the list's readable wiki references and hides embed syntax. J/K change
+only the preview; Enter commits the note to the main pane. Its body height tweens
+over the same 120ms rather than collapsing between notes.
 
 The document bar keeps history, path, Properties, and More. Outline and keyboard
 help live in More; `?` opens help outside text inputs. Backlinks are a quiet

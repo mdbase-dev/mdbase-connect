@@ -214,8 +214,7 @@
 
 .note-title mark,
 .note-excerpt mark,
-.note-search-context mark,
-.quick-open-results mark {
+.note-search-context mark {
   padding: 0 1px;
   border-radius: var(--radius-sm);
   background: var(--accent-soft);
@@ -439,15 +438,16 @@
 .note-peek { opacity: 0; transform: translateY(4px); transition: opacity 90ms var(--ease-out), transform 90ms var(--ease-out); }
 .note-peek[data-open="true"] { opacity: 1; transform: translateY(0); transition-duration: 120ms; }
 @starting-style { .note-peek[data-open="true"] { opacity: 0; transform: translateY(4px); } }
-.note-peek-pages { display: grid; }
-.note-peek-body { grid-area: 1 / 1; min-width: 0; animation: peek-body-in 120ms var(--ease-out); }
-.note-peek-body.is-outgoing { animation-name: peek-body-out; pointer-events: none; }
+.note-peek-pages { position: relative; overflow: hidden; transition: height 120ms var(--ease-out); }
+.note-peek-body { display: flow-root; min-width: 0; animation: peek-body-in 120ms var(--ease-out); }
+.note-peek-body.is-outgoing { position: absolute; inset: 0; animation-name: peek-body-out; pointer-events: none; }
 @keyframes peek-body-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes peek-body-out { from { opacity: 1; } to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
   .note-peek, .note-peek[data-open="true"] { transition: none; transform: none; }
   .note-peek-body, .note-peek-body.is-outgoing { animation: none; }
   .note-peek-body.is-outgoing { display: none; }
+  .note-peek-pages { transition: none; }
 }
 .note-peek .read-only-markdown { padding: 0; }
 .note-peek .read-only-markdown-body { white-space: normal; }

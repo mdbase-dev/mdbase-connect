@@ -4,6 +4,7 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { createElement, useMemo, type ReactNode } from "react";
 import { markdownLanguage } from "@codemirror/lang-markdown";
+import { markdownReferenceText } from "./note";
 
 // Bounds apply only to presentation, AFTER the store verifies the whole file.
 // Bound parsing input, React node count and nesting independently.
@@ -26,7 +27,19 @@ function renderExcerpt(source: string, previewTitle?: string): { content: ReactN
   // Do not split a UTF16 surrogate pair at the excerpt boundary.
   let end = Math.min(source.length, MAX_EXCERPT_CHARACTERS);
   if (end < source.length && /[\uD800-\uDBFF]/.test(source[end - 1])) end -= 1;
-  const excerpt = source.slice(0, end);
+  let excerpt = source.slice(0, end);
+  if (previewTitle) {
+    const parts: string[] = [];
+    let position = 0;
+    markdownLanguage.parser.parse(excerpt).iterate({ enter(node) {
+      if (node.name !== "InlineCode" && node.name !== "FencedCode" && node.name !== "CodeBlock") return;
+      parts.push(markdownReferenceText(excerpt.slice(position, node.from)), excerpt.slice(node.from, node.to));
+      position = node.to;
+      return false;
+    } });
+    parts.push(markdownReferenceText(excerpt.slice(position)));
+    excerpt = parts.join("");
+  }
   const tree = markdownLanguage.parser.parse(excerpt);
   const cursor = tree.cursor();
   let remaining = MAX_NODES;

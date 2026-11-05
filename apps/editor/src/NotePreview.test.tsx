@@ -1,10 +1,19 @@
-import { act, renderHook, waitFor } from "./test/locale";
+import { act, render, renderHook, screen, waitFor } from "./test/locale";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CollectionGateway, NoteSummary } from "./model";
-import { notePreviewExcerpt, previewProperties, useNotePreview } from "./NotePreview";
+import { NotePeekBody, notePreviewExcerpt, previewProperties, useNotePreview } from "./NotePreview";
 
 describe("note previews", () => {
+  it("reports a failed peek read and accepts subsequently indexed content", async () => {
+    const gateway = { read: vi.fn().mockRejectedValue(new Error("Unavailable")) } as unknown as CollectionGateway;
+    const view = render(<NotePeekBody path="note.md" title="Note" gateway={gateway} />);
+    await screen.findByText("Preview unavailable.");
+    expect(gateway.read).toHaveBeenCalledOnce();
+    view.rerender(<NotePeekBody path="note.md" title="Note" source="Indexed [[Other|content]]" gateway={gateway} />);
+    expect(screen.queryByText("Preview unavailable.")).not.toBeInTheDocument();
+    expect(screen.getByRole("region")).toHaveTextContent("Indexed content");
+  });
   it("finds the first useful paragraph and removes Markdown markers", () => {
     expect(notePreviewExcerpt([
       "# Ada Lovelace",

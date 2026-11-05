@@ -6,6 +6,20 @@ import { NewNoteComposer } from "./NewNoteComposer";
 import { chooseOption } from "./test/select";
 
 describe("new note schema fields", () => {
+  it("dismisses only an empty composer with Escape", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    render(<NewNoteComposer types={[]} onCreate={async () => undefined} onCancel={onCancel} />);
+    const title = screen.getByRole("textbox", { name: "Title" });
+    await user.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalledWith(false);
+    onCancel.mockClear();
+    await user.type(title, "Keep this draft");
+    await user.keyboard("{Escape}");
+    expect(onCancel).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).toHaveBeenCalledWith(true);
+  });
   it("submits prefilled person IDs and identities without imposing HTML whole-value regex semantics", async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn(async () => undefined);
