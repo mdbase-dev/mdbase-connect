@@ -10,7 +10,7 @@ import { CommandPalette } from "./CommandPalette.js";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const host = document.body.appendChild(document.createElement("div"));
 const root = createRoot(host);
-afterEach(() => { act(() => root.render(null)); vi.useRealTimers(); document.documentElement.style.removeProperty("--motion-exit"); });
+afterEach(() => { act(() => root.render(null)); vi.useRealTimers(); });
 
 it("closes a palette before running its action and does not steal the action's focus", () => {
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
@@ -39,7 +39,6 @@ it("closes a palette before running its action and does not steal the action's f
 
 it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus", () => {
   vi.useFakeTimers();
-  document.documentElement.style.setProperty("--motion-exit", "120ms");
   let changeOpen: (open: boolean) => void;
   function Host() {
     const [open, setOpen] = useState(false);
@@ -54,7 +53,7 @@ it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus",
   trigger.focus();
   act(() => trigger.click());
   const dialog = host.querySelector("dialog")!;
-  dialog.style.setProperty("--motion-exit", "120ms");
+  dialog.style.setProperty("transition-duration", "0.12s");
   expect(document.activeElement?.textContent).toBe("Cancel");
   act(() => changeOpen!(false));
   expect(host.querySelector("dialog")).toBe(dialog);
@@ -63,7 +62,9 @@ it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus",
   act(() => vi.advanceTimersByTime(120));
   expect(host.querySelector("dialog")).toBe(dialog);
   act(() => changeOpen!(false));
-  act(() => vi.advanceTimersByTime(120));
+  act(() => vi.advanceTimersByTime(119));
+  expect(host.querySelector("dialog")).toBe(dialog);
+  act(() => vi.advanceTimersByTime(1));
   expect(host.querySelector("dialog")).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
