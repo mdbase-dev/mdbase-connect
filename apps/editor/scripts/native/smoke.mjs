@@ -1,7 +1,7 @@
 // Workflow-owned browser driver. Only public served application code runs in Chromium.
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-export const origins={production:'https://editor.mdbase.dev',staging:'https://editor-staging.mdbase.dev'};
+const origins={production:'https://editor.mdbase.dev',staging:'https://editor-staging.mdbase.dev'};
 const need=(ok,reason)=>{if(!ok)throw Error(reason);};
 export function assertEntryAsset(url,source,target='production') {
  const origin=origins[target];
