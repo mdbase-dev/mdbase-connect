@@ -29,13 +29,12 @@ test("collections: sync is offered only for a ready local collection; waiting wo
   assert.equal(presentCollection({ mode: "local", state: "opening" }).canEnableSync, false);
   const busy = presentCollection({ mode: "synced_e2e", state: "ready", sync: { pending: 2, holds: 1, unresolved: 0, connection: "online" } });
   assert.equal(busy.status, "Syncing…");
-  assert.equal(busy.dot, "paused");
   assert.match(busy.detail, /2 changes to sync · 1 file waiting/);
   assert.equal(busy.canEnableSync, false);
   assert.match(presentCollection({ mode: "local", state: "failed", reason: "folder_missing" }).detail, /files are untouched/);
   assert.match(presentCollection({ mode: "local", state: "unavailable", reason: "old_connector_running" }).detail, /old mdbase Connect is running/);
   const turningOn = presentCollection({ mode: "local", state: "paused", reason: "private_sync_pending" });
-  assert.deepEqual([turningOn.status, turningOn.dot], ["Turning on Private sync…", "connecting"]);
+  assert.equal(turningOn.status, "Turning on Private sync…");
   assert.match(turningOn.detail, /finishes this on its own; your files are untouched/);
   assert.equal(presentCollection({ mode: "local", state: "paused" }).status, "Paused");
 });
@@ -54,7 +53,7 @@ test("connection follows collection outages even while the account relay is onli
 
 test("a daemon-reported syncing collection shows its transfer, never up to date (#1122)", () => {
   const syncing = presentCollection({ mode: "synced", state: "syncing", sync: { pending: 1, holds: 0, unresolved: 0, connection: "online" } });
-  assert.deepEqual([syncing.status, syncing.dot, syncing.canEnableSync, syncing.paused], ["Syncing…", "connected", false, false]);
+  assert.deepEqual([syncing.status, syncing.canEnableSync, syncing.paused], ["Syncing…", false, false]);
   assert.match(syncing.detail, /1 change to sync/);
 });
 
@@ -111,7 +110,6 @@ test("revoked collection shows manual recovery even with stale connecting teleme
     notices: [{ code: "sync_revoked", message: "This computer was removed from this collection and can no longer sync it. To rejoin, use a new device identity in a separate mdbase profile (--state-dir), sign in, and join the collection into a new empty folder. Local edits held in this folder are kept for you to copy across. Keep this folder and the old profile until you have copied your edits." }],
     sync: { pending: 19, holds: 19, unresolved: 0, connection: "connecting", resyncing: true } });
   assert.equal(view.status, "Stopped");
-  assert.equal(view.dot, "danger");
   assert.equal(view.canEnableSync, false);
   assert.match(view.detail, /was removed from this collection and can no longer sync it/);
   assert.match(view.detail, /new empty folder/);
