@@ -200,7 +200,7 @@ jobs:
           node scripts/continuous-sdk-release.mjs publication-state @mdbase-dev/sdk "$SDK_VERSION"
       - name: Publish the verified production archive with provenance
         if: steps.publication.outputs.state == 'absent'
-        run: npm publish "$RUNNER_TEMP/sdk-packages/sdk-production.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org/ --tag next --provenance
+        run: npm publish "$RUNNER_TEMP/sdk-packages/sdk-production.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org/ --tag latest --provenance
 
   attest-internal:
     needs: [build, plan]

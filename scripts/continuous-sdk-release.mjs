@@ -260,7 +260,7 @@ export async function publishWorkspace(planFile, directory, env = process.env) {
     assert.equal(manifest.name, item.name);
     assert.equal(manifest.version, item.version);
     assert.equal(manifest.mdbaseRelease.commit, env.GITHUB_SHA);
-    execFileSync("npm", ["publish", archive, "--ignore-scripts", "--access", "public", "--registry", `${registry}/`, "--tag", "next", "--provenance"], { stdio: "inherit" });
+    execFileSync("npm", ["publish", archive, "--ignore-scripts", "--access", "public", "--registry", `${registry}/`, "--tag", "latest", "--provenance"], { stdio: "inherit" });
   }
 }
 
