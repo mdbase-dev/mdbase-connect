@@ -328,10 +328,18 @@ export function RequestOutcome({ status, applicationName, collectionName, portab
     {returnLink}
   </div>;
 }
+/** Plain label for an exact non-web app origin shown on the consent screen. */
+function appOriginKind(origin: string | undefined | null): string | null {
+  if (origin?.startsWith("capacitor://")) return t(i18n)({ message: "mobile app", context: "Collection connection" });
+  if (origin?.startsWith("chrome-extension://")) return t(i18n)({ message: "browser extension", context: "Collection connection" });
+  return null;
+}
+
 export function RequestIdentity({ request, showClientKey = true }: { request: Pick<PendingAuthorization, "application_name" | "homepage"> & Partial<Pick<PendingAuthorization, "distribution" | "platform" | "application_origin" | "icon" | "project_url" | "user_code" | "client_fingerprint" | "expires_at">>; showClientKey?: boolean }) {
   useLocaleRevision();
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
   const portable = request.distribution === "portable", native = request.platform === "native" && isNativeLoopbackOrigin(request.application_origin);
+  const originKind = appOriginKind(request.application_origin);
   return (
     <header className="request-identity">
       <span className="request-identity-mark" aria-hidden="true">{!native && request.icon && request.icon !== failedIcon
@@ -341,13 +349,13 @@ export function RequestIdentity({ request, showClientKey = true }: { request: Pi
         <h1>{native ? t(i18n)`Connect an app` : request.application_name}</h1>
         <p className="request-origin">{native ? t(i18n)`an app running on this computer` : portable
           ? <>{t(i18n)({ message: "Application using a device code" })}{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
-          : request.application_origin?.trim() ? <code>{request.application_origin}</code> : null}</p>
+          : request.application_origin?.trim() ? <><code>{request.application_origin}</code>{originKind && ` · ${originKind}`}</> : null}</p>
         {native
           ? <p className="request-guidance" role="note"><Trans>Application identity unverified. This app calls itself {literal(request.application_name)}. Continue only if you started this connection intentionally.</Trans></p>
           : portable
           ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null}</Trans></p>
           : request.application_origin?.trim()
-          ? <p className="request-guidance"><Trans>Only continue if you recognize this exact site.</Trans> <Trans>Continue only if you started this connection intentionally.</Trans></p>
+          ? <p className="request-guidance">{originKind ? <Trans>Only continue if you recognize this exact app.</Trans> : <Trans>Only continue if you recognize this exact site.</Trans>} <Trans>Continue only if you started this connection intentionally.</Trans></p>
           : <p className="request-guidance" role="note"><Trans>No requesting origin is available. Continue only if you started this connection intentionally.</Trans></p>}
         {showClientKey && request.client_fingerprint
           ? <p className="request-fingerprint"><Trans>App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</Trans></p>
