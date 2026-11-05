@@ -28,8 +28,8 @@ describe("native installation display scopes", () => {
     expect(screen.getByText(/Mobile app/)).toBeInTheDocument();
     expect(screen.getByText(/App installation/)).toBeInTheDocument();
     expect(document.querySelectorAll("time[datetime]")).toHaveLength(2);
-    expect(screen.getByText(/11111111/)).toBeInTheDocument();
-    expect(screen.getByText(/22222222/)).toBeInTheDocument();
+    expect(screen.queryByText(/11111111/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/22222222/)).not.toBeInTheDocument();
   });
   it("does not merge two collections sharing a stored display name", () => {
     show([installation(),installation({collection_id:"collection-b",connector_id:"connector-b",installation_id:"installation-22222222"})]);
