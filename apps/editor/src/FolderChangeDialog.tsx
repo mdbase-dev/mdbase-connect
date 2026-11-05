@@ -3,7 +3,7 @@ import { Trans, Plural } from "@lingui/react/macro";
 import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useEffect, useId, useRef, useState } from "react";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@mdbase-dev/ui/dialog";
 import { Select } from "@mdbase-dev/ui/select";
 import type { FolderChangePlan, FolderChangeProgress, FolderChangeResult } from "./folder-change";
 
@@ -54,9 +54,7 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
     finally { setBusy(false); }
   }
 
-  return <Dialog titleId={id} className="confirm-dialog folder-change-dialog" onClose={() => { if (!busy) close(); }}>
-    <div className="confirm-dialog-copy">
-      <h2 id={id}>{result ? result.failures.length || result.warnings?.length ? t`Folder change needs attention` : t`Folder change complete` : plan
+  return <Dialog open title={result ? result.failures.length || result.warnings?.length ? t`Folder change needs attention` : t`Folder change complete` : plan
         ? plan.referenceCount
           ? mode === "rename"
             ? <Trans>Rename ‘{basename}’ and move <Plural value={plan.moves.length} one="# note" other="# notes" /> and update <Plural value={plan.referenceCount} one="# link" other="# links" />?</Trans>
@@ -64,7 +62,8 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
           : mode === "rename"
             ? plural(plan.moves.length, { one: `Rename ‘${basename}’ and move # note?`, other: `Rename ‘${basename}’ and move # notes?` })
             : plural(plan.moves.length, { one: "Move # note?", other: "Move # notes?" })
-        : mode === "rename" ? t`Rename ‘${basename}’` : t`Move ‘${basename}’` }</h2>
+        : mode === "rename" ? t`Rename ‘${basename}’` : t`Move ‘${basename}’` } closeDisabled={busy} className="folder-change-dialog" onClose={close}>
+    <div className="confirm-dialog-copy">
       {!plan && <form id={`${id}-form`} onSubmit={(event) => { event.preventDefault(); void review(); }}>
         <label htmlFor={`${id}-value`}>{mode === "rename" ? t`Folder name` : t`Destination folder`}</label>
         {mode === "rename" ? <input className="mdbase-field" id={`${id}-value`} value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} data-autofocus />

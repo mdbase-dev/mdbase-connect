@@ -10,6 +10,7 @@ import {
   CaretDownIcon as ChevronDown,
   CaretRightIcon as ChevronRight,
   CheckIcon as Check,
+  DotsThreeIcon as MoreHorizontal,
   FileCodeIcon as FileCode2,
   FilePlusIcon as FilePlus2,
   InfoIcon as Info,
@@ -27,7 +28,7 @@ import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type R
 import { CodeEditor } from "./CodeEditor";
 import { SchemaValueEditor, schemaInitialValue } from "./SchemaValueEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
-import { ActionMenu } from "./ActionMenu";
+import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { ComboboxInput } from "./SelectionControls";
 import { SaveNotice } from "@mdbase-dev/ui/save-notice";
 import { PathLabel } from "./WorkspaceChrome";
@@ -1638,6 +1639,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
   onChange: (change: (source: string) => string) => void;
 }) {
   useLingui();
+  const menu = useMenuTrigger();
   const [pendingKind, setPendingKind] = useState<Exclude<TypeFieldKind, "advanced">>();
   const conversionImpact = pendingKind ? typeFieldConversionImpact(source, field.path, pendingKind) : [];
   const fieldLabel = typeFieldPathLabel(field.path);
@@ -1661,9 +1663,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
       <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only"><Trans>Field name</Trans></span><input aria-label={t`${fieldLabel} field name`} type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title={t`Notes use this field to declare their type. Edit it in YAML if you need to change it.`}><Trans>Type key</Trans></small>}</label>
       <label className="visual-field-kind"><span className="sr-only">{t`${fieldLabel} field type`}</span><Select aria-label={t`${fieldLabel} field type`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
       <label className="visual-field-required"><input className="mdbase-checkbox" type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span><Trans>Required</Trans></span></label>
-      <div className="type-field-actions">{!typeKey && <ActionMenu label={t`${fieldLabel} field options`} items={[
-        { label: t`Remove ${fieldLabel} field`, icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => onChange((current) => removeTypeField(current, field.path)) }
-      ]} />}</div>
+      <div className="type-field-actions">{!typeKey && <div className="note-actions"><button {...menu.triggerProps} className="icon-button" aria-label={t`${fieldLabel} field options`}><MoreHorizontal aria-hidden="true" /></button><Menu open={menu.open} id={menu.id} label={t`${fieldLabel} field options`} triggerRef={menu.trigger} onClose={menu.close}><button role="menuitem" className="mdbase-menu-item is-danger" onClick={() => { menu.close(true); onChange((current) => removeTypeField(current, field.path)); }}><Trash2 aria-hidden="true" />{t`Remove ${fieldLabel} field`}</button></Menu></div>}</div>
     </div>
     {expanded && <div className="visual-field-details">
       <div className="field-path"><span>{fieldLabel}</span>{field.advancedKeys.length > 0 && <strong><Trans>Advanced YAML rules</Trans></strong>}</div>

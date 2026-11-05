@@ -84,9 +84,6 @@
   height: 16px;
 }
 
-.saved-collection-item .action-menu {
-  width: 196px;
-}
 
 @media (hover: hover) {
   .saved-collection-item .note-actions > .icon-button {

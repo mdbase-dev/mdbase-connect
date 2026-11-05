@@ -14,7 +14,7 @@ describe("inspector presentation", () => {
     expect(view.container.querySelector(".dialog-scrim")).toBeNull();
   });
 
-  it.each(["Escape", "scrim"])("traps narrow inspector focus and restores it after %s dismissal", async (dismissal) => {
+  it.each(["Escape", "scrim"])("opens a native narrow inspector and restores focus after %s dismissal", async (dismissal) => {
     const user = userEvent.setup();
     function Harness() {
       const [open, setOpen] = useState(false);
@@ -30,19 +30,14 @@ describe("inspector presentation", () => {
     await user.click(trigger);
     const dialog = screen.getByRole("dialog", { name: "Note properties" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
-    expect(document.getElementById("root")).toHaveAttribute("aria-hidden", "true");
-    expect(document.getElementById("root")!.inert).toBe(true);
+    expect(dialog.tagName).toBe("DIALOG");
+    expect(dialog).toHaveAttribute("open");
     await waitFor(() => expect(screen.getByRole("button", { name: "Close inspector" })).toHaveFocus());
-    await user.keyboard("{Shift>}{Tab}{/Shift}");
-    expect(screen.getByRole("button", { name: "Last action" })).toHaveFocus();
-    await user.tab();
-    expect(screen.getByRole("button", { name: "Close inspector" })).toHaveFocus();
     if (dismissal === "Escape") await user.keyboard("{Escape}");
-    else fireEvent.mouseDown(dialog.parentElement!);
+    else await user.click(dialog);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(document.getElementById("root")).not.toHaveAttribute("aria-hidden");
-    expect(document.getElementById("root")!.inert).toBe(false);
   });
 
   it("focuses the modal frame while loading, then its first control when lazy content arrives", async () => {
@@ -60,7 +55,7 @@ describe("inspector presentation", () => {
     const closePanel = vi.fn();
     const fallback = vi.fn();
     render(<InspectorFrame overlay label="Note properties" width={340} onClose={fallback}><button data-inspector-close onClick={closePanel}>Save and close</button></InspectorFrame>);
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Note properties" }), { key: "Escape" });
     expect(closePanel).toHaveBeenCalledOnce();
     expect(fallback).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog", { name: "Note properties" })).toBeInTheDocument();

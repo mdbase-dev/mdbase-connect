@@ -1,8 +1,8 @@
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
-import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Dialog } from "./Dialog";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Dialog } from "@mdbase-dev/ui/dialog";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   ArrowLeftIcon as ArrowLeft,
@@ -12,7 +12,6 @@ import {
   LinkIcon as Link2,
   SidebarSimpleIcon as Sidebar,
   WarningCircleIcon as CircleAlert,
-  XIcon as X
 } from "./icons";
 import type { NoteSummary } from "./model";
 import { noteTitle, type NoteHeading } from "./note";
@@ -114,8 +113,7 @@ export function PaneSkeleton({ label, leadingActions, variant = "document" }: { 
 
 export function OutlinePanel({ headings, onReveal, onClose }: { headings: NoteHeading[]; onReveal: (line: number) => void; onClose: () => void }) {
   useLingui();
-  return <Dialog titleId="outline-title" className="confirm-dialog outline-panel" onClose={onClose}>
-    <header className="panel-header"><h2 id="outline-title"><Trans>Document outline</Trans></h2><button className="icon-button" aria-label={t`Close outline`} onClick={onClose}><X aria-hidden="true" /></button></header>
+  return <Dialog open title={t`Document outline`} className="outline-panel" onClose={onClose}>
     <nav aria-label={t`Document outline`}>
       {headings.length ? headings.map((heading, index) => <button key={`${heading.line}:${index}`} className={`outline-level-${heading.level}`} onClick={() => { onClose(); onReveal(heading.line); }}><span className="outline-hash">{"#".repeat(heading.level)}</span><span className="outline-text">{heading.text}</span></button>) : <p className="outline-empty"><Trans>No headings yet.</Trans></p>}
     </nav>
@@ -130,17 +128,15 @@ export function InspectorFrame({ overlay, label, width, onClose, children }: {
   children: ReactNode;
 }) {
   useLingui();
-  const titleId = useId();
   const content = useRef<HTMLDivElement>(null);
   if (!overlay) return <div className="inspector-dock">{children}</div>;
-  return <Dialog titleId={titleId} className="inspector-overlay" scrimClassName="inspector-scrim" onClose={() => {
+  return <Dialog open title={label} initialFocusRef={content} className="inspector-overlay" onClose={() => {
     // Source editing may need to finish a save before closing. Use the same
     // close action for Escape/the scrim as for the panel's own close button.
     const close = content.current?.querySelector<HTMLButtonElement>("[data-inspector-close]");
     if (close) close.click();
     else onClose();
   }}>
-    <h2 id={titleId} className="sr-only">{label}</h2>
     <div ref={content} className="inspector-content" style={{ "--inspector-width": `${width}px` } as CSSProperties}>{children}</div>
   </Dialog>;
 }

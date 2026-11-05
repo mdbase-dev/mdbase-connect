@@ -720,10 +720,6 @@ msgstr "<0>{0}</0> · 컬렉션 표시 이름이나 ID 연결을 변경하려면
 msgid "<0>{linkedSchema}</0> is installed with this type. Field structure is edited at the schema source."
 msgstr "<0>{linkedSchema}</0>은(는) 이 유형과 함께 설치됩니다. 필드 구조는 스키마 원본에서 편집합니다."
 
-#: src/QuickOpen.tsx
-msgid "<0>↑↓</0> choose · <1>Enter</1> open · <2>></2> actions · <3>Esc</3> close"
-msgstr "<0>↑↓</0> 선택 · <1>Enter</1> 열기 · <2>></2> 작업 · <3>Esc</3> 닫기"
-
 #. placeholder {0}: (changed - 20).toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "<0>More</0>{0} additional notes"
@@ -1207,10 +1203,6 @@ msgstr "노트 및 파일로 돌아가기"
 msgid "Back to types"
 msgstr "유형으로 돌아가기"
 
-#: src/QuickOpen.tsx
-msgid "Best matches"
-msgstr "가장 일치하는 항목"
-
 #. placeholder {0}: segments.join(".")
 #: src/type-contracts.ts
 msgid "Binding setting {0} is required by {contractId}."
@@ -1268,7 +1260,6 @@ msgstr "이 컬렉션을 열 수 없습니다"
 
 #: src/App.tsx
 #: src/BulkNoteProperties.tsx
-#: src/Dialog.tsx
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 #: src/NewNoteComposer.tsx
@@ -1480,25 +1471,13 @@ msgstr "유형 검색 지우기"
 msgid "Close file preview"
 msgstr "파일 미리보기 닫기"
 
-#: src/QuickOpen.tsx
-msgid "Close keyboard shortcuts"
-msgstr "키보드 단축키 닫기"
-
 #: src/App.tsx
 msgid "Close note peek"
 msgstr "노트 미리보기 닫기"
 
-#: src/WorkspaceChrome.tsx
-msgid "Close outline"
-msgstr "개요 닫기"
-
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "속성 닫기"
-
-#: src/QuickOpen.tsx
-msgid "Close quick open"
-msgstr "빠른 열기 닫기"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -1923,7 +1902,7 @@ msgstr "내 사람 레코드 만들기"
 msgid "Create note"
 msgstr "노트 만들기"
 
-#. placeholder {0}: row.title
+#. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
 msgid "Create note ‘{0}’"
 msgstr "노트 ‘{0}’ 만들기"
@@ -2146,10 +2125,6 @@ msgstr "유형 취소"
 #: src/App.tsx
 msgid "Discard type changes?"
 msgstr "유형 변경사항을 취소할까요?"
-
-#: src/Toasts.tsx
-msgid "Dismiss notification"
-msgstr "알림 닫기"
 
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
@@ -2443,10 +2418,11 @@ msgstr "필수 속성을 입력하세요."
 msgid "Filter links by type"
 msgstr "유형별 링크 필터"
 
-#: src/QuickOpen.tsx
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "제목이나 경로로 노트를 찾거나, 작업을 보려면 >를 입력하세요"
 
+#: src/App.tsx
 #: src/QuickOpen.tsx
 msgid "Find a note or action"
 msgstr "노트 또는 작업 찾기"
@@ -3022,17 +2998,9 @@ msgstr "Markdown 경로"
 msgid "Markdown preview unavailable."
 msgstr "Markdown 미리보기를 사용할 수 없습니다."
 
-#: src/QuickOpen.tsx
-msgid "Matching actions"
-msgstr "일치하는 작업"
-
 #: src/TypeBrowser.tsx
 msgid "Matching notes"
 msgstr "일치하는 노트"
-
-#: src/QuickOpen.tsx
-msgid "Matching notes and actions"
-msgstr "일치하는 노트 및 작업"
 
 #: src/type-schema.ts
 msgid "Matching rules"
@@ -3377,10 +3345,6 @@ msgstr "다음 노트 없음"
 msgid "No matches."
 msgstr "일치 항목이 없습니다."
 
-#: src/QuickOpen.tsx
-msgid "No matching actions."
-msgstr "일치하는 작업이 없습니다."
-
 #: src/NoteSearchField.tsx
 msgid "No matching filters"
 msgstr "일치하는 필터가 없습니다."
@@ -3389,7 +3353,6 @@ msgstr "일치하는 필터가 없습니다."
 msgid "No matching icons."
 msgstr "일치하는 아이콘이 없습니다."
 
-#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching notes."
 msgstr "일치하는 노트가 없습니다."
@@ -3566,10 +3529,6 @@ msgstr "노트는 이 필드로 유형을 선언합니다. 변경하려면 YAML�
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "명시적으로 할당되지 않은 노트는 아래 설정된 모든 조건 그룹이 일치할 때 이 유형에 속합니다."
-
-#: src/Toasts.tsx
-msgid "Notifications"
-msgstr "알림"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -3970,8 +3929,8 @@ msgstr "속성 옵션"
 msgid "Provided by the note's type, not stored in this file."
 msgstr "노트 유형에서 제공되며 이 파일에는 저장되지 않습니다."
 
+#: src/App.tsx
 #: src/editor-commands.ts
-#: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "빠른 열기"
 
@@ -4062,10 +4021,6 @@ msgstr "준비된 유형"
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
 msgstr "최근 컬렉션"
-
-#: src/QuickOpen.tsx
-msgid "Recent notes and actions"
-msgstr "최근 노트 및 작업"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
@@ -5963,7 +5918,7 @@ msgstr "이 유형을 사용하는 노트"
 msgid "Words"
 msgstr "단어"
 
-#: src/Dialog.tsx
+#: src/App.tsx
 msgid "Working…"
 msgstr "작업 중…"
 
