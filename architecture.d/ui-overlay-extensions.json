@@ -1,0 +1,4 @@
+{
+  "reason": "A menu trigger hook and a toast item type let the Editor use the shared Menu and Toaster directly, so W9 can delete its local overlays instead of wrapping them. No new component, dependency or persisted state.",
+  "growth": { "typeScriptExportDeclarations": 2 }
+}
