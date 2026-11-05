@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import { createPublicKey, generateKeyPairSync, randomBytes, randomUUID, sign, verify } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { testApplicationAuthorization } from "../../application-authorization.test-helper.js";
@@ -121,10 +121,11 @@ describePostgres("client Noise key storage", () => {
 
     await db.query("UPDATE grants SET activated_at = now() WHERE id = $1", [id]);
     const snapshot = await buildPolicySnapshot(db, id, 55_000, undefined, () => true, "lease_v1", false, true) as LeasePolicySnapshot;
-    expect(snapshot.grants[0]).toMatchObject({
-      client_pk: attested.publicKey.toString("hex"),
-      client_key_signature: attested.signature.toString("base64url")
-    });
+    expect(snapshot.grants[0]?.client_pk).toBe(attested.publicKey.toString("hex"));
+    // The snapshot carries the low-S form of the signature, so compare by verifying it.
+    expect(verify("sha256", clientNoiseKeyMessage(requestId, attested.publicKey),
+      { key: createPublicKey(key.privateKey), dsaEncoding: "ieee-p1363" },
+      Buffer.from(snapshot.grants[0]!.client_key_signature!, "base64url"))).toBe(true);
 
     // Reactivating the grant from a request without a key removes the old one.
     await copyClientNoiseKeyToGrant(db, randomUUID(), id);
