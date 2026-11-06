@@ -80,11 +80,10 @@
 }
 
 .mdbase-command-results > button[aria-selected="true"] {
-  color: var(--color-on-current);
-  background: var(--color-current);
+  color: var(--color-text);
+  background: light-dark(oklch(94% 0.001 286), oklch(29% 0.004 286));
+  box-shadow: inset 0 0 0 1px light-dark(oklch(60% 0.004 286), oklch(63% 0.004 286));
 }
-
-.mdbase-command-results > button[aria-selected="true"] :is(small, kbd, .mdbase-command-alternate, .mdbase-command-icon) { color: inherit; }
 
 .mdbase-command-results .mdbase-command-copy {
   min-width: 0;

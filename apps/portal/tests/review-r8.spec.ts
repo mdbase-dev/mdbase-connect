@@ -3,7 +3,7 @@ import { expect, openScenario, test } from "./review/fixture";
 import { authentication, authorizationId, clock, pairingId } from "./review/scenarios.mjs";
 import { openSharedStyleFixture } from "../../../packages/app-ui/test/browser-styles";
 
-async function fillOnly(element: Locator) {
+async function fillOnly(element: Locator, ring = false) {
   const appearance = await element.evaluate(element => {
     const style = getComputedStyle(element);
     const canvas = document.createElement("canvas").getContext("2d")!;
@@ -24,12 +24,16 @@ async function fillOnly(element: Locator) {
       const text = luminance(foreground);
       return (Math.max(text, background) + .05) / (Math.min(text, background) + .05);
     };
+    const ringColor = style.boxShadow.match(/^(?:inset )?(oklch\([^)]*\)|color\([^)]*\)|rgb\([^)]*\))/)?.[1];
+    const ringLuminance = ringColor ? luminance(ringColor) : background;
     return { border: style.borderLeftWidth, shadow: style.boxShadow, before: getComputedStyle(element, "::before").content,
+      ringContrast: Math.min((Math.max(ringLuminance, surrounding) + .05) / (Math.min(ringLuminance, surrounding) + .05), (Math.max(ringLuminance, background) + .05) / (Math.min(ringLuminance, background) + .05)),
       background: style.backgroundColor, fillContrast: (Math.max(background, surrounding) + .05) / (Math.min(background, surrounding) + .05),
       contrast: Math.min(contrast(style.color), ...[...element.querySelectorAll("strong, small, kbd, .mdbase-command-icon, .cm-completionLabel, .cm-completionDetail, .cm-completionMatchedText, .cm-completionIcon, .cm-diagnosticSource")].map(child => contrast(getComputedStyle(child).color))) };
   });
   expect(appearance.border).toBe("0px");
-  expect(appearance.shadow).toBe("none");
+  if (ring) expect(appearance.shadow).toMatch(/inset/);
+  else expect(appearance.shadow).toBe("none");
   expect(appearance.before).toBe("none");
   expect(appearance.background).not.toBe("rgba(0, 0, 0, 0)");
   expect(appearance.contrast).toBeGreaterThanOrEqual(4.5);
@@ -135,8 +139,15 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       await expect(access).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(results.locator('[aria-selected="true"]')).toHaveCount(1);
       await expect(input).toHaveAttribute("aria-activedescendant", await storage.getAttribute("id") as string);
-      const appearance = await fillOnly(storage);
-      expect(appearance.fillContrast).toBeGreaterThanOrEqual(2.9);
+      const appearance = await fillOnly(storage, true);
+      expect(appearance.fillContrast).toBeLessThan(2);
+      expect(appearance.ringContrast).toBeGreaterThanOrEqual(3);
+      const ring = await storage.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { shadow: style.boxShadow, opacity: style.opacity };
+      });
+      expect(ring.shadow).toMatch(/0px 0px 0px 1px inset|inset 0px 0px 0px 1px/);
+      expect(ring.opacity).toBe("1");
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/\/storage\?collection=/);
       await page.keyboard.press("Control+k");
@@ -176,7 +187,7 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       await page.keyboard.press("Control+k");
       const palette = page.getByRole("dialog", { name: "Commands", exact: true });
       await page.keyboard.press("ArrowDown");
-      const paletteStyle = await fillOnly(palette.getByRole("option", { selected: true }));
+      const paletteStyle = await fillOnly(palette.getByRole("option", { selected: true }), true);
       await page.keyboard.press("Escape");
       await openScenario(page, "anonymous");
       const theme = page.getByRole("combobox", { name: "Color theme", exact: true });

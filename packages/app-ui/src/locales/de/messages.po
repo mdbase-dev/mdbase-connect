@@ -869,8 +869,8 @@ msgid "to move"
 msgstr "zum Navigieren"
 
 #: src/CommandPalette.tsx
-msgid "to open"
-msgstr "zum Öffnen"
+msgid "to run"
+msgstr "ausführen"
 
 #: src/screens.tsx
 msgid "Try again"

@@ -50,6 +50,12 @@ describe("CommandPalette group labels", () => {
     return document.querySelector("dialog")?.outerHTML ?? "";
   };
 
+  it("describes Enter as running an action, not opening it", () => {
+    render({ commands: [command("delete", "actions", "Delete note")] });
+    expect(document.querySelector(".mdbase-command-footer")?.textContent).toContain("to run");
+    expect(document.querySelector(".mdbase-command-footer")?.textContent).not.toContain("to open");
+  });
+
   it("highlights literal label matches without replacing adapter content", () => {
     render({ commands: [command("field", "collections", "Field [notes] archive")], initialQuery: "field [notes]" });
     expect([...document.querySelectorAll("mark")].map(element => element.textContent)).toEqual(["Field", "[notes]"]);
