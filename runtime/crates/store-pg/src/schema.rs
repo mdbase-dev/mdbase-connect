@@ -21,7 +21,7 @@ use mdbn_replica::store::{StoreError, StoreResult};
 use postgres::Client;
 
 /// Bump when the DDL below changes incompatibly; [`migrate`] records it.
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 
 /// Term kinds in `rs_terms`.
 pub mod kind {
@@ -251,6 +251,9 @@ fn migrate_locked(client: &mut Client) -> StoreResult<()> {
     for next in version + 1..=SCHEMA_VERSION {
         match next {
             1 => migrate_v1(&mut t)?,
+            2 => t
+                .batch_execute("ALTER TABLE rs_records ADD COLUMN IF NOT EXISTS mtime bigint")
+                .map_err(io)?,
             _ => unreachable!("missing Postgres store migration"),
         }
         t.execute("DELETE FROM rs_schema", &[]).map_err(io)?;

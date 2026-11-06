@@ -44,6 +44,7 @@ fn row(path: &str, doc: &str) -> RecordRow {
         doc: doc.into(),
         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
         modified_seq: 1,
+        mtime: None,
         bucket: 0,
         // Deliberately stale/wrong claims must not control projection.
         meta: RecordMeta {

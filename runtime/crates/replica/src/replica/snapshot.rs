@@ -762,6 +762,7 @@ impl<S: Store> Replica<S> {
                         revision: r.revision,
                         size: r.doc.len() as u64,
                         modified_seq: r.modified_seq,
+                        mtime: r.mtime,
                     }
                     .to_cbor(),
                 ));
@@ -787,6 +788,7 @@ impl<S: Store> Replica<S> {
                         revision: f.content.plain_hash(),
                         size: f.content.size(),
                         modified_seq: f.modified_seq,
+                        mtime: None,
                     }
                     .to_cbor(),
                 ));
@@ -1433,6 +1435,7 @@ impl<S: Store> Replica<S> {
         self.install_native_auth = Default::default();
         self.install_text_sources = Default::default();
         self.install_mseq.clear();
+        self.install_mtime.clear();
         self.install_index = DigestIndex::default();
         self.install_resources.clear();
         if self.store.stages() {
@@ -1811,6 +1814,7 @@ impl<S: Store> Replica<S> {
         };
         // Finish only after complete source authentication and the exact digest.
         self.install_mseq.clear();
+        self.install_mtime.clear();
         self.install_resources.clear();
         let index = std::mem::take(&mut self.install_index);
         if index.digest() != manifest.state_digest {
@@ -1956,6 +1960,7 @@ impl<S: Store> Replica<S> {
         id: mdbn_wire::common::Uuid,
         path: String,
         modified_seq: u64,
+        mtime: Option<i64>,
         doc: &str,
     ) -> Result<(), String> {
         let catalog = mdbn_core::types::Catalog::load(
@@ -1968,6 +1973,7 @@ impl<S: Store> Replica<S> {
             path_key: mdbn_core::paths::path_key(&path),
             revision: mdbn_wire::hash::sha256(doc.as_bytes()),
             modified_seq,
+            mtime,
             bucket: bucket16(&id),
             meta: record_meta(&catalog, &path, doc),
             path,
@@ -2078,6 +2084,7 @@ impl<S: Store> Replica<S> {
                                 path: r.path,
                                 blob,
                                 modified_seq: self.install_mseq.get(&r.id).copied().unwrap_or(0),
+                                mtime: self.install_mtime.get(&r.id).copied(),
                             });
                             continue;
                         }
@@ -2096,6 +2103,7 @@ impl<S: Store> Replica<S> {
                         path_key: mdbn_core::paths::path_key(&r.path),
                         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
                         modified_seq: self.install_mseq.get(&r.id).copied().unwrap_or(0),
+                        mtime: self.install_mtime.get(&r.id).copied(),
                         bucket: bucket16(&r.id),
                         meta: record_meta(&catalog, &r.path, &doc),
                         path: r.path,
@@ -2285,6 +2293,9 @@ impl<S: Store> Replica<S> {
             SectionKind::Legacy(L::Index) => {
                 for r in chunk.rows_as::<IndexRow>().map_err(bad)? {
                     self.install_mseq.insert(r.id, r.modified_seq);
+                    if let Some(mtime) = r.mtime {
+                        self.install_mtime.insert(r.id, mtime);
+                    }
                 }
             }
         }

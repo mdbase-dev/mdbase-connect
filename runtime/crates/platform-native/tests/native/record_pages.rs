@@ -97,6 +97,7 @@ fn rows(count: usize, size: usize) -> Vec<RecordRow> {
                 revision: w::hash::sha256(doc.as_bytes()),
                 doc,
                 modified_seq: 0,
+                mtime: None,
                 bucket: (n % 7) as u16,
                 meta: RecordMeta::default(),
             }

@@ -136,6 +136,9 @@ pub struct RecordRow {
     pub revision: Hash,
     /// Position of the last change (0 = adopted, unchanged).
     pub modified_seq: Seq,
+    /// Capture time of the last change to the bytes in milliseconds, from the
+    /// mutation's clock; old/absent remains unknown.
+    pub mtime: Option<i64>,
     /// [`bucket16`] of the ID.
     pub bucket: u16,
     /// Derived index entries.

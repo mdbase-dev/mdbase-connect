@@ -62,7 +62,12 @@ fn record_size(row: &RecordRow) -> StoreResult<u64> {
     }
     n = add(
         n,
-        header(row.modified_seq) + header(u64::from(row.bucket)) + 1,
+        header(row.modified_seq)
+            + header(u64::from(row.bucket))
+            + 1
+            + row
+                .mtime
+                .map_or(0, |at| header(if at < 0 { !at } else { at } as u64)),
     )?;
     for v in [&row.meta.types, &row.meta.links, &row.meta.tags] {
         n = add(n, strings(v)?)?;

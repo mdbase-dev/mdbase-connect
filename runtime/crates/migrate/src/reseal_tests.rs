@@ -70,6 +70,7 @@ fn install(store: &mut MemStore, g: &Gen0) {
                 doc: r.doc.clone(),
                 revision: r.revision,
                 modified_seq: 0,
+                mtime: None,
                 bucket: bucket16(&r.id),
                 meta: RecordMeta::default(),
             })

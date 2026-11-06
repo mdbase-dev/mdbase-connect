@@ -145,6 +145,7 @@ pub(super) fn run_case(case: &Case) -> Run {
             doc: r.source.clone(),
             revision: revision(r.source.as_bytes()),
             modified_seq: 0,
+            mtime: None,
             bucket: 0,
             meta: RecordMeta::default(),
         })

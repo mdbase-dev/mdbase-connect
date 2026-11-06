@@ -51,6 +51,7 @@ fn seeded(count: u32, source: &str) -> (Replica<ProjectionStore>, BTreeMap<Strin
                 revision: mdbn_wire::hash::sha256(doc.as_bytes()),
                 doc,
                 modified_seq: 0,
+                mtime: None,
                 bucket: 0,
                 meta: crate::store::RecordMeta::default(),
             });

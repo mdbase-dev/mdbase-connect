@@ -204,7 +204,9 @@ async fn original_context_change_before_first_task_poll_never_recaptures() {
     h.live.store(true, Ordering::SeqCst);
     close_dead(&h, &mut pipes, &out).await;
     assert!(pipes.is_empty());
-    assert!(matches!(rx.recv().await,Some(PipeOut::Close(_,why)) if why=="authorization_unavailable"));
+    assert!(
+        matches!(rx.recv().await,Some(PipeOut::Close(_,why)) if why=="authorization_unavailable")
+    );
 }
 #[tokio::test(start_paused = true)]
 async fn absent_positive_consent_is_refused_without_pending_task() {

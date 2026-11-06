@@ -87,6 +87,7 @@ fn paged_digest_matches_original_id_sorted_tuple_bytes_across_pages() {
             doc: "synthetic".into(),
             revision: mdbn_wire::common::B32([7; 32]),
             modified_seq: i,
+            mtime: None,
             bucket: 0,
             meta: Default::default(),
         });

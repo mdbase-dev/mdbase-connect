@@ -1440,6 +1440,7 @@ impl<S: Store> Replica<S> {
                         doc: doc.clone(),
                         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
                         modified_seq: p,
+                        mtime: old.mtime,
                         bucket: bucket16(&r.id),
                         meta: Default::default(),
                     });
@@ -1518,6 +1519,7 @@ impl<S: Store> Replica<S> {
                         doc: doc.clone(),
                         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
                         modified_seq: p,
+                        mtime: old.mtime,
                         bucket: bucket16(&r.id),
                         meta: Default::default(),
                     });
@@ -1622,6 +1624,7 @@ impl<S: Store> Replica<S> {
                         doc: doc.clone(),
                         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
                         modified_seq: p,
+                        mtime: None,
                         bucket: bucket16(&r.id),
                         meta: Default::default(),
                     });

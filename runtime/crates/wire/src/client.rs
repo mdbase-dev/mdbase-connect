@@ -472,6 +472,8 @@ wire_struct! {
         9 opt diagnostics: Vec<Issue>,
         /// Canonical select output; absent when no selection was requested.
         10 opt values: DataMap<Value>,
+        /// Capture time of the last confirmed change to the bytes, in milliseconds.
+        11 opt mtime: i64,
     }
 }
 

@@ -16,6 +16,7 @@ use mdbn_wire::{
 };
 use std::collections::BTreeMap;
 type Objects = BTreeMap<Hash, Vec<u8>>;
+const FIXTURE_MTIME: i64 = 1_791_100_800_000;
 fn fixture(doc: &str, source: &[u8]) -> (Node, rt::ManifestPayload, Hash, Objects) {
     let (mut a, _, _, mut objects) = build(false);
     let id = B16([71; 16]);
@@ -30,6 +31,7 @@ fn fixture(doc: &str, source: &[u8]) -> (Node, rt::ManifestPayload, Hash, Object
                 doc: doc.into(),
                 revision: mdbn_wire::hash::sha256(doc.as_bytes()),
                 modified_seq: 1,
+                mtime: Some(FIXTURE_MTIME),
                 bucket: crate::store::bucket16(&id),
                 meta: crate::plan::record_meta(&catalog, &path, doc),
             }],
@@ -151,10 +153,36 @@ fn exact_cap_blob_record_is_hydrated_staged_and_swapped_with_native_rows() {
     assert_eq!(r.doc.as_bytes(), bytes);
     assert_eq!(r.path, "small.md");
     assert_eq!(
+        r.mtime,
+        Some(FIXTURE_MTIME),
+        "hydrated source keeps its time"
+    );
+    assert_eq!(
         crate::replica::state_digest(&b.r.store).unwrap(),
         m.state_digest
     );
 }
+#[test]
+fn state_digest_ignores_record_capture_time() {
+    let doc = "---\ntitle: small\n---\nbody\n";
+    let (a, m, h, objects) = fixture(doc, doc.as_bytes());
+    let mut b = start(&a, &m, h, &objects);
+    finish(&mut b, &objects, false);
+    let r = b.r.store.record(&B16([71; 16])).unwrap().unwrap();
+    let mut unknown = r.clone();
+    unknown.mtime = None;
+    b.r.store
+        .commit(Tx {
+            records_put: vec![unknown],
+            ..Tx::default()
+        })
+        .unwrap();
+    assert_eq!(
+        crate::replica::state_digest(&b.r.store).unwrap(),
+        m.state_digest
+    );
+}
+
 #[test]
 fn empty_blob_record_roundtrips_exactly() {
     let (a, m, h, objects) = fixture("", b"");

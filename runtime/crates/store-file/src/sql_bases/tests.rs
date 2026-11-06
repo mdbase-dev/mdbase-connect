@@ -13,6 +13,7 @@ fn record(doc: &str) -> RecordRow {
         doc: doc.into(),
         revision: B32(Hash::of(doc.as_bytes()).0),
         modified_seq: 0,
+        mtime: None,
         bucket: 0,
         meta: RecordMeta::default(),
     }

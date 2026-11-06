@@ -12,6 +12,7 @@ fn row(id: u8) -> RecordRow {
         doc: "---\ntitle: task\n---\nbody\n".into(),
         revision: B32([1; 32]),
         modified_seq: 24,
+        mtime: None,
         bucket: 256,
         meta: crate::store::RecordMeta::default(),
     }

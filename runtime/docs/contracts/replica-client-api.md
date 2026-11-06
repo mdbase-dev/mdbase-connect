@@ -132,6 +132,7 @@ record-view = {
   8: record-state,
   ? 9: [* issue],        ; diagnostics (on request)
   ? 10: fm-map,          ; values: canonical select output (order is in columns)
+  ? 11: int,             ; mtime: capture time of the last confirmed byte change, milliseconds
 }
 record-state = {
   0: &( confirmed: 0, pending: 1 ),   ; pending: the local view includes unconfirmed changes

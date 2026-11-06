@@ -74,6 +74,7 @@ fn seeded(records: Vec<(u128, String, String)>) -> MemStore {
                     path,
                     doc,
                     modified_seq: 0,
+                    mtime: None,
                     bucket: 0,
                 })
                 .collect(),
