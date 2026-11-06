@@ -64,6 +64,28 @@ struct ClientState {
     pushes: Vec<LogPush>,
 }
 
+/// The bytes of an empty `blob-part` object in `collection`, for a test that needs
+/// a stored object and not its contents.
+#[must_use]
+pub fn blob_part(collection: Uuid) -> Vec<u8> {
+    Item {
+        kind: ItemKind::BlobPart,
+        collection,
+        seq: None,
+        prev: None,
+        epoch: None,
+        signer: None,
+        salt: None,
+        idem: None,
+        refs: None,
+        stream: None,
+        body: Bytes::default(),
+        sig: None,
+    }
+    .to_bytes()
+    .expect("an empty item encodes")
+}
+
 /// The shared in-memory service.
 #[derive(Debug, Clone, Default)]
 pub struct FakeLogService {
@@ -234,6 +256,13 @@ impl FakeLogService {
                 kind,
                 bytes,
             } => {
+                // As the service does: an object must be an item of the collection
+                // and kind it is stored as.
+                if !Item::from_bytes(&bytes)
+                    .is_ok_and(|item| item.collection == collection && item.kind == kind)
+                {
+                    return Err(LogError::code(LogErrorCode::Invalid));
+                }
                 if matches!(
                     kind,
                     ItemKind::Manifest | ItemKind::Chunk | ItemKind::RefIndex

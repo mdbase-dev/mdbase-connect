@@ -136,7 +136,7 @@ fn stores_chunks_then_manifest_and_returns_capsule_without_capture() {
     let head = a.r.store.head().unwrap();
     let (id, _) = start(&mut a);
     let (objects, kinds) = drive(&mut a, id, false);
-    assert_eq!(kinds, vec![ItemKind::Chunk, ItemKind::Manifest]);
+    assert_eq!(kinds, vec![ItemKind::BlobPart, ItemKind::BlobPart]);
     assert_eq!(
         a.r.unindexed_markdown_upload_status(&id),
         Some(UnindexedUploadStatus::Prepared)
@@ -187,7 +187,7 @@ fn uncertain_put_is_probed_without_resealing_or_duplicate_write() {
     let (id, _) = start(&mut a);
     let (objects, kinds) = drive(&mut a, id, true);
     assert_eq!(objects.len(), 2);
-    assert_eq!(kinds, vec![ItemKind::Chunk, ItemKind::Manifest]);
+    assert_eq!(kinds, vec![ItemKind::BlobPart, ItemKind::BlobPart]);
     assert_eq!(
         a.r.unindexed_markdown_upload_status(&id),
         Some(UnindexedUploadStatus::Prepared)
