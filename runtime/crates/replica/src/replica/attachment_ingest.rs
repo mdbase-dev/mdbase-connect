@@ -105,7 +105,7 @@ pub(crate) struct Ingests {
     queue: VecDeque<Item>,
     current: Option<Current>,
     busy: bool,
-    failed: BTreeMap<String, (Option<Hash>, Problem)>,
+    failed: BTreeMap<String, FailedIngest>,
     /// Oversized Markdown observations held after a source/capture refusal.
     pub(crate) oversized_markdown_held: u64,
     /// Uploads started (fresh or resumed) and moves captured, for tests.
@@ -134,14 +134,23 @@ fn same_path(a: &str, b: &str) -> bool {
     mdbn_core::paths::path_key(a) == mdbn_core::paths::path_key(b)
 }
 
+/// A refused ingest. `digest` suppresses rescans of the same bytes; a refusal
+/// the server can lift (quota) stops suppressing them at `retry_at`.
+struct FailedIngest {
+    digest: Option<Hash>,
+    problem: Problem,
+    retry_at: Option<i64>,
+}
+
 impl<S: Store> Replica<S> {
     /// Why the last ingest upload of `path` failed, if it did. Changed bytes,
-    /// moves and deletion clear it; scans of unchanged refused bytes retain it.
+    /// moves and deletion clear it; scans of unchanged refused bytes retain it
+    /// until a quota refusal's retry is due.
     pub fn attachment_ingest_failure(&self, path: &str) -> Option<Problem> {
         self.attachment_ingest
             .failed
             .get(path)
-            .map(|(_, problem)| problem.clone())
+            .map(|failed| failed.problem.clone())
     }
 
     /// Per-path upload refusals for local status; excludes document payloads.
@@ -149,7 +158,15 @@ impl<S: Store> Replica<S> {
         self.attachment_ingest
             .failed
             .iter()
-            .map(|(path, (_, problem))| (path.as_str(), problem))
+            .map(|(path, failed)| (path.as_str(), &failed.problem))
+    }
+
+    /// Whether a file is still waiting on the log's quota.
+    pub(super) fn attachment_ingest_quota_refused(&self) -> bool {
+        self.attachment_ingest
+            .failed
+            .values()
+            .any(|failed| failed.retry_at.is_some())
     }
 
     pub(super) fn pending_attachment_ingests(&self) -> u64 {
@@ -175,7 +192,10 @@ impl<S: Store> Replica<S> {
                 .attachment_ingest
                 .failed
                 .get(&o.path)
-                .is_some_and(|(failed, _)| *failed == Some(*digest))
+                .is_some_and(|failed| {
+                    failed.digest == Some(*digest)
+                        && failed.retry_at.is_none_or(|at| self.now() < at)
+                })
             && o.moved_from.is_none()
             && !self.apply_fault
         {
@@ -455,12 +475,20 @@ impl<S: Store> Replica<S> {
         if !held && !self.apply_fault {
             self.store.release_disk_observation(token)?;
         }
-        if p.code == ErrorCode::QuotaExceeded.as_str() {
+        let quota = p.code == ErrorCode::QuotaExceeded.as_str();
+        if quota {
             self.incident(mdbn_wire::client::IncidentKind::QuotaExceeded, None);
         }
+        let retry_at = quota.then(|| {
+            self.now() + i64::try_from(self.tuning.quota_upload_retry_ms).unwrap_or(0)
+        });
         self.attachment_ingest.failed.insert(
             path.to_owned(),
-            ((!held && !self.apply_fault).then_some(digest), p),
+            FailedIngest {
+                digest: (!held && !self.apply_fault).then_some(digest),
+                problem: p,
+                retry_at,
+            },
         );
         Ok(())
     }
@@ -471,7 +499,14 @@ impl<S: Store> Replica<S> {
         self.attachment_ingest.oversized_markdown_held += 1;
         self.attachment_ingest
             .failed
-            .insert(path.into(), (None, problem));
+            .insert(
+                path.into(),
+                FailedIngest {
+                    digest: None,
+                    problem,
+                    retry_at: None,
+                },
+            );
     }
 
     fn finish_native_ingest(
