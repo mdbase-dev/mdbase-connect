@@ -1,8 +1,13 @@
 import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
-import { collectionDisplayField, declaredFields, fieldReferenceName } from "./field-reference";
+import {
+  collectionDisplayField,
+  declaredFields,
+  fieldReferenceName,
+  humanizeName,
+  resolveSchema
+} from "./field-reference";
 import type { NoteSummary } from "./model";
-import { humanizeName, resolveSchema } from "./SchemaValueEditor";
 
 export type SortDirection = "asc" | "desc";
 export type SortField = { name: string; label: string } & (
