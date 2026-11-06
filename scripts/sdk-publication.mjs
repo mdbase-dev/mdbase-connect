@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildAppTrust } from "../runtime/packages/sdk/scripts/build-app-trust.mjs";
 import { readPackagedSqlite } from "../runtime/packages/sdk/scripts/build-application-assets.mjs";
-import { checkedSdkAsset, exactSdkVersion, requireSdkPublicationReady, sdkPackages, sdkTarball, sdkTarget, validateSdkPublication, verifySdkArchive } from "./lib/sdk-publication.mjs";
+import { checkedSdkAsset, exactSdkVersion, refreshSdkRuntimePin, requireSdkPublicationReady, sdkPackages, sdkTarball, sdkTarget, validateSdkPublication, verifySdkArchive } from "./lib/sdk-publication.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sdk = join(root, "runtime/packages/sdk");
@@ -140,11 +140,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const [command, environment, directory, commit] = process.argv.slice(2);
   if (command === "check") validateSdkPublication(publication(), root);
   else if (command === "ready") requireSdkPublicationReady(publication());
+  else if (command === "pin-runtime") {
+    execFileSync("git", ["diff", "--quiet", "HEAD", "--", "runtime/crates", "runtime/Cargo.toml", "runtime/Cargo.lock", "runtime/rust-toolchain.toml", "runtime/xtask"], { cwd: root });
+    const source = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    refreshSdkRuntimePin(join(root, "runtime/target/wasm/app-runtime.wasm"), join(sdk, "src/application/asset-pins.json"), source);
+    execFileSync("node", ["scripts/runtime-methods.mjs", "--write"], { cwd: sdk, stdio: "inherit" });
+  }
   else if (command === "pack-all") await packAllSdks(resolve(environment));
   else if (command === "verify-npm") verifySdkArchive(resolve(environment), "production",
     readJson(join(root, "package.json")).version, process.env.GITHUB_SHA, publication());
   else if (command === "production-version") console.log(exactSdkVersion(environment));
   else if (command === "verify") await verifySdkDirectory(resolve(directory), environment, commit);
   else if (command === "legacy-archive") checkLegacyArchive(environment);
-  else throw new Error("Expected check, ready, pack-all, verify-npm, production-version, verify or legacy-archive");
+  else throw new Error("Expected check, ready, pin-runtime, pack-all, verify-npm, production-version, verify or legacy-archive");
 }

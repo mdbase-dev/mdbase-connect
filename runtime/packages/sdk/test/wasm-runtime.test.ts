@@ -79,7 +79,15 @@ collection:
       expect(result.records).toHaveLength(1); expect(result.records[0]!.id).toBe(write.records[0]!.id);
       expect(result.records[0]!.implementations[0]).toMatchObject({ typeName: "aliasContact", issues: [] });
       expect(result.records[0]!.implementations[0]!.fields.get("name")).toBe("Projected");
+      const terminal = await c.queryContract(contract, { pageSize: 1 });
+      expect(terminal.records).toEqual(result.records);
+      expect(terminal.page.hasMore).toBe(false);
+      expect(terminal.page.cursor).toBeUndefined();
+      await c.create({ path: "people/b.md", type: "aliasContact", frontmatter: { full_name: "Second" } });
       await expect(c.queryContract(contract, { pageSize: 1 })).rejects.toMatchObject({ code: "upgrade_required", reason: "contract_query_cursor_required" });
+      const exact = await c.queryContract(contract, { pageSize: 2 });
+      expect(exact.records).toHaveLength(2);
+      expect(exact.page.hasMore).toBe(false);
     } finally { c.close(); rt.dispose(); }
   });
 
