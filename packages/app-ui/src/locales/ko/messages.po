@@ -432,7 +432,7 @@ msgctxt "Collection storage mode"
 msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
 msgstr "mdbase가 기존 기록을 포함한 컬렉션을 읽고, 기기가 꺼져 있을 때도 접근을 제공할 수 있게 됩니다."
 
-#: src/CommandPalette.tsx
+#: src/shortcuts.ts
 msgid "Menu"
 msgstr "메뉴"
 

@@ -107,7 +107,7 @@ export function KeyboardShortcuts({ keyboard, commands }: {
   commands: readonly Command[];
 }) {
   useLocaleRevision();
-  return <Dialog open={keyboard.helpOpen} title={t(i18n)({ message: "Keyboard shortcuts", context: "Connect keyboard shortcuts" })} onClose={keyboard.closeHelp}>
+  return <Dialog open={keyboard.helpOpen} className="connect-shortcut-help" title={t(i18n)({ message: "Keyboard shortcuts", context: "Connect keyboard shortcuts" })} onClose={keyboard.closeHelp}>
     <p className="connect-muted">{t(i18n)({ message: "Shortcuts are off while typing or while a dialog is open.", context: "Connect keyboard shortcuts" })}</p>
     <dl className="connect-shortcuts">
       <div><dt>{t(i18n)({ message: "Search", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("mod+k")}</kbd></dd></div>
@@ -115,7 +115,7 @@ export function KeyboardShortcuts({ keyboard, commands }: {
       {keyboard.helpOpen && document.querySelector(keyboard.filter) && <div><dt>{t(i18n)({ message: "Filter the current list", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>/</kbd></dd></div>}
       <div><dt>{t(i18n)({ message: "Move through the list", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("j")}</kbd> / <kbd>{shortcutLabel("k")}</kbd></dd></div>
       <div><dt>{t(i18n)({ message: "Open the focused item", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("Enter")}</kbd></dd></div>
-      {commands.some(command => command.id.startsWith("rename:") || command.id.startsWith("rename-computer:")) && <div><dt>{t(i18n)({ message: "Rename the focused item", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("r")}</kbd></dd></div>}
+      {commands.some(command => command.id.startsWith("rename:") || command.id.startsWith("rename-computer:")) && <div><dt>{t(i18n)({ message: "Rename a hosted collection or computer", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("r")}</kbd></dd></div>}
     </dl>
   </Dialog>;
 }

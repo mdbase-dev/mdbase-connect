@@ -469,7 +469,6 @@ h1 {
 .minimal-auth-page .password-auth-form > .mdbase-button { margin-top: var(--space-2); }
 
 .minimal-auth-page > .product-brand { width: 100%; margin-bottom: var(--space-8); }
-.minimal-auth-page .email-choice { margin-top: var(--space-3); }
 .minimal-auth-page .mdbase-button { --control-font-size: var(--font-size-ui); }
 .signed-out-preferences { display: flex; gap: var(--space-3); }
 .minimal-auth-footer { flex-wrap: wrap; align-items: center; }

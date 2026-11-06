@@ -174,11 +174,6 @@ msgstr "{0} теперь размещена в mdbase."
 msgid "{0} is offline."
 msgstr "{0} не в сети."
 
-#. placeholder {0}: collection.name
-#: src/ConnectApp.tsx
-msgid "{0} is stored on your computers."
-msgstr "{0} хранится на ваших компьютерах."
-
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
@@ -1172,10 +1167,6 @@ msgstr "Продолжайте, только если вы начали это �
 #: src/authorization-view.tsx
 msgid "Continue only if you started this and recognize this site."
 msgstr "Продолжайте, только если вы начали это действие и узнаёте этот сайт."
-
-#: src/auth-view.tsx
-msgid "Continue with email"
-msgstr "Продолжить с электронной почтой"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

@@ -231,7 +231,8 @@ describe("ConnectApp", () => {
     expect(mode).toHaveBeenCalledTimes(1);
     await user.click(storage);
     await screen.findByRole("heading", { name: "Storage mode" });
-    expect(screen.getByText("Native notes is stored on your computers.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Storage" }).closest("header")).toHaveTextContent("Native notes");
+    expect(screen.queryByText(/is stored on your computers/)).not.toBeInTheDocument();
     expect(screen.getByText("Collection copies")).toBeInTheDocument();
     expect(screen.queryByText(/replicas/i)).not.toBeInTheDocument();
     expect(mode).toHaveBeenCalledTimes(1);
@@ -308,7 +309,8 @@ describe("ConnectApp", () => {
     expect(badge("Computer notes")).toHaveTextContent("Connected");
     expect(badge("Offline notes")).toHaveTextContent("Offline");
     expect(badge("Unlinked notes")).toHaveTextContent("Computer not connected");
-    expect(badge("Cloud notes")).toHaveTextContent("Hosted");
+    expect(badge("Cloud notes")).toBeEmptyDOMElement();
+    expect(screen.getByText("Cloud notes").closest(".connect-collection-row")).toHaveTextContent("Cloud copy configured");
     expect(screen.queryByText("Availability unknown")).not.toBeInTheDocument();
   });
 

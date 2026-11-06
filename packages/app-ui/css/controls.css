@@ -26,6 +26,33 @@
   white-space: nowrap;
 }
 
+.mdbase-tooltip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  box-sizing: border-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+  box-shadow: var(--elevation-low);
+  font: var(--font-size-caption)/1.4 var(--sans);
+  pointer-events: auto;
+  opacity: 1;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+.mdbase-tooltip kbd { flex-shrink: 0; color: var(--color-text-muted); font: inherit; }
+@starting-style { .mdbase-tooltip:popover-open { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mdbase-tooltip { transition: none; } }
+
 .mdbase-message {
   margin: 1.2rem 0 0;
   padding: 0.7rem 0;

@@ -59,7 +59,7 @@ function AuthInput({ label, matchValue, maxCharacters, onChange, onBlur, ...prop
     <span id={labelId}>{label}</span>
     <input {...props} className="mdbase-field" ref={input} name={props.name ?? props.autoComplete}
       aria-labelledby={labelId}
-      aria-invalid={error ? true : undefined}
+      aria-invalid={error ? true : props["aria-invalid"]}
       aria-describedby={[props["aria-describedby"], error ? errorId : ""].filter(Boolean).join(" ") || undefined}
       onChange={onChange}
       onBlur={(event) => { setError(validationMessage(event.currentTarget)); onBlur?.(event); }}
@@ -85,7 +85,6 @@ function Loading({ error }: { error: string }) {
 export function Login() {
   useLocaleRevision();
   const [name, setName] = useState("Callum");
-  const [emailVisible, setEmailVisible] = useState(false);
   const [email, setEmail] = useState("callum@example.com");
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [error, setError] = useState(authenticationFlowError);
@@ -153,11 +152,10 @@ export function Login() {
         {new URLSearchParams(location.search).get("reason") === "session-expired" && <p role="status"><Trans>Your session expired. Sign in to pick up where you left off.</Trans></p>}
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         <AuthProviders providers={providers} divider={false} onError={setError} />
-        {config.password_login && !emailVisible && <button className="mdbase-button email-choice" type="button" aria-expanded={false} onClick={() => setEmailVisible(true)}><Trans>Continue with email</Trans></button>}
-        {config.password_login && emailVisible && (
+        {config.password_login && (
           <PasswordLoginForm
             recoveryAvailable={config.password_recovery === true}
-            onError={setError}
+            onStart={() => setError("")}
             onSignedIn={() => { location.href = returnTarget(); }}
           />
         )}
@@ -182,7 +180,7 @@ export function Login() {
         <h1><Trans>Open your account</Trans></h1>
         <p><Trans>Development authentication is enabled.</Trans></p>
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
-        <AuthInput label={t(i18n)({ message: "Name", context: "Account sign-in" })} autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
+        <AuthInput label={t(i18n)({ message: "Name", context: "Account sign-in" })} autoFocus autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
         <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })} type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
         <button className="mdbase-button is-primary" type="submit" disabled={busy}><Trans>Continue</Trans></button>
       </form>
@@ -192,23 +190,28 @@ export function Login() {
 
 function PasswordLoginForm({
   recoveryAvailable,
-  onError,
+  onStart,
   onSignedIn
 }: {
   recoveryAvailable: boolean;
-  onError(value: string): void;
+  onStart(): void;
   onSignedIn(): void;
 }) {
   useLocaleRevision();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const errorId = useId();
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => { if (error) form.current?.querySelector<HTMLInputElement>('[aria-invalid="true"]')?.focus(); }, [error]);
 
   async function signIn(event: React.FormEvent) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
-    onError("");
+    onStart();
+    setError("");
     try {
       await api("/v1/auth/password/login", {
         method: "POST",
@@ -216,14 +219,17 @@ function PasswordLoginForm({
       });
       onSignedIn();
     } catch (reason) {
-      onError(message(reason));
+      setError(message(reason));
       setBusy(false);
     }
   }
 
   return (
-    <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void signIn(event)}>
+    <form ref={form} className="password-auth-form" aria-busy={busy} onSubmit={(event) => void signIn(event)}>
+      {error && <div className="mdbase-message is-boxed is-error" role="alert" id={errorId}>{error}</div>}
       <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
         type="email"
         autoFocus
         autoComplete="username"
@@ -233,6 +239,8 @@ function PasswordLoginForm({
         onChange={(event) => setEmail(event.target.value)}
       />
       <AuthInput label={t(i18n)({ message: "Password", context: "Account sign-in" })}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
         type="password"
         autoComplete="current-password"
         maxLength={1024}
@@ -618,6 +626,7 @@ export function Signup({
         {!requestSubmitted && config.password_public_registration && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void requestVerification(event)}>
             <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
+              autoFocus
               type="email"
               autoComplete="email"
               maxLength={320}
@@ -655,6 +664,7 @@ export function Signup({
               value={verifiedEmail}
             />
             <AuthInput label={t(i18n)({ message: "Name", context: "Account sign-in" })}
+              autoFocus
               autoComplete="name"
               maxLength={100}
               required

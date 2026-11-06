@@ -174,11 +174,6 @@ msgstr "{0} 现已由云端托管。"
 msgid "{0} is offline."
 msgstr "{0} 已离线。"
 
-#. placeholder {0}: collection.name
-#: src/ConnectApp.tsx
-msgid "{0} is stored on your computers."
-msgstr "{0}存储在你的电脑上。"
-
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
@@ -1172,10 +1167,6 @@ msgstr "仅在您主动发起此操作且认识此应用时继续。"
 #: src/authorization-view.tsx
 msgid "Continue only if you started this and recognize this site."
 msgstr "仅在您主动发起此操作且认识此网站时继续。"
-
-#: src/auth-view.tsx
-msgid "Continue with email"
-msgstr "通过电子邮件继续"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

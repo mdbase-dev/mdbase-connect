@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 const port = Number(process.env.PORT ?? 4801);
 export default defineConfig({
   testDir: "./tests",
-  testMatch: ["visual.spec.ts", "review-flows.spec.ts", "review-motion.spec.ts", "interaction-budget.spec.ts"],
+  testMatch: ["visual.spec.ts", "review-flows.spec.ts", "review-motion.spec.ts", "review-r8.spec.ts", "interaction-budget.spec.ts"],
   workers: 2,
   reporter: "line",
   use: {
@@ -13,7 +13,7 @@ export default defineConfig({
   },
   webServer: { command: "pnpm portal:review", cwd: "../..", url: `http://127.0.0.1:${port}/__review`, reuseExistingServer: false, timeout: 120_000 },
   projects: [
-    { name: "review", testIgnore: "interaction-budget.spec.ts" },
-    { name: "budgets", testMatch: "interaction-budget.spec.ts", dependencies: ["review"], workers: 1 }
+    { name: "review", testIgnore: ["interaction-budget.spec.ts", "review-motion.spec.ts"] },
+    { name: "budgets", testMatch: ["interaction-budget.spec.ts", "review-motion.spec.ts"], dependencies: ["review"], workers: 1 }
   ]
 });

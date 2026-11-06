@@ -8,6 +8,17 @@ import { CommandPalette, matchingCommands, shortcutLabel, type Command } from ".
 
 const command = (id: string, group: string, label = id): Command => ({ id, group, label, run: () => {} });
 
+it("puts all contextual actions first without duplicates, including ranked results", () => {
+  const commands = [command("search", "navigation"), ...Array.from({ length: 8 }, (_, index) => ({ ...command(`action-${index}`, "commands"), context: "Selected notes", shortcut: "r" }))];
+  const matches = matchingCommands(commands, "");
+  expect(matches.map(command => command.id)).toEqual([...commands.slice(1).map(command => command.id), "search"]);
+  expect(matches.slice(0, 8).every(command => command.group === "context")).toBe(true);
+  expect(matchingCommands(commands, "action-7")[0]?.context).toBe("Selected notes");
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: [], getResults: () => commands, onClose: () => {} })));
+  expect(headings(document.querySelector("dialog")!.outerHTML)[0]).toBe("Selected notes");
+  expect(document.querySelector('[role="option"] kbd')?.textContent).toBe("R");
+});
+
 const headings = (markup: string) => [...markup.matchAll(/class="mdbase-command-group" role="presentation">(.*?)<\/div>/g)].map((match) => match[1]);
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

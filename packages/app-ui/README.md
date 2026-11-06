@@ -20,6 +20,8 @@ applyThemePreference(loadThemePreference());
   `--color-text-soft`, `--color-accent`, ...) for light, dark and system
   themes. Style components with roles, not palette values. Short aliases such
   as `--ink` belong to each app.
+  `--color-current` and `--color-on-current` mark the keyboard/pointer current
+  choice in palettes, completion lists and diagnostics; `--color-selected` stays subtle for persistent selections.
 - `theme` stores the System, Light or Dark choice as `mdbase:theme`.
 - `brand` draws the Frontmatter mark, each app's inverted mark, and the
   `mdbase <app>` wordmark. Add `motion.css` to animate the mark: loops
@@ -35,6 +37,21 @@ applyThemePreference(loadThemePreference());
 - `apps` lists the mdbase apps and builds links that open the current
   collection in another app. Lab and local builds pass their own URLs to
   `withAppUrls`.
+
+## Icon-button tooltips
+
+Import `Tooltip` from `@mdbase-dev/ui/tooltip` and include `controls.css`.
+Wrap one native icon button in `<Tooltip label="Search" shortcut="mod+k">…</Tooltip>`.
+Localize the label in the caller. The optional shortcut uses the same notation and
+platform labels as the command palette and sets `aria-keyshortcuts` on the button.
+The button keeps its ref and handlers; a native manual popover adds no layout box
+or focus stop. Escape dismisses a visible tooltip before the parent dialog;
+the bubble remains visible while hovered, with 120 ms to cross the gap.
+Only the supplemental shortcut is linked as a description, preserving existing
+button names and descriptions. Hover waits 400 ms, keyboard
+focus is immediate, and a recently closed tooltip keeps the next one immediate
+for 800 ms. Touch presses do not show a tooltip. Scroll, resize, window blur,
+press, or an unavailable trigger cancels pending and visible hints.
 
 ## Toasts
 
@@ -191,7 +208,6 @@ built-in value.
 | `border` | hairlines | `--color-border-strong` | light grey |
 | `danger` | errors and destructive actions | `--color-danger` | red |
 | `warning` | warning text | `--color-warning-text` | amber |
-| `warning-edge` | the warning notice's edge | `--color-warning` | amber |
 | `scrim` | behind dialogs and sheets | `--color-scrim` | `rgb(0 0 0 / 0.3)` |
 | `current-bg` | the open collection's row | (none) | accent 9% into surface, mixed in oklab |
 | `font` | font family | `--sans` | `system-ui, sans-serif` |

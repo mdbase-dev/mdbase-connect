@@ -241,14 +241,15 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await expect(page.locator(".connect-page > header > div > span")).toBeHidden();
       }
       await page.keyboard.press("Control+k");
-      await page.getByRole("combobox", { name: "Search collections, apps, computers, sessions and actions" }).fill("field");
+      await expect(page.getByRole("combobox", { name: "Search collections, apps, computers, sessions and actions" })).toBeFocused();
+      await page.keyboard.type("field");
       const mark = page.locator(".mdbase-command-results mark").first();
       await expect(mark).toHaveText(/field/i);
       const colors = await mark.evaluate(element => ({ color: getComputedStyle(element).color, parent: getComputedStyle(element.parentElement!).color, background: getComputedStyle(element).backgroundColor }));
       expect(colors.color).toBe(colors.parent);
       expect(colors.background).not.toBe("rgb(255, 255, 0)");
       expect(colors.background).not.toBe("rgba(0, 0, 0, 0)");
-      await page.screenshot({ path: testInfo.outputPath("palette-matches.png") });
+      await page.getByRole("dialog", { name: "Commands", exact: true }).screenshot({ path: testInfo.outputPath("palette-matches.png") });
     });
   }
 }
@@ -259,6 +260,14 @@ test("W17 sharing conflicts give desktop guidance instead of futile retry", asyn
   await expect(error).not.toContainText("replicas");
   await expect(error).toContainText("Resolve the conflicting changes in the desktop app");
   await expect(error.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  expect(await error.evaluate(element => {
+    const separator = document.createElement("span");
+    separator.style.color = "var(--line)";
+    element.append(separator);
+    const neutral = getComputedStyle(separator).color === getComputedStyle(element).borderBottomColor;
+    separator.remove();
+    return neutral;
+  })).toBe(true);
 });
 
 for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as const) for (const reducedMotion of ["reduce", "no-preference"] as const) {
@@ -495,7 +504,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
 }
 
 test("offline route changes have one inline recovery state", async ({ page }) => {
+  const sessions = page.waitForResponse("**/v1/account/sessions");
   await openScenario(page, "typical-account");
+  await sessions;
   await page.route("**/v1/**", route => route.abort("internetdisconnected"));
   await page.getByRole("button", { name: "Actions for Shared research library" }).click();
   await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
@@ -596,7 +607,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   for (const colorScheme of ["light", "dark"] as const) test(`Portal keyboard and cached palette ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme });
+    const sessions = page.waitForResponse("**/v1/account/sessions");
     await openScenario(page, "heavy-account");
+    await sessions;
     const requests: string[] = [];
     page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/v1/")) requests.push(request.url()); });
     const search = page.getByRole("button", { name: /^Search/ });
@@ -1058,7 +1071,7 @@ test("successful collection deletion focuses the next surviving row", async ({ p
 
 test("signed-out pairing signs in locally and remembers approval", async ({ page }) => {
   await openScenario(page, "pairing-signed-out");
-  await page.getByRole("button", { name: "Continue with email", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Email", exact: true })).toBeFocused();
   await page.getByRole("textbox", { name: "Email", exact: true }).fill("maya@chen.example");
   await page.getByLabel("Password", { exact: true }).fill("review-only-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();

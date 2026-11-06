@@ -41,11 +41,15 @@
 }
 
 .mdbase-command-results {
-  max-height: 380px;
+  min-height: 0;
+  height: 380px;
+  max-height: 100%;
   overflow: auto;
   padding: 4px 6px 8px;
   scroll-padding: 28px 0 8px;
 }
+
+.mdbase-command-results:has(> .mdbase-command-empty) { height: auto; }
 
 .mdbase-command-group {
   position: sticky;
@@ -75,13 +79,12 @@
   cursor: pointer;
 }
 
-.mdbase-command-results > button[aria-selected="true"],
-.mdbase-command-results > button:hover {
-  color: var(--color-text);
-  background: var(--color-selected);
+.mdbase-command-results > button[aria-selected="true"] {
+  color: var(--color-on-current);
+  background: var(--color-current);
 }
 
-.mdbase-command-results > button:active { background: var(--color-border-strong); }
+.mdbase-command-results > button[aria-selected="true"] :is(small, kbd, .mdbase-command-alternate, .mdbase-command-icon) { color: inherit; }
 
 .mdbase-command-results .mdbase-command-copy {
   min-width: 0;

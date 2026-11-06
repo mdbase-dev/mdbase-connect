@@ -1,6 +1,8 @@
 import { t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
 import { Dialog } from "./Dialog.js";
+import { shortcutLabel } from "./shortcuts.js";
+export { isApplePlatform, shortcutLabel } from "./shortcuts.js";
 import { Fragment, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject, type ReactNode } from "react";
 
 export interface Command {
@@ -14,40 +16,18 @@ export interface Command {
   readonly keywords?: string | undefined;
   /** For example "mod+shift+f"; see shortcutLabel. */
   readonly shortcut?: string | undefined;
+  readonly context?: string | undefined;
   readonly run: () => void;
   /** A variant run with Shift+Enter or Shift+click, such as opening beside the document. */
   readonly alternate?: { readonly label: string; readonly run: () => void } | undefined;
 }
 
-export function isApplePlatform(): boolean {
-  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/u.test(navigator.platform || navigator.userAgent);
-}
-
-/** "mod+shift+f" as the platform writes it: ⌘⇧F on Apple systems, Ctrl+Shift+F elsewhere. */
-export function shortcutLabel(shortcut: string): string {
-  if (/^[a-z] [a-z]$/iu.test(shortcut)) return shortcut.toUpperCase();
-  const apple = isApplePlatform();
-  return shortcut
-    .split("+")
-    .map((part) => {
-      switch (part.toLowerCase()) {
-        case "mod": return apple ? "⌘" : "Ctrl";
-        case "ctrl": return apple ? "⌃" : "Ctrl";
-        case "shift": return apple ? "⇧" : "Shift";
-        case "alt": return apple ? "⌥" : "Alt";
-        case "arrowdown": return "↓";
-        case "arrowup": return "↑";
-        case "arrowleft": return "←";
-        case "arrowright": return "→";
-        case "contextmenu": return t({ message: "Menu" });
-        default: return part.length === 1 ? part.toUpperCase() : part;
-      }
-    })
-    .join(apple ? "" : "+");
-}
-
 const browseLimit = 6;
 const searchLimit = 40;
+
+function contextualCommands(commands: readonly Command[]): readonly Command[] {
+  return [...commands.filter(command => command.context).map(command => ({ ...command, group: "context" })), ...commands.filter(command => !command.context)];
+}
 
 /**
  * Without a query, show a few of each group (every command of the groups in `showAll`); with
@@ -58,13 +38,14 @@ export function matchingCommands(
   query: string,
   showAll: readonly string[] = []
 ): readonly Command[] {
+  commands = contextualCommands(commands);
   const terms = query.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean);
   if (terms.length === 0) {
     const counts = new Map<string, number>();
     return commands.filter((command) => {
       const count = counts.get(command.group) ?? 0;
       counts.set(command.group, count + 1);
-      return showAll.includes(command.group) || count < browseLimit;
+      return command.context !== undefined || showAll.includes(command.group) || count < browseLimit;
     });
   }
   const matches = commands.filter((command) => {
@@ -73,7 +54,7 @@ export function matchingCommands(
   });
   const names = matches.filter(command => terms.every(term => command.label.toLocaleLowerCase().includes(term)));
   const selected = [...names, ...matches.filter(command => !names.includes(command))].slice(0, searchLimit);
-  const groups = [...new Set(selected.map(({ group }) => group))];
+  const groups = [...new Set([...selected.filter(command => command.context), ...selected.filter(command => !command.context)].map(({ group }) => group))];
   return groups.flatMap((group) => selected.filter((command) => command.group === group));
 }
 
@@ -121,7 +102,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
-  const matches = useMemo(() => getResults ? getResults(query) : matchingCommands(commands, query, showAll), [commands, query, showAll, getResults]);
+  const matches = useMemo(() => getResults ? contextualCommands(getResults(query)) : matchingCommands(commands, query, showAll), [commands, query, showAll, getResults]);
   useLayoutEffect(() => {
     resultsRef.current!.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [active, matches]);
@@ -161,9 +142,9 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
             {command.group !== matches[index - 1]?.group
-              ? <div className="mdbase-command-group" role="presentation">{groupLabel ? groupLabel(command.group) : command.group}</div>
+              ? <div className="mdbase-command-group" role="presentation">{command.context ?? (groupLabel ? groupLabel(command.group) : command.group)}</div>
               : null}
-            <CommandRow id={`${hintId}-${command.id}`} command={command} query={query} active={index === active} onRun={run} />
+            <CommandRow id={`${hintId}-${command.id}`} command={command} query={query} active={index === active} onActivate={() => setActive(index)} onRun={run} />
           </Fragment>)
           : <div className="mdbase-command-empty" role="status">{emptyState ?? t({ message: "Nothing matches" })}</div>}
       </div>
@@ -178,18 +159,19 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   </>;
 }
 
-function CommandRow({ id, command, query, active, onRun }: {
+function CommandRow({ id, command, query, active, onActivate, onRun }: {
   readonly id: string;
   readonly command: Command;
   readonly query: string;
   readonly active: boolean;
+  readonly onActivate: () => void;
   readonly onRun: (command: Command, alternate?: boolean) => void;
 }): JSX.Element {
   useLocaleRevision();
   const pattern = query.trim().split(/\s+/u).filter(Boolean).map(term => term.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|");
   const label = pattern ? command.label.split(new RegExp(`(${pattern})`, "giu"))
     .map((part, index) => index % 2 ? <mark key={index}>{part}</mark> : part) : command.label;
-  return <button id={id} tabIndex={-1} type="button" role="option" aria-selected={active} onMouseDown={event => event.preventDefault()} onClick={(event) => onRun(command, event.shiftKey)}>
+  return <button id={id} tabIndex={-1} type="button" role="option" aria-selected={active} onPointerMove={event => { if (event.movementX || event.movementY) onActivate(); }} onMouseDown={event => event.preventDefault()} onClick={(event) => onRun(command, event.shiftKey)}>
     {command.icon && <span className="mdbase-command-icon" aria-hidden="true">{command.icon}</span>}
     <span className="mdbase-command-copy">
       {command.content ?? <><strong>{label}</strong>{command.detail ? <small>{command.detail}</small> : null}</>}

@@ -86,6 +86,15 @@ export function usePortalCommands({ data, collections, applications, sessions, s
   );
   if (openEditor) commands.push({ id: "editor", label: t(i18n)({ message: "Open in editor", context: "Connect interface" }), group: "commands", run: openEditor });
   if (reviewRequest) commands.push({ id: "review", label: t(i18n)({ message: "Review request", context: "Connect interface" }), group: "commands", run: reviewRequest });
+  const contextItem = focusedItem ?? (selectedCollectionId ? `collection:${selectedCollectionId}` : undefined);
+  const contextCommand = commands.find(command => command.id === contextItem);
+  if (contextCommand && contextItem) {
+    const [kind, id] = contextItem.split(":");
+    const actions = kind === "collection" ? [contextItem, `storage:${id}`, `access:${id}`, `rename:${id}`, `sync:${id}`, `delete:${id}`]
+      : kind === "computer" ? [`rename-computer:${id}`, `revoke-computer:${id}`]
+      : kind === "app" ? [`revoke-app:${id}`] : [`revoke-session:${id}`];
+    commands.forEach((command, index) => { if (actions.includes(command.id)) commands[index] = { ...command, context: contextCommand.label }; });
+  }
   useEffect(() => () => pending.current?.disconnect(), []);
   return { commands, groupLabels, ...keyboard, cancel };
 }

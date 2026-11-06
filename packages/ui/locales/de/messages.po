@@ -231,15 +231,15 @@ msgctxt "Application permission"
 msgid "Read records"
 msgstr "Datensätze lesen"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Rename a hosted collection or computer"
+msgstr "Gehostete Sammlung oder Computer umbenennen"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Rename or move records"
 msgstr "Datensätze umbenennen oder verschieben"
-
-#: keyboard.tsx
-msgctxt "Connect keyboard shortcuts"
-msgid "Rename the focused item"
-msgstr "Fokussiertes Element umbenennen"
 
 #: access.ts
 msgctxt "Application permission"

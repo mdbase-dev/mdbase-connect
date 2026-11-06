@@ -66,6 +66,7 @@
     },
     "./confirm-dialog": { "types": "./dist/ConfirmDialog.d.ts", "import": "./dist/ConfirmDialog.js" },
     "./menu": { "types": "./dist/Menu.d.ts", "import": "./dist/Menu.js" },
+    "./tooltip": { "types": "./dist/Tooltip.d.ts", "import": "./dist/Tooltip.js" },
     "./overlay": { "types": "./dist/overlay.d.ts", "import": "./dist/overlay.js" },
     "./dialog": {
       "types": "./dist/Dialog.d.ts",

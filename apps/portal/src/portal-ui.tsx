@@ -11,6 +11,7 @@ import {
 } from "@mdbase-dev/ui/theme";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
+import { Tooltip } from "@mdbase-dev/ui/tooltip";
 
 export interface ProductSidebarItem {
   id: string;
@@ -73,7 +74,7 @@ export function MobileProductBar({ open, onOpen }: { open: boolean; onOpen(): vo
   useLocaleRevision();
   return <header className="mobile-product-bar">
     <Brand productLabel />
-    <button className="mobile-navigation-button" aria-label={t(i18n)({ message: "Open navigation", context: "Connect interface" })} aria-controls="product-navigation" aria-expanded={open} onClick={onOpen}><span /></button>
+    <Tooltip label={t(i18n)({ message: "Open navigation", context: "Connect interface" })}><button className="mobile-navigation-button" aria-controls="product-navigation" aria-expanded={open} onClick={onOpen}><span /></button></Tooltip>
   </header>;
 }
 

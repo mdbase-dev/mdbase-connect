@@ -124,8 +124,7 @@ async function auditPortalLogin() {
   });
   await page.goto(`${servers[0].origin}/login`);
   await page.getByRole("heading", { name: "Sign in" }).waitFor();
-  await page.getByRole("button", { name: "Continue with email", exact: true }).click();
-  await page.getByLabel("Email", { exact: true }).focus();
+  assert.equal(await page.getByLabel("Email", { exact: true }).evaluate(element => element === document.activeElement), true);
   await page.keyboard.press("Tab");
   assert.deepEqual(await page.getByLabel("Password", { exact: true }).evaluate((element) => {
     const style = getComputedStyle(element);

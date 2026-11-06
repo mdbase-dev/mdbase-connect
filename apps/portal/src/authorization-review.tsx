@@ -147,8 +147,9 @@ export function CollectionIdentity({ name, location, kind }: { name: string; loc
   return <span className="collection-identity">
     {kind === "hosted" || kind === "cloud_copy" ? <CloudIcon size={18} aria-hidden="true" /> : <DesktopIcon size={18} aria-hidden="true" />}
     <span className="collection-identity-copy">
-      <strong className="collection-name" aria-label={name} title={name}>
-        <span aria-hidden="true">{name.slice(0, suffixStart)}</span><span aria-hidden="true">{name.slice(suffixStart)}</span>
+      <span className="mdbase-visually-hidden">{name}</span>
+      <strong className="collection-name" title={name} aria-hidden="true">
+        <span>{name.slice(0, suffixStart)}</span><span>{name.slice(suffixStart)}</span>
       </strong>
       <small>{location}</small>
     </span>

@@ -17,6 +17,7 @@ export const test = base.extend<{ reviewChecks: void }>({
 
 export async function openScenario(page: Page, name: string) {
   const scenario = scenarios.find(scenario => scenario.name === name)!;
+  await page.goto("about:blank");
   await page.goto(`/__review/scenario/${name}?latency=60`);
   await expect(page.getByText(scenario.ready, { exact: false }).filter({ visible: true }).first()).toBeVisible();
   await expect(page.locator(".connect-main[aria-busy=true], .connect-main [aria-busy=true]")).toHaveCount(0);

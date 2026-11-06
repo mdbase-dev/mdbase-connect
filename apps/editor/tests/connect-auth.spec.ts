@@ -29,7 +29,7 @@ test("Connect opens one themed, accessible auth column at desktop and 390px", as
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeEnabled();
   await expect(page.locator(".provider-divider")).toHaveCount(0);
   await expect(page.locator("h1")).toHaveText("Sign in");
-  await page.getByRole("button", { name: "Continue with email" }).click();
+  await expect(page.getByLabel("Email", { exact: true })).toBeFocused();
   await expect(page.getByLabel("Email", { exact: true })).toHaveAttribute("autocomplete", "username");
   await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("autocomplete", "current-password");
   expect(await page.locator(".minimal-auth-shell").evaluate((element) => getComputedStyle(element).fontFamily)).toContain("IBM Plex Sans");
@@ -56,7 +56,7 @@ test("Connect opens one themed, accessible auth column at desktop and 390px", as
 
 test("native validation is inline, focuses the first invalid field, and clears on correction", async ({ page }) => {
   await page.goto(`${portalOrigin}/login`);
-  await page.getByRole("button", { name: "Continue with email" }).click();
+  await expect(page.getByLabel("Email", { exact: true })).toBeFocused();
   const email = page.locator('input[autocomplete="username"]');
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(email).toBeFocused();

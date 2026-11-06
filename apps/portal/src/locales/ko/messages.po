@@ -174,11 +174,6 @@ msgstr "{0}이(가) 호스팅 컬렉션으로 전환되었습니다."
 msgid "{0} is offline."
 msgstr "{0}이(가) 오프라인 상태입니다."
 
-#. placeholder {0}: collection.name
-#: src/ConnectApp.tsx
-msgid "{0} is stored on your computers."
-msgstr "{0}은(는) 사용자의 컴퓨터에 저장됩니다."
-
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
@@ -1172,10 +1167,6 @@ msgstr "직접 시작했고 이 앱을 알고 있는 경우에만 계속하세�
 #: src/authorization-view.tsx
 msgid "Continue only if you started this and recognize this site."
 msgstr "직접 시작했고 이 사이트를 알고 있는 경우에만 계속하세요."
-
-#: src/auth-view.tsx
-msgid "Continue with email"
-msgstr "이메일로 계속"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

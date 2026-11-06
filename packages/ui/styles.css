@@ -190,28 +190,12 @@ code,
   transition: color 160ms var(--ease);
 }
 
-.view-tab::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  background: transparent;
-  transform: scaleX(0.65);
-  transition: background-color 160ms var(--ease), transform 160ms var(--ease);
-}
-
 .view-tab:hover { color: var(--ink); }
 
 .view-tab.active {
   color: var(--ink);
+  background: var(--selected);
   font-weight: 700;
-}
-
-.view-tab.active::after {
-  background: var(--accent);
-  transform: scaleX(1);
 }
 
 .view-tab-count {
@@ -281,6 +265,8 @@ code,
 .product-sidebar-link[aria-current="page"] {
   color: var(--ink);
 }
+
+.product-sidebar-link[aria-current="page"] { background: var(--selected); }
 
 .product-sidebar-count {
   flex: 0 0 auto;
@@ -531,16 +517,15 @@ code,
   flex: none;
   overflow: visible;
   color: var(--muted);
-  transition: color var(--motion-slow) var(--ease-standard);
+  transition: color calc(var(--motion-exit) * 2) var(--ease-standard);
 }
 
 .status-glyph circle,
 .status-glyph rect {
-  transition: opacity var(--motion-slow) var(--ease-standard), stroke-dashoffset var(--motion-slow) linear;
+  transition: opacity calc(var(--motion-exit) * 2) var(--ease-standard), r calc(var(--motion-exit) * 2) var(--ease-standard), stroke-width calc(var(--motion-exit) * 2) var(--ease-standard), stroke-dasharray calc(var(--motion-exit) * 2) var(--ease-standard), stroke-dashoffset calc(var(--motion-exit) * 2) linear;
 }
 
-.status-glyph-dot { fill: currentColor; opacity: 0; }
-.status-glyph-ring { fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0; }
+.status-glyph-ring { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 100 0; r: 5.75px; opacity: 0; }
 .status-glyph-bar { fill: currentColor; opacity: 0; }
 .status-glyph-mark { fill: var(--paper); opacity: 0; }
 
@@ -556,19 +541,19 @@ code,
 }
 
 .status-glyph[data-state="online"] { color: var(--connected); }
-.status-glyph[data-state="online"] .status-glyph-dot { opacity: 1; }
+.status-glyph[data-state="online"] .status-glyph-ring { opacity: 1; r: 2px; stroke-width: 4; }
 .status-glyph[data-state="syncing"] { color: var(--accent); }
 .status-glyph[data-state="syncing"] .status-glyph-ring { opacity: 1; }
 .status-glyph[data-state="syncing"] .status-glyph-pie { opacity: 1; stroke-width: 5; }
 .status-glyph[data-state="paused"] :is(.status-glyph-ring, .status-glyph-bar) { opacity: 1; }
 .status-glyph[data-state="idle"] .status-glyph-ring { opacity: 1; }
-.status-glyph[data-state="offline"] .status-glyph-ring { opacity: 1; stroke-dasharray: 2.6 2.2; }
+.status-glyph[data-state="offline"] .status-glyph-ring { opacity: 1; stroke-dasharray: 7.2 6.1; }
 .status-glyph[data-state="attention"] { color: var(--warning); }
 .status-glyph[data-state="attention"] :is(.status-glyph-pie, .status-glyph-mark) { opacity: 1; }
 
 .status-glyph[data-state="connecting"] .status-glyph-ring {
   opacity: 1;
-  stroke-dasharray: 9 27;
+  stroke-dasharray: 25 75;
   transform-origin: 7px 7px;
   animation: status-glyph-turn 900ms linear infinite;
 }
@@ -587,61 +572,15 @@ code,
   animation-timing-function: var(--ease-out);
 }
 
-::view-transition-old(*),
-::view-transition-new(*) {
-  animation-duration: var(--motion-base);
-}
+::view-transition-old(*) { animation-duration: var(--motion-exit); }
+::view-transition-new(*) { animation-duration: var(--motion-enter); }
 
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
 }
 
-/* Connect's short command list needs no groups or hints; the footer stays as the listbox description. */
-dialog.mdbase-command-backdrop { background: var(--color-scrim); }
-
-.mdbase-command-backdrop .mdbase-command-palette {
-  width: min(520px, 100%);
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: var(--color-canvas);
-  box-shadow: var(--elevation-high), 0 0 0 1px var(--color-border);
-}
-
-.mdbase-command-backdrop .mdbase-command-search {
-  height: 44px;
-  display: block;
-  padding: 0;
-}
-
-.mdbase-command-backdrop .mdbase-command-search svg,
-.mdbase-command-backdrop .mdbase-command-group,
-.mdbase-command-backdrop .mdbase-command-footer { display: none; }
-
-dialog.mdbase-command-backdrop .mdbase-command-palette .mdbase-command-search input {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 0;
-  outline: 0;
-  background: transparent;
-  box-shadow: none;
-  font-size: var(--font-size-ui);
-}
-
-.mdbase-command-backdrop .mdbase-command-results { padding: 6px; }
-
-.mdbase-command-backdrop .mdbase-command-results > button {
-  min-height: 32px;
-  padding: 0 10px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text);
-}
-
-.mdbase-command-backdrop .mdbase-command-results strong { font-weight: var(--font-weight-regular); }
-
-.connect-shortcuts { display: grid; gap: 12px; }
+.connect-shortcut-help { font-size: var(--font-size-ui); }
+.connect-shortcuts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .connect-shortcuts > div { display: grid; grid-template-columns: minmax(0, 1fr) 132px; align-items: center; gap: 16px; }
 .connect-shortcuts dd { margin: 0; white-space: nowrap; }

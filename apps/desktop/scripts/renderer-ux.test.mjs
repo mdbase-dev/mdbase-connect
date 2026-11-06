@@ -144,6 +144,19 @@ for (const theme of ["light", "dark"]) {
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      const current = nav(page, "Overview");
+      for (let attempt = 0; attempt < 40 && !await current.evaluate(element => element === document.activeElement); attempt++) await page.keyboard.press("Tab");
+      assert.equal(await current.evaluate(element => element === document.activeElement), true);
+      const selection = await current.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { border: style.borderLeftWidth, shadow: style.boxShadow, before: getComputedStyle(element, "::before").content,
+          background: style.backgroundColor, outline: style.outlineStyle };
+      });
+      assert.equal(selection.border, "0px");
+      assert.equal(selection.shadow, "none");
+      assert.equal(selection.before, "none");
+      assert.notEqual(selection.background, "rgba(0, 0, 0, 0)");
+      assert.equal(selection.outline, "solid");
       assert.equal(await page.getByRole("heading", { name: "Overview", exact: true }).count(), 1);
       assert.equal(await page.locator(".overview-row").count(), 3);
       assert.equal(await page.locator(".overview-row button").count(), 0);
@@ -169,7 +182,12 @@ for (const theme of ["light", "dark"]) {
       await help.waitFor();
       assert.equal(new Set(await help.locator("dd").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().x))).size, 1);
       await screenshot(page, `parity-shortcuts-${theme}`);
+      await page.getByRole("tooltip").waitFor();
       await page.keyboard.press("Escape");
+      await page.getByRole("tooltip").waitFor({ state: "detached" });
+      assert.equal(await help.isVisible(), true);
+      await page.keyboard.press("Escape");
+      await help.waitFor({ state: "detached" });
       await nav(page, "Collections").click();
       const card = page.locator(".collection-card").filter({ has: page.getByRole("heading", { name: "Notes", exact: true }) });
       assert.equal(await card.getByRole("button").count(), 1);
@@ -762,8 +780,15 @@ test("another computer shows its comparison code and is allowed with one click, 
     await prompt.getByText("Only allow if this matches the code on Laptop", { exact: true }).waitFor();
     await prompt.getByText("012 345", { exact: true }).waitFor();
     assert.equal(await prompt.getByRole("button", { name: "Deny" }).count(), 1);
+    const spacing = await page.locator(".device-requests").evaluate(element => ({
+      gap: element.getBoundingClientRect().top - document.querySelector(".topbar").getBoundingClientRect().bottom,
+      counts: element.querySelectorAll(".section-heading .count").length
+    }));
+    assert.equal(spacing.gap, 32);
+    assert.equal(spacing.counts, 0);
     await screenshot(page, "device-approval");
-    await prompt.getByRole("button", { name: "Allow" }).click();
+    await prompt.getByRole("button", { name: "Allow" }).focus();
+    await page.keyboard.press("Enter");
     await page.getByText("Laptop can now open Diary.", { exact: true }).waitFor();
     assert.deepEqual(await calls("approveDevice"), [["c-private", "d-laptop", "012345"]]);
     assert.deepEqual(errors, []);
