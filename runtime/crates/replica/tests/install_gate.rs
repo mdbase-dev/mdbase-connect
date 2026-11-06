@@ -129,6 +129,14 @@ fn a_staging_store_installs_when_behind_in_a_shipped_build() {
 }
 
 #[test]
+fn install_status_exists_only_while_an_install_runs() {
+    let mut r = open(MemStore::new());
+    assert_eq!(r.install_status(), None);
+    behind(&mut r);
+    assert_eq!(r.install_status(), Some((0, 0)), "no chunks counted yet");
+}
+
+#[test]
 fn a_store_without_staging_reports_instead_of_installing() {
     let mut r = open(MemStore::new().without_staging());
     behind(&mut r);

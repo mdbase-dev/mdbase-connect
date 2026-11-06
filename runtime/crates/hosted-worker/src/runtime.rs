@@ -951,6 +951,12 @@ impl<S: Store> Engine<S> {
         (head.seq, head.chain.0)
     }
 
+    /// Snapshot install progress as chunks done and total. The install lives in
+    /// this engine's memory: the host keeps it awake until this returns `None`.
+    pub fn install_status(&self) -> Option<(u64, u64)> {
+        self.replica.install_status()
+    }
+
     /// When to call [`Engine::tick`] next (host ms), if at all.
     pub fn next_wakeup(&self) -> Option<i64> {
         match (
