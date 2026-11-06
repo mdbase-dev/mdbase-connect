@@ -22,7 +22,6 @@
   --_border: var(--mdbase-collections-border, var(--color-border-strong, oklch(82% 0.008 255)));
   --_danger: var(--mdbase-collections-danger, var(--color-danger, oklch(50% 0.11 28)));
   --_warning: var(--mdbase-collections-warning, var(--color-warning-text, oklch(43% 0.055 69)));
-  --_warning-edge: var(--mdbase-collections-warning-edge, var(--color-warning, oklch(60% 0.09 75)));
   --_scrim: var(--mdbase-collections-scrim, var(--color-scrim, rgb(0 0 0 / 0.3)));
   /*
    * Mixes are in oklab, which has no hue: in oklch an achromatic surface
@@ -258,21 +257,20 @@
   gap: 10px;
   padding: 12px 14px;
   border: 1px solid var(--_border);
-  border-left-width: 3px;
   border-radius: var(--_radius);
   background: var(--_surface);
 }
 
 .mdbase-collections-notice[data-tone="warning"] {
-  border-left-color: var(--_warning-edge);
+  background: color-mix(in oklab, var(--_warning) 8%, var(--_surface));
 }
 
 .mdbase-collections-notice[data-tone="error"] {
-  border-left-color: var(--_danger);
+  background: color-mix(in oklab, var(--_danger) 8%, var(--_surface));
 }
 
 .mdbase-collections-notice[data-tone="info"] {
-  border-left-color: var(--_accent);
+  background: color-mix(in oklab, var(--_accent) 8%, var(--_surface));
 }
 
 .mdbase-collections-notice.is-inline {

@@ -92,8 +92,9 @@ export const mdbasePopupTheme = EditorView.theme({
     whiteSpace: "pre-line"
   },
   ".cm-tooltip.cm-tooltip-lint": { padding: "4px", fontSize: "12px" },
-  ".cm-diagnostic": { padding: "4px 8px", borderRadius: "var(--control-radius, 2px)", fontFamily: "var(--sans)" },
-  ".cm-diagnostic-error": { borderLeft: "3px solid var(--color-danger)" },
-  ".cm-diagnostic-warning": { borderLeft: "3px solid var(--color-warning)" },
-  ".cm-diagnostic-info, .cm-diagnostic-hint": { borderLeft: "3px solid var(--color-accent)" }
+  ".cm-diagnostic": { padding: "4px 8px", border: "0", borderRadius: "var(--control-radius, 2px)", fontFamily: "var(--sans)" },
+  ".cm-diagnostic-error": { backgroundColor: "var(--color-danger-soft)" },
+  ".cm-diagnostic-warning": { backgroundColor: "var(--color-warning-surface)" },
+  ".cm-diagnostic-info, .cm-diagnostic-hint": { backgroundColor: "var(--color-accent-soft)" },
+  ".cm-panel.cm-panel-lint ul [aria-selected], .cm-panel.cm-panel-lint ul:focus [aria-selected]": { color: "var(--color-text)", backgroundColor: "var(--color-selected)" }
 });

@@ -206,7 +206,6 @@ built-in value.
 | `border` | hairlines | `--color-border-strong` | light grey |
 | `danger` | errors and destructive actions | `--color-danger` | red |
 | `warning` | warning text | `--color-warning-text` | amber |
-| `warning-edge` | the warning notice's edge | `--color-warning` | amber |
 | `scrim` | behind dialogs and sheets | `--color-scrim` | `rgb(0 0 0 / 0.3)` |
 | `current-bg` | the open collection's row | (none) | accent 9% into surface, mixed in oklab |
 | `font` | font family | `--sans` | `system-ui, sans-serif` |

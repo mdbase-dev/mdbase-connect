@@ -1,6 +1,36 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, openScenario, test } from "./review/fixture";
-import { authentication, authorizationId, clock } from "./review/scenarios.mjs";
+import { authentication, authorizationId, clock, pairingId } from "./review/scenarios.mjs";
+import { openSharedStyleFixture } from "../../../packages/app-ui/test/browser-styles";
+
+async function fillOnly(element: Locator) {
+  const appearance = await element.evaluate(element => {
+    const style = getComputedStyle(element);
+    const canvas = document.createElement("canvas").getContext("2d")!;
+    const luminance = (color: string) => {
+      canvas.fillStyle = color;
+      canvas.fillRect(0, 0, 1, 1);
+      const channels = [...canvas.getImageData(0, 0, 1, 1).data].slice(0, 3).map(value => {
+        const channel = value / 255;
+        return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+      });
+      return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+    };
+    const background = luminance(style.backgroundColor);
+    const contrast = (foreground: string) => {
+      const text = luminance(foreground);
+      return (Math.max(text, background) + .05) / (Math.min(text, background) + .05);
+    };
+    return { border: style.borderLeftWidth, shadow: style.boxShadow, before: getComputedStyle(element, "::before").content,
+      background: style.backgroundColor, contrast: Math.min(contrast(style.color), ...[...element.querySelectorAll("strong, small, kbd")].map(child => contrast(getComputedStyle(child).color))) };
+  });
+  expect(appearance.border).toBe("0px");
+  expect(appearance.shadow).toBe("none");
+  expect(appearance.before).toBe("none");
+  expect(appearance.background).not.toBe("rgba(0, 0, 0, 0)");
+  expect(appearance.contrast).toBeGreaterThanOrEqual(4.5);
+  return appearance;
+}
 
 async function keyTo(page: Page, target: Locator, key: string) {
   for (let attempt = 0; attempt < 80; attempt++) {
@@ -13,6 +43,94 @@ async function keyTo(page: Page, target: Locator, key: string) {
 for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as const) {
   test.describe(`W34 ${width} ${colorScheme}`, () => {
     test.use({ viewport: { width, height: width === 390 ? 844 : 900 }, colorScheme });
+
+    test("shared notices and diagnostics use tints with real keyboard input", async ({ page }, testInfo) => {
+      await page.clock.install({ time: new Date(clock) });
+      await openSharedStyleFixture(page);
+      const fills: string[] = [];
+      for (const tone of ["warning", "error", "info"]) {
+        await page.keyboard.press("Tab");
+        const action = page.getByRole("button", { name: `Review ${tone}`, exact: true });
+        await expect(action).toBeFocused();
+        await expect(action).toHaveCSS("outline-style", "solid");
+        const notice = page.locator(`.mdbase-collections-notice[data-tone="${tone}"]`);
+        await expect(notice).toHaveCSS("border-left-width", "1px");
+        await expect(notice).toHaveCSS("border-right-width", "1px");
+        await expect(notice).toHaveCSS("box-shadow", "none");
+        fills.push(await notice.evaluate(element => getComputedStyle(element).backgroundColor));
+      }
+      expect(new Set(fills).size).toBe(3);
+      await page.keyboard.press("Tab");
+      const tab = page.getByRole("button", { name: "Selected navigation", exact: true });
+      await expect(tab).toBeFocused();
+      await fillOnly(tab);
+      expect(await tab.evaluate(element => getComputedStyle(element, "::after").content)).toBe("none");
+      await page.keyboard.press("Tab");
+      const input = page.getByRole("textbox", { name: "Diagnostic input" });
+      await expect(input).toBeFocused();
+      for (const severity of ["error", "warning", "info", "hint"]) {
+        await page.keyboard.press("Control+a");
+        await page.keyboard.type(severity);
+        await page.keyboard.press("Control+Shift+m");
+        const diagnostic = page.locator(`.cm-diagnostic-${severity}`);
+        await expect(diagnostic).toBeVisible();
+        await expect(diagnostic).toHaveCSS("border-left-width", "0px");
+        await fillOnly(diagnostic);
+        await page.keyboard.press("Escape");
+        await expect(input).toBeFocused();
+        await page.locator(`.cm-lintRange-${severity}`).hover();
+        const hint = page.locator(`.cm-tooltip-lint .cm-diagnostic-${severity}`);
+        await expect(hint).toBeVisible();
+        await expect(hint).toHaveCSS("border-left-width", "0px");
+        await expect(hint).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+        await page.screenshot({ path: testInfo.outputPath(`shared-${severity}-tints.png`) });
+        await page.mouse.move(0, 0);
+      }
+    });
+
+    test("selection uses contrast-checked fills without edge stripes", async ({ page }, testInfo) => {
+      await openScenario(page, "typical-account");
+      const navigation = page.locator(':is(.connect-nav, .connect-navigation-sheet) a[aria-current="page"]').filter({ visible: true });
+      if (width === 390) await page.getByRole("button", { name: "Open menu" }).click();
+      await keyTo(page, navigation, "Tab");
+      const navStyle = await fillOnly(navigation);
+      await expect(navigation).toHaveCSS("outline-style", "solid");
+      if (width === 390) await page.keyboard.press("Escape");
+      await page.keyboard.press("Control+k");
+      const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+      await page.keyboard.press("ArrowDown");
+      const paletteStyle = await fillOnly(palette.getByRole("option", { selected: true }));
+      await page.keyboard.press("Escape");
+      await openScenario(page, "anonymous");
+      const theme = page.getByRole("combobox", { name: "Color theme", exact: true });
+      await keyTo(page, theme, "Tab");
+      await page.keyboard.press("Space");
+      const list = page.locator(".mdbase-select-list");
+      await expect(list).toBeVisible();
+      await page.keyboard.press("ArrowDown");
+      await expect(list.locator(".is-active")).toHaveCSS("outline-style", "solid");
+      const selectStyle = await fillOnly(list.getByRole("option", { selected: true }));
+      await testInfo.attach("selected-fill-contrast", { body: JSON.stringify({ navStyle, paletteStyle, selectStyle }), contentType: "application/json" });
+      await page.screenshot({ path: testInfo.outputPath("fill-only-selection.png") });
+    });
+
+    test("file access reason uses a plain fill and keyboard actions remain reachable", async ({ page }, testInfo) => {
+      await openScenario(page, "pairing-fresh");
+      await page.route("**/v1/pairing-requests/**", route => route.fulfill({ json: { pairing: {
+        connector_name: "Reader", installation_device: true, account_selection_confirmed: true,
+        attested: true, fingerprint: "fixture", approved_at: null,
+        file_access: { collection_id: "notes", collection_name: "Notes", actions: ["read"], reason: "Open an attachment", approved_actions: null }
+      } } }));
+      await page.goto(`/pair/${pairingId}`);
+      const reason = page.locator(".installation-file-access-reason");
+      await expect(reason).toContainText("Reader says: Open an attachment");
+      const appearance = await fillOnly(reason);
+      const allow = page.getByRole("button", { name: "Allow", exact: true });
+      await keyTo(page, allow, "Tab");
+      await expect(allow).toHaveCSS("outline-style", "solid");
+      await testInfo.attach("reason-fill", { body: JSON.stringify(appearance), contentType: "application/json" });
+      await page.screenshot({ path: testInfo.outputPath("file-access-fill.png"), fullPage: true });
+    });
 
     test("cloud-copy custody is factual across Collections, Overview, Storage and consent", async ({ page }, testInfo) => {
       await openScenario(page, "new-cloud-copy");

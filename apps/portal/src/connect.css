@@ -118,6 +118,7 @@
   color: var(--ink);
 }
 .connect-account-navigation { border-top: 1px solid var(--line); padding-top: var(--space-3); }
+:is(.connect-nav, .connect-navigation-sheet .mdbase-dialog-body) > nav > .connect-nav-group > a.selected { background: var(--selected); }
 .connect-nav-footer { min-height: 100px; margin-top: var(--space-6); }
 .connect-nav-footer .mdbase-feedback-trigger { justify-content: flex-start; padding-inline: var(--space-2); }
 .connect-nav-footer .mdbase-feedback-trigger svg { display: none; }

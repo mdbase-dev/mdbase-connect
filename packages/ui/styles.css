@@ -190,28 +190,12 @@ code,
   transition: color 160ms var(--ease);
 }
 
-.view-tab::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  background: transparent;
-  transform: scaleX(0.65);
-  transition: background-color 160ms var(--ease), transform 160ms var(--ease);
-}
-
 .view-tab:hover { color: var(--ink); }
 
 .view-tab.active {
   color: var(--ink);
+  background: var(--selected);
   font-weight: 700;
-}
-
-.view-tab.active::after {
-  background: var(--accent);
-  transform: scaleX(1);
 }
 
 .view-tab-count {
@@ -281,6 +265,8 @@ code,
 .product-sidebar-link[aria-current="page"] {
   color: var(--ink);
 }
+
+.product-sidebar-link[aria-current="page"] { background: var(--selected); }
 
 .product-sidebar-count {
   flex: 0 0 auto;

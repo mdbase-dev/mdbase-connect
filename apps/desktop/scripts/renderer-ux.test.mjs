@@ -144,6 +144,19 @@ for (const theme of ["light", "dark"]) {
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      const current = nav(page, "Overview");
+      for (let attempt = 0; attempt < 40 && !await current.evaluate(element => element === document.activeElement); attempt++) await page.keyboard.press("Tab");
+      assert.equal(await current.evaluate(element => element === document.activeElement), true);
+      const selection = await current.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { border: style.borderLeftWidth, shadow: style.boxShadow, before: getComputedStyle(element, "::before").content,
+          background: style.backgroundColor, outline: style.outlineStyle };
+      });
+      assert.equal(selection.border, "0px");
+      assert.equal(selection.shadow, "none");
+      assert.equal(selection.before, "none");
+      assert.notEqual(selection.background, "rgba(0, 0, 0, 0)");
+      assert.equal(selection.outline, "solid");
       assert.equal(await page.getByRole("heading", { name: "Overview", exact: true }).count(), 1);
       assert.equal(await page.locator(".overview-row").count(), 3);
       assert.equal(await page.locator(".overview-row button").count(), 0);
