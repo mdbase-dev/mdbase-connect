@@ -9,7 +9,7 @@ import type { RelayHub } from "../../relay.js";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
@@ -44,6 +44,9 @@ describe("private bootstrap configuration", () => {
     expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_COLLECTION_MODE_EXECUTION: "0" })?.collectionModeExecution).toBeUndefined();
     expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_COLLECTION_MODE_EXECUTION: "1" })?.collectionModeExecution).toBe(true);
     expect(() => parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_COLLECTION_MODE_EXECUTION: "yes" })).toThrow(/0 or 1/);
+    expect(parseNextControlPlaneEnv(base)?.objectGc).toBeUndefined();
+    expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_OBJECT_GC: "1" })?.objectGc).toBe(true);
+    expect(() => parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_OBJECT_GC: "yes" })).toThrow(/0 or 1/);
   });
 });
 
@@ -249,6 +252,28 @@ describePg("private collections", () => {
     const deleted=await app.inject({method:"DELETE",url:`/v1/next/collections/${collection}`,headers:who.headers,payload:{confirm_name:"After migration"}});
     expect(deleted.statusCode,deleted.body).toBe(200);
     expect((await db.query("SELECT frozen_at,completed_at FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0]).toEqual({frozen_at:expect.any(Date),completed_at:expect.any(Date)});
+  });
+  it("reports native storage on /v1/me from the owner's held logs, and unknown when one can't answer",async()=>{
+    const who=await identity(),owner=who.connector.user_id,collection=await created(who),left=await created(who);
+    await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1",[left]);
+    await ensureDevelopmentEntitlement(db,owner);
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1",[owner]);
+    const status=vi.spyOn(LogServiceClient.prototype,"storageStatus").mockImplementation(async id=>({usedBytes:id===collection?1000:24,quotaBytes:1<<30}));
+    const {app:portal}=await buildApp({db,devAuth:true,publicUrl:"http://connect.test",nextControlPlane:configuration()});
+    try {
+      const session=await portal.inject({method:"POST",url:"/v1/dev/session",payload:{name:"Owner",email:`${owner}@example.test`}});
+      expect(session.statusCode,session.body).toBe(200);
+      const raw=session.headers["set-cookie"]!;
+      const headers={cookie:(Array.isArray(raw)?raw[0]!:raw).split(";")[0]!};
+      const stored=async()=>{
+        const response=await portal.inject({url:"/v1/me",headers});
+        expect(response.statusCode,response.body).toBe(200);
+        return response.json().subscription.native_storage_bytes;
+      };
+      expect(await stored()).toBe(1024);
+      status.mockRejectedValue(new Error("unavailable"));
+      expect(await stored()).toBeNull();
+    } finally { status.mockRestore(); await portal.close(); }
   });
   it("projects only exact appended own computer enrollments, never pending, other-account, changed-key or revoked devices",async()=>{
     const who=await identity(),account=who.connector.user_id,collection=await created(who);

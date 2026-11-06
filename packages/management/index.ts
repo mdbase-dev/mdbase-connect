@@ -202,6 +202,8 @@ export interface ManagementOverview {
       live_storage_bytes: number;
       retained_file_bytes: number;
     };
+    /** Bytes the log service stores for this account's native collections, history included; null when unknown. */
+    native_storage_bytes?: number | null;
     reconciliation: null | {
       entitlement_revision: number;
       provider_revision: number;

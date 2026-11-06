@@ -692,7 +692,7 @@ export class MdbaseClient {
       versions: API_VERSIONS,
       clientName: opts.app.name,
       clientVersion: opts.app.version,
-      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1"])],
+      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1"])],
       ...(tz ? { timezone: tz } : {}),
     };
   }

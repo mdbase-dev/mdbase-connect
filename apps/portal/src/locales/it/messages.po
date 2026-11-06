@@ -1847,6 +1847,10 @@ msgstr "Spazio di archiviazione incluso"
 msgid "Includes collections that have left sync and retained data from deleted collections."
 msgstr "Include le raccolte non più sincronizzate e i dati conservati delle raccolte eliminate."
 
+#: src/AccountManagement.tsx
+msgid "Includes recent version history."
+msgstr "Include la cronologia recente delle versioni."
+
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"

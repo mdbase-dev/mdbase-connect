@@ -130,13 +130,15 @@ describe("log HTTP PoP client interoperability", () => {
     expect(check(r.method, r.path, r.collection, r.token, Buffer.concat([r.body, Buffer.of(0)]))).toBe(false);
     expect(check(r.method, r.path, r.collection, r.token, r.body, Buffer.alloc(32))).toBe(false);
   });
-  it.each(["create_log", "append", "read", "set_quota", "delete_log"])("uses the same transcript for %s", async (method) => {
+  it.each(["create_log", "append", "read", "set_quota", "storage_status", "gc", "delete_log"])("uses the same transcript for %s", async (method) => {
     const f = fixture();
     const id = "22222222-2222-4222-8222-222222222222";
     const call = method === "create_log" ? () => f.client.createLog(id, Buffer.of(1))
       : method === "append" ? () => f.client.append(id, 0, Buffer.alloc(32), [Buffer.of(1)])
       : method === "read" ? () => f.client.controlItemAt(id, 1)
       : method === "set_quota" ? () => f.client.setQuota(id, { storageBytes: 1, itemsPerSecond: 1, bytesPerSecond: 1, burstItems: 1 })
+      : method === "storage_status" ? () => f.client.storageStatus(id)
+      : method === "gc" ? () => f.client.collectGarbage(id)
       : () => f.client.deleteLog(id);
     await expect(call()).rejects.toMatchObject({ code: "not_found" });
     expect(f.request().method).toBe(method);
