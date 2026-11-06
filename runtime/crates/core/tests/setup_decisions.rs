@@ -146,7 +146,9 @@ fn a_seed_no_baseline_upgrades_is_replaced_only_by_its_reviewed_choice() {
             "---\nkind: mdbase.type\nname: note\nversion: {version}\ndescription: {description}\nschema:\n  dialect: json-schema-2020-12\n  value: {{type: object}}\n---\n"
         )
     };
-    let (base, desired, mine) = (seed(1, "Base."), seed(2, "Desired."), seed(1, "Mine."));
+    let (base, desired) = (seed(1, "Base."), seed(2, "Desired."));
+    // Invalid as well as competing: a valid type would be kept as it is.
+    let mine = seed(1, "Mine.").replace("kind: mdbase.type\n", "kind: mdbase.type\nmatch: 1\n");
     let mut baseline = format!(
         "    upgrade_from:\n      - digest: {}\n        version: 1\n        document: |\n",
         revision(&base)

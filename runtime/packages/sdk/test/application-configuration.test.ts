@@ -213,6 +213,10 @@ describe("scoped application configuration phase", () => {
     const edited = { target: "_contracts/tasks.md", kind: "contract", mode: "managed" as const, action: "conflict" as const, installed: true };
     expect(setupPlan(pack("upgrade", [edited, kept]), input)).toMatchObject({ canApply: false, adoptable: { "_types/task.md": digest },
       refusal: { code: "setup_conflict", message: expect.stringContaining("can't be set up automatically") } });
+    // Core withholds the digest of a type records use: it is never offered.
+    const { currentDigest: _digest, ...inUse } = kept;
+    expect(setupPlan(pack("upgrade", [inUse]), input)).toMatchObject({ canApply: false, adoptable: {}, refusal: { code: "setup_conflict",
+      message: expect.stringContaining("can't be set up automatically") } });
     // Chosen: Core stages the app's version over exactly the reviewed revision.
     const replacing = { ...kept, action: "adopt" as const, reason: undefined };
     const chosenPlan = setupPlan({ ...pack("upgrade", [replacing]), review: { ...pack("upgrade", [replacing]).review, staged: [{ path: "_types/task.md", document: "app's" }] } }, input);
