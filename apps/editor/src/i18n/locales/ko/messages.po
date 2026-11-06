@@ -2418,6 +2418,10 @@ msgstr "파일 경로"
 msgid "File viewer, {filename}"
 msgstr "파일 뷰어, {filename}"
 
+#: src/App.tsx
+msgid "Files can’t be renamed in the Editor."
+msgstr "편집기에서는 파일 이름을 바꿀 수 없습니다."
+
 #: src/NewNoteComposer.tsx
 msgid "Fill in the required properties."
 msgstr "필수 속성을 입력하세요."
@@ -5396,6 +5400,7 @@ msgid "These properties must be persisted before this record is valid."
 msgstr "이 레코드가 유효하려면 이러한 속성을 저장해야 합니다."
 
 #: src/App.tsx
+#: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "이 애플리케이션에는 해당 변경을 수행할 권한이 없습니다."
 

@@ -33,6 +33,27 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 describe("mdbase editor", () => {
+  it.each(["r", "{F2}"])("explains unavailable rename with %s and hides its help entry", async (key) => {
+    class ViewerGateway extends DemoCollectionGateway {
+      protected currentConnection(): ConnectionSummary {
+        return { collectionId: "demo", role: "viewer", operations: ["describe", "changes", "read", "query", "validate", "read_type"], fileActions: ["list", "read"] };
+      }
+    }
+    const gateway = new ViewerGateway(3);
+    const rename = vi.spyOn(gateway, "rename");
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    const list = screen.getByRole("listbox", { name: "Collection notes and files" });
+    list.focus();
+    await user.keyboard(key);
+    expect(await screen.findByText("This application does not have permission to make that change.")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "Markdown path" })).not.toBeInTheDocument();
+    expect(rename).not.toHaveBeenCalled();
+    await user.keyboard("?");
+    expect(within(screen.getByRole("dialog", { name: "Shortcuts" })).queryByText("Rename", { selector: "dt" })).not.toBeInTheDocument();
+  });
+
   it("uses shared menu groups without making separators keyboard stops", async () => {
     render(<App gateway={new DemoCollectionGateway(3)} />);
     await screen.findByRole("textbox", { name: "Note body" });

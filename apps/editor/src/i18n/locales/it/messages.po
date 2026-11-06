@@ -2418,6 +2418,10 @@ msgstr "Percorso del file"
 msgid "File viewer, {filename}"
 msgstr "Visualizzatore di file, {filename}"
 
+#: src/App.tsx
+msgid "Files can’t be renamed in the Editor."
+msgstr "Non è possibile rinominare i file nell’Editor."
+
 #: src/NewNoteComposer.tsx
 msgid "Fill in the required properties."
 msgstr "Compila le proprietà richieste."
@@ -5396,6 +5400,7 @@ msgid "These properties must be persisted before this record is valid."
 msgstr "Queste proprietà devono essere rese persistenti affinché questo record sia valido."
 
 #: src/App.tsx
+#: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "Questa applicazione non dispone dell'autorizzazione per apportare tale modifica."
 

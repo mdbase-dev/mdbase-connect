@@ -2418,6 +2418,10 @@ msgstr "文件路径"
 msgid "File viewer, {filename}"
 msgstr "文件查看器，{filename}"
 
+#: src/App.tsx
+msgid "Files can’t be renamed in the Editor."
+msgstr "无法在编辑器中重命名文件。"
+
 #: src/NewNoteComposer.tsx
 msgid "Fill in the required properties."
 msgstr "填写必填属性。"
@@ -5396,6 +5400,7 @@ msgid "These properties must be persisted before this record is valid."
 msgstr "这些属性必须写入存储后，此记录才有效。"
 
 #: src/App.tsx
+#: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "此应用无权进行此更改。"
 

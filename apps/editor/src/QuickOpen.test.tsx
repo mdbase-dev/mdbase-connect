@@ -10,7 +10,7 @@ function QuickOpen({ initialCommandMode, onClose, ...options }: Parameters<typeo
 
 describe("keyboard discovery", () => {
   it("uses shared navigation-key labels in shortcut help", () => {
-    render(<ShortcutHelp onClose={() => {}} />);
+    render(<ShortcutHelp canRename onClose={() => {}} />);
     const help = screen.getByRole("dialog", { name: "Shortcuts" });
     expect(help).not.toHaveTextContent(/ArrowDown|ArrowUp|ArrowLeft|ArrowRight|ContextMenu/);
     expect(screen.getByText("↓", { selector: "kbd" })).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe("keyboard discovery", () => {
   });
   it.each(["MacIntel", "iPad", "Linux x86_64"])("shows one quick-open chord and link-only K on %s", (platform) => {
     vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
-    render(<ShortcutHelp onClose={() => {}} />);
+    render(<ShortcutHelp canRename onClose={() => {}} />);
     const modifier = platform === "Linux x86_64" ? "Ctrl" : "⌘";
     const separator = platform === "Linux x86_64" ? "+" : "";
     expect(screen.getByText(`${modifier}${separator}P`, { selector: "kbd" })).toBeInTheDocument();

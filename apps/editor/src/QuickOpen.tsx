@@ -6,7 +6,7 @@ import { shortcutLabel, type Command } from "@mdbase-dev/ui/command-palette";
 import { noteTitle } from "./note";
 import { searchNoteResults, searchTextRanges, type NoteSearchEntry, type NoteSearchResult } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
-import { commandDefinitions, filterCommands, rememberCommand, type CommandDefinition, type EditorCommand } from "./editor-commands";
+import { commandDefinitions, filterCommands, rememberCommand, type CommandDefinition, type CommandId, type EditorCommand } from "./editor-commands";
 
 export function quickOpenResults({ index, recentPaths, types, commands, onSelect, onCreate }: {
   index: NoteSearchEntry[];
@@ -52,12 +52,12 @@ function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSearchResul
   }))];
 }
 
-export function ShortcutHelp({ onClose }: { onClose: () => void }) {
+export function ShortcutHelp({ onClose, canRename }: { onClose: () => void; canRename: boolean }) {
   useLingui();
   const groups = { Navigate: t`Navigate`, Note: t`Note`, Text: t`Text` };
   return <Dialog open title={t`Shortcuts`} className="shortcut-help" onClose={onClose}>
     <div className="shortcut-groups">{Object.entries(groups).map(([group, label]) => <section key={group}><h3>{label}</h3><dl>
-      {(Object.values(commandDefinitions) as CommandDefinition[]).filter(entry => entry.group === group && entry.shortcut).map(entry => <div key={entry.label}>
+      {(Object.entries(commandDefinitions) as [CommandId, CommandDefinition][]).filter(([id, entry]) => entry.group === group && entry.shortcut && (id !== "rename" || canRename)).map(([, entry]) => <div key={entry.label}>
         <dt>{entry.label}{entry.scope && <small>{entry.scope}</small>}</dt>
         <dd>{[entry.shortcut!, ...(entry.aliases ?? [])].map(keys => <kbd key={keys}>{shortcutLabel(keys)}</kbd>)}</dd>
       </div>)}

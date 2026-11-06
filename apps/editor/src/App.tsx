@@ -239,6 +239,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [noteOpenFailure, setNoteOpenFailure] = useState<{ path: string; options: NoteNavigationOptions; message: string }>();
   const [creationMode, setCreationMode] = useState<"note" | "folder">();
   const [arrivingNotePath, setArrivingNotePath] = useState<string>();
+  useEffect(() => {
+    if (!arrivingNotePath) return;
+    const timer = setTimeout(() => setArrivingNotePath(undefined), 900);
+    return () => clearTimeout(timer);
+  }, [arrivingNotePath]);
   const [creationContext, setCreationContext] = useState<CreationContext>({});
   const [creationDirty, setCreationDirty] = useState(false);
   const [search, setSearch] = useState("");
@@ -1602,10 +1607,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     });
   }
 
-  function requestForgetCurrentCollection() {
-    const connection = connectionSummary;
-    if (connection) requestForgetConnection(connection, description?.displayName);
-  }
+  const requestForgetCurrentCollection = () => { if (connectionSummary) requestForgetConnection(connectionSummary, description?.displayName); };
 
   // Native shortcuts must see the committed selection before the first key
   // after navigation, rather than the previous render's passive effect.
@@ -1621,8 +1623,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       shortcutPrefix.current = 0;
       if (event.key === "Escape" && (quickOpen || shortcutsOpen)) {
         event.preventDefault();
-        setQuickOpen(false);
-        setShortcutsOpen(false);
+        setQuickOpen(false); setShortcutsOpen(false);
         return;
       }
       if (matchesCommandShortcut("quick-open", event) || matchesCommandShortcut("command-palette", event) && (!typing || event.shiftKey)) {
@@ -1675,10 +1676,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         toggleFocus();
         return;
       }
-      if (!event.defaultPrevented && matchesCommandShortcut("rename", event) && (!typing || event.key === "F2") && selectedPath && surface === "notes" && !creationMode && !selectedCollectionFile
+      if (matchesCommandShortcut("rename", event) && (!typing || event.key === "F2") && (selectedPath || selectedCollectionFile) && surface === "notes" && !creationMode
           && !(event.target instanceof Element && event.target.closest('#note-path, [role="dialog"], [role="alertdialog"], [role="menu"]'))) {
         event.preventDefault();
-        void renameNote(selectedPath);
+        if (selectedCollectionFile) setNotice(t`Files can’t be renamed in the Editor.`, "info");
+        else void renameNote(selectedPath!);
         return;
       }
       if (matchesCommandShortcut("new-note", event) && (!typing || modifier) && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))) {
@@ -1721,7 +1723,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mobileLayout, mutationsFrozen, noteFilter, noteLoading, openNote, phase, preferences.vim, quickOpen, recoveryAction, recoveryBusy, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
-
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body, i18n.locale]);
   const usable = phase === "ready" && Boolean(description);
   // First usable render: only now may the offline shell install and precache.
@@ -1950,7 +1951,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         pendingFilePath={pendingFilePath}
         statuses={noteStatuses}
         arrivingPath={arrivingNotePath}
-        onArrivalEnd={() => setArrivingNotePath(undefined)}
         search={search}
         searchQuery={deferredSearch}
         searchContexts={searchContexts}
@@ -2013,7 +2013,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
-            {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} disabled={mutationsFrozen} onClick={() => beginCreate()}><FilePlus2 aria-hidden="true" /></button>}
+            {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => beginCreate()}><FilePlus2 aria-hidden="true" /></button>}
             {editorLeadingActions}
             <div className="note-history" role="group" aria-label={t`Note history`}>
               <button
@@ -2039,7 +2039,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             {mobileLayout && shownConnection !== "connected" && <div className="mobile-connection">
               <ConnectionStatus state={shownConnection} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
             </div>}
-            {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label={t`Note properties`} aria-pressed={propertiesOpen} onClick={() => {
+            {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={propertiesOpen} onClick={() => {
               setPropertiesOpen((value) => {
                 if (!value) setBacklinksOpen(false);
                 return !value;
@@ -2047,7 +2047,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             }}><Info aria-hidden="true" /></button>}
             {focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
             <div className="note-actions">
-              <button {...noteMenu.triggerProps} className="icon-button" aria-label={t`More note actions`}><MoreHorizontal aria-hidden="true" /></button>
+              <button {...noteMenu.triggerProps} className="icon-button" aria-label={t`More note actions`} aria-keyshortcuts="Enter Space ArrowDown ArrowUp"><MoreHorizontal aria-hidden="true" /></button>
               <Menu open={noteMenu.open} id={noteMenu.id} label={t`More note actions`} triggerRef={noteMenu.trigger} onClose={noteMenu.close}>
               {[
               ...(mobileLayout ? [
@@ -2254,7 +2254,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onCreate: canCreateNotes && !mutationsFrozen ? title => { beginCreate(); setCreationContext(current => ({ ...current, title })); } : undefined,
         onSelect: path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); navigateToNote(path); }
       }, query)} onClose={() => setQuickOpen(false)} />
-    {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
+    {shortcutsOpen && <ShortcutHelp canRename={canRenameNotes && !mutationsFrozen && Boolean(selectedPath) && !selectedCollectionFile && !creationMode} onClose={() => setShortcutsOpen(false)} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {confirmationDialog}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}

@@ -108,10 +108,72 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     expect(animation.name).toBe(reducedMotion === "reduce" ? "none" : "remote-change-fade");
     if (reducedMotion !== "reduce") {
       expect(animation.duration).toBe("0.9s");
-      await expect(row).not.toHaveClass(/note-row-arrival/);
     }
+    await expect(row).not.toHaveClass(/note-row-arrival/);
+  });
+
+  test(`created row does not replay arrival after filtering in ${reducedMotion} motion`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.goto("?demo=4");
+    await expect(page.locator(".note-scroll")).toBeFocused();
+    await page.keyboard.press("c");
+    await page.keyboard.type("Arrival remount", { delay: 40 });
+    await page.keyboard.press("Control+Enter");
+    const row = page.getByRole("option", { name: /^Arrival remount/ });
+    await expect(row).toHaveClass(/note-row-arrival/);
+    await page.locator(".note-scroll").focus();
+    await page.keyboard.press("/");
+    const search = page.getByRole("combobox", { name: "Search notes and files" });
+    await page.keyboard.type("zz", { delay: 40 });
+    await expect(row).toHaveCount(0);
+    await page.keyboard.type(" keep typing while the new row is hidden", { delay: 40 });
+    await page.keyboard.press("Escape");
+    await expect(search).toHaveValue("");
+    await expect(row).toBeVisible();
+    expect(await row.getAttribute("class")).not.toMatch(/note-row-arrival/);
+    expect(await row.evaluate(element => getComputedStyle(element).animationName)).toBe("none");
   });
 }
+
+test("file rows explain R and F2 without renaming the previous note", async ({ page }) => {
+  await page.goto("?demo=4");
+  await expect(page.locator(".note-scroll")).toBeFocused();
+  await page.keyboard.press("/");
+  await page.keyboard.type("frontmatter.svg", { delay: 40 });
+  const file = page.getByRole("option", { name: "frontmatter.svg, SVG file", exact: true });
+  await expect(file).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("End");
+  await expect(file).toHaveAttribute("aria-selected", "true");
+  for (const key of ["r", "F2"]) {
+    await page.keyboard.press(key);
+    await expect(page.getByText("Files can’t be renamed in the Editor.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Markdown path" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await page.locator(".note-scroll").focus();
+  }
+  await page.keyboard.press("?");
+  await expect(page.getByRole("dialog", { name: "Shortcuts", exact: true }).locator("dt").filter({ hasText: /^Rename$/ })).toHaveCount(0);
+});
+
+test("target icon buttons advertise their actual keyboard activation", async ({ page }) => {
+  await page.goto("?demo=4");
+  await expect(page.locator(".title-input")).toBeVisible();
+  const create = page.getByRole("button", { name: "New note", exact: true });
+  const properties = page.getByRole("button", { name: "Note properties", exact: true });
+  const actions = page.getByRole("button", { name: "More note actions", exact: true });
+  await expect(create).toHaveAttribute("aria-keyshortcuts", "C Control+Shift+N Meta+Shift+N");
+  await expect(properties).toHaveAttribute("aria-keyshortcuts", "Enter Space");
+  await properties.focus();
+  await page.keyboard.press("Enter");
+  await expect(properties).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Space");
+  await expect(properties).toHaveAttribute("aria-pressed", "false");
+  await expect(actions).toHaveAttribute("aria-keyshortcuts", "Enter Space ArrowDown ArrowUp");
+  await actions.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menu", { name: "More note actions", exact: true })).toBeVisible();
+});
 
 for (const colorScheme of ["light", "dark"] as const) {
   test(`phone skeleton matches title, excerpt and divider rhythm in ${colorScheme}`, async ({ page }, testInfo) => {
@@ -134,7 +196,8 @@ for (const colorScheme of ["light", "dark"] as const) {
       expect(row.bars[1]).toBeCloseTo(18.2, 1);
     }
     await expect(opening).not.toContainText("Reading its notes and types");
-    await page.screenshot({ path: testInfo.outputPath(`skeleton-${colorScheme}.png`) });
+    expect(await opening.boundingBox()).toMatchObject({ x: 0, y: 0, width: 390, height: 844 });
+    await opening.screenshot({ path: testInfo.outputPath(`skeleton-${colorScheme}.png`) });
   });
 }
 

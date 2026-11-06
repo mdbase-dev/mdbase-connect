@@ -114,7 +114,8 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
   }
 
   async function renameNote(path: string) {
-    if (!canRenameNotes || mutationScope.current.isFrozen) return;
+    if (!canRenameNotes) { setNotice(t`This application does not have permission to make that change.`, "info"); return; }
+    if (mutationScope.current.isFrozen) return;
     if (await openNote(path)) { setPathDraft(path); setEditingPath(true); }
   }
 

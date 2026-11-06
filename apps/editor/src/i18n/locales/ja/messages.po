@@ -2418,6 +2418,10 @@ msgstr "ファイルパス"
 msgid "File viewer, {filename}"
 msgstr "ファイルビューアー、{filename}"
 
+#: src/App.tsx
+msgid "Files can’t be renamed in the Editor."
+msgstr "エディターではファイル名を変更できません。"
+
 #: src/NewNoteComposer.tsx
 msgid "Fill in the required properties."
 msgstr "必須のプロパティを入力してください。"
@@ -5396,6 +5400,7 @@ msgid "These properties must be persisted before this record is valid."
 msgstr "このレコードを有効にするには、これらのプロパティを保存する必要があります。"
 
 #: src/App.tsx
+#: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "このアプリにはその変更を行う権限がありません。"
 
