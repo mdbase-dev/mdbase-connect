@@ -329,7 +329,7 @@ secret: connector scope test
   const collection = dashboard.collections[0];
 
   await onboardingPage.goto(`${serverUrl}/authorize/${authorizationId}`);
-  await onboardingPage.getByText(collection.display_name, { exact: true }).waitFor();
+  await onboardingPage.locator(".collection-name").filter({ hasText: collection.display_name }).first().waitFor();
   const onboardingCollectionChoice = onboardingPage.locator(
     `.collection-picker-option[data-value="${collection.id}"]`
   );
