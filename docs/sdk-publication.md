@@ -85,6 +85,10 @@ map the compiler host's checkout root to `/source` and Cargo home to `/cargo`.
 Source paths can survive WASM stripping, so builds without these mappings do not
 produce publication-compatible bytes. Verify the corrected pins with the actual
 `scripts/sdk-publication.mjs pack-all` cold-consumer and archive checks.
+After committing runtime changes and rebuilding `cargo xtask wasm-app` with
+those mappings, run `node scripts/sdk-publication.mjs pin-runtime` to regenerate
+the runtime integrity pin and its served-method inventory. Review that diff;
+this is an explicit maintainer command, never an automatic CI acceptance step.
 No WASM ABI, wire protocol, bundled
 `connect-protocol` dependency or protocol version is changed here. Keep that
 exact bundled protocol and its archive for cold consumers; removing it needs

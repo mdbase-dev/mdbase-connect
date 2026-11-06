@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const sdkPackages = Object.freeze({
@@ -16,6 +16,17 @@ export function checkedSdkAsset(file, pin) {
   assert.equal(createHash("sha256").update(bytes).digest("hex"), pin.sha256,
     `${file}: SHA-256 mismatch`);
   return bytes;
+}
+
+export function refreshSdkRuntimePin(file, manifest, commit) {
+  assert.match(commit, /^[a-f0-9]{40}$/);
+  const bytes = readFileSync(file);
+  assert(WebAssembly.validate(bytes), "runtime pin requires a valid compiled WASM module");
+  const pins = JSON.parse(readFileSync(manifest));
+  pins.runtime = { ...pins.runtime, sha256: createHash("sha256").update(bytes).digest("hex"),
+    bytes: bytes.length, maxBytes: bytes.length, source: { ...pins.runtime.source, commit } };
+  writeFileSync(manifest, JSON.stringify(pins, null, 2) + "\n");
+  return pins.runtime;
 }
 
 export function validateSdkPublication(publication, root) {

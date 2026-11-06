@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { buildAppTrust } from "../../runtime/packages/sdk/scripts/build-app-trust.mjs";
-import { checkedSdkAsset, exactSdkVersion, requireSdkPublicationReady, sdkPackages, sdkReleaseTag, sdkTarball, sdkTarget, validateSdkPublication } from "./sdk-publication.mjs";
+import { checkedSdkAsset, exactSdkVersion, refreshSdkRuntimePin, requireSdkPublicationReady, sdkPackages, sdkReleaseTag, sdkTarball, sdkTarget, validateSdkPublication } from "./sdk-publication.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
 const contract = JSON.parse(readFileSync(join(root, "config/release-components.json"))).sdkPublication;
@@ -63,6 +63,27 @@ test("runtime bytes cannot substitute a new WASM under the committed integrity p
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("explicit runtime pin refresh preserves other assets and rejects invalid modules without writing", () => {
+  const directory = mkdtempSync(join(root, ".sdk-publication-test-"));
+  try {
+    const file = join(directory, "runtime.wasm"), manifest = join(directory, "pins.json");
+    const original = JSON.parse(readFileSync(join(root, "runtime/packages/sdk/src/application/asset-pins.json")));
+    writeFileSync(manifest, JSON.stringify(original));
+    writeFileSync(file, Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]));
+    const pin = refreshSdkRuntimePin(file, manifest, "ab".repeat(20));
+    assert.deepEqual(checkedSdkAsset(file, pin), readFileSync(file));
+    assert.equal(pin.source.commit, "ab".repeat(20));
+    assert.equal(pin.source.repository, original.runtime.source.repository);
+    assert.equal(pin.maxBytes, pin.bytes);
+    const updated = JSON.parse(readFileSync(manifest));
+    assert.deepEqual({ ...updated, runtime: original.runtime }, original);
+    const saved = readFileSync(manifest, "utf8");
+    writeFileSync(file, "not WASM");
+    assert.throws(() => refreshSdkRuntimePin(file, manifest, "ab".repeat(20)), /valid compiled WASM/);
+    assert.equal(readFileSync(manifest, "utf8"), saved);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("canonical trust generator emits one fixed environment, never a runtime selector", async () => {
