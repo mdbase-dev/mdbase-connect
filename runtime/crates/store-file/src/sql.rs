@@ -1158,8 +1158,7 @@ impl<I: IndexStorage> Store for SqlStore<I> {
         let mut after: Option<String> = None;
         loop {
             let mut metadata: Vec<(String, u64)> = self.all(
-                "SELECT path, length(CAST(doc AS BLOB)) FROM st_res \
-                 WHERE (?1 IS NULL OR path > ?1) ORDER BY path LIMIT ?2",
+                "SELECT path, length(CAST(doc AS BLOB)) FROM st_res WHERE (?1 IS NULL OR path > ?1) ORDER BY path LIMIT ?2",
                 vec![
                     after.as_deref().map(t).unwrap_or(SqlValue::Null),
                     int(METADATA_ROWS),
