@@ -3901,6 +3901,7 @@ msgid "Pin"
 msgstr "Закрепить"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "Закреплено"
 
@@ -5802,6 +5803,10 @@ msgstr "Несвязанные упоминания ({0})"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "Открепить"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "Откреплено"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

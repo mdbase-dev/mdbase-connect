@@ -963,7 +963,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     }));
   }, [touchSession]);
 
-  const { recoveryMessage, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
+  const { recoveryMessage, togglePin, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
     onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource,
     validateNote, requestDelete, undoRecovery, propertiesError, setPropertiesError, pendingRenameRecovery,
     bulkBusy, recoveryAction, setRecoveryAction, recoveryBusy, setRecoveryBusy, linkingMention,
@@ -972,7 +972,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     noteOrder: visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path),
     typeDescriptors, document, pathDraft, canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes,
     createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
-    openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin,
+    openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin, setPin, pinnedPaths, onRestore: setArrivingNotePath,
     clearSelection: () => { setSelection(undefined); setBulkPropertyKind(undefined); },
     focusNoteList,
     setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths, setNotice
@@ -1352,16 +1352,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const entry = command(id, run, label);
     return { label: entry.label, icon, onSelect: entry.run, disabled, title: entry.shortcut ? `${entry.label} · ${shortcutLabel(entry.shortcut)}` : undefined };
   }
-  function togglePin(path: string) {
-    if (!description) return;
-    const next = pinnedPaths.includes(path) ? pinnedPaths.filter((value) => value !== path) : [...pinnedPaths, path];
-    setPinnedPaths(next);
-    savePinnedNotes(description.collectionId, next);
-  }
-  function remapPin(from: string, to: string) {
+  function setPin(path: string, pinned: boolean) { updatePins(current => pinned ? [...new Set([...current, path])] : current.filter(value => value !== path)); }
+  function remapPin(from: string, to: string) { updatePins(current => [...new Set(current.map(path => path === from ? to : path))]); }
+  function updatePins(update: (paths: string[]) => string[]) {
     if (!description) return;
     setPinnedPaths((current) => {
-      const next = [...new Set(current.map((path) => path === from ? to : path))];
+      const next = update(current);
       savePinnedNotes(description.collectionId, next);
       return next;
     });
@@ -1834,7 +1830,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode`, "attach-file": attachFileAction.label }).concat(noteViewCommands(chooseNoteSort, setNoteFilter, () => { setSearch(""); setNoteFilter(undefined); }, tagFacets, typeFacets, noteSortFields));
   const activeToasts = buildToastItems({ notice, recoveryMessage, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
   const liveUndo = activeToasts.find(toast => toast.id === "recovery")?.action;
-  if (liveUndo && !liveUndo.busy) quickOpenCommands.push(command("undo", liveUndo.onAction, liveUndo.label));
+  const commandContext = multipleSelected ? t`Selected notes` : document ? noteTitle(document, typeDescriptors) : undefined;
+  const noteCommandIds = new Set(["rename", "move", "duplicate", "delete", "copy-link", "copy-path", "attach-file", "pin", "unpin", "focus", "properties", "outline", "backlinks", "check-note", "move-selected", "delete-selected", "add-tag", "remove-tag", "set-property", "clear-selection"]);
+  for (const entry of quickOpenCommands) if (noteCommandIds.has(entry.id)) entry.context = commandContext;
+  if (liveUndo && !liveUndo.busy) quickOpenCommands.unshift({ ...command("undo", liveUndo.onAction, liveUndo.label), context: recoveryAction?.kind === "pin" ? recoveryAction.path : recoveryAction?.kind === "delete" ? noteTitle(recoveryAction.document, typeDescriptors) : recoveryMessage });
   const pendingNoteMutations = gateway.pendingNoteMutations();
   const peekNote = allNotes.find((note) => note.path === peekPath);
   const peekTitle = peekNote ? noteTitle(peekNote, typeDescriptors) : undefined;

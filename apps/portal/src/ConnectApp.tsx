@@ -592,7 +592,7 @@ function Storage({ error, collection, busy, perform, editorOrigin }: {
     return <Page title={t(i18n)({ message: "Storage", context: "Connect interface" })} intro={collection.name}>
       <p>{collection.detail}</p>
       <CollectionModeControl key={collection.id} collectionId={collection.id} load={() => takeModePrefetch(management, collection.id) ?? management.collectionModeStatus(collection.id)} change={(targetMode, requestId) => management.requestCollectionMode(collection.id, {targetMode, requestId})} cancel={(_target, requestId) => management.cancelCollectionMode(collection.id, requestId)} />
-      <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection copies</Trans></strong><small><Trans>Copies sync between your computers. App access is managed separately.</Trans></small></div></div></section>
+      <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection copies</Trans></strong>{!!collection.source.computer_ids?.length && <small><Trans>Copies sync between your computers. App access is managed separately.</Trans></small>}</div></div></section>
     </Page>;
   }
   if (collection.kind === "hosted") {

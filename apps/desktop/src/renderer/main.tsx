@@ -189,6 +189,7 @@ function App() {
   };
 
   const unnamedDevice = t(i18n)`Another device`;
+  const paletteContext = useRef<string | null>(null);
   const commands: Command[] = [
     ...groups.pending.map(entry => ({ id: `approval:${entry.grant}`, label: t(i18n)`Review ${entry.app_name}`, detail: names[entry.collection] ?? entry.collection, group: "approvals", run: () => reviewApproval("access", `approval:${entry.grant}`) })),
     ...devices.map(device => ({ id: `device:${device.collection}/${device.device}`, label: t(i18n)`Review ${device.name ?? unnamedDevice}`, detail: names[device.collection] ?? device.collection_name ?? device.collection, group: "approvals", run: () => reviewApproval("collections", `device:${device.collection}/${device.device}`) })),
@@ -197,9 +198,9 @@ function App() {
     { id: "add", label: t(i18n)({ message: "Add existing folder" }), group: "commands", run: addExisting },
     { id: "create", label: t(i18n)({ message: "Create collection" }), shortcut: "c", group: "commands", run: openCreate },
     { id: "shortcuts", label: t(i18n)`Keyboard shortcuts`, shortcut: "?", group: "commands", run: () => keyboard.showHelp() },
-    ...collections.map((collection) => ({ id: `collection:${collection.id}`, label: collection.name, detail: collection.root, group: "collections", run: () => { void act(() => window.mdbaseConnect.openCollectionFolder(collection.id)); } }))
+    ...collections.map((collection) => ({ id: `collection:${collection.id}`, label: collection.name, detail: collection.root, group: "collections", context: paletteContext.current === `collection:${collection.id}` ? collection.name : undefined, run: () => { void act(() => window.mdbaseConnect.openCollectionFolder(collection.id)); } }))
   ];
-  const keyboard = useConnectKeyboard({ commands, enabled: true, root: ".content", filter: ".collection-filter input", listFocus: "summary" });
+  const keyboard = useConnectKeyboard({ commands, enabled: true, root: ".content", filter: ".collection-filter input", listFocus: "summary", onShow: () => { paletteContext.current = document.activeElement?.closest("[data-command]")?.getAttribute("data-command") ?? null; } });
 
   return (
     <div className={`shell product-shell ${navigationOpen ? "navigation-open" : ""}`}>

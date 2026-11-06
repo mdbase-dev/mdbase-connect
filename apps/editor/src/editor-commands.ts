@@ -60,7 +60,7 @@ export const commandDefinitions = {
 
 export interface CommandDefinition { label: string; shortcut?: string; aliases?: readonly string[]; group?: "Navigate" | "Note" | "Text"; hint?: string; scope?: string }
 export type CommandId = keyof typeof commandDefinitions;
-export interface EditorCommand extends CommandDefinition { id: string; run: () => void }
+export interface EditorCommand extends CommandDefinition { id: string; context?: string; run: () => void }
 export function command(id: CommandId, run: () => void, label?: string): EditorCommand {
   return { id, ...commandDefinitions[id], ...(label ? { label } : {}), run };
 }
@@ -113,6 +113,6 @@ export function filterCommands(commands: EditorCommand[], query: string, recent 
   const recency = (id: string) => { const at = recent.indexOf(id); return at < 0 ? Infinity : at; };
   return commands.map((command, order) => ({ command, order, score: score(command) }))
     .filter((candidate) => Number.isFinite(candidate.score))
-    .sort((a, b) => a.score - b.score || recency(a.command.id) - recency(b.command.id) || a.order - b.order)
+    .sort((a, b) => a.score - b.score || Number(b.command.id === "undo") - Number(a.command.id === "undo") || Number(Boolean(b.command.context)) - Number(Boolean(a.command.context)) || recency(a.command.id) - recency(b.command.id) || a.order - b.order)
     .map(({ command }) => command);
 }

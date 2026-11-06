@@ -3901,6 +3901,7 @@ msgid "Pin"
 msgstr "Épingler"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "Épinglées"
 
@@ -5802,6 +5803,10 @@ msgstr "Mentions non liées ({0})"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "Désépingler"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "Désépinglé"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

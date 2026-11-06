@@ -3901,6 +3901,7 @@ msgid "Pin"
 msgstr "고정"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "고정됨"
 
@@ -5802,6 +5803,10 @@ msgstr "연결되지 않은 언급 ({0})"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "고정 해제"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "고정 해제됨"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

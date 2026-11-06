@@ -1,8 +1,8 @@
 .shortcut-help { width: min(1000px, calc(100vw - 16px)); }
-.shortcut-groups { columns: 2; column-gap: var(--space-8); }
-.shortcut-groups section { break-inside: avoid; }
+.shortcut-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6) var(--space-8); align-items: start; }
+.shortcut-groups h3 { margin-top: 0; }
 .shortcut-help dt small { display: block; color: var(--muted); font-size: var(--font-size-caption); }
-@media (max-width: 760px) { .shortcut-groups { columns: 1; } }
+@media (max-width: 760px) { .shortcut-groups { grid-template-columns: minmax(0, 1fr); } }
 .shortcut-help dl { margin: 0; }
 .shortcut-help dl > div { display: flex; justify-content: space-between; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: 1px solid var(--line); }
 .shortcut-help dl > div:last-child { border-bottom: 0; }

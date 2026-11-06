@@ -40,6 +40,9 @@ interface Options {
   replaceNoteHistoryPath(from: string, to: string): void;
   forgetNoteHistoryPath(path: string): void;
   remapPin(from: string, to: string): void;
+  setPin(path: string, pinned: boolean): void;
+  pinnedPaths: string[];
+  onRestore(path: string): void;
   clearSelection(): void;
   focusNoteList(): void;
   setDocument(document?: NoteDocument): void;
@@ -55,6 +58,7 @@ interface Options {
 type BatchUndo = { kind: "delete"; document: NoteDocument } | { kind: "properties"; document: NoteDocument; revision: string };
 
 type RecoveryAction =
+  | { kind: "pin"; path: string; pinned: boolean }
   | { kind: "mention"; path: string; before: string; after: string }
   | { kind: "batch"; changes: BatchUndo[]; message: string }
   | { kind: "delete"; document: NoteDocument; pending?: boolean }
@@ -79,7 +83,7 @@ function batchMessage<Value>(verb: BatchVerb, result: BatchResult<Value>): strin
 export function useNoteActions({ gateway, mutationScope, noteSessions, indexController, allNotes, noteOrder, files,
   typeDescriptors, document, pathDraft, canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes,
   createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
-  openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin, clearSelection, focusNoteList,
+  openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin, setPin, pinnedPaths, onRestore, clearSelection, focusNoteList,
   setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths,
   setNotice }: Options) {
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -556,7 +560,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
           if (change.kind === "delete") {
             const restored = await mutationScope.current.register(token, gateway.restore(change.document, restoreId(change.document)));
             if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
-            createSession(restored); indexController.create(summaryFromDocument(restored));
+            createSession(restored); indexController.create(summaryFromDocument(restored)); onRestore(restored.path);
           } else {
             const session = await actionSession(path);
             await flushSession(session);
@@ -574,7 +578,9 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         if (!remaining.length) setNotice(t`Restored selected notes.`, "success");
         return;
       }
-      if (action.kind === "mention") {
+      if (action.kind === "pin") {
+        setPin(action.path, action.pinned);
+      } else if (action.kind === "mention") {
         const session = await actionSession(action.path);
         await flushSession(session);
         await runNoteOperation(session, "saving", async () => {
@@ -592,7 +598,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         createSession(restored);
         indexController.create(summaryFromDocument(restored));
         clearSelection();
-        if (await openNote(restored.path)) focusNoteList();
+        if (await openNote(restored.path)) { onRestore(restored.path); focusNoteList(); }
         if (!mutationScope.current.isCurrent(token)) return;
         setNotice(t`Restored ${noteTitle(restored, typeDescriptors)}`, "success");
       } else {
@@ -660,6 +666,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
   let recoveryMessage: string | undefined;
   if (recoveryAction) {
     switch (recoveryAction.kind) {
+      case "pin": recoveryMessage = recoveryAction.pinned ? t`Unpinned` : t`Pinned`; break;
       case "mention": recoveryMessage = t`Linked mention.`; break;
       case "batch": recoveryMessage = recoveryAction.message; break;
       case "delete": {
@@ -676,7 +683,12 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       case "rename": recoveryMessage = t`Renamed to “${recoveryAction.to}”.`; break;
     }
   }
-  return { recoveryMessage, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
+  function togglePin(path: string) {
+    const pinned = pinnedPaths.includes(path);
+    setPin(path, !pinned);
+    setRecoveryAction({ kind: "pin", path, pinned });
+  }
+  return { recoveryMessage, togglePin, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
     onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource,
     validateNote, requestDelete, undoRecovery, propertiesError, setPropertiesError, pendingRenameRecovery,
     bulkBusy, recoveryAction, setRecoveryAction, recoveryBusy, setRecoveryBusy, linkingMention,

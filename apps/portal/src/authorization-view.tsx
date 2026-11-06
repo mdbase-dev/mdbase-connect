@@ -46,6 +46,7 @@ import {
   CollectionIdentity,
   CollectionPicker,
   GrantMoment,
+  useRequestExpiry,
   type ContractSetupChoice
 } from "./authorization-review";
 import {
@@ -148,6 +149,8 @@ export function Authorization({ requestId }: { requestId: string }) {
   const returning = useRef(false);
   const loaded = useRef(false);
 
+  useRequestExpiry(status === "pending" ? request?.authorization.expires_at : undefined, () => setStatus(current => current === "pending" ? "expired" : current));
+
   useEffect(() => {
     let active = true;
     async function refreshCollections() {
@@ -195,14 +198,12 @@ export function Authorization({ requestId }: { requestId: string }) {
         }>(`/v1/authorization-requests/${requestId}/status`);
         if (returning.current) return;
         if (decisionError && value.status === "setting_up") return;
-        setStatus(current => current === "setting_up" && value.status === "pending" ? current : value.status);
+        setStatus(current => (current === "setting_up" || current === "expired") && value.status === "pending" ? current : value.status);
         if (value.redirect_uri) {
           returning.current = true;
           setReturnUrl(value.redirect_uri);
         }
       } catch (reason) {
-        // The status route answers 404 only for an expired or unknown request.
-        // Other polling failures are transient and keep the pending decision.
         if (reason instanceof ApiError && reason.status === 404 && !returning.current) setStatus("expired");
       }
     }
@@ -378,7 +379,7 @@ export function RequestIdentity({ request, showClientKey = true }: { request: Pi
         {showClientKey && request.client_fingerprint
           ? <p className="request-fingerprint"><Trans>App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</Trans></p>
           : null}
-        {request.expires_at && <p className="request-expiry"><Trans>This request link expires {relativeTime(request.expires_at)}.</Trans>{!portable && <> <Trans>Access you allow continues until you revoke it.</Trans></>}</p>}
+        {request.expires_at && Date.parse(request.expires_at) > Date.now() && <p className="request-expiry"><Trans>This request link expires {relativeTime(request.expires_at)}.</Trans>{!portable && <> <Trans>Access you allow continues until you revoke it.</Trans></>}</p>}
       </div>
     </header>
   );

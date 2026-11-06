@@ -78,7 +78,7 @@ function CollectionCard({ collection, computerName, busy, onAct, onNotice, onTur
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const closeMenu = (refocus: boolean) => { setMenuOpen(false); if (refocus) menuTrigger.current?.focus(); };
   return (
-    <article className="collection-card" data-list-item tabIndex={-1} onKeyDown={event => {
+    <article className="collection-card" data-list-item data-command={`collection:${collection.id}`} tabIndex={-1} onKeyDown={event => {
       if (event.key === "Enter" && event.target === event.currentTarget && !busy) {
         event.preventDefault();
         menuTrigger.current!.focus();

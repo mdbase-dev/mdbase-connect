@@ -109,7 +109,7 @@ export type ProblemCode = typeof PROBLEM_CODES[number];
 
 const GENERIC: Entry = ["Something went wrong", "An unexpected problem occurred. Reload the app, and contact support if it keeps happening.", "reload", "error"];
 const BUSY: Entry = ["Another step hasn't finished", "The app couldn't finish this step yet. Try again, or reload if it keeps happening.", "retry", "warning", true];
-const OFFLINE: Entry = ["Can't connect right now", "mdbase couldn't be reached. Check your connection and try again.", "check_connection", "warning"];
+const UNAVAILABLE: Entry = ["Can't complete this request", "mdbase couldn't complete this request. Try again.", "retry", "warning"];
 const UPDATE: Entry = ["Update required", "Update mdbase on this computer, then reload the app to try again.", "update_app", "warning", false, "Update mdbase"];
 const CHOOSE: Entry = ["Choose a collection", "Pick the collection you want this app to use.", "choose_collection", "info"];
 const APPROVE: Entry = ["Approval needed", "This app needs your approval for extra access to your collection.", "approve", "info"];
@@ -142,7 +142,7 @@ const COPY = {
   read_only: ["View access only", "You have view access, so changes can't be saved. Ask the collection's owner for edit access.", "none", "warning"],
   forbidden: ["Access needed", "This app doesn't have permission to do that. Approve access to continue.", "approve", "warning"],
   collection_invalid: ["Your collection needs repair", "Something in this collection isn't valid. Contact support if this keeps happening.", "contact_support", "error"],
-  unavailable: OFFLINE,
+  unavailable: UNAVAILABLE,
   rate_limited: ["Too many requests", "Wait a moment, then try again.", "retry", "warning", true],
   quota_exceeded: ["Out of storage", "You've reached your storage limit. Free up space to keep saving.", "free_space", "error"],
   account_collection_quota_exceeded: ["Synced collection limit reached", ACCOUNT_COLLECTION_QUOTA_MESSAGE, "free_space", "error", false, "Manage collections"],

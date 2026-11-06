@@ -487,6 +487,10 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Account"
 
+#: src/auth-view.tsx
+msgid "Account creation is paused"
+msgstr "Account creation is paused"
+
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
 msgstr "Account deletion is temporarily unavailable while we complete a service correction."
@@ -1808,10 +1812,6 @@ msgstr "Identity unavailable"
 msgid "If an mdbase Connect account uses that address, its one-time reset link is on the way."
 msgstr "If an mdbase Connect account uses that address, its one-time reset link is on the way."
 
-#: src/auth-view.tsx
-msgid "If that address can be used, its one-time verification link is on the way."
-msgstr "If that address can be used, its one-time verification link is on the way."
-
 #: src/ConnectPrimitives.tsx
 msgid "If the desktop app did not open, <0>install the latest release</0> and try again."
 msgstr "If the desktop app did not open, <0>install the latest release</0> and try again."
@@ -1824,6 +1824,10 @@ msgstr "If the desktop app does not open, <0>install the current Connect release
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
 msgstr "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
+
+#: src/auth-view.tsx
+msgid "If this address can be used, we’ve sent a one-time link to it."
+msgstr "If this address can be used, we’ve sent a one-time link to it."
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
@@ -3697,6 +3701,10 @@ msgstr "Usage temporarily unavailable"
 msgctxt "Account management"
 msgid "Usage unavailable"
 msgstr "Usage unavailable"
+
+#: src/auth-view.tsx
+msgid "Use a different email"
+msgstr "Use a different email"
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"

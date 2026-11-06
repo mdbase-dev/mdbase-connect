@@ -487,6 +487,10 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Konto"
 
+#: src/auth-view.tsx
+msgid "Account creation is paused"
+msgstr "Die Kontoerstellung ist pausiert"
+
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
 msgstr "Die Kontolöschung ist vorübergehend nicht verfügbar, während wir einen Dienstfehler beheben."
@@ -1808,10 +1812,6 @@ msgstr "Identität nicht verfügbar"
 msgid "If an mdbase Connect account uses that address, its one-time reset link is on the way."
 msgstr "Falls ein mdbase-connect-Konto diese Adresse verwendet, ist ein einmaliger Link zum Zurücksetzen unterwegs."
 
-#: src/auth-view.tsx
-msgid "If that address can be used, its one-time verification link is on the way."
-msgstr "Falls diese Adresse verwendet werden kann, ist ein einmaliger Bestätigungslink unterwegs."
-
 #: src/ConnectPrimitives.tsx
 msgid "If the desktop app did not open, <0>install the latest release</0> and try again."
 msgstr "Wenn die Desktop-App nicht geöffnet wurde, <0>installieren Sie die neueste Version</0> und versuchen Sie es erneut."
@@ -1824,6 +1824,10 @@ msgstr "Wenn die Desktop-App nicht geöffnet wird, <0>installieren Sie die aktue
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
 msgstr "Wenn der Wert bereits vorhanden ist, lässt mdbase die Sammlung unverändert. Widersprüchliche Einstellungen stoppen die Einrichtung, ohne die Richtlinie zu überschreiben."
+
+#: src/auth-view.tsx
+msgid "If this address can be used, we’ve sent a one-time link to it."
+msgstr "Falls diese Adresse verwendet werden kann, haben wir einen einmaligen Link dorthin gesendet."
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
@@ -3697,6 +3701,10 @@ msgstr "Nutzungsdaten vorübergehend nicht verfügbar"
 msgctxt "Account management"
 msgid "Usage unavailable"
 msgstr "Nutzungsdaten nicht verfügbar"
+
+#: src/auth-view.tsx
+msgid "Use a different email"
+msgstr "Andere E-Mail-Adresse verwenden"
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"

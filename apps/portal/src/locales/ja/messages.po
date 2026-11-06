@@ -487,6 +487,10 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "アカウント"
 
+#: src/auth-view.tsx
+msgid "Account creation is paused"
+msgstr "アカウントの作成は一時停止中です"
+
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
 msgstr "サービスの修正作業中のため、アカウントの削除は一時的に利用できません。"
@@ -1808,10 +1812,6 @@ msgstr "本人確認が利用できません"
 msgid "If an mdbase Connect account uses that address, its one-time reset link is on the way."
 msgstr "そのアドレスを使う mdbase Connect アカウントがあれば、一回限りのリセットリンクを送信します。"
 
-#: src/auth-view.tsx
-msgid "If that address can be used, its one-time verification link is on the way."
-msgstr "そのアドレスが利用できる場合、一回限りの確認リンクを送信します。"
-
 #: src/ConnectPrimitives.tsx
 msgid "If the desktop app did not open, <0>install the latest release</0> and try again."
 msgstr "デスクトップアプリが開かない場合は、<0>最新バージョンをインストール</0>して、もう一度お試しください。"
@@ -1824,6 +1824,10 @@ msgstr "デスクトップアプリが開かない場合は、<0>現行の Conne
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
 msgstr "値がすでに含まれている場合、mdbase はコレクションを変更しません。設定が競合する場合、ポリシーを上書きせずに設定を中止します。"
+
+#: src/auth-view.tsx
+msgid "If this address can be used, we’ve sent a one-time link to it."
+msgstr "このアドレスが使用できる場合、1回限りのリンクを送信しました。"
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
@@ -3697,6 +3701,10 @@ msgstr "使用量を一時的に取得できません"
 msgctxt "Account management"
 msgid "Usage unavailable"
 msgstr "使用量を取得できません"
+
+#: src/auth-view.tsx
+msgid "Use a different email"
+msgstr "別のメールアドレスを使う"
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"

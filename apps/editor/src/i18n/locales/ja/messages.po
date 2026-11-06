@@ -3901,6 +3901,7 @@ msgid "Pin"
 msgstr "ピン留め"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "ピン留め済み"
 
@@ -5802,6 +5803,10 @@ msgstr "リンクされていないメンション（{0}件）"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "ピン留めを解除"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "ピン留めを解除しました"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

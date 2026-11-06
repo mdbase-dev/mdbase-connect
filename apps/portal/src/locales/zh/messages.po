@@ -487,6 +487,10 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "账户"
 
+#: src/auth-view.tsx
+msgid "Account creation is paused"
+msgstr "账户创建已暂停"
+
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
 msgstr "我们正在完成服务修复，暂时无法删除账户。"
@@ -1808,10 +1812,6 @@ msgstr "无法获取身份信息"
 msgid "If an mdbase Connect account uses that address, its one-time reset link is on the way."
 msgstr "如果有 mdbase Connect 账户使用此地址，重置密码的一次性链接正在发送。"
 
-#: src/auth-view.tsx
-msgid "If that address can be used, its one-time verification link is on the way."
-msgstr "如果此地址可用，验证用的一次性链接正在发送。"
-
 #: src/ConnectPrimitives.tsx
 msgid "If the desktop app did not open, <0>install the latest release</0> and try again."
 msgstr "如果桌面应用未打开，请<0>安装最新版本</0>后重试。"
@@ -1824,6 +1824,10 @@ msgstr "如果桌面应用未打开，请<0>安装当前版本的 Connect</0>，
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
 msgstr "如果该值已存在，mdbase 不会更改集合。设置冲突会中止配置，而不会覆盖策略。"
+
+#: src/auth-view.tsx
+msgid "If this address can be used, we’ve sent a one-time link to it."
+msgstr "如果此地址可用，我们已向其发送一次性链接。"
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
@@ -3697,6 +3701,10 @@ msgstr "用量暂不可用"
 msgctxt "Account management"
 msgid "Usage unavailable"
 msgstr "用量不可用"
+
+#: src/auth-view.tsx
+msgid "Use a different email"
+msgstr "使用其他电子邮件地址"
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"

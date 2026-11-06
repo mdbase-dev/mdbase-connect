@@ -1,0 +1,6 @@
+{
+  "reason": "One Portal-local export shares the request-deadline timer between application authorization and device pairing rather than duplicating the timer in both views. It does not add a public package API, wire state or persisted state.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}

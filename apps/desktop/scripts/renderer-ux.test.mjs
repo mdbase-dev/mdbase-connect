@@ -353,6 +353,14 @@ test("shared keyboard shortcuts navigate, filter and move list focus without app
     await page.keyboard.press("j");
     assert.equal(await page.locator(".collection-card").nth(1).evaluate(element => element === document.activeElement), true);
     await page.keyboard.press("k");
+    await page.keyboard.press("Control+k");
+    const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+    await palette.waitFor();
+    assert.equal(await palette.locator(".mdbase-command-group").first().innerText(), "Notes 00");
+    assert.match(await palette.getByRole("option").first().innerText(), /Notes 00/);
+    await page.keyboard.press("Escape");
+    await palette.waitFor({ state: "hidden" });
+    assert.equal(await page.locator(".collection-card").nth(0).evaluate(element => element === document.activeElement), true);
     await page.keyboard.press("Enter");
     await page.getByRole("menu", { name: "Notes 00" }).waitFor();
     assert.equal(await page.getByRole("menuitem", { name: "Open folder", exact: true }).evaluate(element => element === document.activeElement), true);
@@ -406,6 +414,25 @@ test("shared keyboard shortcuts navigate, filter and move list focus without app
 
 for (const theme of ["light", "dark"]) {
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    test(`round 9 focused collection leads and opens from its palette group ${viewport.width} ${theme}`, async () => {
+      const { page, errors, calls } = await desktop({ collections: [collection({ id: "first", name: "First notes" }), collection({ id: "second", name: "Second notes" })] });
+      try {
+        await page.setViewportSize(viewport);
+        await page.emulateMedia({ colorScheme: theme });
+        await page.keyboard.press("g"); await page.keyboard.press("c");
+        await page.getByRole("heading", { name: "Collections", exact: true }).waitFor();
+        await page.keyboard.press("j"); await page.keyboard.press("j");
+        await page.keyboard.press("Control+k");
+        const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+        await palette.waitFor();
+        assert.equal(await palette.locator(".mdbase-command-group").first().innerText(), "Second notes");
+        assert.match(await palette.getByRole("option").first().innerText(), /Second notes/);
+        await page.keyboard.press("Enter");
+        await palette.waitFor({ state: "hidden" });
+        assert.deepEqual(await calls("openCollectionFolder"), [["second"]]);
+        assert.deepEqual(errors, []);
+      } finally { await page.close(); }
+    });
     test(`W19 palette reviews pending approvals at ${viewport.width} in ${theme}`, async () => {
       const { page, errors, calls } = await desktop({
         collections: [collection()],

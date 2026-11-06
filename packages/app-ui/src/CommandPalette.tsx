@@ -141,7 +141,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
       <div ref={resultsRef} id={`${hintId}-results`} className="mdbase-command-results" role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
-            {command.group !== matches[index - 1]?.group
+            {command.group !== matches[index - 1]?.group || command.context !== matches[index - 1]?.context
               ? <div className="mdbase-command-group" role="presentation">{command.context ?? (groupLabel ? groupLabel(command.group) : command.group)}</div>
               : null}
             <CommandRow id={`${hintId}-${command.id}`} command={command} query={query} active={index === active} onActivate={() => setActive(index)} onRun={run} />

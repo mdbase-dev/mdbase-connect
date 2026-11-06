@@ -21,6 +21,15 @@ it("puts all contextual actions first without duplicates, including ranked resul
 
 const headings = (markup: string) => [...markup.matchAll(/class="mdbase-command-group" role="presentation">(.*?)<\/div>/g)].map((match) => match[1]);
 
+it("keeps an Undo target distinct from the current note's contextual actions", () => {
+  const commands = [
+    { ...command("undo", "commands"), context: "Deleted note" },
+    { ...command("rename", "commands"), context: "Current note" }
+  ];
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: [], getResults: () => commands, onClose: () => {} })));
+  expect(headings(document.querySelector("dialog")!.outerHTML)).toEqual(["Deleted note", "Current note"]);
+});
+
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
 const host = document.body.appendChild(document.createElement("div"));

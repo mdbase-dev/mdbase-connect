@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { App } from "./App";
+import * as quickOpen from "./QuickOpen";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { NOTE_PATHS_MIME } from "./note-list-view";
 import { chooseOption } from "./test/select";
@@ -25,6 +26,27 @@ async function openRowMenu(name = /Garden notes 2/) {
 }
 
 describe("Note actions", () => {
+  it("Pin has one live Undo that leads the palette and Ctrl+Z restores the previous pin", async () => {
+    const results = vi.spyOn(quickOpen, "quickOpenResults");
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    const menu = await openRowMenu();
+    await user.click(within(menu).getByRole("menuitem", { name: /^Pin$/ }));
+    expect(await screen.findByRole("button", { name: /^Undo$/ })).toBeInTheDocument();
+    const list = screen.getByRole("listbox", { name: "Collection notes and files" });
+    list.focus();
+    await user.keyboard("{Control>}k{/Control}");
+    const palette = await screen.findByRole("dialog", { name: /^Quick open$/ });
+    expect(within(palette).getAllByRole("option")[0]).toHaveTextContent("Undo");
+    expect(results.mock.calls.at(-1)?.[0].commands[0]).toMatchObject({ id: "undo", context: "Journal/garden-notes-2.md" });
+    await user.keyboard("{Escape}");
+    list.focus();
+    await user.keyboard("{Control>}z{/Control}");
+    const restoredMenu = await openRowMenu();
+    expect(within(restoredMenu).getByRole("menuitem", { name: /^Pin$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Undo$/ })).not.toBeInTheDocument();
+  });
   it.each([0, 1, 3])("selects the adjacent displayed note after deleting row %s and restores selection and focus on Undo", async (position) => {
     const user = userEvent.setup();
     render(<App gateway={new DemoCollectionGateway(4)} />);
@@ -44,6 +66,7 @@ describe("Note actions", () => {
     await waitFor(() => expect(list).toHaveFocus());
     expect(window.document.getElementById(list.getAttribute("aria-activedescendant")!)).toHaveTextContent(title);
     expect(screen.getByRole("option", { selected: true })).toHaveTextContent(title);
+    expect(screen.getByRole("option", { selected: true })).toHaveClass("note-row-arrival");
   });
 
   it("peeks with Space without leaving or scrolling the list, then returns focus on Escape", async () => {
