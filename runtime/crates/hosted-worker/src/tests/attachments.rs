@@ -16,7 +16,8 @@ pub(super) const FILE: B16 = B16([0x77; 16]);
 pub(super) const PATH: &str = "files/large.bin";
 
 fn attach(svc: &FakeLogService, tag: u8, size: u64) -> AttachmentContentV1 {
-    let raw = vec![tag; 32]; // Opaque object; apply must not attempt to decrypt it.
+    // Opaque object; apply must not attempt to decrypt it.
+    let raw = mdbn_replica::fake::blob_part(COL, &[tag; 32]);
     let address = mdbn_wire::hash::sha256(&raw);
     let content = AttachmentContentV1 {
         reference: AttachmentRefV1 {

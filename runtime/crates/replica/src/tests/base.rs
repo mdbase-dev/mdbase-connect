@@ -38,7 +38,7 @@ fn parts(b: &BlobRef) -> Option<Vec<B32>> {
 }
 
 /// Append a base signed by node 1's device at the current head, with the given
-/// `refs`. Every ref is stored first (an empty blob part: the service only checks
+/// `refs`. Every ref is stored first (an opaque blob part: the service only checks
 /// that a referenced object exists).
 fn append_base(svc: &FakeLogService, payload: &BasePayload, refs: Vec<B32>) -> u64 {
     let mut c = svc.client(B16([101; 16]));
@@ -47,7 +47,7 @@ fn append_base(svc: &FakeLogService, payload: &BasePayload, refs: Vec<B32>) -> u
             collection: COL,
             address: *address,
             kind: ItemKind::BlobPart,
-            bytes: blob_part(COL),
+            bytes: blob_part(COL, &[0xee; 8]),
         })
         .unwrap();
     }
@@ -210,7 +210,7 @@ fn write_gen0(
             collection: COL,
             address: *a,
             kind: ItemKind::BlobPart,
-            bytes: blob_part(COL),
+            bytes: blob_part(COL, &[0xee; 8]),
         })
         .unwrap();
     }

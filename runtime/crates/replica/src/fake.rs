@@ -64,10 +64,10 @@ struct ClientState {
     pushes: Vec<LogPush>,
 }
 
-/// The bytes of an empty `blob-part` object in `collection`, for a test that needs
-/// a stored object and not its contents.
+/// The bytes of an unsealed `blob-part` object in `collection`, for a test that
+/// needs a stored object and not its contents.
 #[must_use]
-pub fn blob_part(collection: Uuid) -> Vec<u8> {
+pub fn blob_part(collection: Uuid, body: &[u8]) -> Vec<u8> {
     Item {
         kind: ItemKind::BlobPart,
         collection,
@@ -79,11 +79,11 @@ pub fn blob_part(collection: Uuid) -> Vec<u8> {
         idem: None,
         refs: None,
         stream: None,
-        body: Bytes::default(),
+        body: Bytes(body.to_vec()),
         sig: None,
     }
     .to_bytes()
-    .expect("an empty item encodes")
+    .expect("a blob part encodes")
 }
 
 /// The shared in-memory service.

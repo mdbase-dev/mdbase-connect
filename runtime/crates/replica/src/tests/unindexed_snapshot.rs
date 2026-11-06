@@ -211,7 +211,7 @@ fn fake_ls_rejects_exact_ranges_past_eof_without_clamping() {
     let service = crate::fake::FakeLogService::new();
     let mut log = service.client(B16([4; 16]));
     let address = B32([9; 32]);
-    let stored = crate::fake::blob_part(super::engine::COL);
+    let stored = crate::fake::blob_part(super::engine::COL, &[1, 2, 3]);
     log.call(LogRequest::PutObject {
         collection: super::engine::COL,
         address,
