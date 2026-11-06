@@ -389,6 +389,38 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
   });
 }
 
+for (const colorScheme of ["light", "dark"] as const) test.describe(`forced-colors palette ${colorScheme}`, () => {
+  test.use({ colorScheme });
+  test("selection keeps a full-perimeter system-color outline as arrow keys move it", async ({ page }) => {
+    await page.emulateMedia({ forcedColors: "active" });
+    await openScenario(page, "typical-account");
+    expect(await page.evaluate(() => matchMedia("(forced-colors: active)").matches)).toBe(true);
+    await page.keyboard.press("Control+k");
+    const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+    const first = palette.getByRole("option", { selected: true });
+    const firstId = await first.getAttribute("id");
+    const highlight = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.color = "Highlight";
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    });
+    for (let step = 0; step < 2; step++) {
+      const selected = palette.getByRole("option", { selected: true });
+      await expect(selected).toHaveCSS("outline-style", "solid");
+      await expect(selected).toHaveCSS("outline-width", "1px");
+      await expect(selected).toHaveCSS("outline-color", highlight);
+      await expect(selected).toHaveCSS("outline-offset", "-1px");
+      if (step === 0) await page.keyboard.press("ArrowDown");
+    }
+    await expect(page.locator(`[id="${firstId}"]`)).toHaveAttribute("aria-selected", "false");
+    await expect(page.locator(`[id="${firstId}"]`)).toHaveCSS("outline-style", "none");
+    await expect(palette.getByRole("combobox")).toBeFocused();
+  });
+});
+
 for (const colorScheme of ["light", "dark"] as const) test.describe(`short viewport palette ${colorScheme}`, () => {
   test.use({ viewport: { width: 844, height: 390 }, colorScheme });
   test("result navigation scrolls the pane, not the focused search out of view", async ({ page }, testInfo) => {
