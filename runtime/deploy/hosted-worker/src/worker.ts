@@ -1042,6 +1042,8 @@ export class HostedCollection extends DurableObject<Env> {
     const install = engine.installStatus();
     // Counts only, in every environment: the one sign of an install in production.
     if (install) try { console.info(JSON.stringify({ event: "hosted_install_progress", role: this.escrow ? "escrow" : "hosted", ...install })); } catch { /* Logging is not authority. */ }
+    // No count of the collection's text, and no identifiers.
+    if (engine.snapshotDeclined()) try { console.info(JSON.stringify({ event: "hosted_snapshot_declined", role: this.escrow ? "escrow" : "hosted" })); } catch { /* Logging is not authority. */ }
     const poll = Date.now() + (install ? INSTALL_WAKE_MS : pollMs);
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.

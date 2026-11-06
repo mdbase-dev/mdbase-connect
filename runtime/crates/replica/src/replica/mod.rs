@@ -572,6 +572,8 @@ pub struct Replica<S: Store> {
     pub(crate) install_points: Vec<snapshot::ControlPoint>,
     /// Entries between snapshots this replica builds (`snapshot.md` §5.3).
     pub snapshot_every: u64,
+    /// Record text one in-memory snapshot build may hold.
+    pub snapshot_record_bytes: u64,
     pub(crate) status_dirty: bool,
     /// Local-only grants and independently authenticated local serving identity.
     pub(crate) grant_source: Option<Box<dyn crate::policy::GrantSource>>,
@@ -604,6 +606,8 @@ pub struct Replica<S: Store> {
     /// The log already held a snapshot at or past this position when it
     /// declined ours: the periodic build counts from here.
     pub(crate) snapshot_declined: u64,
+    pub(crate) snapshot_decline_read: bool,
+    pub(crate) snapshot_decline_seen: bool,
 
     /// Counters.
     pub stats: Stats,
@@ -906,6 +910,7 @@ impl<S: Store> Replica<S> {
             verified_chunks: Default::default(),
             install_points: Vec::new(),
             snapshot_every: snapshot::SNAPSHOT_EVERY,
+            snapshot_record_bytes: u64::MAX,
             status_dirty: false,
             grant_source: source,
             declared_setup_pending: BTreeMap::new(),
@@ -926,6 +931,8 @@ impl<S: Store> Replica<S> {
             attachment_inventories: attachment_inventory::Inventories::default(),
             snapshot_blocked: None,
             snapshot_declined: 0,
+            snapshot_decline_read: false,
+            snapshot_decline_seen: false,
             stats: Stats::default(),
         };
         r.restore_private_choice();

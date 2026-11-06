@@ -23,6 +23,7 @@ interface Exports extends WebAssembly.Exports {
   alloc(n: number): number;
   dealloc(p: number, n: number): void;
   hd_open(p: number, n: number): bigint;
+  hd_snapshot_declined(): number;
   hd_open_cpp_claim(p:number,n:number,ap:number,an:number):bigint;
   hd_cpp_claim_begin():bigint;
   hd_cpp_claim_current(h:number):number;
@@ -738,6 +739,10 @@ export class Engine {
     const status = this.takeDecoded(this.ex.hd_install_status());
     if (!Array.isArray(status)) return null;
     return { done: Number(status[0]), total: Number(status[1]) };
+  }
+
+  snapshotDeclined(): boolean {
+    return this.ex.hd_snapshot_declined() === 1;
   }
 
   nextWakeup(): number | null {

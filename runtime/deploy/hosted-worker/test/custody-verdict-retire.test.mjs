@@ -58,7 +58,7 @@ function coldWake(escrow, code) {
 
 function warmEngine(t) {
   const calls = []; let wiped = 0;
-  const engine = { appliedHead: () => "cached", logBound: false, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, attachmentObject: () => null,
+  const engine = { appliedHead: () => "cached", logBound: false, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null,
     tick() { calls.push("tick"); }, refresh() { calls.push("refresh"); } };
   Object.assign(t.o, { engine, collection, live: { admitted: true }, log: () => ({}) });
   t.o.readers.set("reader", { wipe() { wiped++; } });

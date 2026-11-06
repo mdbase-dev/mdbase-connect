@@ -844,6 +844,7 @@ impl<S: Store> Replica<HostedCache<S>> {
             }
         }
         r.hosted = Some(Box::new(state));
+        r.snapshot_record_bytes = super::snapshot::HOSTED_SNAPSHOT_RECORD_BYTES;
         r.hosted_key_rebuild_step();
         Ok(r)
     }
