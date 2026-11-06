@@ -60,6 +60,7 @@ const KNOWN: &[&str] = &[
     "stream_send",
     "create_log",
     "set_quota",
+    "storage_status",
     "delete_log",
     "revoke_device_credentials",
     "export",

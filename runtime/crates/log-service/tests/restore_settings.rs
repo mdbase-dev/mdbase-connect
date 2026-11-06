@@ -191,6 +191,13 @@ fn restores_operational_settings_and_readable_object_without_changing_policy() {
             NOW + 60,
         ))
         .unwrap();
+        // The object has no references yet: a sweep must not treat it as garbage.
+        assert_eq!(
+            ready(dst.gc(&c, NOW + 10 * 24 * 60 * 60 * 1000))
+                .unwrap_err()
+                .code,
+            Code::Unavailable
+        );
         complete(&dst, c, &page, field(&page, 3), field(&page, 4)).unwrap();
         assert_eq!(
             ready(src.head(&Principal::ControlPlane, &c)).unwrap(),

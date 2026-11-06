@@ -1,0 +1,9 @@
+{
+  "reason": "Native storage metering and the object sweep share one module because both enumerate the logs an account still holds; it has no home in the existing next features.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 5,
+    "typeScriptExportDeclarations": 3,
+    "services/server": 1
+  }
+}

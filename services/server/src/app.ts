@@ -23,6 +23,7 @@ import { HostedAuthorityRegistry } from "./hosted.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import { drainDeferredAccountDeletions } from "./account-management.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
+import { ObjectGcWorker } from "./features/next/storage-usage.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { activatePendingServices } from "./features/next/service-activation.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
@@ -236,6 +237,13 @@ export async function buildApp(options: BuildOptions) {
     options.db,
     (error) => app.log.error({ err: error }, "usage retention worker failed")
   );
+  const objectGc = options.nextControlPlane?.objectGc
+    ? new ObjectGcWorker(
+        options.db,
+        new LogServiceClient(options.nextControlPlane.logService),
+        (error) => app.log.error({ err: error }, "object gc worker failed")
+      )
+    : undefined;
   if (options.hostedProvider && options.hostedReferenceAuthority) {
     throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
   }
@@ -351,6 +359,7 @@ export async function buildApp(options: BuildOptions) {
   app.addHook("onClose", async () => {
     await scheduledEmails?.close();
     await usageRetention.close();
+    await objectGc?.close();
     await applicationReconciliation.close();
     await providerRevocations?.close();
     await authorityTransferRecovery?.close();
@@ -679,6 +688,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     authenticationPolicy,
     tailscaleAuth: options.tailscaleAuth,
+    ...(options.nextControlPlane ? { nextLog: new LogServiceClient(options.nextControlPlane.logService) } : {}),
     nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap),
     hostedCollections: options.hostedCollections,
     hostedSharing: options.hostedSharing,
@@ -727,6 +737,7 @@ export async function buildApp(options: BuildOptions) {
 
   scheduledEmails?.start();
   usageRetention.start();
+  objectGc?.start();
 
   return { app, relay, timers };
 }

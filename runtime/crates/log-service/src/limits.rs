@@ -28,6 +28,8 @@ pub const MAX_HAS_OBJECTS: usize = 1024;
 pub const DIRECT_TTL_MS: i64 = 15 * 60 * 1000;
 /// Uncommitted uploads, and unreferenced objects, are kept at least this long (I10).
 pub const OBJECT_GRACE_MS: i64 = 24 * 60 * 60 * 1000;
+/// Objects removed by one `gc` call; a full batch means more may remain.
+pub const GC_BATCH_OBJECTS: u64 = 1000;
 
 /// Idempotency token retention (I5: at least 180 days).
 pub const TOKEN_RETENTION_MS: i64 = 180 * 24 * 60 * 60 * 1000;

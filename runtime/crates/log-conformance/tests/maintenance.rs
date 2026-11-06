@@ -36,6 +36,26 @@ fn dev(d: &Device) -> Principal {
 }
 
 /// `token_rows` counts the collection's stored tokens, expired ones included.
+async fn storage_status<B: Backend, O: ObjectStore>(
+    svc: &Service<B, O>,
+    control_plane: &Principal,
+    collection: mdbn_wire::common::Uuid,
+) -> (u64, u64) {
+    let out = svc
+        .call(
+            control_plane,
+            "storage_status",
+            &map(vec![(0, collection.to_cbor())]),
+            0,
+        )
+        .await
+        .unwrap();
+    let (Cbor::Uint(used), Cbor::Uint(quota)) = (f(&out.result, 0), f(&out.result, 1)) else {
+        panic!("storage_status fields")
+    };
+    (*used, *quota)
+}
+
 async fn scenario<B: Backend, O: ObjectStore>(
     svc: &Service<B, O>,
     token_rows: impl AsyncFn(mdbn_wire::common::Uuid) -> usize,
@@ -295,6 +315,8 @@ async fn scenario<B: Backend, O: ObjectStore>(
     assert!(early_seq <= cp_expected);
 
     // GC (I10): unreferenced and older than 24 h → deleted; referenced or young → kept.
+    let (used_before_gc, quota) = storage_status(svc, &cpp, c).await;
+    assert_eq!(quota, 1 << 40);
     let r = svc
         .call(&cpp, "gc", &map(vec![(0, c.to_cbor())]), late + 1000)
         .await
@@ -315,6 +337,7 @@ async fn scenario<B: Backend, O: ObjectStore>(
         .await
         .unwrap();
     assert_eq!(has.present, vec![false, false, true, true, true]);
+    assert!(storage_status(svc, &cpp, c).await.0 < used_before_gc);
     // A day later the late orphan goes too.
     svc.call(&cpp, "gc", &map(vec![(0, c.to_cbor())]), late + 2 * DAY)
         .await
