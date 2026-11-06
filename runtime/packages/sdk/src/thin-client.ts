@@ -2,8 +2,8 @@
  * @mdbase-dev/sdk/thin-client: the replica thin client for consumers that bring
  * their own connection, such as an Obsidian-plugin-style integration: codec,
  * client, records, files, presence, Noise and relay transports, keys, status and
- * collection availability. It is held to the thin-client size ceiling
- * (scripts/size.mjs) and never bundles manifest validation.
+ * collection availability. It never bundles manifest validation
+ * (scripts/bundle-boundaries.mjs).
  *
  * The root entry re-exports all of this and adds the application entry
  * (`MdbaseConnect`), people, timers, notifications, holds, `describeError`,
