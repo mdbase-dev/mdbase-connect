@@ -20,8 +20,10 @@ describe("pages cursor lifecycle (query responses mocked, not native cursor qual
   it.each(["pages", "queryPages"] as const)("%s refuses a nonterminal page without a cursor instead of ending silently", async method => {
     const { client, query } = await fixture();
     query.mockResolvedValueOnce({ records: [], complete: true, asOf: 1, hasMore: true });
-    await expect(client[method]({ limit: 100 }).next()).rejects.toMatchObject({
-      code: "invalid_request", recovery: "fix_request", reason: "query_cursor_required",
+    const next = client[method]({ limit: 100 }).next();
+    await expect(next).rejects.toBeInstanceOf(MdbaseError);
+    await expect(next).rejects.toMatchObject({
+      code: "invalid_request", recovery: "fix_request", reason: "query_cursor_required", message: "Query requires offset paging",
     });
     expect(query).toHaveBeenCalledTimes(1);
   });
