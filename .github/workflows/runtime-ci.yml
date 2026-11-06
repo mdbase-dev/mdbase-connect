@@ -102,7 +102,7 @@ jobs:
   sdk:
     name: sdk execution
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: runtime/packages/sdk

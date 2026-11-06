@@ -358,7 +358,7 @@ jobs:
     name: Editor fresh-browser smoke
     needs: native-deploy
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
     # No environment, Cloudflare credentials, candidate checkout or app install.
     env:
       SOURCE_SHA: ${{ inputs.source_sha }}
@@ -372,8 +372,9 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+      # Browser packages come from a mirror that can take minutes per file, and a failed production smoke restores.
       - name: Isolated pinned browser tool with install scripts disabled
-        timeout-minutes: 5
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           node apps/editor/scripts/native/tool.mjs "$RUNNER_TEMP/editor-smoke-tool" smoke
