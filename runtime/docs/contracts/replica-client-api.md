@@ -710,6 +710,19 @@ incident = {
 - **`log_regressed`** is non-blocking and informational. It is raised on every
   lost-tail detection, for ops. Details: `{0: from, 1: to, 2: outcome
   (repaired 0, fallback 1, pending 2)}`.
+- **`integrity`** with details `{"operation": "append", "code": text,
+  "reason": text / null, "retry_after_ms": uint}` reports a service refusal,
+  not a decision about any individual mutation. Originals remain pending and
+  retry with bounded exponential backoff; apps can show "Changes are waiting to
+  sync" instead of implying progress or a terminal failure. This incident is
+  non-durable and clears on successful content append or an empty queue.
+- **`key_inconsistent`** with `{"operation": "append", "reason":
+  "missing_idem_key"}` means the current encryption key is available but the
+  historical key needed for the Entry's idempotency token is not. No malformed
+  Entry is sent. The original stays pending; the existing authenticated history
+  repair is attempted and writing resumes when the key returns. The incident
+  clears when token derivation succeeds. These details add no wire fields or
+  persisted state.
 
 `get_status`, and `subscribe_status` (which pushes `status` on change, coalesced to at
 most 4 per second), require a session with `collection.read`.
