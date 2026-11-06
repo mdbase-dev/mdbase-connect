@@ -1,0 +1,9 @@
+{
+  "reason": "note-sort owns ordering of the Editor list and replaces the duplicated comparators and second sort pass; keeping it in note-list-view would make the selection and pin helpers depend on schema resolution.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 6,
+    "typeScriptExportDeclarations": 8,
+    "apps/editor": 1
+  }
+}

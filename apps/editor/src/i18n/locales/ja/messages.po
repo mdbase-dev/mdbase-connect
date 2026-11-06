@@ -2213,6 +2213,10 @@ msgstr "各選択肢には移植可能な契約と、編集可能なローカル
 msgid "Each implementation needs an exact contract ID and version."
 msgstr "各実装には正確な契約 ID とバージョンが必要です。"
 
+#: src/note-sort.ts
+msgid "Earliest first"
+msgstr "早い順"
+
 #: src/ConnectionScreens.tsx
 msgid "edit and move notes"
 msgstr "ノートを編集・移動"
@@ -2406,6 +2410,7 @@ msgstr "未対応の値を持つフィールドセレクター"
 msgid "Field type"
 msgstr "フィールド型"
 
+#: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Fields"
 msgstr "フィールド"
@@ -2642,6 +2647,10 @@ msgstr "ノートのサイドバーを非表示"
 msgid "Hide types sidebar"
 msgstr "型のサイドバーを非表示"
 
+#: src/note-sort.ts
+msgid "High to low"
+msgstr "大きい順"
+
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "Hosted"
@@ -2783,6 +2792,10 @@ msgstr "大"
 msgid "Large section heading"
 msgstr "大きなセクション見出し"
 
+#: src/note-sort.ts
+msgid "Latest first"
+msgstr "遅い順"
+
 #: src/ConflictResolver.tsx
 msgid "Latest title"
 msgstr "最新のタイトル"
@@ -2894,6 +2907,10 @@ msgstr "リスト項目のスキーマ"
 msgid "List items"
 msgstr "リスト項目"
 
+#: src/note-sort.ts
+msgid "Listed order"
+msgstr "リスト順"
+
 #: src/App.tsx
 msgid "Loaded the latest version."
 msgstr "最新バージョンを読み込みました。"
@@ -2976,6 +2993,10 @@ msgstr "現地時刻（{0}）"
 #: src/TypeBrowser.tsx
 msgid "Loses"
 msgstr "該当しなくなる"
+
+#: src/note-sort.ts
+msgid "Low to high"
+msgstr "小さい順"
 
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
@@ -3128,21 +3149,10 @@ msgstr "不足しているプロパティには、型固有の読み取り時の
 msgid "Missing required properties"
 msgstr "不足している必須プロパティ"
 
+#: src/note-sort.ts
 #: src/PropertiesPanel.tsx
 msgid "Modified"
 msgstr "更新日時"
-
-#: src/note-list-view.ts
-msgid "Modified newest"
-msgstr "更新日時が新しい順"
-
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "更新日時が古い順"
-
-#: src/note-list-view.ts
-msgid "Modified oldest"
-msgstr "更新日時が古い順"
 
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
@@ -3301,6 +3311,10 @@ msgstr "新しい型"
 msgid "New type definition"
 msgstr "新しい型定義"
 
+#: src/note-sort.ts
+msgid "Newest first"
+msgstr "新しい順"
+
 #: src/QuickOpen.tsx
 msgid "Next or previous note"
 msgstr "次または前のノート"
@@ -3446,6 +3460,10 @@ msgstr "リンクされていないメンションはありません。"
 #: src/use-note-actions.ts
 msgid "No validation issues."
 msgstr "検証上の問題はありません。"
+
+#: src/collection-browser.ts
+msgid "No value"
+msgstr "値なし"
 
 #: src/App.tsx
 msgid "Not attempted because an earlier move needs recovery."
@@ -3615,6 +3633,10 @@ msgstr "オフライン"
 msgid "Older"
 msgstr "古い順"
 
+#: src/note-sort.ts
+msgid "Oldest first"
+msgstr "古い順"
+
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
 msgstr "宣言済みのフィールドのみ許可"
@@ -3739,6 +3761,10 @@ msgstr "この型では任意"
 msgid "Optional regular expression"
 msgstr "任意の正規表現"
 
+#: src/NoteListViewOptions.tsx
+msgid "Order"
+msgstr "順序"
+
 #: src/type-schema.ts
 msgid "Other collection rules"
 msgstr "その他のコレクションルール"
@@ -3764,13 +3790,10 @@ msgid "Partly installed"
 msgstr "一部インストール済み"
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 #: src/TypeBrowser.tsx
 msgid "Path"
 msgstr "パス"
-
-#: src/note-list-view.ts
-msgid "Path A–Z"
-msgstr "パスの昇順"
 
 #: src/embed-actions.ts
 msgid "Path copied."
@@ -4384,6 +4407,10 @@ msgstr "検索を再試行"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "コレクションに戻り、もう一度コレクションを開いてください。"
+
+#: src/note-sort.ts
+msgid "Reversed"
+msgstr "逆順"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
@@ -5574,12 +5601,9 @@ msgid "This value does not match the required format."
 msgstr "この値は必須の形式に一致しません。"
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 msgid "Title"
 msgstr "タイトル"
-
-#: src/note-list-view.ts
-msgid "Title A–Z"
-msgstr "タイトルの昇順"
 
 #: src/ConflictResolver.tsx
 msgid "Title differences"

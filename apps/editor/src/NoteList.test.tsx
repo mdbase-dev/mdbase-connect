@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "./test/locale";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NoteList } from "./NoteList";
 import type { NoteSummary } from "./model";
+import { defaultNoteSort } from "./note-sort";
 import { buildNoteSearchIndex, searchNoteResults } from "./note-search";
 
 // Supply a deterministic viewport, independent of jsdom layout measurements.
@@ -27,7 +28,7 @@ describe("NoteList search presentation", () => {
     const props = {
       entries: notes.map((note) => ({ kind: "note" as const, path: note.path, note })),
       noteCount: 2, fileCount: 0, types: [], selectedPath: first.path, statuses: new Map(),
-      search: "", searchQuery: "", searchContexts: new Map(), sort: "modified-desc" as const,
+      search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       contentIndexing: false, contentLoaded: 2,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
@@ -72,7 +73,7 @@ describe("NoteList search presentation", () => {
     const noop = () => {};
     const props = {
       entries: [], noteCount: 400, fileCount: 0, types: [], statuses: new Map(),
-      search: "", searchQuery: "", searchContexts: new Map(), sort: "path-asc" as const,
+      search: "", searchQuery: "", searchContexts: new Map(), sort: { key: "path", direction: "asc" } as const, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       structureError: "Third page unavailable", contentIndexing: false, contentLoaded: 0,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
@@ -116,7 +117,7 @@ describe("NoteList search presentation", () => {
     const props = {
       entries: notes.map((note) => ({ kind: "note" as const, path: note.path, note })),
       noteCount: notes.length, fileCount: 0, types: [], statuses: new Map(),
-      search: "needle", searchQuery: "needle", searchContexts, sort: "path-asc" as const,
+      search: "needle", searchQuery: "needle", searchContexts, sort: { key: "path", direction: "asc" } as const, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       contentIndexing: false, contentLoaded: notes.length,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,

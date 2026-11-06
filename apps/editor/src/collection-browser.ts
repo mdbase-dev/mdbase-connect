@@ -1,9 +1,10 @@
 import { i18n } from "@lingui/core";
 import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import { displayLocale } from "./i18n/format";
 import type { CollectionFile, NoteSummary } from "./model";
 import { noteTitle } from "./note";
-import type { NoteSort } from "./note-list-view";
+import { noteFieldValue, type NoteSort, type SortField } from "./note-sort";
 import { useMemo } from "react";
 
 type BrowserFilter = { kind: "folder" | "tag" | "type"; value: string };
@@ -70,26 +71,24 @@ function compareEntries(
   sort: NoteSort,
   types: CollectionTypeDescriptor[]
 ): number {
-  if (sort === "modified-desc" || sort === "modified-asc") {
-    const modified = compareModified(left, right, sort === "modified-desc" ? -1 : 1);
-    if (modified !== 0) return modified;
-  } else if (sort === "title-asc") {
-    const title = collator.compare(entryTitle(left, types), entryTitle(right, types));
-    if (title !== 0) return title;
-  } else {
-    const path = collator.compare(left.path, right.path);
-    if (path !== 0) return path;
-  }
-  return collator.compare(left.path, right.path);
+  const direction = sort.direction === "desc" ? -1 : 1;
+  const order = sort.key === "field" ? compareOptional(entryFieldValue(left, sort.field), entryFieldValue(right, sort.field), direction)
+    : sort.key === "modified" ? compareOptional(modifiedTime(left), modifiedTime(right), direction)
+    : sort.key === "title" ? collator.compare(entryTitle(left, types), entryTitle(right, types)) * direction
+    : collator.compare(left.path, right.path) * direction;
+  return order || collator.compare(left.path, right.path);
 }
 
-function compareModified(left: CollectionBrowserEntry, right: CollectionBrowserEntry, direction: -1 | 1): number {
-  const leftTime = modifiedTime(left);
-  const rightTime = modifiedTime(right);
-  if (leftTime === undefined && rightTime === undefined) return 0;
-  if (leftTime === undefined) return 1;
-  if (rightTime === undefined) return -1;
-  return (leftTime - rightTime) * direction;
+/** Entries without a value stay last in either direction. */
+function compareOptional(left: number | string | undefined, right: number | string | undefined, direction: -1 | 1): number {
+  if (left === undefined && right === undefined) return 0;
+  if (left === undefined) return 1;
+  if (right === undefined) return -1;
+  return (typeof left === "number" && typeof right === "number" ? left - right : collator.compare(String(left), String(right))) * direction;
+}
+
+function entryFieldValue(entry: CollectionBrowserEntry, field: SortField): number | string | undefined {
+  return entry.kind === "note" ? noteFieldValue(entry.note, field) : undefined;
 }
 
 function modifiedTime(entry: CollectionBrowserEntry): number | undefined {
@@ -103,9 +102,19 @@ function entryTitle(entry: CollectionBrowserEntry, types: CollectionTypeDescript
 }
 
 export function browserGroupLabel(entry: CollectionBrowserEntry, sort: NoteSort, types: CollectionTypeDescriptor[] = [], now = new Date()): string {
-  if (sort === "path-asc") return entryPathFolder(entry.path);
-  if (sort === "title-asc") return titleGroupLabel(entryTitle(entry, types));
+  if (sort.key === "path") return entryPathFolder(entry.path);
+  if (sort.key === "title") return titleGroupLabel(entryTitle(entry, types));
+  if (sort.key === "field") return fieldGroupLabel(entryFieldValue(entry, sort.field), sort.field);
   return modifiedGroupLabel(modifiedTime(entry), now);
+}
+
+function fieldGroupLabel(value: number | string | undefined, field: SortField): string {
+  if (value === undefined) return t`No value`;
+  if (field.kind === "choice") return String(field.choices[value as number]);
+  if (field.kind === "text") return titleGroupLabel(value as string);
+  if (field.kind === "number") return field.label;
+  // Date-only values parse as UTC midnight, which is the previous day west of Greenwich.
+  return new Intl.DateTimeFormat(displayLocale(), { month: "long", year: "numeric", ...(field.kind === "date" ? { timeZone: "UTC" } : {}) }).format(value as number);
 }
 
 function entryPathFolder(path: string): string {

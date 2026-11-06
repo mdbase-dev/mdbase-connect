@@ -12,7 +12,8 @@ import type { ActionMenuItem } from "./ActionMenu";
 import { NoteSearchField } from "./NoteSearchField";
 import type { CollectionFile } from "./model";
 import { folder, noteExcerpt, noteTimestamp, noteTitle } from "./note";
-import { NOTE_PATHS_MIME, noteSortSummary, moveListIndex, selectNote, type NoteFilter, type NoteRowStatus, type SearchFacet, type NoteSelection, type NoteSort, type ListNavigationKey } from "./note-list-view";
+import { NOTE_PATHS_MIME, moveListIndex, selectNote, type NoteFilter, type NoteRowStatus, type SearchFacet, type NoteSelection, type ListNavigationKey } from "./note-list-view";
+import { noteSortSummary, type NoteSort, type NoteSortPreference, type SortField } from "./note-sort";
 import { NoteListViewOptions } from "./NoteListViewOptions";
 import { searchTextRanges, type NoteSearchContext, type NoteSearchResult, type SearchTextRange } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
@@ -22,7 +23,7 @@ const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: tru
 
 import { matchesCommandShortcut } from "./editor-commands";
 
-export function NoteList({ entries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, search, searchQuery, searchContexts, sort, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, onClosePeek, onCreate, onCollections }: {
+export function NoteList({ entries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, onClosePeek, onCreate, onCollections }: {
   entries: CollectionBrowserEntry[];
   selection?: NoteSelection;
   onSelection?: (selection: NoteSelection) => void;
@@ -40,6 +41,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   searchQuery: string;
   searchContexts: Map<string, NoteSearchResult>;
   sort: NoteSort;
+  sortFields: SortField[];
   scopeLabel?: string;
   collectionName: string;
   loading: boolean;
@@ -55,7 +57,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   leadingActions?: ReactNode;
   trailingActions?: ReactNode;
   onSearch: (value: string) => void;
-  onSort: (sort: NoteSort) => void;
+  onSort: (sort: NoteSortPreference) => void;
   onClearScope: () => void;
   onQuickOpen: () => void;
   onRetryStructure: () => void;
@@ -225,7 +227,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
     <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && contentError)))}{structureError && <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button>}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry search</Trans></button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label={t`New note`} onClick={onCreate}><FilePlus2 aria-hidden="true" /><span className="mobile-label"><Trans>New note</Trans></span></button>}</header>
     <div className="note-list-controls">
       <NoteSearchField search={search} filter={filter} tags={tags} types={filterTypes} onSearch={onSearch} onFilter={onFilter ?? onClearScope} onQuickOpen={onQuickOpen} />
-      <NoteListViewOptions sort={sort} scopeLabel={filter ? undefined : scopeLabel} onSort={onSort} onClearScope={onClearScope} />
+      <NoteListViewOptions sort={sort} fields={sortFields} scopeLabel={filter ? undefined : scopeLabel} onSort={onSort} onClearScope={onClearScope} />
     </div>
     <div className="note-selection-slot">{selectionBar}</div>
     <div className="note-scroll" ref={scrollRef} role="listbox" aria-multiselectable="true" aria-label={t`Collection notes and files`} aria-busy={structureLoading || filesLoading} tabIndex={entries.length ? 0 : undefined} aria-activedescendant={selectedItemId} onKeyDown={handleListKeyDown}>

@@ -317,6 +317,11 @@
   font-weight: var(--font-weight-bold);
 }
 
+.view-options-fields {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
 .view-options-divider {
   height: 1px;
   margin: 5px 3px;

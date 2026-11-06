@@ -257,6 +257,13 @@ are search filters, suggested by `#` and `type:` or browsed with Search filters.
 The active scope is a removable chip in the search field; folders remain in the
 rail. New notes inherit the active scope.
 
+View options sort by Modified, Title or Path, then by any date, choice, number or
+text field a type in scope declares and at least one note fills in. Dates and
+choices follow their meaning: choices keep schema order. Entries without a value
+stay last under No value, in either direction. A separate Order group holds the
+direction in the field's own words. The choice is kept per collection and comes
+back when a filter returns its field to scope.
+
 Note rows and the document’s More menu share Rename, Move to…, Duplicate, Copy
 link, Copy path, and Delete. F2 renames; Ctrl/⌘+Backspace deletes in the list.
 Context-menu and Shift+F10 keys open row actions. Ctrl/⌘-click toggles note selection;

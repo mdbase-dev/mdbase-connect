@@ -18,6 +18,15 @@ export function collectionDisplayField(
     : undefined;
 }
 
+/** Field schemas a type declares, by name. */
+export function declaredFields(type: CollectionTypeDescriptor): Array<[string, JsonObject]> {
+  return Object.entries(objectValue(type.schema.properties) ?? {})
+    .flatMap(([name, schema]) => {
+      const field = objectValue(schema);
+      return field ? [[name, field] as [string, JsonObject]] : [];
+    });
+}
+
 export function recordDisplayField(
   recordTypes: string[],
   types: CollectionTypeDescriptor[],

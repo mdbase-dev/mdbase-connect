@@ -1,5 +1,6 @@
 import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import { declaredFields } from "./field-reference";
 import type { NoteDocument, NoteSummary } from "./model";
 import { pendingNoteRequestId } from "./pending-note-mutation";
 
@@ -19,12 +20,9 @@ export function bulkFields(notes: readonly Pick<NoteSummary, "types">[], types: 
   const perNote = notes.map((note) => {
     const fields = new Map<string, { schema: JsonObject; rootSchema: JsonObject }>();
     for (const name of note.types) {
-      const rootSchema = types.find((type) => type.name.toLowerCase() === name.toLowerCase())?.schema;
-      const properties = rootSchema?.properties;
-      if (!properties || Array.isArray(properties) || typeof properties !== "object") continue;
-      for (const [field, schema] of Object.entries(properties)) {
-        if (schema && typeof schema === "object" && !Array.isArray(schema)) fields.set(field, { schema: schema as JsonObject, rootSchema: rootSchema! });
-      }
+      const type = types.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
+      if (!type) continue;
+      for (const [field, schema] of declaredFields(type)) fields.set(field, { schema, rootSchema: type.schema });
     }
     return fields;
   });

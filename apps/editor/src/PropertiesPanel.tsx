@@ -9,6 +9,7 @@ import {
 } from "./icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import { declaredFields } from "./field-reference";
 import { CodeEditor } from "./CodeEditor";
 import { ActionMenu } from "./ActionMenu";
 import type { NoteDocument } from "./model";
@@ -306,12 +307,7 @@ function mergedSchema(typeNames: string[], types: CollectionTypeDescriptor[]): {
   const required = new Set<string>();
   for (const typeName of typeNames) {
     const descriptor = types.find((type) => type.name.toLocaleLowerCase() === typeName.toLocaleLowerCase());
-    const declared = descriptor?.schema.properties;
-    if (declared && !Array.isArray(declared) && typeof declared === "object") {
-      for (const [name, schema] of Object.entries(declared)) {
-        if (schema && !Array.isArray(schema) && typeof schema === "object") properties[name] = schema as JsonObject;
-      }
-    }
+    if (descriptor) Object.assign(properties, Object.fromEntries(declaredFields(descriptor)));
     if (Array.isArray(descriptor?.schema.required)) {
       for (const name of descriptor.schema.required) if (typeof name === "string") required.add(name);
     }

@@ -2213,6 +2213,10 @@ msgstr "Cada opção inclui seu contrato portátil e um mapeamento local editáv
 msgid "Each implementation needs an exact contract ID and version."
 msgstr "Cada implementação precisa de um ID e uma versão exatos do contrato."
 
+#: src/note-sort.ts
+msgid "Earliest first"
+msgstr "Mais cedo primeiro"
+
 #: src/ConnectionScreens.tsx
 msgid "edit and move notes"
 msgstr "editar e mover notas"
@@ -2406,6 +2410,7 @@ msgstr "Seletores de campo com valor não compatível"
 msgid "Field type"
 msgstr "Tipo de campo"
 
+#: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Fields"
 msgstr "Campos"
@@ -2642,6 +2647,10 @@ msgstr "Ocultar barra lateral de notas"
 msgid "Hide types sidebar"
 msgstr "Ocultar barra lateral de tipos"
 
+#: src/note-sort.ts
+msgid "High to low"
+msgstr "Do maior para o menor"
+
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "Hosted"
@@ -2783,6 +2792,10 @@ msgstr "Grande"
 msgid "Large section heading"
 msgstr "Título de seção grande"
 
+#: src/note-sort.ts
+msgid "Latest first"
+msgstr "Mais tarde primeiro"
+
 #: src/ConflictResolver.tsx
 msgid "Latest title"
 msgstr "Título mais recente"
@@ -2894,6 +2907,10 @@ msgstr "esquema do item da lista"
 msgid "List items"
 msgstr "Itens da lista"
 
+#: src/note-sort.ts
+msgid "Listed order"
+msgstr "Ordem da lista"
+
 #: src/App.tsx
 msgid "Loaded the latest version."
 msgstr "Versão mais recente carregada."
@@ -2976,6 +2993,10 @@ msgstr "Hora local ({0})"
 #: src/TypeBrowser.tsx
 msgid "Loses"
 msgstr "Deixam de ter"
+
+#: src/note-sort.ts
+msgid "Low to high"
+msgstr "Do menor para o maior"
 
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
@@ -3128,21 +3149,10 @@ msgstr "As propriedades ausentes não têm valores padrão de leitura específic
 msgid "Missing required properties"
 msgstr "Propriedades obrigatórias ausentes"
 
+#: src/note-sort.ts
 #: src/PropertiesPanel.tsx
 msgid "Modified"
 msgstr "Modificado"
-
-#: src/note-list-view.ts
-msgid "Modified newest"
-msgstr "Modificação mais recente"
-
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "modificação mais antiga"
-
-#: src/note-list-view.ts
-msgid "Modified oldest"
-msgstr "Modificação mais antiga"
 
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
@@ -3301,6 +3311,10 @@ msgstr "Novo tipo"
 msgid "New type definition"
 msgstr "Nova definição de tipo"
 
+#: src/note-sort.ts
+msgid "Newest first"
+msgstr "Mais recentes primeiro"
+
 #: src/QuickOpen.tsx
 msgid "Next or previous note"
 msgstr "Nota seguinte ou anterior"
@@ -3446,6 +3460,10 @@ msgstr "Nenhuma menção sem vínculo."
 #: src/use-note-actions.ts
 msgid "No validation issues."
 msgstr "Nenhum problema de validação."
+
+#: src/collection-browser.ts
+msgid "No value"
+msgstr "Sem valor"
 
 #: src/App.tsx
 msgid "Not attempted because an earlier move needs recovery."
@@ -3615,6 +3633,10 @@ msgstr "Offline"
 msgid "Older"
 msgstr "Mais antigo"
 
+#: src/note-sort.ts
+msgid "Oldest first"
+msgstr "Mais antigos primeiro"
+
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
 msgstr "Somente campos declarados são permitidos"
@@ -3739,6 +3761,10 @@ msgstr "opcional neste tipo"
 msgid "Optional regular expression"
 msgstr "Expressão regular opcional"
 
+#: src/NoteListViewOptions.tsx
+msgid "Order"
+msgstr "Ordem"
+
 #: src/type-schema.ts
 msgid "Other collection rules"
 msgstr "Outras regras da coleção"
@@ -3764,13 +3790,10 @@ msgid "Partly installed"
 msgstr "Parcialmente instalado"
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 #: src/TypeBrowser.tsx
 msgid "Path"
 msgstr "Caminho"
-
-#: src/note-list-view.ts
-msgid "Path A–Z"
-msgstr "Caminho de A a Z"
 
 #: src/embed-actions.ts
 msgid "Path copied."
@@ -4384,6 +4407,10 @@ msgstr "Tentar pesquisar novamente"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "Volte às coleções e abra a coleção novamente."
+
+#: src/note-sort.ts
+msgid "Reversed"
+msgstr "Invertido"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
@@ -5574,12 +5601,9 @@ msgid "This value does not match the required format."
 msgstr "Este valor não corresponde ao formato exigido."
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 msgid "Title"
 msgstr "Título"
-
-#: src/note-list-view.ts
-msgid "Title A–Z"
-msgstr "Título de A a Z"
 
 #: src/ConflictResolver.tsx
 msgid "Title differences"

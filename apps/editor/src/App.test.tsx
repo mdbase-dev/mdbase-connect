@@ -435,12 +435,12 @@ describe("mdbase editor", () => {
 
     await user.click(screen.getByRole("button", { name: "View options" }));
     const menu = screen.getByRole("menu", { name: "Note view options" });
-    expect(within(menu).getByRole("menuitemradio", { name: "Modified newest" })).toHaveAttribute("aria-checked", "true");
-    await user.click(within(menu).getByRole("menuitemradio", { name: "Title A–Z" }));
+    expect(within(menu).getByRole("menuitemradio", { name: "Modified" })).toHaveAttribute("aria-checked", "true");
+    expect(within(menu).getByRole("menuitemradio", { name: "Newest first" })).toHaveAttribute("aria-checked", "true");
+    await user.click(within(menu).getByRole("menuitemradio", { name: "Title" }));
 
     expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/A quiet interface 3/);
-    expect(localStorage.getItem("mdbase-editor:note-sort")).toBe("title-asc");
-    expect(screen.getByText("4 notes · 2 files · title A–Z")).toBeInTheDocument();
+    expect(screen.getByText("4 notes · 2 files · Title: A–Z")).toBeInTheDocument();
 
     const search = screen.getByRole("combobox", { name: "Search notes and files" });
     await user.type(search, "quiet interface");
