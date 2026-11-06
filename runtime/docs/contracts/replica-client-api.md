@@ -147,6 +147,19 @@ Reads return the **local view**: confirmed state plus this replica's pending mut
 That is the optimistic view an app wants to display. `record-state` says which parts
 are not yet confirmed.
 
+### 3.1 Capture time
+
+`mtime` is the `op-clock.instant` of the mutation that last changed the record's
+bytes, in milliseconds since the Unix epoch. Every replica stamps it when applying
+that mutation, so it is the writing device's capture clock, not a device file mtime
+or a log timestamp. A rename or a write of identical bytes keeps the existing time.
+A record whose latest change is pending reports its last confirmed time.
+
+Absent means unknown: the record has not changed since adoption or since a replica
+that predates the field built the snapshot this replica installed. It is never
+inferred from a host stat, sequence or snapshot time, is not part of the state
+digest, and is not exposed as `file.mtime` to queries or Bases.
+
 ## 4. Reads, live queries and change feeds
 
 All of these require `collection.read`.

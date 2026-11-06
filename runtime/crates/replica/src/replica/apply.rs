@@ -1601,8 +1601,9 @@ impl<S: Store> Replica<S> {
                     if self.store.file(&r.id)?.is_some_and(|f|f.kind==mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown) {
                         return self.commit_payload_void(head,&payload,"V7: ordinary record effect changes unindexed kind");
                     }
-                    if let Some(old) = self.store.record(&r.id)? {
-                        freed.insert(old.path_key);
+                    let stored = self.store.record(&r.id)?;
+                    if let Some(old) = &stored {
+                        freed.insert(old.path_key.clone());
                     }
                     if self.store.tombstone(&r.id)?.is_some() {
                         tx.tombstones_del.push(r.id);
@@ -1615,6 +1616,13 @@ impl<S: Store> Replica<S> {
                             "V7: two records share a path",
                         );
                     }
+                    let revision = mdbn_wire::hash::sha256(doc.as_bytes());
+                    // Renames and same-byte writes keep the time of the last byte change.
+                    let prior = tx.records_put.iter().find(|x| x.id == r.id);
+                    let mtime = match prior.or(stored.as_ref()) {
+                        Some(old) if old.revision == revision => old.mtime,
+                        _ => Some(payload.mutation.clock.instant),
+                    };
                     tx.records_del.retain(|x| *x != r.id);
                     tx.records_put.retain(|x| x.id != r.id);
                     tx.records_put.push(RecordRow {
@@ -1622,9 +1630,9 @@ impl<S: Store> Replica<S> {
                         path: r.path.clone(),
                         path_key: pk,
                         doc: doc.clone(),
-                        revision: mdbn_wire::hash::sha256(doc.as_bytes()),
+                        revision,
                         modified_seq: p,
-                        mtime: None,
+                        mtime,
                         bucket: bucket16(&r.id),
                         meta: Default::default(),
                     });
