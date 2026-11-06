@@ -43,8 +43,10 @@ those rules nor any trust or policy keys are changed here.
 
 An unfulfilled automatic tag is an ambiguous or failed attempt, not permission
 to skip to another version. The line stops until a release agent inspects its
-exact run. No side-effecting operation is retried automatically. The coordinator and
-tag workers share one non-cancelling live concurrency group.
+exact run. No side-effecting operation is retried automatically, with one
+exception: the macOS jobs package again, at most three times in all, when Apple's
+stapling service fails, because nothing has been uploaded at that point. The
+coordinator and tag workers share one non-cancelling live concurrency group.
 
 Tags cannot be moved, and a tag worker runs the code at its tag, so a failed
 attempt cannot be fixed in place. Release agents own this acknowledgement and

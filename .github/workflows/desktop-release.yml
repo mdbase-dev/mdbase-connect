@@ -58,7 +58,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
-      - run: node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-desktop-release.test.mjs
+      - run: node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-desktop-release.test.mjs scripts/ci/desktop-make-macos.test.mjs
 
   coordinate:
     needs: release-policy-tests
@@ -308,7 +308,14 @@ jobs:
           echo "MDBN_DAEMON_BIN=$binary" >> "$GITHUB_ENV"
           echo "MDBN_DAEMON_VERSION=$MDBN_RELEASE_VERSION" >> "$GITHUB_ENV"
 
-      - run: pnpm --filter @mdbase/connect-desktop make
+      - name: Package the desktop
+        if: matrix.platform != 'macos'
+        run: pnpm --filter @mdbase/connect-desktop make
+
+      - name: Package the macOS desktop
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: scripts/ci/desktop-make-macos.sh
 
       - name: Exercise the shipped daemon CLI in an isolated profile
         if: matrix.platform == 'linux'
