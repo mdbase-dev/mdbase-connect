@@ -266,7 +266,7 @@ test("inhibition during custody open wipes returned keys before engine construct
 test("real sync cannot reschedule after inhibition during alarm storage await", async () => {
   for (const escrow of [false, true]) {
     const { o, s, alarm } = object(escrow);
-    const engine = { appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null };
+    const engine = { appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, attachmentObject: () => null };
     o.engine = engine; o.log = () => ({});
     s.getAlarm = async () => { await o.alarms.inhibit(); return null; };
     await o.sync(engine);

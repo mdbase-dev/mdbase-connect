@@ -17,7 +17,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
     b.onLoad({ filter: /hosted\.wasm$/ }, () => ({ contents: "export default new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));" }));
   },
 }] });
-const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=idle-backoff-worker.mjs").toString("base64")}`);
+const { HostedCollection, INSTALL_WAKE_MS } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=idle-backoff-worker.mjs").toString("base64")}`);
 
 
 function object(escrow = false, data = new Map()) {
@@ -42,7 +42,7 @@ const frame = (method) => encode(new Map([[2, method], [3, new Map()]]));
 /** A bound engine that queues `methods` once per sync (refresh() re-arms it). */
 function engine(methods = [], outputs = []) {
   let queued = [], applied = 0, sent = [];
-  const e = { appliedHead: () => String(applied), logBound: true, nextWakeup: () => null, attachmentObject: () => null, signRpc: () => new Uint8Array(64),
+  const e = { appliedHead: () => String(applied), logBound: true, nextWakeup: () => null, installStatus: () => null, attachmentObject: () => null, signRpc: () => new Uint8Array(64),
     logCalls: () => { const q = queued; queued = []; return q; }, logBind: () => true,
     logReply(id) { if (sent[id] === "read") applied++; }, logFailed() {}, poll: () => { const out = outputs; outputs = []; return out; },
     arm(next = methods) { sent = next; queued = next.map((m, id) => ({ id, frame: frame(m) })); } };
@@ -71,6 +71,34 @@ test("idle syncs double the poll from the base up to 10 min, for both roles", as
     assert.deepEqual(delays, expected, escrow ? "escrow" : "hosted");
     mock.restoreAll();
   }
+});
+
+test("a running snapshot install wakes at once, reports counts only, then falls back to the poll", async (ctx) => {
+  const lines = [];
+  mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
+  const t = object(); t.o.log = logReplying();
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  let status = { done: 64, total: 600 };
+  e.installStatus = () => status;
+  assert.equal(await syncAt(t, at, e), INSTALL_WAKE_MS);
+  assert.deepEqual(lines, [{ event: "hosted_install_progress", role: "hosted", done: 64, total: 600 }]);
+  status = null;
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(t, at + 40 * S, e) / S, 30, "installed: back to the base poll");
+  assert.equal(lines.length, 1);
+  mock.restoreAll();
+});
+
+test("the install wake stays ahead of any earlier engine deadline", async (ctx) => {
+  mock.method(console, "info", () => {});
+  const t = object(); t.o.log = logReplying();
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  e.installStatus = () => ({ done: 1, total: 2 });
+  e.nextWakeup = () => at + 200;
+  assert.equal(await syncAt(t, at, e), 200);
+  mock.restoreAll();
 });
 
 test("the streak is persisted: an evicted actor keeps backing off", async (ctx) => {

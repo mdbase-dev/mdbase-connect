@@ -1397,6 +1397,12 @@ impl<S: Store> Replica<S> {
         self.install.is_some()
     }
 
+    /// Chunks staged and chunks in the snapshot, while an install runs. Both are
+    /// counts only, so a host can report them without carrying any content.
+    pub fn install_status(&self) -> Option<(u64, u64)> {
+        self.install.as_ref().map(|_| self.install_progress)
+    }
+
     /// Abandon the install. Nothing was written: the staged rows are dropped and the
     /// previous confirmed state and head stay as they were.
     pub(super) fn install_fail(&mut self, why: &str) {

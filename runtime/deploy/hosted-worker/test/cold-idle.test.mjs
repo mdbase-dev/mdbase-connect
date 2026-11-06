@@ -25,7 +25,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
       needsReset() { if (this.f.endFail) throw new Error("synthetic post-sync failure"); return false; }
       appliedHead() { return String(this.f.applied); }
       refresh() { this.queued = [{ id: 1, frame: new Uint8Array(${JSON.stringify(head)}) }]; }
-      tick() {} nextWakeup() { return this.f.deadline; } attachmentObject() { return null; } poll() { return []; }
+      tick() {} installStatus() { return null; } nextWakeup() { return this.f.deadline; } attachmentObject() { return null; } poll() { return []; }
       logBind() { this.logBound = true; return true; } signRpc() { return new Uint8Array(64); }
       logCalls() { const q = this.queued; this.queued = []; return q; }
       logReply(id) { if (id === 2 && this.f.newHead) { this.f.applied++; this.f.newHead = false; } } logFailed() {}

@@ -95,6 +95,11 @@ const IDLE_SAME_LOOK_MS = 5_000;
 const IDLE_MAX_STREAK = 5;
 export const idlePollMs = (base: number, streak: number) =>
   Math.min(IDLE_POLL_CAP_MS, base * 2 ** Math.min(Math.max(0, Math.floor(streak)), IDLE_MAX_STREAK));
+/** Next wake while a snapshot install runs. An install lives in engine memory and
+ * starts over from its first chunk after an eviction, and one wake moves at most 64
+ * chunks, so a longer gap made any install too big for one wake rewrite the same
+ * rows forever. Well under the time an idle object survives. */
+export const INSTALL_WAKE_MS = 1_000;
 /** Largest client frame accepted. */
 const MAX_FRAME_BYTES = 1 << 20;
 
@@ -1034,7 +1039,10 @@ export class HostedCollection extends DurableObject<Env> {
     const pollMs = await this.idlePoll(active, current);
     if (!current()) return;
     const next = engine.nextWakeup();
-    const poll = Date.now() + pollMs;
+    const install = engine.installStatus();
+    // Counts only, in every environment: the one sign of an install in production.
+    if (install) try { console.info(JSON.stringify({ event: "hosted_install_progress", role: this.escrow ? "escrow" : "hosted", ...install })); } catch { /* Logging is not authority. */ }
+    const poll = Date.now() + (install ? INSTALL_WAKE_MS : pollMs);
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.
     const at = Math.min(next ?? poll, poll);
