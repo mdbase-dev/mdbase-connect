@@ -3,7 +3,7 @@
   "growth": {
     "productionFiles": 1,
     "relativeImports": 6,
-    "typeScriptExportDeclarations": 8,
+    "typeScriptExportDeclarations": 9,
     "apps/editor": 1
   }
 }
