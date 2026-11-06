@@ -1151,8 +1151,9 @@ fn plan_seed(
             return;
         }
     }
-    // It already implements what the app needs: keeping it is enough.
-    if fits(live) {
+    // It already implements the contracts the app needs: keeping it is enough.
+    if split_frontmatter(&r.document).is_some_and(|fm| fm.contains_key("implements")) && fits(live)
+    {
         return;
     }
     p.reason = Some(format!(
