@@ -563,7 +563,7 @@ error model (`replica-client-api.md` §9).
 | `refs_missing` | referenced objects are absent | upload them and retry |
 | `frozen` | the collection is frozen or rekey-required | rekey-required: perform the rekey (`log-entry.md` §3.1). Frozen: wait for a push |
 | `rate_limited` | over a rate limit | wait `retry_after_ms` |
-| `quota_exceeded` | over the storage quota | stop appending content; surface to the user. Reads continue |
+| `quota_exceeded` | over the storage quota | surface to the user and retry at a slow interval; space can return without a push. Reads continue |
 | `unavailable` | the actor is restarting, moving or overloaded | wait `retry_after_ms`, with jitter |
 | `upgrade_required` | the API version is no longer supported | surface `upgrade_required` |
 

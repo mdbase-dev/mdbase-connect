@@ -57,6 +57,11 @@ pub struct AppendTuning {
     pub backoff_max_ms: u64,
     /// Wait before retrying after a transient error, ms.
     pub retry_ms: u64,
+    /// Wait before retrying entries the log refused over its quota, ms.
+    pub quota_retry_ms: u64,
+    /// Wait before re-uploading a file the log refused over its quota, ms.
+    /// Longer than the entry retry: the refusal can follow the whole upload.
+    pub quota_upload_retry_ms: u64,
 }
 
 impl Default for AppendTuning {
@@ -67,6 +72,8 @@ impl Default for AppendTuning {
             backoff_after: 3,
             backoff_max_ms: 50,
             retry_ms: 1_000,
+            quota_retry_ms: 60_000,
+            quota_upload_retry_ms: 600_000,
         }
     }
 }
@@ -102,7 +109,7 @@ pub(crate) enum AppendState {
     RetryAt(i64, Sent),
     /// Don't plan before this time (contention backoff, transient errors).
     WaitUntil(i64),
-    /// Stopped until something changes (forbidden, gone, quota, invalid twice).
+    /// Stopped until something changes (forbidden, gone, invalid twice).
     Stopped,
 }
 
@@ -1320,6 +1327,7 @@ impl<S: Store> Replica<S> {
             Ok(LogResponse::Append(AppendResult::Appended(a))) => {
                 self.moved_streak = 0;
                 self.head_known = self.head_known.max(a.last);
+                self.clear_quota_refusal();
                 let items: Vec<mdbn_wire::log_service::SeqItem> = sent
                     .params
                     .items
@@ -1438,8 +1446,12 @@ impl<S: Store> Replica<S> {
                     self.append = AppendState::Stopped;
                 }
                 LogErrorCode::QuotaExceeded => {
+                    // Space can return at any time (a delete elsewhere, a raised
+                    // quota) with no push to announce it: keep probing.
                     self.incident(IncidentKind::QuotaExceeded, None);
-                    self.append = AppendState::Stopped;
+                    self.append = AppendState::WaitUntil(
+                        self.now() + i64::try_from(self.tuning.quota_retry_ms).unwrap_or(0),
+                    );
                 }
                 LogErrorCode::Gone => {
                     self.incident(IncidentKind::Gone, None);
@@ -1571,6 +1583,19 @@ impl<S: Store> Replica<S> {
                     "new log endpoint does not continue this replica's chain".into(),
                 )),
             );
+        }
+    }
+
+    /// An accepted append proves the log has room again. A refused file keeps
+    /// the incident until its own retry lands, and a record refused for its
+    /// size (which carries details) was never about the log's quota.
+    fn clear_quota_refusal(&mut self) {
+        let refusal = self
+            .incidents
+            .get(&IncidentKind::QuotaExceeded.value())
+            .is_some_and(|incident| incident.details.is_none());
+        if refusal && !self.attachment_ingest_quota_refused() {
+            self.clear_incident(IncidentKind::QuotaExceeded);
         }
     }
 

@@ -142,7 +142,7 @@ const COPY = {
   collection_invalid: ["Your collection needs repair", "Something in this collection isn't valid. Contact support if this keeps happening.", "contact_support", "error"],
   unavailable: OFFLINE,
   rate_limited: ["Too many requests", "Wait a moment, then try again.", "retry", "warning", true],
-  quota_exceeded: ["Out of storage", "Your collection has reached its storage limit. Free up space to keep saving.", "free_space", "error"],
+  quota_exceeded: ["Out of storage", "You've reached your storage limit. Free up space to keep saving.", "free_space", "error"],
   account_collection_quota_exceeded: ["Synced collection limit reached", "Your account has reached its synced collection limit. Delete a synced collection before creating another.", "free_space", "error", false, "Manage collections"],
   too_large: ["That's too large", "This item is larger than mdbase allows.", "none", "warning"],
   outcome_unknown: ["Not sure that worked", "The connection dropped before mdbase confirmed it. Check whether it went through before trying again.", "resolve_outcome", "warning"],

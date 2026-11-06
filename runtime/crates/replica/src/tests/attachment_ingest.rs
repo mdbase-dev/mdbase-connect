@@ -275,15 +275,17 @@ fn unavailable_native_source_and_undecodable_text_are_held_not_uploaded() {
 }
 
 fn refuse_upload(a: &mut Node) {
+    refuse_upload_with(a, crate::log::LogErrorCode::TooLarge);
+}
+
+fn refuse_upload_with(a: &mut Node, code: crate::log::LogErrorCode) {
     let mut refused = false;
     for _ in 0..100 {
         let batch = a.r.take_log_calls();
         for call in batch {
             let reply = if matches!(call.request, LogRequest::PutObject { .. }) {
                 refused = true;
-                Err(crate::log::LogError::code(
-                    crate::log::LogErrorCode::TooLarge,
-                ))
+                Err(crate::log::LogError::code(code))
             } else {
                 a.log.call(call.request)
             };
@@ -355,6 +357,40 @@ fn server_size_refusal_remains_available_with_its_file_path() {
     assert!(file_at(&a, PATH).is_some());
     user(&mut a, |d| d.user_write(PATH, b"fixed"));
     assert!(a.r.attachment_ingest_failures().next().is_none());
+}
+
+#[test]
+fn quota_refused_upload_retries_on_a_later_scan_and_clears_the_incident() {
+    let svc = FakeLogService::new();
+    let (mut a, _) = ingest_node(&svc, 1);
+    let quota = |n: &Node| {
+        n.r.sync_status()
+            .incidents
+            .iter()
+            .any(|incident| incident.kind == mdbn_wire::client::IncidentKind::QuotaExceeded)
+    };
+    a.r.store().att_disk().user_write(PATH, b"waiting for room");
+    a.r.observe(None).unwrap();
+    refuse_upload_with(&mut a, crate::log::LogErrorCode::QuotaExceeded);
+    assert!(quota(&a));
+
+    let uploads = a.r.attachment_ingest.uploads_started;
+    a.r.store().att_disk().rescan(PATH);
+    a.r.observe(None).unwrap();
+    sync(&mut a);
+    assert_eq!(
+        a.r.attachment_ingest.uploads_started, uploads,
+        "a scan before the delay does not re-upload"
+    );
+
+    a.clock
+        .set(a.clock.get() + a.r.tuning.quota_upload_retry_ms);
+    a.r.store().att_disk().rescan(PATH);
+    a.r.observe(None).unwrap();
+    sync(&mut a);
+    assert!(a.r.attachment_ingest_failure(PATH).is_none());
+    assert_eq!(whole(&a, PATH), mdbn_wire::hash::sha256(b"waiting for room"));
+    assert!(!quota(&a), "the file's accepted entry clears the refusal");
 }
 
 #[test]

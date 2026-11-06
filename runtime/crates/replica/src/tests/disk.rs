@@ -974,6 +974,88 @@ fn oversized_new_synced_observation_retains_user_bytes_without_ack_or_publish() 
     }));
 }
 
+/// Exchange calls as `settle` does, refusing every append over quota.
+fn settle_refusing_appends(n: &mut Node) -> usize {
+    use crate::log::{LogClient, LogPort};
+    let mut refused = 0;
+    for _ in 0..100 {
+        n.r.observe(None).unwrap();
+        for call in n.r.take_log_calls() {
+            let reply = if matches!(call.request, crate::log::LogRequest::Append(_)) {
+                refused += 1;
+                Err(crate::log::LogError::code(
+                    crate::log::LogErrorCode::QuotaExceeded,
+                ))
+            } else {
+                n.log.call(call.request)
+            };
+            n.r.on_log_reply(call.id, reply);
+        }
+        n.r.tick();
+    }
+    refused
+}
+
+#[test]
+fn quota_refused_entries_retry_without_a_restart_and_clear_the_incident() {
+    use mdbn_wire::client::IncidentKind;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let quota = |n: &Node| {
+        n.r.sync_status()
+            .incidents
+            .iter()
+            .any(|incident| incident.kind == IncidentKind::QuotaExceeded)
+    };
+    create(&mut a, 1, "quota.md", "waiting for room");
+    assert_eq!(settle_refusing_appends(&mut a), 1);
+    assert!(quota(&a));
+    assert_eq!(a.r.store().pending_count().unwrap(), 1, "the entry is kept");
+    let retry = a.r.tuning.quota_retry_ms;
+    assert_eq!(
+        a.r.next_wakeup(),
+        Some(a.r.now() + i64::try_from(retry).unwrap()),
+        "the host wakes the replica for the retry"
+    );
+
+    a.clock.set(a.clock.get() + retry - 1);
+    assert_eq!(
+        settle_refusing_appends(&mut a),
+        0,
+        "no retry before the delay"
+    );
+
+    // Still full: the next attempt waits again rather than stopping.
+    a.clock.set(a.clock.get() + 1);
+    assert_eq!(settle_refusing_appends(&mut a), 1);
+    assert!(quota(&a));
+    assert_eq!(a.r.store().pending_count().unwrap(), 1);
+
+    a.clock.set(a.clock.get() + retry);
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.store().pending_count().unwrap(), 0);
+    assert!(!quota(&a), "an accepted append clears the refusal");
+}
+
+#[test]
+fn an_accepted_append_keeps_a_record_size_refusal() {
+    use mdbn_wire::client::IncidentKind;
+    use mdbn_wire::common::Value;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let reason = Value::Map(vec![("reason".into(), Value::Text("record_too_large".into()))]);
+    a.r.incident(IncidentKind::QuotaExceeded, Some(reason));
+    create(&mut a, 1, "fine.md", "fits");
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.store().pending_count().unwrap(), 0);
+    assert!(
+        a.r.sync_status()
+            .incidents
+            .iter()
+            .any(|incident| incident.kind == IncidentKind::QuotaExceeded)
+    );
+}
+
 #[test]
 fn oversized_synced_edit_does_not_overwrite_user_bytes_and_a_reduced_edit_can_sync() {
     let svc = FakeLogService::new();
