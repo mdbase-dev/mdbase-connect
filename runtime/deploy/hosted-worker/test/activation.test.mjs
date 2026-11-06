@@ -94,7 +94,7 @@ test("failed cold reopen cannot push an existing alarm into the future", async (
 test("socket-free hosted and escrow alarms reopen, refresh and reschedule", async () => {
   for (const escrow of [false, true]) {
     const { o, data, alarm } = object(escrow); data.set("service-collection", collection);
-    const calls = []; const engine = { tick() { calls.push("tick"); }, refresh() { calls.push("refresh"); }, nextWakeup() { return null; }, installStatus() { return null; } snapshotDeclined() { return false; } };
+    const calls = []; const engine = { tick() { calls.push("tick"); }, refresh() { calls.push("refresh"); }, nextWakeup() { return null; }, installStatus() { return null; }, snapshotDeclined() { return false; } };
     o.ready = async (id) => { assert.equal(id, collection); calls.push("reopen"); o.collection = id; o.engine = engine; return engine; };
     o.sync = async () => { calls.push("sync"); await o.ctx.storage.setAlarm(Date.now() + 30_000); };
     await o.alarm();
