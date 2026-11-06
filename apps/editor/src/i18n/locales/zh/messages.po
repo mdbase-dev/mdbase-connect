@@ -2614,6 +2614,10 @@ msgstr "正在准备此集合…"
 msgid "Give the type a name, then add the fields its notes need."
 msgstr "为类型命名，然后添加其笔记所需的字段。"
 
+#: src/App.tsx
+msgid "Go to note title"
+msgstr "转到笔记标题"
+
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "为兼容工具创建或重命名此类型的记录提供指引。"
@@ -5788,6 +5792,7 @@ msgstr "新集合打开时，未保存的类型更改或创建操作中的更改
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "未保存的类型更改或创建操作中的更改将被丢弃。"
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx

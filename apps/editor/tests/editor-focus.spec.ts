@@ -22,6 +22,11 @@ test("a delayed CodeEditor chunk does not steal sidebar search typing", async ({
     await requested;
     await expect(search).toBeFocused();
     await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toHaveCount(0);
+    const title = await page.getByRole("textbox", { name: "Note title" }).boundingBox();
+    const loading = await page.getByRole("status", { name: "Loading note editor" }).boundingBox();
+    expect(title!.y).toBeLessThan(150);
+    expect(loading!.y).toBeGreaterThanOrEqual(title!.y + title!.height);
+    expect(loading!.y).toBeLessThan(title!.y + title!.height + 40);
     releaseChunk();
     const body = page.getByRole("textbox", { name: "Note body", exact: true });
     await expect(body).toBeVisible();

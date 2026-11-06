@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor } from "./test/locale";
 import { expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -6,8 +7,8 @@ import type { CollectionChange, WatchStatus } from "@mdbase-dev/connect";
 import type { NoteContentRequest, NoteIndexRequest } from "./model";
 
 vi.mock("./CodeEditor", () => ({
-  CodeEditor: ({ value, label }: { value: string; label: string }) =>
-    <textarea aria-label={label} value={value} readOnly />
+  CodeEditor: ({ header, value, label }: { header?: ReactNode; value: string; label: string }) =>
+    <>{header}<textarea aria-label={label} value={value} readOnly /></>
 }));
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({

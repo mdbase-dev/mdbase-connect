@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 
-vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label, footer }: { value: string; onChange?: (value: string) => void; label: string; footer?: ReactNode }) => <><textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</> }));
+vi.mock("./CodeEditor", () => ({ CodeEditor: ({ header, value, onChange, label, footer }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; footer?: ReactNode }) => <>{header}<textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</> }));
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: ({ count }: { count: number }) => ({ getTotalSize: () => count * 76, getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 76, size: 76 })) }) }));
 
 async function runCommand(query: string) {

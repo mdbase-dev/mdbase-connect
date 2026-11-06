@@ -10,7 +10,8 @@
 .unlinked-mention small { color: var(--color-text-muted); font-size: var(--font-size-caption); overflow-wrap: anywhere; }
 .unlinked-mention mark { background: none; color: var(--color-text); font-weight: var(--font-weight-semibold); }
 .focus-mode .editor-bar { justify-content: flex-end; border-color: transparent; }
-.focus-mode .editor-bar > :not(.note-actions):not(.focus-exit):not(.save-indicator):not(.note-opening-status) { display: none; }
+.focus-mode .editor-bar > :not(.note-actions):not(.focus-exit):not(.save-indicator):not(.note-opening-status):not(.note-bar-title) { display: none; }
+.focus-mode .note-bar-title { margin-right: auto; }
 .focus-mode .editor-pane { grid-column: 3; }
 .focus-mode .mobile-note-path { display: none; }
 .typewriter-mode .code-editor-writer .cm-content { padding-top: 40vh; padding-bottom: 50vh; }

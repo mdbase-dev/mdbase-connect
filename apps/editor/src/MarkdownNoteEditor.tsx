@@ -1,7 +1,7 @@
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
-import { lazy, Suspense, type CSSProperties, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { LinkSuggestion } from "./links";
 import type { CollectionFile, NoteSummary } from "./model";
@@ -16,7 +16,7 @@ const CodeEditor = lazy(() => import("./CodeEditor").then((module) => ({ default
 
 interface MarkdownNoteEditorProps {
   editorKey: string;
-  footer?: ReactNode;
+  footer: ReactNode;
   draft: Draft;
   preferences: EditorPreferences;
   documentId?: string;
@@ -32,6 +32,7 @@ interface MarkdownNoteEditorProps {
   onUploadAttachment?: AttachmentUploader;
   remoteApplyToken?: number;
   onTitleChange: (title: string) => void;
+  onTitleVisibilityChange: (visible: boolean) => void;
   onBodyChange: (body: string) => void;
   onOpenLink: (path: string) => void;
   onCreateLink: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
@@ -46,22 +47,46 @@ interface MarkdownNoteEditorProps {
   provenance?: ReactNode;
 }
 
-export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, recentPaths,
-  linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, onUploadAttachment, remoteApplyToken, onTitleChange, onBodyChange,
-  onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
-  onVisibleFileEmbeds, onVisibleNoteEmbeds, footer, autoFocus = true, readOnly = false, provenance }: MarkdownNoteEditorProps) {
-  useLingui();
-  return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
+interface NoteHeaderProps {
+  title: string;
+  readOnly: boolean;
+  provenance?: ReactNode;
+  onTitleChange: (title: string) => void;
+  onTitleVisibilityChange: (visible: boolean) => void;
+}
+
+function NoteHeader({ title, readOnly, provenance, onTitleChange, onTitleVisibilityChange }: NoteHeaderProps) {
+  const field = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Without a root, the observer also sees the title clipped by the editor's scroller.
+    const observer = new IntersectionObserver(([entry]) => onTitleVisibilityChange(entry.isIntersecting));
+    observer.observe(field.current!);
+    return () => {
+      observer.disconnect();
+      onTitleVisibilityChange(true);
+    };
+  }, [onTitleVisibilityChange]);
+  return <>
     {provenance && <div className="note-provenance">{provenance}</div>}
     <label className="sr-only" htmlFor="note-title"><Trans>Note title</Trans></label>
-    <div className="note-title-field">
-      <span className="note-title-measure" aria-hidden="true">{draft.title || t`Untitled`}{" "}</span>
-      <textarea id="note-title" className="title-input" rows={1} value={draft.title}
+    <div className="note-title-field" ref={field}>
+      <span className="note-title-measure" aria-hidden="true">{title || t`Untitled`}{" "}</span>
+      <textarea id="note-title" className="title-input" rows={1} value={title}
         onChange={(event) => onTitleChange(event.target.value.replace(/[\r\n]+/g, " "))}
         onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) event.preventDefault(); }}
         placeholder={t`Untitled`} spellCheck="true" readOnly={readOnly} aria-readonly={readOnly} />
     </div>
-    <Suspense fallback={<div className="body-editor code-editor-loading" role="status" aria-label={t`Loading note editor`} aria-busy="true"><Trans>Preparing editor…</Trans></div>}>
+  </>;
+}
+
+export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, recentPaths,
+  linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, onUploadAttachment, remoteApplyToken, onTitleChange, onTitleVisibilityChange, onBodyChange,
+  onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
+  onVisibleFileEmbeds, onVisibleNoteEmbeds, footer, autoFocus = true, readOnly = false, provenance }: MarkdownNoteEditorProps) {
+  useLingui();
+  const header = <NoteHeader title={draft.title} readOnly={readOnly} provenance={provenance} onTitleChange={onTitleChange} onTitleVisibilityChange={onTitleVisibilityChange} />;
+  return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
+    <Suspense fallback={<div className="note-loading"><div className="note-header">{header}</div><div className="body-editor code-editor-loading" role="status" aria-label={t`Loading note editor`} aria-busy="true"><Trans>Preparing editor…</Trans></div></div>}>
       <CodeEditor key={editorKey} value={draft.body} onChange={onBodyChange} label={t`Note body`} language="markdown" readOnly={readOnly}
         variant="writer" placeholder={t`Start writing`} vimEnabled={preferences.vim} lineWrapping={preferences.lineWrapping}
         typewriter={preferences.focusMode && preferences.typewriterScrolling} quietMarkdown={preferences.quietMarkdown} autoFocus={autoFocus} className="body-editor" documentId={documentId}
@@ -70,7 +95,7 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
         onDismissLinkPreview={onDismissLinkPreview} embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes}
         onOpenFile={onOpenFile} files={files} notes={notes} onOpenFileLink={onOpenFileLink}
         onVisibleFileEmbeds={onVisibleFileEmbeds} onVisibleNoteEmbeds={onVisibleNoteEmbeds} insertion={insertion}
-        remoteApplyToken={remoteApplyToken} footer={footer} onUploadAttachment={onUploadAttachment} />
+        remoteApplyToken={remoteApplyToken} header={header} footer={footer} onUploadAttachment={onUploadAttachment} />
     </Suspense>
   </article>;
 }

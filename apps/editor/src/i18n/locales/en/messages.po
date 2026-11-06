@@ -2614,6 +2614,10 @@ msgstr "Getting this collection ready…"
 msgid "Give the type a name, then add the fields its notes need."
 msgstr "Give the type a name, then add the fields its notes need."
 
+#: src/App.tsx
+msgid "Go to note title"
+msgstr "Go to note title"
+
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "Guide compatible tools when they create or rename records of this type."
@@ -5788,6 +5792,7 @@ msgstr "Unsaved type or creation changes will be discarded when the new collecti
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "Unsaved type or creation changes will be discarded."
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx

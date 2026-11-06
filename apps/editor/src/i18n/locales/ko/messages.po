@@ -2614,6 +2614,10 @@ msgstr "컬렉션 준비 중…"
 msgid "Give the type a name, then add the fields its notes need."
 msgstr "유형 이름을 입력한 다음 노트에 필요한 필드를 추가하세요."
 
+#: src/App.tsx
+msgid "Go to note title"
+msgstr "노트 제목으로 이동"
+
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "호환 도구가 이 유형의 레코드를 만들거나 이름을 바꿀 때 참고하도록 안내합니다."
@@ -5788,6 +5792,7 @@ msgstr "새 컬렉션을 열면 저장되지 않은 유형 또는 생성 변경�
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "저장되지 않은 유형 또는 생성 변경사항이 버려집니다."
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx

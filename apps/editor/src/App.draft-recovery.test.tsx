@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "./test/locale";
 import { expect, it, vi } from "vitest";
 import { MdbaseConnectError } from "@mdbase-dev/connect";
@@ -6,8 +7,8 @@ import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 
 vi.mock("./CodeEditor", () => ({
-  CodeEditor: ({ value, onChange, label, readOnly }: { value: string; onChange?: (text: string) => void; label: string; readOnly?: boolean }) =>
-    <textarea aria-label={label} readOnly={readOnly} value={value} onChange={(event) => onChange?.(event.target.value)} />
+  CodeEditor: ({ header, value, onChange, label, readOnly }: { header?: ReactNode; value: string; onChange?: (text: string) => void; label: string; readOnly?: boolean }) =>
+    <>{header}<textarea aria-label={label} readOnly={readOnly} value={value} onChange={(event) => onChange?.(event.target.value)} /></>
 }));
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
