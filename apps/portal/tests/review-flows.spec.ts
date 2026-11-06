@@ -596,7 +596,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   for (const colorScheme of ["light", "dark"] as const) test(`Portal keyboard and cached palette ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme });
+    const sessions = page.waitForResponse("**/v1/account/sessions");
     await openScenario(page, "heavy-account");
+    await sessions;
     const requests: string[] = [];
     page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/v1/")) requests.push(request.url()); });
     const search = page.getByRole("button", { name: /^Search/ });

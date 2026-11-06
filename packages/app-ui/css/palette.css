@@ -41,8 +41,9 @@
 }
 
 .mdbase-command-results {
+  min-height: 0;
   height: 380px;
-  max-height: 380px;
+  max-height: 100%;
   overflow: auto;
   padding: 4px 6px 8px;
   scroll-padding: 28px 0 8px;

@@ -35,7 +35,7 @@ test("built palette holds its open height until empty and exits continuously", a
   await page.getByRole("button", { name: /^Search/ }).click();
   const palette = page.getByRole("dialog", { name: "Commands", exact: true });
   await palette.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
-  await expect(palette.locator(".mdbase-command-results")).toHaveCSS("max-height", "380px");
+  await expect(palette.locator(".mdbase-command-results")).toHaveCSS("max-height", "100%");
   const openingHeight = (await palette.locator(".mdbase-command-results").boundingBox())!.height;
   expect(openingHeight).toBeGreaterThanOrEqual(380);
   await page.keyboard.type("a");

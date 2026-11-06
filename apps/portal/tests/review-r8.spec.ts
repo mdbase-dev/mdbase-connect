@@ -85,6 +85,9 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       let readback!: () => void;
       const refreshed = new Promise<void>(resolve => { readback = resolve; });
       await page.route("**/v1/me", async route => { await refreshed; await route.continue(); });
+      let metadata!: () => void;
+      const configuration = new Promise<void>(resolve => { metadata = resolve; });
+      await page.route("**/v1/ui-configuration", async route => { await configuration; await route.continue(); });
       await page.evaluate(() => {
         Object.assign(window, { rowFocus: [] });
         document.addEventListener("focusin", event => {
@@ -110,6 +113,52 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       expect(focus).toHaveLength(1);
       expect(focus[0]).not.toBe("app:app-1");
       await testInfo.attach("confirmed-revoke-focus", { body: JSON.stringify(focus), contentType: "application/json" });
+      metadata();
+    });
+
+    test("failed revocation releases the dialog while overview readback is held", async ({ page }) => {
+      await openScenario(page, "applications");
+      const reader = page.locator('[data-command="app:app-1"]');
+      await keyTo(page, reader.locator(":scope > summary"), "j");
+      await page.keyboard.press("Enter");
+      await keyTo(page, reader.getByRole("button", { name: "Revoke app", exact: true }), "Tab");
+      await page.keyboard.press("Enter");
+      const dialog = page.getByRole("dialog", { name: "Revoke Reader?", exact: true });
+      let release!: () => void;
+      let requested = false;
+      const readback = new Promise<void>(resolve => { release = resolve; });
+      await page.route("**/v1/me", async route => { requested = true; await readback; await route.continue(); });
+      await page.route("**/v1/grants/revoke-batch", route => route.fulfill({ status: 500, json: { error: { message: "Revocation failed" } } }));
+      try {
+        await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
+        await expect.poll(() => requested).toBe(true);
+        await expect(dialog.getByRole("alert")).toBeVisible();
+        await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
+        await expect(dialog.getByRole("button", { name: "Revoke app", exact: true })).toBeEnabled();
+        await expect(reader).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(dialog).toHaveCount(0);
+        await expect(reader).toBeVisible();
+      } finally { release(); }
+    });
+
+    test("rejected password sign-in focuses the first invalid field with its error", async ({ page }) => {
+      await openScenario(page, "anonymous");
+      await page.route("**/v1/auth/password/login", route => route.fulfill({ status: 401, json: { error: { message: "Email or password is incorrect." } } }));
+      const email = page.getByLabel("Email", { exact: true });
+      const password = page.getByLabel("Password", { exact: true });
+      await page.keyboard.type("wrong@example.test");
+      await page.keyboard.press("Tab");
+      await expect(password).toBeFocused();
+      await page.keyboard.type("incorrect-password");
+      await page.keyboard.press("Enter");
+      await expect(email).toBeFocused();
+      await expect(email).toHaveAttribute("aria-invalid", "true");
+      await expect(email).toHaveAccessibleDescription("Email or password is incorrect.");
+      await expect(password).toHaveAccessibleDescription("Email or password is incorrect.");
+      await page.keyboard.press("Control+a");
+      await page.keyboard.type("correct@example.test");
+      await expect(email).toHaveValue("correct@example.test");
     });
 
     for (const [scenario, field] of [["anonymous", "Email"], ["signup", "Email"], ["signup-agreements", "Name"], ["forgot-password", "Email"], ["reset-password", "New password"]]) {
@@ -133,3 +182,32 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
     });
   });
 }
+
+for (const colorScheme of ["light", "dark"] as const) test.describe(`short viewport palette ${colorScheme}`, () => {
+  test.use({ viewport: { width: 844, height: 390 }, colorScheme });
+  test("result navigation scrolls the pane, not the focused search out of view", async ({ page }, testInfo) => {
+    await openScenario(page, "typical-account");
+    await page.keyboard.press("Control+k");
+    const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+    const input = palette.getByRole("combobox");
+    await palette.evaluate(dialog => Promise.all(dialog.getAnimations().map(animation => animation.finished)));
+    const geometry = () => palette.evaluate(dialog => {
+      const input = dialog.querySelector("input")!.getBoundingClientRect();
+      const pane = dialog.querySelector(".mdbase-command-results")!;
+      return { top: input.top, bottom: input.bottom, scroll: dialog.scrollTop, height: pane.getBoundingClientRect().height, paneScroll: pane.scrollTop };
+    });
+    const before = await geometry();
+    for (let index = 0; index < 12; index++) await page.keyboard.press("ArrowDown");
+    await expect(input).toBeFocused();
+    const after = await geometry();
+    expect(after.scroll).toBe(0);
+    expect(after.top).toBeGreaterThanOrEqual(0);
+    expect(after.bottom).toBeLessThanOrEqual(390);
+    expect(after.height).toBeLessThan(380);
+    expect(after.height).toBe(before.height);
+    expect(after.paneScroll).toBeGreaterThan(0);
+    await page.keyboard.type("coastal");
+    expect((await geometry()).height).toBe(before.height);
+    await testInfo.attach("short-palette-geometry", { body: JSON.stringify({ before, after }), contentType: "application/json" });
+  });
+});

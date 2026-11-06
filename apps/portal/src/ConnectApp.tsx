@@ -135,19 +135,27 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     setRefreshing(true);
     const generation = ++refreshGenerationRef.current;
     const mutationRevision = mutationRevisionRef.current;
+    const failed = (reason: unknown) => {
+      if (signal?.aborted || generation !== refreshGenerationRef.current) return;
+      if (reason instanceof ManagementApiError && reason.status === 401) {
+        clearOverviewPreview(); setPreview(undefined); setData(undefined);
+        location.href = signInRedirectUrl(management.baseUrl, hadSession.current);
+        return;
+      }
+      setRefreshError(errorMessage(reason));
+    };
     const request = (async () => {
-      try {
-        const next = await management.overview({ signal });
+      const next = await management.overview({ signal });
+      if (signal?.aborted || lifecycleRef.current?.signal.aborted || generation !== refreshGenerationRef.current || mutationRevision !== mutationRevisionRef.current) return;
+      writeOverviewPreview(next); setPreview(readOverviewPreview());
+      hadSession.current = true;
+      const update = () => {
         if (signal?.aborted || lifecycleRef.current?.signal.aborted || generation !== refreshGenerationRef.current || mutationRevision !== mutationRevisionRef.current) return;
-        writeOverviewPreview(next); setPreview(readOverviewPreview());
-        hadSession.current = true;
-        const update = () => {
-          if (signal?.aborted || lifecycleRef.current?.signal.aborted || generation !== refreshGenerationRef.current || mutationRevision !== mutationRevisionRef.current) return;
-          flushSync(() => setData([...optimisticRef.current.values()].reduce(applyOptimisticAction, next)));
-        };
-        await (animate ? transitionState(update) : update());
-        setRefreshError("");
-        const configuration = await management.uiConfiguration({ signal });
+        flushSync(() => setData([...optimisticRef.current.values()].reduce(applyOptimisticAction, next)));
+      };
+      await (animate ? transitionState(update) : update());
+      setRefreshError("");
+      void management.uiConfiguration({ signal }).then(async configuration => {
         if (generation !== refreshGenerationRef.current) return;
         setEditorOrigin(configuration.editor_url ? new URL(configuration.editor_url).origin : undefined);
         if (next.authentication.provider !== "tailscale") {
@@ -155,18 +163,8 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
           if (generation !== refreshGenerationRef.current) return;
           setSessions(sessionResult.sessions);
         }
-      } catch (reason) {
-        if (signal?.aborted || generation !== refreshGenerationRef.current) return;
-        if (reason instanceof ManagementApiError && reason.status === 401) {
-          clearOverviewPreview();
-          setPreview(undefined);
-          setData(undefined);
-          location.href = signInRedirectUrl(management.baseUrl, hadSession.current);
-          return;
-        }
-        setRefreshError(errorMessage(reason));
-      }
-    })();
+      }).catch(failed);
+    })().catch(failed);
     refreshInFlightRef.current = { promise: request, signal };
     const settled = () => {
       if (refreshInFlightRef.current?.promise === request) {
@@ -258,8 +256,8 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       busyRef.current.delete(id);
       if (!lifecycle.aborted) {
         setBusy(new Set(busyRef.current));
-        await refreshInFlightRef.current?.promise;
-        await refresh(lifecycle, succeeded && !optimistic);
+        const readback = (refreshInFlightRef.current?.promise ?? Promise.resolve()).then(() => refresh(lifecycle, succeeded && !optimistic));
+        if (succeeded && !optimistic) await readback;
       }
     }
     return succeeded;
