@@ -45,7 +45,7 @@
   color: var(--color-text);
   box-shadow: var(--elevation-low);
   font: var(--font-size-caption)/1.4 var(--sans);
-  pointer-events: none;
+  pointer-events: auto;
   opacity: 1;
   transition: opacity var(--motion-fast) var(--ease-out);
 }

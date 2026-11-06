@@ -169,7 +169,12 @@ for (const theme of ["light", "dark"]) {
       await help.waitFor();
       assert.equal(new Set(await help.locator("dd").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().x))).size, 1);
       await screenshot(page, `parity-shortcuts-${theme}`);
+      await page.getByRole("tooltip").waitFor();
       await page.keyboard.press("Escape");
+      await page.getByRole("tooltip").waitFor({ state: "detached" });
+      assert.equal(await help.isVisible(), true);
+      await page.keyboard.press("Escape");
+      await help.waitFor({ state: "detached" });
       await nav(page, "Collections").click();
       const card = page.locator(".collection-card").filter({ has: page.getByRole("heading", { name: "Notes", exact: true }) });
       assert.equal(await card.getByRole("button").count(), 1);

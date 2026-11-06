@@ -215,7 +215,7 @@ for (const colorScheme of ["light", "dark"] as const) test.describe(`short viewp
 for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as const) test.describe(`shared tooltips ${width} ${colorScheme}`, () => {
   test.use({ viewport: { width, height: width === 390 ? 844 : 900 }, colorScheme });
 
-  test("hover waits 400ms, hands off immediately and never changes button layout or captures clicks", async ({ page }, testInfo) => {
+  test("hover waits 400ms, hands off immediately and never changes button layout or blocks its clicks", async ({ page }, testInfo) => {
     await openScenario(page, "typical-account");
     await page.clock.install({ time: new Date(clock) });
     await page.clock.pauseAt(new Date(new Date(clock).getTime() + 1000));
@@ -229,7 +229,9 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
     const tooltip = page.getByRole("tooltip");
     await expect(tooltip).toHaveText(await first.getAttribute("aria-label") as string);
     expect(await first.boundingBox()).toEqual(firstBounds);
-    await expect(tooltip).toHaveCSS("pointer-events", "none");
+    await expect(tooltip).toHaveCSS("pointer-events", "auto");
+    await expect(first).not.toHaveAttribute("aria-describedby");
+    await expect(first).toHaveAccessibleDescription("");
     await expect(first).not.toHaveAttribute("title");
     const bounds = (await tooltip.boundingBox())!;
     expect(bounds.x).toBeGreaterThanOrEqual(8);
@@ -246,6 +248,8 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
     }));
     await page.keyboard.press("Escape");
     await expect(tooltip).toHaveCount(0);
+    expect(await page.evaluate(() => Reflect.get(window, "tooltipEscape"))).toBeUndefined();
+    await page.keyboard.press("Escape");
     expect(await page.evaluate(() => Reflect.get(window, "tooltipEscape"))).toEqual({ prevented: false, reached: true });
     await page.mouse.move(0, 0);
     await page.clock.runFor(801);
@@ -264,7 +268,7 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
     await testInfo.attach("tooltip-layout", { body: JSON.stringify({ firstBounds, tooltip: bounds, delay: 400, warmDelay: 0 }), contentType: "application/json" });
   });
 
-  test("keyboard focus is immediate, blur and press dismiss, and one Escape still closes the dialog", async ({ page }) => {
+  test("keyboard focus is immediate, blur and press dismiss, and Escape closes the tooltip before its dialog", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await openScenario(page, "typical-account");
     const actions = page.getByRole("button", { name: /^Actions for / }).first();
@@ -286,11 +290,102 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
     await keyTo(page, close, "Tab");
     await expect(close).toBeFocused();
     await expect(close).toHaveAttribute("aria-keyshortcuts", "Escape");
+    await expect(close).toHaveAccessibleName("Close");
+    await expect(close).toHaveAccessibleDescription("Escape");
     await expect(page.getByRole("tooltip").locator("kbd")).toHaveText("Escape");
     await expect(page.getByRole("tooltip")).toHaveCSS("transition-property", "none");
     await page.keyboard.press("Escape");
-    await expect(dialog).toHaveCount(0);
     await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    await expect(close).toBeFocused();
+    await expect(close).not.toHaveAttribute("aria-describedby");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  });
+
+  test("the pointer can cross the gap and hover the bubble without a focus stop", async ({ page }) => {
+    await openScenario(page, "typical-account");
+    await page.clock.install({ time: new Date(clock) });
+    await page.clock.pauseAt(new Date(new Date(clock).getTime() + 1000));
+    const actions = page.getByRole("button", { name: /^Actions for / }).first();
+    await keyTo(page, actions, "Tab");
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toBeVisible();
+    await actions.hover();
+    const button = (await actions.boundingBox())!;
+    const bubble = (await tooltip.boundingBox())!;
+    await page.mouse.move(button.x + button.width / 2, button.y + button.height + 3);
+    await page.clock.runFor(80);
+    await expect(tooltip).toBeVisible();
+    await page.mouse.move(bubble.x + bubble.width / 2, bubble.y + bubble.height / 2);
+    await page.clock.runFor(500);
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).not.toHaveAttribute("tabindex");
+    await expect(actions).toBeFocused();
+    await actions.hover();
+    await page.clock.runFor(500);
+    await expect(tooltip).toBeVisible();
+    await tooltip.hover();
+    await page.mouse.move(0, 0);
+    await page.clock.runFor(119);
+    await expect(tooltip).toBeVisible();
+    await page.clock.runFor(1);
+    await expect(tooltip).toHaveCount(0);
+  });
+
+  for (const phase of ["pending", "visible"]) test(`${phase} tooltips cancel when the trigger is disabled or hidden`, async ({ page }) => {
+    await openScenario(page, "typical-account");
+    await page.clock.install({ time: new Date(clock) });
+    await page.clock.pauseAt(new Date(new Date(clock).getTime() + 1000));
+    const actions = page.getByRole("button", { name: /^Actions for / }).first();
+    const tooltip = page.getByRole("tooltip");
+    for (const attribute of ["disabled", "hidden", "style", "ancestor-hidden", "inert"]) {
+      await actions.hover();
+      await page.clock.runFor(phase === "pending" ? 200 : 400);
+      await expect(tooltip).toHaveCount(phase === "pending" ? 0 : 1);
+      await actions.evaluate((button, attribute) => {
+        if (attribute === "ancestor-hidden") button.parentElement!.hidden = true;
+        else button.setAttribute(attribute, attribute === "style" ? "visibility: hidden" : "");
+      }, attribute);
+      await page.clock.runFor(401);
+      await expect(tooltip).toHaveCount(0);
+      await actions.evaluate((button, attribute) => {
+        if (attribute === "ancestor-hidden") button.parentElement!.hidden = false;
+        else button.removeAttribute(attribute);
+      }, attribute);
+      await page.mouse.move(0, 0);
+      await page.clock.runFor(801);
+    }
+  });
+
+  for (const phase of ["pending", "visible"]) test(`${phase} tooltips cancel on scroll, resize and window blur`, async ({ page }) => {
+    await openScenario(page, "typical-account");
+    await page.clock.install({ time: new Date(clock) });
+    await page.clock.pauseAt(new Date(new Date(clock).getTime() + 1000));
+    const actions = page.getByRole("button", { name: /^Actions for / }).first();
+    await actions.evaluate(button => {
+      document.documentElement.style.overflow = "auto";
+      document.body.style.minHeight = "2000px";
+      button.closest<HTMLElement>(".connect-collection-row")!.style.viewTransitionName = "none";
+      Object.assign(button.style, { position: "fixed", top: "100px", left: "100px", zIndex: "9999" });
+    });
+    for (const event of ["scroll", "resize", "blur"]) {
+      await actions.hover();
+      await page.clock.runFor(phase === "pending" ? 200 : 400);
+      await expect(page.getByRole("tooltip")).toHaveCount(phase === "pending" ? 0 : 1);
+      if (event === "scroll") {
+        await page.mouse.wheel(0, 200);
+        await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+        expect(await actions.evaluate(button => button.matches(":hover"))).toBe(true);
+      } else if (event === "resize") {
+        const viewport = page.viewportSize()!;
+        await page.setViewportSize({ ...viewport, height: viewport.height - 10 });
+      } else await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+      await page.clock.runFor(401);
+      await expect(page.getByRole("tooltip")).toHaveCount(0);
+      await page.mouse.move(0, 0);
+      await page.clock.runFor(801);
+    }
   });
 
   test("a pending hover is cancelled on leave, Escape and outside press", async ({ page }) => {
@@ -323,6 +418,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }
     });
     await openScenario(page, "typical-account");
     const trigger = page.getByRole("button", { name: `Actions for ${name}`, exact: true });
+    await trigger.scrollIntoViewIfNeeded();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await trigger.hover();
     const before = await trigger.boundingBox();
     const tooltip = page.getByRole("tooltip");

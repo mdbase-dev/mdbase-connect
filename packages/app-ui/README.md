@@ -42,10 +42,14 @@ Import `Tooltip` from `@mdbase-dev/ui/tooltip` and include `controls.css`.
 Wrap one native icon button in `<Tooltip label="Search" shortcut="mod+k">…</Tooltip>`.
 Localize the label in the caller. The optional shortcut uses the same notation and
 platform labels as the command palette and sets `aria-keyshortcuts` on the button.
-The button keeps its ref and handlers; a native manual popover adds no layout box,
-focus stop, click target, or Escape interception. Hover waits 400 ms, keyboard
+The button keeps its ref and handlers; a native manual popover adds no layout box
+or focus stop. Escape dismisses a visible tooltip before the parent dialog;
+the bubble remains visible while hovered, with 120 ms to cross the gap.
+Only the supplemental shortcut is linked as a description, preserving existing
+button names and descriptions. Hover waits 400 ms, keyboard
 focus is immediate, and a recently closed tooltip keeps the next one immediate
-for 800 ms. Touch presses do not show a tooltip.
+for 800 ms. Touch presses do not show a tooltip. Scroll, resize, window blur,
+press, or an unavailable trigger cancels pending and visible hints.
 
 ## Toasts
 
