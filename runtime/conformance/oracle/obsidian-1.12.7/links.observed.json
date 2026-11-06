@@ -1,0 +1,195 @@
+{
+ "oracle": "Obsidian 1.12.7 Bases table view grouped by note.projects",
+ "runs": [
+  {
+   "files": [
+    "folder/P.md",
+    "Q.md",
+    "sub/P2.md"
+   ],
+   "notes": {
+    "n_a": "[[P]]",
+    "n_b": "[[P|alias]]",
+    "n_c": "[[folder/P]]",
+    "n_d": "[[P#head]]",
+    "n_e": "[[Q]]",
+    "n_f": [
+     "[[P]]"
+    ],
+    "n_g": [
+     "[[P|alias]]"
+    ],
+    "n_h": [
+     "[[P]]",
+     "[[Q]]"
+    ],
+    "n_i": [
+     "[[Q]]",
+     "[[P]]"
+    ],
+    "n_j": "[[Nope]]",
+    "n_k": "[[nope]]",
+    "n_l": "plain",
+    "n_m": [
+     "[[Nope]]"
+    ],
+    "n_n": "[[folder/P.md]]",
+    "n_o": "[P](folder/P.md)",
+    "n_p": [
+     "plain",
+     "[[P]]"
+    ]
+   },
+   "groups": [
+    [
+     "n_j",
+     "n_m"
+    ],
+    [
+     "n_k"
+    ],
+    [
+     "n_a",
+     "n_b",
+     "n_c",
+     "n_d",
+     "n_f",
+     "n_g",
+     "n_n"
+    ],
+    [
+     "n_h"
+    ],
+    [
+     "n_e"
+    ],
+    [
+     "n_i"
+    ],
+    [
+     "n_o"
+    ],
+    [
+     "n_l"
+    ],
+    [
+     "n_p"
+    ]
+   ]
+  },
+  {
+   "files": [
+    "folder/P.md",
+    "Q.md",
+    "img.png"
+   ],
+   "notes": {
+    "n_a": "[[P]]",
+    "n_b": "[[p]]",
+    "n_c": "[[Nope]]",
+    "n_d": "[[Nope|a]]",
+    "n_e": "[[Nope#h]]",
+    "n_f": "[[sub/Nope]]",
+    "n_g": "[[Nope.md]]",
+    "n_h": "[[a]] and [[b]]",
+    "n_i": "![[P]]",
+    "n_j": "[[#head]]",
+    "n_k": "[[]]",
+    "n_l": "[[img.png]]",
+    "n_m": [
+     "[[Nope|a]]"
+    ],
+    "n_o": "[[ P ]]",
+    "n_q": "[[Q]]",
+    "n_r": [
+     "[[Q]]",
+     "[[P]]"
+    ],
+    "n_s": [
+     "[[P]]"
+    ],
+    "n_t": "plain",
+    "n_u": [],
+    "n_v": ""
+   },
+   "groups": [
+    [
+     "n_u"
+    ],
+    [
+     "n_i"
+    ],
+    [
+     "n_o"
+    ],
+    [
+     "n_k",
+     "n_v"
+    ],
+    [
+     "n_j"
+    ],
+    [
+     "n_h"
+    ],
+    [
+     "n_l"
+    ],
+    [
+     "n_g"
+    ],
+    [
+     "n_c",
+     "n_d",
+     "n_m"
+    ],
+    [
+     "n_e"
+    ],
+    [
+     "n_a",
+     "n_b",
+     "n_s"
+    ],
+    [
+     "n_q"
+    ],
+    [
+     "n_r"
+    ],
+    [
+     "n_f"
+    ],
+    [
+     "n_t"
+    ],
+    [
+     "n_w"
+    ]
+   ],
+   "sorted": [
+    "n_u",
+    "n_v",
+    "n_i",
+    "n_o",
+    "n_k",
+    "n_j",
+    "n_h",
+    "n_l",
+    "n_g",
+    "n_c",
+    "n_e",
+    "n_m",
+    "n_a",
+    "n_b",
+    "n_s",
+    "n_q",
+    "n_r",
+    "n_f",
+    "n_d",
+    "n_t",
+    "n_w"
+   ]
+  }
+ ]
+}

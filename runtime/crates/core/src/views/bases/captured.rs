@@ -138,6 +138,22 @@ impl CapturedLink {
             format!("[[{}]]", self.path)
         })
     }
+    /// The wikilink as written: the path, then any alias after a pipe.
+    pub fn source(&self) -> String {
+        match &self.display {
+            Some(display) => format!("[[{}|{display}]]", self.path),
+            None => format!("[[{}]]", self.path),
+        }
+    }
+    /// Grouping identity. Obsidian merges rows on the resolved file, ignoring
+    /// heading and alias; broken links keep their heading, unlike `equals`.
+    /// `None` when the resolver could not name one file.
+    pub(super) fn identity(&self) -> Option<(bool, &str)> {
+        match self.resolved.as_ref()? {
+            Some(path) => Some((true, path)),
+            None => Some((false, &self.path)),
+        }
+    }
     /// Captured equivalent of the port's direct Link/Link identity comparison.
     /// Broken links retain target identity (minus subpath), not plausible files.
     pub fn equals(&self, rhs: &Self, budget: &mut WorkBudget) -> Result<bool, EvaluationFailure> {

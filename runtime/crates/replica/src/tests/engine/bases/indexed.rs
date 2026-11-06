@@ -382,6 +382,110 @@ fn stock_projects_groups_whole_lists_in_both_executors_with_deterministic_order(
     assert_eq!(output(&result), output(&baseline));
 }
 #[test]
+fn stock_projects_groups_links_by_resolved_file_in_both_executors_and_windows() {
+    let (svc, mut a, _) = configured();
+    let source = include_str!("../../../../../../conformance/views/tasknotes-projects.base");
+    a.create(11, "TaskNotes/Views/projects.base", source);
+    a.create(20, "Projects/Alpha.md", "---\ntitle: Alpha\n---\n");
+    a.create(21, "Projects/Beta.md", "---\ntitle: Beta\n---\n");
+    for (id, name, projects) in [
+        (1, "bare", "['[[Alpha]]']"),
+        (2, "aliased", "['[[Projects/Alpha|A]]']"),
+        (3, "heading", "['[[alpha#Notes]]']"),
+        (4, "scalar", "'[[Alpha]]'"),
+        (5, "pair", "['[[Alpha]]', '[[Beta]]']"),
+        (6, "reverse", "['[[Beta]]', '[[Alpha]]']"),
+        (7, "broken", "['[[Missing]]']"),
+        (8, "brokenAlias", "['[[Missing|gone]]']"),
+        (9, "brokenHeading", "['[[Missing#later]]']"),
+        (10, "text", "plain"),
+    ] {
+        a.create(
+            id,
+            &format!("{name}.md"),
+            &format!("---\ntitle: {name}\nstatus: open\ntags: [task]\nprojects: {projects}\n---\n"),
+        );
+    }
+    settle(&mut [&mut a]);
+    let selected = selection(source, 0);
+    let hints = BTreeMap::new();
+    let input =
+        a.r.capture_bases_execution_inputs(selected, Some(&hints), Some("UTC"))
+            .unwrap();
+    let baseline =
+        a.r.execute_captured_bases_view(input, policies(), &|| false)
+            .unwrap();
+    let mut groups = baseline
+        .groups
+        .iter()
+        .map(|group| {
+            let mut paths = group
+                .rows
+                .iter()
+                .map(|i| baseline.rows[*i].path.as_str())
+                .collect::<Vec<_>>();
+            paths.sort_unstable();
+            paths
+        })
+        .collect::<Vec<_>>();
+    groups.sort();
+    assert_eq!(
+        groups,
+        vec![
+            vec!["aliased.md", "bare.md", "heading.md", "scalar.md"],
+            vec!["broken.md", "brokenAlias.md"],
+            vec!["brokenHeading.md"],
+            vec!["pair.md"],
+            vec!["reverse.md"],
+            vec!["text.md"],
+        ]
+    );
+    let mut r = projected(&svc, a);
+    let full = r
+        .execute_indexed_bases_view(selected, Some(&hints), Some("UTC"), policies(), &|| false)
+        .unwrap();
+    assert_eq!(output(&full), output(&baseline));
+    let window = r
+        .execute_indexed_bases_window_view(
+            selected,
+            Some(&hints),
+            Some("UTC"),
+            crate::replica::BasesExecutionWindow {
+                offset: 1,
+                limit: 3,
+            },
+            &|| false,
+        )
+        .unwrap();
+    assert_eq!(window.rows.len(), 3);
+    assert_eq!(window.rows[0].path, full.rows[1].path);
+}
+#[test]
+fn an_unconfirmed_target_already_resolves_links_to_it() {
+    let (_, mut a, _) = configured();
+    let source = "filters: projects.isEmpty() == false\nviews: [{type: table, order: [projects], groupBy: {property: projects}}]\n";
+    a.create(11, "View.base", source);
+    a.create(1, "one.md", "---\nprojects: '[[Later]]'\n---\n");
+    a.create(2, "two.md", "---\nprojects: '[[sub/Later]]'\n---\n");
+    settle(&mut [&mut a]);
+    let groups = |a: &mut Node| {
+        let input =
+            a.r.capture_bases_execution_inputs(
+                selection(source, 0),
+                Some(&BTreeMap::new()),
+                Some("UTC"),
+            )
+            .unwrap();
+        a.r.execute_captured_bases_view(input, policies(), &|| false)
+            .unwrap()
+            .groups
+            .len()
+    };
+    assert_eq!(groups(&mut a), 2);
+    a.create(3, "sub/Later.md", "---\ntitle: Later\n---\n");
+    assert_eq!(groups(&mut a), 1);
+}
+#[test]
 fn unsupported_backend_or_dynamic_requirements_refuse_without_source_inventory() {
     let (_, mut a, source) = configured();
     a.create(11, "Views/task.base", &source);

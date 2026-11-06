@@ -22,6 +22,7 @@ pub struct Bindings<'a> {
     strict_captured_types: bool,
     clock: Option<CapturedClock>,
     file: Option<super::CapturedFileBindings<'a>>,
+    links: Option<super::BasesLinks<'a>>,
 }
 
 impl<'a> Bindings<'a> {
@@ -33,6 +34,7 @@ impl<'a> Bindings<'a> {
             strict_captured_types: false,
             clock: None,
             file: None,
+            links: None,
         }
     }
     /// Supply captured property hints, never an ambient host registry. Calendar
@@ -68,7 +70,14 @@ impl<'a> Bindings<'a> {
                 "typed_property"
             });
         }
-        unsupported_display_value(value, true, 1, budget)
+        unsupported_display_value(value, true, self.links.is_some(), 1, budget)
+    }
+
+    /// Resolve property wikilinks against one request's state. Unbound rows
+    /// keep refusing them; there is no text fallback for a link's identity.
+    pub fn with_links(mut self, links: super::BasesLinks<'a>) -> Self {
+        self.links = Some(links);
+        self
     }
 
     /// Carry explicit immutable captured file facts through this row/formulas.
@@ -89,6 +98,7 @@ impl<'a> Bindings<'a> {
 fn unsupported_display_value(
     value: &Value,
     property: bool,
+    links: bool,
     depth: usize,
     budget: &mut WorkBudget,
 ) -> Option<&'static str> {
@@ -101,19 +111,19 @@ fn unsupported_display_value(
     }
     match value {
         Value::Text(text) if property && text.starts_with("[[") && text.ends_with("]]") => {
-            Some("link_property")
+            (!links || super::links::property_link(text).is_none()).then_some("link_property")
         }
         Value::List(values) => values
             .iter()
-            .find_map(|value| unsupported_display_value(value, property, depth + 1, budget)),
+            .find_map(|value| unsupported_display_value(value, property, links, depth + 1, budget)),
         Value::Map(values) if values.get("type").and_then(Value::as_str) == Some("Link") => {
             Some("link_value")
         }
         // convert_core does not mark nested map text as a property. Preserve that
         // distinction, rather than guessing Markdown semantics for arbitrary maps.
-        Value::Map(values) => values
-            .iter()
-            .find_map(|(_, value)| unsupported_display_value(value, false, depth + 1, budget)),
+        Value::Map(values) => values.iter().find_map(|(_, value)| {
+            unsupported_display_value(value, false, links, depth + 1, budget)
+        }),
         _ => None,
     }
 }
@@ -304,7 +314,7 @@ impl Evaluator<'_, '_> {
     }
 
     fn string(&mut self, value: &RuntimeValue) -> String {
-        if self.budget.value(value, 1, true) {
+        if !self.refuse_link(value) && self.budget.value(value, 1, true) {
             value.plain_string()
         } else {
             String::new()
@@ -348,7 +358,7 @@ impl Evaluator<'_, '_> {
             }
             Value::Text(v) => {
                 if property && v.starts_with("[[") && v.ends_with("]]") {
-                    return self.refuse("link_property");
+                    return self.link_property(v);
                 }
                 if self.budget.text(v.len(), 1) {
                     RuntimeValue::String(v.clone())
@@ -567,6 +577,9 @@ impl Evaluator<'_, '_> {
     }
 
     fn number(&mut self, value: &RuntimeValue) -> Result<f64, String> {
+        if self.refuse_link(value) {
+            return Ok(0.0);
+        }
         match value {
             RuntimeValue::Number(v) => Ok(*v),
             RuntimeValue::Bool(v) => Ok(if *v { 1.0 } else { 0.0 }),
@@ -600,6 +613,9 @@ impl Evaluator<'_, '_> {
     }
 
     fn equals(&mut self, left: &RuntimeValue, right: &RuntimeValue) -> bool {
+        if self.refuse_link(left) || self.refuse_link(right) {
+            return false;
+        }
         if unqualified_equality(left) || unqualified_equality(right) {
             self.refuse("non_finite_comparison");
             return false;
@@ -800,16 +816,22 @@ impl Evaluator<'_, '_> {
         }
         let mut out = Vec::with_capacity(arguments.len());
         for v in arguments {
-            out.push(self.evaluate(v, scope));
-            if !self.budget.live() {
+            let value = self.evaluate(v, scope);
+            if self.refuse_link(&value) || !self.budget.live() {
                 break;
             }
+            out.push(value);
         }
         out
     }
 
     fn property(&mut self, receiver: RuntimeValue, key: &str) -> RuntimeValue {
         if !self.budget.text(key.len(), 6) {
+            return RuntimeValue::Null;
+        }
+        if !(key == "length" && matches!(receiver, RuntimeValue::List(_)))
+            && self.refuse_link(&receiver)
+        {
             return RuntimeValue::Null;
         }
         match receiver {
@@ -858,6 +880,9 @@ impl Evaluator<'_, '_> {
         match name {
             "isTruthy" => return RuntimeValue::Bool(receiver.is_truthy()),
             "isEmpty" => return RuntimeValue::Bool(receiver.is_empty()),
+            "toString" if matches!(receiver, RuntimeValue::Link(_)) => {
+                return self.link_string(&receiver);
+            }
             "toString" => return RuntimeValue::String(self.string(&receiver)),
             "isType" => {
                 let expected = arguments
@@ -871,6 +896,9 @@ impl Evaluator<'_, '_> {
                 );
             }
             _ => {}
+        }
+        if self.refuse_link(&receiver) {
+            return RuntimeValue::Null;
         }
         match receiver {
             RuntimeValue::Null => RuntimeValue::Null,
@@ -1398,5 +1426,6 @@ mod duration_operations;
 #[cfg(test)]
 mod duration_tests;
 mod file;
+mod links;
 #[cfg(test)]
 mod tests;

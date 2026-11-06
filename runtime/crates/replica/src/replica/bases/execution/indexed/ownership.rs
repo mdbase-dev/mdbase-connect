@@ -112,6 +112,7 @@ fn key_bytes(value: &RuntimeValue, depth: usize) -> Result<u64, EvaluationFailur
         }
         RuntimeValue::String(text) if text.len() <= 4096 => Ok(128 + text.len() as u64),
         RuntimeValue::Number(value) if value.is_finite() => Ok(128),
+        RuntimeValue::Link(link) => Ok(128 + link.source().len() as u64),
         RuntimeValue::String(_) => Err(EvaluationFailure::BudgetExceeded("ordering_key_bytes")),
         RuntimeValue::Null | RuntimeValue::Bool(_) | RuntimeValue::Date(_) => Ok(128),
         _ => Err(EvaluationFailure::UnsupportedConstruct(

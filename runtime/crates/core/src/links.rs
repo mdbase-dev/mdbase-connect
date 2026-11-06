@@ -412,7 +412,7 @@ impl Resolution {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LinkKey(pub String);
 
-fn folder_of(path: &str) -> &str {
+pub(crate) fn folder_of(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(d, _)| d)
 }
 

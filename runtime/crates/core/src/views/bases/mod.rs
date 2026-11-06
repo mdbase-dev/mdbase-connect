@@ -33,6 +33,8 @@ pub use streaming::{
     MAX_INCREMENTAL_SOURCE_BYTES, MAX_INCREMENTAL_STEPS,
 };
 mod file_bindings;
+mod links;
+pub use links::{BasesLinkMemo, BasesLinks, MAX_BASES_LINK_MEMO_BYTES};
 mod filter;
 mod numeric;
 mod ordering;
