@@ -344,6 +344,9 @@ impl std::fmt::Debug for Host {
 pub enum OpenError {
     /// The store failed.
     Store(StoreError),
+    /// The store failed at a named open step. The step is fixed text, so it
+    /// tells budget failures apart in production without any collection detail.
+    StoreAt(&'static str, StoreError),
     /// The store belongs to another collection or replica.
     Mismatch(String),
     /// A stored row could not be decoded.
@@ -569,6 +572,8 @@ pub struct Replica<S: Store> {
     pub(crate) install_points: Vec<snapshot::ControlPoint>,
     /// Entries between snapshots this replica builds (`snapshot.md` §5.3).
     pub snapshot_every: u64,
+    /// Record text one in-memory snapshot build may hold.
+    pub snapshot_record_bytes: u64,
     pub(crate) status_dirty: bool,
     /// Local-only grants and independently authenticated local serving identity.
     pub(crate) grant_source: Option<Box<dyn crate::policy::GrantSource>>,
@@ -601,6 +606,8 @@ pub struct Replica<S: Store> {
     /// The log already held a snapshot at or past this position when it
     /// declined ours: the periodic build counts from here.
     pub(crate) snapshot_declined: u64,
+    pub(crate) snapshot_decline_read: bool,
+    pub(crate) snapshot_decline_seen: bool,
 
     /// Counters.
     pub stats: Stats,
@@ -706,7 +713,9 @@ impl<S: Store> Replica<S> {
         }
         let head = store.head()?;
         let tail_stats = store.tail_stats()?;
-        let catalog = Arc::new(crate::plan::load_catalog(&store)?);
+        let catalog = Arc::new(
+            crate::plan::load_catalog(&store).map_err(|e| OpenError::StoreAt("catalog", e))?,
+        );
         let clock_floor = read_i64(&store, meta_keys::COUNTERS)?;
         // `log_state` is written by apply as `log_time ‖ sem_ratchet`.
         let (log_time, sem_ratchet) = match store.meta(meta_keys::LOG_STATE)? {
@@ -901,6 +910,7 @@ impl<S: Store> Replica<S> {
             verified_chunks: Default::default(),
             install_points: Vec::new(),
             snapshot_every: snapshot::SNAPSHOT_EVERY,
+            snapshot_record_bytes: u64::MAX,
             status_dirty: false,
             grant_source: source,
             declared_setup_pending: BTreeMap::new(),
@@ -921,6 +931,8 @@ impl<S: Store> Replica<S> {
             attachment_inventories: attachment_inventory::Inventories::default(),
             snapshot_blocked: None,
             snapshot_declined: 0,
+            snapshot_decline_read: false,
+            snapshot_decline_seen: false,
             stats: Stats::default(),
         };
         r.restore_private_choice();
@@ -941,7 +953,7 @@ impl<S: Store> Replica<S> {
         if derived_version < crate::store::DERIVED_DATA_VERSION {
             // Reuse the catalog rebuild; never reset authoritative local state.
             // Stamp only after ALL pages succeed so an interrupted open retries.
-            r.reindex()?;
+            r.reindex().map_err(|e| OpenError::StoreAt("reindex", e))?;
             r.store.commit(crate::store::Tx {
                 meta: vec![(
                     meta_keys::DERIVED_VERSION.into(),
@@ -960,12 +972,28 @@ impl<S: Store> Replica<S> {
         r.rebuild_local_view(&changed)
             .map_err(|e| OpenError::Corrupt(format!("{e:?}")))?;
         // A store opened without a complete query index (older store, crash after
-        // an invalidating write) is backfilled before serving.
-        r.backfill_query_index().map_err(OpenError::Store)?;
+        // an invalidating write) is backfilled before serving. A budget refusal
+        // leaves it unready, as after an install: the backend alone certifies
+        // readiness, queries use the per-record path or decline visibly, and the
+        // incident reports it. Other store errors stop the open.
+        match r.backfill_query_index() {
+            Ok(()) => {}
+            Err(StoreError::Full) => {
+                r.query_context = None;
+                r.incident(
+                    IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text(
+                        "store: query index backfill: over budget".into(),
+                    )),
+                );
+            }
+            Err(e) => return Err(OpenError::StoreAt("query_index_backfill", e)),
+        }
         // Whatever the view captured while rebuilding is replaced by what the disk holds.
         r.before.clear();
         r.load_regressed().map_err(OpenError::Store)?;
-        r.reconcile_disk()?;
+        r.reconcile_disk()
+            .map_err(|e| OpenError::StoreAt("reconcile_disk", e))?;
         if r.local_only() {
             r.connection = Connection::Online;
             // Host-only pending rows may resume. Granted rows fail closed until

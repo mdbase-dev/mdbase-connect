@@ -957,6 +957,12 @@ impl<S: Store> Engine<S> {
         self.replica.install_status()
     }
 
+    /// True once for each snapshot build declined as too large, and once per wake
+    /// that finds a decline still in force.
+    pub fn take_snapshot_declined(&mut self) -> bool {
+        self.replica.take_snapshot_declined()
+    }
+
     /// When to call [`Engine::tick`] next (host ms), if at all.
     pub fn next_wakeup(&self) -> Option<i64> {
         match (

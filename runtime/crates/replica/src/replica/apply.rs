@@ -2132,18 +2132,20 @@ impl<S: Store> Replica<S> {
                 })
                 .collect();
             self.stats.reindexed += rows.len() as u64;
-            let mut tx = Tx {
-                records_put: rows,
-                ..Tx::default()
-            };
-            let context = self
-                .prepare_query_index(&mut tx)
-                .map_err(|error| match error {
-                    StoreError::CommitAborted(reason) => StoreError::Io(reason),
-                    other => other,
-                })?;
-            self.store.commit(tx)?;
-            self.query_context = context;
+            for rows in super::query_index::byte_batches(rows) {
+                let mut tx = Tx {
+                    records_put: rows,
+                    ..Tx::default()
+                };
+                let context = self
+                    .prepare_query_index(&mut tx)
+                    .map_err(|error| match error {
+                        StoreError::CommitAborted(reason) => StoreError::Io(reason),
+                        other => other,
+                    })?;
+                self.store.commit(tx)?;
+                self.query_context = context;
+            }
         }
         Ok(())
     }

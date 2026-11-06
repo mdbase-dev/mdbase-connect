@@ -1464,6 +1464,47 @@ fn a_declined_periodic_snapshot_is_not_rebuilt_at_the_same_head() {
     assert_eq!(a.r.stats.snapshots_built + b.r.stats.snapshots_built, 2);
 }
 
+/// Past the record limit a build is declined before it holds the state in memory.
+/// One attempt per period, across wakes too: a decline must not repeat every tick.
+#[test]
+fn a_snapshot_over_the_record_limit_is_declined_once_per_period() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    a.r.snapshot_every = 10;
+    a.r.snapshot_record_bytes = 16;
+    for i in 0..10u8 {
+        a.create(i, &format!("n{i}.md"), "a note past the record limit");
+    }
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.stats.snapshots_built, 0);
+    assert_eq!(a.r.stats.snapshot_builds_refused, 1);
+    assert!(matches!(
+        a.r.snapshot_blocked(),
+        Some(crate::replica::SnapshotBlocked::RecordBytes { limit: 16 })
+    ));
+    assert!(a.r.take_snapshot_declined());
+    assert!(!a.r.take_snapshot_declined(), "reported once");
+    settle(&mut [&mut a]);
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.stats.snapshot_builds_refused, 1, "not at the same head");
+    // A new wake finds the decline in the store: it reports, and does not retry.
+    a.r.snapshot_declined = 0;
+    a.r.snapshot_decline_read = false;
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.stats.snapshot_builds_refused, 1, "not after a new wake");
+    assert!(a.r.take_snapshot_declined());
+    // The next period tries again, and builds once it fits.
+    a.r.snapshot_record_bytes = u64::MAX;
+    for i in 10..20u8 {
+        a.create(i, &format!("n{i}.md"), "a note past the record limit");
+    }
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.stats.snapshots_built, 1);
+    a.r.snapshot_decline_read = false;
+    settle(&mut [&mut a]);
+    assert!(!a.r.take_snapshot_declined(), "a later snapshot clears it");
+}
+
 /// A snapshot of several MiB of notes spans many record buckets. Its chunk
 /// uploads go out a few at a time: a native app host takes at most 64 calls in
 /// one turn and retires the whole log session on a larger burst.
