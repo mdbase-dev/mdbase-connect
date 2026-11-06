@@ -140,6 +140,13 @@ class WirePeer {
       kind: "push", type: "file_chunk", payload: wire.fileChunk.enc({ stream: streamId, offset: 0, bytes, last }),
     })));
   }
+  failStream(request: Request) {
+    this.note("server-stream-failure", { session: request.session, streamId });
+    this.ports[request.session - 1]!.onframe!(roundTrip(wire.clientFrame.enc({
+      kind: "push", type: "file_stream_failed",
+      payload: wire.fileStreamFailure.enc({ stream: streamId, problem: { code: "unavailable", recovery: "retry", message: "native read failed", reason: "file_read_failed" } }),
+    })));
+  }
   matching(method: string) { return this.requests.filter(r => r.method === method); }
   streamCancels(request: Request) {
     return this.matching("cancel_stream").filter(r => r.session === request.session && r.params instanceof Map && (r.params as Map<number, CborValue>).get(0) === streamId);
@@ -192,6 +199,46 @@ async function withPeer(name: string, body: (peer: WirePeer, client: MdbaseClien
 }
 
 // Strict cancellation assertions deliberately remain RED against the unfixed SDK.
+describe("files.downloadStream stream failure", () => {
+  it("rejects that download and keeps the session open", async () => {
+    await withPeer("stream-failure", async (peer, client) => {
+      const d = download(client, peer);
+      const request = await bounded(peer.read.promise, "read_file request");
+      expect(request.params).toEqual(new Map([[0, view.path]]));
+      peer.replyRead(request);
+      await bounded(d.file.done, "file");
+      peer.failStream(request);
+      const closed = await bounded(d.closed.done, "closed");
+      expect(closed).toMatchObject({ state: "rejected", error: { code: "unavailable", reason: "file_read_failed" } });
+      await checkpoint();
+      expect(client.link).toBe("open");
+      expect(peer.ports[0]).toBeDefined();
+      expect(peer.events).not.toContainEqual(expect.objectContaining({ event: "port-close" }));
+      expect(peer.matching("cancel_stream")).toHaveLength(0);
+    });
+  });
+
+  it("holds a failure that overtakes the read_file response", async () => {
+    await withPeer("stream-failure-early", async (peer, client) => {
+      const d = download(client, peer);
+      const request = await bounded(peer.read.promise, "read_file request");
+      peer.failStream(request);
+      peer.replyRead(request);
+      const closed = await bounded(d.closed.done, "closed");
+      expect(closed).toMatchObject({ state: "rejected", error: { reason: "file_read_failed" } });
+      await checkpoint();
+      expect(client.link).toBe("open");
+    });
+  });
+
+  it("asks the replica for stream failure at hello", async () => {
+    await withPeer("stream-failure-hello", async peer => {
+      const sent = peer.events.find((e): e is { frame: { params: CborValue } } => (e as { event?: string }).event === "hello-request")!;
+      expect(wire.helloParams.dec(sent.frame.params).features).toContain("file-stream-failure-v1");
+    });
+  });
+});
+
 describe("files.downloadStream public wire cancellation", () => {
   it("control: valid hello/FileView, bytes, ACK and EOF without cancellation", async () => {
     await withPeer("normal", async (peer, client) => {

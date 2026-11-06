@@ -937,8 +937,7 @@ impl<S: Store> Engine<S> {
     /// Run timers.
     pub fn tick(&mut self, now_ms: i64) {
         if let Some(session) = self.replica.attachment_read_tick(now_ms) {
-            self.close(session.0);
-            self.out.push(Out::Closed(session.0));
+            self.replica.attachment_read_end_idle(session);
         }
         self.replica.tick();
         self.frames.tick(&mut self.replica, now_ms);
@@ -1026,8 +1025,7 @@ impl<S: Store> Engine<S> {
             }
             Ok(None) => None,
             Err(session) => {
-                self.close(session.0);
-                self.out.push(Out::Closed(session.0));
+                self.replica.attachment_read_end_failed(session);
                 None
             }
         }
@@ -1069,8 +1067,7 @@ impl<S: Store> Engine<S> {
         match self.replica.attachment_read_complete(ticket, checksum) {
             Ok(done) => done,
             Err(session) => {
-                self.close(session.0);
-                self.out.push(Out::Closed(session.0));
+                self.replica.attachment_read_end_failed(session);
                 false
             }
         }
@@ -1078,8 +1075,7 @@ impl<S: Store> Engine<S> {
     /// Abort this exact pending object only, never a newer request's stream.
     pub fn attachment_failed(&mut self, ticket: u64) {
         if let Some(session) = self.replica.attachment_read_failed(ticket) {
-            self.close(session.0);
-            self.out.push(Out::Closed(session.0));
+            self.replica.attachment_read_end_failed(session);
         }
     }
 
@@ -1157,8 +1153,21 @@ impl<S: Store> Engine<S> {
     /// Everything to deliver, in order.
     pub fn poll(&mut self) -> Vec<Out> {
         self.drain_acks();
-        self.frames.pump(&mut self.replica);
         let mut out: Vec<Out> = std::mem::take(&mut self.out);
+        self.flush_frames(&mut out);
+        match self.replica.attachment_read_poll() {
+            Ok(Some((session, frame))) => out.push(Out::Frame(session.0, frame)),
+            Ok(None) => {}
+            Err(session) => {
+                self.replica.attachment_read_end_failed(session);
+                self.flush_frames(&mut out);
+            }
+        }
+        out
+    }
+
+    fn flush_frames(&mut self, out: &mut Vec<Out>) {
+        self.frames.pump(&mut self.replica);
         for (s, b) in self.frames.take_outgoing() {
             if b.len() <= MAX_OUT_FRAME {
                 out.push(Out::Frame(s.0, b));
@@ -1172,17 +1181,9 @@ impl<S: Store> Engine<S> {
             }
         }
         for session in self.frames.take_closed() {
+            self.submits.retain(|_, w| w.session != session);
             out.push(Out::Closed(session.0));
         }
-        match self.replica.attachment_read_poll() {
-            Ok(Some((session, frame))) => out.push(Out::Frame(session.0, frame)),
-            Ok(None) => {}
-            Err(session) => {
-                self.close(session.0);
-                out.push(Out::Closed(session.0));
-            }
-        }
-        out
     }
 }
 

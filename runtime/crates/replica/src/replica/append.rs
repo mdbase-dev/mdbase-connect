@@ -14,7 +14,6 @@
 //! The writer plans only when it has applied everything up to the head it knows
 //! (`caught_up`), never during a log move, and never while stalled.
 
-use crate::api::ClientApi;
 use std::collections::BTreeSet;
 
 use mdbn_core::plan::PlanOptions;
@@ -1577,14 +1576,7 @@ impl<S: Store> Replica<S> {
     /// Run timers: retries and backoff.
     pub fn tick(&mut self) {
         if let Some(session) = self.attachment_read_tick(self.now()) {
-            self.close(session);
-            self.pushes.push((
-                session,
-                crate::api::Push::Closed(
-                    crate::api::ErrorCode::Unavailable
-                        .problem_with_reason("file_read_idle", "file read timed out"),
-                ),
-            ));
+            self.attachment_read_end_idle(session);
         }
         self.prune_hosted_uploads();
         // An unlock's control read-ahead retries after transport trouble.

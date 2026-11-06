@@ -1021,8 +1021,17 @@ transfer-progress = {
   2: uint,               ; bytes done
   3: uint,               ; bytes total
 }
+file-stream-failed = {   ; push, only with the granted `file-stream-failure-v1`
+  0: uint,               ; stream ID
+  1: problem,            ; why; no `last` chunk will follow
+}
 ```
 
+- **Failure.** A read that cannot complete ends its stream, not the session. With
+  `file-stream-failure-v1` granted, the replica releases the stream and sends
+  `file-stream-failed`; it may overtake the `read_file` response, and other operations
+  are unaffected. Without the feature it closes the session with `closed`, because such
+  a client would otherwise wait forever for a `last` chunk.
 - **Pinning.** A download reads one blob for its whole life. A concurrent replacement
   doesn't disturb it: blobs are immutable, and GC keeps replaced blobs until the
   horizon.

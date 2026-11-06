@@ -692,6 +692,14 @@ pub enum Push {
     FileChunk(FileChunk),
     /// Transfer progress (`transfer-progress`).
     TransferProgress(TransferProgress),
+    /// One download ended without its last chunk; the session stays open.
+    /// Only sent to sessions granted `file-stream-failure-v1`.
+    FileStreamFailed {
+        /// Stream.
+        stream: u64,
+        /// Why.
+        problem: Problem,
+    },
     /// A host-only device approval exchange changed readiness (`approval`).
     /// Contains no computed SAS; readiness is not approval or key delivery.
     ApprovalReady {
@@ -724,6 +732,7 @@ impl Push {
             Push::Presence { .. } => "presence",
             Push::FileChunk(_) => "file_chunk",
             Push::TransferProgress(_) => "transfer_progress",
+            Push::FileStreamFailed { .. } => "file_stream_failed",
             Push::ApprovalReady { .. } => "approval",
             Push::FenceApply { .. } => "fence_apply",
             Push::Closed(_) => "closed",

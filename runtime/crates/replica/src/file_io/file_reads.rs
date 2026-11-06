@@ -111,6 +111,8 @@ pub struct FileReads {
     // One failed completion, consumed by the matching device close. Only typed
     // code/reason are retained: never plaintext, paths or provider messages.
     failure: Option<(SessionId, mdbn_wire::common::Value)>,
+    // The stream a failure names: failing paths have often taken `active` already.
+    latest: Option<(SessionId, StreamId)>,
     next_stream: u64,
     next_ticket: u64,
     now_ms: i64,
@@ -135,6 +137,7 @@ impl FileReads {
         Self {
             active: None,
             failure: None,
+            latest: None,
             next_stream: 1,
             next_ticket: 1,
             now_ms,
@@ -177,6 +180,11 @@ impl FileReads {
             return None;
         }
         self.failure.take().map(|(_, detail)| detail)
+    }
+    /// The session's most recent stream. Reads are serial, so this is the one
+    /// that failed when a read driver path reports the session.
+    pub(crate) fn latest_stream(&self, session: SessionId) -> Option<StreamId> {
+        self.latest.filter(|(s, _)| *s == session).map(|(_, id)| id)
     }
     /// Idle deadline for the active stream.
     pub fn deadline(&self) -> Option<i64> {
@@ -234,6 +242,7 @@ impl FileReads {
             })
             .ok_or_else(busy)?;
         self.next_stream += 1;
+        self.latest = Some((session, id));
         let start = range.map_or(0, |x| x.0);
         let view = pin.view().clone();
         self.failure = None;

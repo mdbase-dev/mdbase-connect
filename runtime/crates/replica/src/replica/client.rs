@@ -751,7 +751,11 @@ impl<S: Store> Replica<S> {
 /// `hello` features this build grants when asked (`replica-client-api.md` §2).
 /// `attachment-v1` is bare codec support only (`intent.md` §3.11); the
 /// qualified directions are decided per replica by `attachment_direction`.
-const GRANTABLE_FEATURES: &[&str] = &["presence", super::attachment_runtime::ATTACHMENT_V1_FEATURE];
+const GRANTABLE_FEATURES: &[&str] = &[
+    "presence",
+    super::attachment_runtime::ATTACHMENT_V1_FEATURE,
+    super::client_files::FILE_STREAM_FAILURE_FEATURE,
+];
 
 impl<S: Store> Replica<S> {
     /// The qualified attachment-v1 directions (`intent.md` §3.9, §3.11):
@@ -825,6 +829,11 @@ impl<S: Store> ClientApi for Replica<S> {
                 conflicts_sub: false,
                 pending_cursors: Default::default(),
                 pending_time_floor: i64::MIN,
+                file_stream_failure: params.features.as_ref().is_some_and(|features| {
+                    features
+                        .iter()
+                        .any(|f| f == super::client_files::FILE_STREAM_FAILURE_FEATURE)
+                }),
             },
         );
         let setup_supported = self
