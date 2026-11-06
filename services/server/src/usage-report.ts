@@ -5,9 +5,9 @@ import {
 } from "./auth-admin-compatibility.js";
 import { invitationStatus } from "./instance-admin-invitations.js";
 
-// Operator-only product usage report. Every figure is derived from rows the
-// control plane already keeps to operate: no collection content, path, query,
-// or per-operation record is read. docs/usage-report.md defines each figure.
+// Operator-only product usage report. Every figure is derived from control-plane
+// rows: no collection content, path, query, or per-operation record is read.
+// docs/usage-report.md defines each figure.
 
 interface UsageReportContext {
   db: DatabasePool;
@@ -29,6 +29,7 @@ interface GrantRow {
   user_id: string;
   application_id: string;
   hosted_collection_id: string | null;
+  next_collection_id: string | null;
   created_at: Timestamp;
   activated_at: Timestamp | null;
   revoked_at: Timestamp | null;
@@ -41,6 +42,7 @@ interface ApplicationUsage {
   active_grants: number;
   local_active_grants: number;
   hosted_active_grants: number;
+  native_active_grants: number;
   users_with_active_grant: Set<string>;
   active_users_in_window: Set<string>;
   approved_in_window: number;
@@ -76,6 +78,7 @@ export async function usageReport(
   const cohortCount = Math.min(MAX_RETENTION_COHORTS, Math.max(1, Math.floor(windowDays / 7)));
   const firstCohortDay = today - cohortCount * 7 + 1;
   const firstCohortDate = new Date(firstCohortDay * DAY_MS);
+  const sinceDate = since.toISOString().slice(0, 10);
   const { db } = context;
   const [
     users,
@@ -86,10 +89,13 @@ export async function usageReport(
     connectors,
     localCollections,
     hostedCollections,
+    nativeCollections,
     applications,
     grants,
     tokenGrants,
     tokenDays,
+    deviceDays,
+    signedIn,
     transports,
     authorizations,
     pairings,
@@ -121,7 +127,12 @@ export async function usageReport(
       revoked_at: Timestamp | null;
       expires_at: Timestamp;
     }>("SELECT id, accepted_at, revoked_at, expires_at FROM invitations"),
-    db.query<{ user_id: string }>("SELECT user_id FROM connectors"),
+    // An app installation holds a connector too, but it is not a computer.
+    db.query<{ user_id: string }>(
+      `SELECT c.user_id FROM connectors c
+       LEFT JOIN installation_device_credentials k ON k.connector_id = c.id
+       WHERE k.connector_id IS NULL`
+    ),
     db.query<{
       user_id: string;
       removed_at: Timestamp | null;
@@ -129,6 +140,24 @@ export async function usageReport(
     }>("SELECT user_id, removed_at, created_at FROM collections"),
     db.query<{ user_id: string; created_at: Timestamp }>(
       "SELECT user_id, created_at FROM hosted_collections"
+    ),
+    // Current synced collections. Collections migrated from hosted keep their ID
+    // and their hosted_collections row, so they also count as hosted.
+    db.query<{
+      owner_user_id: string;
+      sync: "private" | "cloud_copy";
+      created_at: Timestamp;
+      migrated_id: string | null;
+      active_day: number | string | null;
+    }>(
+      `SELECT n.owner_user_id, n.sync, n.created_at, m.collection_id AS migrated_id,
+              (a.last_active_on - $1::date) AS active_day
+       FROM next_collections n
+       LEFT JOIN next_migration_collections m ON m.collection_id = n.collection_id
+       LEFT JOIN next_collection_activity a ON a.collection_id = n.collection_id
+       LEFT JOIN next_collection_deletion_facts f ON f.collection_id = n.collection_id
+       WHERE n.runtime = 'next' AND n.left_sync_at IS NULL AND f.collection_id IS NULL`,
+      [sinceDate]
     ),
     db.query<{
       id: string;
@@ -142,7 +171,7 @@ export async function usageReport(
        FROM applications`
     ),
     db.query<GrantRow>(
-      `SELECT id, user_id, application_id, hosted_collection_id,
+      `SELECT id, user_id, application_id, hosted_collection_id, next_collection_id,
               created_at, activated_at, revoked_at
        FROM grants`
     ),
@@ -158,6 +187,27 @@ export async function usageReport(
       `SELECT DISTINCT grant_id, (created_at::date - $2::date) AS day
        FROM access_tokens WHERE created_at >= $1`,
       [firstCohortDate, firstCohortDate.toISOString().slice(0, 10)]
+    ),
+    // Native sync never touches access_tokens; a device's log-token refresh is
+    // its signal. `day` is the same offset as above, and negative before the
+    // first cohort.
+    db.query<{
+      user_id: string;
+      kind: "desktop" | "cli" | "app-runtime" | "mobile";
+      app_id: string | null;
+      day: number | string;
+    }>(
+      `SELECT DISTINCT d.user_id, d.kind, k.app_id, (a.day - $2::date) AS day
+       FROM device_activity_days a
+       JOIN next_devices d ON d.connector_id = a.connector_id
+       LEFT JOIN installation_device_credentials k ON k.connector_id = a.connector_id
+       WHERE a.day >= $1::date`,
+      [sinceDate, firstCohortDate.toISOString().slice(0, 10)]
+    ),
+    // Signing in shows a person, not use, so this stays out of activeUsers.
+    db.query<{ user_id: string }>(
+      "SELECT DISTINCT user_id FROM sessions WHERE last_seen_at >= $1",
+      [since]
     ),
     // Direct same-computer use never refreshes; connectors report only
     // per-account protocol counts, which is the whole direct signal.
@@ -187,9 +237,13 @@ export async function usageReport(
       approved_at: Timestamp | null;
       consumed_at: Timestamp | null;
       expires_at: Timestamp;
+      installation_pairing_id: string | null;
     }>(
-      `SELECT created_at, approved_at, consumed_at, expires_at
-       FROM pairing_requests WHERE created_at >= $1`,
+      `SELECT p.created_at, p.approved_at, p.consumed_at, p.expires_at,
+              i.pairing_id AS installation_pairing_id
+       FROM pairing_requests p
+       LEFT JOIN installation_device_pairings i ON i.pairing_id = p.id
+       WHERE p.created_at >= $1`,
       [since]
     ),
     db.query<{ user_id: string; provider_account_id: string }>(
@@ -203,7 +257,8 @@ export async function usageReport(
   const pairedUsers = new Set(connectors.rows.map((row) => row.user_id));
   const collectionUsers = new Set([
     ...localCollections.rows.map((row) => row.user_id),
-    ...hostedCollections.rows.map((row) => row.user_id)
+    ...hostedCollections.rows.map((row) => row.user_id),
+    ...nativeCollections.rows.map((row) => row.owner_user_id)
   ]);
   const grantsById = new Map(grants.rows.map((grant) => [grant.id, grant]));
   const grantUsers = new Set(
@@ -220,6 +275,7 @@ export async function usageReport(
   );
   const activeUsers = new Set([
     ...transports.rows.map((row) => row.user_id),
+    ...deviceDays.rows.map((row) => row.user_id),
     ...hostedUsers ?? []
   ]);
   for (const { grant_id } of tokenGrants.rows) {
@@ -285,6 +341,7 @@ export async function usageReport(
         active_grants: 0,
         local_active_grants: 0,
         hosted_active_grants: 0,
+        native_active_grants: 0,
         users_with_active_grant: new Set(),
         active_users_in_window: new Set(),
         approved_in_window: 0,
@@ -310,11 +367,16 @@ export async function usageReport(
     entry.active_grants += 1;
     entry.users_with_active_grant.add(grant.user_id);
     if (grant.hosted_collection_id) entry.hosted_active_grants += 1;
+    else if (grant.next_collection_id) entry.native_active_grants += 1;
     else entry.local_active_grants += 1;
   }
   for (const { grant_id } of tokenGrants.rows) {
     const grant = grantsById.get(grant_id);
     if (grant) usageFor(grant.application_id).active_users_in_window.add(grant.user_id);
+  }
+  // Desktops and the CLI serve every app, so only installations name one.
+  for (const { app_id: appId, user_id: userId } of deviceDays.rows) {
+    if (appId && applicationFamily.has(appId)) usageFor(appId).active_users_in_window.add(userId);
   }
   const consentByFlow = new Map<string, ConsentCounts>();
   for (const request of authorizations.rows) {
@@ -336,27 +398,35 @@ export async function usageReport(
   }
 
   const betaSignups = [...betaSignupIds];
-  const pairing = { started: 0, approved: 0, completed: 0, expired_unapproved: 0, pending: 0 };
+  const pairing = emptyPairing();
+  const appPairing = emptyPairing();
   for (const request of pairings.rows) {
-    pairing.started += 1;
-    if (request.consumed_at) pairing.completed += 1;
-    if (request.approved_at) pairing.approved += 1;
-    else if (instant(request.expires_at) <= now) pairing.expired_unapproved += 1;
-    else pairing.pending += 1;
+    const counts = request.installation_pairing_id ? appPairing : pairing;
+    counts.started += 1;
+    if (request.consumed_at) counts.completed += 1;
+    if (request.approved_at) counts.approved += 1;
+    else if (instant(request.expires_at) <= now) counts.expired_unapproved += 1;
+    else counts.pending += 1;
   }
 
   const activeLocal = localCollections.rows.filter((row) => !row.removed_at);
   const surfaceUsers = (surface: string) => new Set(
     transports.rows.filter((row) => row.surface === surface).map((row) => row.user_id)
   ).size;
+  const deviceUsers = (kind: string) => new Set(
+    deviceDays.rows.filter((row) => row.kind === kind).map((row) => row.user_id)
+  ).size;
   const activeDaysByUser = new Map<string, Set<number>>();
+  const addActiveDay = (userId: string, day: number | string) => {
+    const days = activeDaysByUser.get(userId) ?? new Set<number>();
+    days.add(Number(day));
+    activeDaysByUser.set(userId, days);
+  };
   for (const row of tokenDays.rows) {
     const grant = grantsById.get(row.grant_id);
-    if (!grant) continue;
-    const days = activeDaysByUser.get(grant.user_id) ?? new Set<number>();
-    days.add(Number(row.day));
-    activeDaysByUser.set(grant.user_id, days);
+    if (grant) addActiveDay(grant.user_id, row.day);
   }
+  for (const row of deviceDays.rows) addActiveDay(row.user_id, row.day);
   const cohorts = Array.from({ length: cohortCount }, (_, cohort) => ({
     starts_on: new Date((firstCohortDay + cohort * 7) * DAY_MS).toISOString().slice(0, 10),
     accounts: 0,
@@ -392,7 +462,8 @@ export async function usageReport(
     accounts: {
       total: users.rows.length,
       suspended: users.rows.filter((user) => user.suspended_at).length,
-      created_in_window: recentUserIds.length
+      created_in_window: recentUserIds.length,
+      signed_in_in_window: signedIn.rows.length
     },
     activation: {
       all_accounts: activation(users.rows.map((user) => user.id)),
@@ -422,6 +493,7 @@ export async function usageReport(
       }))
     },
     pairing,
+    app_pairing: appPairing,
     consent: consentSummary(consentTotals),
     consent_by_flow: Object.fromEntries(
       [...consentByFlow.entries()]
@@ -441,17 +513,36 @@ export async function usageReport(
         created_in_window: hostedCollections.rows.filter((row) =>
           instant(row.created_at) >= start
         ).length
+      },
+      native: {
+        total: nativeCollections.rows.length,
+        private: nativeCollections.rows.filter((row) => row.sync === "private").length,
+        cloud_copy: nativeCollections.rows.filter((row) => row.sync === "cloud_copy").length,
+        migrated_from_hosted: nativeCollections.rows.filter((row) => row.migrated_id).length,
+        created_in_window: nativeCollections.rows.filter((row) =>
+          !row.migrated_id && instant(row.created_at) >= start
+        ).length,
+        active_in_window: nativeCollections.rows.filter((row) =>
+          row.active_day !== null && Number(row.active_day) >= 0
+        ).length
       }
     },
     transport_users_in_window: {
       direct: surfaceUsers("direct"),
       relay: surfaceUsers("relay"),
-      hosted: hostedUsers?.size ?? null
+      hosted: hostedUsers?.size ?? null,
+      native: {
+        desktop: deviceUsers("desktop"),
+        cli: deviceUsers("cli"),
+        app_runtime: deviceUsers("app-runtime"),
+        mobile: deviceUsers("mobile")
+      }
     },
     retention: { cohorts },
     applications: [...usage.entries()]
       .filter(([, entry]) =>
         entry.active_grants > 0
+        || entry.active_users_in_window.size > 0
         || entry.approved_in_window > 0
         || entry.revoked_in_window > 0
         || entry.consent.started > 0
@@ -465,6 +556,7 @@ export async function usageReport(
         active_grants: entry.active_grants,
         local_active_grants: entry.local_active_grants,
         hosted_active_grants: entry.hosted_active_grants,
+        native_active_grants: entry.native_active_grants,
         approved_in_window: entry.approved_in_window,
         revoked_in_window: entry.revoked_in_window,
         consent: consentSummary(entry.consent)
@@ -475,6 +567,10 @@ export async function usageReport(
         || left.name.localeCompare(right.name)
       )
   };
+}
+
+function emptyPairing() {
+  return { started: 0, approved: 0, completed: 0, expired_unapproved: 0, pending: 0 };
 }
 
 function emptyConsent(): ConsentCounts {
@@ -548,6 +644,7 @@ export const USAGE_RETENTION_DAYS = 395;
 
 interface UsageRetentionResult {
   protocol_usage_telemetry: number;
+  device_activity_days: number;
   access_tokens: number;
   refresh_tokens: number;
   authorization_requests: number;
@@ -564,6 +661,9 @@ export async function pruneUsageHistory(
   return {
     protocol_usage_telemetry: await deleted(
       "DELETE FROM protocol_usage_telemetry WHERE last_seen_at < $1"
+    ),
+    device_activity_days: await deleted(
+      "DELETE FROM device_activity_days WHERE day < $1::date"
     ),
     access_tokens: await deleted(
       "DELETE FROM access_tokens WHERE expires_at < $1"

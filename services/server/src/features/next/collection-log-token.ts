@@ -29,6 +29,7 @@ import { CreateError } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { requireInstallationScope } from "./installation-scope.js";
 import { requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
+import { recordDeviceActivity } from "../../protocol-telemetry.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, encodeCbor, uuidBytes, type RegisteredDeviceKind } from "./policy-wire.js";
@@ -80,6 +81,7 @@ export function registerCollectionLogTokenRoute(app: FastifyInstance, options: {
       await client.query("SET LOCAL statement_timeout = '5s'");
       const answer = await refresh(client, connector, collection, device, request.body, options);
       await client.query("COMMIT");
+      void recordDeviceActivity(options.db, connector.id, collection).catch(() => undefined);
       return answer;
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
