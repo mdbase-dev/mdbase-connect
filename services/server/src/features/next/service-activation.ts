@@ -24,9 +24,9 @@ function wakeLog(collection: string, role: ServiceKind, phase: "sent" | "outcome
 }
 
 /** The Worker's lasting verdicts (409 `{error}`): the collection is deleted or
- * left sync, or this deployment does not serve it. Retrying the same batch cannot
- * change either; a newer batch is tried again. */
-const REFUSALS = ["custody_collection_gone", "custody_collection_not_allowed"] as const;
+ * left sync, this deployment does not serve it, or this escrow has no custody.
+ * Retrying the same batch cannot change any of them; a newer batch is tried again. */
+const REFUSALS = ["custody_collection_gone", "custody_collection_not_allowed", "custody_not_configured"] as const;
 type Refusal = typeof REFUSALS[number];
 export type Outcome = { kind: "accepted" } | { kind: "refused"; reason: Refusal } | { kind: "unknown" };
 
