@@ -260,7 +260,7 @@ test("shows an explicit status while a collection opens", async ({ page }) => {
   }).toBe(true);
   await expect(opening).toHaveAttribute("aria-busy", "true");
   await expect(opening).toHaveAttribute("data-loading-state", "opening");
-  await expect(page.getByText("Reading its notes and types")).toBeVisible();
+  await expect(page.getByText("Reading notes and files")).toBeVisible();
   await expect(opening.locator(".collection-rail")).toBeVisible();
   await page.clock.resume();
   await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();

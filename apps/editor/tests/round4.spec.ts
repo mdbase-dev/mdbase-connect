@@ -73,7 +73,7 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       await search.fill(">rename");
       await expect(page.locator(".mdbase-command-results mark")).toHaveText("Rename");
       await expect(search).toHaveCSS("outline-style", "none");
-      await expect(page.locator(".mdbase-command-results kbd")).toHaveText("F2");
+      await expect(page.locator(".mdbase-command-results kbd")).toHaveText("R");
       await page.screenshot({ path: testInfo.outputPath("palette.png") });
       await page.keyboard.press("Escape");
       await expect(page.getByRole("dialog", { name: "Quick open", exact: true })).toHaveCount(0);

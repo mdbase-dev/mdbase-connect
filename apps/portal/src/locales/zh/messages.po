@@ -1161,6 +1161,10 @@ msgid "Continue"
 msgstr "继续"
 
 #: src/authorization-view.tsx
+msgid "Continue in {applicationName} to use this collection."
+msgstr "请返回 {applicationName} 以使用此集合。"
+
+#: src/authorization-view.tsx
 msgid "Continue only if you started this and recognize this app."
 msgstr "仅在您主动发起此操作且认识此应用时继续。"
 
@@ -3874,10 +3878,6 @@ msgstr "你的账户已达到同步集合数量上限。请打开现有集合；
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."
 msgstr "您的账户已就绪。现在创建集合，或暂不创建并继续。"
-
-#: src/authorization-view.tsx
-msgid "Your approved collection and permissions will follow you back."
-msgstr "已获批准的集合和权限会随你返回应用。"
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."

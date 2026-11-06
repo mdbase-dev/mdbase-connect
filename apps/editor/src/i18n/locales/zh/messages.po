@@ -116,7 +116,7 @@ msgid "{0, plural, one {# required field unmapped} other {# required fields unma
 msgstr "{0, plural, other {# 个必填字段尚未映射}}"
 
 #. placeholder {0}: recoveryAction.references
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, other {还更新了 # 篇笔记中的链接。}}"
 
@@ -131,7 +131,7 @@ msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
 msgstr "{0, plural, other {移动 # 篇笔记？}}"
 
 #. placeholder {0}: recoveryAction.paths.length
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 msgstr "{0, plural, other {已移动 # 篇笔记。}}"
 
@@ -1956,10 +1956,6 @@ msgstr "正在创建"
 msgid "Creating folder"
 msgstr "正在创建文件夹"
 
-#: src/editor-commands.ts
-msgid "Current note"
-msgstr "当前笔记"
-
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
 msgstr "自定义"
@@ -2028,7 +2024,7 @@ msgstr "删除"
 msgid "delete notes"
 msgstr "删除笔记"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleted {title}"
 msgstr "已删除 {title}"
 
@@ -2037,7 +2033,7 @@ msgstr "已删除 {title}"
 msgid "Deleting"
 msgstr "正在删除"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleting {title}…"
 msgstr "正在删除 {title}…"
 
@@ -2870,7 +2866,7 @@ msgstr "链接到笔记或文件"
 msgid "Linked from"
 msgstr "反向链接"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Linked mention."
 msgstr "已为提及添加链接。"
 
@@ -2937,10 +2933,6 @@ msgstr "正在加载契约资源目录"
 msgid "Loading file viewer"
 msgstr "正在加载文件查看器"
 
-#: src/App.tsx
-msgid "Loading folder composer"
-msgstr "正在加载新建文件夹界面"
-
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
 msgstr "正在加载文件夹…"
@@ -2948,10 +2940,6 @@ msgstr "正在加载文件夹…"
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
 msgstr "正在加载笔记"
-
-#: src/App.tsx
-msgid "Loading note composer"
-msgstr "正在加载新建笔记界面"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
@@ -4081,14 +4069,11 @@ msgstr "正在读取集合文本…"
 msgid "Reading file content…"
 msgstr "正在读取文件内容…"
 
-#: src/LoadingScreens.tsx
-msgid "Reading its notes and types"
-msgstr "正在读取其中的笔记和类型"
-
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
 msgstr "正在读取笔记内容…"
 
+#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 msgid "Reading notes and files"
 msgstr "正在读取笔记和文件"
@@ -4279,7 +4264,7 @@ msgid "Rename this note?"
 msgstr "重命名此笔记？"
 
 #. placeholder {0}: recoveryAction.to
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Renamed to “{0}”."
 msgstr "已重命名为“{0}”。"
 
@@ -5772,6 +5757,7 @@ msgstr "打字机式滚动"
 msgid "Undated"
 msgstr "无日期"
 
+#: src/editor-commands.ts
 #: src/Toasts.tsx
 msgid "Undo"
 msgstr "撤销"

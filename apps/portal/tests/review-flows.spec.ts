@@ -2,6 +2,14 @@ import { expect, openScenario, test } from "./review/fixture";
 import { authorizationId, pairingId } from "./review/scenarios.mjs";
 import type { Page, TestInfo } from "@playwright/test";
 
+test("W35 approved access names the next step without figurative copy", async ({ page }) => {
+  await openScenario(page, "authorization-approved");
+  await page.keyboard.press("Tab");
+  const outcome = page.locator(".request-outcome");
+  await expect(outcome).not.toContainText("will follow you back");
+  await expect(outcome).toContainText("Continue in TaskNotes to use this collection.");
+});
+
 test("W28 Retry keeps keyboard focus and ignores activation during a background refresh", async ({ page }) => {
   let requests = 0;
   let finish: (() => void) | undefined;

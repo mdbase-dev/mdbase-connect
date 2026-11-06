@@ -656,7 +656,26 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     deleteRequests.current.clear();
   }
 
-  return { renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
+  let recoveryMessage: string | undefined;
+  if (recoveryAction) {
+    switch (recoveryAction.kind) {
+      case "mention": recoveryMessage = t`Linked mention.`; break;
+      case "batch": recoveryMessage = recoveryAction.message; break;
+      case "delete": {
+        const title = noteTitle(recoveryAction.document, typeDescriptors);
+        recoveryMessage = recoveryAction.pending ? t`Deleting ${title}…` : t`Deleted ${title}`;
+        break;
+      }
+      case "move": {
+        const moved = plural(recoveryAction.paths.length, { one: "Moved # note.", other: "Moved # notes." });
+        const links = recoveryAction.references ? plural(recoveryAction.references, { one: "Also updated links in # note.", other: "Also updated links in # notes." }) : "";
+        recoveryMessage = recoveryAction.message ?? [moved, links].filter(Boolean).join(" ");
+        break;
+      }
+      case "rename": recoveryMessage = t`Renamed to “${recoveryAction.to}”.`; break;
+    }
+  }
+  return { recoveryMessage, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
     onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource,
     validateNote, requestDelete, undoRecovery, propertiesError, setPropertiesError, pendingRenameRecovery,
     bulkBusy, recoveryAction, setRecoveryAction, recoveryBusy, setRecoveryBusy, linkingMention,

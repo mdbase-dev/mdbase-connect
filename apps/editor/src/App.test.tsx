@@ -537,7 +537,7 @@ describe("mdbase editor", () => {
     const opening = await screen.findByLabelText("Opening collection");
     expect(opening).toHaveAttribute("aria-busy", "true");
     expect(opening).toHaveAttribute("data-loading-state", "opening");
-    expect(screen.getByText("Reading its notes and types")).toBeInTheDocument();
+    expect(screen.getByText("Reading notes and files")).toBeInTheDocument();
     expect(opening.querySelector(".opening-rail, .opening-list")).toBeNull();
     gateway.releaseDescription();
     expect(await within(await screen.findByRole("region", { name: "Notes and files" })).findByRole("heading", { name: "All notes" })).toBeInTheDocument();

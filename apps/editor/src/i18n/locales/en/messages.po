@@ -116,7 +116,7 @@ msgid "{0, plural, one {# required field unmapped} other {# required fields unma
 msgstr "{0, plural, one {# required field unmapped} other {# required fields unmapped}}"
 
 #. placeholder {0}: recoveryAction.references
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 
@@ -131,7 +131,7 @@ msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
 msgstr "{0, plural, one {Move # note?} other {Move # notes?}}"
 
 #. placeholder {0}: recoveryAction.paths.length
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 msgstr "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 
@@ -1956,10 +1956,6 @@ msgstr "Creating"
 msgid "Creating folder"
 msgstr "Creating folder"
 
-#: src/editor-commands.ts
-msgid "Current note"
-msgstr "Current note"
-
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
 msgstr "Custom"
@@ -2028,7 +2024,7 @@ msgstr "Delete"
 msgid "delete notes"
 msgstr "delete notes"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleted {title}"
 msgstr "Deleted {title}"
 
@@ -2037,7 +2033,7 @@ msgstr "Deleted {title}"
 msgid "Deleting"
 msgstr "Deleting"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleting {title}…"
 msgstr "Deleting {title}…"
 
@@ -2870,7 +2866,7 @@ msgstr "Link to note or file"
 msgid "Linked from"
 msgstr "Linked from"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Linked mention."
 msgstr "Linked mention."
 
@@ -2937,10 +2933,6 @@ msgstr "Loading contract catalog"
 msgid "Loading file viewer"
 msgstr "Loading file viewer"
 
-#: src/App.tsx
-msgid "Loading folder composer"
-msgstr "Loading folder composer"
-
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
 msgstr "Loading folders…"
@@ -2948,10 +2940,6 @@ msgstr "Loading folders…"
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
 msgstr "Loading note"
-
-#: src/App.tsx
-msgid "Loading note composer"
-msgstr "Loading note composer"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
@@ -4081,14 +4069,11 @@ msgstr "Reading collection text…"
 msgid "Reading file content…"
 msgstr "Reading file content…"
 
-#: src/LoadingScreens.tsx
-msgid "Reading its notes and types"
-msgstr "Reading its notes and types"
-
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
 msgstr "Reading note content…"
 
+#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 msgid "Reading notes and files"
 msgstr "Reading notes and files"
@@ -4279,7 +4264,7 @@ msgid "Rename this note?"
 msgstr "Rename this note?"
 
 #. placeholder {0}: recoveryAction.to
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Renamed to “{0}”."
 msgstr "Renamed to “{0}”."
 
@@ -5772,6 +5757,7 @@ msgstr "Typewriter scrolling"
 msgid "Undated"
 msgstr "Undated"
 
+#: src/editor-commands.ts
 #: src/Toasts.tsx
 msgid "Undo"
 msgstr "Undo"

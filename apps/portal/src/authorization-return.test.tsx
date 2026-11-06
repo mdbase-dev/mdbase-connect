@@ -42,6 +42,8 @@ for (const detailFirst of [true, false]) it(`hands an already approved request b
   await act(() => vi.advanceTimersByTimeAsync(100));
   expect(screen.queryByText("This request has expired or was already answered.")).not.toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Access approved" })).toBeInTheDocument();
+  expect(screen.getByText(/Returning to/)).toBeInTheDocument();
+  expect(screen.queryByText("Your approved collection and permissions will follow you back.")).not.toBeInTheDocument();
   await act(() => vi.advanceTimersByTimeAsync(3_000));
   expect(replace).toHaveBeenCalledExactlyOnceWith(callback);
 });

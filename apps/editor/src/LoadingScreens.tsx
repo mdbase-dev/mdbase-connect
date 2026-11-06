@@ -25,10 +25,10 @@ export function OpeningScreen() {
         <button className="icon-button" aria-label={t`New note`} disabled><FilePlusIcon aria-hidden="true" /></button>
         <div className="note-actions"><button className="icon-button" aria-label={t`More note actions`} disabled><DotsThreeIcon aria-hidden="true" /></button></div>
       </header>
-      <header className="list-header"><div><h1><Trans>All notes</Trans></h1><p role="status"><Trans>Reading its notes and types</Trans></p></div></header>
+      <header className="list-header"><div><h1><Trans>All notes</Trans></h1><p role="status"><Trans>Reading notes and files</Trans></p></div></header>
       <div className="note-list-controls"><div className="search-field"><input aria-label={t`Search notes and files`} placeholder={t`Search`} disabled /></div></div>
       <div className="note-selection-slot" />
-      <div className="opening-list-skeleton" aria-hidden="true">{Array.from({ length: 6 }, (_, index) => <span key={index} />)}</div>
+      <div className="opening-list-skeleton" aria-hidden="true">{Array.from({ length: 6 }, (_, index) => <div key={index}><span /><span /><span /></div>)}</div>
     </section>
     <div className="editor-pane" />
   </div>;

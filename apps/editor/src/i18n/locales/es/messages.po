@@ -116,7 +116,7 @@ msgid "{0, plural, one {# required field unmapped} other {# required fields unma
 msgstr "{0, plural, one {# campo obligatorio sin asignar} other {# campos obligatorios sin asignar}}"
 
 #. placeholder {0}: recoveryAction.references
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, one {También se actualizaron los enlaces en # nota.} other {También se actualizaron los enlaces en # notas.}}"
 
@@ -131,7 +131,7 @@ msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
 msgstr "{0, plural, one {¿Mover # nota?} other {¿Mover # notas?}}"
 
 #. placeholder {0}: recoveryAction.paths.length
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 msgstr "{0, plural, one {Se movió # nota.} other {Se movieron # notas.}}"
 
@@ -1956,10 +1956,6 @@ msgstr "Creando"
 msgid "Creating folder"
 msgstr "Creando carpeta"
 
-#: src/editor-commands.ts
-msgid "Current note"
-msgstr "Nota actual"
-
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
 msgstr "Personalizado"
@@ -2028,7 +2024,7 @@ msgstr "Eliminar"
 msgid "delete notes"
 msgstr "eliminar notas"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleted {title}"
 msgstr "Se eliminó {title}"
 
@@ -2037,7 +2033,7 @@ msgstr "Se eliminó {title}"
 msgid "Deleting"
 msgstr "Eliminando"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleting {title}…"
 msgstr "Eliminando {title}…"
 
@@ -2870,7 +2866,7 @@ msgstr "Enlace a nota o archivo"
 msgid "Linked from"
 msgstr "Vinculado desde"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Linked mention."
 msgstr "Mención vinculada."
 
@@ -2937,10 +2933,6 @@ msgstr "Cargando catálogo de contratos"
 msgid "Loading file viewer"
 msgstr "Cargando visor de archivos"
 
-#: src/App.tsx
-msgid "Loading folder composer"
-msgstr "Cargando creador de carpetas"
-
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
 msgstr "Cargando carpetas…"
@@ -2948,10 +2940,6 @@ msgstr "Cargando carpetas…"
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
 msgstr "Cargando nota"
-
-#: src/App.tsx
-msgid "Loading note composer"
-msgstr "Cargando creador de notas"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
@@ -4081,14 +4069,11 @@ msgstr "Leyendo el texto de la colección…"
 msgid "Reading file content…"
 msgstr "Leyendo el contenido del archivo…"
 
-#: src/LoadingScreens.tsx
-msgid "Reading its notes and types"
-msgstr "Leyendo sus notas y tipos"
-
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
 msgstr "Leyendo el contenido de la nota…"
 
+#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 msgid "Reading notes and files"
 msgstr "Leyendo notas y archivos"
@@ -4279,7 +4264,7 @@ msgid "Rename this note?"
 msgstr "¿Cambiar el nombre de esta nota?"
 
 #. placeholder {0}: recoveryAction.to
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Renamed to “{0}”."
 msgstr "Se cambió el nombre a «{0}»."
 
@@ -5772,6 +5757,7 @@ msgstr "Desplazamiento tipo máquina de escribir"
 msgid "Undated"
 msgstr "Sin fecha"
 
+#: src/editor-commands.ts
 #: src/Toasts.tsx
 msgid "Undo"
 msgstr "Deshacer"

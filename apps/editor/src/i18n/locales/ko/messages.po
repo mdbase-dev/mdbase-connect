@@ -116,7 +116,7 @@ msgid "{0, plural, one {# required field unmapped} other {# required fields unma
 msgstr "{0, plural, other {매핑되지 않은 필수 필드 #개}}"
 
 #. placeholder {0}: recoveryAction.references
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, other {노트 #개의 링크도 업데이트했습니다.}}"
 
@@ -131,7 +131,7 @@ msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
 msgstr "{0, plural, other {노트 #개를 이동할까요?}}"
 
 #. placeholder {0}: recoveryAction.paths.length
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 msgstr "{0, plural, other {노트 #개 이동됨}}"
 
@@ -1956,10 +1956,6 @@ msgstr "만드는 중"
 msgid "Creating folder"
 msgstr "폴더 만드는 중"
 
-#: src/editor-commands.ts
-msgid "Current note"
-msgstr "현재 노트"
-
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
 msgstr "사용자 지정"
@@ -2028,7 +2024,7 @@ msgstr "삭제"
 msgid "delete notes"
 msgstr "노트 삭제"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleted {title}"
 msgstr "{title} 삭제됨"
 
@@ -2037,7 +2033,7 @@ msgstr "{title} 삭제됨"
 msgid "Deleting"
 msgstr "삭제 중"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleting {title}…"
 msgstr "{title} 삭제 중…"
 
@@ -2870,7 +2866,7 @@ msgstr "노트 또는 파일에 링크"
 msgid "Linked from"
 msgstr "링크됨"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Linked mention."
 msgstr "언급을 연결했습니다."
 
@@ -2937,10 +2933,6 @@ msgstr "계약 카탈로그 불러오는 중"
 msgid "Loading file viewer"
 msgstr "파일 뷰어 불러오는 중"
 
-#: src/App.tsx
-msgid "Loading folder composer"
-msgstr "폴더 작성기 불러오는 중"
-
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
 msgstr "폴더 불러오는 중…"
@@ -2948,10 +2940,6 @@ msgstr "폴더 불러오는 중…"
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
 msgstr "노트 불러오는 중"
-
-#: src/App.tsx
-msgid "Loading note composer"
-msgstr "노트 작성기 불러오는 중"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
@@ -4081,14 +4069,11 @@ msgstr "컬렉션 텍스트 읽는 중…"
 msgid "Reading file content…"
 msgstr "파일 콘텐츠 읽는 중…"
 
-#: src/LoadingScreens.tsx
-msgid "Reading its notes and types"
-msgstr "노트와 유형 읽는 중"
-
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
 msgstr "노트 콘텐츠 읽는 중…"
 
+#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 msgid "Reading notes and files"
 msgstr "노트 및 파일 읽는 중"
@@ -4279,7 +4264,7 @@ msgid "Rename this note?"
 msgstr "이 노트의 이름을 바꿀까요?"
 
 #. placeholder {0}: recoveryAction.to
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Renamed to “{0}”."
 msgstr "“{0}”(으)로 이름을 바꿨습니다."
 
@@ -5772,6 +5757,7 @@ msgstr "타자기 스크롤"
 msgid "Undated"
 msgstr "날짜 없음"
 
+#: src/editor-commands.ts
 #: src/Toasts.tsx
 msgid "Undo"
 msgstr "실행 취소"

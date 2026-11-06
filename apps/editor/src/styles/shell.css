@@ -21,7 +21,10 @@
 .editor-opening p { color: var(--muted); font-size: var(--font-size-ui); }
 .opening-toolbar { display: none; }
 .opening-list-skeleton { display: grid; grid-auto-rows: 76px; align-content: start; overflow: hidden; border-top: 1px solid var(--line); }
-.opening-list-skeleton span { height: 44px; margin: var(--space-4); border-radius: var(--radius-sm); background: var(--skeleton); }
+.opening-list-skeleton > div { display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: var(--space-2) var(--space-4) var(--space-2) 18px; border-bottom: 1px solid var(--line); }
+.opening-list-skeleton span { height: 1.3em; width: 70%; font-size: var(--font-size-ui); border-radius: var(--radius-sm); background: var(--skeleton); }
+.opening-list-skeleton span + span { height: 1.4em; width: 90%; }
+.opening-list-skeleton span + span + span { height: 1.3em; width: 36%; font-size: var(--font-size-caption); }
 
 .app-shell.resizing-pane {
   transition: none;

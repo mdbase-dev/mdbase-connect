@@ -116,7 +116,7 @@ msgid "{0, plural, one {# required field unmapped} other {# required fields unma
 msgstr "{0, plural, other {対応付けのない必須フィールド # 件}}"
 
 #. placeholder {0}: recoveryAction.references
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, other {# 件のノート内のリンクも更新しました。}}"
 
@@ -131,7 +131,7 @@ msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
 msgstr "{0, plural, other {# 件のノートを移動しますか？}}"
 
 #. placeholder {0}: recoveryAction.paths.length
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 msgstr "{0, plural, other {# 件のノートを移動しました。}}"
 
@@ -1956,10 +1956,6 @@ msgstr "作成中"
 msgid "Creating folder"
 msgstr "フォルダーを作成中"
 
-#: src/editor-commands.ts
-msgid "Current note"
-msgstr "現在のノート"
-
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
 msgstr "カスタム"
@@ -2028,7 +2024,7 @@ msgstr "削除"
 msgid "delete notes"
 msgstr "ノートを削除"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleted {title}"
 msgstr "{title} を削除しました"
 
@@ -2037,7 +2033,7 @@ msgstr "{title} を削除しました"
 msgid "Deleting"
 msgstr "削除中"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleting {title}…"
 msgstr "{title} を削除中…"
 
@@ -2870,7 +2866,7 @@ msgstr "ノートまたはファイルへのリンク"
 msgid "Linked from"
 msgstr "参照元"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Linked mention."
 msgstr "メンションをリンクしました。"
 
@@ -2937,10 +2933,6 @@ msgstr "契約カタログを読み込み中"
 msgid "Loading file viewer"
 msgstr "ファイルビューアーを読み込み中"
 
-#: src/App.tsx
-msgid "Loading folder composer"
-msgstr "フォルダー作成画面を読み込み中"
-
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
 msgstr "フォルダーを読み込み中…"
@@ -2948,10 +2940,6 @@ msgstr "フォルダーを読み込み中…"
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
 msgstr "ノートを読み込み中"
-
-#: src/App.tsx
-msgid "Loading note composer"
-msgstr "ノート作成画面を読み込み中"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
@@ -4081,14 +4069,11 @@ msgstr "コレクションのテキストを読み込み中…"
 msgid "Reading file content…"
 msgstr "ファイルの内容を読み込み中…"
 
-#: src/LoadingScreens.tsx
-msgid "Reading its notes and types"
-msgstr "ノートと型を読み込み中"
-
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
 msgstr "ノートの内容を読み込み中…"
 
+#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 msgid "Reading notes and files"
 msgstr "ノートとファイルを読み込み中"
@@ -4279,7 +4264,7 @@ msgid "Rename this note?"
 msgstr "このノートの名前を変更しますか？"
 
 #. placeholder {0}: recoveryAction.to
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Renamed to “{0}”."
 msgstr "「{0}」に名前を変更しました。"
 
@@ -5772,6 +5757,7 @@ msgstr "タイプライター式スクロール"
 msgid "Undated"
 msgstr "日付なし"
 
+#: src/editor-commands.ts
 #: src/Toasts.tsx
 msgid "Undo"
 msgstr "元に戻す"

@@ -87,7 +87,7 @@ for (const colorScheme of ["light", "dark"] as const) {
           expect(bounds.height).toBeGreaterThanOrEqual(44);
         }
         await expect(opening.locator(".search-field")).toBeVisible();
-        const bars = opening.locator(".opening-list-skeleton span");
+        const bars = opening.locator(".opening-list-skeleton > div");
         await expect(bars).toHaveCount(6);
         const positions = await bars.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().top));
         for (let index = 1; index < positions.length; index++) expect(positions[index] - positions[index - 1]).toBe(76);

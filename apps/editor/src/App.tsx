@@ -111,6 +111,7 @@ import { filterLabel, filterScopeLabel, loadPinnedNotes, savePinnedNotes, noteVi
 import { defaultNoteSort, loadNoteSort, resolveNoteSort, saveNoteSort, sortableFields, type NoteSortPreference } from "./note-sort";
 import { isObject } from "./field-reference";
 import { NoteList } from "./NoteList";
+import { NewNoteComposer } from "./NewNoteComposer";
 import { noteRowStatus } from "./note-mutation-presentation";
 import {
   NotePreviewCard,
@@ -162,7 +163,6 @@ const TypeList = lazy(() => import("./TypeBrowser").then((module) => ({ default:
 const TypeInspector = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeInspector })));
 const TypePackBrowser = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypePackBrowser })));
 const PropertiesPanel = lazy(() => import("./PropertiesPanel").then((module) => ({ default: module.PropertiesPanel })));
-const NewNoteComposer = lazy(() => import("./NewNoteComposer").then((module) => ({ default: module.NewNoteComposer })));
 const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
 const FileWorkspace = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileWorkspace })));
 const emptyTypeDescriptors: CollectionTypeDescriptor[] = [];
@@ -238,6 +238,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [pendingNotePath, setPendingNotePath] = useState<string>();
   const [noteOpenFailure, setNoteOpenFailure] = useState<{ path: string; options: NoteNavigationOptions; message: string }>();
   const [creationMode, setCreationMode] = useState<"note" | "folder">();
+  const [arrivingNotePath, setArrivingNotePath] = useState<string>();
   const [creationContext, setCreationContext] = useState<CreationContext>({});
   const [creationDirty, setCreationDirty] = useState(false);
   const [search, setSearch] = useState("");
@@ -957,7 +958,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     }));
   }, [touchSession]);
 
-  const { renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
+  const { recoveryMessage, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
     onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource,
     validateNote, requestDelete, undoRecovery, propertiesError, setPropertiesError, pendingRenameRecovery,
     bulkBusy, recoveryAction, setRecoveryAction, recoveryBusy, setRecoveryBusy, linkingMention,
@@ -1178,6 +1179,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const created = await mutationScope.current.register(token, gateway.create(input));
     if (!mutationScope.current.isCurrent(token)) return;
     indexController.create(summaryFromDocument(created));
+    setArrivingNotePath(created.path);
     setSearch("");
     setNoteFilter(undefined);
     documentGeneration.current += 1;
@@ -1638,6 +1640,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       }
       if (quickOpen || shortcutsOpen) return;
       if (phase !== "ready") return;
+      if (!typing && surface === "notes" && !creationMode && liveUndo && !liveUndo.busy
+          && event.target instanceof Element && event.target.closest(".note-scroll")
+          && matchesCommandShortcut("undo", event)) {
+        event.preventDefault();
+        liveUndo.onAction();
+        return;
+      }
       if (event.key === "Escape" && !preferences.vim && !focusMode && !creationMode
           && event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content")
           && !event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')
@@ -1666,7 +1675,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         toggleFocus();
         return;
       }
-      if (!event.defaultPrevented && matchesCommandShortcut("rename", event) && selectedPath && surface === "notes" && !creationMode && !selectedCollectionFile
+      if (!event.defaultPrevented && matchesCommandShortcut("rename", event) && (!typing || event.key === "F2") && selectedPath && surface === "notes" && !creationMode && !selectedCollectionFile
           && !(event.target instanceof Element && event.target.closest('#note-path, [role="dialog"], [role="alertdialog"], [role="menu"]'))) {
         event.preventDefault();
         void renameNote(selectedPath);
@@ -1711,7 +1720,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mobileLayout, mutationsFrozen, noteFilter, noteLoading, openNote, phase, preferences.vim, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
+  }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mobileLayout, mutationsFrozen, noteFilter, noteLoading, openNote, phase, preferences.vim, quickOpen, recoveryAction, recoveryBusy, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body, i18n.locale]);
   const usable = phase === "ready" && Boolean(description);
@@ -1822,26 +1831,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       "check-note": !mutationsFrozen ? () => void validateNote() : undefined
     } : {})
   }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode`, "attach-file": attachFileAction.label }).concat(noteViewCommands(chooseNoteSort, setNoteFilter, () => { setSearch(""); setNoteFilter(undefined); }, tagFacets, typeFacets, noteSortFields));
-  let recoveryMessage: string | undefined;
-  if (recoveryAction) {
-    switch (recoveryAction.kind) {
-      case "mention": recoveryMessage = t`Linked mention.`; break;
-      case "batch": recoveryMessage = recoveryAction.message; break;
-      case "delete": {
-        const title = noteTitle(recoveryAction.document, typeDescriptors);
-        recoveryMessage = recoveryAction.pending ? t`Deleting ${title}…` : t`Deleted ${title}`;
-        break;
-      }
-      case "move": {
-        const moved = plural(recoveryAction.paths.length, { one: "Moved # note.", other: "Moved # notes." });
-        const links = recoveryAction.references ? plural(recoveryAction.references, { one: "Also updated links in # note.", other: "Also updated links in # notes." }) : "";
-        recoveryMessage = recoveryAction.message ?? [moved, links].filter(Boolean).join(" ");
-        break;
-      }
-      case "rename": recoveryMessage = t`Renamed to “${recoveryAction.to}”.`; break;
-    }
-  }
   const activeToasts = buildToastItems({ notice, recoveryMessage, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
+  const liveUndo = activeToasts.find(toast => toast.id === "recovery")?.action;
+  if (liveUndo && !liveUndo.busy) quickOpenCommands.push(command("undo", liveUndo.onAction, liveUndo.label));
   const pendingNoteMutations = gateway.pendingNoteMutations();
   const peekNote = allNotes.find((note) => note.path === peekPath);
   const peekTitle = peekNote ? noteTitle(peekNote, typeDescriptors) : undefined;
@@ -1859,7 +1851,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     title?.closest(".cm-scroller")?.scrollTo({ top: 0 });
     title?.focus({ preventScroll: true });
   };
-  const notePathControl = document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
+  const notePathControl = document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }} onKeyDown={(event) => {
+    if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    setEditingPath(false);
+    setPathDraft(document.path);
+    requestAnimationFrame(focusNoteList);
+  }}>
     <label className="sr-only" htmlFor="note-path"><Trans>Markdown path</Trans></label>
     <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
   </form> : mobileLayout ? <p className="mobile-note-path" title={document.path}><PathLabel path={document.path} /></p>
@@ -1951,6 +1949,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         pendingPath={pendingNotePath}
         pendingFilePath={pendingFilePath}
         statuses={noteStatuses}
+        arrivingPath={arrivingNotePath}
+        onArrivalEnd={() => setArrivingNotePath(undefined)}
         search={search}
         searchQuery={deferredSearch}
         searchContexts={searchContexts}
@@ -1996,7 +1996,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         leadingActions={editorLeadingActions}
         onBack={() => returnToMobilePane("notes")}
         onRetry={() => void fileAssetStore.retry(selectedCollectionFile)}
-      /></Suspense> : creationMode ? <Suspense fallback={<PaneSkeleton label={creationMode === "folder" ? t`Loading folder composer` : t`Loading note composer`} leadingActions={editorLeadingActions} />}><NewNoteComposer
+      /></Suspense> : creationMode ? <NewNoteComposer
         types={description.types}
         defaultFolder={creationContext.folder}
         defaultTag={creationContext.tag}
@@ -2009,7 +2009,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onCreate={createNote}
         onCancel={cancelCreation}
         onDraftChange={setCreationDirty}
-      /></Suspense> : <main className="editor-pane" aria-label={t`Note editor`} data-save-state={saveState}>
+      /> : <main className="editor-pane" aria-label={t`Note editor`} data-save-state={saveState}>
         {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>

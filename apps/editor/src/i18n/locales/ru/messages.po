@@ -116,7 +116,7 @@ msgid "{0, plural, one {# required field unmapped} other {# required fields unma
 msgstr "{0, plural, one {Не сопоставлено # обязательное поле} few {Не сопоставлено # обязательных поля} many {Не сопоставлено # обязательных полей} other {Не сопоставлено # обязательного поля}}"
 
 #. placeholder {0}: recoveryAction.references
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, one {Также обновлены ссылки в # заметке.} few {Также обновлены ссылки в # заметках.} many {Также обновлены ссылки в # заметках.} other {Также обновлены ссылки в # заметках.}}"
 
@@ -131,7 +131,7 @@ msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
 msgstr "{0, plural, one {Переместить # заметку?} few {Переместить # заметки?} many {Переместить # заметок?} other {Переместить # заметки?}}"
 
 #. placeholder {0}: recoveryAction.paths.length
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 msgstr "{0, plural, one {Перемещена # заметка.} few {Перемещено # заметки.} many {Перемещено # заметок.} other {Перемещено # заметки.}}"
 
@@ -1956,10 +1956,6 @@ msgstr "Создание"
 msgid "Creating folder"
 msgstr "Создание папки"
 
-#: src/editor-commands.ts
-msgid "Current note"
-msgstr "Текущая заметка"
-
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
 msgstr "Пользовательский"
@@ -2028,7 +2024,7 @@ msgstr "Удалить"
 msgid "delete notes"
 msgstr "удалять заметки"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleted {title}"
 msgstr "Удалено: {title}"
 
@@ -2037,7 +2033,7 @@ msgstr "Удалено: {title}"
 msgid "Deleting"
 msgstr "Удаление"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Deleting {title}…"
 msgstr "Удаление {title}…"
 
@@ -2870,7 +2866,7 @@ msgstr "Ссылка на заметку или файл"
 msgid "Linked from"
 msgstr "Ссылаются из"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Linked mention."
 msgstr "Упоминание связано."
 
@@ -2937,10 +2933,6 @@ msgstr "Загрузка каталога контрактов"
 msgid "Loading file viewer"
 msgstr "Загрузка просмотра файла"
 
-#: src/App.tsx
-msgid "Loading folder composer"
-msgstr "Загрузка формы создания папки"
-
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
 msgstr "Загрузка папок…"
@@ -2948,10 +2940,6 @@ msgstr "Загрузка папок…"
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
 msgstr "Загрузка заметки"
-
-#: src/App.tsx
-msgid "Loading note composer"
-msgstr "Загрузка формы создания заметки"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
@@ -4081,14 +4069,11 @@ msgstr "Чтение текста коллекции…"
 msgid "Reading file content…"
 msgstr "Чтение содержимого файла…"
 
-#: src/LoadingScreens.tsx
-msgid "Reading its notes and types"
-msgstr "Чтение заметок и типов коллекции"
-
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
 msgstr "Чтение содержимого заметки…"
 
+#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 msgid "Reading notes and files"
 msgstr "Чтение заметок и файлов"
@@ -4279,7 +4264,7 @@ msgid "Rename this note?"
 msgstr "Переименовать эту заметку?"
 
 #. placeholder {0}: recoveryAction.to
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Renamed to “{0}”."
 msgstr "Переименовано в «{0}»."
 
@@ -5772,6 +5757,7 @@ msgstr "Прокрутка в стиле пишущей машинки"
 msgid "Undated"
 msgstr "Без даты"
 
+#: src/editor-commands.ts
 #: src/Toasts.tsx
 msgid "Undo"
 msgstr "Отменить"

@@ -123,6 +123,11 @@
   background: var(--hover);
 }
 
+.note-row-arrival { animation: remote-change-fade 900ms var(--ease-out); }
+@media (prefers-reduced-motion: reduce) {
+  .note-row-arrival { animation: none; }
+}
+
 .note-row.busy:not(.selected) {
   background: var(--hover);
 }
