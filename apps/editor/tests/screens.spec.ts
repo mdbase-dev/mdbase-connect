@@ -173,10 +173,7 @@ test.describe("responsive themed view readiness", () => {
       await checkView("Quick open");
       await page.keyboard.press("Escape");
 
-      if (mobile) {
-        await page.getByRole("button", { name: "More note actions" }).click();
-        await page.getByRole("menuitem", { name: "New note", exact: true }).click();
-      } else await page.getByRole("button", { name: "New note", exact: true }).click();
+      await page.getByRole("button", { name: "New note", exact: true }).click();
       const composer = page.getByRole("main", { name: "Create note" });
       await expect(composer).toBeVisible();
       await composer.getByRole("textbox", { name: "Title", exact: true }).fill("A quieter way to work");

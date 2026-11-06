@@ -121,7 +121,7 @@ are rejected before writing. After a partial change, remaining notes can be
 moved individually to the destination.
 
 Mobile (≤760px) presents each level as a separate navigable screen, with 44px
-touch targets and safe-area padding. The note bar contains Back, New note and More;
+touch targets and safe-area padding. The note bar has Back on the left and New note beside More on the right;
 the complete path sits subtly above the title and scrolls away with it, and
 Rename path and Quick open live in More. List screens have a labeled, filled New note action.
 Properties take over the screen, and quick open fits the available viewport
@@ -148,8 +148,8 @@ focus state uses the normal caret and selection only: the editor surface never
 gains a border, outline, or glow. Vim bindings are optional and loaded only
 when enabled. More is one menu on both desktop and mobile, with separators
 between note actions, document views (outline and Linked from), insertion
-(Attach file), and help (shortcuts and Check note). Mobile puts New note and
-Quick open first; there is only one Rename path and one Attach file action.
+(Attach file), and help (shortcuts and Check note). Mobile puts Quick open
+first; there is only one Rename path and one Attach file action.
 Menus scroll when viewport space is limited, and keyboard focus stays visible.
 Frontmatter opens as typed rows first, with underlying values available as an
 escape hatch for nested or unfamiliar values. The inspector offers quiet Properties

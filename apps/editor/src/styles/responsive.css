@@ -214,6 +214,8 @@
     padding: calc(var(--space-1) + env(safe-area-inset-top)) var(--space-2) var(--space-1);
   }
 
+  .note-bar-title { margin-right: auto; }
+
   .writing-surface {
     --writing-gutter: 22px;
   }
