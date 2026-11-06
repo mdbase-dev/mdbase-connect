@@ -50,7 +50,7 @@ export interface WriteLedgerView {
   subscribe(fn: () => void): () => void;
   /** The save state of one record. */
   stateOf(recordId: Uuid): SaveState;
-  /** Acknowledge the notification, not a retained native capture. A parked refusal can be rediscovered after reopen. */
+  /** Forget a refused write after the app has shown it. */
   acknowledge(mutationId: Uuid): Promise<void>;
 }
 
@@ -69,10 +69,6 @@ const targets = (ops: readonly object[]): Uuid[] => [...new Set(ops.flatMap((op)
 }))];
 const entry = (mutationId: Uuid, records: readonly Uuid[], state: WriteLedgerEntry["state"], problem?: Problem, createdAt = Date.now()): WriteLedgerEntry =>
   problem ? { mutationId, records, createdAt, state, problem } : { mutationId, records, createdAt, state };
-const capturedEntry = (pending: PendingMutation): WriteLedgerEntry => entry(
-  pending.receipt.mutation, targets(pending.ops),
-  pending.receipt.state === "rejected" ? "rejected" : "pending", pending.receipt.problem,
-);
 
 /** @internal Driven by MdbaseClient; apps read it as `client.ledger`. */
 export class WriteLedger implements WriteLedgerView {
@@ -151,8 +147,8 @@ export class WriteLedger implements WriteLedgerView {
         this.native.pendingWrites().catch(() => null),
       ]);
       for (const p of pending ?? [])
-        if (!this.entries.has(p.receipt.mutation) || p.receipt.state === "rejected") this.entries.set(p.receipt.mutation, capturedEntry(p));
-      for (const e of stored) if (this.entries.get(e.mutationId)?.state !== "rejected" && (e.state === "rejected" || !this.entries.has(e.mutationId))) this.entries.set(e.mutationId, e);
+        if (!this.entries.has(p.receipt.mutation)) this.entries.set(p.receipt.mutation, entry(p.receipt.mutation, targets(p.ops), "pending"));
+      for (const e of stored) if (e.state === "rejected" || !this.entries.has(e.mutationId)) this.entries.set(e.mutationId, e);
       this.changed();
       // Stored-pending entries the replica no longer lists settled while closed.
       const live = new Set(pending?.map((p) => p.receipt.mutation));
@@ -177,9 +173,7 @@ export class WriteLedger implements WriteLedgerView {
     const pending = await this.native.pendingWrites().catch(() => null);
     let added = false;
     for (const p of pending ?? [])
-      if (!this.entries.has(p.receipt.mutation) || (p.receipt.state === "rejected" && this.entries.get(p.receipt.mutation)?.state !== "rejected")) {
-        this.entries.set(p.receipt.mutation, capturedEntry(p)); added = true;
-      }
+      if (!this.entries.has(p.receipt.mutation)) { this.entries.set(p.receipt.mutation, entry(p.receipt.mutation, targets(p.ops), "pending")); added = true; }
     if (added) this.changed();
   }
 

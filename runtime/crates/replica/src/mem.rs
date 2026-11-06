@@ -436,8 +436,7 @@ impl MemData {
             self.local_receipts.insert(r.mutation, r);
         }
         if let Some(t) = tx.local_receipts_prune {
-            self.local_receipts
-                .retain(|id, r| r.resolved_at >= t || self.pending_ids.contains_key(id));
+            self.local_receipts.retain(|_, r| r.resolved_at >= t);
         }
         for id in &tx.holds_del {
             self.holds.remove(id);

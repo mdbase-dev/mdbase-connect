@@ -2,8 +2,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { connect, memoryWriteLedgerStore, type MdbaseClient, type WriteLedgerStore } from "../src/index.js";
 import { MemoryReplica } from "../src/testing/index.js";
-import { WriteLedger } from "../src/write-ledger.js";
-import type { PendingMutation } from "../src/wire.js";
 
 const clients: MdbaseClient[] = [];
 afterEach(() => { for (const c of clients.splice(0)) c.close(); });
@@ -15,24 +13,6 @@ async function open(replica: MemoryReplica, ledger: WriteLedgerStore) {
 const until = async (check: () => boolean) => { for (let i = 0; i < 200 && !check(); i++) await new Promise((r) => setTimeout(r, 5)); expect(check()).toBe(true); };
 
 describe("write ledger", () => {
-  it("restores and adopts a permanently refused journal row without calling it pending", async () => {
-    const mutation = "0192f3a4-6000-7abc-8def-0123456789ab", record = "0192f3a4-6000-7abc-8def-0123456789ac";
-    const captured: PendingMutation = {
-      receipt: { mutation, state: "rejected", problem: { code: "internal", reason: "append_refused", recovery: "contact_support", message: "Original retained on device" } },
-      captured: 1, ops: [{ kind: "create", id: record, path: "refused.md", body: "irreplaceable" }],
-    };
-    const store = memoryWriteLedgerStore();
-    const ledger = new WriteLedger(store, { pendingWrites: async () => [captured], receipt: async () => captured.receipt });
-    await ledger.begin([mutation], [{ id: record }]);
-    await ledger.restore();
-    expect(ledger.getSnapshot()).toMatchObject({ pending: [], rejected: [{ mutationId: mutation, records: [record], problem: captured.receipt.problem }], saveState: "rejected" });
-    const other = new WriteLedger(memoryWriteLedgerStore(), { pendingWrites: async () => [captured], receipt: async () => captured.receipt });
-    await other.begin([mutation], [{ id: record }]);
-    await other.adopt();
-    expect(other.stateOf(record)).toBe("rejected");
-    await other.acknowledge(mutation);
-    expect(captured.ops).toHaveLength(1);
-  });
   it("keeps a refused write across a reload until it is acknowledged, and drops settled ones", async () => {
     const replica = new MemoryReplica({ confirmDelayMs: null }), store = memoryWriteLedgerStore();
     const first = await open(replica, store);

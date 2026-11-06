@@ -497,6 +497,7 @@ pub struct Replica<S: Store> {
     pub(crate) calls: Vec<LogCall>,
     pub(crate) inflight: BTreeMap<CallId, append::Inflight>,
     pub(crate) append: append::AppendState,
+    pub(crate) append_retry: Option<(i64, u64)>,
     pub(crate) head_known: u64,
     pub(crate) connection: Connection,
     pub(crate) subscribed: bool,
@@ -854,6 +855,7 @@ impl<S: Store> Replica<S> {
             calls: Vec::new(),
             inflight: BTreeMap::new(),
             append: append::AppendState::Idle,
+            append_retry: None,
             head_known: head.seq,
             connection: Connection::Connecting,
             subscribed: false,
@@ -1228,9 +1230,7 @@ impl<S: Store> Replica<S> {
             for row in rows {
                 rows_seen += 1;
                 max_order = max_order.max(row.order);
-                let replan = !self.append_parked(&row.mutation.id)?
-                    && !changed.is_empty()
-                    && row.touches.iter().any(|k| changed.contains(k));
+                let replan = !changed.is_empty() && row.touches.iter().any(|k| changed.contains(k));
                 let effects = if replan {
                     self.stats.replanned += 1;
                     let view = StoreView::new(&self.store, catalog.clone());

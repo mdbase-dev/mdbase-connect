@@ -342,7 +342,7 @@ export class FilesApi {
         }
         this.progress.delete(transfer);
         await this.abortUpload(transfer).catch(() => {});
-        // Resume under the same transferId and mutationId; never a new identity.
+        // A captured commit survives lane cleanup; its mutation ID resolves the outcome.
         throw withMutation(e, "upload", { mutationId: open.mutationId });
       }
     }
