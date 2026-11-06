@@ -2,9 +2,18 @@
 
 Green `main` is the release authority; a server release number is not. Desktop
 Release wakes after successful main-push Server CI, every six hours at minute 17,
-or a manual run on **main**. Only a full, exact Server CI qualification can
-start a build. Superseded main commits are skipped. Workflow-run data is never
-used to run PR code with publication credentials.
+or a dispatch on **main**. Ops Server CD dispatches it after production servers,
+enabled Workers and Editor have verified successfully; schedules are a fallback,
+not the production-completion signal. Dispatch failure is advisory and cannot
+fail or roll back the server release.
+
+The coordinator observes the live production Connect/MCP and provider revisions,
+then selects the newest green first-parent commit in their common main ancestry.
+It checks out that exact source and requires its full Server CI main-push
+qualification artifact, not just a green badge. Unknown readiness, history or
+qualification evidence fails closed. The workflow's launch SHA need not have
+reached production, and main moving again never invalidates the selected source.
+Workflow-run data is never used to run PR code with publication credentials.
 
 Repository immutable releases stay **enabled**. Desktop releases ship at
 **100% rollout**. All binaries, signed channel documents, Sigstore bundles and
@@ -64,8 +73,7 @@ Connect, MCP and provider readiness checks. Redirects, staging and caller-
 supplied origins do not qualify. It verifies that the exact client commit is
 on main, then permits publication only when production contains that commit,
 or the exact production-to-client tree diff is off the server-facing contract
-axis. The provider's independently observed version is resolved through its
-protected annotated server tag and checked separately; Connect ancestry does
+axis. The provider's independently observed `/ready` revision is checked separately; Connect ancestry does
 not stand in for provider ancestry. Missing commits, unrelated history, unknown paths, protocol/authorization,
 trust, server, shared runtime and dependency-lock changes fail closed. Only
 static visual assets, locale data, documentation/tests and known release tooling
@@ -143,7 +151,7 @@ fixed 100% rollout and is no longer read.
    Do not supply a version, server SHA or tag. Review the coordinator and
    automatic tagged worker runs, including the draft-to-published boundary.
    The same client-diff and 24-hour gates apply to this first run.
-   Subsequent main events/scheduled runs do this
+   Subsequent production-completion dispatches, main events and scheduled runs do this
    without a person. This PR does not dispatch or publish anything itself.
 
 The supervisor must also retire the old tagged desktop dispatch in ops

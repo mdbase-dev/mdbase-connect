@@ -78,6 +78,35 @@ export async function verifyCompatibility(env = process.env) {
   return evidence;
 }
 
+// Select from live production ancestry, not the workflow's (possibly superseded)
+// main SHA. Keep selection separate from the fresh compatibility publication gate.
+export async function checkoutProductionCommit(env = process.env, {
+  readProduction = readProductionRelease, runGit = git, readApi = api, qualify = requireGreenMain
+} = {}) {
+  if (env.GITHUB_REPOSITORY !== repository || env.GITHUB_REF !== "refs/heads/main") {
+    throw new Error("Client selection requires this repository's main workflow.");
+  }
+  runGit("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main");
+  const production = await readProduction();
+  for (const commit of [production.sha, production.providerSha]) {
+    if (!/^[a-f0-9]{40}$/.test(commit ?? "")) throw new Error("Production requires full commit identities.");
+    runGit("fetch", "--no-tags", "origin", commit);
+  }
+  const common = runGit("merge-base", "--octopus", "origin/main", production.sha, production.providerSha);
+  for (const commit of runGit("rev-list", "--first-parent", common).split("\n").filter(Boolean)) {
+    const runs = readApi(`actions/workflows/server-ci.yml/runs?head_sha=${commit}&event=push&branch=main&per_page=100`).workflow_runs;
+    if (!runs.some(run => run.head_sha === commit && run.head_branch === "main" && run.event === "push"
+        && run.status === "completed" && run.conclusion === "success" && run.path === ".github/workflows/server-ci.yml")) continue;
+    runGit("checkout", "--detach", commit);
+    // A green badge alone is not full qualification. Invalid/unavailable exact
+    // artifacts refuse rather than silently falling back to an older release.
+    qualify(commit);
+    console.log(JSON.stringify({ candidate: commit, production: production.sha, provider: production.providerSha }));
+    return commit;
+  }
+  throw new Error("No green main commit is contained by both production services.");
+}
+
 export function requireGreenMain(commit) {
   if (!/^[a-f0-9]{40}$/.test(commit ?? "")) throw new Error("Expected a full main commit.");
   // Windows cannot spawn an extensionless script directly.

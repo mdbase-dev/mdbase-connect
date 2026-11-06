@@ -69,6 +69,7 @@ jobs:
       contents: read
       actions: read
     outputs:
+      commit: ${{ steps.plan.outputs.commit }}
       changed: ${{ steps.plan.outputs.changed }}
       version: ${{ steps.plan.outputs.version }}
     steps:
@@ -97,6 +98,8 @@ jobs:
   build:
     needs: [validate, plan]
     if: ${{ !cancelled() && needs.validate.result == 'success' && (github.event_name == 'pull_request' || needs.plan.outputs.changed == 'true') }}
+    env:
+      CLIENT_RELEASE_COMMIT: ${{ needs.plan.outputs.commit || github.sha }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -105,6 +108,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.plan.outputs.commit || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -112,12 +116,15 @@ jobs:
           package-manager-cache: false
       - name: Refuse a release before the runtime port is qualified
         if: github.event_name != 'pull_request'
-        run: node scripts/sdk-publication.mjs ready
+        run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
+          node scripts/sdk-publication.mjs ready
       - name: Require exact release qualification before publication
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
           node scripts/continuous-sdk-release.mjs compatible
           scripts/ci/verify-qualified-commit "$GITHUB_SHA"
           gh run list --repo "$GITHUB_REPOSITORY" --workflow runtime-ci.yml --commit "$GITHUB_SHA" \
@@ -125,6 +132,7 @@ jobs:
             jq -e --arg sha "$GITHUB_SHA" 'any(.[]; .headSha == $sha and (.event == "push" or .event == "workflow_dispatch"))'
       - name: Install pinned build tools
         run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
           (cd runtime && rustup toolchain install && rustup show active-toolchain)
           npm ci --prefix runtime/tools/wasm --ignore-scripts
           npm ci --prefix runtime/packages/sdk --ignore-scripts
@@ -135,17 +143,22 @@ jobs:
           path: ${{ runner.temp }}/sdk-plan
       - name: Apply the CI version only in this build checkout
         if: github.event_name != 'pull_request'
-        run: node scripts/continuous-sdk-release.mjs prepare-source "$RUNNER_TEMP/sdk-plan/sdk-release-plan.json"
+        run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
+          node scripts/continuous-sdk-release.mjs prepare-source "$RUNNER_TEMP/sdk-plan/sdk-release-plan.json"
       - name: Build verifier and application runtime from this commit
         working-directory: runtime
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/source --remap-path-prefix=/home/runner/.cargo=/cargo
         run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
           cargo test --locked -p mdbn-trust
           cargo build --locked --release -p mdbn-trust --bin mdbn-trust
           cargo xtask wasm-app
       - name: Compile, cold-test and verify all three environment archives from the same WASM
-        run: node scripts/sdk-publication.mjs pack-all "$RUNNER_TEMP/sdk-packages"
+        run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
+          node scripts/sdk-publication.mjs pack-all "$RUNNER_TEMP/sdk-packages"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: source-built-sdks
@@ -156,6 +169,8 @@ jobs:
     name: Publish source-built SDK
     needs: [build, plan]
     if: github.ref == 'refs/heads/main' && needs.plan.outputs.changed == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
+    env:
+      CLIENT_RELEASE_COMMIT: ${{ needs.plan.outputs.commit }}
     runs-on: ubuntu-24.04
     environment: npm-sdk
     outputs:
@@ -168,39 +183,51 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.plan.outputs.commit }}
           fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - run: node scripts/sdk-publication.mjs ready
+      - run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
+          node scripts/sdk-publication.mjs ready
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: sdk-release-plan
           path: ${{ runner.temp }}/sdk-plan
-      - run: node scripts/continuous-sdk-release.mjs prepare-source "$RUNNER_TEMP/sdk-plan/sdk-release-plan.json"
+      - run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
+          node scripts/continuous-sdk-release.mjs prepare-source "$RUNNER_TEMP/sdk-plan/sdk-release-plan.json"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: source-built-sdks
           path: ${{ runner.temp }}/sdk-packages
-      - run: node scripts/sdk-publication.mjs verify-npm "$RUNNER_TEMP/sdk-packages/sdk-production.tgz"
+      - run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
+          node scripts/sdk-publication.mjs verify-npm "$RUNNER_TEMP/sdk-packages/sdk-production.tgz"
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: ${{ runner.temp }}/sdk-packages/sdk-production.tgz
-      - run: npm install --global npm@11
+      - run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
+          npm install --global npm@11
       - name: Recheck qualified source, production compatibility and publication state
         id: publication
         env:
           GH_TOKEN: ${{ github.token }}
           SDK_VERSION: ${{ needs.plan.outputs.version }}
         run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
           scripts/ci/verify-qualified-commit "$GITHUB_SHA"
           node scripts/continuous-sdk-release.mjs compatible
           node scripts/continuous-sdk-release.mjs publication-state @mdbase-dev/sdk "$SDK_VERSION"
       - name: Publish the verified production archive with provenance
         if: steps.publication.outputs.state == 'absent'
-        run: npm publish "$RUNNER_TEMP/sdk-packages/sdk-production.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org/ --tag latest --provenance
+        run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
+          npm publish "$RUNNER_TEMP/sdk-packages/sdk-production.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org/ --tag latest --provenance
 
   attest-internal:
     needs: [build, plan]
@@ -245,6 +272,8 @@ jobs:
     # run never consumes a prerelease tag.
     needs: [attest-internal, publish, plan]
     if: github.ref == 'refs/heads/main' && needs.plan.outputs.changed == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run) && needs.publish.outputs.state == 'absent'
+    env:
+      CLIENT_RELEASE_COMMIT: ${{ needs.plan.outputs.commit }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -253,6 +282,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ needs.plan.outputs.commit }}
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
@@ -263,7 +293,9 @@ jobs:
         with:
           name: sdk-release-plan
           path: ${{ runner.temp }}/sdk-plan
-      - run: node scripts/continuous-sdk-release.mjs prepare-source "$RUNNER_TEMP/sdk-plan/sdk-release-plan.json"
+      - run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
+          node scripts/continuous-sdk-release.mjs prepare-source "$RUNNER_TEMP/sdk-plan/sdk-release-plan.json"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: attested-internal-sdks
@@ -272,5 +304,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
           node scripts/continuous-sdk-release.mjs compatible
           node scripts/publish-sdk-prerelease.mjs "$RUNNER_TEMP/sdk-internal"

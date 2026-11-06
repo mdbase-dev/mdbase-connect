@@ -139,6 +139,18 @@ test("publication reaches a skipped test selector only through explicit job resu
   assert.match(job("website-update"), /if: \$\{\{ !cancelled\(\) && .*needs\.publish\.result == 'success' \}\}/);
 });
 
+test("coordinator pins production-contained source without changing the tag worker or compatibility recheck", () => {
+  const source = readFileSync(new URL("../continuous-desktop-release.mjs", import.meta.url), "utf8");
+  assert.match(source, /const commit = await checkoutProductionCommit\(env\)/);
+  assert.match(source, /env = \{ \.\.\.env, GITHUB_SHA: commit \}/);
+  assert.doesNotMatch(source, /Main advanced|next green run owns|rev-parse", "origin\/main"/);
+  assert.match(source, /await verifyCompatibility\(env\)/);
+  assert.match(source, /tag, object: env.GITHUB_SHA, type: "commit"/);
+  assert.match(source, /commit: env.GITHUB_SHA/);
+  assert.match(source, /gh\("workflow", "run", "desktop-release.yml", "--repo", repository, "--ref", tag/);
+  assert.match(source, /desktop-release.yml@refs\/tags\/\$\{release.tag_name\}/);
+});
+
 test("automatic desktop jobs preserve tag-bound signing, full CI, e2e and notarization", () => {
   assert.match(workflow, /workflow_run:[\s\S]*workflows: \[Server CI\]/);
   assert.match(workflow, /group: desktop-release-.*'live'/);
