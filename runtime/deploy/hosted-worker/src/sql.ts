@@ -153,7 +153,15 @@ function execIndexStatement(storage: DurableObjectStorage, stmt: { sql: string; 
   return storage.sql.exec(stmt.sql, ...stmt.params);
 }
 
+/** Fixed statement shape only: a budget failure names the read, never its values. */
+function budgetLine(e: Fail, sql: string | undefined): string {
+  const verb = sql?.match(/^\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH)\b/i)?.[1]?.toLowerCase() ?? null;
+  const table = sql?.match(/\b(?:FROM|INTO|UPDATE)\s+"?(st_[A-Za-z0-9_]+)/i)?.[1] ?? null;
+  return JSON.stringify({ event: "hosted_sql_budget", reason: e.message, verb, table });
+}
+
 export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Uint8Array {
+  let stmts: { sql: string; params: Val[] }[] = [];
   try {
     if (request.length > MAX_BYTES) throw new Fail(FULL, "request over budget");
     const r = new Reader(request);
@@ -179,7 +187,6 @@ export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Ui
     const count = r.u32();
     if (count > MAX_STATEMENTS) throw new Fail(FULL, "too many statements");
     let paramValues = 0;
-    const stmts: { sql: string; params: Val[] }[] = [];
     for (let i = 0; i < count; i++) {
       const sql = r.str(MAX_SQL);
       const n = r.u32();
@@ -232,6 +239,9 @@ export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Ui
     else run();
     return w.done();
   } catch (e) {
+    if (e instanceof Fail && e.kind === FULL) {
+      try { console.warn(budgetLine(e, e.stmt === undefined ? undefined : stmts[e.stmt]?.sql)); } catch { /* Logging is not authority. */ }
+    }
     return error(e);
   }
 }

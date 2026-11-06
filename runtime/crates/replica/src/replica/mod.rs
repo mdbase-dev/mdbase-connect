@@ -344,6 +344,9 @@ impl std::fmt::Debug for Host {
 pub enum OpenError {
     /// The store failed.
     Store(StoreError),
+    /// The store failed at a named open step. The step is fixed text, so it
+    /// tells budget failures apart in production without any collection detail.
+    StoreAt(&'static str, StoreError),
     /// The store belongs to another collection or replica.
     Mismatch(String),
     /// A stored row could not be decoded.
@@ -706,7 +709,9 @@ impl<S: Store> Replica<S> {
         }
         let head = store.head()?;
         let tail_stats = store.tail_stats()?;
-        let catalog = Arc::new(crate::plan::load_catalog(&store)?);
+        let catalog = Arc::new(
+            crate::plan::load_catalog(&store).map_err(|e| OpenError::StoreAt("catalog", e))?,
+        );
         let clock_floor = read_i64(&store, meta_keys::COUNTERS)?;
         // `log_state` is written by apply as `log_time ‖ sem_ratchet`.
         let (log_time, sem_ratchet) = match store.meta(meta_keys::LOG_STATE)? {
@@ -961,11 +966,13 @@ impl<S: Store> Replica<S> {
             .map_err(|e| OpenError::Corrupt(format!("{e:?}")))?;
         // A store opened without a complete query index (older store, crash after
         // an invalidating write) is backfilled before serving.
-        r.backfill_query_index().map_err(OpenError::Store)?;
+        r.backfill_query_index()
+            .map_err(|e| OpenError::StoreAt("query_index_backfill", e))?;
         // Whatever the view captured while rebuilding is replaced by what the disk holds.
         r.before.clear();
         r.load_regressed().map_err(OpenError::Store)?;
-        r.reconcile_disk()?;
+        r.reconcile_disk()
+            .map_err(|e| OpenError::StoreAt("reconcile_disk", e))?;
         if r.local_only() {
             r.connection = Connection::Online;
             // Host-only pending rows may resume. Granted rows fail closed until
