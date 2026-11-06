@@ -835,11 +835,9 @@ refusal, real DH, existing-key refusal, late IDB abort, worker wake and browser 
 ## Checks
 
 ```sh
-npm ci && npm run typecheck && npm test && npm run build && npm run size   # or: cargo xtask sdk
+npm ci && npm run typecheck && npm test && npm run build && npm run bundle-boundaries   # or: cargo xtask sdk
 ```
 
-`npm run size` fails when `@mdbase-dev/sdk/thin-client` exceeds 64 KiB gzip or the
-root entry exceeds its measured ceiling (166 KiB; standalone apps have no product
-size limit, so this ceiling only catches regressions). It also fails when either
-entry bundles the Ajv compiler (manifest validators are precompiled in
-connect-protocol), the thin client bundles yaml, or either bundles `app-grant`.
+`npm run bundle-boundaries` fails when either entry bundles the Ajv compiler
+(manifest validators are precompiled in connect-protocol), the thin client
+bundles yaml, or either bundles `app-grant`.

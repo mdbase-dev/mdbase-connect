@@ -27,7 +27,7 @@ cargo xtask <command>
                 it to packages/mdbase/wasm/
   determinism   replay conformance/determinism/*.log natively and in WASM (Node);
                 outputs must match each other and the .expected.json golden
-  sdk           the TS SDK in packages/sdk: npm ci, typecheck, test, build, size
+  sdk           the TS SDK in packages/sdk: npm ci, typecheck, test, build, bundle boundaries
   obsidian      the Obsidian runtime in packages/obsidian-runtime: npm ci, typecheck, test, build
   mdbase        the npm `mdbase` package in packages/mdbase: npm ci, typecheck, test, build
                 (run `mdbase-wasm` first)
@@ -401,7 +401,7 @@ fn npm_package(path: &str) -> Result<()> {
         &["run", "typecheck"],
         &["test"],
         &["run", "build"],
-        &["run", "--if-present", "size"],
+        &["run", "--if-present", "bundle-boundaries"],
     ] {
         let mut c = Command::new("npm");
         c.current_dir(&dir).args(args);
