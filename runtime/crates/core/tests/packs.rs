@@ -506,12 +506,12 @@ fn a_customised_seed_without_an_origin_merges_against_the_inferred_baseline() {
 }
 
 #[test]
-fn a_seed_that_merges_with_no_baseline_is_preserved_with_a_reason() {
+fn a_seed_that_cannot_merge_but_implements_the_pack_is_kept_as_it_is() {
     let competing = SEED_V1_REWRITTEN.replace("description: A note.", "description: My notes.");
     let p = seed_plan(&legacy_seed(1, &competing));
-    assert_eq!(p.action, Action::Preserve);
-    assert!(p.reason.unwrap().contains("no upgrade baseline applies"));
+    assert_eq!((p.action, p.reason.as_deref()), (Action::Preserve, None));
     assert_eq!(p.origin, None);
+    assert!(!p.replaceable(true));
 }
 
 #[test]
@@ -527,7 +527,28 @@ fn an_inferred_merge_must_still_implement_the_desired_contracts() {
     );
     let p = seed_plan(&legacy_seed(1, &unimplemented));
     assert_eq!(p.action, Action::Preserve);
-    assert!(p.reason.is_some());
+    assert!(p.reason.unwrap().contains("no upgrade baseline applies"));
+}
+
+#[test]
+fn a_kept_seed_with_records_cannot_be_replaced() {
+    let start = SEED_V1_REWRITTEN.find("implements:").unwrap();
+    let end = SEED_V1_REWRITTEN.find("kind: mdbase.type").unwrap();
+    let unimplemented = format!(
+        "{}{}",
+        &SEED_V1_REWRITTEN[..start],
+        &SEED_V1_REWRITTEN[end..]
+    );
+    let mut state = legacy_seed(1, &unimplemented);
+    assert!(seed_plan(&state).replaceable(true));
+    state.insert_record(
+        mdbn_core::ids::Uuid([1; 16]),
+        "notes/a.md",
+        "---\ntype: note\n---\nBody\n",
+    );
+    let p = seed_plan(&state);
+    assert!(p.reason.is_some() && p.in_use);
+    assert!(!p.replaceable(true));
 }
 
 #[test]

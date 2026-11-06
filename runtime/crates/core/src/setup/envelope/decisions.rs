@@ -2,10 +2,9 @@
 use super::*;
 use std::collections::BTreeMap;
 
-/// Validate only advertised replacements at exact live bytes: an unmanaged
-/// target's conflict, or a seed setup cannot upgrade (a conflict, or kept
-/// with a reason). Installed managed, missing, changed and undeclared targets
-/// always refuse.
+/// Validate only advertised replacements at exact live bytes (see
+/// [`packs::PlannedResource::replaceable`]). Installed managed, missing,
+/// changed and undeclared targets always refuse.
 pub fn reviewed_resource_adoptions(
     state: &dyn StateView,
     setup: &CollectionSetup,
@@ -27,14 +26,7 @@ pub fn reviewed_resource_adoptions(
                     .current
                     .as_ref()
                     .is_some_and(|c| c.resources.iter().any(|e| e.target == r.target));
-                let replaceable = match r.mode {
-                    packs::Mode::Managed => r.action == packs::Action::Conflict && !installed,
-                    packs::Mode::Seed => {
-                        r.action == packs::Action::Conflict
-                            || (r.action == packs::Action::Preserve && r.reason.is_some())
-                    }
-                };
-                replaceable
+                r.replaceable(installed)
                     .then_some(r.live.map(|live| (r.target.clone(), live)))
                     .flatten()
             })

@@ -544,6 +544,25 @@ pub struct PlannedResource {
     pub reason: Option<String>,
     /// Seed updates: the baseline used, `(digest, version)`.
     pub upgrade_baseline: Option<(Hash, Option<i64>)>,
+    /// A kept seed type that records use: replacing it could orphan them.
+    pub in_use: bool,
+}
+
+impl PlannedResource {
+    /// Whether a person may replace this target with the pack's version: an
+    /// unmanaged target's conflict, or a seed setup cannot upgrade (a
+    /// conflict, or kept with a reason) that no record relies on.
+    pub fn replaceable(&self, installed: bool) -> bool {
+        match self.mode {
+            Mode::Managed => self.action == Action::Conflict && !installed,
+            Mode::Seed => self.unresolved_seed() && !self.in_use,
+        }
+    }
+
+    fn unresolved_seed(&self) -> bool {
+        self.action == Action::Conflict
+            || (self.action == Action::Preserve && self.reason.is_some())
+    }
 }
 
 /// Caller decisions (spec 05A).
@@ -742,6 +761,7 @@ pub fn assess_type_pack(
             origin: None,
             reason: None,
             upgrade_baseline: None,
+            in_use: false,
         };
         match r.mode {
             Mode::Managed => {
@@ -757,6 +777,7 @@ pub fn assess_type_pack(
                 &mut p,
             ),
         }
+        p.in_use = r.mode == Mode::Seed && p.unresolved_seed() && type_in_use(state, &target);
         if let Some(d) = &p.document {
             p.result = Some(revision(d));
         }
@@ -798,6 +819,7 @@ pub fn assess_type_pack(
                 origin: e.origin_digest,
                 reason,
                 upgrade_baseline: None,
+                in_use: false,
             });
         }
     }
@@ -1129,10 +1151,39 @@ fn plan_seed(
             return;
         }
     }
+    // It already implements the contracts the app needs: keeping it is enough.
+    if split_frontmatter(&r.document).is_some_and(|fm| fm.contains_key("implements")) && fits(live)
+    {
+        return;
+    }
     p.reason = Some(format!(
         "{}: no upgrade baseline applies to this type's origin",
         r.target
     ));
+}
+
+/// Whether any record belongs to the type defined at `target`.
+fn type_in_use(state: &dyn StateView, target: &str) -> bool {
+    let catalog = state.catalog();
+    let names: BTreeSet<&str> = catalog
+        .types()
+        .iter()
+        .filter(|t| t.source_path == target)
+        .map(|t| t.name.as_str())
+        .collect();
+    !names.is_empty()
+        && state
+            .record_ids()
+            .into_iter()
+            .filter_map(|id| state.record(&id))
+            .any(|record| {
+                let document = Document::parse_at(&record.path, &*record.source);
+                catalog
+                    .membership(&record.path, document.frontmatter())
+                    .types
+                    .iter()
+                    .any(|name| names.contains(name.as_str()))
+            })
 }
 
 /// How many leaves differ between `a` and `b`, for choosing a merge base.
