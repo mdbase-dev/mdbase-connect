@@ -212,7 +212,15 @@
 
   .writing-surface {
     --writing-gutter: 22px;
-    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .note-bar-title.is-shown {
+    flex: 1;
+    max-width: none;
+    text-align: center;
+  }
+
+  .note-header {
     padding-top: 22px;
   }
 

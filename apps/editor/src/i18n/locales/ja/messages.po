@@ -2619,6 +2619,10 @@ msgstr "このコレクションを準備中…"
 msgid "Give the type a name, then add the fields its notes need."
 msgstr "型に名前を付けてから、その型のノートに必要なフィールドを追加してください。"
 
+#: src/App.tsx
+msgid "Go to note title"
+msgstr "ノートのタイトルへ移動"
+
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "対応ツールによるこの型のレコードの作成や名前変更時の動作を指定します。"
@@ -5812,6 +5816,7 @@ msgstr "新しいコレクションを開くと、未保存の型または作成
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "未保存の型または作成途中の変更は破棄されます。"
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx

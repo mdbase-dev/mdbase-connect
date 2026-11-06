@@ -2619,6 +2619,10 @@ msgstr "Preparando esta colección…"
 msgid "Give the type a name, then add the fields its notes need."
 msgstr "Ponle un nombre al tipo y luego añade los campos que necesitan sus notas."
 
+#: src/App.tsx
+msgid "Go to note title"
+msgstr "Ir al título de la nota"
+
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "Orienta a las herramientas compatibles cuando crean registros de este tipo o les cambian el nombre."
@@ -5812,6 +5816,7 @@ msgstr "Se descartarán los cambios sin guardar en tipos y en notas o carpetas n
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "Se descartarán los cambios sin guardar en tipos y en notas o carpetas nuevas."
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx

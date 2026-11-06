@@ -504,14 +504,17 @@ test("wraps long titles and gives narrow editor panes a usable writing measure",
   await title.fill("Pasted title\nwith a second line");
   await expect(title).toHaveValue("Pasted title with a second line");
   await title.fill("An exceptionally long title ".repeat(50));
-  const capped = await title.evaluate((element) => ({
+  const uncapped = await title.evaluate((element) => ({
     height: element.getBoundingClientRect().height,
     fieldHeight: element.parentElement!.getBoundingClientRect().height,
-    bodyHeight: document.querySelector(".body-editor")!.getBoundingClientRect().height
+    clipped: element.scrollHeight - element.clientHeight,
+    editorHeight: document.querySelector(".body-editor")!.getBoundingClientRect().height,
+    paneHeight: document.querySelector(".writing-surface")!.getBoundingClientRect().height
   }));
-  expect(capped.height).toBeLessThanOrEqual(192);
-  expect(capped.height).toBeLessThanOrEqual(capped.fieldHeight);
-  expect(capped.bodyHeight).toBeGreaterThan(100);
+  expect(uncapped.height).toBeGreaterThan(192);
+  expect(uncapped.height).toBeLessThanOrEqual(uncapped.fieldHeight);
+  expect(uncapped.clipped).toBeLessThanOrEqual(1);
+  expect(uncapped.editorHeight).toBe(uncapped.paneHeight);
   await title.fill("Short title");
   await expect.poll(() => title.evaluate((element) => element.getBoundingClientRect().height)).toBe(52);
   await page.getByRole("textbox", { name: "Note body" }).focus();
@@ -1728,4 +1731,84 @@ test("has no automatically detectable accessibility violations across editor sur
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("main", { name: "Editor settings" })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test.describe("note title on scroll", () => {
+  let scrollNote: (top: number) => Promise<void>;
+
+  test.beforeEach(async ({ page }) => {
+    scrollNote = (top) => page.locator(".body-editor .cm-scroller").evaluate((element, value) => { element.scrollTop = value; }, top);
+    await page.goto("?demo=12");
+    const body = page.getByRole("textbox", { name: "Note body" });
+    await expect(body).toBeVisible();
+    await page.getByRole("textbox", { name: "Note title" }).fill("Handoff title");
+    await body.fill(Array.from({ length: 200 }, (_, index) => `Line ${index + 1}`).join("\n"));
+    await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 5_000 });
+    await page.keyboard.press("Control+Home");
+  });
+
+  test("hands the title to the bar and returns to it for editing", async ({ page }) => {
+    const title = page.getByRole("textbox", { name: "Note title" });
+    const barTitle = page.locator(".note-bar-title");
+    await expect(barTitle).toBeHidden();
+    await expect(title).toBeInViewport();
+
+    await scrollNote(600);
+    await expect(barTitle).toBeVisible();
+    await expect(barTitle).toHaveText("Handoff title");
+    await expect(page.locator(".path-button")).toBeVisible();
+
+    await barTitle.click();
+    await expect(title).toBeFocused();
+    await expect(title).toBeInViewport();
+    await expect(barTitle).toBeHidden();
+    await expect.poll(() => page.locator(".body-editor .cm-scroller").evaluate((element) => element.scrollTop)).toBe(0);
+    await page.keyboard.type(" edited");
+    await expect(title).toHaveValue("Handoff title edited");
+  });
+
+  test("keeps the title in the focus mode bar", async ({ page }) => {
+    await page.keyboard.press("Control+Shift+F");
+    await expect(page.locator(".app-shell")).toHaveClass(/focus-mode/);
+    await scrollNote(600);
+    await expect(page.locator(".note-bar-title")).toBeVisible();
+    await expect(page.locator(".path-button")).toBeHidden();
+  });
+
+  test("scrolls the path away with the title on phones", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    const path = page.locator(".mobile-note-path");
+    await expect(path).toBeInViewport();
+    await scrollNote(600);
+    await expect(path).not.toBeInViewport();
+    const barTitle = page.locator(".note-bar-title");
+    await expect(barTitle).toBeVisible();
+    const back = await page.getByRole("button", { name: "Back to notes" }).boundingBox();
+    const bounds = await barTitle.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(back!.x + back!.width - 1);
+  });
+
+  test("keeps the title aligned while unwrapped lines scroll sideways", async ({ page }) => {
+    await page.evaluate(() => {
+      localStorage.setItem("mdbase-editor:preferences", JSON.stringify({ vim: false, lineWrapping: false, quietMarkdown: true, fontSize: 17 }));
+    });
+    await page.reload();
+    const body = page.getByRole("textbox", { name: "Note body" });
+    await body.fill("A long unwrapped line ".repeat(100));
+    const title = page.getByRole("textbox", { name: "Note title" });
+    const before = await title.boundingBox();
+    await page.locator(".body-editor .cm-scroller").evaluate((element) => { element.scrollLeft = 400; });
+    expect((await title.boundingBox())!.x).toBe(before!.x);
+  });
+
+  test("selects and types in the body below the title", async ({ page }) => {
+    const line = page.locator(".cm-line").filter({ hasText: /^Line 3$/ });
+    await line.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type("!");
+    await expect(page.locator(".cm-line").filter({ hasText: /^Line 3!$/ })).toBeVisible();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Control+End");
+    await expect(page.locator(".cm-line").filter({ hasText: /^Line 200$/ })).toBeInViewport();
+  });
 });

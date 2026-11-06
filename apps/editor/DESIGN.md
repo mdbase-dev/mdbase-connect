@@ -122,8 +122,8 @@ moved individually to the destination.
 
 Mobile (≤760px) presents each level as a separate navigable screen, with 44px
 touch targets and safe-area padding. The note bar contains only Back and More;
-the complete path sits subtly above the title, and Rename path, New note and
-Quick open live in More. List screens have a labeled, filled New note action.
+the complete path sits subtly above the title and scrolls away with it, and
+Rename path, New note and Quick open live in More. List screens have a labeled, filled New note action.
 Properties take over the screen, and quick open fits the available viewport
 rather than keeping its desktop keyboard-help footer.
 
@@ -225,7 +225,7 @@ surface. Ctrl/⌘K inserts a link only in note text.
 
 Focus mode (Ctrl/⌘Shift+F, Escape to exit) temporarily hides the rail, note list
 and properties without changing their saved layout. Its minimal bar keeps Exit
-focus mode and More, plus save failures when needed. Focus mode stays in this
+focus mode and More, plus save failures when needed. Once the note scrolls, its title stays in the bar. Focus mode stays in this
 browser. Optional typewriter scrolling in Settings centres the caret line only
 while writing in focus mode; it does not animate scrolling or alter undo history.
 
@@ -249,6 +249,13 @@ Escape handling and focus restoration; mobile viewers fill the safe viewport.
 The current Markdown path sits quietly above the title, with the directory
 truncated before the filename. It can be renamed in place, making the relationship between the calm note and its durable file
 visible without turning the app into a file manager.
+
+The title is part of the document, so it scrolls away with the note and gives
+the writing area the full height of the pane. When it leaves view it appears in
+the note bar once, before the path, at 13px semibold. Selecting it returns to
+the top of the note with the title ready to edit. The path shortens first when
+the bar runs out of room, and moving the caret to the first line reveals the
+title again.
 
 ## Note actions and discovery
 

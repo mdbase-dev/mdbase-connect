@@ -32,7 +32,7 @@ import {
   type ViewUpdate
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { parseDocument as parseYamlDocument } from "yaml";
 import type { FileAssetSnapshot } from "./file-asset-store";
@@ -90,6 +90,7 @@ interface CodeEditorProps {
   onUploadAttachment?: AttachmentUploader;
   onBlur?: () => void;
   remoteApplyToken?: number;
+  header?: ReactNode;
   footer?: ReactNode;
 }
 
@@ -156,11 +157,19 @@ export function CodeEditor({
   onUploadAttachment,
   onBlur,
   remoteApplyToken,
+  header,
   footer
 }: CodeEditorProps) {
   const { i18n } = useLingui();
   const parentRef = useRef<HTMLDivElement>(null);
   const [footerHost, setFooterHost] = useState<HTMLDivElement>();
+  // Created during render so the header paints in the same frame as the editor it joins.
+  const [headerHost] = useState(() => {
+    if (!header) return undefined;
+    const host = document.createElement("div");
+    host.className = "note-header";
+    return host;
+  });
   const viewRef = useRef<EditorView | undefined>(undefined);
   const appliedRemoteToken = useRef<number | null>(null);
   const onChangeRef = useRef(onChange);
@@ -225,13 +234,21 @@ export function CodeEditor({
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
-  useEffect(() => {
+  // A layout effect keeps the title and body in one paint when notes change.
+  useLayoutEffect(() => {
     if (!parentRef.current) return;
     const extensions: Extension[] = [
       vimMode.current.of([]),
       historyMode.current.of([history()]),
       Prec.highest(attachmentCapture(() => onUploadAttachmentRef.current)),
       editorSetup(variant, Boolean(footer)),
+      // CodeMirror cannot see the header, so caret moves at the top of the note reveal it explicitly.
+      headerHost ? EditorState.transactionExtender.of((transaction) => {
+        if (!transaction.scrollIntoView) return null;
+        const head = transaction.newSelection.main.head;
+        if (transaction.newDoc.lineAt(head).number > 1) return null;
+        return { effects: EditorView.scrollIntoView(head, { y: "nearest", yMargin: headerHost.offsetHeight }) };
+      }) : [],
       syntaxHighlighting(mdbaseHighlightStyle),
       mdbasePopupTheme,
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
@@ -296,6 +313,7 @@ export function CodeEditor({
     const focusBeforeMount = parentRef.current.ownerDocument.activeElement;
     const view = new EditorView({ parent: parentRef.current, state });
     viewRef.current = view;
+    if (headerHost) view.scrollDOM.prepend(headerHost);
     if (variant === "writer" && footer) {
       const host = view.dom.ownerDocument.createElement("div");
       host.className = "note-footer";
@@ -546,7 +564,7 @@ export function CodeEditor({
       if (next instanceof Node && event.currentTarget.contains(next)) return;
       onBlur?.();
     }}
-  >{footerHost && footer && createPortal(footer, footerHost)}</div>;
+  >{headerHost && createPortal(header, headerHost)}{footerHost && footer && createPortal(footer, footerHost)}</div>;
 }
 
 export function lineSeparatorFor(value: string): "\n" | "\r\n" {

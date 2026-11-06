@@ -7,7 +7,7 @@ import { DemoCollectionGateway } from "./demo-gateway";
 import { NOTE_PATHS_MIME, loadPinnedNotes } from "./note-list-view";
 import { chooseOption } from "./test/select";
 
-vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label, footer }: { value: string; onChange?: (value: string) => void; label: string; footer?: ReactNode }) => <><textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</> }));
+vi.mock("./CodeEditor", () => ({ CodeEditor: ({ header, value, onChange, label, footer }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; footer?: ReactNode }) => <>{header}<textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</> }));
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: ({ count }: { count: number }) => ({
   getTotalSize: () => count * 76,
   getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 76, size: 76 }))

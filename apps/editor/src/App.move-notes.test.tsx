@@ -1,10 +1,11 @@
+import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 
 vi.mock("./CollectionRail", () => ({ CollectionRail: ({ onMoveNotes }: { onMoveNotes?: (paths: string[], folder: string) => void }) => <button onClick={() => onMoveNotes?.(["Notes/the-shape-of-useful-tools.md", "Journal/garden-notes-2.md"], "Archive")}>Drop notes</button> }));
-vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, label }: { value: string; label: string }) => <textarea aria-label={label} value={value} readOnly /> }));
+vi.mock("./CodeEditor", () => ({ CodeEditor: ({ header, value, label }: { header?: ReactNode; value: string; label: string }) => <>{header}<textarea aria-label={label} value={value} readOnly /></> }));
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: ({ count }: { count: number }) => ({ getTotalSize: () => count * 76, getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 76, size: 76 })) }) }));
 
 describe("Rail move command", () => {

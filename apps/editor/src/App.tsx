@@ -225,6 +225,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [document, setDocument] = useState<NoteDocument>();
   const [draft, setDraft] = useState<Draft>();
   const [noteLoading, setNoteLoading] = useState(false);
+  const [noteTitleVisible, setNoteTitleVisible] = useState(true);
   const [pendingNotePath, setPendingNotePath] = useState<string>();
   const [noteOpenFailure, setNoteOpenFailure] = useState<{ path: string; options: NoteNavigationOptions; message: string }>();
   const [creationMode, setCreationMode] = useState<"note" | "folder">();
@@ -1802,6 +1803,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     {layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
     <PaneControl pane="list" label={surface === "types" ? t`Show types sidebar` : t`Show notes sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
   </> : undefined;
+  const revealNoteTitle = () => {
+    const title = window.document.getElementById("note-title");
+    title?.closest(".cm-scroller")?.scrollTo({ top: 0 });
+    title?.focus({ preventScroll: true });
+  };
   const notePathControl = document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
     <label className="sr-only" htmlFor="note-path"><Trans>Markdown path</Trans></label>
     <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
@@ -1963,6 +1969,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
                 onClick={() => navigateNoteHistory(1)}
               ><ArrowRight aria-hidden="true" /></button>
             </div>
+            <button className={`note-bar-title${noteTitleVisible ? "" : " is-shown"}`} title={t`Go to note title`} onClick={revealNoteTitle}>{draft.title || t`Untitled`}</button>
             {!mobileLayout && <div className="path-wrap">{notePathControl}</div>}
             {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}><Trans>Opening “{pendingNotePath}”…</Trans></span>}
             {!mobileLayout && !canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
@@ -2040,7 +2047,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
             onUploadAttachment={canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
-            insertion={attachments.insertion} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}
+            insertion={attachments.insertion} onTitleVisibilityChange={setNoteTitleVisible} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}
             onBodyChange={(body) => changeActiveDraft((current) => ({ ...current, body }))} onOpenLink={navigateToNote}
             onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}
             onDismissLinkPreview={notePreviewController.dismiss} onOpenFile={setOpenFileAsset} onOpenFileLink={navigateToFile}

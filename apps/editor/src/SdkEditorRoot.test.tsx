@@ -8,8 +8,8 @@ import { AppErrorBoundary } from "./AppErrorBoundary";
 import { closeNativeFixtures, readyFixture, testApp } from "./test/native-fixture";
 
 vi.mock("./CodeEditor", () => ({
-  CodeEditor: ({ value, onChange, label, readOnly, footer }: { value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode }) =>
-    <><textarea aria-label={label} readOnly={readOnly} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</>
+  CodeEditor: ({ header, value, onChange, label, readOnly, footer }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode }) =>
+    <>{header}<textarea aria-label={label} readOnly={readOnly} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</>
 }));
 
 vi.mock("@tanstack/react-virtual", () => ({

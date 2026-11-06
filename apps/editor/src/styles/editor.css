@@ -6,10 +6,23 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
-  padding: clamp(36px, 7vh, 78px) 0 0;
   background: var(--white);
+}
+
+.note-loading {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The title scrolls with the note but stays put when unwrapped lines scroll sideways. */
+.note-header {
+  position: sticky;
+  left: 0;
+  flex-shrink: 0;
+  width: 100%;
+  padding-top: clamp(36px, 7vh, 78px);
 }
 
 .note-title-field {
@@ -19,7 +32,6 @@
   );
   min-width: 0;
   min-height: 52px;
-  max-height: min(12rem, 30vh);
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;

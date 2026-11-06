@@ -2619,6 +2619,10 @@ msgstr "Подготовка коллекции…"
 msgid "Give the type a name, then add the fields its notes need."
 msgstr "Назовите тип, затем добавьте поля, необходимые его заметкам."
 
+#: src/App.tsx
+msgid "Go to note title"
+msgstr "Перейти к заголовку заметки"
+
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "Укажите совместимым инструментам, как создавать и переименовывать записи этого типа."
@@ -5812,6 +5816,7 @@ msgstr "Несохранённые изменения типа или созда
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "Несохранённые изменения типа или создаваемых объектов будут удалены."
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
