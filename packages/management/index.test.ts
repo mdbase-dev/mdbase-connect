@@ -7,6 +7,10 @@ afterEach(() => {
 });
 
 describe("ConnectManagementClient", () => {
+  it("retains the server problem code without copying diagnostic payloads", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: { code: "account_collection_quota_exceeded", message: "Quota reached", diagnostic: "private" } }, { status: 429 })));
+    await expect(new ConnectManagementClient("https://connect.example").overview()).rejects.toMatchObject({ status: 429, code: "http_error", details: { code: "account_collection_quota_exceeded" } });
+  });
   it("accepts a pending grant revocation without retrying for immediate completion", async () => {
     const fetch = vi.fn(async () => Response.json({ revocation_status: "revoking" }));
     vi.stubGlobal("fetch", fetch);

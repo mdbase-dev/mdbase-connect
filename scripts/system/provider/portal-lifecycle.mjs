@@ -51,7 +51,7 @@ export async function portalLifecycleE2E({
     assert.notEqual(editorUrl.origin, new URL(controlUrl).origin, "Editor and management are distinct origins");
     editorUrl.searchParams.set("server", controlUrl);
     editorUrl.searchParams.set("collection", collectionId);
-    await expect(row.getByRole("link", { name: "Open in editor", exact: true }))
+    await expect(row.getByRole("link", { name: "Open in editor: Browser E2E collection", exact: true }))
       .toHaveAttribute("href", editorUrl.href);
     await row.getByRole("button", { name: "Actions for Browser E2E collection" }).click();
     await expect(page.getByRole("menuitem", { name: "Sync folder" }))

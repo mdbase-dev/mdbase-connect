@@ -3,6 +3,7 @@ import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { InfoIcon as Info } from "@phosphor-icons/react/Info";
+import { ManagementApiError } from "@mdbase/connect-management";
 
 export function ConnectPreview({ title, rows, pending, error, retry }: {
   title: string;
@@ -18,7 +19,7 @@ export function ConnectPreview({ title, rows, pending, error, retry }: {
     return () => window.clearTimeout(timer);
   }, [pending]);
   return <ConnectPage title={title}><section aria-busy={pending}>
-    {error && !pending ? <div className="connect-load-error" role="alert"><Info aria-hidden="true" /><div><strong><Trans>We couldn't load {title}</Trans></strong><p>{error}</p><button className="mdbase-button is-secondary" onClick={retry}><Trans>Try again</Trans></button></div></div> : <>
+    {error ? <div className="connect-load-error" role="alert"><Info aria-hidden="true" /><div><strong><Trans>We couldn't load {title}</Trans></strong><p>{error}</p><button className="mdbase-button is-secondary" disabled={pending} onClick={retry}><Trans>Try again</Trans></button></div></div> : <>
     {delayed && <p className="connect-muted" role="status"><Trans>Loading {title}…</Trans></p>}
     {rows?.map(row => <div className="connect-row" key={row.id}><div><strong>{row.name}</strong><small><Trans>Last known details</Trans></small></div></div>)}
     {pending && delayed && !rows && <div className="connect-skeleton" aria-hidden="true">{[0, 1, 2].map(row => <div key={row}><i /><span><b /><small /></span><b /></div>)}</div>}
@@ -134,6 +135,7 @@ export function relativeTime(value: string): string {
 
 export function errorMessage(value: unknown): string {
   if (value instanceof Error && "status" in value && typeof value.status === "number" && value.status >= 500) return t(i18n)`Something went wrong on mdbase. Try again.`;
+  if (value instanceof ManagementApiError && value.details && typeof value.details === "object" && "code" in value.details && value.details.code === "account_collection_quota_exceeded") return t(i18n)`Your account has reached its synced collection limit. Open an existing collection, or contact mdbase support to raise your limit.`;
   const detail = value instanceof Error ? value.message : String(value);
   return /failed to fetch|networkerror|network request failed/i.test(detail)
     ? t(i18n)({ message: "mdbase Connect could not be reached. Check your connection and try again." })

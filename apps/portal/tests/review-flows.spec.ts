@@ -2,6 +2,117 @@ import { expect, openScenario, test } from "./review/fixture";
 import { authorizationId, pairingId } from "./review/scenarios.mjs";
 import type { Page, TestInfo } from "@playwright/test";
 
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const colorScheme of ["light", "dark"] as const) test(`W28 focus, palette, Rename and pairing ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ colorScheme });
+    await openScenario(page, "heavy-account");
+    await page.keyboard.press("Control+k");
+    const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+    await expect(palette).toBeVisible();
+    await palette.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
+    const height = (await palette.locator(".mdbase-command-results").boundingBox())!.height;
+    expect(height).toBeGreaterThanOrEqual(380);
+    await palette.getByRole("combobox").fill("a");
+    expect((await palette.locator(".mdbase-command-results").boundingBox())!.height).toBeLessThanOrEqual(height);
+    await page.keyboard.press("Escape");
+    await expect(palette).toHaveCount(0);
+    await page.keyboard.press("?");
+    const help = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+    await expect(help).toBeVisible();
+    const columns = await help.locator("dd").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().x));
+    expect(new Set(columns).size).toBe(1);
+    const helpImage = testInfo.outputPath("help-alignment.png");
+    await page.screenshot({ path: helpImage });
+    await testInfo.attach("help-alignment", { path: helpImage, contentType: "image/png" });
+    await page.keyboard.press("Escape");
+    await expect(help).toHaveCount(0);
+    const row = page.locator('[data-command="collection:hosted-0"]');
+    const collectionName = await row.locator(".connect-collection-name strong").innerText();
+    await row.locator(".connect-collection-link").focus();
+    await page.keyboard.press("Control+k");
+    const rename = palette.getByRole("option", { name: new RegExp(`^Rename ${collectionName}`) });
+    await palette.getByRole("combobox").fill(`Rename ${collectionName}`);
+    await expect(rename).toBeVisible();
+    await expect(rename.locator("kbd")).toHaveText("R");
+    await page.keyboard.press("Escape");
+    await expect(palette).toHaveCount(0);
+    await row.locator(".connect-collection-link").focus();
+    await page.keyboard.press("r");
+    const renameDialog = page.getByRole("dialog", { name: `Rename ${collectionName}`, exact: true });
+    await expect(renameDialog.getByRole("textbox")).toBeFocused();
+    await renameDialog.getByRole("textbox").fill("");
+    await renameDialog.getByRole("textbox").press("r");
+    await expect(renameDialog.getByRole("textbox")).toHaveValue("r");
+    await page.keyboard.press("Escape");
+
+    await openScenario(page, "typical-account");
+    await page.keyboard.press("g");
+    await page.keyboard.press("a");
+    const app = page.locator('[data-command="app:app-1"]');
+    await app.locator(":scope > summary").click();
+    await app.getByRole("button", { name: "Revoke app", exact: true }).click();
+    const confirmation = page.getByRole("dialog", { name: "Revoke Reader?" });
+    let finish: (() => void) | undefined;
+    let fail = true;
+    await page.route("**/v1/**", async route => {
+      if (route.request().method() !== "POST" || !route.request().url().endsWith("/v1/grants/revoke-batch")) return route.continue();
+      await new Promise<void>(resolve => { finish = resolve; });
+      if (fail) return route.fulfill({ status: 500, json: { error: { code: "internal_error", message: "Internal error" } } });
+      return route.continue();
+    });
+    await confirmation.getByRole("button", { name: "Revoke app", exact: true }).click();
+    await expect(confirmation.getByRole("button", { name: "Revoking access…", exact: true })).toBeDisabled();
+    await expect.poll(() => Boolean(finish)).toBe(true);
+    for (const key of ["Tab", "Shift+Tab", "Tab", "Shift+Tab"]) {
+      await page.keyboard.press(key);
+      expect(await confirmation.evaluate(element => element.contains(document.activeElement))).toBe(true);
+    }
+    const pendingImage = testInfo.outputPath("pending-confirmation.png");
+    await page.screenshot({ path: pendingImage });
+    await testInfo.attach("pending-confirmation", { path: pendingImage, contentType: "image/png" });
+    finish!();
+    await expect(confirmation.getByRole("alert")).toHaveText("Something went wrong on mdbase. Try again.");
+    await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    fail = false;
+    finish = undefined;
+    await confirmation.getByRole("button", { name: "Revoke app", exact: true }).click();
+    await expect(confirmation.getByRole("button", { name: "Revoking access…", exact: true })).toBeDisabled();
+    await expect.poll(() => Boolean(finish)).toBe(true);
+    finish!();
+    await expect(confirmation).toHaveCount(0);
+    await expect(app).toHaveCount(0);
+    await expect(page.locator(".connect-main :focus")).toBeVisible();
+    await page.unroute("**/v1/**");
+
+    await openScenario(page, "pairing-many");
+    await page.getByRole("combobox", { name: "Open in Reader", exact: true }).fill("Field");
+    const choice = page.getByRole("option", { name: /^Field research/ }).first();
+    const chosenName = (await choice.getAttribute("aria-label"))!;
+    await choice.click();
+    let readback!: () => void;
+    let approved = false;
+    await page.route(`**/v1/pairing-requests/${pairingId}**`, async route => {
+      if (route.request().method() === "POST" && route.request().url().endsWith("/approve")) approved = true;
+      if (route.request().method() === "GET" && approved) await new Promise<void>(resolve => { readback = resolve; });
+      return route.continue();
+    });
+    await page.getByRole("button", { name: /^Open Reader(?: with .+)?$/ }).press("Enter");
+    await expect.poll(() => Boolean(readback)).toBe(true);
+    await expect(page.getByText("Loading the request…", { exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe("BODY");
+    readback();
+    await expect(page.getByRole("heading", { name: `Reader can now use ${chosenName}`, exact: true })).toBeFocused();
+    await expect(page.getByRole("heading", { name: `Reader can now use ${chosenName}`, exact: true })).toHaveCSS("outline-style", "none");
+    await page.locator(".grant-moment").evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
+    const approvedImage = testInfo.outputPath("pairing-approved.png");
+    await page.screenshot({ path: approvedImage });
+    await testInfo.attach("pairing-approved", { path: approvedImage, contentType: "image/png" });
+  });
+
+}
+
+
 async function checkConsentFocus(page: Page, testInfo: TestInfo) {
   const controls = await page.locator(".authorization-panel").evaluate(panel => {
     const controls = [...panel.querySelectorAll<HTMLElement>("a[href], button, input, select, summary, [tabindex], .collection-picker-list")]
@@ -505,7 +616,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.getByRole("button", { name: "Clear search", exact: true }).click();
     await expect(filter).toBeFocused();
     if (viewport.width === 390) {
-      await expect(page.getByRole("link", { name: "Open in editor", exact: true }).filter({ visible: true })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: /^Open in editor:/ }).filter({ visible: true })).toHaveCount(0);
       const offline = page.locator(".connect-collection-row").filter({ hasText: "Offline" }).first();
       await expect(offline.locator(".connect-collection-name small")).toContainText("Travel laptop");
       const name = await offline.locator(".connect-collection-name small").boundingBox();
@@ -644,7 +755,7 @@ for (const colorScheme of ["light", "dark"] as const) test(`signup blur validati
 });
 }
 
-test("grant waits for acknowledged status and resolves stripes to a check", async ({ page }, testInfo) => {
+test("grant waits for acknowledged status and settles the confirmed row", async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   let approved = false;
   await page.route(`**/v1/authorization-requests/${authorizationId}/status`, route => route.fulfill({ json: { status: approved ? "approved" : "pending" } }));
@@ -662,31 +773,59 @@ test("grant waits for acknowledged status and resolves stripes to a check", asyn
   await expect(page.getByText("The app does not have access yet.", { exact: false })).toBeVisible();
   await expect(page.locator(".grant-moment")).toHaveCount(0);
   expect(await reviewHeader!.evaluate(element => element.isConnected && getComputedStyle(element).position === "sticky")).toBe(true);
+  await page.evaluate(() => {
+    const observer = new MutationObserver(() => {
+      const row = document.querySelector(".grant-moment");
+      if (!row) return;
+      observer.disconnect();
+      requestAnimationFrame(() => row.getAnimations().forEach(animation => animation.pause()));
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
   approved = true;
   await expect(page.getByRole("heading", { name: "TaskNotes can now use Field research", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "TaskNotes can now use Field research", exact: true })).toBeFocused();
   await page.evaluate(() => document.getAnimations().forEach(animation => animation.pause()));
+  expect(await page.locator(".grant-moment").evaluate(element => element.getAnimations().map(animation => animation.effect!.getTiming().duration))).toEqual([180, 180]);
   for (const time of [0, 60, 120, 180, 240, 300]) {
     await page.evaluate(time => document.getAnimations().forEach(animation => { animation.currentTime = time; }), time);
     const path = testInfo.outputPath(`grant-${time}ms.png`);
     await page.locator(".grant-moment").screenshot({ path, animations: "allow" });
     await testInfo.attach(`grant-${time}ms`, { path, contentType: "image/png" });
-    if (time === 0) await expect(page.locator(".grant-stripes")).toHaveCSS("opacity", "1");
-    if (time === 300) {
-      await expect(page.locator(".grant-stripes")).toHaveCSS("opacity", "0");
-      await expect(page.locator(".grant-mark > svg:last-child path")).toHaveCSS("stroke-dashoffset", "0px");
-    }
+    if (time === 180) await expect(page.locator(".grant-moment")).toHaveCSS("opacity", "1");
   }
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openScenario(page, "authorization-approved");
-  await expect(page.locator(".grant-stripes")).toHaveCSS("opacity", "0");
+  await expect(page.locator(".grant-moment")).toHaveCSS("opacity", "1");
   expect(await page.locator(".grant-moment").evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0);
 });
 
-test("an expired session says so and keeps the destination", async ({ page }) => {
+test("a first visit asks for sign-in without claiming the session expired", async ({ page }) => {
   await openScenario(page, "session-expired");
+  await expect(page.getByText("Your session expired.", { exact: false })).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.has("reason")).toBe(false);
+  expect(new URL(new URL(page.url()).searchParams.get("return_to")!).pathname).toBe("/account");
+});
+
+test("an expired session says so and keeps the destination", async ({ page }) => {
+  await openScenario(page, "account-sessions");
+  await page.route("**/v1/me", route => route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "Sign in" } } }));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.getByRole("status").filter({ hasText: "Your session expired." })).toBeVisible();
   expect(new URL(new URL(page.url()).searchParams.get("return_to")!).pathname).toBe("/account");
+});
+
+test("committing a collection announces the entire selected name", async ({ page }) => {
+  await openScenario(page, "authorization");
+  const receipt = page.locator('[aria-live="polite"][aria-atomic="true"]').filter({ hasText: "Selected:" });
+  await page.getByRole("option", { name: "Field research", exact: true }).click();
+  await expect(receipt).toHaveText("Selected: Field research");
+  const picker = page.getByRole("combobox", { name: "Choose a collection", exact: true });
+  await picker.fill("Garden");
+  await picker.press("ArrowDown");
+  await expect(receipt).toHaveText("Selected: Field research");
+  await picker.press("Enter");
+  await expect(receipt).toHaveText("Selected: Garden journal");
 });
 
 test("required-only permission copy matches the declared request", async ({ page }) => {

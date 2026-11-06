@@ -4,7 +4,7 @@ import { resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { account, authentication, authorizationId, clock, expires, hostedCollection, scenarios } from "./scenarios.mjs";
+import { account, authentication, authorizationId, clock, hostedCollection, scenarios } from "./scenarios.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const dist = resolve(root, "apps/portal/dist");
@@ -147,7 +147,7 @@ export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "htt
           const items = (state[resource][collectionId] ??= []);
           if (method === "GET") return send({ [resource]: items });
           if (resource === "invitations" && method === "POST") {
-            const invitation = { id: randomUUID(), collection_id: collectionId, token: `cinv_${randomUUID()}`, target_mode: body.email ? "email" : "invitee_code", submitted_email: body.email ?? null, role: body.role, state: "pending", created_at: clock, expires_at: expires };
+            const invitation = { id: randomUUID(), collection_id: collectionId, token: `cinv_${randomUUID()}`, target_mode: body.email ? "email" : "invitee_code", submitted_email: body.email ?? null, role: body.role, state: "pending", created_at: clock, expires_at: new Date(Date.parse(clock) + 7 * 24 * 60 * 60 * 1000).toISOString() };
             items.push(invitation); return send({ invitation }, 201);
           }
           const item = items.find(item => item.id === itemId);

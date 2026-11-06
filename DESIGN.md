@@ -183,6 +183,7 @@ approval prompts; choosing a search result never approves access.
 | G T | Selected collection Storage |
 | G R | Selected collection Access |
 | G S | Settings (Desktop) |
+| R | Rename the focused collection or computer, when available |
 
 ### Other controls
 

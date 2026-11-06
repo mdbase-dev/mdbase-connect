@@ -25,12 +25,18 @@ async function frames(page: Page) {
   return page.evaluate(() => (window as unknown as { motionFrames: { time: number; height: number; opacity: number; connected: boolean; animations: { property: string; duration: number | string }[] }[] }).motionFrames);
 }
 
-test("built palette exits and reopens continuously, and results resize in stable steps", async ({ page }, testInfo) => {
+test("built palette opens at full height, exits continuously and uses natural result sizing", async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await openScenario(page, "heavy-account");
   await page.getByRole("button", { name: /^Search/ }).click();
   const palette = page.getByRole("dialog", { name: "Commands", exact: true });
   await palette.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
+  await expect(palette.locator(".mdbase-command-results")).toHaveCSS("max-height", "380px");
+  const openingHeight = (await palette.locator(".mdbase-command-results").boundingBox())!.height;
+  expect(openingHeight).toBeGreaterThanOrEqual(380);
+  await palette.getByRole("combobox").fill("a");
+  expect((await palette.locator(".mdbase-command-results").boundingBox())!.height).toBeLessThanOrEqual(openingHeight);
+  await palette.getByRole("combobox").fill("");
   await observe(page, "dialog.mdbase-command-palette");
   const interruption = await page.evaluate(async () => {
     const dialog = document.querySelector<HTMLDialogElement>("dialog.mdbase-command-palette")!;
@@ -59,12 +65,12 @@ test("built palette exits and reopens continuously, and results resize in stable
   await query.fill("Sign out");
   const resized = await frames(page);
   await testInfo.attach("palette-result-resize", { body: JSON.stringify(resized, null, 2), contentType: "application/json" });
-  expect(resized.some(frame => frame.animations.some(animation => animation.property === "height" && animation.duration === 160))).toBe(true);
-  expect(new Set(resized.map(frame => frame.height)).size).toBeGreaterThan(2);
+  expect(resized.every(frame => frame.height <= openingHeight)).toBe(true);
+  expect(resized.some(frame => frame.animations.some(animation => animation.property === "height"))).toBe(false);
   await expect(query).toHaveAttribute("aria-activedescendant", (await palette.getByRole("option", { selected: true }).getAttribute("id"))!);
   await query.fill("Nothing matches this command");
   await expect(palette.getByRole("status")).toBeVisible();
-  await expect(palette.locator(".mdbase-command-results")).toHaveCSS("height", "152px");
+  expect((await palette.locator(".mdbase-command-results").boundingBox())!.height).toBeLessThan(openingHeight);
   await observe(page, "dialog.mdbase-command-palette");
   await page.keyboard.press("Escape");
   const exit = await frames(page);

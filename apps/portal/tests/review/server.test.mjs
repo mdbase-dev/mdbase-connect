@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { reviewServer } from "./server.mjs";
-import { authorizationId, pairingId } from "./scenarios.mjs";
+import { authorizationId, pairingId, clock, expires, scenarios } from "./scenarios.mjs";
+
+test("pending request fixtures respect production lifetimes without shortening sessions or sync tokens", () => {
+  for (const scenario of scenarios) {
+    for (const request of [...scenario.state.overview.pending_authorizations, scenario.state.authorization]) {
+      const lifetime = Date.parse(request.expires_at) - Date.parse(clock);
+      assert.ok(lifetime > 0 && lifetime <= 15 * 60 * 1000, scenario.name);
+    }
+    const pairingLifetime = Date.parse(scenario.state.pairing.expires_at) - Date.parse(clock);
+    assert.ok(pairingLifetime > 0 && pairingLifetime <= 10 * 60 * 1000, scenario.name);
+  }
+  assert.equal(Date.parse(expires) - Date.parse(clock), 30 * 24 * 60 * 60 * 1000);
+});
 
 async function harness(context) {
   const server = reviewServer();

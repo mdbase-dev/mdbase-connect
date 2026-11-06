@@ -119,12 +119,19 @@ it("keeps a pending confirmation modal and labels its work", async () => {
   act(() => root.render(<ConfirmDialog open title="Revoke Reader" consequence="Reader will lose access."
     confirmLabel="Revoke" pendingLabel="Revoking access…" onConfirm={() => pending} onClose={close} />));
   const buttons = [...document.querySelectorAll("button")];
+  buttons.find(button => button.textContent === "Revoke")!.focus();
   act(() => buttons.find(button => button.textContent === "Revoke")!.click());
+  expect(document.activeElement).toBe(document.querySelector("dialog"));
+  act(() => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+  expect(document.activeElement).toBe(document.querySelector("dialog"));
+  act(() => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })));
+  expect(document.activeElement).toBe(document.querySelector("dialog"));
   expect(document.body.textContent).toContain("Revoking access…");
   act(() => document.querySelector("dialog")!.dispatchEvent(new Event("cancel", { cancelable: true })));
   expect(close).not.toHaveBeenCalled();
   await act(async () => resolve!());
   expect(document.body.textContent).not.toContain("Revoking access…");
+  expect(document.activeElement?.textContent).toBe("Cancel");
 });
 
 it("keeps the first mark build under StrictMode but does not replay on navigation", () => {

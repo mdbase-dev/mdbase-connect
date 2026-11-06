@@ -20,6 +20,12 @@ it("presents sequential shortcuts without turning them into chords", () => {
   expect(shortcutLabel("g c")).toBe("G C");
 });
 
+it("presents navigation keys as labels rather than DOM key names", () => {
+  expect(shortcutLabel("ArrowDown")).toBe("↓");
+  expect(shortcutLabel("ArrowUp")).toBe("↑");
+  expect(shortcutLabel("ContextMenu")).toBe("Menu");
+});
+
 describe("CommandPalette group labels", () => {
   const commands = [
     ...Array.from({ length: 8 }, (_, i) => command(`tab-${i}`, "tabs")),

@@ -64,6 +64,13 @@ export function useConnectKeyboard({ commands, enabled, root, filter, listFocus,
       if (modifier || event.shiftKey && key !== "j" && key !== "k") { prefixUntil = 0; return; }
       const shortcut = Date.now() < prefixUntil ? `g ${key}` : key;
       prefixUntil = 0;
+      if (shortcut === "r") {
+        const item = target?.closest("[data-list-item]")?.getAttribute("data-command");
+        const rename = item?.startsWith("collection:") ? `rename:${item.slice("collection:".length)}` : item?.startsWith("computer:") ? `rename-computer:${item.slice("computer:".length)}` : undefined;
+        const command = registry().find(command => command.id === rename);
+        if (command) { event.preventDefault(); command.run(); }
+        return;
+      }
       const command = registry().find(command => command.shortcut?.toLowerCase() === shortcut);
       if (command) { event.preventDefault(); command.run(); return; }
       if (key === "g") { event.preventDefault(); prefixUntil = Date.now() + 1000; return; }
@@ -100,10 +107,11 @@ export function KeyboardShortcuts({ keyboard, commands }: {
     <p className="connect-muted">{t(i18n)({ message: "Shortcuts are off while typing or while a dialog is open.", context: "Connect keyboard shortcuts" })}</p>
     <dl className="connect-shortcuts">
       <div><dt>{t(i18n)({ message: "Search", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("mod+k")}</kbd></dd></div>
-      {commands.filter(command => command.shortcut).map(command => <div key={command.id}><dt>{command.label}</dt><dd><kbd>{shortcutLabel(command.shortcut!)}</kbd>{command.id === "shortcuts" && <> / <kbd>{shortcutLabel("Ctrl+/")}</kbd></>}</dd></div>)}
+      {commands.filter(command => command.shortcut && command.shortcut !== "r").map(command => <div key={command.id}><dt>{command.label}</dt><dd><kbd>{shortcutLabel(command.shortcut!)}</kbd>{command.id === "shortcuts" && <> / <kbd>{shortcutLabel("Ctrl+/")}</kbd></>}</dd></div>)}
       {keyboard.helpOpen && document.querySelector(keyboard.filter) && <div><dt>{t(i18n)({ message: "Filter the current list", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>/</kbd></dd></div>}
       <div><dt>{t(i18n)({ message: "Move through the list", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("j")}</kbd> / <kbd>{shortcutLabel("k")}</kbd></dd></div>
       <div><dt>{t(i18n)({ message: "Open the focused item", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("Enter")}</kbd></dd></div>
+      {commands.some(command => command.id.startsWith("rename:") || command.id.startsWith("rename-computer:")) && <div><dt>{t(i18n)({ message: "Rename the focused item", context: "Connect keyboard shortcuts" })}</dt><dd><kbd>{shortcutLabel("r")}</kbd></dd></div>}
     </dl>
   </Dialog>;
 }

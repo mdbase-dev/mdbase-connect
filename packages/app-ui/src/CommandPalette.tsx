@@ -35,6 +35,11 @@ export function shortcutLabel(shortcut: string): string {
         case "ctrl": return apple ? "⌃" : "Ctrl";
         case "shift": return apple ? "⇧" : "Shift";
         case "alt": return apple ? "⌥" : "Alt";
+        case "arrowdown": return "↓";
+        case "arrowup": return "↑";
+        case "arrowleft": return "←";
+        case "arrowright": return "→";
+        case "contextmenu": return t({ message: "Menu" });
         default: return part.length === 1 ? part.toUpperCase() : part;
       }
     })
@@ -117,17 +122,6 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const matches = useMemo(() => getResults ? getResults(query) : matchingCommands(commands, query, showAll), [commands, query, showAll, getResults]);
-  useLayoutEffect(() => {
-    const results = resultsRef.current!;
-    const current = results.offsetHeight;
-    results.style.transition = "none";
-    results.style.height = "auto";
-    const height = results.offsetHeight;
-    results.style.height = `${current}px`;
-    results.getBoundingClientRect();
-    results.style.removeProperty("transition");
-    results.style.height = `${height}px`;
-  }, [matches]);
   useLayoutEffect(() => {
     resultsRef.current!.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [active, matches]);

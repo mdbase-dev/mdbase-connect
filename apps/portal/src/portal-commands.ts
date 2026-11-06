@@ -50,6 +50,8 @@ export function usePortalCommands({ data, collections, applications, sessions, s
     advance();
   };
   const commands: Command[] = [];
+  const keyboard = useConnectKeyboard({ commands, enabled, root: ".connect-main", filter: ".connect-list-filter input", listFocus: ".connect-collection-link, summary", onShow: cancel });
+  const focusedItem = (keyboard.open ? keyboard.invoker.current : document.activeElement)?.closest("[data-list-item]")?.getAttribute("data-command");
   const target = (id: string) => `[data-command=${JSON.stringify(id)}]`;
   const reveal = (view: ConnectView, selectors: readonly string[], click = false) => activate(() => navigate(view, selectedCollectionId), selectors, click);
   const groupLabels: Record<string, string> = { collections: viewLabel("collections"), apps: viewLabel("applications"), computers: viewLabel("computers"), sessions: t(i18n)`Browser sessions`, navigation: t(i18n)`Navigation`, commands: t(i18n)`Actions` };
@@ -64,14 +66,14 @@ export function usePortalCommands({ data, collections, applications, sessions, s
       if (collection.kind !== "hosted") return [];
       const row = target(`collection:${collection.id}`);
       return [
-        ...(collection.source.authority_state === "active" && collection.source.access.can_rename_collection ? [{ id: `rename:${collection.id}`, label: t(i18n)`Rename ${collection.name}`, detail: collection.detail, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][data-action=rename]`], true) }] : []),
+        ...(collection.source.authority_state === "active" && collection.source.access.can_rename_collection ? [{ id: `rename:${collection.id}`, label: t(i18n)`Rename ${collection.name}`, detail: collection.detail, shortcut: focusedItem === `collection:${collection.id}` ? "r" : undefined, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][data-action=rename]`], true) }] : []),
         ...(collection.source.authority_state === "active" ? [{ id: `sync:${collection.id}`, label: t(i18n)`Sync folder · ${collection.name}`, detail: collection.detail, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][href]`], true) }] : []),
         ...(collection.source.access.can_delete_collection ? [{ id: `delete:${collection.id}`, label: t(i18n)`Delete ${collection.name}`, detail: collection.detail, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][data-action=delete]`], true) }] : [])
       ];
     }),
     ...applications.map(application => ({ id: `revoke-app:${application.applicationId}`, label: t(i18n)`Revoke ${application.applicationName}`, group: "commands", run: () => reveal("applications", [`${target(`app:${application.applicationId}`)} > summary`, `${target(`app:${application.applicationId}`)} .connect-revoke-application`], true) })),
     ...(data?.connectors ?? []).flatMap(computer => [
-      { id: `rename-computer:${computer.id}`, label: t(i18n)`Rename ${computer.name}`, group: "commands", run: () => reveal("computers", [`${target(`computer:${computer.id}`)} .connect-collection-menu > button`, `${target(`computer:${computer.id}`)} [data-action=rename]`], true) },
+      { id: `rename-computer:${computer.id}`, label: t(i18n)`Rename ${computer.name}`, shortcut: focusedItem === `computer:${computer.id}` ? "r" : undefined, group: "commands", run: () => reveal("computers", [`${target(`computer:${computer.id}`)} .connect-collection-menu > button`, `${target(`computer:${computer.id}`)} [data-action=rename]`], true) },
       { id: `revoke-computer:${computer.id}`, label: t(i18n)`Revoke ${computer.name}`, group: "commands", run: () => reveal("computers", [`${target(`computer:${computer.id}`)} .connect-collection-menu > button`, `${target(`computer:${computer.id}`)} [data-action=revoke]`], true) }
     ]),
     ...(sessions ?? []).filter(session => !session.current).map(session => ({ id: `revoke-session:${session.id}`, label: t(i18n)`Sign out ${session.client_name}`, group: "commands", run: () => reveal("account", [`${target(`session:${session.id}`)} button`], true) })),
@@ -84,7 +86,6 @@ export function usePortalCommands({ data, collections, applications, sessions, s
   );
   if (openEditor) commands.push({ id: "editor", label: t(i18n)({ message: "Open in editor", context: "Connect interface" }), group: "commands", run: openEditor });
   if (reviewRequest) commands.push({ id: "review", label: t(i18n)({ message: "Review request", context: "Connect interface" }), group: "commands", run: reviewRequest });
-  const keyboard = useConnectKeyboard({ commands, enabled, root: ".connect-main", filter: ".connect-list-filter input", listFocus: ".connect-collection-link, summary", onShow: cancel });
   useEffect(() => () => pending.current?.disconnect(), []);
   return { commands, groupLabels, ...keyboard, cancel };
 }

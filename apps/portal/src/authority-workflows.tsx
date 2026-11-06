@@ -204,7 +204,11 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       }
       if (action === "approve") handBack.current = true;
       if(action==="remove-access"){setRevokingId(removingId);setRemovingId("");}
-      if (pairing.installation_device) setAttempt((value) => value + 1);
+      if (pairing.installation_device) {
+        const inspected = await api<{ pairing: DevicePairing }>(inspectionPath);
+        if (current !== generation.current) return;
+        setPairing(inspected.pairing);
+      }
       else if (result.deep_link) setDeepLink(result.deep_link);
     } catch (reason) {
       // Observe uncertain creation/approval without replaying either mutation.

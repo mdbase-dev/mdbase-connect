@@ -5,8 +5,18 @@ import {
   message,
   installationAccountLabel,
   returnTarget,
-  signInUrl
+  signInUrl,
+  signInRedirectUrl
 } from "./src/portal-model.ts";
+
+test("sign-in distinguishes a first visit from a previously authenticated session", () => {
+  const destination = "https://connect.example.test/account";
+  for (const hadSession of [false, true]) {
+    const login = new URL(signInRedirectUrl("https://connect.example.test", hadSession, destination));
+    assert.equal(login.searchParams.get("return_to"), destination);
+    assert.equal(login.searchParams.get("reason"), hadSession ? "session-expired" : null);
+  }
+});
 
 test("installation account label uses canonical identity, freezes confirmation and never invents email", () => {
   assert.equal(installationAccountLabel({signed_in_account_email:"owner@example.test",signed_in_account_provider:"github",signed_in_account_login:"login"}),"owner@example.test");

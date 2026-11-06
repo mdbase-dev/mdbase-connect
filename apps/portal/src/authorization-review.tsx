@@ -18,7 +18,6 @@ import { SignedOutFooter } from "./auth-view";
 import { initials, readRememberedCollection } from "./portal-model";
 import { literal } from "./literal";
 import { CloudIcon, DesktopIcon } from "@phosphor-icons/react";
-import { MdbaseMark } from "@mdbase-dev/ui/brand";
 import { initialContractSetupChoice } from "./application-setup";
 import type { ApplicationFileAction, PendingAuthorization } from "./api";
 import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities";
@@ -107,7 +106,7 @@ export function CollectionPicker({ label, labelledBy, collections, value, onChoo
     {filtered.length === 0 && <p className="field-note" role="status">{collections.length ? t(i18n)({ message: "No collections match. Try another name." }) : t(i18n)({ message: "No collections are available." })}</p>}
     {onCreate && <button className="mdbase-button is-tertiary collection-picker-create" type="button" disabled={disabled} aria-pressed={creationSelected}
       onClick={() => { setHighlighted(null); onCreate(); }}><Trans>Create a new collection…</Trans></button>}
-    {selected && <p className="mdbase-visually-hidden" aria-live="polite"><Trans>Selected: <strong>{literal(selected.name)}</strong></Trans></p>}
+    <p className="mdbase-visually-hidden" aria-live="polite" aria-atomic="true">{selected && <Trans>Selected: <strong>{literal(selected.name)}</strong></Trans>}</p>
   </div>;
 }
 type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement;
@@ -134,6 +133,11 @@ export function RequestShell({ children, busy = false }: { children: React.React
     resize();
     return () => { observer.disconnect(); window.removeEventListener("resize", resize); document.documentElement.style.removeProperty("--approval-footer-space"); };
   }, []);
+  useLayoutEffect(() => {
+    if (!busy) return;
+    const heading = shell.current?.querySelector<HTMLElement>(".authorization-panel h1, .authorization-panel h2");
+    heading?.focus({ preventScroll: true });
+  }, [busy]);
   return <div className="request-shell" aria-busy={busy} ref={shell}>
     <main className="mdbase-page approval-page">
       <Brand productLabel />
@@ -160,7 +164,6 @@ export function GrantMoment({ applicationName, collectionName, collectionKind }:
   return <div className="grant-moment">
     <span className="request-identity-mark" aria-hidden="true">{initials(applicationName)}</span>
     <span className="grant-mark" aria-hidden="true">
-      <MdbaseMark className="grant-stripes" />
       <svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" /></svg>
     </span>
     {collectionKind && <span className="grant-collection-glyph" aria-hidden="true">{collectionKind === "hosted" || collectionKind === "cloud_copy" ? <CloudIcon /> : <DesktopIcon />}</span>}

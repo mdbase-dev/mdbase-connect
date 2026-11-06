@@ -2400,6 +2400,11 @@ msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "エディターで開く"
 
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "Open in editor: {0}"
+msgstr "エディターで開く: {0}"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Open menu"
@@ -3209,6 +3214,7 @@ msgctxt "Account management"
 msgid "Signing out…"
 msgstr "ログアウト中…"
 
+#: src/api.ts
 #: src/ConnectPrimitives.tsx
 #: src/portal-model.ts
 msgid "Something went wrong on mdbase. Try again."
@@ -3869,6 +3875,10 @@ msgstr "配信を停止しました"
 #: src/AccountManagement.tsx
 msgid "Your account has been deleted."
 msgstr "アカウントを削除しました。"
+
+#: src/ConnectPrimitives.tsx
+msgid "Your account has reached its synced collection limit. Open an existing collection, or contact mdbase support to raise your limit."
+msgstr "アカウントの同期コレクション数が上限に達しました。既存のコレクションを開くか、mdbaseサポートに上限の引き上げをお問い合わせください。"
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."
