@@ -680,7 +680,10 @@ export class ConnectManagementClient {
           && typeof body.error.message === "string"
           ? body.error.message
           : `Request failed with HTTP ${response.status}.`;
-        throw new ManagementApiError(response.status, "http_error", message);
+        const code = body && typeof body === "object" && "error" in body
+          && body.error && typeof body.error === "object" && "code" in body.error
+          && typeof body.error.code === "string" ? body.error.code : undefined;
+        throw new ManagementApiError(response.status, "http_error", message, code ? { code } : undefined);
       }
       return body as T;
     } catch (cause) {

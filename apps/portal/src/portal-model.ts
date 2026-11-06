@@ -152,9 +152,9 @@ export function signInUrl(currentLocation: ReturnLocation = location): string {
   return `${login.pathname}${login.search}`;
 }
 
-export function sessionExpiredUrl(baseUrl: string, currentHref: string = location.href): string {
+export function signInRedirectUrl(baseUrl: string, hadSession: boolean, currentHref: string = location.href): string {
   const login = new URL("/login", baseUrl);
-  login.searchParams.set("reason", "session-expired");
+  if (hadSession) login.searchParams.set("reason", "session-expired");
   login.searchParams.set("return_to", currentHref);
   return login.href;
 }

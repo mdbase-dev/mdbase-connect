@@ -29,7 +29,8 @@ export function ConfirmDialog({ open, title, consequence, confirmLabel, pendingL
     {children}
     <footer className="mdbase-dialog-actions">
       <button type="button" className="mdbase-button is-tertiary" data-autofocus={initialFocus === "cancel" || undefined} disabled={working} onClick={onClose}>{cancelLabel}</button>
-      <button type="button" className={`mdbase-button ${tone === "danger" ? "is-danger" : "is-primary"}`} data-autofocus={initialFocus === "confirm" || undefined} aria-busy={working || undefined} disabled={working || disabled} onClick={async () => {
+      <button type="button" className={`mdbase-button ${tone === "danger" ? "is-danger" : "is-primary"}`} data-autofocus={initialFocus === "confirm" || undefined} aria-busy={working || undefined} disabled={working || disabled} onClick={async (event) => {
+        event.currentTarget.closest("dialog")?.focus({ preventScroll: true });
         setPending(true);
         try { await onConfirm(); } finally { setPending(false); }
       }}>{working ? pendingLabel : confirmLabel}</button>

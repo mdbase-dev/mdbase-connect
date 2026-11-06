@@ -37,6 +37,50 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it("keeps an unchanged background load error mounted but announces a Retry result", async () => {
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ error: { message: "diagnostic" } }, { status: 503 }));
+    render(<ConnectApp />);
+    const alert = await screen.findByRole("alert");
+    const retry = within(alert).getByRole("button");
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "false"));
+    retry.focus();
+    let finish!: () => void;
+    vi.mocked(fetch).mockImplementation(async () => {
+      await new Promise<void>(resolve => { finish = resolve; });
+      return Response.json({ error: { message: "diagnostic" } }, { status: 503 });
+    });
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "true"));
+    expect(retry).toHaveFocus();
+    expect(retry).toBeEnabled();
+    const calls = vi.mocked(fetch).mock.calls.length;
+    fireEvent.click(retry);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(calls);
+    await act(async () => finish());
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "false"));
+    expect(retry).toHaveFocus();
+    expect(screen.getByRole("alert")).toBe(alert);
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ error: { message: "diagnostic" } }, { status: 503 }));
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getByRole("alert")).not.toBe(alert));
+    expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
+  });
+
+  it("offers deletion only where available alongside existing-collection and support recovery", async () => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({ error: { code: "account_collection_quota_exceeded", message: "Delete a synced collection before creating another." } }, { status: 429 }));
+    render(<ConnectApp />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit.");
+  });
+
+  it("names each collection launch link in the collection list", async () => {
+    history.replaceState(null, "", "/collections");
+    render(<ConnectApp />);
+    await screen.findByRole("link", { name: "Open in editor: Garden notes" });
+    for (const link of screen.getAllByRole("link", { name: /^Open in editor:/ })) {
+      const name = link.closest("[data-list-item]")!.querySelector(".connect-collection-name strong")!.textContent;
+      expect(link).toHaveAccessibleName(`Open in editor: ${name}`);
+    }
+  });
   it.each([500, 503])("describes HTTP %s as a server failure", async status => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ error: { message: "Backend diagnostics" } }, { status }));
     render(<ConnectApp />);
@@ -546,7 +590,7 @@ describe("ConnectApp", () => {
     expect(navigation).toHaveTextContent("Collections");
     expect(navigation).toHaveTextContent("Account");
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
-    const editor = new URL((await screen.findByRole("link", { name: "Open in editor" })).getAttribute("href")!);
+    const editor = new URL((await screen.findByRole("link", { name: "Open in editor: Garden notes" })).getAttribute("href")!);
     expect(editor.origin).toBe("https://editor.example.test");
     expect(editor.pathname).toBe("/");
     expect(editor.searchParams.get("collection")).toBe("collection");
@@ -563,7 +607,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname === "/v1/account/sessions")).toBe(true));
-    expect(screen.queryByRole("link", { name: "Open in editor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Open in editor:/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Choose or create my person record" })).not.toBeInTheDocument();
   });
 

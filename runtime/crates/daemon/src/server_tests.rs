@@ -24,16 +24,16 @@ fn cloud_collection_quota_is_not_retryable() {
     ));
     assert_eq!(error.code, "quota_exceeded");
     assert_eq!(
+        error.message,
+        include_str!("../../../docs/account-collection-quota-message.txt").trim_end()
+    );
+    assert_eq!(
         error.reason.as_deref(),
         Some("account_collection_quota_exceeded")
     );
     assert_eq!(
         mdbn_wire::client::recovery_for(&error.code),
         Some(mdbn_wire::client::Recovery::FreeSpace)
-    );
-    assert_eq!(
-        error.message,
-        "Your account has reached its synced collection limit. Delete a synced collection before creating another."
     );
 }
 

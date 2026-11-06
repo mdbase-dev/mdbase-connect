@@ -40,7 +40,7 @@ test("manages collections on the portal and links to the configured Editor witho
   await expect(page.getByRole("complementary", { name: "Collection navigation" })).toHaveCount(0);
   await expect(page.getByRole("complementary", { name: "mdbase Connect navigation" })).toBeVisible();
   await expect(page.getByText("Account", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open in editor" })).toHaveAttribute("href", `http://editor.test/?server=${encodeURIComponent(portalOrigin)}&collection=collection`);
+  await expect(page.getByRole("link", { name: /^Open in editor:/ })).toHaveAttribute("href", `http://editor.test/?server=${encodeURIComponent(portalOrigin)}&collection=collection`);
   await page.getByRole("link", { name: "Storage" }).click();
   expect(new URL(page.url()).pathname).toBe("/storage");
   await expect(page.getByRole("heading", { name: "Storage" })).toBeVisible();
@@ -149,7 +149,7 @@ test("condenses portal navigation on mobile", async ({ page }) => {
   await page.goto(`${portalOrigin}/?collection=collection`);
 
   await expect(page.getByRole("heading", { name: "Garden notes" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open in editor" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Open in editor:/ })).toBeVisible();
   const menu = page.getByRole("button", { name: "Open menu" });
   await expect(menu).toBeVisible();
   await expect(page.getByRole("link", { name: "Collections" })).toBeHidden();

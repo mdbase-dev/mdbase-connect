@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, waitFor, within } from "./test/render";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "./test/render";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
-import { api } from "./api";
+import { api, ApiError, type DevicePairing } from "./api";
 vi.mock("./api", async importOriginal => ({...await importOriginal<typeof import("./api")>(),api:vi.fn()}));
+afterEach(() => vi.restoreAllMocks());
+function preparedPairing(): DevicePairing {
+  return { connector_name: "Reader", approved_at: null, installation_device: true, kind: "app-runtime",
+    account_selection_confirmed: true, attested: true, fingerprint: "1234-5678", account_email: "owner@example.test",
+    signed_in_account_email: "owner@example.test", app_origin: "https://reader.example", scope_only: true,
+    collections: [{ collection_id: "work", display_name: "Work", role: "owner" }, { collection_id: "notes", display_name: "Notes", role: "owner" }] };
+}
 const collections = [...Array.from({length:160},(_,i)=>({collection_id:`collection-${i}`,display_name:`[test] Notes ${i}`,role:"owner"})),{collection_id:"named-new",display_name:"New collection",role:"owner"},{collection_id:"named-create",display_name:"create collection",role:"owner"}];
 async function show(canCreate=true, selected="", hint=selected, prepared=true) {
   vi.mocked(api).mockClear();
@@ -11,6 +18,70 @@ async function show(canCreate=true, selected="", hint=selected, prepared=true) {
   return {...view,picker:await screen.findByRole("listbox",{name:"Open in Reader"}),input:screen.getByRole("combobox",{name:"Open in Reader"})};
 }
 describe("approval collection chooser",()=>{
+  it("does not re-add revoked Work when approving Notes", async () => {
+    let pairing = { ...preparedPairing(), retained_collection_ids: ["work"] };
+    vi.mocked(api).mockReset().mockImplementation(async (path, options) => {
+      if (options?.method === "POST") {
+        if (path.endsWith("/remove-access")) pairing = { ...pairing, retained_collection_ids: [] };
+        else if (path.endsWith("/approve")) pairing = { ...pairing, approved_at: "approved", selected_collection_id: "notes" };
+        else throw new Error(`Unexpected mutation: ${path}`);
+        return {};
+      }
+      return { pairing };
+    });
+    render(<Pairing pairingId="pairing" />);
+    await screen.findByRole("option", { name: "Notes" });
+    fireEvent.click(screen.getByText("Allow offline access to additional collections"));
+    fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Confirm revocation" })).getByRole("button", { name: "Revoke access" }));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Confirm revocation" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: /^Work/ })).not.toBeChecked());
+    fireEvent.click(screen.getByRole("option", { name: "Notes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Reader" }));
+    await screen.findByRole("heading", { name: "Reader can now use Notes" });
+    const approvals = vi.mocked(api).mock.calls.filter(([path]) => path.endsWith("/approve"));
+    expect(approvals).toHaveLength(1);
+    expect(JSON.parse(String(approvals[0]![1]!.body))).toMatchObject({ collection_ids: ["notes"], selected_collection_id: "notes" });
+  });
+
+  it("reloads failed inspection after a successful approval without offering another approve", async () => {
+    const pairing = preparedPairing();
+    let approved = false, inspections = 0;
+    let finish!: (value: { pairing: DevicePairing }) => void;
+    vi.mocked(api).mockReset().mockImplementation(async (path, options) => {
+      if (options?.method === "POST") { approved = true; return {}; }
+      if (!approved) return { pairing };
+      if (++inspections === 1) throw new ApiError(503, "Readback unavailable");
+      return new Promise(resolve => { finish = resolve; });
+    });
+    render(<Pairing pairingId="pairing" />);
+    fireEvent.click(await screen.findByRole("option", { name: "Notes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Reader" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(screen.queryByRole("button", { name: "Open Reader" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    await act(async () => finish({ pairing: { ...pairing, approved_at: "approved", selected_collection_id: "notes" } }));
+    await screen.findByRole("heading", { name: "Reader can now use Notes" });
+    expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith("/approve"))).toHaveLength(1);
+  });
+
+  it("moves Cancel focus to the real approval target while denial is pending", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => {});
+    let finish!: () => void;
+    vi.mocked(api).mockReset().mockImplementation(async (_path, options) => options?.method === "POST"
+      ? new Promise(resolve => { finish = () => resolve({}); }) : { pairing: preparedPairing() });
+    render(<Pairing pairingId="pairing" />);
+    fireEvent.click(await screen.findByRole("option", { name: "Notes" }));
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    cancel.focus();
+    fireEvent.click(cancel);
+    expect(cancel).toBeDisabled();
+    expect(document.querySelector(".approval-target")).toHaveFocus();
+    await act(async () => finish());
+    await screen.findByRole("heading", { name: "Sign-in cancelled" });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
   it("refreshes shared collections on return without losing the person's selection", async () => {
     await show(true, "collection-5", "collection-5", false);
     const pairing = (await vi.mocked(api).mock.results[0]!.value).pairing;

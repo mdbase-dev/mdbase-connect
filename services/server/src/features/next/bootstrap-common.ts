@@ -5,6 +5,7 @@ import { verify } from "node:crypto";
 import type { FastifyReply } from "fastify";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
+import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "../../platform/collection-quota-copy.generated.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import type { PolicyOp, RegisteredDeviceKind } from "./policy-wire.js";
@@ -156,7 +157,7 @@ export function refuse(reply: FastifyReply, error: unknown, message: string) {
   if (error instanceof CreateError) {
     const status = error.status === 502 ? 503 : error.status;
     return reply.code(status).send(apiError(error.code, error.code === "account_collection_quota_exceeded"
-      ? "Your account has reached its synced collection limit. Delete a synced collection before creating another."
+      ? ACCOUNT_COLLECTION_QUOTA_MESSAGE
       : message));
   }
   if (isLockTimeout(error)) return reply.code(503).send(apiError("busy", message));

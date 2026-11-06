@@ -14,6 +14,12 @@ validateCatalog(catalog);
 emit(schemaPath, `${JSON.stringify(problemSchema(catalog), null, 2)}\n`);
 emit(typescriptPath, typescriptSource(catalog));
 emit(rustPath, rustSource(catalog));
+const quotaMessage = readFileSync(resolve(root, "runtime/docs/account-collection-quota-message.txt"), "utf8").trim();
+const quotaConstant = `export const ACCOUNT_COLLECTION_QUOTA_MESSAGE = ${JSON.stringify(quotaMessage)};\n`;
+emit(resolve(root, "runtime/packages/sdk/src/collection-quota-copy.generated.ts"), quotaConstant);
+emit(resolve(root, "services/server/src/platform/collection-quota-copy.generated.ts"), quotaConstant);
+emit(resolve(root, "apps/portal/src/collection-quota-copy.generated.ts"),
+  `import { t } from "@lingui/core/macro";\nimport { i18n } from "@mdbase-dev/ui/i18n";\n\nexport function collectionQuotaMessage(): string {\n  return t(i18n)({ message: ${JSON.stringify(quotaMessage)} });\n}\n`);
 
 function emit(path, content) {
   if (check) {

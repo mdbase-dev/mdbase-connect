@@ -13,6 +13,7 @@
  * their `MdbaseError` code); a source-scan test fails on any unclassified code.
  */
 import { registrationRefusal, registrationRefusalMessage } from "./application/registration-refusal.js";
+import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "./collection-quota-copy.generated.js";
 import { isCollectionUnavailableReason, type CollectionUnavailableReason } from "./collection-availability.js";
 import { DEFAULT_UPDATE_URL, MAX_SERVER_RETRY_MS, MIN_SERVER_RETRY_MS, sanitizeAppServerProblem, trustedUpdateUrl } from "./app-host/cp-problem.js";
 
@@ -113,6 +114,7 @@ const UPDATE: Entry = ["Update required", "Update mdbase on this computer, then 
 const CHOOSE: Entry = ["Choose a collection", "Pick the collection you want this app to use.", "choose_collection", "info"];
 const APPROVE: Entry = ["Approval needed", "This app needs your approval for extra access to your collection.", "approve", "info"];
 const SET_UP: Entry = ["Set up this collection", "This collection needs a one-time setup before the app can use it.", "set_up", "info"];
+const UNFINISHED_SIGN_IN: Entry = ["Sign-in wasn't finished", "Access wasn't approved. Sign in again when you're ready.", "sign_in", "info"];
 
 const COPY = {
   // Private collections served by one of the account's computers (collection availability).
@@ -143,7 +145,7 @@ const COPY = {
   unavailable: OFFLINE,
   rate_limited: ["Too many requests", "Wait a moment, then try again.", "retry", "warning", true],
   quota_exceeded: ["Out of storage", "You've reached your storage limit. Free up space to keep saving.", "free_space", "error"],
-  account_collection_quota_exceeded: ["Synced collection limit reached", "Your account has reached its synced collection limit. Delete a synced collection before creating another.", "free_space", "error", false, "Manage collections"],
+  account_collection_quota_exceeded: ["Synced collection limit reached", ACCOUNT_COLLECTION_QUOTA_MESSAGE, "free_space", "error", false, "Manage collections"],
   too_large: ["That's too large", "This item is larger than mdbase allows.", "none", "warning"],
   outcome_unknown: ["Not sure that worked", "The connection dropped before mdbase confirmed it. Check whether it went through before trying again.", "resolve_outcome", "warning"],
   internal: GENERIC,
@@ -375,7 +377,7 @@ export function problemCodeOf(code: string): ProblemCode | null {
   return null;
 }
 
-interface Found { codes: string[]; retryAfterMs: number | null; updateUrl: string | null; refusal?: ReturnType<typeof registrationRefusal> }
+interface Found { codes: string[]; retryAfterMs: number | null; updateUrl: string | null; refusal?: ReturnType<typeof registrationRefusal>; hasServer?: boolean }
 
 function availabilityReason(o: Record<string, unknown>): CollectionUnavailableReason | null {
   const details = o.details;
@@ -396,7 +398,7 @@ function problemOf(input: unknown, cpOrigin: string | null): Found | null {
     // Server detail counts only if it re-validates as a sanitized SDK problem.
     const detail = obj(o.problemDetail), server = sanitizeAppServerProblem(o.server ?? detail?.server, cpOrigin);
     const serverCodes = [server?.reason ?? null, server?.code ?? null].filter((c): c is string => c !== null);
-    const extra = {retryAfterMs: server?.retryAfterMs ?? retry(o.retryAfterMs), updateUrl: trustedUpdateUrl(server?.updateUrl, cpOrigin)};
+    const extra = {retryAfterMs: server?.retryAfterMs ?? retry(o.retryAfterMs), updateUrl: trustedUpdateUrl(server?.updateUrl, cpOrigin), hasServer: o.server != null || detail?.server != null};
     // Snapshot or facet: { problem: string | {code}, readiness?, assessment?, status? }.
     if ("problem" in o || "readiness" in o || "assessment" in o) {
       const own = str(o.problem) ?? str(obj(o.problem)?.code);
@@ -446,7 +448,7 @@ export function describeError(input: unknown, options: DescribeErrorOptions = {}
   if (!found) return null;
   const {key, original} = resolve(found);
   if (key === null) return null;
-  const [title, message, action, severity, transient = false, label] = key === "unknown" ? GENERIC : COPY[key] as Entry;
+  const [title, message, action, severity, transient = false, label] = key === "unknown" ? GENERIC : key === "refused" && !found.hasServer ? UNFINISHED_SIGN_IN : COPY[key] as Entry;
   let translated: MdbaseProblemMessages | undefined;
   try { const messages = options.messages; translated = messages && Object.hasOwn(messages, key) ? obj(messages[key]) as MdbaseProblemMessages : undefined; } catch { translated = undefined; }
   const text = (v: unknown, fallback: string) => typeof v === "string" && v.trim() ? v : fallback;

@@ -1,5 +1,6 @@
 export const clock = "2026-11-05T00:00:00.000Z";
 export const expires = "2026-12-05T00:00:00.000Z";
+const authorizationExpires = new Date(Date.parse(clock) + 14 * 60 * 1000).toISOString();
 export const pairingId = "00000000-0000-4000-8000-000000000001";
 export const authorizationId = "00000000-0000-4000-8000-000000000002";
 const user = { id: "maya", name: "Maya Chen", email: "maya@chen.example", login: "mayachen" };
@@ -60,7 +61,7 @@ function overview(count) {
       application_origin: `https://${["tasknotes", "reader", "writer", "research"][app]}.mdbase.dev`, project_url: null, icon: null
     }))) : [],
     pending_authorizations: count > 1 ? [{ id: authorizationId, flow: "authorization_code", requested_operations: ["read", "create", "update"],
-      expires_at: expires, application_id: "app-0", application_name: "TaskNotes", distribution: "web",
+      expires_at: authorizationExpires, application_id: "app-0", application_name: "TaskNotes", distribution: "web",
       homepage: "https://tasknotes.mdbase.dev", project_url: null, icon: null }] : []
   };
 }
@@ -104,7 +105,7 @@ function state(count = 5) {
     invitations: {}, onboarding: "ready", authorizationStatus: "pending",
     authorization: {
       ...data.pending_authorizations[0], id: authorizationId, application_name: "TaskNotes", application_id: "app-0",
-      flow: "authorization_code", requested_operations: ["read", "query", "create", "update"], expires_at: expires,
+      flow: "authorization_code", requested_operations: ["read", "query", "create", "update"], expires_at: authorizationExpires,
       distribution: "web", homepage: "https://tasknotes.mdbase.dev", application_origin: "https://tasknotes.mdbase.dev", project_url: null, icon: null,
       requirements: { contracts: [], capabilities: { contract_version: 2, required: ["collection.read", "records.create", "records.edit"], optional: ["records.delete"] }, access: "full_collection" },
       provisions: { type_packs: [] }, notifications: { criteria: [] }
@@ -112,7 +113,7 @@ function state(count = 5) {
     pairing: {
       connector_name: "Reader", approved_at: null, installation_device: true, kind: "app-runtime",
       account_selection_confirmed: true, attested: true, fingerprint: "8b73-c91e-24af-60d2", account_email: user.email, signed_in_account_email: user.email,
-      app_origin: "https://reader.mdbase.dev", expires_at: expires, can_create_collection: true,
+      app_origin: "https://reader.mdbase.dev", expires_at: new Date(Date.parse(clock) + 9 * 60 * 1000).toISOString(), can_create_collection: true,
       collections: data.collections.map(collection => ({ collection_id: collection.id, display_name: collection.display_name, role: "owner" }))
     }
   };

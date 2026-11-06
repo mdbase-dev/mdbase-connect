@@ -41,7 +41,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       for (const path of ["/collections", "/?collection=cloud", "/storage?collection=cloud", "/storage?collection=private", "/access?collection=cloud", "/applications", "/computers", "/account"]) {
         await page.goto(`${authPortal}${path}`);
         await expect(page.locator(".connect-page > header h1")).toBeVisible();
-        if (path === "/collections" && width === 375) await expect(page.getByRole("link", { name: "Open in editor", exact: true }).filter({ visible: true })).toHaveCount(0);
+        if (path === "/collections" && width === 375) await expect(page.getByRole("link", { name: /^Open in editor:/ }).filter({ visible: true })).toHaveCount(0);
         if (path === "/account") {
           await expect(page.getByText("Beta", { exact: true })).toBeVisible();
           await expect(page.getByText("Usage unavailable", { exact: true })).toBeVisible();

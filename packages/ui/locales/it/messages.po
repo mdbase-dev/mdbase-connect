@@ -236,6 +236,11 @@ msgctxt "Application permission"
 msgid "Rename or move records"
 msgstr "Rinomina o sposta i record"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Rename the focused item"
+msgstr "Rinomina l’elemento attivo"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Replace this app's scheduled activity"

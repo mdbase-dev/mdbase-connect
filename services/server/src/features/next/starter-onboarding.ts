@@ -17,6 +17,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { DatabaseConnection } from "../../database-types.js";
 import { isIanaTimezone } from "../../hosted.js";
 import { apiError } from "../../platform/http-errors.js";
+import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "../../platform/collection-quota-copy.generated.js";
 import { requireSessionContext, requireUser } from "../../platform/request-authentication.js";
 import { STARTER_COLLECTION_NAME, STARTER_TEMPLATE_VERSION } from "../../starter-collection.js";
 import { CreateError, currentAccount, currentSession, inTransaction, isLockTimeout } from "./bootstrap-common.js";
@@ -131,7 +132,7 @@ async function provisionNativeStarter(
 }
 
 const REFUSALS: Record<string, [number, string]> = {
-  account_collection_quota_exceeded: [429, "Your account has reached its synced collection limit. Delete a synced collection before setting up your starter collection."],
+  account_collection_quota_exceeded: [429, ACCOUNT_COLLECTION_QUOTA_MESSAGE],
   onboarding_not_ready: [409, "Your account is still moving. Try again in a little while."],
   starter_unavailable: [409, "Your starter collection can't be set up automatically."],
   starter_content_unavailable: [503, "Starter collections are temporarily unavailable. Try again later."],

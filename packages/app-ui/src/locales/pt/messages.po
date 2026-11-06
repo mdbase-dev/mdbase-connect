@@ -432,6 +432,10 @@ msgctxt "Collection storage mode"
 msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
 msgstr "O mdbase poderá ler a coleção, incluindo seu histórico existente, e disponibilizá-la enquanto seus dispositivos estiverem desligados."
 
+#: src/CommandPalette.tsx
+msgid "Menu"
+msgstr "Menu de contexto"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "More for {collection}"
@@ -514,11 +518,6 @@ msgstr "Abrindo o mdbase…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
-msgid "Opening the local collection…"
-msgstr "Abrindo a coleção local…"
-
-#: src/collections/copy.ts
-msgctxt "Collection access interface"
 msgid "Opening your collection"
 msgstr "Abrindo sua coleção"
 
@@ -539,6 +538,16 @@ msgstr "Opcional"
 msgctxt "Collection access interface"
 msgid "Owner"
 msgstr "Proprietário"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Preparing secure access…"
+msgstr "Preparando o acesso seguro…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Preparing your offline copy…"
+msgstr "Preparando sua cópia offline…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -926,11 +935,6 @@ msgstr "Aguardando a atualização dos dispositivos."
 msgctxt "Collection storage mode"
 msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
 msgstr "Aguardando a expiração das conexões antigas dos dispositivos. A cópia na nuvem permanece ativa até a conclusão da mudança."
-
-#: src/collections/copy.ts
-msgctxt "Collection access interface"
-msgid "Waiting for the collection key…"
-msgstr "Aguardando a chave da coleção…"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

@@ -2400,6 +2400,11 @@ msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "Apri nell'editor"
 
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "Open in editor: {0}"
+msgstr "Apri nell’editor: {0}"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Open menu"
@@ -3209,6 +3214,7 @@ msgctxt "Account management"
 msgid "Signing out…"
 msgstr "Disconnessione in corso…"
 
+#: src/api.ts
 #: src/ConnectPrimitives.tsx
 #: src/portal-model.ts
 msgid "Something went wrong on mdbase. Try again."
@@ -3869,6 +3875,10 @@ msgstr "Iscrizione annullata"
 #: src/AccountManagement.tsx
 msgid "Your account has been deleted."
 msgstr "L'account è stato eliminato."
+
+#: src/collection-quota-copy.generated.ts
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
+msgstr "Il tuo account ha raggiunto il limite di raccolte sincronizzate. Apri una raccolta esistente, eliminane una di tua proprietà se l’opzione Elimina è disponibile oppure contatta l’assistenza mdbase per aumentare il limite."
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

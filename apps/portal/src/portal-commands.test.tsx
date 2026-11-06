@@ -108,4 +108,16 @@ describe("Portal keyboard scope", () => {
     expect(screen.getByRole("dialog", { name: "Commands" })).toBeInTheDocument();
     leaving.remove();
   });
+
+  it("takes shortcuts while the palette is leaving", () => {
+    render(<Host />);
+    const leaving = document.body.appendChild(document.createElement("dialog"));
+    leaving.className = "mdbase-command-palette";
+    leaving.open = true;
+    leaving.dataset.open = "false";
+    leaving.appendChild(document.createElement("div")).setAttribute("role", "listbox");
+    fireEvent.keyDown(document.body, { key: "?" });
+    expect(screen.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
+    leaving.remove();
+  });
 });

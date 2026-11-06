@@ -2400,6 +2400,11 @@ msgctxt "Connect interface"
 msgid "Open in editor"
 msgstr "在编辑器中打开"
 
+#. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
+msgid "Open in editor: {0}"
+msgstr "在编辑器中打开：{0}"
+
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Open menu"
@@ -3209,6 +3214,7 @@ msgctxt "Account management"
 msgid "Signing out…"
 msgstr "正在退出登录…"
 
+#: src/api.ts
 #: src/ConnectPrimitives.tsx
 #: src/portal-model.ts
 msgid "Something went wrong on mdbase. Try again."
@@ -3869,6 +3875,10 @@ msgstr "你已退订"
 #: src/AccountManagement.tsx
 msgid "Your account has been deleted."
 msgstr "你的账户已删除。"
+
+#: src/collection-quota-copy.generated.ts
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
+msgstr "你的账户已达到同步集合数量上限。请打开现有集合；如果有删除功能，可删除你拥有的集合；也可以联系 mdbase 支持以提高上限。"
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

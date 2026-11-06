@@ -12,7 +12,6 @@
   --motion-settle: 2.4s;
   --motion-enter: 160ms;
   --motion-exit: 120ms;
-  --motion-grant: 300ms;
   --motion-confirm: 1s;
 }
 
@@ -38,7 +37,6 @@
   :root {
     --motion-enter: 0ms;
     --motion-exit: 0ms;
-    --motion-grant: 0ms;
     --motion-confirm: 0ms;
     --motion-fast: 0ms;
     --motion-quick: 0ms;

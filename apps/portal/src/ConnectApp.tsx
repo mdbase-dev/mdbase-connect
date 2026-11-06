@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState, Component, type FormEvent, ty
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
-import { readRememberedCollection, rememberCollection, sessionExpiredUrl } from "./portal-model";
+import { readRememberedCollection, rememberCollection, signInRedirectUrl } from "./portal-model";
 import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
 import { KeyboardShortcuts } from "@mdbase/connect-ui/keyboard";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
@@ -95,6 +95,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const [view, setView] = useState<ConnectView>(viewFromPath);
   const [data, setData] = useState<ManagementOverview>();
   const [preview, setPreview] = useState(readOverviewPreview);
+  const hadSession = useRef(Boolean(preview));
   const [editorOrigin, setEditorOrigin] = useState<string>();
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof management.sessions>>["sessions"]>();
   const [refreshError, setRefreshError] = useState("");
@@ -137,6 +138,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         const next = await management.overview({ signal });
         if (signal?.aborted || lifecycleRef.current?.signal.aborted || generation !== refreshGenerationRef.current || mutationRevision !== mutationRevisionRef.current) return;
         writeOverviewPreview(next); setPreview(readOverviewPreview());
+        hadSession.current = true;
         setData([...optimisticRef.current.values()].reduce(applyOptimisticAction, next));
         setRefreshError("");
         const configuration = await management.uiConfiguration({ signal });
@@ -153,7 +155,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
           clearOverviewPreview();
           setPreview(undefined);
           setData(undefined);
-          location.href = sessionExpiredUrl(management.baseUrl);
+          location.href = signInRedirectUrl(management.baseUrl, hadSession.current);
           return;
         }
         setRefreshError(errorMessage(reason));
@@ -241,7 +243,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         }
         if (reason instanceof ManagementApiError && reason.status === 401) {
           clearOverviewPreview();
-          location.href = sessionExpiredUrl(management.baseUrl);
+          location.href = signInRedirectUrl(management.baseUrl, true);
         }
       }
     } finally {
@@ -373,7 +375,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     <Dialog open={navigationOpen} title={t(i18n)`Navigation`} className="connect-navigation-sheet" onClose={() => setNavigationOpen(false)}><Brand productLabel />{navigation}{footer}</Dialog>
     <main className="connect-main" aria-busy={refreshing}>
       {mutationError && !refreshError && <div className="connect-notice error" role="alert"><Warning aria-hidden="true" />{mutationError}<button className="mdbase-button is-tertiary" onClick={() => setMutationError("")}><Trans>Dismiss</Trans></button></div>}
-      {(!data || refreshError) && <ConnectPreview title={viewLabel(view)} rows={view === "computers" ? preview?.computers : isCollectionView(view) || view === "collections" ? preview?.collections : undefined} pending={refreshing} error={refreshError} retry={() => void refresh()} />}
+      {(!data || refreshError) && <ConnectPreview title={viewLabel(view)} rows={view === "computers" ? preview?.computers : isCollectionView(view) || view === "collections" ? preview?.collections : undefined} pending={refreshing} error={refreshError} retry={() => { setData(undefined); setRefreshError(""); void refresh(); }} />}
       {data && !refreshError && <>{invitationToken && <CollectionInvitationBanner
         busy={busy.has("accept-collection-invitation")}
         onAccept={() => void acceptSharedCollection()}
@@ -438,7 +440,7 @@ function CollectionOverview({ collection, applications, editorOrigin }: {
 }) {
   useLocaleRevision();
   const place = collection.kind === "hosted" ? collection.detail : `${collection.status} · ${collection.detail}`;
-  return <Page reading title={collection.name} status={<span className="connect-status">{collection.glyph !== "idle" && <StatusGlyph state={collection.glyph} />}{place}</span>} action={editorOrigin && (collection.kind !== "local" || collection.available) && <a className="mdbase-button is-primary" href={editorCollectionUrl(collection.id, editorOrigin)}><Trans>Open in editor</Trans></a>}>
+  return <Page reading title={collection.name} status={<span className="connect-status">{collection.glyph !== "idle" && <StatusGlyph state={collection.glyph} />}{place}</span>} action={editorOrigin && (collection.kind !== "local" || collection.available) && <a className="mdbase-button is-primary" aria-label={t(i18n)`Open in editor: ${collection.name}`} href={editorCollectionUrl(collection.id, editorOrigin)}><Trans>Open in editor</Trans></a>}>
     {collection.glyph !== "online" && collection.kind === "local" && <p className="connect-attention"><StatusGlyph state={collection.glyph} /><span>{connectionDescription(collection)}</span></p>}
     <section>
       <SectionTitle title={t(i18n)({ message: "Apps with access to the entire collection", context: "Connect interface" })} />
@@ -827,7 +829,7 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
     <span className="connect-location-glyph">{locationIcon}</span>
     <div className="connect-collection-name">{navigate ? <RouteLink className="connect-collection-link" view="overview" collectionId={collection.id} navigate={navigate}><strong>{collection.name}</strong></RouteLink> : <strong>{collection.name}</strong>}<small>{collection.detail}{folders > 0 && <> · {countLabel(folders, "folder")}</>}</small></div>
     <span className="connect-status">{collection.glyph !== "idle" && !hosted && <StatusGlyph state={collection.glyph} />}{hosted && active ? "" : collection.status}</span>
-    <span className="connect-collection-open">{editorOrigin && editorId && (collection.kind !== "local" || collection.available) && <a className="mdbase-button is-tertiary" href={editorCollectionUrl(editorId, editorOrigin)}><Trans>Open in editor</Trans></a>}</span>
+    <span className="connect-collection-open">{editorOrigin && editorId && (collection.kind !== "local" || collection.available) && <a className="mdbase-button is-tertiary" aria-label={t(i18n)`Open in editor: ${collection.name}`} href={editorCollectionUrl(editorId, editorOrigin)}><Trans>Open in editor</Trans></a>}</span>
     <span className="connect-collection-menu"><button ref={trigger} className="mdbase-icon-button" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><DotsThree aria-hidden="true" /></button>
       <Menu open={menuOpen} triggerRef={trigger} id={`collection-menu-${collection.id}`} label={collection.name} onClose={refocus => { setMenuOpen(false); if (refocus) trigger.current?.focus(); }}>
         {navigate && <button role="menuitem" className="mdbase-menu-item" onClick={() => { setMenuOpen(false); navigate("overview", collection.id); }}>{t(i18n)({ message: "Overview", context: "Connect interface" })}</button>}

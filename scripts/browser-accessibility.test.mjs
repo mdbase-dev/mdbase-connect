@@ -390,7 +390,7 @@ async function auditPortalRecovery() {
     configFails = true;
     await page.reload();
     await page.getByRole("alert").waitFor();
-    assert.match(await page.getByRole("alert").innerText(), /Something went wrong on mdbase\. Try again\./, "configuration failure remains visible");
+    assert.equal(await page.getByRole("alert").innerText(), "Something went wrong on mdbase. Try again.", "configuration failure remains visible");
     await page.close();
   }
   for (const [path, endpoint, data, heading] of [
@@ -1008,6 +1008,7 @@ async function auditDesktopRoutes() {
     if (route[0] === "Collections") {
       await page.getByRole("button", { name: "Actions for Personal notes" }).click();
       await page.getByRole("menuitem", { name: "Review 1 file" }).click();
+      await page.getByRole("menu").waitFor({ state: "detached" });
       await page.getByRole("button", { name: "Keep both" }).waitFor();
     }
     if (route[0] === "Apps") {

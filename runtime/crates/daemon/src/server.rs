@@ -4975,7 +4975,7 @@ fn cloud_refusal(e: crate::cloud::CloudError) -> ControlError {
             ControlError::new(
                 "quota_exceeded",
                 &code,
-                "Your account has reached its synced collection limit. Delete a synced collection before creating another.",
+                include_str!("../../../docs/account-collection-quota-message.txt").trim_end(),
             )
         }
         rate_limit @ crate::cloud::CloudError::RateLimited(_) => {

@@ -43,6 +43,12 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
   }, [open, ref, initialFocusRef]);
   useLayoutEffect(() => {
     const dialog = ref.current;
+    if (!dialog || !open) return;
+    if (closeDisabled && (!dialog.contains(document.activeElement) || document.activeElement?.matches(":disabled"))) dialog.focus({ preventScroll: true });
+    if (!closeDisabled && document.activeElement === dialog) dialog.querySelector<HTMLElement>("[data-autofocus]:not(:disabled)")?.focus({ preventScroll: true });
+  }, [closeDisabled, open, ref]);
+  useLayoutEffect(() => {
+    const dialog = ref.current;
     return () => {
       const wasOpen = dialog?.open;
       dialog?.close();
@@ -52,7 +58,17 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
   if (!present) return null;
   return createPortal(<dialog ref={ref} className={["mdbase-dialog mdbase-overlay", className].filter(Boolean).join(" ")}
     data-open={open} role={role} aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}
-    onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape") { event.preventDefault(); if (!closeDisabled) onClose(); } }}
+    onKeyDown={(event) => {
+      event.stopPropagation();
+      if (event.key === "Escape") { event.preventDefault(); if (!closeDisabled) onClose(); }
+      if (event.key === "Tab" && closeDisabled) {
+        const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')].filter(control => control.getClientRects().length > 0);
+        const current = controls.indexOf(document.activeElement as HTMLElement);
+        const next = current < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (current + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+        event.preventDefault();
+        (controls.length ? controls[next] : event.currentTarget)?.focus({ preventScroll: true });
+      }
+    }}
     onCancel={(event) => { event.preventDefault(); if (!closeDisabled) onClose(); }}
     onClick={(event) => { if (!closeDisabled && event.target === event.currentTarget) onClose(); }}>
     <div className="mdbase-dialog-body">

@@ -643,5 +643,5 @@ dialog.mdbase-command-backdrop .mdbase-command-palette .mdbase-command-search in
 .mdbase-command-backdrop .mdbase-command-results strong { font-weight: var(--font-weight-regular); }
 
 .connect-shortcuts { display: grid; gap: 12px; }
-.connect-shortcuts > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.connect-shortcuts > div { display: grid; grid-template-columns: minmax(0, 1fr) 132px; align-items: center; gap: 16px; }
 .connect-shortcuts dd { margin: 0; white-space: nowrap; }

@@ -12,7 +12,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     throw new ApiError(
       response.status,
-      body?.error?.message ?? t(i18n)`Request failed with HTTP ${response.status}.`,
+      response.status >= 500 ? t(i18n)`Something went wrong on mdbase. Try again.` : body?.error?.message ?? t(i18n)`Request failed with HTTP ${response.status}.`,
       typeof body?.error?.code === "string" ? body.error.code : undefined,
       body?.error?.details
     );
