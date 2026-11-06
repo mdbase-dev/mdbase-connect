@@ -8,7 +8,9 @@ describe("editor wordmark", () => {
     const { container } = render(<OpeningScreen />);
 
     expect(screen.getByLabelText("Opening collection")).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("status")).toHaveTextContent("Reading its notes and types");
+    expect(screen.getByRole("status")).toHaveTextContent("Reading notes and files");
+    expect(screen.getByRole("heading", { name: "All notes" })).toBeInTheDocument();
+    for (const name of ["Back to notes", "New note", "More note actions"]) expect(screen.getByRole("button", { name })).toBeDisabled();
     expect(container.querySelector(".collection-rail .wordmark")).toBeInTheDocument();
     expect(container.querySelector(".note-list-pane")).toBeInTheDocument();
     expect(container.querySelector(".mdbase-opening-launch")).not.toBeInTheDocument();

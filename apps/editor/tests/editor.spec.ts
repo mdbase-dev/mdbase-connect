@@ -260,7 +260,7 @@ test("shows an explicit status while a collection opens", async ({ page }) => {
   }).toBe(true);
   await expect(opening).toHaveAttribute("aria-busy", "true");
   await expect(opening).toHaveAttribute("data-loading-state", "opening");
-  await expect(page.getByText("Reading its notes and types")).toBeVisible();
+  await expect(page.getByText("Reading notes and files")).toBeVisible();
   await expect(opening.locator(".collection-rail")).toBeVisible();
   await page.clock.resume();
   await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
@@ -470,7 +470,7 @@ test("wraps long titles and gives narrow editor panes a usable writing measure",
   await page.setViewportSize({ width: 834, height: 900 });
   await page.goto("?demo=12");
   const title = page.getByRole("textbox", { name: "Note title" });
-  const longTitle = "A longer note title that stays readable in a narrow editor pane";
+  const longTitle = "A longer note title that stays readable in a narrow editor pane without clipping or hiding the rest of the title";
   await title.fill(longTitle);
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
@@ -973,7 +973,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(localField).toHaveValue("field");
   await localField.fill("local_context");
   await localField.press("Tab");
-  await page.getByRole("heading", { name: "Works with applications" }).click();
+  await page.getByRole("heading", { name: "Works with apps" }).click();
   await expect(page.getByText("Mapping ready")).toBeVisible();
   const contractSettings = page.locator(".contract-settings");
   await contractSettings.locator("summary").click();
@@ -1249,7 +1249,7 @@ test("builds and saves a recursive list-of-objects field", async ({ page }) => {
 test("resizes, collapses, and restores the desktop sidebars", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Note body" })).toBeFocused();
+  await expect(page.getByRole("listbox", { name: "Collection notes and files" })).toBeFocused();
 
   const collectionResize = page.getByRole("separator", { name: "Resize collections sidebar" });
   await collectionResize.focus();
@@ -1561,7 +1561,9 @@ test("protects an unfinished note draft with a modal confirmation", async ({ pag
 
   const confirmation = page.getByRole("alertdialog", { name: "Discard this note?" });
   await expect(confirmation).toBeVisible();
-  await expect(page.locator("#root")).toHaveAttribute("aria-hidden", "true");
+  expect(await confirmation.evaluate(element => element.matches(":modal"))).toBe(true);
+  await page.getByRole("textbox", { name: "Title", includeHidden: true, exact: true }).evaluate(element => (element as HTMLElement).focus());
+  await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
   await confirmation.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue("A draft worth keeping");
 

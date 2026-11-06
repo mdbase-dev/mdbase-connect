@@ -9,7 +9,7 @@ import {
 } from "./icons";
 import { useEffect, useMemo, useState } from "react";
 import type { JsonObject } from "@mdbase-dev/connect";
-import { CodeEditor } from "./CodeEditor";
+import { DeferredCodeEditor as CodeEditor } from "./DeferredCodeEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
 import { schemaInitialValue, SchemaValueEditor } from "./SchemaValueEditor";
 import { ComboboxInput } from "./SelectionControls";

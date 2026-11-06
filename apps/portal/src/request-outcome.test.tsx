@@ -5,6 +5,16 @@ import { RequestOutcome } from "./authorization-view";
 
 afterEach(() => vi.useRealTimers());
 
+it("names the return step without duplicating it, and gives a next step without a return URL", () => {
+  const view = render(<RequestOutcome status="approved" applicationName="Reader" returnUrl="/reader" />);
+  expect(screen.getByText("Returning to Reader…")).toBeInTheDocument();
+  expect(screen.queryByText(/follow you back/)).not.toBeInTheDocument();
+  expect(screen.queryByText("Continue in Reader to use this collection.")).not.toBeInTheDocument();
+  view.rerender(<RequestOutcome status="approved" applicationName="Reader" />);
+  expect(screen.getByText("Continue in Reader to use this collection.")).toBeInTheDocument();
+  expect(screen.queryByText(/Returning to/)).not.toBeInTheDocument();
+});
+
 it("waits for confirmed approval before counting down and cancels return on unmount", () => {
   vi.useFakeTimers();
   const replace = vi.fn();

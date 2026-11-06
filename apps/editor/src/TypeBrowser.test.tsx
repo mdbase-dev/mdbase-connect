@@ -94,7 +94,7 @@ describe("recursive type builder", () => {
 
     const membership = screen.getByRole("heading", { name: "Which notes use this type" }).closest<HTMLDetailsElement>("details")!;
     const behaviour = screen.getByRole("heading", { name: "Collection behaviour" }).closest<HTMLDetailsElement>("details")!;
-    const contracts = screen.getByRole("heading", { name: "Works with applications" }).closest<HTMLDetailsElement>("details")!;
+    const contracts = screen.getByRole("heading", { name: "Works with apps" }).closest<HTMLDetailsElement>("details")!;
 
     expect(membership).not.toHaveAttribute("open");
     expect(behaviour).not.toHaveAttribute("open");

@@ -29,6 +29,28 @@ function flushFrame() {
 }
 
 describe("CodeEditor mount focus ownership", () => {
+  it("briefly marks only changed remote lines, clears on edits, and stays quiet while typing", () => {
+    const { container, rerender } = render(<CodeEditor value={"One\nTwo\nThree"} label="Note body" autoFocus={false} remoteApplyToken={0} />);
+    rerender(<CodeEditor value={"One\nChanged\nThree"} label="Note body" autoFocus={false} remoteApplyToken={1} />);
+    expect([...container.querySelectorAll(".cm-remote-change")].map((line) => line.textContent)).toEqual(["Changed"]);
+    rerender(<CodeEditor value={"One\nLocal edit\nThree"} label="Note body" autoFocus={false} remoteApplyToken={1} />);
+    expect(container.querySelector(".cm-remote-change")).not.toBeInTheDocument();
+    screen.getByRole("textbox", { name: "Note body" }).focus();
+    rerender(<CodeEditor value={"One\nAnother change\nThree"} label="Note body" autoFocus={false} remoteApplyToken={2} />);
+    expect(container.querySelector(".cm-remote-change")).not.toBeInTheDocument();
+  });
+
+  it("removes the remote mark after its brief display", () => {
+    vi.useFakeTimers();
+    try {
+      const { container, rerender } = render(<CodeEditor value="Before" label="Note body" autoFocus={false} remoteApplyToken={0} />);
+      rerender(<CodeEditor value="After" label="Note body" autoFocus={false} remoteApplyToken={1} />);
+      expect(container.querySelector(".cm-remote-change")).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(900); });
+      expect(container.querySelector(".cm-remote-change")).not.toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
+  });
+
   it("keeps search typing out of the note when the lazy editor mounts later", async () => {
     let resolve!: (module: { default: typeof CodeEditor }) => void;
     const LazyEditor = lazy(() => new Promise<{ default: typeof CodeEditor }>((done) => { resolve = done; }));
@@ -69,18 +91,27 @@ describe("CodeEditor mount focus ownership", () => {
     }
   );
 
-  it("preserves the listbox’s keyboard selection when the lazy editor mounts later", async () => {
+  it("preserves the listbox’s keyboard selection when a passive editor mounts later", async () => {
     let resolve!: (module: { default: typeof CodeEditor }) => void;
     const LazyEditor = lazy(() => new Promise<{ default: typeof CodeEditor }>((done) => { resolve = done; }));
     render(<>
       <div role="listbox" aria-label="Notes" tabIndex={0} />
-      <Suspense fallback={<div>Loading editor</div>}><LazyEditor value="Original note" label="Note body" autoFocus /></Suspense>
+      <Suspense fallback={<div>Loading editor</div>}><LazyEditor value="Original note" label="Note body" autoFocus={false} /></Suspense>
     </>);
     const list = screen.getByRole("listbox", { name: "Notes" });
     list.focus();
     await act(async () => { resolve({ default: CodeEditor }); });
     flushFrame();
     expect(list).toHaveFocus();
+  });
+
+  it("autofocuses an explicitly opened writer from the focused listbox", () => {
+    render(<>
+      <div role="listbox" aria-label="Notes" tabIndex={0} ref={(list) => list?.focus()} />
+      <CodeEditor value="Original note" label="Note body" variant="writer" autoFocus />
+    </>);
+    flushFrame();
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveFocus();
   });
 
   it("still autofocuses after a plain click-to-open row rather than a focused composite listbox", () => {

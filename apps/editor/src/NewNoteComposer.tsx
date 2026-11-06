@@ -5,7 +5,9 @@ import { useLingui } from "@lingui/react";
 import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight } from "./icons";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
-import { CodeEditor } from "./CodeEditor";
+import { DeferredCodeEditor as CodeEditor } from "./DeferredCodeEditor";
+import { shortcutLabel } from "@mdbase-dev/ui/command-palette";
+import { commandDefinitions, matchesCommandShortcut } from "./editor-commands";
 import type { CreateNoteInput } from "./model";
 import { safeRenamePath } from "./note";
 import type { EditorPreferences } from "./preferences";
@@ -152,7 +154,7 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
   }
 
   function createWithShortcut(event: KeyboardEvent<HTMLFormElement>) {
-    if (folderCreation || event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
+    if (folderCreation || !matchesCommandShortcut("create-note", event)) return;
     event.preventDefault();
     event.currentTarget.requestSubmit();
   }
@@ -163,7 +165,12 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
     style={{ "--editor-font-size": `${preferences?.fontSize ?? 17}px` } as CSSProperties}
   >
     <header className="editor-bar"><button className="mobile-back icon-button" aria-label={folderCreation ? t`Cancel new folder` : t`Cancel new note`} onClick={() => onCancel(hasDraft)}><ArrowLeft aria-hidden="true" /></button>{leadingActions}<span>{folderCreation ? t`New folder` : t`New note`}</span></header>
-    <form className={folderCreation ? "new-folder-form" : "new-note-form"} onSubmit={(event) => void submit(event)} onKeyDown={createWithShortcut}>
+    <form className={folderCreation ? "new-folder-form" : "new-note-form"} onSubmit={(event) => void submit(event)} onKeyDown={(event) => {
+      if (event.key === "Escape" && !event.defaultPrevented && !event.nativeEvent.isComposing && !hasDraft && !creating) {
+        event.preventDefault();
+        onCancel(false);
+      } else createWithShortcut(event);
+    }}>
       {folderCreation
         ? <><h1><Trans>New folder</Trans></h1><p className="new-note-intro"><Trans>Create it with a first note. Empty folders aren’t stored.</Trans></p></>
         : <label className="new-note-title"><span className="sr-only">{primaryLabel}</span><input autoFocus value={title} onChange={(event) => changeTitle(event.target.value)} placeholder={displayField ? primaryLabel : t`Untitled`} /></label>}
@@ -236,7 +243,7 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
           aria-describedby="new-note-status"
           aria-keyshortcuts={folderCreation ? undefined : "Control+Enter Meta+Enter"}
           title={folderCreation ? undefined : t`Create note (Ctrl or Command + Enter)`}
-        >{creating ? (folderCreation ? t`Creating folder` : t`Creating`) : (folderCreation ? t`Create folder` : t`Create note`)}{!folderCreation && !creating && <kbd aria-hidden="true">{shortcutModifier()}↵</kbd>}</button>
+        >{creating ? (folderCreation ? t`Creating folder` : t`Creating`) : (folderCreation ? t`Create folder` : t`Create note`)}{!folderCreation && !creating && <kbd aria-hidden="true">{shortcutLabel(commandDefinitions["create-note"].shortcut)}</kbd>}</button>
       </div>
     </form>
   </main>;
@@ -342,10 +349,6 @@ function isTextField(schema?: JsonObject): boolean {
 
 function pathFolderPrefix(path: string): string {
   return path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
-}
-
-function shortcutModifier(): string {
-  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : t`Ctrl `;
 }
 
 function suggestedPath(title: string, folder = ""): string {

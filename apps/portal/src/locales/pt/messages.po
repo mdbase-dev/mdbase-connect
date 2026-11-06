@@ -1161,6 +1161,10 @@ msgid "Continue"
 msgstr "Continuar"
 
 #: src/authorization-view.tsx
+msgid "Continue in {applicationName} to use this collection."
+msgstr "Continue em {applicationName} para usar esta coleção."
+
+#: src/authorization-view.tsx
 msgid "Continue only if you started this and recognize this app."
 msgstr "Continue apenas se você iniciou esta ação e reconhece este app."
 
@@ -3874,10 +3878,6 @@ msgstr "A sua conta atingiu o limite de coleções sincronizadas. Abra uma cole�
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."
 msgstr "Sua conta está pronta. Crie uma coleção agora ou continue sem nenhuma."
-
-#: src/authorization-view.tsx
-msgid "Your approved collection and permissions will follow you back."
-msgstr "A coleção e as permissões que você aprovou estarão disponíveis quando voltar."
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."

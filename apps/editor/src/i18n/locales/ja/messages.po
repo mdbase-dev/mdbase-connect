@@ -116,7 +116,7 @@ msgid "{0, plural, one {# required field unmapped} other {# required fields unma
 msgstr "{0, plural, other {対応付けのない必須フィールド # 件}}"
 
 #. placeholder {0}: recoveryAction.references
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, other {# 件のノート内のリンクも更新しました。}}"
 
@@ -131,7 +131,7 @@ msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
 msgstr "{0, plural, other {# 件のノートを移動しますか？}}"
 
 #. placeholder {0}: recoveryAction.paths.length
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 msgstr "{0, plural, other {# 件のノートを移動しました。}}"
 
@@ -281,11 +281,6 @@ msgstr "{1} 件中 {0} 件のフィールドが一致"
 #: src/NoteList.tsx
 msgid "{0} of {1} notes"
 msgstr "ノート {1} 件中 {0} 件"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "{0} P"
-msgstr "{0} P"
 
 #. placeholder {0}: directory.invalid.length
 #: src/YourPersonPanel.tsx
@@ -720,10 +715,6 @@ msgstr "<0>{0}</0> · コレクションの表示名や識別情報との関連�
 msgid "<0>{linkedSchema}</0> is installed with this type. Field structure is edited at the schema source."
 msgstr "<0>{linkedSchema}</0>はこの型とともにインストールされています。フィールド構造はスキーマのソースで編集してください。"
 
-#: src/QuickOpen.tsx
-msgid "<0>↑↓</0> choose · <1>Enter</1> open · <2>></2> actions · <3>Esc</3> close"
-msgstr "<0>↑↓</0> で選択 · <1>Enter</1> で開く · <2>></2> で操作 · <3>Esc</3> で閉じる"
-
 #. placeholder {0}: (changed - 20).toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "<0>More</0>{0} additional notes"
@@ -817,10 +808,6 @@ msgstr "既存の連絡先について"
 msgid "Actions"
 msgstr "操作"
 
-#: src/QuickOpen.tsx
-msgid "Actions in quick open"
-msgstr "クイックオープンの操作"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add"
@@ -839,10 +826,6 @@ msgstr "ノートを作成するには{0}を追加してください。"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
 msgstr "カスタムプロパティを追加…"
-
-#: src/QuickOpen.tsx
-msgid "Add a link, in the note text"
-msgstr "ノート本文にリンクを追加"
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
@@ -1017,9 +1000,10 @@ msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "この型のレコードを表示する際に使う補助的なラベルと色です。"
 
 #: src/App.tsx
+#: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
-#: src/NoteListViewOptions.tsx
 msgid "All notes"
 msgstr "すべてのノート"
 
@@ -1124,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "名前によって割り当て済み"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "ファイルを添付…"
 
@@ -1157,6 +1142,7 @@ msgctxt "direct connection availability"
 msgid "Available"
 msgstr "利用可能"
 
+#: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
 msgstr "戻る"
@@ -1164,10 +1150,6 @@ msgstr "戻る"
 #: src/App.tsx
 msgid "Back in note history"
 msgstr "ノートの履歴を戻る"
-
-#: src/QuickOpen.tsx
-msgid "Back or forward"
-msgstr "戻る／進む"
 
 #: src/App.tsx
 msgid "Back to {historyBackPath} · Alt+Left"
@@ -1182,11 +1164,6 @@ msgstr "コレクションに戻る"
 msgid "Back to collections"
 msgstr "コレクション一覧に戻る"
 
-#: src/ConnectionScreens.tsx
-#: src/SdkEditorRoot.tsx
-msgid "Back to Collections"
-msgstr "コレクションに戻る"
-
 #: src/TypeBrowser.tsx
 msgid "Back to editing"
 msgstr "編集に戻る"
@@ -1195,7 +1172,13 @@ msgstr "編集に戻る"
 msgid "Back to fields"
 msgstr "フィールドに戻る"
 
+#: src/ConnectionScreens.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Back to mdbase Connect"
+msgstr "mdbase Connect に戻る"
+
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "ノート一覧に戻る"
 
@@ -1206,10 +1189,6 @@ msgstr "ノートとファイルに戻る"
 #: src/TypeBrowser.tsx
 msgid "Back to types"
 msgstr "型に戻る"
-
-#: src/QuickOpen.tsx
-msgid "Best matches"
-msgstr "一致度の高い項目"
 
 #. placeholder {0}: segments.join(".")
 #: src/type-contracts.ts
@@ -1242,9 +1221,9 @@ msgstr "ブロック · {0}"
 msgid "Body differences"
 msgstr "本文の差分"
 
-#: src/QuickOpen.tsx
-msgid "Bold or italic"
-msgstr "太字または斜体"
+#: src/editor-commands.ts
+msgid "Bold"
+msgstr "太字"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Boolean"
@@ -1268,7 +1247,6 @@ msgstr "このコレクションを開けません"
 
 #: src/App.tsx
 #: src/BulkNoteProperties.tsx
-#: src/Dialog.tsx
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 #: src/NewNoteComposer.tsx
@@ -1480,25 +1458,13 @@ msgstr "型の検索を消去"
 msgid "Close file preview"
 msgstr "ファイルのプレビューを閉じる"
 
-#: src/QuickOpen.tsx
-msgid "Close keyboard shortcuts"
-msgstr "キーボードショートカットを閉じる"
-
 #: src/App.tsx
 msgid "Close note peek"
 msgstr "ノートのプレビューを閉じる"
 
-#: src/WorkspaceChrome.tsx
-msgid "Close outline"
-msgstr "アウトラインを閉じる"
-
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "プロパティを閉じる"
-
-#: src/QuickOpen.tsx
-msgid "Close quick open"
-msgstr "クイックオープンを閉じる"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -1618,6 +1584,16 @@ msgstr "標準"
 msgid "Commands"
 msgstr "コマンド"
 
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0}"
+msgstr "コマンド · {0}"
+
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0} outside text"
+msgstr "コマンド · テキスト外で {0}"
+
 #: src/TypeBrowser.tsx
 msgid "Common icons"
 msgstr "よく使うアイコン"
@@ -1679,9 +1655,23 @@ msgstr "別のコレクションを接続しますか？"
 msgid "Connect application contract"
 msgstr "アプリの契約を接続"
 
+#: src/ConnectionScreens.tsx
+msgid "Connect server: {server}"
+msgstr "Connect サーバー: {server}"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "接続済み"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected directly"
+msgstr "直接接続"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected through mdbase"
+msgstr "mdbase 経由で接続"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1919,11 +1909,12 @@ msgstr "最初のノートとともに作成します。空のフォルダーは
 msgid "Create my person record"
 msgstr "自分の人物レコードを作成"
 
+#: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
 msgid "Create note"
 msgstr "ノートを作成"
 
-#. placeholder {0}: row.title
+#. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
 msgid "Create note ‘{0}’"
 msgstr "ノート「{0}」を作成"
@@ -1964,14 +1955,6 @@ msgstr "作成中"
 #: src/NewNoteComposer.tsx
 msgid "Creating folder"
 msgstr "フォルダーを作成中"
-
-#: src/NewNoteComposer.tsx
-msgid "Ctrl "
-msgstr "Ctrl "
-
-#: src/editor-commands.ts
-msgid "Current note"
-msgstr "現在のノート"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
@@ -2041,18 +2024,18 @@ msgstr "削除"
 msgid "delete notes"
 msgstr "ノートを削除"
 
-#: src/App.tsx
-msgid "Deleted “{title}”."
-msgstr "「{title}」を削除しました。"
+#: src/use-note-actions.ts
+msgid "Deleted {title}"
+msgstr "{title} を削除しました"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Deleting"
 msgstr "削除中"
 
-#: src/App.tsx
-msgid "Deleting “{title}”…"
-msgstr "「{title}」を削除中…"
+#: src/use-note-actions.ts
+msgid "Deleting {title}…"
+msgstr "{title} を削除中…"
 
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
@@ -2146,10 +2129,6 @@ msgstr "型を破棄"
 #: src/App.tsx
 msgid "Discard type changes?"
 msgstr "型の変更を破棄しますか？"
-
-#: src/Toasts.tsx
-msgid "Dismiss notification"
-msgstr "通知を閉じる"
 
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
@@ -2363,7 +2342,6 @@ msgid "Existing person or contact"
 msgstr "既存の人物または連絡先"
 
 #: src/App.tsx
-#: src/QuickOpen.tsx
 msgid "Exit focus mode"
 msgstr "集中モードを終了"
 
@@ -2440,19 +2418,31 @@ msgstr "ファイルパス"
 msgid "File viewer, {filename}"
 msgstr "ファイルビューアー、{filename}"
 
+#: src/App.tsx
+msgid "Files can’t be renamed in the Editor."
+msgstr "エディターではファイル名を変更できません。"
+
 #: src/NewNoteComposer.tsx
 msgid "Fill in the required properties."
 msgstr "必須のプロパティを入力してください。"
+
+#: src/editor-commands.ts
+msgid "Filter by tag"
+msgstr "タグで絞り込む"
+
+#: src/editor-commands.ts
+msgid "Filter by type"
+msgstr "タイプで絞り込む"
 
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "型でリンクを絞り込む"
 
-#: src/QuickOpen.tsx
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "タイトルまたはパスでノートを探すか、> を入力して操作を表示"
 
-#: src/QuickOpen.tsx
+#: src/App.tsx
 msgid "Find a note or action"
 msgstr "ノートまたは操作を検索"
 
@@ -2460,7 +2450,7 @@ msgstr "ノートまたは操作を検索"
 msgid "Find a property"
 msgstr "プロパティを検索"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Find in note"
 msgstr "ノート内を検索"
 
@@ -2572,6 +2562,10 @@ msgstr "このブラウザーから削除"
 msgid "Format"
 msgstr "形式"
 
+#: src/editor-commands.ts
+msgid "Forward"
+msgstr "進む"
+
 #: src/App.tsx
 msgid "Forward in note history"
 msgstr "ノートの履歴を進む"
@@ -2656,9 +2650,9 @@ msgid "High to low"
 msgstr "大きい順"
 
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Hosted"
-msgstr "ホスト型"
+msgctxt "settings view"
+msgid "Hosted by mdbase"
+msgstr "mdbase がホスト"
 
 #: src/TypeBrowser.tsx
 msgid "How notes are assigned to this type."
@@ -2684,9 +2678,17 @@ msgstr "影響範囲は現在索引に登録されているノートに基づき
 msgid "in the list"
 msgstr "リスト内"
 
+#: src/editor-commands.ts
+msgid "in the note composer"
+msgstr "ノート作成画面で"
+
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "互換性なし"
+
+#: src/editor-commands.ts
+msgid "Inline code"
+msgstr "インラインコード"
 
 #: src/code-editor-completions.ts
 msgid "Insert a fenced code block"
@@ -2751,6 +2753,10 @@ msgstr "JSON が無効です。"
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "追加後に編集されていないため、新しい初期データに置き換えられます。"
+
+#: src/editor-commands.ts
+msgid "Italic"
+msgstr "斜体"
 
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
@@ -2864,7 +2870,7 @@ msgstr "ノートまたはファイルへのリンク"
 msgid "Linked from"
 msgstr "参照元"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Linked mention."
 msgstr "メンションをリンクしました。"
 
@@ -2931,10 +2937,6 @@ msgstr "契約カタログを読み込み中"
 msgid "Loading file viewer"
 msgstr "ファイルビューアーを読み込み中"
 
-#: src/App.tsx
-msgid "Loading folder composer"
-msgstr "フォルダー作成画面を読み込み中"
-
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
 msgstr "フォルダーを読み込み中…"
@@ -2943,10 +2945,7 @@ msgstr "フォルダーを読み込み中…"
 msgid "Loading note"
 msgstr "ノートを読み込み中"
 
-#: src/App.tsx
-msgid "Loading note composer"
-msgstr "ノート作成画面を読み込み中"
-
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
 msgstr "ノートエディターを読み込み中"
@@ -3002,6 +3001,11 @@ msgstr "該当しなくなる"
 msgid "Low to high"
 msgstr "小さい順"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Main copy"
+msgstr "メインコピー"
+
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
 msgstr "型定義を管理"
@@ -3031,7 +3035,7 @@ msgstr "タスクを完了にする"
 msgid "Mark task incomplete"
 msgstr "タスクを未完了にする"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Markdown コマンド"
 
@@ -3047,17 +3051,9 @@ msgstr "Markdown パス"
 msgid "Markdown preview unavailable."
 msgstr "Markdown のプレビューを利用できません。"
 
-#: src/QuickOpen.tsx
-msgid "Matching actions"
-msgstr "一致する操作"
-
 #: src/TypeBrowser.tsx
 msgid "Matching notes"
 msgstr "一致するノート"
-
-#: src/QuickOpen.tsx
-msgid "Matching notes and actions"
-msgstr "一致するノートと操作"
 
 #: src/type-schema.ts
 msgid "Matching rules"
@@ -3158,6 +3154,14 @@ msgstr "不足している必須プロパティ"
 msgid "Modified"
 msgstr "更新日時"
 
+#: src/editor-commands.ts
+msgid "Modified newest"
+msgstr "更新日時が新しい順"
+
+#: src/editor-commands.ts
+msgid "Modified oldest"
+msgstr "更新日時が古い順"
+
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "その他のコレクション動作を YAML で設定"
@@ -3167,6 +3171,7 @@ msgid "More inferred rules in YAML"
 msgstr "その他の推論ルールを YAML で設定"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "その他のノート操作"
 
@@ -3208,10 +3213,6 @@ msgstr "ノートを移動"
 #: src/ConnectionScreens.tsx
 msgid "move notes"
 msgstr "ノートを移動"
-
-#: src/QuickOpen.tsx
-msgid "Move through the note list"
-msgstr "ノート一覧を移動"
 
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
@@ -3261,6 +3262,10 @@ msgstr "名前フィールド"
 msgid "Name the folder to create it."
 msgstr "フォルダーを作成するには名前を付けてください。"
 
+#: src/QuickOpen.tsx
+msgid "Navigate"
+msgstr "移動"
+
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -3284,7 +3289,9 @@ msgstr "入れ子の必須フィールド"
 msgid "New folder"
 msgstr "新しいフォルダー"
 
+#: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3319,17 +3326,21 @@ msgstr "新しい型定義"
 msgid "Newest first"
 msgstr "新しい順"
 
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "次または前のノート"
+#: src/editor-commands.ts
+msgid "Next note"
+msgstr "次のノート"
+
+#: src/editor-commands.ts
+msgid "Next note in the list"
+msgstr "リスト内の次のノート"
+
+#: src/TypeBrowser.tsx
+msgid "No app contracts are installed"
+msgstr "アプリのコントラクトがインストールされていません"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts installed"
 msgstr "インストール済みのアプリ契約はありません"
-
-#: src/TypeBrowser.tsx
-msgid "No application contracts are installed"
-msgstr "アプリの契約はインストールされていません"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
@@ -3395,10 +3406,6 @@ msgstr "次のノートはありません"
 msgid "No matches."
 msgstr "一致する項目はありません。"
 
-#: src/QuickOpen.tsx
-msgid "No matching actions."
-msgstr "一致する操作はありません。"
-
 #: src/NoteSearchField.tsx
 msgid "No matching filters"
 msgstr "一致するフィルターはありません"
@@ -3407,7 +3414,6 @@ msgstr "一致するフィルターはありません"
 msgid "No matching icons."
 msgstr "一致するアイコンはありません。"
 
-#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching notes."
 msgstr "一致するノートはありません。"
@@ -3492,6 +3498,10 @@ msgid "Not now"
 msgstr "後で"
 
 #: src/QuickOpen.tsx
+msgid "Note"
+msgstr "ノート"
+
+#: src/editor-commands.ts
 msgid "Note actions, in the list"
 msgstr "一覧内のノート操作"
 
@@ -3519,10 +3529,6 @@ msgstr "ノートへのリンク"
 #: src/App.tsx
 msgid "note path"
 msgstr "ノートのパス"
-
-#: src/NoteList.tsx
-msgid "Note peek"
-msgstr "ノートのプレビュー"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -3588,10 +3594,6 @@ msgstr "ノートはこのフィールドを使って型を宣言します。変
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "明示的に割り当てられていないノートのうち、以下の条件グループすべてに一致するものがこの型に属します。"
-
-#: src/Toasts.tsx
-msgid "Notifications"
-msgstr "通知"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -3685,6 +3687,10 @@ msgstr "ファイルを開く"
 msgid "open notes"
 msgstr "ノートを開く"
 
+#: src/editor-commands.ts
+msgid "Open Notes"
+msgstr "ノートを開く"
+
 #: src/FileViewer.tsx
 msgid "Open original"
 msgstr "元のファイルを開く"
@@ -3710,8 +3716,8 @@ msgstr "型を開く"
 msgid "Open YAML"
 msgstr "YAML を開く"
 
-#: src/App.tsx
 #: src/NoteList.tsx
+#: src/NotePreview.tsx
 msgid "Opening"
 msgstr "開いています"
 
@@ -3781,6 +3787,10 @@ msgstr "ほかのフィールドも許可"
 msgid "outside text inputs"
 msgstr "テキスト入力欄の外"
 
+#: src/editor-commands.ts
+msgid "outside text; add a link while typing"
+msgstr "テキスト外。入力中はリンクを挿入"
+
 #: src/TypeBrowser.tsx
 msgid "Pack"
 msgstr "パック"
@@ -3798,6 +3808,10 @@ msgstr "一部インストール済み"
 #: src/TypeBrowser.tsx
 msgid "Path"
 msgstr "パス"
+
+#: src/editor-commands.ts
+msgid "Path A–Z"
+msgstr "パスの昇順"
 
 #: src/embed-actions.ts
 msgid "Path copied."
@@ -3846,7 +3860,7 @@ msgstr "埋め込まれた PDF、{filename}"
 msgid "PDF viewer, {filename}"
 msgstr "PDF ビューアー、{filename}"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Peek at the focused note"
 msgstr "フォーカス中のノートをプレビュー"
 
@@ -3908,6 +3922,7 @@ msgstr "設定はこのブラウザーに保存されます。"
 msgid "Preparing “{0}”…"
 msgstr "「{0}」を準備中…"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
 msgstr "エディターを準備中…"
@@ -3951,6 +3966,14 @@ msgstr "過去30日間"
 #: src/collection-browser.ts
 msgid "Previous 7 days"
 msgstr "過去7日間"
+
+#: src/editor-commands.ts
+msgid "Previous note"
+msgstr "前のノート"
+
+#: src/editor-commands.ts
+msgid "Previous note in the list"
+msgstr "リスト内の前のノート"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
@@ -3997,20 +4020,10 @@ msgstr "プロパティの選択肢"
 msgid "Provided by the note's type, not stored in this file."
 msgstr "ノートの型から提供され、このファイルには保存されません。"
 
+#: src/App.tsx
 #: src/editor-commands.ts
-#: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "クイックオープン"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P"
-msgstr "クイックオープン · {0} P"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P anywhere"
-msgstr "クイックオープン · どこからでも {0} P"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4062,14 +4075,11 @@ msgstr "コレクションのテキストを読み込み中…"
 msgid "Reading file content…"
 msgstr "ファイルの内容を読み込み中…"
 
-#: src/LoadingScreens.tsx
-msgid "Reading its notes and types"
-msgstr "ノートと型を読み込み中"
-
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
 msgstr "ノートの内容を読み込み中…"
 
+#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 msgid "Reading notes and files"
 msgstr "ノートとファイルを読み込み中"
@@ -4089,10 +4099,6 @@ msgstr "既成の型"
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
 msgstr "最近使ったコレクション"
-
-#: src/QuickOpen.tsx
-msgid "Recent notes and actions"
-msgstr "最近のノートと操作"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
@@ -4264,7 +4270,7 @@ msgid "Rename this note?"
 msgstr "このノートの名前を変更しますか？"
 
 #. placeholder {0}: recoveryAction.to
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Renamed to “{0}”."
 msgstr "「{0}」に名前を変更しました。"
 
@@ -4349,8 +4355,8 @@ msgstr "未保存の編集を復元"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
-msgid "Restored “{0}”."
-msgstr "「{0}」を復元しました。"
+msgid "Restored {0}"
+msgstr "{0}を復元しました"
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."
@@ -4551,6 +4557,7 @@ msgstr "スキーマで管理されるフィールド"
 msgid "Scope"
 msgstr "対象範囲"
 
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "検索"
@@ -4563,6 +4570,8 @@ msgstr "検索フィルター"
 msgid "Search is incomplete."
 msgstr "検索はまだ完了していません。"
 
+#: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "ノートとファイルを検索"
@@ -4870,6 +4879,7 @@ msgstr "テンプレート"
 msgid "text"
 msgstr "テキスト"
 
+#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
@@ -5392,6 +5402,7 @@ msgid "These properties must be persisted before this record is valid."
 msgstr "このレコードを有効にするには、これらのプロパティを保存する必要があります。"
 
 #: src/App.tsx
+#: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "このアプリにはその変更を行う権限がありません。"
 
@@ -5451,11 +5462,6 @@ msgstr "このコレクションでは型を暗黙的に選択します。リン
 #: src/YourPersonPanel.tsx
 msgid "This collection's Person type was not added from a Person starter that can be upgraded automatically, so it has not been changed. "
 msgstr "このコレクションの Person 型は、自動でアップグレードできる Person 初期型から追加されたものではないため、変更されていません。 "
-
-#: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "This computer"
-msgstr "このコンピューター"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -5609,6 +5615,10 @@ msgstr "この値は必須の形式に一致しません。"
 msgid "Title"
 msgstr "タイトル"
 
+#: src/editor-commands.ts
+msgid "Title A–Z"
+msgstr "タイトルの昇順"
+
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "タイトルの差分"
@@ -5754,6 +5764,7 @@ msgstr "タイプライター式スクロール"
 msgid "Undated"
 msgstr "日付なし"
 
+#: src/editor-commands.ts
 #: src/Toasts.tsx
 msgid "Undo"
 msgstr "元に戻す"
@@ -5946,11 +5957,6 @@ msgstr "検証結果が変わる場合があります"
 msgid "Version {0}"
 msgstr "バージョン {0}"
 
-#: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Via mdbase"
-msgstr "mdbase 経由"
-
 #: src/NoteListViewOptions.tsx
 msgid "View options"
 msgstr "ビューのオプション"
@@ -5992,13 +5998,13 @@ msgstr "この型を使用するノート"
 msgid "Words"
 msgstr "単語"
 
-#: src/Dialog.tsx
+#: src/App.tsx
 msgid "Working…"
 msgstr "処理中…"
 
 #: src/TypeBrowser.tsx
-msgid "Works with applications"
-msgstr "アプリと連携"
+msgid "Works with apps"
+msgstr "アプリとの互換性"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

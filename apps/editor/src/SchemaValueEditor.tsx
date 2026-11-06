@@ -5,7 +5,7 @@ import { useLingui } from "@lingui/react";
 import { PlusIcon as Plus } from "./icons";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { JsonObject } from "@mdbase-dev/connect";
-import { CodeEditor } from "./CodeEditor";
+import { DeferredCodeEditor as CodeEditor } from "./DeferredCodeEditor";
 import { humanizeName, isObject, resolveSchema } from "./field-reference";
 import { InlineRemoveButton } from "./InlineRemoveButton";
 import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";

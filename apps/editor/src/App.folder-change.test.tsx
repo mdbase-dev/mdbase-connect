@@ -30,7 +30,7 @@ describe("collection-wide folder changes", () => {
       render(<LocaleProvider runtime={editorLocaleRuntime} onError={(error) => { throw error; }}>
         <App gateway={new DemoCollectionGateway(12)} />
       </LocaleProvider>);
-      expect(await screen.findByRole("heading", { name: "Todas las notas" })).toBeInTheDocument();
+      expect(await within(await screen.findByRole("region", { name: "Notas y archivos" })).findByRole("heading", { name: "Todas las notas" })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "All notes" })).not.toBeInTheDocument();
     } finally {
       await act(() => editorLocaleRuntime.selectLocale("en"));

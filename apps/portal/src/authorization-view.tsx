@@ -336,13 +336,13 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
     {approved && collectionName && <p className="mdbase-visually-hidden"><Trans>Access approved</Trans></p>}
     {approved && !portable && returnUrl && <p>{t(i18n)`Returning to ${applicationName}…`}<span className="request-return-countdown" aria-hidden="true" /><output className="mdbase-visually-hidden" aria-live="polite">{i18n.number(seconds, { style: "unit", unit: "second", unitDisplay: "long" })}</output></p>}
     {approved && returnUrl && <a className="mdbase-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>}
-    <p>{portable
+    {(portable || !approved || !returnUrl) && <p>{portable
       ? approved
         ? t(i18n)({ message: "The app will finish connecting with its one-time device code. You can close this window." })
         : t(i18n)({ message: "The app will learn that access was not granted. You can close this window." })
       : approved
-        ? t(i18n)({ message: "Your approved collection and permissions will follow you back." })
-        : t(i18n)({ message: "The app will show that access was not granted." })}</p>
+        ? t(i18n)`Continue in ${applicationName} to use this collection.`
+        : t(i18n)({ message: "The app will show that access was not granted." })}</p>}
     {!approved && returnLink}
   </div>;
 }

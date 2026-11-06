@@ -38,6 +38,7 @@ describe("Note actions", () => {
     await user.click(screen.getByRole("menuitem", { name: "Delete" }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(nextTitle));
     await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await screen.findByText(`Restored ${title}`, { exact: true });
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(title));
     const list = screen.getByRole("listbox", { name: "Collection notes and files" });
     await waitFor(() => expect(list).toHaveFocus());
@@ -54,15 +55,21 @@ describe("Note actions", () => {
     list.scrollTop = 76;
     await user.click(list);
     fireEvent.keyDown(list, { key: " " });
-    const peek = await screen.findByRole("region", { name: "Note peek" });
+    const peek = await screen.findByRole("region", { name: "The shape of useful tools" });
     expect(within(peek).getByRole("heading", { name: "The shape of useful tools" })).toBeInTheDocument();
     expect(within(peek).queryByText("Read-only Markdown preview")).not.toBeInTheDocument();
     expect(within(peek).getByRole("region", { name: "Read-only Markdown preview" })).toBeInTheDocument();
     expect(list.scrollTop).toBe(76);
+    fireEvent.keyDown(list, { key: "j" });
+    await waitFor(() => expect(peek).toHaveAccessibleName("Garden notes 2"));
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+    fireEvent.keyDown(list, { key: "Enter" });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    fireEvent.keyDown(list, { key: " " });
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Note peek" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Garden notes 2" })).not.toBeInTheDocument());
     await waitFor(() => expect(list).toHaveFocus());
-    expect(list).toHaveAttribute("aria-activedescendant", active);
+    expect(list.getAttribute("aria-activedescendant")).not.toBe(active);
     expect(list.scrollTop).toBe(76);
   });
 
@@ -87,7 +94,8 @@ describe("Note actions", () => {
       <App gateway={new DemoCollectionGateway(4)} />
     </LocaleProvider>);
     try {
-      await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Altre azioni sulle note" })).toBeEnabled());
+      await user.click(screen.getByRole("button", { name: "Altre azioni sulle note" }));
       await user.click(screen.getByRole("menuitem", { name: "Rinomina il percorso" }));
       expect(await screen.findByRole("textbox", { name: "Percorso Markdown" })).toBeInTheDocument();
     } finally {
@@ -105,7 +113,8 @@ describe("Note actions", () => {
       <App gateway={new DemoCollectionGateway(4)} />
     </LocaleProvider>);
     try {
-      await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Altre azioni sulle note" })).toBeEnabled());
+      await user.click(screen.getByRole("button", { name: "Altre azioni sulle note" }));
       await user.click(screen.getByRole("menuitem", { name: "Modalità concentrazione" }));
       await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
       expect(screen.getByRole("menuitem", { name: "Esci dalla modalità concentrazione" })).toBeInTheDocument();

@@ -1,5 +1,33 @@
 import { expect, test } from "@playwright/test";
 
+test("shared native overlays keep nested focus, trap Tab, and use Portal shortcut aliases", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await page.goto("?demo=4");
+  await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeVisible();
+  const trigger = page.getByRole("button", { name: "Note properties", exact: true });
+  await trigger.click();
+  const inspector = page.getByRole("dialog", { name: "Note properties", exact: true });
+  const close = inspector.getByRole("button", { name: "Close properties", exact: true });
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: "Quick open", exact: true });
+  await expect(palette).toBeVisible();
+  await expect(page.locator("dialog[open]")).toHaveCount(2);
+  await page.keyboard.press("Escape");
+  await expect(palette).toHaveCount(0);
+  await expect(close).toBeFocused();
+  expect(await inspector.evaluate(element => element.matches(":modal"))).toBe(true);
+  await page.locator(".note-scroll").evaluate(element => (element as HTMLElement).focus());
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Tab");
+  expect(await inspector.evaluate(element => element.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(inspector).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("Control+/");
+  await expect(page.getByRole("dialog", { name: "Shortcuts", exact: true })).toBeVisible();
+});
+
 for (const width of [1440, 390]) {
   for (const theme of ["light", "dark"] as const) {
     test.describe(`Editor W4 at ${width}px in ${theme}`, () => {
@@ -15,7 +43,7 @@ for (const width of [1440, 390]) {
         await list.focus();
         await page.keyboard.press("ArrowDown");
         await page.keyboard.press("ArrowDown");
-        if (width === 390) await page.getByRole("button", { name: "Back to notes" }).click();
+        if (width === 390) await expect(page.locator(".app-shell")).toHaveClass(/pane-notes/);
         const title = await list.locator(".list-focused .note-title").innerText();
         const nextTitle = await list.locator(".note-row:not(.file-row)").evaluateAll((rows) => {
           const position = rows.findIndex((row) => row.classList.contains("list-focused"));
@@ -30,7 +58,7 @@ for (const width of [1440, 390]) {
         await expect(list.getByRole("option", { selected: true })).toContainText(title);
         const scrollTop = await list.evaluate((element) => element.scrollTop);
         await page.keyboard.press("Space");
-        const peek = page.getByRole("region", { name: "Note peek", exact: true });
+        const peek = page.locator(".note-peek");
         await expect(peek).toBeVisible();
         await expect(list).toBeFocused();
         await expect(peek.getByRole("heading", { name: title, exact: true })).toHaveCount(1);
@@ -82,7 +110,8 @@ for (const width of [1440, 390]) {
           await page.getByRole("button", { name: "Collections", exact: true }).click();
         }
         await page.getByRole("button", { name: "Settings", exact: true }).click();
-        await expect(page.locator(".settings-view")).toContainText("Via mdbase");
+        await expect(page.locator(".settings-view")).toContainText("Connected through mdbase");
+        await expect(page.locator(".settings-view")).not.toContainText("Main copy");
         if (width === 390) await page.getByRole("button", { name: "Back to collection" }).click();
         await page.getByRole("button", { name: "Types (1)" }).click();
         if (width === 390) await page.getByRole("option", { name: /note/ }).click();
@@ -110,7 +139,7 @@ for (const width of [1440, 390]) {
     await expect(input).toHaveValue(">");
     await input.fill(">fcs md");
     const focus = page.getByRole("option", { name: /Focus mode/ });
-    await expect(focus.locator("kbd")).toHaveText("Ctrl Shift F");
+    await expect(focus.locator("kbd")).toHaveText("Ctrl+Shift+F");
     await input.press("Enter");
     await expect(page.locator(".app-shell")).toHaveClass(/focus-mode/);
     await expect(page.locator(".collection-rail, .note-list-pane, .properties-panel")).toHaveCount(0);

@@ -1161,6 +1161,10 @@ msgid "Continue"
 msgstr "계속"
 
 #: src/authorization-view.tsx
+msgid "Continue in {applicationName} to use this collection."
+msgstr "이 컬렉션을 사용하려면 {applicationName}에서 계속하세요."
+
+#: src/authorization-view.tsx
 msgid "Continue only if you started this and recognize this app."
 msgstr "직접 시작했고 이 앱을 알고 있는 경우에만 계속하세요."
 
@@ -3874,10 +3878,6 @@ msgstr "계정의 동기화된 컬렉션 수가 한도에 도달했습니다. �
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."
 msgstr "계정이 준비되었습니다. 지금 컬렉션을 만들거나 만들지 않고 계속하세요."
-
-#: src/authorization-view.tsx
-msgid "Your approved collection and permissions will follow you back."
-msgstr "승인한 컬렉션과 권한이 애플리케이션으로 돌아갈 때 함께 적용됩니다."
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."

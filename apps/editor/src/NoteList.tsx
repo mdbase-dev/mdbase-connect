@@ -5,10 +5,10 @@ import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useOverlay } from "@mdbase-dev/ui/overlay";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { FilePlusIcon as FilePlus2, SidebarSimpleIcon as PanelLeft } from "./icons";
-import { ContextMenu } from "./ContextMenu";
-import type { ActionMenuItem } from "./ActionMenu";
+import { ContextMenu, type ActionMenuItem } from "./ContextMenu";
 import { NoteSearchField } from "./NoteSearchField";
 import type { CollectionFile } from "./model";
 import { folder, noteExcerpt, noteTimestamp, noteTitle } from "./note";
@@ -23,7 +23,7 @@ const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: tru
 
 import { matchesCommandShortcut } from "./editor-commands";
 
-export function NoteList({ entries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, onClosePeek, onCreate, onCollections }: {
+export function NoteList({ entries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCollections }: {
   entries: CollectionBrowserEntry[];
   selection?: NoteSelection;
   onSelection?: (selection: NoteSelection) => void;
@@ -37,6 +37,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   pendingPath?: string;
   pendingFilePath?: string;
   statuses: Map<string, NoteRowStatus>;
+  arrivingPath?: string;
   search: string;
   searchQuery: string;
   searchContexts: Map<string, NoteSearchResult>;
@@ -74,13 +75,19 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   onDelete?: (path: string) => void;
   onPeek?: (path: string) => void;
   peek?: ReactNode;
+  peekTitle?: string;
   onClosePeek?: () => void;
   onCreate?: () => void;
   onCollections: () => void;
 }) {
   useLingui();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const peekRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (document.activeElement === document.body) scrollRef.current?.focus({ preventScroll: true });
+  }, []);
+  const { ref: peekRef, present: peekPresent } = useOverlay<HTMLElement>(Boolean(peek));
+  const peekContent = useRef({ body: peek, title: peekTitle });
+  if (peek) peekContent.current = { body: peek, title: peekTitle };
   const revealedEntry = useRef<string | undefined>(undefined);
   const searching = Boolean(searchQuery.trim());
   const pins = useMemo(() => new Set(!searching && !filter ? pinnedPaths : []), [filter, pinnedPaths, searching, i18n.locale]);
@@ -105,6 +112,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   const virtualizer = useVirtualizer({
     count: listItems.length,
     getScrollElement: () => scrollRef.current,
+    scrollPaddingEnd: 1,
     // Rows keep one height whether or not an excerpt has loaded, so the list never reflows as bodies arrive.
     estimateSize: (index) => listItems[index].kind === "header" ? 34 : 76,
     overscan: 8,
@@ -119,11 +127,10 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
     return itemIndex >= 0 ? `note-entry-${itemIndex}` : undefined;
   }, [listItems, selectedEntryIndex, i18n.locale]);
 
-  const peeking = Boolean(peek);
   useLayoutEffect(() => {
     const card = peekRef.current;
     const list = scrollRef.current;
-    if (!peeking || !card || !list) return;
+    if (!peekPresent || !card || !list) return;
     const position = () => {
       const anchor = list.querySelector(`#${selectedItemId}`)?.getBoundingClientRect() ?? list.getBoundingClientRect();
       const width = Math.min(480, window.innerWidth - 24);
@@ -146,14 +153,13 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
     document.addEventListener("focusin", close);
     document.addEventListener("keydown", close, true);
     return () => {
-      card.hidePopover();
       window.removeEventListener("resize", position);
       list.removeEventListener("scroll", position);
       document.removeEventListener("pointerdown", close);
       document.removeEventListener("focusin", close);
       document.removeEventListener("keydown", close, true);
     };
-  }, [peeking, selectedItemId, onClosePeek]);
+  }, [peekPresent, selectedItemId, onClosePeek]);
 
   const openEntry = useCallback((entry: CollectionBrowserEntry, options?: { keyboard?: boolean }) => {
     if (entry.kind === "note") onSelect(entry.note.path, options);
@@ -170,7 +176,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
       revealedEntry.current = identity;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEntryIndex, selectedFilePath, focusedPath]);
+  }, [selectedEntryIndex, selectedFilePath, focusedPath, searchQuery]);
 
   const handleListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable=true]")) return;
@@ -182,19 +188,20 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
       return;
     }
     if (event.key === "Escape") {
-      event.preventDefault(); onSelection?.({ ...currentSelection, paths: [] }); return;
+      event.preventDefault();
+      onSelection?.({ ...currentSelection, paths: focusedPath ? [focusedPath] : [] }); return;
     }
     const selected = entries[selectedEntryIndex];
     if (selected?.kind === "note") {
       if (matchesCommandShortcut("rename", event)) { event.preventDefault(); onRename?.(selected.path); return; }
       if (matchesCommandShortcut("delete", event)) { event.preventDefault(); onDelete?.(selected.path); return; }
-      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      if (matchesCommandShortcut("note-actions", event)) {
         event.preventDefault();
         scrollRef.current?.querySelector(`#${selectedItemId}`)?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
         return;
       }
     }
-    if (event.key === " " && selected?.kind === "note") {
+    if (matchesCommandShortcut("peek", event) && selected?.kind === "note") {
       event.preventDefault();
       if (!statuses.get(selected.path)?.disabled) onPeek?.(selected.path);
       return;
@@ -202,18 +209,17 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
     if (event.key === "Enter" || event.key === " ") {
       if (selectedEntryIndex >= 0 && selectedEntryIndex < entries.length) {
         event.preventDefault();
-        if (selected?.kind === "note") chooseNote(selected.path, "single", true);
+        if (selected?.kind === "note") chooseNote(selected.path, "single");
         else openEntry(entries[selectedEntryIndex]);
       }
       return;
     }
-    const key = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
-      ? event.key === "j" ? "ArrowDown" : event.key === "k" ? "ArrowUp" : event.key
-      : event.key;
+    const key = matchesCommandShortcut("list-next", event) ? "ArrowDown" : matchesCommandShortcut("list-previous", event) ? "ArrowUp" : event.key;
     if (!(key in listNavigationKeys) || !entries.length) return;
     event.preventDefault();
     let next = moveListIndex(selectedEntryIndex, entries.length, key as ListNavigationKey);
-    if (event.shiftKey) {
+    // Range selection and peek traversal only ever land on notes.
+    if (event.shiftKey || peek) {
       const direction = next < selectedEntryIndex ? -1 : 1;
       while (next >= 0 && next < entries.length && (entries[next].kind !== "note" || statuses.get(entries[next].path)?.disabled)) next += direction;
     }
@@ -224,9 +230,24 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   };
 
   return <section className="note-list-pane" aria-label={t`Notes and files`}>
-    <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && contentError)))}{structureError && <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button>}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry search</Trans></button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label={t`New note`} onClick={onCreate}><FilePlus2 aria-hidden="true" /><span className="mobile-label"><Trans>New note</Trans></span></button>}</header>
+    <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && contentError)))}{structureError && <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button>}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry search</Trans></button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span className="mobile-label"><Trans>New note</Trans></span></button>}</header>
     <div className="note-list-controls">
-      <NoteSearchField search={search} filter={filter} tags={tags} types={filterTypes} onSearch={onSearch} onFilter={onFilter ?? onClearScope} onQuickOpen={onQuickOpen} />
+      <NoteSearchField search={search} filter={filter} tags={tags} types={filterTypes} onSearch={onSearch} onFilter={onFilter ?? onClearScope} onQuickOpen={onQuickOpen} onResults={(first) => {
+        if (first && entries[0]) {
+          const entry = entries[0];
+          if (entry.kind === "note") chooseNote(entry.path, "single", true);
+          else openEntry(entry, { keyboard: true });
+        } else if (!first) {
+          if (searching) revealedEntry.current = undefined;
+          const entryIndex = entries.findIndex((entry) => selectedFilePath ? entry.kind === "file" && entry.path === selectedFilePath : entry.kind === "note" && entry.path === selectedPath);
+          if (entryIndex >= 0) {
+            if (!selectedFilePath && selectedPath) onSelection?.({ paths: [selectedPath], anchor: selectedPath, focus: selectedPath });
+            const itemIndex = listItems.findIndex((item) => item.entryIndex === entryIndex);
+            virtualizer.scrollToIndex(itemIndex, { align: "auto" });
+          }
+        }
+        scrollRef.current?.focus({ preventScroll: true });
+      }} />
       <NoteListViewOptions sort={sort} fields={sortFields} scopeLabel={filter ? undefined : scopeLabel} onSort={onSort} onClearScope={onClearScope} />
     </div>
     <div className="note-selection-slot">{selectionBar}</div>
@@ -242,21 +263,21 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
           const selected = file.path === selectedFilePath;
           const pending = file.path === pendingFilePath;
           const title = collectionFileTitle(file);
-          return <button key={`file:${file.fileId}`} id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-label={t`${title}, ${collectionFileFormat(file)} file`} aria-selected={selected} aria-busy={pending || undefined} className={`note-row file-row${selected ? " selected" : ""}${pending ? " busy" : ""}`} onClick={() => { onSelection?.({ paths: [] }); onSelectFile(file); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title-line"><span className={`file-kind-icon ${file.mediaClass}`} aria-hidden="true" /><span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span><span className="file-format">{collectionFileFormat(file)}</span></span>{pending ? <span className="note-transition"><Trans>Opening</Trans></span> : <span className="note-detail"><time>{fileTimestamp(file)}</time><span>{formatFileSize(file.size)}</span><span className="file-folder">{fileFolder(file)}</span></span>}</button>;
+          return <button key={`file:${file.fileId}`} id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-label={t`${title}, ${collectionFileFormat(file)} file`} aria-selected={selected} aria-busy={pending || undefined} className={`note-row file-row${selected ? " selected list-focused" : ""}${pending ? " busy" : ""}`} onClick={() => { onSelection?.({ paths: [] }); onSelectFile(file); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title-line"><span className={`file-kind-icon ${file.mediaClass}`} aria-hidden="true" /><span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span><span className="file-format">{collectionFileFormat(file)}</span></span>{pending ? <span className="note-transition"><Trans>Opening</Trans></span> : <span className="note-detail"><time>{fileTimestamp(file)}</time><span>{formatFileSize(file.size)}</span><span className="file-folder">{fileFolder(file)}</span></span>}</button>;
         }
         const note = entry.note;
         const status: NoteRowStatus | undefined = pendingPath === note.path ? { label: t`Opening`, tone: "busy", busy: true } : statuses.get(note.path);
         const secondLine = rowSecondLine(entry);
         const title = noteTitle(note, types);
         const noteFolder = folder(note.path);
-        return <ContextMenu key={note.path} className="note-row-context" showTrigger={false} label={t`${title} note actions`} items={noteActions?.(note.path) ?? []} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><button id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={selectedPaths.has(note.path)} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={secondLine?.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} className={`note-row${selectedPaths.has(note.path) ? " selected" : ""}${note.path === focusedPath ? " list-focused" : ""}${status ? ` ${status.tone}` : ""}`} draggable={!status?.disabled} onDragStart={(event) => { event.dataTransfer.setData(NOTE_PATHS_MIME, JSON.stringify(selectedPaths.has(note.path) ? currentSelection.paths : [note.path])); event.dataTransfer.effectAllowed = "move"; }} onClick={(event) => { if (!status?.disabled) chooseNote(note.path, event.shiftKey ? "range" : event.metaKey || event.ctrlKey ? "toggle" : "single"); }}>
+        return <ContextMenu key={note.path} className="note-row-context" showTrigger={false} label={t`${title} note actions`} items={noteActions?.(note.path) ?? []} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><button id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={selectedPaths.has(note.path)} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={secondLine?.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} className={`note-row${note.path === arrivingPath ? " note-row-arrival" : ""}${selectedPaths.has(note.path) ? " selected" : ""}${note.path === focusedPath ? " list-focused" : ""}${status ? ` ${status.tone}` : ""}`} draggable={!status?.disabled} onDragStart={(event) => { event.dataTransfer.setData(NOTE_PATHS_MIME, JSON.stringify(selectedPaths.has(note.path) ? currentSelection.paths : [note.path])); event.dataTransfer.effectAllowed = "move"; }} onClick={(event) => { if (!status?.disabled) chooseNote(note.path, event.shiftKey ? "range" : event.metaKey || event.ctrlKey ? "toggle" : "single"); }}>
           <span className="note-title-line"><span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span>{note.types.length > 0 && <span className="note-type-badge" title={t`Type: ${note.types.join(", ")}`}>{note.types.join(" · ")}</span>}</span>
           {secondLine && <span id={secondLine.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} aria-hidden={secondLine.kind === "excerpt" || undefined} className={`note-excerpt${secondLine.kind === "excerpt" ? "" : ` note-search-context ${secondLine.kind}`}`}><SearchMatchText text={secondLine.text} ranges={secondLine.ranges} /></span>}
           {status?.label ? <span className="note-transition">{status.label}</span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{noteFolder && <span className="note-folder">{noteFolder}</span>}</span>}
         </button></ContextMenu>;
       })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status"><Trans>Reading notes and files…</Trans></div> : <div className="list-empty"><p>{structureError ? t`Notes could not finish loading.` : search && contentError ? t`Search is incomplete.` : search ? t`No notes or files found.` : t`This collection is empty.`}</p>{!search && !structureError && onCreate && <button onClick={onCreate}><Trans>Create the first note</Trans></button>}</div>}
     </div>
-    {peek && <aside ref={peekRef} popover="manual" className="note-peek" role="region" aria-label={t`Note peek`}>{peek}</aside>}
+    {peekPresent && <aside ref={peekRef} popover="manual" className="note-peek" data-open={Boolean(peek)} role="region" aria-label={peekContent.current.title}>{peekContent.current.body}</aside>}
   </section>;
 }
 

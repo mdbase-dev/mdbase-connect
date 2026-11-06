@@ -3,11 +3,12 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useRef, useState } from "react";
 import { MagnifyingGlassIcon as Search, TagIcon as Filters, XIcon as X } from "./icons";
-import type { NoteFilter, SearchFacet } from "./note-list-view";
-import { shortcutModifier } from "./QuickOpen";
+import { noteFilterCommand, type NoteFilter, type SearchFacet } from "./note-list-view";
+import { shortcutLabel } from "@mdbase-dev/ui/command-palette";
+import { commandDefinitions } from "./editor-commands";
 import "./styles/note-actions.css";
 
-export function NoteSearchField({ search, filter, tags, types, onSearch, onFilter, onQuickOpen }: {
+export function NoteSearchField({ search, filter, tags, types, onSearch, onFilter, onQuickOpen, onResults }: {
   search: string;
   filter?: NoteFilter;
   tags: SearchFacet[];
@@ -15,6 +16,7 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
   onSearch: (value: string) => void;
   onFilter: (filter?: NoteFilter) => void;
   onQuickOpen: () => void;
+  onResults?: (first: boolean) => void;
 }) {
   useLingui();
   const input = useRef<HTMLInputElement>(null);
@@ -24,13 +26,13 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
   const token = /(?:^|\s)(#([^\s]*)|type:([^\s]*))$/.exec(search);
   const kind = token ? token[1].startsWith("#") ? "tag" : "type" : undefined;
   const needle = (token?.[2] ?? token?.[3] ?? "").toLocaleLowerCase();
-  const suggestions: Array<{ filter: NoteFilter; count: number }> = [
+  const suggestions: Array<{ filter: NoteFilter & { kind: "tag" | "type" }; count: number }> = [
     ...(kind !== "type" ? tags.map(({ name, count }) => ({ filter: { kind: "tag" as const, value: name }, count })) : []),
     ...(kind !== "tag" ? types.map(({ name, count }) => ({ filter: { kind: "type" as const, value: name }, count })) : [])
   ].filter(({ filter }) => !kind || filter.value.toLocaleLowerCase().includes(needle));
   const open = !dismissed && (browse || Boolean(token));
-  const choose = (next: NoteFilter) => {
-    onFilter(next);
+  const choose = (next: NoteFilter & { kind: "tag" | "type" }) => {
+    noteFilterCommand(next, onFilter).run();
     if (token) onSearch(search.slice(0, token.index).trimEnd());
     setBrowse(false);
     setDismissed(true);
@@ -44,12 +46,20 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
       {filter && <button className="search-filter-chip" aria-label={t`Remove ${filter.kind} filter ${filter.value}`} onClick={() => onFilter(undefined)}><span>{filter.kind === "tag" ? `#${filter.value}` : filter.kind === "type" ? t`type:${filter.value}` : filter.value}</span><X aria-hidden="true" /></button>}
       <label className="sr-only" htmlFor="note-search"><Trans>Search notes and files</Trans></label>
       <input ref={input} id="note-search" value={search} onChange={(event) => { onSearch(event.target.value); setDismissed(false); setActive(0); }} onFocus={() => setDismissed(false)} placeholder={t`Search`} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} aria-activedescendant={open && suggestions.length ? `note-filter-${Math.min(active, suggestions.length - 1)}` : undefined} onKeyDown={(event) => {
-        if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); setBrowse(false); setDismissed(true); }
+        if (event.nativeEvent.isComposing) return;
+        if (event.key === "Escape") {
+          event.preventDefault(); event.stopPropagation(); setBrowse(false); setDismissed(true);
+          if (search) onSearch(""); else onResults?.(false);
+          return;
+        }
+        if (!open && (event.key === "ArrowDown" || event.key === "Enter")) {
+          event.preventDefault(); onResults?.(true); return;
+        }
         if (!open || !suggestions.length) return;
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setActive((value) => (value + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length); }
         if (event.key === "Enter") { event.preventDefault(); choose(suggestions[Math.min(active, suggestions.length - 1)].filter); }
       }} />
-      {search ? <button aria-label={t`Clear search`} onClick={() => onSearch("")}><X aria-hidden="true" /></button> : !filter && <button className="quick-open-trigger" aria-label={t`Quick open · ${shortcutModifier()} P`} title={t`Quick open · ${shortcutModifier()} P anywhere`} onClick={onQuickOpen}><kbd><Trans>{shortcutModifier()} P</Trans></kbd></button>}
+      {search ? <button aria-label={t`Clear search`} onClick={() => onSearch("")}><X aria-hidden="true" /></button> : !filter && <button className="quick-open-trigger" aria-label={t`Commands · ${shortcutLabel(commandDefinitions["command-palette"].shortcut)}`} title={t`Commands · ${shortcutLabel(commandDefinitions["command-palette"].shortcut)} outside text`} onClick={onQuickOpen}><kbd>{shortcutLabel(commandDefinitions["command-palette"].shortcut)}</kbd></button>}
       <button aria-label={t`Search filters`} aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} onClick={() => { setBrowse((value) => !value); setDismissed(false); setActive(0); }}><Filters aria-hidden="true" /></button>
     </div>
     {open && <div id="note-filter-suggestions" className="search-filter-suggestions" role="listbox" aria-label={t`Search filters`}>

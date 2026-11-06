@@ -1,8 +1,11 @@
-.writing-surface {
+.writing-surface, .new-note-composer {
   --writing-measure: 760px;
   /* A fitting desktop column keeps its full measure as the inspector docks.
      Gutters grow only once the pane is narrower than that measure. */
   --writing-gutter: clamp(0px, calc((var(--writing-measure) - 100cqi) / 4), var(--space-6));
+}
+
+.writing-surface {
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -99,6 +102,12 @@
 
 .code-editor .cm-editor.cm-focused {
   outline: 0;
+}
+
+.cm-remote-change { animation: remote-change-fade 900ms var(--ease-out); }
+@keyframes remote-change-fade { from { background: var(--accent-soft); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) {
+  .cm-remote-change { animation: none; background: var(--accent-soft); }
 }
 
 .code-editor .cm-scroller {

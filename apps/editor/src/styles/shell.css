@@ -18,8 +18,13 @@
   --inspector-display: var(--inspector-track);
 }
 
-.editor-opening .note-list-pane { padding: var(--space-4); }
 .editor-opening p { color: var(--muted); font-size: var(--font-size-ui); }
+.opening-toolbar { display: none; }
+.opening-list-skeleton { display: grid; grid-auto-rows: 76px; align-content: start; overflow: hidden; border-top: 1px solid var(--line); }
+.opening-list-skeleton > div { display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: var(--space-2) var(--space-4) var(--space-2) 18px; border-bottom: 1px solid var(--line); }
+.opening-list-skeleton span { height: 1.3em; width: 70%; font-size: var(--font-size-ui); border-radius: var(--radius-sm); background: var(--skeleton); }
+.opening-list-skeleton span + span { height: 1.4em; width: 90%; }
+.opening-list-skeleton span + span + span { height: 1.3em; width: 36%; font-size: var(--font-size-caption); }
 
 .app-shell.resizing-pane {
   transition: none;
@@ -40,13 +45,11 @@
 
 /* Only narrow viewports use a modal inspector. Dialog supplies its focus trap,
    background inertness, Escape handling and restoration to the trigger. */
-.dialog-scrim.inspector-scrim {
-  place-items: stretch end;
-  padding: 0;
-  background: var(--color-scrim);
-}
 
-.inspector-overlay {
+.mdbase-dialog.inspector-overlay {
+  margin: 0 0 0 auto;
+  max-height: 100dvh;
+  padding: 0;
   width: max-content;
   max-width: 100%;
   height: 100%;
@@ -72,4 +75,8 @@
   min-height: 0;
   background: var(--white);
 }
+
+
+.inspector-overlay > .mdbase-dialog-body { padding: 0; height: 100%; }
+.inspector-overlay .mdbase-dialog-header { display: none; }
 

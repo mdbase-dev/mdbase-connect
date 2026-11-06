@@ -15,8 +15,7 @@
   grid-template-columns: 15px minmax(0, 1fr) 14px;
   align-items: start;
   gap: 10px;
-  padding: 11px var(--space-4) 11px 15px;
-  border-left: 3px solid transparent;
+  padding: 11px var(--space-4) 11px 18px;
   text-align: left;
 }
 
@@ -69,8 +68,7 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: var(--space-3) var(--space-4) var(--space-3) 15px;
-  border-left: 3px solid transparent;
+  padding: var(--space-3) var(--space-4) var(--space-3) 18px;
   border-bottom: 1px solid var(--line);
   text-align: left;
 }
@@ -150,7 +148,14 @@
 
 .type-file-details > summary {
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  list-style: none;
 }
+.type-file-details > summary::-webkit-details-marker { display: none; }
+.type-file-details > summary svg { width: 14px; height: 14px; transition: transform var(--motion-fast) var(--ease-out); }
+.type-file-details[open] > summary svg { transform: rotate(90deg); }
 
 .type-file-details > summary:focus-visible {
   outline: 2px solid var(--accent);
@@ -1540,8 +1545,7 @@
   grid-template-columns: 14px minmax(0, 1fr);
   gap: 7px;
   margin: 11px 0 0 44px;
-  padding: 9px 10px;
-  border-left: 2px solid var(--warning);
+  padding: 9px 10px 9px 12px;
   background: var(--warning-soft);
 }
 

@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { moveListIndex } from "./note-list-view";
+import { describe, expect, it, vi } from "vitest";
+import { moveListIndex, noteViewCommands } from "./note-list-view";
+
+it("uses collection sort preferences for palette actions without restoring legacy sorting", () => {
+  const onSort = vi.fn();
+  const commands = noteViewCommands(onSort, vi.fn(), vi.fn(), [], [], [{ name: "priority", label: "Priority", kind: "number" }]);
+  commands.find(command => command.id === "sort-modified-asc")!.run();
+  expect(onSort).toHaveBeenLastCalledWith({ key: "modified", direction: "asc" });
+  commands.find(command => command.id === "sort-field:priority")!.run();
+  expect(onSort).toHaveBeenLastCalledWith({ key: "field:priority", direction: "asc" });
+});
 
 describe("moveListIndex", () => {
   it("moves by one, jumps to bounds, and pages", () => {
