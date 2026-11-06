@@ -78,6 +78,16 @@ describe("query_records output mapping", () => {
     });
   });
 
+  it("preserves fallback continuation metadata without inventing a cursor", () => {
+    for (const hasMore of [true, false]) {
+      const { cursor: _cursor, ...fallback } = result;
+      for (const input of [{}, { output: "metadata" }]) {
+        const mapped = queryOutput(nextQueryPlan(input) as never, { ...fallback, hasMore }) as { meta: unknown };
+        expect(mapped.meta).toEqual({ total_count: 3, has_more: hasMore });
+      }
+    }
+  });
+
   it("read returns a legacy RecordDocument", () => {
     expect(recordDocument(view({ document: "---\ntitle: Persisted\n---\nBody" }))).toMatchObject({
       path: "notes/a.md", revision: "rev1", types: ["note"], frontmatter: { title: "Persisted" },
