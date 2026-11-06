@@ -107,11 +107,10 @@
   align-items: stretch;
   justify-content: center;
   gap: 3px;
-  padding: var(--space-2) var(--space-4) var(--space-2) 15px;
-  border-left: 3px solid transparent;
+  padding: var(--space-2) var(--space-4) var(--space-2) 18px;
   border-bottom: 1px solid var(--line);
   text-align: left;
-  transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+  transition: background var(--motion-fast) var(--ease-standard);
 }
 
 /* Flex shrinking clips glyphs even when the outer row stays at 76px. */

@@ -9,25 +9,10 @@
 .collection-rail nav button.selected,
 .collection-rail nav .editor-rail-link.selected,
 .type-row.selected,
-.type-pack-entry.selected {
+.type-pack-entry.selected,
+.note-scroll .note-row.selected {
   background: var(--selected);
   color: var(--ink);
-}
-
-.type-row.selected,
-.type-pack-entry.selected {
-  border-left-color: var(--line-strong);
-}
-
-.type-list:focus-within .type-row.selected,
-.type-resource-nav:focus-within .type-pack-entry.selected {
-  border-left-color: var(--accent);
-}
-
-.note-scroll .note-row.selected {
-  background: var(--accent-soft);
-  color: var(--ink);
-  border-left-color: var(--accent);
 }
 
 .search-field {
