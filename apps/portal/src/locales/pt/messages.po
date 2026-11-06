@@ -3876,9 +3876,9 @@ msgstr "Sua assinatura foi cancelada"
 msgid "Your account has been deleted."
 msgstr "Sua conta foi excluída."
 
-#: src/ConnectPrimitives.tsx
-msgid "Your account has reached its synced collection limit. Open an existing collection, or contact mdbase support to raise your limit."
-msgstr "Sua conta atingiu o limite de coleções sincronizadas. Abra uma coleção existente ou entre em contato com o suporte do mdbase para aumentar seu limite."
+#: src/collection-quota-copy.generated.ts
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
+msgstr "A sua conta atingiu o limite de coleções sincronizadas. Abra uma coleção existente, elimine uma de que seja proprietário se a opção Eliminar estiver disponível ou contacte o suporte do mdbase para aumentar o limite."
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

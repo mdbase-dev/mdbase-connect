@@ -133,11 +133,6 @@ export function RequestShell({ children, busy = false }: { children: React.React
     resize();
     return () => { observer.disconnect(); window.removeEventListener("resize", resize); document.documentElement.style.removeProperty("--approval-footer-space"); };
   }, []);
-  useLayoutEffect(() => {
-    if (!busy) return;
-    const heading = shell.current?.querySelector<HTMLElement>(".authorization-panel h1, .authorization-panel h2");
-    heading?.focus({ preventScroll: true });
-  }, [busy]);
   return <div className="request-shell" aria-busy={busy} ref={shell}>
     <main className="mdbase-page approval-page">
       <Brand productLabel />

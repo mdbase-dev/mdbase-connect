@@ -3876,9 +3876,9 @@ msgstr "你已退订"
 msgid "Your account has been deleted."
 msgstr "你的账户已删除。"
 
-#: src/ConnectPrimitives.tsx
-msgid "Your account has reached its synced collection limit. Open an existing collection, or contact mdbase support to raise your limit."
-msgstr "您的账户已达到同步集合数量上限。请打开现有集合，或联系 mdbase 支持以提高上限。"
+#: src/collection-quota-copy.generated.ts
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
+msgstr "你的账户已达到同步集合数量上限。请打开现有集合；如果有删除功能，可删除你拥有的集合；也可以联系 mdbase 支持以提高上限。"
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

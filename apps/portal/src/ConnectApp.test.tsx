@@ -41,20 +41,35 @@ describe("ConnectApp", () => {
     vi.mocked(fetch).mockImplementation(async () => Response.json({ error: { message: "diagnostic" } }, { status: 503 }));
     render(<ConnectApp />);
     const alert = await screen.findByRole("alert");
-    await waitFor(() => expect(within(alert).getByRole("button")).toBeEnabled());
+    const retry = within(alert).getByRole("button");
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "false"));
+    retry.focus();
+    let finish!: () => void;
+    vi.mocked(fetch).mockImplementation(async () => {
+      await new Promise<void>(resolve => { finish = resolve; });
+      return Response.json({ error: { message: "diagnostic" } }, { status: 503 });
+    });
     fireEvent(window, new Event("focus"));
-    await waitFor(() => expect(within(alert).getByRole("button")).toBeEnabled());
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "true"));
+    expect(retry).toHaveFocus();
+    expect(retry).toBeEnabled();
+    const calls = vi.mocked(fetch).mock.calls.length;
+    fireEvent.click(retry);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(calls);
+    await act(async () => finish());
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "false"));
+    expect(retry).toHaveFocus();
     expect(screen.getByRole("alert")).toBe(alert);
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ error: { message: "diagnostic" } }, { status: 503 }));
     fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(screen.getByRole("alert")).not.toBe(alert));
     expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
   });
 
-  it("offers usable collection quota recovery instead of unavailable deletion", async () => {
+  it("offers deletion only where available alongside existing-collection and support recovery", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ error: { code: "account_collection_quota_exceeded", message: "Delete a synced collection before creating another." } }, { status: 429 }));
     render(<ConnectApp />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Open an existing collection, or contact mdbase support to raise your limit.");
-    expect(screen.getByRole("alert")).not.toHaveTextContent("Delete");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit.");
   });
 
   it("names each collection launch link in the collection list", async () => {

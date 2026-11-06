@@ -3876,9 +3876,9 @@ msgstr "Iscrizione annullata"
 msgid "Your account has been deleted."
 msgstr "L'account è stato eliminato."
 
-#: src/ConnectPrimitives.tsx
-msgid "Your account has reached its synced collection limit. Open an existing collection, or contact mdbase support to raise your limit."
-msgstr "Il tuo account ha raggiunto il limite di raccolte sincronizzate. Apri una raccolta esistente o contatta l’assistenza mdbase per aumentare il limite."
+#: src/collection-quota-copy.generated.ts
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
+msgstr "Il tuo account ha raggiunto il limite di raccolte sincronizzate. Apri una raccolta esistente, eliminane una di tua proprietà se l’opzione Elimina è disponibile oppure contatta l’assistenza mdbase per aumentare il limite."
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

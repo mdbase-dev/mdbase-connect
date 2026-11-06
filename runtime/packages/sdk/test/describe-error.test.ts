@@ -2,6 +2,7 @@ import { COLLECTION_DELETE_CODES } from "../src/app-host/collection-delete.js";
 import { describe, expect, it } from "vitest";
 import { describeError } from "../src/describe-error.js";
 import { MdbaseError } from "../src/errors.js";
+import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "../src/collection-quota-copy.generated.js";
 
 describe("describeError", () => {
   it("describes unfinished consent neutrally without blaming mdbase", () => {
@@ -10,9 +11,15 @@ describe("describeError", () => {
     }
     expect(describeError("approval_window_closed")?.severity).toBe("info");
   });
+  it.each([403, 500, 503])("keeps server-backed HTTP %s sign-in refusals at warning severity", status => {
+    for (const input of [{ reason: "refused", server: { status, code: "sign_in_refused" } }, { problem: "refused", problemDetail: { server: { status, code: "sign_in_refused" } } }]) {
+      expect(describeError(input)).toMatchObject({ title: "Sign-in didn't go through", message: "mdbase didn't accept this sign-in. Try signing in again.", severity: "warning", action: "sign_in" });
+    }
+  });
   it("distinguishes the account collection quota from collection storage", () => {
     expect(describeError(new MdbaseError({ code: "quota_exceeded", recovery: "free_space", message: "diagnostic", reason: "account_collection_quota_exceeded" })))
-      .toMatchObject({ key: "account_collection_quota_exceeded", message: "Your account has reached its synced collection limit. Open an existing collection, or contact mdbase support to raise your limit.", action: "contact_support", transient: false });
+      .toMatchObject({ key: "account_collection_quota_exceeded", message: ACCOUNT_COLLECTION_QUOTA_MESSAGE, action: "free_space", actionLabel: "Manage collections", transient: false });
+    expect(ACCOUNT_COLLECTION_QUOTA_MESSAGE).toContain("delete one you own if Delete is available");
     expect(describeError("quota_exceeded")?.title).toBe("Out of storage");
   });
   it("explains Viewer write refusals without suggesting app approval", () => {

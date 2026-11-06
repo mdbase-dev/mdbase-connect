@@ -3876,9 +3876,9 @@ msgstr "配信を停止しました"
 msgid "Your account has been deleted."
 msgstr "アカウントを削除しました。"
 
-#: src/ConnectPrimitives.tsx
-msgid "Your account has reached its synced collection limit. Open an existing collection, or contact mdbase support to raise your limit."
-msgstr "アカウントの同期コレクション数が上限に達しました。既存のコレクションを開くか、mdbaseサポートに上限の引き上げをお問い合わせください。"
+#: src/collection-quota-copy.generated.ts
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
+msgstr "アカウントの同期済みコレクション数が上限に達しました。既存のコレクションを開くか、削除が利用できる場合は自分が所有するコレクションを削除するか、mdbase サポートに上限の引き上げをお問い合わせください。"
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

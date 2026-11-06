@@ -1,4 +1,5 @@
 import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "../../platform/collection-quota-copy.generated.js";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
@@ -162,6 +163,7 @@ describePg("native starter onboarding", () => {
     const response = await onboard(who);
     expect(response.statusCode).toBe(429);
     expect(response.json().error.code).toBe("account_collection_quota_exceeded");
+    expect(response.json().error.message).toBe(ACCOUNT_COLLECTION_QUOTA_MESSAGE);
     expect(port.seal.mock.calls).toHaveLength(calls);
     expect((await db.query("SELECT 1 FROM next_collections WHERE collection_id=$1", [who.starter])).rows).toEqual([]);
     expect((await reservation(who)).provisioning_started_at).toBeNull();

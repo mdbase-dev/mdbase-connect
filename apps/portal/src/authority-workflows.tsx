@@ -46,6 +46,17 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const approvalTarget = useRef<HTMLDivElement>(null);
   const inspectionPath = pairingInspectionPath(pairingId, location.search);
 
+  function applyPairing(value: DevicePairing, current: number) {
+    if (current !== generation.current) return;
+    setPairing(value);
+    setCollectionIds([...new Set([...(value.retained_collection_ids ?? []), ...(value.approved_collection_ids ?? [])])]);
+    setSelectedCollectionId(value.creation && !value.creation.completed ? NEW_COLLECTION
+      : value.selected_collection_id || value.creation?.collection_id || "");
+    setNewCollectionName(value.creation?.display_name ?? "");
+    setCreateCollections(value.retained_create_collections || value.approved_create_collections || value.requested_create_collections || false);
+    setAllowReminders(value.timer_consent === true);
+  }
+
   useEffect(() => {
     const current = ++generation.current;
     setPairing(null);
@@ -63,18 +74,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     accountSelectionSucceeded.current = false;
     dispatching.current = false;
     api<{ pairing: DevicePairing }>(inspectionPath)
-      .then((value) => {
-        if (current !== generation.current) return;
-        setPairing(value.pairing);
-        setCollectionIds([...new Set([...(value.pairing.retained_collection_ids??[]),...(value.pairing.approved_collection_ids??[])])]);
-        // Resume the person's server-recorded work, never a URL hint or browser preference.
-        const original = value.pairing;
-        setSelectedCollectionId(original.creation && !original.creation.completed ? NEW_COLLECTION
-          : original.selected_collection_id || original.creation?.collection_id || "");
-        setNewCollectionName(value.pairing.creation?.display_name ?? "");
-        setCreateCollections(value.pairing.retained_create_collections || value.pairing.approved_create_collections || value.pairing.requested_create_collections || false);
-        setAllowReminders(value.pairing.timer_consent === true);
-      })
+      .then(value => applyPairing(value.pairing, current))
       .catch((reason) => {
         if (current !== generation.current) return;
         if (reason instanceof ApiError && reason.status === 401)
@@ -127,7 +127,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     if (dispatching.current || !pairing) return;
     const current = generation.current;
     dispatching.current = true;
-    if (action === "approve") approvalTarget.current?.focus();
+    if (action === "approve" || action === "deny") approvalTarget.current?.focus();
     setBusy(true);
     setError("");
     setRetry(null);
@@ -205,9 +205,16 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       if (action === "approve") handBack.current = true;
       if(action==="remove-access"){setRevokingId(removingId);setRemovingId("");}
       if (pairing.installation_device) {
-        const inspected = await api<{ pairing: DevicePairing }>(inspectionPath);
-        if (current !== generation.current) return;
-        setPairing(inspected.pairing);
+        try {
+          const inspected = await api<{ pairing: DevicePairing }>(inspectionPath);
+          applyPairing(inspected.pairing, current);
+        } catch (reason) {
+          if (current !== generation.current) return;
+          setPairing(null);
+          if (reason instanceof ApiError && reason.status === 401)
+            location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
+          else setAttempt(value => value + 1);
+        }
       }
       else if (result.deep_link) setDeepLink(result.deep_link);
     } catch (reason) {

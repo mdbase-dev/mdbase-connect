@@ -3876,9 +3876,9 @@ msgstr "Вы отписались"
 msgid "Your account has been deleted."
 msgstr "Ваша учётная запись удалена."
 
-#: src/ConnectPrimitives.tsx
-msgid "Your account has reached its synced collection limit. Open an existing collection, or contact mdbase support to raise your limit."
-msgstr "Достигнут лимит синхронизируемых коллекций для вашего аккаунта. Откройте существующую коллекцию или обратитесь в поддержку mdbase, чтобы увеличить лимит."
+#: src/collection-quota-copy.generated.ts
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
+msgstr "Достигнут лимит синхронизируемых коллекций для вашей учётной записи. Откройте существующую коллекцию, удалите свою коллекцию, если доступно удаление, или обратитесь в поддержку mdbase для увеличения лимита."
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

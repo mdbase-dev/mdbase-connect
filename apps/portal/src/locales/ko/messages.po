@@ -3876,9 +3876,9 @@ msgstr "수신이 거부되었습니다"
 msgid "Your account has been deleted."
 msgstr "계정이 삭제되었습니다."
 
-#: src/ConnectPrimitives.tsx
-msgid "Your account has reached its synced collection limit. Open an existing collection, or contact mdbase support to raise your limit."
-msgstr "계정의 동기화 컬렉션 한도에 도달했습니다. 기존 컬렉션을 열거나 mdbase 지원팀에 한도 상향을 문의하세요."
+#: src/collection-quota-copy.generated.ts
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
+msgstr "계정의 동기화된 컬렉션 수가 한도에 도달했습니다. 기존 컬렉션을 열거나, 삭제 기능을 사용할 수 있다면 소유한 컬렉션을 삭제하거나, mdbase 지원팀에 한도 상향을 문의하세요."
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

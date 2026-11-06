@@ -2,6 +2,64 @@ import { expect, openScenario, test } from "./review/fixture";
 import { authorizationId, pairingId } from "./review/scenarios.mjs";
 import type { Page, TestInfo } from "@playwright/test";
 
+test("W28 Retry keeps keyboard focus and ignores activation during a background refresh", async ({ page }) => {
+  let requests = 0;
+  let finish: (() => void) | undefined;
+  await page.route("**/v1/me", async route => {
+    if (++requests > 1) await new Promise<void>(resolve => { finish = resolve; });
+    await route.fulfill({ status: 503, json: { error: { message: "Diagnostic" } } });
+  });
+  await page.goto("/__review/scenario/typical-account?latency=60");
+  const alert = page.getByRole("alert");
+  const retry = alert.getByRole("button", { name: "Try again" });
+  await expect(retry).toHaveAttribute("aria-disabled", "false");
+  await retry.focus();
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(retry).toHaveAttribute("aria-disabled", "true");
+  await expect(retry).toBeFocused();
+  await retry.press("Enter");
+  expect(requests).toBe(2);
+  await expect.poll(() => Boolean(finish)).toBe(true);
+  finish!();
+  await expect(retry).toHaveAttribute("aria-disabled", "false");
+  await expect(retry).toBeFocused();
+  await expect(alert).toContainText("Something went wrong on mdbase. Try again.");
+});
+
+test("W28 post-approval inspection redirects a 401 without replaying approval", async ({ page }) => {
+  await openScenario(page, "pairing-many");
+  await page.getByRole("option").first().click();
+  const original = page.url();
+  let approvals = 0;
+  await page.route("**/v1/me", route => route.fulfill({ status: 401, json: { error: { message: "Sign in" } } }));
+  await page.route(`**/v1/pairing-requests/${pairingId}**`, async route => {
+    if (route.request().method() === "POST" && route.request().url().endsWith("/approve")) approvals++;
+    if (route.request().method() === "GET" && approvals) return route.fulfill({ status: 401, json: { error: { message: "Sign in" } } });
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Open Reader", exact: true }).click();
+  await expect(page).toHaveURL(new URL(`/login?return_to=${encodeURIComponent(original)}`, original).href);
+  await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
+  expect(approvals).toBe(1);
+});
+
+test("W28 Cancel keeps keyboard focus on the approval target while denial is pending", async ({ page }) => {
+  await openScenario(page, "pairing-many");
+  await page.getByRole("option").first().click();
+  let finish: (() => void) | undefined;
+  await page.route(`**/v1/pairing-requests/${pairingId}/deny`, async route => {
+    await new Promise<void>(resolve => { finish = resolve; });
+    await route.continue();
+  });
+  const cancel = page.getByRole("button", { name: "Cancel", exact: true });
+  await cancel.press("Enter");
+  await expect(cancel).toBeDisabled();
+  await expect(page.locator(".approval-target")).toBeFocused();
+  await expect.poll(() => Boolean(finish)).toBe(true);
+  finish!();
+  await expect(page.getByRole("heading", { name: "Sign-in cancelled" })).toBeVisible();
+});
+
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   for (const colorScheme of ["light", "dark"] as const) test(`W28 focus, palette, Rename and pairing ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
