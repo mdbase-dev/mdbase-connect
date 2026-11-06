@@ -2213,6 +2213,10 @@ msgstr "각 선택 항목에는 이식 가능한 계약과 편집 가능한 로�
 msgid "Each implementation needs an exact contract ID and version."
 msgstr "각 구현에는 정확한 계약 ID와 버전이 필요합니다."
 
+#: src/note-sort.ts
+msgid "Earliest first"
+msgstr "빠른 순"
+
 #: src/ConnectionScreens.tsx
 msgid "edit and move notes"
 msgstr "노트 편집 및 이동"
@@ -2406,6 +2410,7 @@ msgstr "지원되지 않는 값이 있는 필드 선택자"
 msgid "Field type"
 msgstr "필드 유형"
 
+#: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Fields"
 msgstr "필드"
@@ -2642,6 +2647,10 @@ msgstr "노트 사이드바 숨기기"
 msgid "Hide types sidebar"
 msgstr "유형 사이드바 숨기기"
 
+#: src/note-sort.ts
+msgid "High to low"
+msgstr "높은 순"
+
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "Hosted"
@@ -2783,6 +2792,10 @@ msgstr "크게"
 msgid "Large section heading"
 msgstr "큰 섹션 제목"
 
+#: src/note-sort.ts
+msgid "Latest first"
+msgstr "늦은 순"
+
 #: src/ConflictResolver.tsx
 msgid "Latest title"
 msgstr "최신 제목"
@@ -2894,6 +2907,10 @@ msgstr "목록 항목 스키마"
 msgid "List items"
 msgstr "목록 항목"
 
+#: src/note-sort.ts
+msgid "Listed order"
+msgstr "목록 순서"
+
 #: src/App.tsx
 msgid "Loaded the latest version."
 msgstr "최신 버전을 불러왔습니다."
@@ -2976,6 +2993,10 @@ msgstr "현지 시간 ({0})"
 #: src/TypeBrowser.tsx
 msgid "Loses"
 msgstr "잃음"
+
+#: src/note-sort.ts
+msgid "Low to high"
+msgstr "낮은 순"
 
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
@@ -3128,21 +3149,10 @@ msgstr "누락된 속성에는 유형별 읽기 기본값이 없습니다."
 msgid "Missing required properties"
 msgstr "누락된 필수 속성"
 
+#: src/note-sort.ts
 #: src/PropertiesPanel.tsx
 msgid "Modified"
 msgstr "수정됨"
-
-#: src/note-list-view.ts
-msgid "Modified newest"
-msgstr "최근 수정순"
-
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "오래된 수정순"
-
-#: src/note-list-view.ts
-msgid "Modified oldest"
-msgstr "오래된 수정순"
 
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
@@ -3301,6 +3311,10 @@ msgstr "새 유형"
 msgid "New type definition"
 msgstr "새 유형 정의"
 
+#: src/note-sort.ts
+msgid "Newest first"
+msgstr "최신순"
+
 #: src/QuickOpen.tsx
 msgid "Next or previous note"
 msgstr "이전 또는 다음 노트"
@@ -3446,6 +3460,10 @@ msgstr "연결되지 않은 언급이 없습니다."
 #: src/use-note-actions.ts
 msgid "No validation issues."
 msgstr "검증 문제가 없습니다."
+
+#: src/collection-browser.ts
+msgid "No value"
+msgstr "값 없음"
 
 #: src/App.tsx
 msgid "Not attempted because an earlier move needs recovery."
@@ -3615,6 +3633,10 @@ msgstr "오프라인"
 msgid "Older"
 msgstr "이전"
 
+#: src/note-sort.ts
+msgid "Oldest first"
+msgstr "오래된 순"
+
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
 msgstr "선언된 필드만 허용됩니다."
@@ -3739,6 +3761,10 @@ msgstr "이 유형에서 선택 사항"
 msgid "Optional regular expression"
 msgstr "선택적 정규식"
 
+#: src/NoteListViewOptions.tsx
+msgid "Order"
+msgstr "순서"
+
 #: src/type-schema.ts
 msgid "Other collection rules"
 msgstr "기타 컬렉션 규칙"
@@ -3764,13 +3790,10 @@ msgid "Partly installed"
 msgstr "일부 설치됨"
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 #: src/TypeBrowser.tsx
 msgid "Path"
 msgstr "경로"
-
-#: src/note-list-view.ts
-msgid "Path A–Z"
-msgstr "경로 오름차순"
 
 #: src/embed-actions.ts
 msgid "Path copied."
@@ -4384,6 +4407,10 @@ msgstr "검색 다시 시도"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "컬렉션으로 돌아가서 컬렉션을 다시 여세요."
+
+#: src/note-sort.ts
+msgid "Reversed"
+msgstr "역순"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
@@ -5574,12 +5601,9 @@ msgid "This value does not match the required format."
 msgstr "이 값은 필수 형식과 일치하지 않습니다."
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 msgid "Title"
 msgstr "제목"
-
-#: src/note-list-view.ts
-msgid "Title A–Z"
-msgstr "제목 오름차순"
 
 #: src/ConflictResolver.tsx
 msgid "Title differences"

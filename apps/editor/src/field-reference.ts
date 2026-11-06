@@ -18,6 +18,15 @@ export function collectionDisplayField(
     : undefined;
 }
 
+/** Field schemas a type declares, by name. */
+export function declaredFields(type: CollectionTypeDescriptor): Array<[string, JsonObject]> {
+  return Object.entries(objectValue(type.schema.properties) ?? {})
+    .flatMap(([name, schema]) => {
+      const field = objectValue(schema);
+      return field ? [[name, field] as [string, JsonObject]] : [];
+    });
+}
+
 export function recordDisplayField(
   recordTypes: string[],
   types: CollectionTypeDescriptor[],
@@ -109,4 +118,67 @@ function writePath(current: unknown, path: string[], nextValue: unknown): unknow
 
 function objectValue(value: unknown): JsonObject | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : undefined;
+}
+
+export function resolveSchema(
+  rootSchema?: JsonObject,
+  schema?: JsonObject,
+  visited: Set<string> = new Set()
+): JsonObject | undefined {
+  if (!schema) return undefined;
+  let resolved = { ...schema };
+  if (typeof schema.$ref === "string" && schema.$ref.startsWith("#/") && rootSchema && !visited.has(schema.$ref)) {
+    const target = resolveLocalReference(rootSchema, schema.$ref);
+    if (target) {
+      const nextVisited = new Set(visited);
+      nextVisited.add(schema.$ref);
+      const base = resolveSchema(rootSchema, target, nextVisited) ?? {};
+      resolved = mergeSchemas(base, resolved);
+      delete resolved.$ref;
+    }
+  }
+  const branches = Array.isArray(resolved.allOf)
+    ? resolved.allOf.filter((branch): branch is JsonObject => isObject(branch))
+    : [];
+  for (const branch of branches) {
+    resolved = mergeSchemas(resolved, resolveSchema(rootSchema, branch, visited) ?? {});
+  }
+  delete resolved.allOf;
+  return resolved;
+}
+
+function resolveLocalReference(rootSchema: JsonObject, reference: string): JsonObject | undefined {
+  let current: unknown = rootSchema;
+  for (const encoded of reference.slice(2).split("/")) {
+    if (!isObject(current)) return undefined;
+    const segment = encoded.replaceAll("~1", "/").replaceAll("~0", "~");
+    current = current[segment];
+  }
+  return isObject(current) ? current : undefined;
+}
+
+function mergeSchemas(base: JsonObject, overlay: JsonObject): JsonObject {
+  const merged: JsonObject = { ...base, ...overlay };
+  const baseProperties = isObject(base.properties) ? base.properties : {};
+  const overlayProperties = isObject(overlay.properties) ? overlay.properties : {};
+  if (Object.keys(baseProperties).length || Object.keys(overlayProperties).length) {
+    merged.properties = { ...baseProperties, ...overlayProperties };
+  }
+  const required = [
+    ...(Array.isArray(base.required) ? base.required : []),
+    ...(Array.isArray(overlay.required) ? overlay.required : [])
+  ].filter((field): field is string => typeof field === "string");
+  if (required.length) merged.required = [...new Set(required)];
+  return merged;
+}
+
+export function humanizeName(name: string): string {
+  return name
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/gu, (letter) => letter.toUpperCase());
+}
+
+export function isObject(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

@@ -6,6 +6,7 @@ import { PlusIcon as Plus } from "./icons";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { JsonObject } from "@mdbase-dev/connect";
 import { CodeEditor } from "./CodeEditor";
+import { humanizeName, isObject, resolveSchema } from "./field-reference";
 import { InlineRemoveButton } from "./InlineRemoveButton";
 import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";
 import { Select } from "@mdbase-dev/ui/select";
@@ -420,58 +421,6 @@ function suppliedValue(schema?: JsonObject): unknown {
   return undefined;
 }
 
-export function resolveSchema(
-  rootSchema?: JsonObject,
-  schema?: JsonObject,
-  visited: Set<string> = new Set()
-): JsonObject | undefined {
-  if (!schema) return undefined;
-  let resolved = { ...schema };
-  if (typeof schema.$ref === "string" && schema.$ref.startsWith("#/") && rootSchema && !visited.has(schema.$ref)) {
-    const target = resolveLocalReference(rootSchema, schema.$ref);
-    if (target) {
-      const nextVisited = new Set(visited);
-      nextVisited.add(schema.$ref);
-      const base = resolveSchema(rootSchema, target, nextVisited) ?? {};
-      resolved = mergeSchemas(base, resolved);
-      delete resolved.$ref;
-    }
-  }
-  const branches = Array.isArray(resolved.allOf)
-    ? resolved.allOf.filter((branch): branch is JsonObject => isObject(branch))
-    : [];
-  for (const branch of branches) {
-    resolved = mergeSchemas(resolved, resolveSchema(rootSchema, branch, visited) ?? {});
-  }
-  delete resolved.allOf;
-  return resolved;
-}
-
-function resolveLocalReference(rootSchema: JsonObject, reference: string): JsonObject | undefined {
-  let current: unknown = rootSchema;
-  for (const encoded of reference.slice(2).split("/")) {
-    if (!isObject(current)) return undefined;
-    const segment = encoded.replaceAll("~1", "/").replaceAll("~0", "~");
-    current = current[segment];
-  }
-  return isObject(current) ? current : undefined;
-}
-
-function mergeSchemas(base: JsonObject, overlay: JsonObject): JsonObject {
-  const merged: JsonObject = { ...base, ...overlay };
-  const baseProperties = isObject(base.properties) ? base.properties : {};
-  const overlayProperties = isObject(overlay.properties) ? overlay.properties : {};
-  if (Object.keys(baseProperties).length || Object.keys(overlayProperties).length) {
-    merged.properties = { ...baseProperties, ...overlayProperties };
-  }
-  const required = [
-    ...(Array.isArray(base.required) ? base.required : []),
-    ...(Array.isArray(overlay.required) ? overlay.required : [])
-  ].filter((field): field is string => typeof field === "string");
-  if (required.length) merged.required = [...new Set(required)];
-  return merged;
-}
-
 function schemaLabel(name: string, required: boolean, hideLabel: boolean, schema?: JsonObject): ReactNode {
   if (hideLabel) return <span className="sr-only">{name}</span>;
   return <span className="schema-value-label">
@@ -480,21 +429,10 @@ function schemaLabel(name: string, required: boolean, hideLabel: boolean, schema
   </span>;
 }
 
-export function humanizeName(name: string): string {
-  return name
-    .replaceAll("_", " ")
-    .replaceAll("-", " ")
-    .replace(/\b\w/gu, (letter) => letter.toUpperCase());
-}
-
 function formatValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
 function choiceKey(value: unknown): string {
   return value === undefined ? "" : `${typeof value}:${JSON.stringify(value)}`;
-}
-
-function isObject(value: unknown): value is JsonObject {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

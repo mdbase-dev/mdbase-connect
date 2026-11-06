@@ -10,8 +10,6 @@ import type { CreateNoteInput } from "./model";
 import { safeRenamePath } from "./note";
 import type { EditorPreferences } from "./preferences";
 import {
-  humanizeName,
-  resolveSchema,
   schemaProperties,
   schemaRequired,
   schemaValueComplete
@@ -21,6 +19,8 @@ import {
   collectionDisplayField,
   fieldReferenceName,
   fieldReferencePath,
+  humanizeName,
+  resolveSchema,
   writeFieldReference
 } from "./field-reference";
 import { Select } from "@mdbase-dev/ui/select";

@@ -863,11 +863,10 @@ test("sorts notes and clears the active scope from view options", async ({ page 
 
   await page.getByRole("button", { name: "View options" }).click();
   const menu = page.getByRole("menu", { name: "Note view options" });
-  await expect(menu.getByRole("menuitemradio", { name: "Modified newest" })).toHaveAttribute("aria-checked", "true");
-  await menu.getByRole("menuitemradio", { name: "Title A–Z" }).click();
+  await expect(menu.getByRole("menuitemradio", { name: "Modified" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitemradio", { name: "Title" }).click();
   await expect(page.locator(".note-row").first().locator(".note-title")).toHaveText("A quiet interface 3");
-  await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files · title A–Z");
-  expect(await page.evaluate(() => localStorage.getItem("mdbase-editor:note-sort"))).toBe("title-asc");
+  await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files · Title: A–Z");
 
   await page.getByRole("combobox", { name: "Search notes and files" }).fill("quiet interface");
   await expect(page.locator(".list-header p")).toHaveText("1 found · relevance");

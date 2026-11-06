@@ -103,7 +103,8 @@ import {
   type NoteActivity,
   type SaveState
 } from "./note-session";
-import { filterLabel, filterScopeLabel, loadNoteSort, saveNoteSort, sortNotes, loadPinnedNotes, savePinnedNotes, type NoteFilter, type NoteRowStatus, type NoteSelection, type NoteSort } from "./note-list-view";
+import { filterLabel, filterScopeLabel, loadPinnedNotes, savePinnedNotes, type NoteFilter, type NoteRowStatus, type NoteSelection } from "./note-list-view";
+import { defaultNoteSort, loadNoteSort, resolveNoteSort, saveNoteSort, sortableFields, type NoteSortPreference } from "./note-sort";
 import { NoteList } from "./NoteList";
 import { noteRowStatus } from "./note-mutation-presentation";
 import {
@@ -265,7 +266,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
   const [layout, setLayout] = useState<LayoutPreferences>(loadLayoutPreferences);
-  const [noteSort, setNoteSort] = useState<NoteSort>(loadNoteSort);
+  const [noteSortPreference, setNoteSortPreference] = useState<NoteSortPreference>({ key: defaultNoteSort.key, direction: defaultNoteSort.direction });
   const [resizingPane, setResizingPane] = useState<"collection" | "list" | "inspector">();
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const { files: visibleFileEmbedKeys, notes: visibleNoteEmbedKeys,
@@ -338,7 +339,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
-  useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
+  useEffect(() => { if (description) setNoteSortPreference(loadNoteSort(description.collectionId)); }, [description?.collectionId]);
   useEffect(() => {
     if (phase !== "ready" || surface !== "types") return;
     const controller = new AbortController();
@@ -870,15 +871,20 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     searchedResults?.map((result) => [result.note.path, result]) ?? []
   ), [searchedResults, i18n.locale]);
   const visibleNotes = useMemo(() => {
-    const filtered = !noteFilter
+    return !noteFilter
       ? searchedNotes
       : noteFilter.kind === "folder"
         ? searchedNotes.filter((note) => note.path === noteFilter.value || note.path.startsWith(`${noteFilter.value}/`))
         : noteFilter.kind === "tag"
           ? searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value))
           : searchedNotes.filter((note) => note.types.includes(noteFilter.value));
-    return deferredSearch.trim() ? filtered : sortNotes(filtered, noteSort, typeDescriptors);
-  }, [deferredSearch, noteFilter, noteSort, searchedNotes, typeDescriptors, i18n.locale]);
+  }, [noteFilter, searchedNotes, i18n.locale]);
+  const noteSortFields = useMemo(() => sortableFields(visibleNotes, typeDescriptors), [visibleNotes, typeDescriptors, i18n.locale]);
+  const noteSort = useMemo(() => resolveNoteSort(noteSortPreference, noteSortFields), [noteSortFields, noteSortPreference]);
+  const chooseNoteSort = useCallback((preference: NoteSortPreference) => {
+    setNoteSortPreference(preference);
+    if (description) saveNoteSort(description.collectionId, preference);
+  }, [description?.collectionId]);
   const { visibleFiles, entries: browserEntries } = useCollectionBrowserEntries(
     visibleNotes, fileInventory.files, noteFilter, deferredSearch, noteSort, typeDescriptors);
   const visibleBrowserEntries = useMemo(() => {
@@ -1884,10 +1890,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         searchQuery={deferredSearch}
         searchContexts={searchContexts}
         sort={noteSort}
+        sortFields={noteSortFields}
         scopeLabel={filterScopeLabel(noteFilter)}
         collectionName={filterLabel(noteFilter, t`All notes`)}
         onSearch={setSearch}
-        onSort={setNoteSort}
+        onSort={chooseNoteSort}
         onClearScope={() => setNoteFilter(undefined)}
         onQuickOpen={() => { setQuickOpenCommandMode(false); setQuickOpen(true); }}
         onRetryStructure={() => void loadIndex().catch(() => undefined)}

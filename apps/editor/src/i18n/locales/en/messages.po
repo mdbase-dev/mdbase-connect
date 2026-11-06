@@ -2213,6 +2213,10 @@ msgstr "Each choice includes its portable contract and an editable local mapping
 msgid "Each implementation needs an exact contract ID and version."
 msgstr "Each implementation needs an exact contract ID and version."
 
+#: src/note-sort.ts
+msgid "Earliest first"
+msgstr "Earliest first"
+
 #: src/ConnectionScreens.tsx
 msgid "edit and move notes"
 msgstr "edit and move notes"
@@ -2406,6 +2410,7 @@ msgstr "Field selectors with an unsupported value"
 msgid "Field type"
 msgstr "Field type"
 
+#: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Fields"
 msgstr "Fields"
@@ -2642,6 +2647,10 @@ msgstr "Hide notes sidebar"
 msgid "Hide types sidebar"
 msgstr "Hide types sidebar"
 
+#: src/note-sort.ts
+msgid "High to low"
+msgstr "High to low"
+
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "Hosted"
@@ -2783,6 +2792,10 @@ msgstr "Large"
 msgid "Large section heading"
 msgstr "Large section heading"
 
+#: src/note-sort.ts
+msgid "Latest first"
+msgstr "Latest first"
+
 #: src/ConflictResolver.tsx
 msgid "Latest title"
 msgstr "Latest title"
@@ -2894,6 +2907,10 @@ msgstr "list item schema"
 msgid "List items"
 msgstr "List items"
 
+#: src/note-sort.ts
+msgid "Listed order"
+msgstr "Listed order"
+
 #: src/App.tsx
 msgid "Loaded the latest version."
 msgstr "Loaded the latest version."
@@ -2976,6 +2993,10 @@ msgstr "Local time ({0})"
 #: src/TypeBrowser.tsx
 msgid "Loses"
 msgstr "Loses"
+
+#: src/note-sort.ts
+msgid "Low to high"
+msgstr "Low to high"
 
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
@@ -3128,21 +3149,10 @@ msgstr "Missing properties have no type-specific read defaults."
 msgid "Missing required properties"
 msgstr "Missing required properties"
 
+#: src/note-sort.ts
 #: src/PropertiesPanel.tsx
 msgid "Modified"
 msgstr "Modified"
-
-#: src/note-list-view.ts
-msgid "Modified newest"
-msgstr "Modified newest"
-
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "modified oldest"
-
-#: src/note-list-view.ts
-msgid "Modified oldest"
-msgstr "Modified oldest"
 
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
@@ -3301,6 +3311,10 @@ msgstr "New type"
 msgid "New type definition"
 msgstr "New type definition"
 
+#: src/note-sort.ts
+msgid "Newest first"
+msgstr "Newest first"
+
 #: src/QuickOpen.tsx
 msgid "Next or previous note"
 msgstr "Next or previous note"
@@ -3446,6 +3460,10 @@ msgstr "No unlinked mentions."
 #: src/use-note-actions.ts
 msgid "No validation issues."
 msgstr "No validation issues."
+
+#: src/collection-browser.ts
+msgid "No value"
+msgstr "No value"
 
 #: src/App.tsx
 msgid "Not attempted because an earlier move needs recovery."
@@ -3615,6 +3633,10 @@ msgstr "Offline"
 msgid "Older"
 msgstr "Older"
 
+#: src/note-sort.ts
+msgid "Oldest first"
+msgstr "Oldest first"
+
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
 msgstr "Only declared fields are allowed"
@@ -3739,6 +3761,10 @@ msgstr "optional in this type"
 msgid "Optional regular expression"
 msgstr "Optional regular expression"
 
+#: src/NoteListViewOptions.tsx
+msgid "Order"
+msgstr "Order"
+
 #: src/type-schema.ts
 msgid "Other collection rules"
 msgstr "Other collection rules"
@@ -3764,13 +3790,10 @@ msgid "Partly installed"
 msgstr "Partly installed"
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 #: src/TypeBrowser.tsx
 msgid "Path"
 msgstr "Path"
-
-#: src/note-list-view.ts
-msgid "Path A–Z"
-msgstr "Path A–Z"
 
 #: src/embed-actions.ts
 msgid "Path copied."
@@ -4384,6 +4407,10 @@ msgstr "Retry search"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "Return to Collections and open the collection again."
+
+#: src/note-sort.ts
+msgid "Reversed"
+msgstr "Reversed"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
@@ -5574,12 +5601,9 @@ msgid "This value does not match the required format."
 msgstr "This value does not match the required format."
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 msgid "Title"
 msgstr "Title"
-
-#: src/note-list-view.ts
-msgid "Title A–Z"
-msgstr "Title A–Z"
 
 #: src/ConflictResolver.tsx
 msgid "Title differences"
