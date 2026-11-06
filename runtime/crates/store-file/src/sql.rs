@@ -351,7 +351,7 @@ fn meta_d(c: &Cbor) -> StoreResult<RecordMeta> {
 }
 
 fn record_c(r: &RecordRow) -> StoreResult<Vec<u8>> {
-    enc(Cbor::Array(vec![
+    let mut fields = vec![
         r.id.to_cbor(),
         r.path.to_cbor(),
         r.path_key.to_cbor(),
@@ -360,13 +360,22 @@ fn record_c(r: &RecordRow) -> StoreResult<Vec<u8>> {
         r.modified_seq.to_cbor(),
         u64::from(r.bucket).to_cbor(),
         meta_c(&r.meta),
-    ]))
+    ];
+    if let Some(mtime) = r.mtime {
+        fields.push(mtime.to_cbor());
+    }
+    enc(Cbor::Array(fields))
 }
 
 pub(crate) fn record_d(v: &SqlValue) -> StoreResult<RecordRow> {
     let a = dec(v, "record")?;
-    let [id, path, pk, doc, rev, ms, bucket, meta] = a.as_slice() else {
-        return Err(corrupt("record"));
+    let (fields, mtime) = match a.as_slice() {
+        [_, _, _, _, _, _, _, _] => (a.as_slice(), None),
+        [_, _, _, _, _, _, _, _, mtime] => (&a[..8], Some(w::<i64>(mtime, "record mtime")?)),
+        _ => return Err(corrupt("record")),
+    };
+    let [id, path, pk, doc, rev, ms, bucket, meta] = fields else {
+        unreachable!("exact record row arity checked above");
     };
     Ok(RecordRow {
         id: w(id, "record")?,
@@ -375,6 +384,7 @@ pub(crate) fn record_d(v: &SqlValue) -> StoreResult<RecordRow> {
         doc: w(doc, "record")?,
         revision: w(rev, "record")?,
         modified_seq: w(ms, "record")?,
+        mtime,
         bucket: u16::try_from(w::<u64>(bucket, "record")?).map_err(|_| corrupt("record"))?,
         meta: meta_d(meta)?,
     })
@@ -1910,6 +1920,43 @@ mod tests {
             "legacy eight-tuple bytes unchanged"
         );
         assert_eq!(file_d(&SqlValue::Blob(file_c(&row).unwrap())).unwrap(), row);
+        let mut record = RecordRow {
+            id: B16([9; 16]),
+            path: "a.md".into(),
+            path_key: "a.md".into(),
+            doc: "hello".into(),
+            revision: mdbn_wire::common::B32([8; 32]),
+            modified_seq: 7,
+            mtime: None,
+            bucket: 3,
+            meta: Default::default(),
+        };
+        let original_layout = Cbor::Array(vec![
+            record.id.to_cbor(),
+            record.path.to_cbor(),
+            record.path_key.to_cbor(),
+            record.doc.to_cbor(),
+            record.revision.to_cbor(),
+            record.modified_seq.to_cbor(),
+            u64::from(record.bucket).to_cbor(),
+            meta_c(&record.meta),
+        ]);
+        assert_eq!(
+            record_c(&record).unwrap(),
+            enc(original_layout).unwrap(),
+            "legacy eight-tuple record bytes unchanged"
+        );
+        for mtime in [None, Some(1_791_100_800_000), Some(-5)] {
+            record.mtime = mtime;
+            let encoded = record_c(&record).unwrap();
+            assert_eq!(record_d(&SqlValue::Blob(encoded)).unwrap(), record);
+        }
+        let mut fields = dec(&SqlValue::Blob(record_c(&record).unwrap()), "record").unwrap();
+        fields.push(1_u64.to_cbor());
+        assert!(matches!(
+            record_d(&SqlValue::Blob(enc(Cbor::Array(fields)).unwrap())),
+            Err(StoreError::Corrupt(_))
+        ));
         let content = AttachmentContentV1 {
             reference: AttachmentRefV1 {
                 collection: B16([4; 16]),

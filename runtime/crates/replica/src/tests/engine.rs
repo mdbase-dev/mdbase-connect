@@ -3472,6 +3472,7 @@ fn install_rejects_unsafe_rows() {
         doc: "evil".into(),
         revision: mdbn_wire::hash::sha256(b"evil"),
         modified_seq: 1,
+        mtime: None,
         bucket: bucket16(&id),
         meta: RecordMeta::default(),
     };

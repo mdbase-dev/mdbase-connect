@@ -120,6 +120,7 @@ fn where_only_link_reads_keep_the_existing_bounded_source_refusal() {
                 doc: doc.into(),
                 revision: mdbn_wire::hash::sha256(doc.as_bytes()),
                 modified_seq: 0,
+                mtime: None,
                 bucket: 0,
                 meta: RecordMeta::default(),
             }

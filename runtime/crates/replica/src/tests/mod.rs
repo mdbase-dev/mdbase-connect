@@ -17,6 +17,7 @@ mod mirror_admission;
 mod pending_inventory;
 mod projected_budget;
 mod query_cursor;
+mod record_capture_time;
 mod resource_list;
 mod resources;
 mod snapshot_attachments;

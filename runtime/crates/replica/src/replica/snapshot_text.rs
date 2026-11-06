@@ -26,6 +26,7 @@ pub(crate) struct Row {
     pub(crate) path: String,
     pub(crate) blob: BlobRef,
     pub(crate) modified_seq: u64,
+    pub(crate) mtime: Option<i64>,
 }
 struct Job {
     row: Row,
@@ -246,6 +247,7 @@ impl<S: Store> Replica<S> {
                                     j.row.id,
                                     j.row.path,
                                     j.row.modified_seq,
+                                    j.row.mtime,
                                     doc,
                                 ) {
                                     self.install_text_sources.error = Some(StreamError::Sink(e));

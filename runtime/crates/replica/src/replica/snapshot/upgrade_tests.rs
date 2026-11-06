@@ -29,6 +29,7 @@ fn row(id: B16, path: &str) -> RecordRow {
         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
         doc,
         modified_seq: 7,
+        mtime: None,
         bucket: bucket16(&id),
         meta,
     }

@@ -352,6 +352,7 @@ impl Gen0Writer {
                     revision: mdbn_wire::hash::sha256(r.doc.as_bytes()),
                     size: r.doc.len() as u64,
                     modified_seq: 0,
+                    mtime: None,
                 }
                 .to_cbor(),
             ));
@@ -377,6 +378,7 @@ impl Gen0Writer {
                     revision: f.content.plain_hash(),
                     size: f.content.size(),
                     modified_seq: 0,
+                    mtime: None,
                 }
                 .to_cbor(),
             ));

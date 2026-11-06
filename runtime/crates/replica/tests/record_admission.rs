@@ -170,6 +170,7 @@ fn historical_oversized_records_remain_readable_and_a_smaller_new_document_can_r
                     revision: mdbn_wire::hash::sha256(source.as_bytes()),
                     doc: source.clone(),
                     modified_seq: 0,
+                    mtime: None,
                     bucket: bucket16(&id),
                     meta: Default::default(),
                 }],

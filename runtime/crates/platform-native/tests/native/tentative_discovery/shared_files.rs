@@ -142,6 +142,7 @@ fn seed_imported_records(path: &std::path::Path, count: usize) {
                     revision: w::hash::sha256(doc.as_bytes()),
                     doc,
                     modified_seq: 0,
+                    mtime: None,
                     bucket: ((n * 1931) % 65536) as u16,
                     meta: r::store::RecordMeta::default(),
                 }

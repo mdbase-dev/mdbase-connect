@@ -82,6 +82,7 @@ fn row(n: u16, fields: &str) -> RecordRow {
         revision: revision(doc.as_bytes()),
         doc,
         modified_seq: 0,
+        mtime: None,
         bucket: 0,
         meta: RecordMeta::default(),
     }
