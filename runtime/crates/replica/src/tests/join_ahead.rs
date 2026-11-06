@@ -566,7 +566,6 @@ fn a_device_granted_after_a_revocation_rekey_holds_epoch_one_and_can_write() {
 
 #[test]
 fn reload_then_write_rebuilds_epoch_one_without_replaying_content() {
-    use crate::Store;
     use crate::api::ClientApi;
     use crate::log::LogPort;
     let (svc, mut cp, mut a) = world(CState::E2e);
@@ -627,91 +626,4 @@ fn reload_then_write_rebuilds_epoch_one_without_replaying_content() {
     );
     assert_eq!(a.doc(11).as_deref(), Some("restored session"));
     assert_eq!(data.borrow().keyring_writes, 0);
-    let current =
-        b.r.sealer
-            .testing_epoch_keys()
-            .into_iter()
-            .find(|(epoch, _)| *epoch == 2)
-            .unwrap()
-            .1;
-    let mut partial = crate::crypto::keys::Keyring::new();
-    partial.insert(2, crate::crypto::Secret32(*current));
-    let keys = partial.to_bytes();
-    let mut encoded = zeroize::Zeroizing::new((keys.len() as u64).to_be_bytes().to_vec());
-    encoded.extend_from_slice(&keys);
-    b.r.sealer.import(&encoded).unwrap();
-    assert_eq!(b.r.sealer.current_epoch(), Some(2));
-    let refused = b.create(12, "missing-history.md", "must stay on device");
-    assert!(
-        b.r.calls
-            .iter()
-            .all(|call| !matches!(call.request, crate::log::LogRequest::Append(_)))
-    );
-    let receipt = b.r.receipt(b.s, refused.mutation).unwrap();
-    assert_eq!(receipt.state, mdbn_wire::client::ReceiptState::Pending);
-    assert!(
-        b.r.sync_status()
-            .incidents
-            .iter()
-            .any(|incident| incident.kind == IncidentKind::KeyInconsistent)
-    );
-    assert!(
-        b.r.store()
-            .pending_get(&refused.mutation)
-            .unwrap()
-            .is_some()
-    );
-    b.r.refresh_mode_history();
-    settle(&mut [&mut a, &mut b]);
-    assert!(b.r.sealer.idem_token(&refused.mutation).is_some());
-    assert_eq!(
-        b.r.receipt(b.s, refused.mutation).unwrap().state,
-        mdbn_wire::client::ReceiptState::Confirmed
-    );
-    assert_eq!(a.doc(12).as_deref(), Some("must stay on device"));
-    assert!(
-        !b.r.sync_status()
-            .incidents
-            .iter()
-            .any(|incident| incident.kind == IncidentKind::KeyInconsistent)
-    );
-}
-
-#[test]
-fn append_refusal_backoff_does_not_hold_control_rekeys() {
-    use crate::api::ClientApi;
-    use crate::log::{LogError, LogErrorCode, LogPort, LogRequest};
-    let (svc, mut cp, mut a) = world(CState::E2e);
-    let write = a.create(15, "retry.md", "pending through rekey");
-    let call =
-        a.r.take_log_calls()
-            .into_iter()
-            .find(|call| matches!(call.request, LogRequest::Append(_)))
-            .unwrap();
-    a.r.on_log_reply(
-        call.id,
-        Err(LogError::Service {
-            code: LogErrorCode::Invalid,
-            reason: Some("cbor_alloc".into()),
-            retry_after_ms: None,
-            missing: vec![],
-        }),
-    );
-    cp.append(
-        &svc,
-        vec![enrol(C, TEST_OWNER, DeviceKind::Desktop, C_KEYS)],
-    );
-    cp.revoke(&svc, C);
-    settle(&mut [&mut a]);
-    assert_eq!(a.r.policy.epoch, 2);
-    assert_eq!(
-        a.r.receipt(a.s, write.mutation).unwrap().state,
-        mdbn_wire::client::ReceiptState::Pending
-    );
-    a.clock.set(a.clock.get() + 1_000);
-    settle(&mut [&mut a]);
-    assert_eq!(
-        a.r.receipt(a.s, write.mutation).unwrap().state,
-        mdbn_wire::client::ReceiptState::Confirmed
-    );
 }

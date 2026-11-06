@@ -549,9 +549,8 @@ closed-push = { 0: uuid, 1: tstr }                            ; collection, reas
 
 ## 10. Errors
 
-Replicas see these codes and map them to the client error model
-(`replica-client-api.md` §9). Sync incidents may carry service code/reason as
-diagnostic detail, not as a mutation rejection or user-facing message.
+Replicas see these codes. **Apps never see them**: the replica maps them to the client
+error model (`replica-client-api.md` §9).
 
 | Code | Meaning | Replica's recovery |
 |---|---|---|
@@ -559,7 +558,7 @@ diagnostic detail, not as a mutation rejection or user-facing message.
 | `forbidden` | the principal is not allowed: device revoked, viewer appending, wrong kind | stop appending; re-read policy. If this device is revoked, report `access revoked` and stop syncing |
 | `not_found` | no such collection or object | re-resolve routing with the control plane; a missing object is an integrity incident |
 | `gone` | the collection was deleted or moved | stop; surface to the user |
-| `invalid` | malformed request or items: reasons `shape`, `chain`, `signature`, `epoch`, `kind`, `policy`; other service resource/decoder refusals may use this code | keep original mutations pending; report an ephemeral `integrity` incident with the service code/reason, re-read head and policy, then re-plan in queue order with capped exponential backoff |
+| `invalid` | malformed request or items: reasons `shape`, `chain`, `signature`, `epoch`, `kind`, `policy` | a bug or a stale replica. Re-read the head and policy, re-plan once, then stop and report |
 | `too_large` | item, batch or object over its limit | split the batch; a single item over the limit is a writer bug |
 | `refs_missing` | referenced objects are absent | upload them and retry |
 | `frozen` | the collection is frozen or rekey-required | rekey-required: perform the rekey (`log-entry.md` §3.1). Frozen: wait for a push |
@@ -567,16 +566,6 @@ diagnostic detail, not as a mutation rejection or user-facing message.
 | `quota_exceeded` | over the storage quota | surface to the user and retry at a slow interval; space can return without a push. Reads continue |
 | `unavailable` | the actor is restarting, moving or overloaded | wait `retry_after_ms`, with jitter |
 | `upgrade_required` | the API version is no longer supported | surface `upgrade_required` |
-
-An unclassified append refusal is not a durable mutation rejection, including a
-reason such as `cbor_alloc`. For `invalid`, unresolved `not_found`, and a single
-`too_large` item, the retry interval starts at 1 s and doubles to a 60 s cap;
-`retry_after_ms` is a lower bound even when it exceeds that cap. The retry counter
-and deadline are RAM-only, reset on successful content append (or an empty queue),
-and do not reset on reconnect or successful control work. Pending intent is not
-deleted, marked Rejected, or skipped. Reads and control appends remain eligible
-while content waits; after a fresh read, ordinary conflict replanning still applies.
-An unknown append outcome instead retains and retries the same bytes (§4.2).
 
 ## 11. Quotas and backpressure
 

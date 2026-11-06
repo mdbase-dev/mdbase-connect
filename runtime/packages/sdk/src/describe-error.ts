@@ -79,7 +79,6 @@ export const PROBLEM_CODES = [
   // MdbaseError codes (the 15).
   "invalid_request", "invalid_record", "not_found", "conflict", "unauthenticated", "forbidden", "collection_invalid",
   "unavailable", "rate_limited", "quota_exceeded", "too_large", "outcome_unknown", "internal",
-  "sync_delayed",
   // Sign-in, open and sign-out.
   "refused", "expired", "approval_window_closed", "account_confirmation_required", "recovery_required", "open_failed",
   "busy", "open_in_another_tab", "not_authorized", "sign_out_pending_writes", "sign_out_failed",
@@ -150,7 +149,6 @@ const COPY = {
   too_large: ["That's too large", "This item is larger than mdbase allows.", "none", "warning"],
   outcome_unknown: ["Not sure that worked", "The connection dropped before mdbase confirmed it. Check whether it went through before trying again.", "resolve_outcome", "warning"],
   internal: GENERIC,
-  sync_delayed: ["Changes are waiting to sync", "Your changes are still on this device. Sync will retry automatically. Keep this device's data until they finish syncing.", "wait", "warning", true],
   refused: ["Sign-in didn't go through", "mdbase didn't accept this sign-in. Try signing in again.", "sign_in", "warning"],
   expired: ["Sign-in timed out", "The sign-in request expired. Start again to get a new one.", "sign_in", "warning"],
   approval_window_closed: ["Sign-in wasn't finished", "The mdbase window was closed before access was approved. Sign in again to continue.", "sign_in", "info"],
@@ -395,10 +393,6 @@ function problemOf(input: unknown, cpOrigin: string | null): Found | null {
   const o = obj(input);
   if (!o) return null;
   try {
-    const details = o.details instanceof Map ? Object.fromEntries(o.details) : obj(o.details);
-    if ((o.kind === "integrity" || o.kind === "key_inconsistent") && details?.operation === "append") {
-      return {codes: ["sync_delayed"], retryAfterMs: retry(details.retry_after_ms), updateUrl: null};
-    }
     // A phase: its problem (if any) is already described.
     if (typeof o.kind === "string" && "problem" in o && obj(o.problem) && typeof obj(o.problem)!.code === "string") return problemOf(obj(o.problem)!.code, cpOrigin);
     // Server detail counts only if it re-validates as a sanitized SDK problem.

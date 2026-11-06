@@ -21,7 +21,7 @@ use mdbn_core::state::Overlay;
 use mdbn_wire::attachment_runtime_v1::Op as RtOp;
 use mdbn_wire::client::{Connection, IncidentKind, ReceiptState};
 use mdbn_wire::common::Text;
-use mdbn_wire::common::{B16, Bytes, Hash, Uuid, Value};
+use mdbn_wire::common::{B16, Bytes, Hash, Uuid};
 use mdbn_wire::entry::EntryPayload;
 use mdbn_wire::envelope::{Item, ItemKind};
 use mdbn_wire::intent::Op;
@@ -108,7 +108,7 @@ pub(crate) enum AppendState {
     RetryAt(i64, Sent),
     /// Don't plan before this time (contention backoff, transient errors).
     WaitUntil(i64),
-    /// Stopped until something changes (forbidden, gone, upgrade required).
+    /// Stopped until something changes (forbidden, gone, invalid twice).
     Stopped,
 }
 
@@ -313,27 +313,6 @@ impl<S: Store> Replica<S> {
         }
         let rows = self.store.pending(None, self.tuning.max_items.min(64))?;
         if rows.is_empty() {
-            self.append_retry = None;
-            self.clear_append_incident(IncidentKind::Integrity);
-            self.clear_append_incident(IncidentKind::KeyInconsistent);
-            return Ok(());
-        }
-        if rows
-            .iter()
-            .any(|row| self.sealer.idem_token(&row.mutation.id).is_none())
-        {
-            self.incident(
-                IncidentKind::KeyInconsistent,
-                Some(Value::Map(vec![
-                    ("operation".into(), Value::Text("append".into())),
-                    ("reason".into(), Value::Text("missing_idem_key".into())),
-                ])),
-            );
-            self.refresh_mode_history();
-            return Ok(());
-        }
-        self.clear_append_incident(IncidentKind::KeyInconsistent);
-        if self.append_retry.is_some_and(|(at, _)| self.now() < at) {
             return Ok(());
         }
         let catalog = self.catalog.clone();
@@ -1186,31 +1165,6 @@ impl<S: Store> Replica<S> {
         }
     }
 
-    fn clear_append_incident(&mut self, kind: IncidentKind) {
-        if self.incidents.get(&kind.value()).is_some_and(|incident| {
-            matches!(&incident.details, Some(Value::Map(details))
-                if details.iter().any(|(key, value)| key == "operation"
-                    && value == &Value::Text("append".into())))
-        }) {
-            self.clear_incident(kind);
-        }
-    }
-
-    fn append_retry_deadline(&mut self, retry_after_ms: Option<u64>) -> i64 {
-        let interval = self
-            .append_retry
-            .map_or(self.tuning.retry_ms, |(_, interval)| {
-                interval.saturating_mul(2)
-            })
-            .clamp(1_000, 60_000);
-        let wait = interval.max(retry_after_ms.unwrap_or(0));
-        let at = self
-            .now()
-            .saturating_add(i64::try_from(wait).unwrap_or(i64::MAX));
-        self.append_retry = Some((at, interval));
-        at
-    }
-
     /// Rejected at head: resolve the receipt, drop from pending, rebuild the view.
     pub(crate) fn resolve_rejected(
         &mut self,
@@ -1371,10 +1325,6 @@ impl<S: Store> Replica<S> {
             }
             Ok(LogResponse::Append(AppendResult::Appended(a))) => {
                 self.moved_streak = 0;
-                if !sent.mutations.is_empty() {
-                    self.append_retry = None;
-                    self.clear_append_incident(IncidentKind::Integrity);
-                }
                 self.head_known = self.head_known.max(a.last);
                 self.clear_quota_refusal();
                 let items: Vec<mdbn_wire::log_service::SeqItem> = sent
@@ -1473,7 +1423,7 @@ impl<S: Store> Replica<S> {
                 code,
                 retry_after_ms,
                 missing,
-                reason,
+                ..
             }) => match code {
                 LogErrorCode::Unavailable
                 | LogErrorCode::RateLimited
@@ -1535,22 +1485,16 @@ impl<S: Store> Replica<S> {
                     }
                 }
                 _ => {
-                    let at = self.append_retry_deadline(retry_after_ms);
+                    // invalid / not_found / too_large on one item: a bug or a stale
+                    // replica. Re-read and stop until something changes.
                     self.incident(
                         IncidentKind::Integrity,
-                        Some(Value::Map(vec![
-                            ("operation".into(), Value::Text("append".into())),
-                            ("code".into(), Value::Text(code.as_str().into())),
-                            ("reason".into(), reason.map_or(Value::Null, Value::Text)),
-                            (
-                                "retry_after_ms".into(),
-                                Value::Int(at.saturating_sub(self.now())),
-                            ),
-                        ])),
+                        Some(mdbn_wire::common::Value::Text(format!(
+                            "append refused: {}",
+                            code.as_str()
+                        ))),
                     );
-                    if sent.mutations.is_empty() {
-                        self.append = AppendState::RetryAt(at, sent);
-                    }
+                    self.append = AppendState::Stopped;
                     self.caught_up = false;
                     self.request_read();
                 }
@@ -1707,9 +1651,6 @@ impl<S: Store> Replica<S> {
             AppendState::WaitUntil(t) => Some(*t),
             _ => None,
         };
-        let refusal = self
-            .append_retry
-            .and_then(|(at, _)| (at > self.now()).then_some(at));
         // The escrow's fallback key grant opens at a known time: wake for it.
         let grant = self.key_grant_turn().filter(|t| *t > self.now());
         let stall_probe = match self.stalled {
@@ -1738,7 +1679,6 @@ impl<S: Store> Replica<S> {
         let native_blob = self.unindexed_blob_fetches.next_wakeup();
         [
             append,
-            refusal,
             grant,
             stall_probe,
             upload,
@@ -1978,14 +1918,6 @@ impl<S: Store> Replica<S> {
                 // never dropped: planning a new batch while it may have landed is
                 // what confirmed writes at positions that didn't exist.
                 match std::mem::replace(&mut self.append, AppendState::Idle) {
-                    AppendState::RetryAt(at, sent)
-                        if at > self.now()
-                            && self
-                                .append_retry
-                                .is_some_and(|(deadline, _)| deadline == at) =>
-                    {
-                        self.append = AppendState::RetryAt(at, sent);
-                    }
                     AppendState::RetryAt(_, sent) | AppendState::InFlight(sent) => {
                         self.send_append(sent)
                     }

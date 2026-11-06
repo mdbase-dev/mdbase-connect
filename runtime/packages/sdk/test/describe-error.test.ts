@@ -5,11 +5,6 @@ import { MdbaseError } from "../src/errors.js";
 import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "../src/collection-quota-copy.generated.js";
 
 describe("describeError", () => {
-  it.each(["integrity", "key_inconsistent"])("describes an append %s incident without claiming a terminal failure", kind => {
-    expect(describeError({kind, details: new Map<string, unknown>([["operation", "append"], ["code", "invalid"], ["reason", "cbor_alloc"], ["retry_after_ms", 60_000]])}))
-      .toMatchObject({key: "sync_delayed", action: "wait", transient: true, retryAfterMs: 60_000});
-    expect(describeError({kind: "integrity", details: new Map([["operation", "apply"]])})).toBeNull();
-  });
   it("describes unfinished consent neutrally without blaming mdbase", () => {
     for (const input of [{ reason: "refused" }, { problem: "refused" }]) {
       expect(describeError(input)).toMatchObject({ title: "Sign-in wasn't finished", message: "Access wasn't approved. Sign in again when you're ready.", severity: "info", action: "sign_in" });
