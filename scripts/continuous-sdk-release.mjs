@@ -152,6 +152,10 @@ export async function plan(kind, output, env = process.env) {
   assert.equal(git("rev-parse", "HEAD"), env.GITHUB_SHA);
   requireRunning(env.SDK_RELEASE_STOPPED);
   const commit = await checkoutProductionCommit(env);
+  // npm refuses provenance that names any commit but this run's own, so a run
+  // on a newer main stands down and leaves the selected source unpublished.
+  const current = commit === env.GITHUB_SHA;
+  if (!current) console.log(`Selected ${commit} is not this run's commit; publishing nothing.`);
   env = { ...env, GITHUB_SHA: commit };
   if (env.LIVE_PUBLICATION === "true") checkPriorAttempts(kind, env);
   const packages = kind === "source" ? [sdk] : await publicPackages();
@@ -165,7 +169,7 @@ export async function plan(kind, output, env = process.env) {
       try { return git("show", `${commit}:${path}`); }
       catch (error) { if (error.status === 128) return undefined; throw error; }
     };
-    if (paths.some(path => {
+    if (current && paths.some(path => {
       if (!packageInputs(path, item, kind)) return false;
       if (!/(?:^|\/)package(?:-lock)?\.json$/.test(path)) return contentChanged(path);
       return contentChanged(path, readAt(baseline.commit, path), readAt(env.GITHUB_SHA, path));

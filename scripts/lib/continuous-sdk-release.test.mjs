@@ -248,6 +248,12 @@ test("all SDK consumers pin the selected source, including npm provenance, witho
   }
 });
 
+test("a run on a newer main publishes nothing, because npm provenance must name the run's own commit", () => {
+  const source = readFileSync("scripts/continuous-sdk-release.mjs", "utf8");
+  assert.match(source, /const current = commit === env\.GITHUB_SHA;\n[^\n]*\n  env = \{ \.\.\.env, GITHUB_SHA: commit \}/);
+  assert.match(source, /if \(current && paths\.some\(/);
+});
+
 test("npm provenance gets the selected source SHA, not Actions' newer workflow SHA", () => {
   const workflow = readFileSync(new URL("../../.github/workflows/publish-sdk-npm.yml", import.meta.url), "utf8");
   const step = workflow.split("      - name: Publish the verified production archive with provenance\n")[1].split(/\n  [a-z][a-z-]*:\n/)[0];

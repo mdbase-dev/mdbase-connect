@@ -72,9 +72,13 @@ Build, pack and publisher checkouts use that plan commit, never a newly resolved
 main tip. Source-sensitive shell commands explicitly export it as `GITHUB_SHA`,
 including npm's provenance generation (a job-level default-variable override
 would be ignored by Actions). The workflow and OIDC publisher identity remain
-on main; GitHub build attestations identify that actual workflow invocation,
-while the archives and npm resolved source identify the selected commit. Moving
-main before or during the run neither suppresses changes nor refuses publication.
+on main.
+
+npm refuses provenance whose source commit differs from the commit the workflow
+ran on, so a run publishes only when the selected commit is the run's own commit.
+When main has moved past production, the plan reports no changed packages and the
+run ends successfully without publishing. A later run on a production-contained
+main publishes the change.
 
 Runtime CI now qualifies every main push, including documentation-only
 successors, so a newer main commit cannot strand an otherwise changed SDK
