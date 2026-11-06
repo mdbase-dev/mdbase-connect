@@ -946,7 +946,7 @@ impl<S: Store> Replica<S> {
         if derived_version < crate::store::DERIVED_DATA_VERSION {
             // Reuse the catalog rebuild; never reset authoritative local state.
             // Stamp only after ALL pages succeed so an interrupted open retries.
-            r.reindex()?;
+            r.reindex().map_err(|e| OpenError::StoreAt("reindex", e))?;
             r.store.commit(crate::store::Tx {
                 meta: vec![(
                     meta_keys::DERIVED_VERSION.into(),
@@ -965,9 +965,23 @@ impl<S: Store> Replica<S> {
         r.rebuild_local_view(&changed)
             .map_err(|e| OpenError::Corrupt(format!("{e:?}")))?;
         // A store opened without a complete query index (older store, crash after
-        // an invalidating write) is backfilled before serving.
-        r.backfill_query_index()
-            .map_err(|e| OpenError::StoreAt("query_index_backfill", e))?;
+        // an invalidating write) is backfilled before serving. A budget refusal
+        // leaves it unready, as after an install: the backend alone certifies
+        // readiness, queries use the per-record path or decline visibly, and the
+        // incident reports it. Other store errors stop the open.
+        match r.backfill_query_index() {
+            Ok(()) => {}
+            Err(StoreError::Full) => {
+                r.query_context = None;
+                r.incident(
+                    IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text(
+                        "store: query index backfill: over budget".into(),
+                    )),
+                );
+            }
+            Err(e) => return Err(OpenError::StoreAt("query_index_backfill", e)),
+        }
         // Whatever the view captured while rebuilding is replaced by what the disk holds.
         r.before.clear();
         r.load_regressed().map_err(OpenError::Store)?;

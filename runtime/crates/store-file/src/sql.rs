@@ -1151,49 +1151,63 @@ impl<I: IndexStorage> Store for SqlStore<I> {
         // AppIndex/appSqlHost share one Worker, scope WebLock and SAH/SQLite
         // exclusive ownership. No await/reentrant writer between these reads.
         const GROUP_BYTES: u64 = 2 << 20;
-        let metadata: Vec<(String, u64)> = self.all(
-            "SELECT path, length(CAST(doc AS BLOB)) FROM st_res ORDER BY path",
-            vec![],
-            |r| match r {
-                [SqlValue::Text(p), SqlValue::Integer(n)] if *n >= 0 => Ok((p.clone(), *n as u64)),
-                _ => Err(corrupt("resource metadata")),
-            },
-        )?;
-        let mut out = Vec::with_capacity(metadata.len());
-        let mut start = 0;
-        while start < metadata.len() {
-            let mut end = start;
-            let mut charged = 0;
-            while end < metadata.len() {
-                let (path, bytes) = &metadata[end];
-                let cost = bytes + path.len() as u64 + 16;
-                if end > start && cost > GROUP_BYTES.saturating_sub(charged) {
-                    break;
-                }
-                charged += cost;
-                end += 1;
-            }
-            let group = &metadata[start..end];
-            let rows: Vec<(String, String)> = self.all(
-                "SELECT path, doc FROM st_res WHERE path >= ?1 AND path <= ?2 ORDER BY path",
-                vec![t(&group[0].0), t(&group[group.len() - 1].0)],
+        // Paged metadata: a hosted reply carries at most 4,096 rows and 4 MiB,
+        // and a 256-row page stays well inside both at the longest stored path.
+        const METADATA_ROWS: u32 = 256;
+        let mut out = Vec::new();
+        let mut after: Option<String> = None;
+        loop {
+            let mut metadata: Vec<(String, u64)> = self.all(
+                "SELECT path, length(CAST(doc AS BLOB)) FROM st_res \
+                 WHERE (?1 IS NULL OR path > ?1) ORDER BY path LIMIT ?2",
+                vec![
+                    after.as_deref().map(t).unwrap_or(SqlValue::Null),
+                    int(METADATA_ROWS),
+                ],
                 |r| match r {
-                    [SqlValue::Text(p), SqlValue::Text(d)] => Ok((p.clone(), d.clone())),
-                    _ => Err(corrupt("resource")),
+                    [SqlValue::Text(p), SqlValue::Integer(n)] if *n >= 0 => {
+                        Ok((p.clone(), *n as u64))
+                    }
+                    _ => Err(corrupt("resource metadata")),
                 },
             )?;
-            if rows.len() != group.len()
-                || rows
-                    .iter()
-                    .zip(group)
-                    .any(|((p, d), (expected, bytes))| p != expected || d.len() as u64 != *bytes)
-            {
-                return Err(corrupt("resource inventory changed"));
+            let mut start = 0;
+            while start < metadata.len() {
+                let mut end = start;
+                let mut charged = 0;
+                while end < metadata.len() {
+                    let (path, bytes) = &metadata[end];
+                    let cost = bytes + path.len() as u64 + 16;
+                    if end > start && cost > GROUP_BYTES.saturating_sub(charged) {
+                        break;
+                    }
+                    charged += cost;
+                    end += 1;
+                }
+                let group = &metadata[start..end];
+                let rows: Vec<(String, String)> = self.all(
+                    "SELECT path, doc FROM st_res WHERE path >= ?1 AND path <= ?2 ORDER BY path",
+                    vec![t(&group[0].0), t(&group[group.len() - 1].0)],
+                    |r| match r {
+                        [SqlValue::Text(p), SqlValue::Text(d)] => Ok((p.clone(), d.clone())),
+                        _ => Err(corrupt("resource")),
+                    },
+                )?;
+                if rows.len() != group.len()
+                    || rows.iter().zip(group).any(|((p, d), (expected, bytes))| {
+                        p != expected || d.len() as u64 != *bytes
+                    })
+                {
+                    return Err(corrupt("resource inventory changed"));
+                }
+                out.extend(rows);
+                start = end;
             }
-            out.extend(rows);
-            start = end;
+            if metadata.len() < METADATA_ROWS as usize {
+                return Ok(out);
+            }
+            after = metadata.pop().map(|(path, _)| path);
         }
-        Ok(out)
     }
     fn settings(&self) -> StoreResult<Option<FileInclusion>> {
         self.one(

@@ -2,7 +2,7 @@
 //! authoritative writes. Storage errors are never recategorized as optional.
 use super::Replica;
 use crate::plan::QueryProjectionContext;
-use crate::store::{Store, StoreResult, Tx};
+use crate::store::{RecordRow, Store, StoreResult, Tx};
 use crate::store_query::QueryIndexTx;
 use mdbn_core::query::FieldRef;
 use mdbn_wire::common::Sem;
@@ -115,6 +115,30 @@ impl<S: Store> Replica<S> {
 /// SqlStore transports them in byte-bounded groups, but this requested page is
 /// still retained in memory. Record admission and heap bounds remain separate.
 const BACKFILL_PAGE: u32 = 16;
+/// Documents one transaction may rewrite or project. A hosted request carries at
+/// most 4 MiB, and a row's SQL (links, index rows, raw fields) costs more than
+/// its document, so this leaves the room a full 128-record page would not.
+const TX_DOCUMENT_BYTES: usize = 1 << 20;
+
+/// `rows` in order, split so no transaction exceeds [`TX_DOCUMENT_BYTES`]. A
+/// single larger document keeps its own transaction. No rows make one empty
+/// batch: a backfill's last page may have only publication left to do.
+pub(crate) fn byte_batches(rows: Vec<RecordRow>) -> Vec<Vec<RecordRow>> {
+    let mut batches = vec![Vec::new()];
+    let mut bytes = 0usize;
+    for row in rows {
+        let cost = row.doc.len().saturating_add(row.path.len());
+        let current = batches.last_mut().expect("at least one batch");
+        if !current.is_empty() && cost > TX_DOCUMENT_BYTES.saturating_sub(bytes) {
+            batches.push(vec![row]);
+            bytes = cost;
+        } else {
+            current.push(row);
+            bytes = bytes.saturating_add(cost);
+        }
+    }
+    batches
+}
 
 impl<S: Store> Replica<S> {
     /// Make the maintained index complete for the current confirmed state, when it
@@ -161,27 +185,31 @@ impl<S: Store> Replica<S> {
             })?;
             let done = page.len() < BACKFILL_PAGE as usize;
             after = page.last().map(|r| r.id);
-            let mut rows = Vec::with_capacity(page.len());
-            for row in &page {
-                match context.project_row(row) {
-                    Ok(r) => rows.push(r),
-                    Err(_) => {
-                        // Optional: stays unready; the per-record path answers.
-                        self.query_context = Some(context);
-                        return Ok(());
+            let batches = byte_batches(page);
+            let last = batches.len() - 1;
+            for (at, batch) in batches.iter().enumerate() {
+                let mut rows = Vec::with_capacity(batch.len());
+                for row in batch {
+                    match context.project_row(row) {
+                        Ok(r) => rows.push(r),
+                        Err(_) => {
+                            // Optional: stays unready; the per-record path answers.
+                            self.query_context = Some(context);
+                            return Ok(());
+                        }
                     }
                 }
+                self.store.commit(Tx {
+                    query_index: Some(QueryIndexTx {
+                        generation: context.generation(),
+                        replace_specs: first.then(|| context.fields().to_vec()),
+                        rows,
+                        publish_at: (done && at == last).then_some(head),
+                    }),
+                    ..Tx::default()
+                })?;
+                first = false;
             }
-            self.store.commit(Tx {
-                query_index: Some(QueryIndexTx {
-                    generation: context.generation(),
-                    replace_specs: first.then(|| context.fields().to_vec()),
-                    rows,
-                    publish_at: done.then_some(head),
-                }),
-                ..Tx::default()
-            })?;
-            first = false;
             if done {
                 break;
             }

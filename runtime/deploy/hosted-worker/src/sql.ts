@@ -162,6 +162,7 @@ function budgetLine(e: Fail, sql: string | undefined): string {
 
 export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Uint8Array {
   let stmts: { sql: string; params: Val[] }[] = [];
+  let at: number | undefined;
   try {
     if (request.length > MAX_BYTES) throw new Fail(FULL, "request over budget");
     const r = new Reader(request);
@@ -204,6 +205,7 @@ export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Ui
     let rows = 0;
     const run = () => {
       stmts.forEach((s, i) => {
+        at = i;
         let cursor: SqlStorageCursor<Record<string, SqlStorageValue>>;
         try {
           cursor = execIndexStatement(storage, s, mode === 0);
@@ -240,7 +242,7 @@ export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Ui
     return w.done();
   } catch (e) {
     if (e instanceof Fail && e.kind === FULL) {
-      try { console.warn(budgetLine(e, e.stmt === undefined ? undefined : stmts[e.stmt]?.sql)); } catch { /* Logging is not authority. */ }
+      try { console.warn(budgetLine(e, stmts[e.stmt ?? at ?? -1]?.sql)); } catch { /* Logging is not authority. */ }
     }
     return error(e);
   }
