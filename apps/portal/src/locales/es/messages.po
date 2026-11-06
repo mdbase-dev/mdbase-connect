@@ -174,11 +174,6 @@ msgstr "{0} ahora está alojada."
 msgid "{0} is offline."
 msgstr "{0} está sin conexión."
 
-#. placeholder {0}: collection.name
-#: src/ConnectApp.tsx
-msgid "{0} is stored on your computers."
-msgstr "{0} se almacena en tus ordenadores."
-
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
@@ -1172,10 +1167,6 @@ msgstr "Continúa solo si iniciaste esto y reconoces esta app."
 #: src/authorization-view.tsx
 msgid "Continue only if you started this and recognize this site."
 msgstr "Continúa solo si iniciaste esto y reconoces este sitio."
-
-#: src/auth-view.tsx
-msgid "Continue with email"
-msgstr "Continuar con correo electrónico"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"

@@ -762,8 +762,15 @@ test("another computer shows its comparison code and is allowed with one click, 
     await prompt.getByText("Only allow if this matches the code on Laptop", { exact: true }).waitFor();
     await prompt.getByText("012 345", { exact: true }).waitFor();
     assert.equal(await prompt.getByRole("button", { name: "Deny" }).count(), 1);
+    const spacing = await page.locator(".device-requests").evaluate(element => ({
+      gap: element.getBoundingClientRect().top - document.querySelector(".topbar").getBoundingClientRect().bottom,
+      counts: element.querySelectorAll(".section-heading .count").length
+    }));
+    assert.equal(spacing.gap, 32);
+    assert.equal(spacing.counts, 0);
     await screenshot(page, "device-approval");
-    await prompt.getByRole("button", { name: "Allow" }).click();
+    await prompt.getByRole("button", { name: "Allow" }).focus();
+    await page.keyboard.press("Enter");
     await page.getByText("Laptop can now open Diary.", { exact: true }).waitFor();
     assert.deepEqual(await calls("approveDevice"), [["c-private", "d-laptop", "012345"]]);
     assert.deepEqual(errors, []);

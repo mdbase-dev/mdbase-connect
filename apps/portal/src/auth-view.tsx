@@ -85,7 +85,6 @@ function Loading({ error }: { error: string }) {
 export function Login() {
   useLocaleRevision();
   const [name, setName] = useState("Callum");
-  const [emailVisible, setEmailVisible] = useState(false);
   const [email, setEmail] = useState("callum@example.com");
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [error, setError] = useState(authenticationFlowError);
@@ -153,8 +152,7 @@ export function Login() {
         {new URLSearchParams(location.search).get("reason") === "session-expired" && <p role="status"><Trans>Your session expired. Sign in to pick up where you left off.</Trans></p>}
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         <AuthProviders providers={providers} divider={false} onError={setError} />
-        {config.password_login && !emailVisible && <button className="mdbase-button email-choice" type="button" aria-expanded={false} onClick={() => setEmailVisible(true)}><Trans>Continue with email</Trans></button>}
-        {config.password_login && emailVisible && (
+        {config.password_login && (
           <PasswordLoginForm
             recoveryAvailable={config.password_recovery === true}
             onError={setError}
@@ -182,7 +180,7 @@ export function Login() {
         <h1><Trans>Open your account</Trans></h1>
         <p><Trans>Development authentication is enabled.</Trans></p>
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
-        <AuthInput label={t(i18n)({ message: "Name", context: "Account sign-in" })} autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
+        <AuthInput label={t(i18n)({ message: "Name", context: "Account sign-in" })} autoFocus autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
         <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })} type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
         <button className="mdbase-button is-primary" type="submit" disabled={busy}><Trans>Continue</Trans></button>
       </form>
@@ -618,6 +616,7 @@ export function Signup({
         {!requestSubmitted && config.password_public_registration && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void requestVerification(event)}>
             <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
+              autoFocus
               type="email"
               autoComplete="email"
               maxLength={320}
@@ -655,6 +654,7 @@ export function Signup({
               value={verifiedEmail}
             />
             <AuthInput label={t(i18n)({ message: "Name", context: "Account sign-in" })}
+              autoFocus
               autoComplete="name"
               maxLength={100}
               required

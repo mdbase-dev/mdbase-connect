@@ -14,6 +14,7 @@ export interface Command {
   readonly keywords?: string | undefined;
   /** For example "mod+shift+f"; see shortcutLabel. */
   readonly shortcut?: string | undefined;
+  readonly context?: string | undefined;
   readonly run: () => void;
   /** A variant run with Shift+Enter or Shift+click, such as opening beside the document. */
   readonly alternate?: { readonly label: string; readonly run: () => void } | undefined;
@@ -49,6 +50,10 @@ export function shortcutLabel(shortcut: string): string {
 const browseLimit = 6;
 const searchLimit = 40;
 
+function contextualCommands(commands: readonly Command[]): readonly Command[] {
+  return [...commands.filter(command => command.context).map(command => ({ ...command, group: "context" })), ...commands.filter(command => !command.context)];
+}
+
 /**
  * Without a query, show a few of each group (every command of the groups in `showAll`); with
  * one, show every command matching all its terms, grouped in their original order.
@@ -58,13 +63,14 @@ export function matchingCommands(
   query: string,
   showAll: readonly string[] = []
 ): readonly Command[] {
+  commands = contextualCommands(commands);
   const terms = query.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean);
   if (terms.length === 0) {
     const counts = new Map<string, number>();
     return commands.filter((command) => {
       const count = counts.get(command.group) ?? 0;
       counts.set(command.group, count + 1);
-      return showAll.includes(command.group) || count < browseLimit;
+      return command.context !== undefined || showAll.includes(command.group) || count < browseLimit;
     });
   }
   const matches = commands.filter((command) => {
@@ -73,7 +79,7 @@ export function matchingCommands(
   });
   const names = matches.filter(command => terms.every(term => command.label.toLocaleLowerCase().includes(term)));
   const selected = [...names, ...matches.filter(command => !names.includes(command))].slice(0, searchLimit);
-  const groups = [...new Set(selected.map(({ group }) => group))];
+  const groups = [...new Set([...selected.filter(command => command.context), ...selected.filter(command => !command.context)].map(({ group }) => group))];
   return groups.flatMap((group) => selected.filter((command) => command.group === group));
 }
 
@@ -121,7 +127,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
-  const matches = useMemo(() => getResults ? getResults(query) : matchingCommands(commands, query, showAll), [commands, query, showAll, getResults]);
+  const matches = useMemo(() => getResults ? contextualCommands(getResults(query)) : matchingCommands(commands, query, showAll), [commands, query, showAll, getResults]);
   useLayoutEffect(() => {
     resultsRef.current!.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [active, matches]);
@@ -161,7 +167,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
             {command.group !== matches[index - 1]?.group
-              ? <div className="mdbase-command-group" role="presentation">{groupLabel ? groupLabel(command.group) : command.group}</div>
+              ? <div className="mdbase-command-group" role="presentation">{command.context ?? (groupLabel ? groupLabel(command.group) : command.group)}</div>
               : null}
             <CommandRow id={`${hintId}-${command.id}`} command={command} query={query} active={index === active} onRun={run} />
           </Fragment>)

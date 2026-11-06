@@ -110,6 +110,12 @@ export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "htt
         if (path === "/v1/me" && method === "GET") return state.name === "server-500"
           ? send(error("The review server could not load your account. Try again."), 500) : send(data);
         if (path === "/v1/ui-configuration" && method === "GET") return send({ editor_url: editorUrl });
+        const mode = path.match(/^\/v1\/next\/collections\/([^/]+)\/mode$/);
+        if (mode && method === "GET") {
+          const collection = data.native_collections?.find(collection => collection.id === mode[1]);
+          if (!collection) return send(error("Collection not found"), 404);
+          return send({ collection_id: collection.id, current_mode: collection.sync, execution_available: false, change: null });
+        }
         if (path === "/v1/account/sessions" && method === "GET") return send({ sessions: state.sessions });
         if (path === "/v1/account/sessions/revoke-others" && method === "POST") { state.sessions = state.sessions.filter(session => session.current); return send({ ok: true }); }
         if (path.startsWith("/v1/account/sessions/") && method === "DELETE") { state.sessions = state.sessions.filter(session => session.id !== path.split("/").at(-1)); return send({ ok: true }); }
@@ -185,7 +191,7 @@ export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "htt
           const action = authorization[2];
           if (action === "status" && method === "GET") return send({ status: state.authorizationStatus, ...(state.authorizationRedirect ? { redirect_uri: state.authorizationRedirect } : {}) });
           if (!action && method === "GET") return send({ authorization: state.authorization,
-            collections: [...data.collections.map(collection => ({ ...collection, kind: "local" })), ...data.hosted_collections.map(collection => ({ ...collection, connector_name: "Hosted by mdbase", kind: "hosted" }))],
+            collections: [...data.collections.map(collection => ({ ...collection, kind: "local" })), ...data.hosted_collections.map(collection => ({ ...collection, connector_name: "Hosted by mdbase", kind: "hosted" })), ...(data.native_collections ?? []).map(collection => ({ ...collection, kind: collection.sync, connector_id: "", connector_name: "Cloud copy configured", spec_version: "0.3.0", contracts: [], enabled: true }))],
             hosted_collections_available: true, unavailable_connectors: [{ connector_id: "computer-2", connector_name: "Travel laptop", reason: "offline" }] });
           if (method === "POST" && ["approve", "deny"].includes(action)) {
             if (action === "approve") {

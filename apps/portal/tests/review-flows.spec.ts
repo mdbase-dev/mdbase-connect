@@ -1058,7 +1058,7 @@ test("successful collection deletion focuses the next surviving row", async ({ p
 
 test("signed-out pairing signs in locally and remembers approval", async ({ page }) => {
   await openScenario(page, "pairing-signed-out");
-  await page.getByRole("button", { name: "Continue with email", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Email", exact: true })).toBeFocused();
   await page.getByRole("textbox", { name: "Email", exact: true }).fill("maya@chen.example");
   await page.getByLabel("Password", { exact: true }).fill("review-only-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();

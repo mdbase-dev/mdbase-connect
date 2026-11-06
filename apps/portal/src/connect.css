@@ -998,3 +998,5 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
   .connect-nav .sidebar-search kbd,
   .connect-list-filter kbd { display: none; }
 }
+.connect-collection-row,
+.connect-application { view-transition-name: match-element; }

@@ -126,9 +126,13 @@ const definitions = [
   ["signup", "/signup", "Create an account", 0, state => { state.signedIn = false; }],
   ["signup-agreements", "/signup#verification=review-email", "Create an account", 0, state => { state.signedIn = false; }],
   ["forgot-password", "/forgot-password", "Reset your password", 0, state => { state.signedIn = false; }],
+  ["reset-password", "/reset-password#reset=review-reset", "Choose a new password", 0, state => { state.signedIn = false; }],
   ["onboarding-pending", "/getting-started", "Creating your first collection", 0, state => { state.onboarding = "pending"; }],
   ["onboarding-failed", "/getting-started", "We couldn't create your collection", 0, state => { state.onboarding = "failed"; }],
   ["empty-account", "/collections", "No collections", 0],
+  ["new-cloud-copy", "/collections", "New cloud notes", 0, state => {
+    state.overview.native_collections = [{ id: "native-cloud", display_name: "New cloud notes", sync: "cloud_copy", computer_ids: [], access: { relationship: "owner", role: "owner", can_manage_members: false } }];
+  }],
   ["single-collection", "/?collection=collection-0", "Field research", 1],
   ["typical-account", "/collections", "Collections", 5],
   ["sync-conflict", "/access?collection=hosted-0", "Resolve the conflicting changes in the desktop app", 5],

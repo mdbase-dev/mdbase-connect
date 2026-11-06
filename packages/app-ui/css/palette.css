@@ -41,11 +41,14 @@
 }
 
 .mdbase-command-results {
+  height: 380px;
   max-height: 380px;
   overflow: auto;
   padding: 4px 6px 8px;
   scroll-padding: 28px 0 8px;
 }
+
+.mdbase-command-results:has(> .mdbase-command-empty) { height: auto; }
 
 .mdbase-command-group {
   position: sticky;

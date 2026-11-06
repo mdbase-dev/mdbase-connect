@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import { useId, useLayoutEffect, useRef, type JSX, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, type JSX, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useLocaleRevision } from "./i18n.js";
 import { useOverlay } from "./overlay.js";
@@ -47,7 +47,7 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
     if (closeDisabled && (!dialog.contains(document.activeElement) || document.activeElement?.matches(":disabled"))) dialog.focus({ preventScroll: true });
     if (!closeDisabled && document.activeElement === dialog) dialog.querySelector<HTMLElement>("[data-autofocus]:not(:disabled)")?.focus({ preventScroll: true });
   }, [closeDisabled, open, ref]);
-  useLayoutEffect(() => {
+  useEffect(() => {
     const dialog = ref.current;
     return () => {
       const wasOpen = dialog?.open;
