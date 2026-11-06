@@ -8,10 +8,22 @@ import { provenSource } from '../../../../scripts/continuous-sdk-release.mjs';
 const repository='mdbase-dev/mdbase-connect';
 const workflow='publish-sdk-npm.yml';
 const need=(ok,message)=>{if(!ok)throw Error('SDK authentication refusal: '+message);};
-export async function publicBytes(url,fetchImpl=fetch) {
- const response=await fetchImpl(url,{redirect:'follow',signal:AbortSignal.timeout(30000)});
- need(response.ok,'public artifact unavailable');
- return Buffer.from(await response.arrayBuffer());
+const retryable=status=>status===403||status===408||status===429||status>=500;
+// Authentication judges the bytes, so repeating a public read cannot weaken it.
+export async function publicBytes(url,fetchImpl=fetch,delays=[5000,20000]) {
+ for(const delay of [...delays,null]) {
+  let status='no response';
+  try {
+   const response=await fetchImpl(url,{redirect:'follow',signal:AbortSignal.timeout(30000)});
+   if(response.ok)return Buffer.from(await response.arrayBuffer());
+   status=response.status;
+   need(retryable(status),`public artifact unavailable (${status})`);
+  } catch(error) {
+   if(String(error.message).startsWith('SDK authentication refusal'))throw error;
+  }
+  need(delay!==null,`public artifact unavailable (${status})`);
+  await new Promise(resolve=>setTimeout(resolve,delay));
+ }
 }
 export async function authenticateProduction(pin,bytes,{fetchImpl=fetch,prove=provenSource}={}) {
  const url=`https://registry.npmjs.org/@mdbase-dev/sdk/${pin.version}`;
