@@ -90,6 +90,22 @@ test("a running snapshot install wakes at once, reports counts only, then falls 
   mock.restoreAll();
 });
 
+test("a refused session logs counts only, whichever role refused it", async () => {
+  for (const escrow of [false, true]) {
+    const lines = [];
+    mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
+    const t = object(escrow); t.o.wakeId = "wake-1";
+    const closed = [];
+    const e = engine();
+    Object.assign(e, { hello: () => ({ session: null, response: new Uint8Array(1) }), serving: () => false, installStatus: () => ({ done: 64, total: 600 }) });
+    t.o.engine = e;
+    await t.o.webSocketMessage({ deserializeAttachment: () => ({ wake: "wake-1" }), send() {}, close: (...c) => closed.push(c) }, new ArrayBuffer(1));
+    assert.deepEqual(closed, [[1008, "refused"]]);
+    assert.deepEqual(lines, [{ event: "hosted_session_refused", role: escrow ? "escrow" : "hosted", serving: false, installing: true }]);
+    mock.restoreAll();
+  }
+});
+
 test("the install wake stays ahead of any earlier engine deadline", async (ctx) => {
   mock.method(console, "info", () => {});
   const t = object(); t.o.log = logReplying();

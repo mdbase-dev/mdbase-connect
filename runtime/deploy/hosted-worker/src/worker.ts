@@ -1488,6 +1488,11 @@ export class HostedCollection extends DurableObject<Env> {
     return new Response("not found", { status: 404 });
   }
 
+  /** Counts only, in every environment: a refusal otherwise leaves no production trace. */
+  private noteRefused(engine: Engine): void {
+    try { console.info(JSON.stringify({ event: "hosted_session_refused", role: this.escrow ? "escrow" : "hosted", serving: engine.serving(), installing: engine.installStatus() !== null })); } catch { /* Logging is not authority. */ }
+  }
+
   /** End an app session: Noise state, reassembly and the replica session. */
   private endApp(engine: Engine, ws: WebSocket, a: AppAttachment, code: number, reason: string): void {
     if (a.noise) {
@@ -1544,7 +1549,10 @@ export class HostedCollection extends DurableObject<Env> {
         }
         if (!m2) return this.endApp(engine, ws, a, 1011, "handshake");
         ws.send(m2);
-        if (!session) return this.endApp(engine, ws, a, 1008, "refused");
+        if (!session) {
+          this.noteRefused(engine);
+          return this.endApp(engine, ws, a, 1008, "refused");
+        }
         ws.serializeAttachment({ ...a, session, client: toHex(m1.peer) } satisfies AppAttachment);
       } finally {
         m1.payload.fill(0);
@@ -1605,6 +1613,7 @@ export class HostedCollection extends DurableObject<Env> {
       const { session, response } = engine.hello(null, frame);
       ws.send(response);
       if (!session) {
+        this.noteRefused(engine);
         ws.close(1008, "refused");
         return;
       }
