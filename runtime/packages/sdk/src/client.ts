@@ -1385,7 +1385,9 @@ export class MdbaseClient {
 
   /**
    * Pending mutations of this session's owner (its grant, or the device), oldest
-   * first (§6): a new session after a reload sees writes made before it. Follow
+   * first (§6): a new session after a reload sees writes made before it. A parked
+   * permanent refusal carries a rejected receipt and retains its original ops;
+   * use its problem/recovery and export those ops before clearing device storage. Follow
    * each with `awaitReceipt`, or keep the `mutationId` you chose and call
    * `receipt(id)` / `awaitReceipt(id)`. Pages through everything.
    */

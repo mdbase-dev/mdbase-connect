@@ -731,7 +731,7 @@ impl PgStore {
             exec(
                 t,
                 st,
-                "DELETE FROM rs_local_receipts WHERE c = $1 AND resolved_at < $2",
+                "DELETE FROM rs_local_receipts WHERE c = $1 AND resolved_at < $2 AND NOT EXISTS (SELECT 1 FROM rs_pending WHERE rs_pending.c = rs_local_receipts.c AND rs_pending.mutation = rs_local_receipts.mutation)",
                 &[c, &at],
             )?;
         }

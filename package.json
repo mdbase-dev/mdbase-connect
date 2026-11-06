@@ -91,6 +91,7 @@
     "pretypecheck": "pnpm i18n:check && pnpm build:packages",
     "typecheck": "pnpm -r typecheck",
     "ci:local": "node scripts/ci-local.mjs",
+    "test:runtime-sdk": "npm ci --prefix runtime/packages/sdk --no-audit --no-fund && npm run typecheck --prefix runtime/packages/sdk && npm exec --prefix runtime/packages/sdk -- vitest run --root runtime/packages/sdk --maxWorkers=4",
     "pin:mdbase-rs": "node scripts/mdbase-rs-pin.mjs set",
     "version:check": "node scripts/check-release-version.mjs",
     "version:set": "node scripts/set-release-version.mjs",

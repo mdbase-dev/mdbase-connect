@@ -329,9 +329,8 @@ export class FilesApi {
     if (o.onProgress) this.progress.set(transfer, o.onProgress);
     const busyUntil = Date.now() + REGION_BUSY_WAIT_MS;
     for (;;) {
-      const phase = { committing: false };
       try {
-        return await this.uploadOnce(source, size, open, o, phase);
+        return await this.uploadOnce(source, size, open, o);
       } catch (e) {
         // Retry after a dropped link; the transfer survives on the replica.
         if (isMdbaseError(e, "unavailable") && this.client.link === "reconnecting") continue;
@@ -342,17 +341,14 @@ export class FilesApi {
           continue;
         }
         this.progress.delete(transfer);
-        // Nothing can have been captured before commit: release the replica's
-        // upload lane so a failed transfer never blocks the next one. A retry
-        // under the same transferId and mutationId opens it afresh.
-        if (!phase.committing) await this.abortUpload(transfer).catch(() => {});
+        await this.abortUpload(transfer).catch(() => {});
         // Resume under the same transferId and mutationId; never a new identity.
         throw withMutation(e, "upload", { mutationId: open.mutationId });
       }
     }
   }
 
-  private async uploadOnce(source: UploadSource, size: number, open: OpenUploadParams, o: UploadOptions, phase: { committing: boolean }): Promise<FileWrite> {
+  private async uploadOnce(source: UploadSource, size: number, open: OpenUploadParams, o: UploadOptions): Promise<FileWrite> {
     const s = await this.session(o.signal);
     const sig = o.signal ? { signal: o.signal } : {};
     const opened = await s.request("open_upload", openUploadParams.enc(open), { codec: openUploadResult, ...sig });
@@ -388,7 +384,6 @@ export class FilesApi {
       if (inflight.size >= 4) await Promise.race(inflight);
     }
     await Promise.all(inflight);
-    phase.committing = true;
     const r = await s.request("commit_upload", m([[0, uuidCodec.enc(open.transfer)]]), {
       codec: receiptCodec,
       ...sig,
@@ -402,7 +397,7 @@ export class FilesApi {
     return w;
   }
 
-  /** Abort an upload; the replica discards its chunks. */
+  /** Release the upload lane. An already captured write remains durable; use its receipt to resolve the outcome. */
   abortUpload(transferId: Uuid): Promise<void> {
     return this.client.call("abort_upload", m([[0, uuidCodec.enc(transferId)]])).then(() => {});
   }

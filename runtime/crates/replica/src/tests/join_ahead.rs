@@ -563,3 +563,100 @@ fn a_device_granted_after_a_revocation_rekey_holds_epoch_one_and_can_write() {
     let m = B16([0x77; 16]);
     assert_eq!(b.r.sealer.idem_token(&m), a.r.sealer.idem_token(&m));
 }
+
+#[test]
+fn reload_then_write_rebuilds_epoch_one_without_replaying_content() {
+    use crate::Store;
+    use crate::api::ClientApi;
+    use crate::log::LogPort;
+    let (svc, mut cp, mut a) = world(CState::E2e);
+    cp.append(
+        &svc,
+        vec![enrol(C, TEST_OWNER, DeviceKind::Desktop, C_KEYS)],
+    );
+    cp.revoke(&svc, C);
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.policy.epoch, 2);
+    enrol_b(&svc, &mut cp);
+    member_grant(&mut a, B, B_KEYS.1);
+    let sealer = || -> Option<Box<dyn crate::seal::Sealer>> {
+        Some(Box::new(KeyringSealer::new(COL, B, &B_KEYS.0, &B_KEYS.1)))
+    };
+    let store = MemStore::new().with_keyring_rebuild();
+    let data = store.data();
+    let mut b = node_with(&svc, 2, store, vec![A], sealer());
+    settle(&mut [&mut b]);
+    assert_eq!(b.doc(1).as_deref(), Some("written before B joined"));
+    let first = b.create(10, "before-reload.md", "fresh session");
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(
+        b.r.receipt(b.s, first.mutation).unwrap().state,
+        mdbn_wire::client::ReceiptState::Confirmed
+    );
+    let head = b.r.head();
+    drop(b);
+    let mut b = node_with(&svc, 2, MemStore::shared(data.clone()), vec![A], sealer());
+    assert_eq!(b.r.head(), head);
+    assert!(b.r.keyring_rebuilding());
+    settle(&mut [&mut b]);
+    assert!(!b.r.keyring_rebuilding() && !b.r.keyring_rebuild_failed());
+    assert_eq!(b.r.head(), head);
+    b.r.host.entropy = Box::new(crate::crypto::TestEntropy::new(99));
+    let second = b.create(11, "after-reload.md", "restored session");
+    let calls = b.r.take_log_calls();
+    let append = calls
+        .iter()
+        .find_map(|call| match &call.request {
+            crate::log::LogRequest::Append(params) => Some(params),
+            _ => None,
+        })
+        .expect("write appends immediately after key rebuild");
+    assert_eq!(append.expect_seq, head.seq + 1);
+    let item = mdbn_wire::envelope::Item::from_bytes(&append.items[0].0).unwrap();
+    item.check_shape().unwrap();
+    assert_eq!(item.idem, b.r.sealer.idem_token(&second.mutation));
+    for call in calls {
+        use crate::log::LogClient;
+        let reply = b.log.call(call.request);
+        b.r.on_log_reply(call.id, reply);
+    }
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(
+        b.r.receipt(b.s, second.mutation).unwrap().state,
+        mdbn_wire::client::ReceiptState::Confirmed
+    );
+    assert_eq!(a.doc(11).as_deref(), Some("restored session"));
+    assert_eq!(data.borrow().keyring_writes, 0);
+    let current =
+        b.r.sealer
+            .testing_epoch_keys()
+            .into_iter()
+            .find(|(epoch, _)| *epoch == 2)
+            .unwrap()
+            .1;
+    let mut partial = crate::crypto::keys::Keyring::new();
+    partial.insert(2, crate::crypto::Secret32(*current));
+    let keys = partial.to_bytes();
+    let mut encoded = zeroize::Zeroizing::new((keys.len() as u64).to_be_bytes().to_vec());
+    encoded.extend_from_slice(&keys);
+    b.r.sealer.import(&encoded).unwrap();
+    assert_eq!(b.r.sealer.current_epoch(), Some(2));
+    let refused = b.create(12, "missing-history.md", "must stay on device");
+    assert!(
+        b.r.take_log_calls()
+            .iter()
+            .all(|call| !matches!(call.request, crate::log::LogRequest::Append(_)))
+    );
+    let receipt = b.r.receipt(b.s, refused.mutation).unwrap();
+    assert_eq!(receipt.state, mdbn_wire::client::ReceiptState::Rejected);
+    assert_eq!(
+        receipt.problem.unwrap().reason.as_deref(),
+        Some("append_refused")
+    );
+    assert!(
+        b.r.store()
+            .pending_get(&refused.mutation)
+            .unwrap()
+            .is_some()
+    );
+}

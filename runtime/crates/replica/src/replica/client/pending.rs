@@ -76,7 +76,7 @@ impl<S: Store> Replica<S> {
             }
             if grant.is_none() || row.grant == grant {
                 let entry = PendingMutation {
-                    receipt: self.pending_receipt(&row.mutation.id),
+                    receipt: self.captured_receipt(&row.mutation.id).map_err(store_err)?,
                     captured: row.mutation.clock.instant,
                     ops: row.mutation.ops,
                 };

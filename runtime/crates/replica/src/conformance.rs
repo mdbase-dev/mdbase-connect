@@ -1263,7 +1263,7 @@ fn local_state(s: &mut dyn Store) {
             ..Tx::default()
         },
     );
-    assert_eq!(s.local_receipt(&id(1)).unwrap(), Some(lr));
+    assert_eq!(s.local_receipt(&id(1)).unwrap(), Some(lr.clone()));
     assert_eq!(s.hold(&id(2)).unwrap(), Some(hold));
     assert_eq!(s.holds().unwrap().len(), 1);
     assert_eq!(
@@ -1283,6 +1283,26 @@ fn local_state(s: &mut dyn Store) {
     assert!(s.local_receipt(&id(1)).unwrap().is_none());
     assert!(s.holds().unwrap().is_empty());
     assert!(s.meta("a").unwrap().is_none());
+    commit(
+        s,
+        Tx {
+            pending_put: vec![pending_row(1, 1)],
+            local_receipts_put: vec![lr.clone()],
+            local_receipts_prune: Some(i64::MAX),
+            ..Tx::default()
+        },
+    );
+    assert_eq!(s.local_receipt(&id(1)).unwrap(), Some(lr));
+    assert!(s.pending_get(&id(1)).unwrap().is_some());
+    commit(
+        s,
+        Tx {
+            pending_del: vec![id(1)],
+            local_receipts_prune: Some(i64::MAX),
+            ..Tx::default()
+        },
+    );
+    assert!(s.local_receipt(&id(1)).unwrap().is_none());
 }
 
 fn transfers_blobs(s: &mut dyn Store) {

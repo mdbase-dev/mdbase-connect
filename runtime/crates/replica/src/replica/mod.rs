@@ -1228,7 +1228,9 @@ impl<S: Store> Replica<S> {
             for row in rows {
                 rows_seen += 1;
                 max_order = max_order.max(row.order);
-                let replan = !changed.is_empty() && row.touches.iter().any(|k| changed.contains(k));
+                let replan = !self.append_parked(&row.mutation.id)?
+                    && !changed.is_empty()
+                    && row.touches.iter().any(|k| changed.contains(k));
                 let effects = if replan {
                     self.stats.replanned += 1;
                     let view = StoreView::new(&self.store, catalog.clone());

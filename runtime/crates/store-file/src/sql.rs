@@ -1714,7 +1714,7 @@ impl<I: IndexStorage> Store for SqlStore<I> {
         }
         if let Some(tm) = tx.local_receipts_prune {
             s.push(st(
-                "DELETE FROM st_lreceipt WHERE resolved < ?",
+                "DELETE FROM st_lreceipt WHERE resolved < ? AND NOT EXISTS (SELECT 1 FROM st_pending WHERE st_pending.m = st_lreceipt.m)",
                 vec![SqlValue::Integer(tm)],
             ));
         }

@@ -59,6 +59,20 @@ pub(crate) fn store_err(e: crate::store::StoreError) -> ApiError {
     }
 }
 
+fn local_receipt_view(receipt: LocalReceipt) -> Receipt {
+    Receipt {
+        relocated_from: None,
+        mutation: receipt.mutation,
+        state: receipt.state,
+        seq: receipt.seq,
+        status: receipt.status,
+        conflicts: (!receipt.conflicts.is_empty()).then_some(receipt.conflicts),
+        records: None,
+        problem: receipt.problem,
+        published: None,
+    }
+}
+
 impl<S: Store> Replica<S> {
     /// Capture time with the monotonic clamp (`00-overview.md` §7).
     pub(super) fn capture_instant(&mut self) -> i64 {
@@ -80,7 +94,11 @@ impl<S: Store> Replica<S> {
             return self.known_receipt(id);
         }
         if let Some(p) = self.store.pending_get(id)? {
-            return Ok((p.grant == viewer).then(|| self.pending_receipt(id)));
+            return if p.grant == viewer {
+                self.captured_receipt(id).map(Some)
+            } else {
+                Ok(None)
+            };
         }
         if let Some(l) = self.store.local_receipt(id)? {
             if l.grant != viewer {
@@ -110,40 +128,26 @@ impl<S: Store> Replica<S> {
         }
     }
 
+    pub(super) fn captured_receipt(&self, id: &Uuid) -> Result<Receipt, crate::store::StoreError> {
+        if self.append_parked(id)? {
+            let receipt = self.store.local_receipt(id)?.ok_or_else(|| {
+                crate::store::StoreError::Corrupt("parked append receipt missing".into())
+            })?;
+            return Ok(local_receipt_view(receipt));
+        }
+        Ok(self.pending_receipt(id))
+    }
+
     /// The current receipt of a mutation this replica knows, if any (unscoped).
     pub(crate) fn known_receipt(
         &self,
         id: &Uuid,
     ) -> Result<Option<Receipt>, crate::store::StoreError> {
         if self.store.pending_get(id)?.is_some() {
-            return Ok(Some(Receipt {
-                relocated_from: None,
-                mutation: *id,
-                state: ReceiptState::Pending,
-                seq: None,
-                status: None,
-                conflicts: None,
-                records: None,
-                problem: None,
-                published: None,
-            }));
+            return self.captured_receipt(id).map(Some);
         }
         if let Some(l) = self.store.local_receipt(id)? {
-            return Ok(Some(Receipt {
-                relocated_from: None,
-                mutation: *id,
-                state: l.state,
-                seq: l.seq,
-                status: l.status,
-                conflicts: if l.conflicts.is_empty() {
-                    None
-                } else {
-                    Some(l.conflicts)
-                },
-                records: None,
-                problem: l.problem,
-                published: None,
-            }));
+            return Ok(Some(local_receipt_view(l)));
         }
         if let Some(r) = self.store.receipt(id)? {
             return Ok(Some(Receipt {

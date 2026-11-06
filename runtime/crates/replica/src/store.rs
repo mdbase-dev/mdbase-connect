@@ -281,8 +281,9 @@ pub struct ReceiptRow {
 }
 
 /// A replica-local receipt: what this replica told its clients about its own
-/// mutations once they left `pending` (rejected, unknown, or confirmed with status).
-/// Kept at least 24 hours after `resolved_at` (log-entry.md §7).
+/// mutations (rejected, unknown, or confirmed with status). An `append_refused`
+/// rejection parks its original PendingRow instead of deleting acknowledged intent.
+/// Kept at least 24 hours after `resolved_at`, and while its PendingRow exists.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalReceipt {
     /// Mutation ID.
@@ -297,7 +298,7 @@ pub struct LocalReceipt {
     pub conflicts: Vec<Conflict>,
     /// Problem, when rejected or unknown.
     pub problem: Option<Problem>,
-    /// When it left `pending` (host clock).
+    /// When this outcome was recorded (host clock).
     pub resolved_at: TimeMs,
     /// The grant that submitted it (`None`: the hosting app). Receipts are served only
     /// to sessions of the same grant.
@@ -801,7 +802,7 @@ pub struct Tx {
     pub pending_del: Vec<Uuid>,
     /// Local receipts to put.
     pub local_receipts_put: Vec<LocalReceipt>,
-    /// Drop local receipts resolved before this time.
+    /// Drop local receipts resolved before this time, unless a pending row still references them.
     pub local_receipts_prune: Option<TimeMs>,
     /// Holds to put (by ID).
     pub holds_put: Vec<Hold>,

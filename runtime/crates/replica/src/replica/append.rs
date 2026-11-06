@@ -315,6 +315,19 @@ impl<S: Store> Replica<S> {
         if rows.is_empty() {
             return Ok(());
         }
+        for row in &rows {
+            if self.append_parked(&row.mutation.id)? {
+                self.append = AppendState::Stopped;
+                return Ok(());
+            }
+        }
+        if rows
+            .iter()
+            .any(|row| self.sealer.idem_token(&row.mutation.id).is_none())
+        {
+            self.park_append(&rows.iter().map(|row| row.mutation.id).collect::<Vec<_>>())?;
+            return Ok(());
+        }
         let catalog = self.catalog.clone();
         let view = StoreView::new(&self.store, catalog);
         let mut overlay = Overlay::new(&view);
@@ -1165,6 +1178,48 @@ impl<S: Store> Replica<S> {
         }
     }
 
+    pub(super) fn append_parked(&self, id: &Uuid) -> Result<bool, StoreError> {
+        Ok(self.store.local_receipt(id)?.is_some_and(|receipt| {
+            receipt.state == ReceiptState::Rejected
+                && receipt
+                    .problem
+                    .as_ref()
+                    .and_then(|problem| problem.reason.as_deref())
+                    == Some("append_refused")
+        }))
+    }
+
+    fn park_append(&mut self, mutations: &[Uuid]) -> Result<(), StoreError> {
+        self.append = AppendState::Stopped;
+        let mut problem = crate::api::ErrorCode::Internal.problem(
+            "This change cannot sync. The original change is retained on this device; contact support before clearing device storage.",
+        );
+        problem.reason = Some("append_refused".into());
+        let mut tx = Tx::default();
+        for id in mutations {
+            if let Some(row) = self.store.pending_get(id)? {
+                tx.local_receipts_put.push(LocalReceipt {
+                    mutation: *id,
+                    state: ReceiptState::Rejected,
+                    seq: None,
+                    status: None,
+                    conflicts: Vec::new(),
+                    problem: Some(problem.clone()),
+                    resolved_at: self.now(),
+                    grant: row.grant,
+                });
+            }
+        }
+        self.store.commit(tx)?;
+        for id in mutations {
+            if let Some(receipt) = self.known_receipt(id)? {
+                self.push_durable_receipt(receipt.clone());
+                self.hosted_resolve(&receipt);
+            }
+        }
+        Ok(())
+    }
+
     /// Rejected at head: resolve the receipt, drop from pending, rebuild the view.
     pub(crate) fn resolve_rejected(
         &mut self,
@@ -1495,6 +1550,12 @@ impl<S: Store> Replica<S> {
                         ))),
                     );
                     self.append = AppendState::Stopped;
+                    if let Err(error) = self.park_append(&sent.mutations) {
+                        self.incident(
+                            IncidentKind::Integrity,
+                            Some(mdbn_wire::common::Value::Text(format!("store: {error}"))),
+                        );
+                    }
                     self.caught_up = false;
                     self.request_read();
                 }
