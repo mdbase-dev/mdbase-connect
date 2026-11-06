@@ -20,6 +20,8 @@ applyThemePreference(loadThemePreference());
   `--color-text-soft`, `--color-accent`, ...) for light, dark and system
   themes. Style components with roles, not palette values. Short aliases such
   as `--ink` belong to each app.
+  `--color-current` and `--color-on-current` mark the keyboard/pointer current
+  choice in palettes, completion lists and diagnostics; `--color-selected` stays subtle for persistent selections.
 - `theme` stores the System, Light or Dark choice as `mdbase:theme`.
 - `brand` draws the Frontmatter mark, each app's inverted mark, and the
   `mdbase <app>` wordmark. Add `motion.css` to animate the mark: loops

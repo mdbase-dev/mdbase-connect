@@ -14,7 +14,6 @@ h1 { margin: 0; font-size: var(--font-size-heading); font-weight: var(--font-wei
 .lede { max-width: 600px; margin: 4px 0 0; color: var(--muted); font-size: var(--font-size-ui); line-height: 1.5; }
 .workspace-stack { display: grid; gap: 56px; margin-top: 32px; }
 .device-requests { margin-top: 32px; }
-.completion-receipt { margin-top: 24px; padding: 18px 0 20px; border-top: 2px solid var(--connected); border-bottom: 1px solid var(--line); }
 .completion-receipt-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .completion-receipt-heading h2 { margin: 3px 0 0; font-size: 20px; letter-spacing: -0.025em; }
 .completion-receipt-facts { display: grid; grid-template-columns: minmax(130px, .65fr) minmax(220px, 1.35fr) minmax(220px, 1fr); margin: 18px 0; border-top: 1px solid var(--line); }

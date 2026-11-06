@@ -144,7 +144,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
             {command.group !== matches[index - 1]?.group
               ? <div className="mdbase-command-group" role="presentation">{command.context ?? (groupLabel ? groupLabel(command.group) : command.group)}</div>
               : null}
-            <CommandRow id={`${hintId}-${command.id}`} command={command} query={query} active={index === active} onRun={run} />
+            <CommandRow id={`${hintId}-${command.id}`} command={command} query={query} active={index === active} onActivate={() => setActive(index)} onRun={run} />
           </Fragment>)
           : <div className="mdbase-command-empty" role="status">{emptyState ?? t({ message: "Nothing matches" })}</div>}
       </div>
@@ -159,18 +159,19 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   </>;
 }
 
-function CommandRow({ id, command, query, active, onRun }: {
+function CommandRow({ id, command, query, active, onActivate, onRun }: {
   readonly id: string;
   readonly command: Command;
   readonly query: string;
   readonly active: boolean;
+  readonly onActivate: () => void;
   readonly onRun: (command: Command, alternate?: boolean) => void;
 }): JSX.Element {
   useLocaleRevision();
   const pattern = query.trim().split(/\s+/u).filter(Boolean).map(term => term.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|");
   const label = pattern ? command.label.split(new RegExp(`(${pattern})`, "giu"))
     .map((part, index) => index % 2 ? <mark key={index}>{part}</mark> : part) : command.label;
-  return <button id={id} tabIndex={-1} type="button" role="option" aria-selected={active} onMouseDown={event => event.preventDefault()} onClick={(event) => onRun(command, event.shiftKey)}>
+  return <button id={id} tabIndex={-1} type="button" role="option" aria-selected={active} onPointerMove={event => { if (event.movementX || event.movementY) onActivate(); }} onMouseDown={event => event.preventDefault()} onClick={(event) => onRun(command, event.shiftKey)}>
     {command.icon && <span className="mdbase-command-icon" aria-hidden="true">{command.icon}</span>}
     <span className="mdbase-command-copy">
       {command.content ?? <><strong>{label}</strong>{command.detail ? <small>{command.detail}</small> : null}</>}

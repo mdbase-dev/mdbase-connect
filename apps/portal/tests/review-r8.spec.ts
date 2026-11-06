@@ -17,12 +17,16 @@ async function fillOnly(element: Locator) {
       return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
     };
     const background = luminance(style.backgroundColor);
+    let surface = element.parentElement!;
+    while (getComputedStyle(surface).backgroundColor === "rgba(0, 0, 0, 0)" && surface.parentElement) surface = surface.parentElement;
+    const surrounding = luminance(getComputedStyle(surface).backgroundColor);
     const contrast = (foreground: string) => {
       const text = luminance(foreground);
       return (Math.max(text, background) + .05) / (Math.min(text, background) + .05);
     };
     return { border: style.borderLeftWidth, shadow: style.boxShadow, before: getComputedStyle(element, "::before").content,
-      background: style.backgroundColor, contrast: Math.min(contrast(style.color), ...[...element.querySelectorAll("strong, small, kbd")].map(child => contrast(getComputedStyle(child).color))) };
+      background: style.backgroundColor, fillContrast: (Math.max(background, surrounding) + .05) / (Math.min(background, surrounding) + .05),
+      contrast: Math.min(contrast(style.color), ...[...element.querySelectorAll("strong, small, kbd, .mdbase-command-icon, .cm-completionLabel, .cm-completionDetail, .cm-completionMatchedText, .cm-completionIcon, .cm-diagnosticSource")].map(child => contrast(getComputedStyle(child).color))) };
   });
   expect(appearance.border).toBe("0px");
   expect(appearance.shadow).toBe("none");
@@ -75,7 +79,10 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
         const diagnostic = page.locator(`.cm-diagnostic-${severity}`);
         await expect(diagnostic).toBeVisible();
         await expect(diagnostic).toHaveCSS("border-left-width", "0px");
-        await fillOnly(diagnostic);
+        const appearance = await fillOnly(diagnostic);
+        expect(appearance.fillContrast).toBeGreaterThanOrEqual(2.9);
+        await expect(diagnostic.locator(".cm-diagnosticSource")).toHaveCSS("opacity", "1");
+        await testInfo.attach(`lint-${severity}-contrast`, { body: JSON.stringify(appearance), contentType: "application/json" });
         await page.keyboard.press("Escape");
         await expect(input).toBeFocused();
         await page.locator(`.cm-lintRange-${severity}`).hover();
@@ -86,6 +93,76 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
         await page.screenshot({ path: testInfo.outputPath(`shared-${severity}-tints.png`) });
         await page.mouse.move(0, 0);
       }
+    });
+
+    test("completion current rows keep supporting text readable", async ({ page }, testInfo) => {
+      await page.clock.install({ time: new Date(clock) });
+      await openSharedStyleFixture(page);
+      const input = page.getByRole("textbox", { name: "Completion input" });
+      await input.click();
+      await page.keyboard.press("Control+Space");
+      const current = page.locator('.cm-tooltip-autocomplete li[aria-selected="true"]');
+      await expect(current).toContainText("alpha");
+      const first = await fillOnly(current);
+      await page.clock.runFor(80);
+      await page.keyboard.press("ArrowDown");
+      await expect(current).toContainText("beta");
+      const second = await fillOnly(current);
+      expect(first.fillContrast).toBeGreaterThanOrEqual(2.9);
+      expect(second.fillContrast).toBeGreaterThanOrEqual(2.9);
+      await testInfo.attach("completion-contrast", { body: JSON.stringify({ first, second }), contentType: "application/json" });
+      await page.screenshot({ path: testInfo.outputPath("completion-current.png") });
+      await page.keyboard.press("Enter");
+      await expect(input).toHaveText("beta");
+    });
+
+    test("palette pointer movement and arrow keys share exactly one active row", async ({ page }, testInfo) => {
+      await openScenario(page, "typical-account");
+      await page.getByRole("link", { name: "Coastal survey team", exact: true }).click();
+      await page.keyboard.press("Control+k");
+      const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+      const results = palette.locator(".mdbase-command-results");
+      const input = palette.getByRole("combobox");
+      const storage = results.getByRole("option", { name: /^Go to Storage/ });
+      const access = results.getByRole("option", { name: /^Go to Access/ });
+      await page.keyboard.type("go to");
+      await access.hover();
+      await expect(access).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("ArrowUp");
+      await expect(storage).toHaveAttribute("aria-selected", "true");
+      expect(await access.evaluate(element => element.matches(":hover"))).toBe(true);
+      await expect(access).toHaveAttribute("aria-selected", "false");
+      await expect(access).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(results.locator('[aria-selected="true"]')).toHaveCount(1);
+      await expect(input).toHaveAttribute("aria-activedescendant", await storage.getAttribute("id") as string);
+      const appearance = await fillOnly(storage);
+      expect(appearance.fillContrast).toBeGreaterThanOrEqual(2.9);
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/\/storage\?collection=/);
+      await page.keyboard.press("Control+k");
+      await page.mouse.move(0, 0);
+      await access.hover();
+      await expect(access).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("ArrowUp");
+      await expect(storage).toHaveAttribute("aria-selected", "true");
+      const beforeScroll = await results.evaluate(element => element.scrollTop);
+      expect(beforeScroll).toBeGreaterThan(0);
+      await page.mouse.wheel(0, -80);
+      await expect.poll(() => results.evaluate(element => element.scrollTop)).toBeLessThan(beforeScroll);
+      await expect(storage).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("ArrowDown");
+      await expect(access).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("ArrowUp");
+      await expect(storage).toHaveAttribute("aria-selected", "true");
+      const box = await access.boundingBox();
+      await page.mouse.move(box!.x + box!.width / 2 + 2, box!.y + box!.height / 2);
+      await expect(access).toHaveAttribute("aria-selected", "true");
+      await expect(storage).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(results.locator('[aria-selected="true"]')).toHaveCount(1);
+      await testInfo.attach("palette-current-contrast", { body: JSON.stringify(appearance), contentType: "application/json" });
+      await page.screenshot({ path: testInfo.outputPath("palette-current.png") });
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/\/access\?collection=/);
     });
 
     test("selection uses contrast-checked fills without edge stripes", async ({ page }, testInfo) => {

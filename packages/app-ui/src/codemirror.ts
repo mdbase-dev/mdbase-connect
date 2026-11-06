@@ -36,9 +36,10 @@ export const mdbasePopupTheme = EditorView.theme({
     lineHeight: "1.35"
   },
   ".cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]": {
-    color: "var(--color-text)",
-    background: "var(--color-selected)"
+    color: "var(--color-on-current)",
+    background: "var(--color-current)"
   },
+  ".cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] :is(.cm-completionLabel, .cm-completionDetail, .cm-completionMatchedText, .cm-completionIcon), .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionIcon::after": { color: "inherit" },
   ".cm-tooltip.cm-tooltip-autocomplete > ul > li > *": {
     minWidth: "0",
     overflow: "hidden",
@@ -96,5 +97,7 @@ export const mdbasePopupTheme = EditorView.theme({
   ".cm-diagnostic-error": { backgroundColor: "var(--color-danger-soft)" },
   ".cm-diagnostic-warning": { backgroundColor: "var(--color-warning-surface)" },
   ".cm-diagnostic-info, .cm-diagnostic-hint": { backgroundColor: "var(--color-accent-soft)" },
-  ".cm-panel.cm-panel-lint ul [aria-selected], .cm-panel.cm-panel-lint ul:focus [aria-selected]": { color: "var(--color-text)", backgroundColor: "var(--color-selected)" }
+  ".cm-panel.cm-panel-lint": { color: "var(--color-text)", backgroundColor: "var(--color-surface)" },
+  ".cm-panel.cm-panel-lint ul [aria-selected], .cm-panel.cm-panel-lint ul:focus [aria-selected]": { color: "var(--color-on-current)", backgroundColor: "var(--color-current)" },
+  ".cm-panel.cm-panel-lint [aria-selected] .cm-diagnosticSource": { opacity: "1" }
 });
