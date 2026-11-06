@@ -2945,6 +2945,7 @@ msgstr "Загрузка папок…"
 msgid "Loading note"
 msgstr "Загрузка заметки"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
 msgstr "Загрузка редактора заметки"
@@ -3921,6 +3922,7 @@ msgstr "Настройки сохраняются в этом браузере."
 msgid "Preparing “{0}”…"
 msgstr "Подготовка «{0}»…"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
 msgstr "Подготовка редактора…"

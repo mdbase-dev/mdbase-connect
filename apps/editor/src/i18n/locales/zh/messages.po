@@ -2945,6 +2945,7 @@ msgstr "正在加载文件夹…"
 msgid "Loading note"
 msgstr "正在加载笔记"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
 msgstr "正在加载笔记编辑器"
@@ -3921,6 +3922,7 @@ msgstr "偏好设置仅保存在此浏览器中。"
 msgid "Preparing “{0}”…"
 msgstr "正在准备“{0}”…"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
 msgstr "正在准备编辑器…"

@@ -43,7 +43,7 @@ describe("new note schema fields", () => {
 
     await chooseOption(user, screen.getByRole("combobox", { name: "Type" }), "event");
     await user.type(screen.getByRole("textbox", { name: "Title" }), "Planning session");
-    await user.click(screen.getByRole("textbox", { name: "Note body" }));
+    await user.click(await screen.findByRole("textbox", { name: "Note body" }));
     await user.paste("Decide what ships next.");
     const eventDate = screen.getByLabelText("event_date value");
     const startsAt = screen.getByLabelText("starts_at value");
@@ -105,7 +105,7 @@ describe("new note schema fields", () => {
 
     await chooseOption(user, screen.getByRole("combobox", { name: "Type" }), "contact");
     await user.type(screen.getByRole("textbox", { name: "Display Name" }), "Ada Lovelace");
-    await user.click(screen.getByRole("textbox", { name: "Note body" }));
+    await user.click(await screen.findByRole("textbox", { name: "Note body" }));
     await user.paste("Met at the analytical engine meetup.");
     expect(screen.getByRole("button", { name: "Create note" })).toBeDisabled();
 
@@ -139,7 +139,7 @@ describe("new note schema fields", () => {
     const pathDetails = screen.getByText("File path", { selector: "summary > span" }).closest("details");
     expect(pathDetails).not.toHaveAttribute("open");
 
-    await user.click(screen.getByRole("textbox", { name: "Note body" }));
+    await user.click(await screen.findByRole("textbox", { name: "Note body" }));
     await user.paste("A thought before the filing details.");
     await waitFor(() => expect(onDraftChange).toHaveBeenLastCalledWith(true));
 

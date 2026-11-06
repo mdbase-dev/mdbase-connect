@@ -2945,6 +2945,7 @@ msgstr "폴더 불러오는 중…"
 msgid "Loading note"
 msgstr "노트 불러오는 중"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
 msgstr "노트 편집기 불러오는 중"
@@ -3921,6 +3922,7 @@ msgstr "환경설정은 이 브라우저에 유지됩니다."
 msgid "Preparing “{0}”…"
 msgstr "“{0}” 준비 중…"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
 msgstr "편집기 준비 중…"

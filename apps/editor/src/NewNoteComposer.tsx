@@ -5,7 +5,7 @@ import { useLingui } from "@lingui/react";
 import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight } from "./icons";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
-import { CodeEditor } from "./CodeEditor";
+import { DeferredCodeEditor as CodeEditor } from "./DeferredCodeEditor";
 import { shortcutLabel } from "@mdbase-dev/ui/command-palette";
 import { commandDefinitions, matchesCommandShortcut } from "./editor-commands";
 import type { CreateNoteInput } from "./model";

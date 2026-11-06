@@ -45,7 +45,7 @@ for (const theme of ["light", "dark"] as const) for (const reducedMotion of ["no
       const selected = list.locator(".note-row.selected");
       await expect(selected).toHaveCSS("outline-style", "none");
       await expect(selected).toHaveCSS("background-color", await selected.evaluate((row) => {
-        const probe = document.createElement("span"); probe.style.background = "var(--accent-soft)"; row.append(probe);
+        const probe = document.createElement("span"); probe.style.background = "var(--selected)"; row.append(probe);
         const color = getComputedStyle(probe).backgroundColor; probe.remove(); return color;
       }));
       await page.keyboard.press("/");
@@ -100,14 +100,14 @@ for (const theme of ["light", "dark"] as const) for (const reducedMotion of ["no
         return body.scrollHeight <= body.clientHeight + 1 && [...body.querySelectorAll("kbd")].every((key) => key.getBoundingClientRect().bottom <= Math.min(bounds.bottom, innerHeight));
       });
       expect(fits).toBe(true);
-      await page.screenshot({ path: testInfo.outputPath("shortcuts.png") });
+      await dialog.screenshot({ path: testInfo.outputPath("shortcuts.png") });
       await page.keyboard.press("Escape");
       await page.keyboard.press("c");
       const composer = page.locator(".new-note-composer");
       const captureTitle = composer.getByRole("textbox", { name: "Title", exact: true });
       await expect(captureTitle).toBeVisible();
       expect(Math.abs((await captureTitle.boundingBox())!.x - noteX)).toBeLessThanOrEqual(1);
-      await page.screenshot({ path: testInfo.outputPath("composer.png") });
+      await composer.screenshot({ path: testInfo.outputPath("composer.png") });
     });
   });
 }
@@ -120,8 +120,9 @@ test("phone HTML and loading shell include search; touch opens without body focu
     await page.goto("?demo=40");
     await expect(page.locator(".editor-opening .list-header")).toBeVisible();
     await expect(page.locator(".editor-opening .search-field")).toBeVisible();
-    await expect(page.locator(".opening-list-skeleton span")).toHaveCount(6);
-    await page.screenshot({ path: testInfo.outputPath("phone-first-frame.png") });
+    await expect(page.locator(".opening-list-skeleton > div")).toHaveCount(6);
+    await expect(page.locator(".opening-list-skeleton span")).toHaveCount(18);
+    await page.locator(".editor-opening").screenshot({ path: testInfo.outputPath("phone-first-frame.png") });
     await page.unroute("**/assets/*.js");
     await page.goto("?demo=40");
     await page.getByRole("button", { name: "Back to notes" }).tap();

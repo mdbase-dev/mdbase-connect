@@ -2945,6 +2945,7 @@ msgstr "フォルダーを読み込み中…"
 msgid "Loading note"
 msgstr "ノートを読み込み中"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
 msgstr "ノートエディターを読み込み中"
@@ -3921,6 +3922,7 @@ msgstr "設定はこのブラウザーに保存されます。"
 msgid "Preparing “{0}”…"
 msgstr "「{0}」を準備中…"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
 msgstr "エディターを準備中…"

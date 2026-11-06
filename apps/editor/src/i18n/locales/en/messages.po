@@ -2945,6 +2945,7 @@ msgstr "Loading folders…"
 msgid "Loading note"
 msgstr "Loading note"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
 msgstr "Loading note editor"
@@ -3921,6 +3922,7 @@ msgstr "Preferences stay in this browser."
 msgid "Preparing “{0}”…"
 msgstr "Preparing “{0}”…"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
 msgstr "Preparing editor…"

@@ -12,6 +12,10 @@ vi.mock("./CodeEditor", () => ({
     <textarea aria-label={label} value={value} readOnly={readOnly} onChange={(event) => onChange?.(event.target.value)} onBlur={onBlur} />
 }));
 
+vi.mock("./DeferredCodeEditor", async () => ({
+  DeferredCodeEditor: (await import("./CodeEditor")).CodeEditor
+}));
+
 afterEach(() => vi.useRealTimers());
 
 describe("typed note properties", () => {

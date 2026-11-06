@@ -2945,6 +2945,7 @@ msgstr "Ordner werden geladen…"
 msgid "Loading note"
 msgstr "Notiz wird geladen"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
 msgstr "Notizeditor wird geladen"
@@ -3921,6 +3922,7 @@ msgstr "Einstellungen bleiben in diesem Browser."
 msgid "Preparing “{0}”…"
 msgstr "„{0}“ wird vorbereitet…"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
 msgstr "Editor wird vorbereitet…"
