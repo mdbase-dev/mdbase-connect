@@ -307,7 +307,7 @@ export const INTERNAL_PROBLEM_CODES = [
   "click_target_cross_origin", "context_required", "context_type_mismatch", "cursor_expired", "file_upload_identity_mismatch",
   "invalid_autosave", "invalid_binding", "invalid_call", "invalid_push_payload", "invalid_sas", "invalid_scope",
   "invalid_timeout", "invalid_timer_response", "invalid_typing_response", "invalid_validation_result", "invalid_view",
-  "key_id_changed", "read_many_bounds", "read_many_identity_mismatch", "read_many_selection", "record_identity_mismatch",
+  "key_id_changed", "query_cursor_required", "read_many_bounds", "read_many_identity_mismatch", "read_many_selection", "record_identity_mismatch",
   "record_lease_policy", "record_links_bounds", "record_links_missing", "record_links_response", "record_links_unsupported",
   "record_recovery_mismatch", "record_session_budget", "record_validation_stale", "record_witness_required", "strength",
   "strict_mode", "typing_bounds", "unsupported_push_version", "validation_bounds", "validation_selection",
