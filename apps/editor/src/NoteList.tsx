@@ -111,6 +111,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   const virtualizer = useVirtualizer({
     count: listItems.length,
     getScrollElement: () => scrollRef.current,
+    scrollPaddingEnd: 1,
     // Rows keep one height whether or not an excerpt has loaded, so the list never reflows as bodies arrive.
     estimateSize: (index) => listItems[index].kind === "header" ? 34 : 76,
     overscan: 8,
@@ -174,7 +175,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
       revealedEntry.current = identity;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEntryIndex, selectedFilePath, focusedPath]);
+  }, [selectedEntryIndex, selectedFilePath, focusedPath, searchQuery]);
 
   const handleListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable=true]")) return;
@@ -235,6 +236,14 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
           const entry = entries[0];
           if (entry.kind === "note") chooseNote(entry.path, "single", true);
           else openEntry(entry, { keyboard: true });
+        } else if (!first) {
+          if (searching) revealedEntry.current = undefined;
+          const entryIndex = entries.findIndex((entry) => selectedFilePath ? entry.kind === "file" && entry.path === selectedFilePath : entry.kind === "note" && entry.path === selectedPath);
+          if (entryIndex >= 0) {
+            if (!selectedFilePath && selectedPath) onSelection?.({ paths: [selectedPath], anchor: selectedPath, focus: selectedPath });
+            const itemIndex = listItems.findIndex((item) => item.entryIndex === entryIndex);
+            virtualizer.scrollToIndex(itemIndex, { align: "auto" });
+          }
         }
         scrollRef.current?.focus({ preventScroll: true });
       }} />
@@ -253,7 +262,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
           const selected = file.path === selectedFilePath;
           const pending = file.path === pendingFilePath;
           const title = collectionFileTitle(file);
-          return <button key={`file:${file.fileId}`} id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-label={t`${title}, ${collectionFileFormat(file)} file`} aria-selected={selected} aria-busy={pending || undefined} className={`note-row file-row${selected ? " selected" : ""}${pending ? " busy" : ""}`} onClick={() => { onSelection?.({ paths: [] }); onSelectFile(file); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title-line"><span className={`file-kind-icon ${file.mediaClass}`} aria-hidden="true" /><span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span><span className="file-format">{collectionFileFormat(file)}</span></span>{pending ? <span className="note-transition"><Trans>Opening</Trans></span> : <span className="note-detail"><time>{fileTimestamp(file)}</time><span>{formatFileSize(file.size)}</span><span className="file-folder">{fileFolder(file)}</span></span>}</button>;
+          return <button key={`file:${file.fileId}`} id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-label={t`${title}, ${collectionFileFormat(file)} file`} aria-selected={selected} aria-busy={pending || undefined} className={`note-row file-row${selected ? " selected list-focused" : ""}${pending ? " busy" : ""}`} onClick={() => { onSelection?.({ paths: [] }); onSelectFile(file); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title-line"><span className={`file-kind-icon ${file.mediaClass}`} aria-hidden="true" /><span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span><span className="file-format">{collectionFileFormat(file)}</span></span>{pending ? <span className="note-transition"><Trans>Opening</Trans></span> : <span className="note-detail"><time>{fileTimestamp(file)}</time><span>{formatFileSize(file.size)}</span><span className="file-folder">{fileFolder(file)}</span></span>}</button>;
         }
         const note = entry.note;
         const status: NoteRowStatus | undefined = pendingPath === note.path ? { label: t`Opening`, tone: "busy", busy: true } : statuses.get(note.path);

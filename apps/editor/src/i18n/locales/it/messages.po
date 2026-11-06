@@ -1002,6 +1002,7 @@ msgstr "Etichette indicative e colore usati per visualizzare i record di questo 
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "Tutte le note"
@@ -1107,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "Assegnato per nome"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "Allega file..."
 
@@ -1176,6 +1178,7 @@ msgid "Back to mdbase Connect"
 msgstr "Torna a mdbase Connect"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "Torna alle note"
 
@@ -3162,13 +3165,10 @@ msgstr "Modificato"
 msgid "Modified newest"
 msgstr "Modificate di recente"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "modificate meno di recente"
-
 #: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "Modificate meno di recente"
+
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "Altre regole di comportamento della raccolta in YAML"
@@ -3178,6 +3178,7 @@ msgid "More inferred rules in YAML"
 msgstr "Altre regole dedotte in YAML"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "Altre azioni sulle note"
 
@@ -3297,6 +3298,7 @@ msgstr "Nuova cartella"
 
 #: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3330,10 +3332,6 @@ msgstr "Nuova definizione di tipo"
 #: src/note-sort.ts
 msgid "Newest first"
 msgstr "Prima i più recenti"
-
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "Nota successiva o precedente"
 
 #: src/editor-commands.ts
 msgid "Next note"
@@ -3821,6 +3819,7 @@ msgstr "Percorso"
 #: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "Percorso dalla A alla Z"
+
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "Percorso copiato."
@@ -5627,6 +5626,7 @@ msgstr "Titolo"
 #: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "Titolo dalla A alla Z"
+
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "Differenze di titolo"

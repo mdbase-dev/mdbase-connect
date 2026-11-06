@@ -18,7 +18,9 @@ test("selection preserves the anchor, keyboard range works, batch tag changes sh
   await page.keyboard.press("Control+a");
   await expect(page.getByText("8 selected", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(list.locator('[aria-selected="true"]')).toHaveCount(0);
+  await expect(list.locator('[aria-selected="true"]')).toHaveCount(1);
+  await expect(list.locator(".note-row.list-focused")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "Selection actions" })).toHaveCount(0);
   await second.click({ modifiers: ["Shift"] });
   await page.getByRole("button", { name: "Selection actions" }).click();
   await page.getByRole("menuitem", { name: "Add tag", exact: true }).click();

@@ -1002,6 +1002,7 @@ msgstr "Libellés indicatifs et couleur utilisés pour afficher les documents de
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "Toutes les notes"
@@ -1107,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "Attribué par nom"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "Joindre un fichier…"
 
@@ -1176,6 +1178,7 @@ msgid "Back to mdbase Connect"
 msgstr "Retour à mdbase Connect"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "Retour aux notes"
 
@@ -3162,13 +3165,10 @@ msgstr "Modifié"
 msgid "Modified newest"
 msgstr "Modification la plus récente"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "modification la plus ancienne"
-
 #: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "Modification la plus ancienne"
+
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "Autres comportements de la collection en YAML"
@@ -3178,6 +3178,7 @@ msgid "More inferred rules in YAML"
 msgstr "Autres règles déduites en YAML"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "Autres actions sur la note"
 
@@ -3297,6 +3298,7 @@ msgstr "Nouveau dossier"
 
 #: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3330,10 +3332,6 @@ msgstr "Nouvelle définition de type"
 #: src/note-sort.ts
 msgid "Newest first"
 msgstr "Plus récents d’abord"
-
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "Note suivante ou précédente"
 
 #: src/editor-commands.ts
 msgid "Next note"
@@ -3821,6 +3819,7 @@ msgstr "Chemin"
 #: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "Chemin A–Z"
+
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "Chemin copié."
@@ -5627,6 +5626,7 @@ msgstr "Titre"
 #: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "Titre A–Z"
+
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "Différences de titre"

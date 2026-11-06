@@ -1002,6 +1002,7 @@ msgstr "显示此类型的记录时使用的提示标签和颜色。"
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "所有笔记"
@@ -1107,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "按名称指定"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "添加附件…"
 
@@ -1176,6 +1178,7 @@ msgid "Back to mdbase Connect"
 msgstr "返回 mdbase Connect"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "返回笔记"
 
@@ -3162,13 +3165,10 @@ msgstr "修改时间"
 msgid "Modified newest"
 msgstr "修改时间从新到旧"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "修改时间从旧到新"
-
 #: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "修改时间从旧到新"
+
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "YAML 中的更多集合行为"
@@ -3178,6 +3178,7 @@ msgid "More inferred rules in YAML"
 msgstr "YAML 中的更多推断规则"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "更多笔记操作"
 
@@ -3297,6 +3298,7 @@ msgstr "新建文件夹"
 
 #: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3330,10 +3332,6 @@ msgstr "新建类型定义"
 #: src/note-sort.ts
 msgid "Newest first"
 msgstr "最新优先"
-
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "下一篇或上一篇笔记"
 
 #: src/editor-commands.ts
 msgid "Next note"
@@ -3821,6 +3819,7 @@ msgstr "路径"
 #: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "路径 A–Z"
+
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "路径已复制。"
@@ -5627,6 +5626,7 @@ msgstr "标题"
 #: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "标题 A–Z"
+
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "标题差异"

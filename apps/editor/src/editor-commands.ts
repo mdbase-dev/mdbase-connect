@@ -19,6 +19,7 @@ export const commandDefinitions = {
   duplicate: { get label() { return t`Duplicate`; } },
   "copy-link": { get label() { return t`Copy link`; } },
   "copy-path": { get label() { return t`Copy path`; } },
+  "attach-file": { get label() { return t`Attach file…`; } },
   delete: { get label() { return t`Delete`; }, shortcut: "mod+Backspace", group: "Note", get scope() { return t`in the list`; } },
   pin: { get label() { return t`Pin`; }, get hint() { return t`Current note`; } },
   unpin: { get label() { return t`Unpin`; }, get hint() { return t`Current note`; } },

@@ -1002,6 +1002,7 @@ msgstr "この型のレコードを表示する際に使う補助的なラベル
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "すべてのノート"
@@ -1107,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "名前によって割り当て済み"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "ファイルを添付…"
 
@@ -1176,6 +1178,7 @@ msgid "Back to mdbase Connect"
 msgstr "mdbase Connect に戻る"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "ノート一覧に戻る"
 
@@ -3162,13 +3165,10 @@ msgstr "更新日時"
 msgid "Modified newest"
 msgstr "更新日時が新しい順"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "更新日時が古い順"
-
 #: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "更新日時が古い順"
+
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "その他のコレクション動作を YAML で設定"
@@ -3178,6 +3178,7 @@ msgid "More inferred rules in YAML"
 msgstr "その他の推論ルールを YAML で設定"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "その他のノート操作"
 
@@ -3297,6 +3298,7 @@ msgstr "新しいフォルダー"
 
 #: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3330,10 +3332,6 @@ msgstr "新しい型定義"
 #: src/note-sort.ts
 msgid "Newest first"
 msgstr "新しい順"
-
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "次または前のノート"
 
 #: src/editor-commands.ts
 msgid "Next note"
@@ -3821,6 +3819,7 @@ msgstr "パス"
 #: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "パスの昇順"
+
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "パスをコピーしました。"
@@ -5627,6 +5626,7 @@ msgstr "タイトル"
 #: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "タイトルの昇順"
+
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "タイトルの差分"

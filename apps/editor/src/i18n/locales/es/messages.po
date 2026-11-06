@@ -1002,6 +1002,7 @@ msgstr "Etiquetas y color orientativos que se usan al mostrar registros de este 
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "Todas las notas"
@@ -1107,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "Asignación por nombre"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "Adjuntar archivo…"
 
@@ -1176,6 +1178,7 @@ msgid "Back to mdbase Connect"
 msgstr "Volver a mdbase Connect"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "Volver a las notas"
 
@@ -3162,13 +3165,10 @@ msgstr "Modificado"
 msgid "Modified newest"
 msgstr "Modificación más reciente"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "modificación más antigua"
-
 #: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "Modificación más antigua"
+
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "Otros comportamientos de la colección en YAML"
@@ -3178,6 +3178,7 @@ msgid "More inferred rules in YAML"
 msgstr "Otras reglas de inferencia en YAML"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "Más acciones de la nota"
 
@@ -3297,6 +3298,7 @@ msgstr "Carpeta nueva"
 
 #: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3330,10 +3332,6 @@ msgstr "Nueva definición de tipo"
 #: src/note-sort.ts
 msgid "Newest first"
 msgstr "Más recientes primero"
-
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "Nota siguiente o anterior"
 
 #: src/editor-commands.ts
 msgid "Next note"
@@ -3821,6 +3819,7 @@ msgstr "Ruta"
 #: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "Ruta A–Z"
+
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "Ruta copiada."
@@ -5627,6 +5626,7 @@ msgstr "Título"
 #: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "Título A–Z"
+
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "Diferencias en el título"

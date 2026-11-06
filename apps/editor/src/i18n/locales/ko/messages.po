@@ -1002,6 +1002,7 @@ msgstr "이 유형의 레코드를 표시할 때 사용하는 참고용 레이�
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "모든 노트"
@@ -1107,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "이름으로 지정됨"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "파일 첨부…"
 
@@ -1176,6 +1178,7 @@ msgid "Back to mdbase Connect"
 msgstr "mdbase Connect로 돌아가기"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "노트로 돌아가기"
 
@@ -3162,13 +3165,10 @@ msgstr "수정됨"
 msgid "Modified newest"
 msgstr "최근 수정순"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "오래된 수정순"
-
 #: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "오래된 수정순"
+
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "YAML에서 더 많은 컬렉션 동작 설정"
@@ -3178,6 +3178,7 @@ msgid "More inferred rules in YAML"
 msgstr "YAML에서 더 많은 추론 규칙"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "추가 노트 작업"
 
@@ -3297,6 +3298,7 @@ msgstr "새 폴더"
 
 #: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3330,10 +3332,6 @@ msgstr "새 유형 정의"
 #: src/note-sort.ts
 msgid "Newest first"
 msgstr "최신순"
-
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "이전 또는 다음 노트"
 
 #: src/editor-commands.ts
 msgid "Next note"
@@ -3821,6 +3819,7 @@ msgstr "경로"
 #: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "경로 오름차순"
+
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "경로를 복사했습니다."
@@ -5627,6 +5626,7 @@ msgstr "제목"
 #: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "제목 오름차순"
+
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "제목 차이"

@@ -109,6 +109,7 @@ import {
 } from "./note-session";
 import { filterLabel, filterScopeLabel, loadPinnedNotes, savePinnedNotes, noteViewCommands, type NoteFilter, type NoteRowStatus, type NoteSelection } from "./note-list-view";
 import { defaultNoteSort, loadNoteSort, resolveNoteSort, saveNoteSort, sortableFields, type NoteSortPreference } from "./note-sort";
+import { isObject } from "./field-reference";
 import { NoteList } from "./NoteList";
 import { noteRowStatus } from "./note-mutation-presentation";
 import {
@@ -1721,6 +1722,15 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     else if (id === "note-open") setNoteOpenFailure(undefined);
     else if (id === "recovery") setRecoveryAction(undefined);
   }, []);
+  const confirmationDialog = confirmation && <ConfirmDialog open role="alertdialog" title={confirmation.title}
+    pendingLabel={t`Working…`}
+    confirmLabel={confirmation.confirmLabel}
+    cancelLabel={confirmation.cancelLabel}
+    tone={confirmation.tone}
+    initialFocus={confirmation.initialFocus ?? (confirmation.tone === "danger" ? "cancel" : "confirm")}
+    onConfirm={async () => { await confirmation.onConfirm(); confirmation.onDismiss?.(); setConfirmation(undefined); }}
+    onClose={() => { confirmation.onDismiss?.(); setConfirmation(undefined); }}
+  >{confirmation.body}</ConfirmDialog>;
   if (phase === "starting") return <OpeningScreen />;
   if (phase === "disconnected") return <>
     <ConnectScreen
@@ -1740,17 +1750,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       onOpen={(collectionId) => void openSavedCollection(collectionId)}
       onForget={requestForgetConnection}
     />
-    {confirmation && <ConfirmDialog role="alertdialog"
-      title={confirmation.title}
-      open
-      pendingLabel={t`Working…`}
-      confirmLabel={confirmation.confirmLabel}
-      cancelLabel={confirmation.cancelLabel}
-      tone={confirmation.tone}
-      initialFocus={confirmation.initialFocus ?? (confirmation.tone === "danger" ? "cancel" : "confirm")}
-      onConfirm={async () => { await confirmation.onConfirm(); confirmation.onDismiss?.(); setConfirmation(undefined); }}
-      onClose={() => { confirmation.onDismiss?.(); setConfirmation(undefined); }}
-    >{confirmation.body}</ConfirmDialog>}
+    {confirmationDialog}
   </>;
   if (phase === "loading" || !description) return <OpeningScreen />;
 
@@ -1783,10 +1783,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const historyForwardPath = noteHistoryState.paths[noteHistoryState.index + 1];
   const activeRemoteDocument = noteSessions.current.active?.remoteDocument;
   const activeRemoteDraft = activeRemoteDocument ? editableNote(activeRemoteDocument, typeDescriptors) : undefined;
-  const activePendingRename = pendingRenameRecovery?.plan.session === noteSessions.current.active
-    ? pendingRenameRecovery
-    : undefined;
+  const activePendingRename = pendingRenameRecovery?.plan.session === noteSessions.current.active ? pendingRenameRecovery : undefined;
   const multipleSelected = surface === "notes" && listSelection.paths.length > 1;
+  const attachFileAction = attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error))));
   const quickOpenCommands = buildEditorCommands({
     "new-note": canCreateNotes && !mutationsFrozen ? beginCreate : undefined,
     "new-note-in-folder": canCreateNotes && !mutationsFrozen ? () => beginNoteInFolder(document?.path.split("/").slice(0, -1).join("/") ?? (noteFilter?.kind === "folder" ? noteFilter.value : "")) : undefined,
@@ -1814,6 +1813,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       delete: canDeleteNotes && !mutationsFrozen && !bulkBusy && !multipleSelected ? () => void requestDelete(document.path) : undefined,
       "copy-link": () => copyFacet(`[[${document.path.replace(/\.md$/i, "")}]]`, t`note link`),
       "copy-path": () => copyFacet(document.path, t`note path`),
+      "attach-file": !attachFileAction.disabled ? attachFileAction.onSelect : undefined,
       ...(pinnedPaths.includes(document.path) ? { unpin: () => togglePin(document.path) } : { pin: () => togglePin(document.path) }),
       focus: toggleFocus,
       properties: () => { if (focusMode) toggleFocus(); setPropertiesOpen((value) => !value); },
@@ -1821,7 +1821,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       backlinks: () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); },
       "check-note": !mutationsFrozen ? () => void validateNote() : undefined
     } : {})
-  }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode` }).concat(noteViewCommands(chooseNoteSort, setNoteFilter, () => { setSearch(""); setNoteFilter(undefined); }, tagFacets, typeFacets, noteSortFields));
+  }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode`, "attach-file": attachFileAction.label }).concat(noteViewCommands(chooseNoteSort, setNoteFilter, () => { setSearch(""); setNoteFilter(undefined); }, tagFacets, typeFacets, noteSortFields));
   let recoveryMessage: string | undefined;
   if (recoveryAction) {
     switch (recoveryAction.kind) {
@@ -2059,7 +2059,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); }),
               menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
               ...(mobileLayout ? [menuCommand("properties", <Info aria-hidden="true" />, () => { if (focusMode) toggleFocus(); setBacklinksOpen(false); setPropertiesOpen(true); })] : []),
-              { ...attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error)))), separatorBefore: true },
+              { ...attachFileAction, separatorBefore: true },
               { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
               menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
               ].map(item => <Fragment key={item.label}>
@@ -2256,29 +2256,15 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       }, query)} onClose={() => setQuickOpen(false)} />
     {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
-    {confirmation && <ConfirmDialog role="alertdialog"
-      title={confirmation.title}
-      open
-      pendingLabel={t`Working…`}
-      confirmLabel={confirmation.confirmLabel}
-      cancelLabel={confirmation.cancelLabel}
-      tone={confirmation.tone}
-      initialFocus={confirmation.initialFocus ?? (confirmation.tone === "danger" ? "cancel" : "confirm")}
-      onConfirm={async () => { await confirmation.onConfirm(); confirmation.onDismiss?.(); setConfirmation(undefined); }}
-      onClose={() => { confirmation.onDismiss?.(); setConfirmation(undefined); }}
-    >{confirmation.body}</ConfirmDialog>}
+    {confirmationDialog}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}
     <NotePreviewCard preview={notePreviewController.preview} />
     <Toaster items={activeToasts} onDismiss={dismissToast} />
   </div>;
 }
 
-
 function collectionExplicitTypeKeys(configuration: unknown): string[] {
-  if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) return ["type", "types"];
-  const settings = (configuration as Record<string, unknown>).settings;
-  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return ["type", "types"];
-  const configured = (settings as Record<string, unknown>).explicit_type_keys;
-  if (!Array.isArray(configured)) return ["type", "types"];
-  return configured.filter((key): key is string => typeof key === "string");
+  const settings = isObject(configuration) ? configuration.settings : undefined;
+  const configured = isObject(settings) ? settings.explicit_type_keys : undefined;
+  return Array.isArray(configured) ? configured.filter((key): key is string => typeof key === "string") : ["type", "types"];
 }

@@ -94,7 +94,8 @@ describe("Note actions", () => {
       <App gateway={new DemoCollectionGateway(4)} />
     </LocaleProvider>);
     try {
-      await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Altre azioni sulle note" })).toBeEnabled());
+      await user.click(screen.getByRole("button", { name: "Altre azioni sulle note" }));
       await user.click(screen.getByRole("menuitem", { name: "Rinomina il percorso" }));
       expect(await screen.findByRole("textbox", { name: "Percorso Markdown" })).toBeInTheDocument();
     } finally {
@@ -112,7 +113,8 @@ describe("Note actions", () => {
       <App gateway={new DemoCollectionGateway(4)} />
     </LocaleProvider>);
     try {
-      await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Altre azioni sulle note" })).toBeEnabled());
+      await user.click(screen.getByRole("button", { name: "Altre azioni sulle note" }));
       await user.click(screen.getByRole("menuitem", { name: "Modalità concentrazione" }));
       await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
       expect(screen.getByRole("menuitem", { name: "Esci dalla modalità concentrazione" })).toBeInTheDocument();

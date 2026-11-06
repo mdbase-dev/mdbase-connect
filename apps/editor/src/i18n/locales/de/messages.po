@@ -1002,6 +1002,7 @@ msgstr "Hinweisende Beschriftungen und Farben für die Anzeige von Datensätzen 
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "Alle Notizen"
@@ -1107,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "Nach Namen zugewiesen"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "Datei anhängen…"
 
@@ -1176,6 +1178,7 @@ msgid "Back to mdbase Connect"
 msgstr "Zurück zu mdbase Connect"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "Zurück zu den Notizen"
 
@@ -3162,13 +3165,10 @@ msgstr "Geändert"
 msgid "Modified newest"
 msgstr "Neueste Änderung zuerst"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "älteste Änderung zuerst"
-
 #: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "Älteste Änderung zuerst"
+
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "Weiteres Sammlungsverhalten in YAML"
@@ -3178,6 +3178,7 @@ msgid "More inferred rules in YAML"
 msgstr "Weitere abgeleitete Regeln in YAML"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "Weitere Notizaktionen"
 
@@ -3297,6 +3298,7 @@ msgstr "Neuer Ordner"
 
 #: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3330,10 +3332,6 @@ msgstr "Neue Typdefinition"
 #: src/note-sort.ts
 msgid "Newest first"
 msgstr "Neueste zuerst"
-
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "Nächste oder vorherige Notiz"
 
 #: src/editor-commands.ts
 msgid "Next note"
@@ -3821,6 +3819,7 @@ msgstr "Pfad"
 #: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "Pfad A–Z"
+
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "Pfad kopiert."
@@ -5627,6 +5626,7 @@ msgstr "Titel"
 #: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "Titel A–Z"
+
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "Titelunterschiede"

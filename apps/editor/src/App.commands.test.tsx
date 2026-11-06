@@ -21,7 +21,7 @@ describe("workspace commands", () => {
     render(<App gateway={new DemoCollectionGateway(12)} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await runCommand("Title A–Z");
-    expect(localStorage.getItem("mdbase-editor:note-sort")).toBe("title-asc");
+    expect(JSON.parse(localStorage.getItem("mdbase-editor:note-sort:00000000-0000-4000-8000-000000000001")!)).toEqual({ key: "title", direction: "asc" });
     await runCommand("Filter by type: note");
     expect(screen.getByRole("button", { name: "Remove type filter note" })).toBeInTheDocument();
     await runCommand("All notes");

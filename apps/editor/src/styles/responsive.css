@@ -201,6 +201,10 @@
     padding-top: max(10px, env(safe-area-inset-top));
   }
 
+  .editor-opening .note-list-pane { grid-template-rows: auto auto auto auto minmax(0, 1fr); }
+  .opening-toolbar { display: flex; }
+  .opening-toolbar > .icon-button { width: 44px; height: 44px; }
+
   .editor-pane { grid-template-rows: auto auto auto minmax(0, 1fr); }
 
   .editor-bar {

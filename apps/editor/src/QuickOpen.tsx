@@ -59,7 +59,7 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
     <div className="shortcut-groups">{Object.entries(groups).map(([group, label]) => <section key={group}><h3>{label}</h3><dl>
       {(Object.values(commandDefinitions) as CommandDefinition[]).filter(entry => entry.group === group && entry.shortcut).map(entry => <div key={entry.label}>
         <dt>{entry.label}{entry.scope && <small>{entry.scope}</small>}</dt>
-        <dd>{[entry.shortcut!, ...(entry.aliases ?? [])].map(keys => <kbd key={keys}>{shortcutLabel(keys.replace("ArrowLeft", "←").replace("ArrowRight", "→"))}</kbd>)}</dd>
+        <dd>{[entry.shortcut!, ...(entry.aliases ?? [])].map(keys => <kbd key={keys}>{shortcutLabel(keys)}</kbd>)}</dd>
       </div>)}
     </dl></section>)}</div>
   </Dialog>;

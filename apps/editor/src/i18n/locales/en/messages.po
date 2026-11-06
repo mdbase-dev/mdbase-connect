@@ -1002,6 +1002,7 @@ msgstr "Advisory labels and colour used when records of this type are shown."
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "All notes"
@@ -1107,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "Assigned by name"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "Attach file…"
 
@@ -1176,6 +1178,7 @@ msgid "Back to mdbase Connect"
 msgstr "Back to mdbase Connect"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "Back to notes"
 
@@ -3162,13 +3165,10 @@ msgstr "Modified"
 msgid "Modified newest"
 msgstr "Modified newest"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "modified oldest"
-
 #: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "Modified oldest"
+
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "More collection behaviour in YAML"
@@ -3178,6 +3178,7 @@ msgid "More inferred rules in YAML"
 msgstr "More inferred rules in YAML"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "More note actions"
 
@@ -3297,6 +3298,7 @@ msgstr "New folder"
 
 #: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3330,10 +3332,6 @@ msgstr "New type definition"
 #: src/note-sort.ts
 msgid "Newest first"
 msgstr "Newest first"
-
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "Next or previous note"
 
 #: src/editor-commands.ts
 msgid "Next note"
@@ -3821,6 +3819,7 @@ msgstr "Path"
 #: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "Path A–Z"
+
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "Path copied."
@@ -5627,6 +5626,7 @@ msgstr "Title"
 #: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "Title A–Z"
+
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "Title differences"

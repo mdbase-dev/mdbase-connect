@@ -1002,6 +1002,7 @@ msgstr "Описательные метки и цвет для отображе�
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "Все заметки"
@@ -1107,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "Назначено по имени"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "Прикрепить файл…"
 
@@ -1176,6 +1178,7 @@ msgid "Back to mdbase Connect"
 msgstr "Вернуться в mdbase Connect"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "Назад к заметкам"
 
@@ -3162,13 +3165,10 @@ msgstr "Изменено"
 msgid "Modified newest"
 msgstr "Сначала изменённые недавно"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "сначала изменённые давно"
-
 #: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "Сначала изменённые давно"
+
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
 msgstr "Дополнительные правила поведения коллекции в YAML"
@@ -3178,6 +3178,7 @@ msgid "More inferred rules in YAML"
 msgstr "Дополнительные правила определения типа в YAML"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "Другие действия с заметкой"
 
@@ -3297,6 +3298,7 @@ msgstr "Новая папка"
 
 #: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3330,10 +3332,6 @@ msgstr "Новое определение типа"
 #: src/note-sort.ts
 msgid "Newest first"
 msgstr "Сначала новые"
-
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "Следующая или предыдущая заметка"
 
 #: src/editor-commands.ts
 msgid "Next note"
@@ -3821,6 +3819,7 @@ msgstr "Путь"
 #: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "Путь от А до Я"
+
 #: src/embed-actions.ts
 msgid "Path copied."
 msgstr "Путь скопирован."
@@ -5627,6 +5626,7 @@ msgstr "Название"
 #: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "Название от А до Я"
+
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "Различия в названии"

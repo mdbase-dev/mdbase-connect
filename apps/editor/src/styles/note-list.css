@@ -13,11 +13,6 @@
   outline: none;
 }
 
-.app-shell[data-keyboard] .note-scroll:focus:not(:has(.note-row.list-focused)) {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
 .app-shell[data-keyboard] .note-scroll:focus-within .note-row.list-focused {
   outline: 2px solid var(--accent);
   outline-offset: -2px;

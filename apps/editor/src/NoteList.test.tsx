@@ -19,6 +19,36 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 describe("NoteList search presentation", () => {
+  it("reveals the open note again on search return even when its identity has not changed", () => {
+    const notes = Array.from({ length: 40 }, (_, index): NoteSummary => ({ path: `Notes/${index}.md`, frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } }));
+    const noop = () => {};
+    const onSelection = vi.fn();
+    const props = {
+      entries: notes.map((note) => ({ kind: "note" as const, path: note.path, note })),
+      noteCount: notes.length, fileCount: 0, types: [], selectedPath: notes[35].path, statuses: new Map(),
+      search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
+      collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
+      contentIndexing: false, contentLoaded: notes.length,
+      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
+      onSelection, onSelectFile: noop, onCollections: noop
+    };
+    const view = render(<NoteList {...props} />);
+    viewport.scrollToIndex.mockClear();
+    const input = screen.getByRole("combobox", { name: "Search notes and files" });
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onSelection).toHaveBeenLastCalledWith({ paths: [notes[35].path], anchor: notes[35].path, focus: notes[35].path });
+    expect(viewport.scrollToIndex).toHaveBeenCalledWith(36, { align: "auto" });
+    expect(screen.getByRole("listbox")).toHaveFocus();
+    expect(props.onSelect).not.toHaveBeenCalled();
+    view.rerender(<NoteList {...props} entries={[props.entries[35]]} searchQuery="garden" />);
+    fireEvent.keyDown(input, { key: "Escape" });
+    viewport.scrollToIndex.mockClear();
+    view.rerender(<NoteList {...props} />);
+    expect(viewport.scrollToIndex).toHaveBeenCalledWith(36, { align: "auto" });
+  });
+
   it("retains timestamps through a save and does not scroll on a save-driven reorder", () => {
     const first: NoteSummary = { path: "Notes/one.md", frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "One", file: { mtime: "2026-01-01T12:00:00Z" } };
     const second = { ...first, path: "Notes/two.md" };
@@ -80,7 +110,7 @@ describe("NoteList search presentation", () => {
         { kind: "note" as const, path: second.path, note: second }
       ] as never,
       noteCount: 2, fileCount: 1, types: [], selectedPath: first.path, statuses: new Map(),
-      search: "", searchQuery: "", searchContexts: new Map(), sort: "modified-desc" as const,
+      search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       contentIndexing: false, contentLoaded: 2,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,

@@ -9,6 +9,14 @@ function QuickOpen({ initialCommandMode, onClose, ...options }: Parameters<typeo
 }
 
 describe("keyboard discovery", () => {
+  it("uses shared navigation-key labels in shortcut help", () => {
+    render(<ShortcutHelp onClose={() => {}} />);
+    const help = screen.getByRole("dialog", { name: "Shortcuts" });
+    expect(help).not.toHaveTextContent(/ArrowDown|ArrowUp|ArrowLeft|ArrowRight|ContextMenu/);
+    expect(screen.getByText("↓", { selector: "kbd" })).toBeInTheDocument();
+    expect(screen.getByText("↑", { selector: "kbd" })).toBeInTheDocument();
+    expect(screen.getByText("Menu", { selector: "kbd" })).toBeInTheDocument();
+  });
   it("puts recent notes first without hiding other notes and highlights typed matches", () => {
     const index = buildNoteSearchIndex(["First", "Recent", "Last"].map(title => ({
       path: `${title}.md`, frontmatter: {}, effectiveFrontmatter: {}, types: [], body: title,
