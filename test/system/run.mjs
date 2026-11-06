@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { systemSuites, preparationSteps } from "./suites.mjs";
+import { useRcargo } from "../../scripts/lib/rcargo.mjs";
+import { pulledBinaries, systemSuites, preparationSteps } from "./suites.mjs";
 
 const requested = [];
 let prepare = true;
@@ -46,8 +47,14 @@ if (prepare) {
   const preparation = new Set(
     names.flatMap((name) => systemSuites[name].prepare)
   );
+  const rcargo = useRcargo();
   for (const name of preparation) {
-    await execute(preparationSteps[name], `prepare:${name}`);
+    const step = preparationSteps[name];
+    const pulls = rcargo ? pulledBinaries[name] : undefined;
+    await execute(
+      pulls ? ["rcargo", ...pulls.flatMap((binary) => ["--pull", binary]), ...step.slice(1)] : step,
+      `prepare:${name}`
+    );
   }
 }
 

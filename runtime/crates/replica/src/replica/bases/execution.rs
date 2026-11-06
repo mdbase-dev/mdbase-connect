@@ -203,9 +203,9 @@ impl<S: Store> Replica<S> {
                 Document::parse(record.doc.clone(), RecordFormat::for_path(&record.path));
             tags.push(tags::capture(&document, &mut work).map_err(failure)?);
             documents.push(document);
-            // Path/source byte count are proven by the inventory. RecordRow carries no
-            // authenticated birth/mtime timestamp; keep both unavailable, never guess
-            // from host stat, modified sequence, status history or snapshot time.
+            // Path/source byte count are proven by the inventory. RecordRow's capture
+            // time is descriptive, not an authenticated birth/mtime timestamp; keep both
+            // unavailable, never guess from host stat, sequence, status or snapshot time.
             files.push(
                 CapturedFile::new(
                     &record.path,

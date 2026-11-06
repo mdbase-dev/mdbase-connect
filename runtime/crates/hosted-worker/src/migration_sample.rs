@@ -168,6 +168,7 @@ mod tests {
             doc: doc.into(),
             revision: mdbn_wire::hash::sha256(doc.as_bytes()),
             modified_seq: 1,
+            mtime: None,
             bucket: 0,
             meta: RecordMeta::default(),
         }

@@ -201,6 +201,8 @@ wire_struct! {
         4 req size: u64,
         /// Position of the last change (0 = adopted, unchanged).
         5 req modified_seq: u64,
+        /// Record capture time of the last change to the bytes, in milliseconds.
+        6 opt mtime: i64,
     }
 }
 

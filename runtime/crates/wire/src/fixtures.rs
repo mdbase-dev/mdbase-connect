@@ -251,6 +251,7 @@ fn record_view() -> RecordView {
         },
         diagnostics: None,
         values: None,
+        mtime: None,
     }
 }
 
@@ -699,6 +700,7 @@ pub fn all() -> Vec<Fixture> {
                     revision: b32(0x10),
                     size: 21,
                     modified_seq: 0,
+                    mtime: None,
                 }
                 .to_cbor(),
             ],

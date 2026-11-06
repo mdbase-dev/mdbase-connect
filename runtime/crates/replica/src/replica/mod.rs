@@ -543,6 +543,8 @@ pub struct Replica<S: Store> {
     pub(crate) base_install_failed: Option<u64>,
     pub(crate) install_progress: (u64, u64),
     pub(crate) install_mseq: BTreeMap<B16, u64>,
+    /// Record capture times from the index section, keyed like `install_mseq`.
+    pub(crate) install_mtime: BTreeMap<B16, i64>,
     pub(crate) install_staged: crate::store::Tx,
     pub(crate) install_index: snapshot::DigestIndex,
     /// The refs set of the snapshot being installed: the manifest's direct refs,
@@ -882,6 +884,7 @@ impl<S: Store> Replica<S> {
             base_install_failed: None,
             install_progress: (0, 0),
             install_mseq: BTreeMap::new(),
+            install_mtime: BTreeMap::new(),
             install_staged: crate::store::Tx::default(),
             install_index: Default::default(),
             install_refs: None,

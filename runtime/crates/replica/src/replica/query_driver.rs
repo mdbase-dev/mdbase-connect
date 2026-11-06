@@ -24,7 +24,7 @@ use mdbn_wire::client::{Include, QueryResult, RecordView};
 use mdbn_wire::common::Uuid;
 
 use super::Replica;
-use super::submit::{record_view, store_err};
+use super::submit::{RecordPosition, record_view, store_err};
 use crate::api::{ApiError, ApiResult, ErrorCode};
 use crate::convert;
 use crate::layer::LayerView;
@@ -201,15 +201,15 @@ impl<S: Store> Replica<S> {
     /// does). Only for layered rows in the answered window. The store has no
     /// metadata-only lookup yet, so the base row is read and then charged to the
     /// request budget (file: a pre-admission accessor is requested).
-    fn base_seq(&self, id: &Uuid, budget: &mut QueryBudget) -> ApiResult<u64> {
+    fn base_position(&self, id: &Uuid, budget: &mut QueryBudget) -> ApiResult<RecordPosition> {
         match self.store.record(id).map_err(store_err)? {
             Some(r) => {
                 budget
                     .charge(1, r.doc.len() as u64)
                     .map_err(|e| indexed_err(e, "the pending records"))?;
-                Ok(r.modified_seq)
+                Ok((r.modified_seq, r.mtime))
             }
-            None => Ok(0),
+            None => Ok((0, None)),
         }
     }
 
@@ -578,7 +578,7 @@ impl<S: Store> Replica<S> {
                 &r.id,
                 &r.path,
                 &r.doc,
-                r.modified_seq,
+                (r.modified_seq, r.mtime),
                 false,
                 include,
             )
@@ -645,7 +645,7 @@ impl<S: Store> Replica<S> {
                         &id,
                         &rec.path,
                         &rec.source,
-                        self.base_seq(&id, &mut budget)?,
+                        self.base_position(&id, &mut budget)?,
                         true,
                         include,
                     )),

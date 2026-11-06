@@ -39,6 +39,15 @@ test("fullOnly matches the steps Server CI gates on full qualification", () => {
   }
 });
 
+test("remote steps run the same selection through rcargo", () => {
+  const remote = localSteps.filter((step) => step.remote);
+  assert.equal(remote.length, 2);
+  for (const step of remote) {
+    assert.equal(step.tier, "rust");
+    assert.match(step.remote, /^rcargo \w+ --locked --workspace\b/);
+  }
+});
+
 test("the default selection mirrors the pull-request plan; tier flags run whole tiers", () => {
   const commands = (tiers, native) => selectSteps(new Set(tiers), native).map((step) => step.command);
   const fast = commands([], false);

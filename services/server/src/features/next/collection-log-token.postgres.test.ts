@@ -134,6 +134,15 @@ describePg("collection log-token refresh", () => {
     }
   });
 
+  it("records one activity day per device and the collection's last active day", async () => {
+    const who = await identity();
+    const c = await collection(who, "private", [who]);
+    for (let i = 0; i < 2; i++) expect((await refresh(who, c, await proof(who, c))).statusCode).toBe(200);
+    await expect.poll(async () => (await db.query("SELECT 1 FROM next_collection_activity WHERE collection_id = $1 AND last_active_on = CURRENT_DATE", [c])).rows.length).toBe(1);
+    const days = await db.query("SELECT 1 FROM device_activity_days WHERE connector_id = $1", [who.connector.id]);
+    expect(days.rows.length).toBe(1);
+  });
+
   it("refuses a below-floor session, even when this device durably advertised on an earlier session", async () => {
     const who = await identity(), c = await collection(who, "cloud_copy", [who]);
     await db.query("UPDATE next_collections SET mode_floor_raised_at=$2 WHERE collection_id=$1", [c, new Date(NOW)]);

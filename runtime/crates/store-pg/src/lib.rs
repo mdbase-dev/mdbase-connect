@@ -204,7 +204,7 @@ fn after(p: &Page) -> Vec<u8> {
 }
 
 const RECORD_COLS: &str =
-    "r.id, r.path, r.path_key, r.doc, r.revision, r.modified_seq, r.bucket, r.meta";
+    "r.id, r.path, r.path_key, r.doc, r.revision, r.modified_seq, r.bucket, r.meta, r.mtime";
 
 fn record_row(r: &Row) -> StoreResult<RecordRow> {
     let bucket: i32 = r.get(6);
@@ -217,6 +217,7 @@ fn record_row(r: &Row) -> StoreResult<RecordRow> {
         modified_seq: u64_of(r.get(5))?,
         bucket: u16::try_from(bucket).map_err(|_| corrupt("bucket", bucket))?,
         meta: meta_from(r.get(7))?,
+        mtime: r.get(8),
     })
 }
 
@@ -972,6 +973,7 @@ fn put_records(
             vec![],
             vec![],
         );
+        let mut mtimes: Vec<Option<i64>> = Vec::with_capacity(chunk.len());
         let mut tc = TermCols::default();
         for r in chunk {
             cols.0.push(r.id.0.to_vec());
@@ -982,6 +984,7 @@ fn put_records(
             cols.5.push(i64_of(r.modified_seq)?);
             cols.6.push(i32::from(r.bucket));
             cols.7.push(meta_bytes(&r.meta)?);
+            mtimes.push(r.mtime);
             terms(r, &mut tc);
         }
         exec(
@@ -993,13 +996,13 @@ fn put_records(
         exec(
             t,
             st,
-            "INSERT INTO rs_records (c, id, path, path_key, doc, revision, modified_seq, bucket, meta) \
-             SELECT $1, * FROM unnest($2::bytea[], $3::text[], $4::text[], $5::text[], $6::bytea[], $7::int8[], $8::int4[], $9::bytea[]) \
+            "INSERT INTO rs_records (c, id, path, path_key, doc, revision, modified_seq, bucket, meta, mtime) \
+             SELECT $1, * FROM unnest($2::bytea[], $3::text[], $4::text[], $5::text[], $6::bytea[], $7::int8[], $8::int4[], $9::bytea[], $10::int8[]) \
              ON CONFLICT (c, id) DO UPDATE SET path = EXCLUDED.path, path_key = EXCLUDED.path_key, \
              doc = EXCLUDED.doc, revision = EXCLUDED.revision, modified_seq = EXCLUDED.modified_seq, \
-             bucket = EXCLUDED.bucket, meta = EXCLUDED.meta",
+             bucket = EXCLUDED.bucket, meta = EXCLUDED.meta, mtime = EXCLUDED.mtime",
             &[
-                &c, &cols.0, &cols.1, &cols.2, &cols.3, &cols.4, &cols.5, &cols.6, &cols.7,
+                &c, &cols.0, &cols.1, &cols.2, &cols.3, &cols.4, &cols.5, &cols.6, &cols.7, &mtimes,
             ],
         )?;
         if !tc.id.is_empty() {
@@ -1038,7 +1041,7 @@ impl Store for PgStore {
 
     fn record(&self, id: &Uuid) -> StoreResult<Option<RecordRow>> {
         self.q1(
-            "SELECT r.id, r.path, r.path_key, r.doc, r.revision, r.modified_seq, r.bucket, r.meta \
+            "SELECT r.id, r.path, r.path_key, r.doc, r.revision, r.modified_seq, r.bucket, r.meta, r.mtime \
              FROM rs_records r WHERE r.c = $1 AND r.id = $2",
             &[&self.c, &b(id)],
         )?
@@ -1058,7 +1061,7 @@ impl Store for PgStore {
 
     fn records(&self, page: Page) -> StoreResult<Vec<RecordRow>> {
         self.q(
-            "SELECT r.id, r.path, r.path_key, r.doc, r.revision, r.modified_seq, r.bucket, r.meta \
+            "SELECT r.id, r.path, r.path_key, r.doc, r.revision, r.modified_seq, r.bucket, r.meta, r.mtime \
              FROM rs_records r WHERE r.c = $1 AND r.id > $2 ORDER BY r.id LIMIT $3",
             &[&self.c, &after(&page), &lim(page.limit)],
         )?
@@ -1070,7 +1073,7 @@ impl Store for PgStore {
     fn records_in_buckets(&self, range: Range<u32>, page: Page) -> StoreResult<Vec<RecordRow>> {
         let (lo, hi) = bucket_bounds(&range);
         self.q(
-            "SELECT r.id, r.path, r.path_key, r.doc, r.revision, r.modified_seq, r.bucket, r.meta \
+            "SELECT r.id, r.path, r.path_key, r.doc, r.revision, r.modified_seq, r.bucket, r.meta, r.mtime \
              FROM rs_records r WHERE r.c = $1 AND r.bucket >= $2 AND r.bucket < $3 AND r.id > $4 \
              ORDER BY r.id LIMIT $5",
             &[&self.c, &lo, &hi, &after(&page), &lim(page.limit)],

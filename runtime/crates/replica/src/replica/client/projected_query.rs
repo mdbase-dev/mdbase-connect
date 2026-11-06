@@ -17,6 +17,7 @@ use mdbn_core::types::Catalog;
 use mdbn_core::value::Value as CoreValue;
 
 use crate::api::ApiError;
+use crate::replica::submit::RecordPosition;
 use crate::store::{Head, RecordRow, StoreError};
 use crate::store_query::QueryBudget;
 
@@ -64,7 +65,7 @@ struct QueryState<'a> {
     error: RefCell<Option<ApiError>>,
     /// Records already admitted by THIS invocation at its captured head, so a
     /// target reached by many links is charged once. Holds only charged source.
-    hydrated: RefCell<BTreeMap<RecordId, Option<(StoredRecord, u64)>>>,
+    hydrated: RefCell<BTreeMap<RecordId, Option<(StoredRecord, RecordPosition)>>>,
 }
 
 impl QueryState<'_> {
@@ -148,7 +149,7 @@ impl QueryState<'_> {
         Ok(rows.pop())
     }
 
-    fn read(&self, id: &RecordId) -> Option<(StoredRecord, u64)> {
+    fn read(&self, id: &RecordId) -> Option<(StoredRecord, RecordPosition)> {
         if let Some(hit) = self.hydrated.borrow().get(id) {
             return hit.clone();
         }
@@ -159,8 +160,10 @@ impl QueryState<'_> {
                 };
                 // Charge before cloning an overlay source or deriving its values.
                 self.charge(&record.source)?;
-                let seq = self.confirmed(id)?.map_or(0, |row| row.modified_seq);
-                return Ok(Some((record.clone(), seq)));
+                let position = self
+                    .confirmed(id)?
+                    .map_or((0, None), |row| (row.modified_seq, row.mtime));
+                return Ok(Some((record.clone(), position)));
             }
             Ok(self.confirmed(id)?.map(|row| {
                 (
@@ -169,7 +172,7 @@ impl QueryState<'_> {
                         path: row.path,
                         source: Arc::from(row.doc),
                     },
-                    row.modified_seq,
+                    (row.modified_seq, row.mtime),
                 )
             }))
         })?;
@@ -349,7 +352,7 @@ impl<S: Store> Replica<S> {
         let mut diagnostics = Vec::new();
         let mut retained_left = 1 << 20;
         for id in state.ids(candidate)? {
-            let Some((record, seq)) = state.read(&id) else {
+            let Some((record, position)) = state.read(&id) else {
                 continue;
             };
             let doc = mdbn_core::doc::Document::parse_at(&record.path, &*record.source);
@@ -401,7 +404,7 @@ impl<S: Store> Replica<S> {
             }
             diagnostics.append(&mut evaluated.diagnostics);
             match &evaluated.verdict {
-                Verdict::Match => rows.push((record, seq, evaluated)),
+                Verdict::Match => rows.push((record, position, evaluated)),
                 Verdict::Error(issue) => diagnostics.push(issue.clone()),
                 Verdict::NoMatch => {}
             }
@@ -427,14 +430,14 @@ impl<S: Store> Replica<S> {
         });
         let records = rows[start..end]
             .iter()
-            .map(|(record, seq, evaluated)| {
+            .map(|(record, position, evaluated)| {
                 let id = convert::wuuid(&record.id);
                 let mut value = super::super::submit::record_view(
                     &catalog,
                     &id,
                     &record.path,
                     &record.source,
-                    *seq,
+                    *position,
                     self.layer.touches(&record.id),
                     include,
                 );

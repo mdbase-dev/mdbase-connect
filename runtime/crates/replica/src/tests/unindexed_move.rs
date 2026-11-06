@@ -379,6 +379,7 @@ fn native_move_recovery_follows_current_identity_and_allocates_without_kind_chan
                 doc: "other record".into(),
                 revision: mdbn_wire::hash::sha256(b"other record"),
                 modified_seq: a.r.head().seq,
+                mtime: None,
                 bucket: crate::store::bucket16(&B16([82; 16])),
                 meta: crate::store::RecordMeta::default(),
             }]

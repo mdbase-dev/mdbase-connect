@@ -7,7 +7,8 @@
 /**
  * Steps `pnpm ci:local` runs, in CI order. `tier` selects them. `fullOnly`
  * marks node-job steps Server CI runs on a pull request only when it selects
- * full qualification; the whole Rust tier is full-only.
+ * full qualification; the whole Rust tier is full-only. `remote` is the same
+ * gate through rcargo, which needs libtest to run on the VM rather than here.
  */
 export const localSteps = [
   { tier: "node", command: "pnpm install --frozen-lockfile" },
@@ -27,9 +28,17 @@ export const localSteps = [
   { tier: "node", command: "pnpm package:audit", fullOnly: true },
   { tier: "rust", command: "cargo fmt --all --check" },
   { tier: "rust", command: "scripts/check-cargo-features" },
-  { tier: "rust", command: "cargo clippy --locked --workspace --all-targets -- -D warnings" },
+  {
+    tier: "rust",
+    command: "cargo clippy --locked --workspace --all-targets -- -D warnings",
+    remote: "rcargo clippy --locked --workspace --all-targets -- -D warnings"
+  },
   { tier: "rust", command: "node --test scripts/ci/*.test.mjs" },
-  { tier: "rust", command: "node scripts/ci/cargo-test.mjs --locked --workspace" }
+  {
+    tier: "rust",
+    command: "node scripts/ci/cargo-test.mjs --locked --workspace",
+    remote: "rcargo test --locked --workspace --no-fail-fast"
+  }
 ];
 
 /**

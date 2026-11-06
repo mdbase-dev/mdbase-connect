@@ -58,3 +58,25 @@ export async function recordConnectorProtocolUsage(
     });
   }
 }
+
+// Called after a device's log token is committed. A refresh repeats every 15
+// minutes, so only the first of a day writes anything.
+export async function recordDeviceActivity(
+  db: DatabaseQueryable,
+  connectorId: string,
+  collectionId: string
+): Promise<void> {
+  await db.query(
+    `INSERT INTO device_activity_days (connector_id, day)
+     VALUES ($1, CURRENT_DATE)
+     ON CONFLICT (connector_id, day) DO NOTHING`,
+    [connectorId]
+  );
+  await db.query(
+    `INSERT INTO next_collection_activity (collection_id, last_active_on)
+     VALUES ($1, CURRENT_DATE)
+     ON CONFLICT (collection_id) DO UPDATE SET last_active_on = EXCLUDED.last_active_on
+     WHERE next_collection_activity.last_active_on < EXCLUDED.last_active_on`,
+    [collectionId]
+  );
+}
