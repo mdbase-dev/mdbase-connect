@@ -9,6 +9,10 @@ export const navigationShortcuts = {
   overview: "g v", storage: "g t", access: "g r", settings: "g s", activity: "g l"
 } as const;
 
+// An overlay retained for its exit animation no longer owns the keyboard.
+const blockingOverlay = ["dialog[open]", "[role=dialog]", "[role=menu]", "[role=listbox]"]
+  .map((selector) => `${selector}:not([data-open="false"], [data-open="false"] *)`).join(", ");
+
 export function useConnectKeyboard({ commands, enabled, root, filter, listFocus, onShow }: {
   commands: readonly Command[];
   enabled: boolean;
@@ -34,11 +38,11 @@ export function useConnectKeyboard({ commands, enabled, root, filter, listFocus,
       event.preventDefault();
       const retained = document.querySelector<HTMLDialogElement>("dialog.mdbase-command-palette");
       if (retained) setOpen(retained.dataset.open === "false");
-      else if (!document.querySelector("dialog[open], [role=dialog], [role=menu], [role=listbox]")) openPalette();
+      else if (!document.querySelector(blockingOverlay)) openPalette();
     };
     const keydown = (event: KeyboardEvent) => {
       if (!enabled || event.defaultPrevented || event.isComposing || event.repeat || event.altKey
-        || document.querySelector("dialog[open], [role=dialog], [role=menu], [role=listbox]")) { prefixUntil = 0; return; }
+        || document.querySelector(blockingOverlay)) { prefixUntil = 0; return; }
       const target = event.target instanceof Element ? event.target : null;
       if (target?.matches(`${root} ${filter}`) && target instanceof HTMLInputElement && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
         prefixUntil = 0;
