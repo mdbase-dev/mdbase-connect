@@ -99,7 +99,7 @@ export interface MdbaseApplicationSnapshot extends AppWebSignInSnapshot {
 export interface MdbaseLinks {
   /** The account page: profile, collections, sign-in. */
   readonly account:string;
-  /** Apps with access to the account's collections; revoke access there. */
+  /** Who can reach the selected collection, or every collection's apps when none is selected. */
   readonly manageAccess:string;
 }
 export interface MdbaseApplicationRequestOptions {readonly signal?:AbortSignal}
@@ -406,8 +406,11 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     const sync=this.trackSync(phase,base.problem,base.transport??null,base.live??null);
     const writes=this.syncing?.writes()??null;
     const saveWarning=this.trackSaveWarning();
-    const value:MdbaseApplicationSnapshot=Object.freeze({...base,selection,phase,sync,writes,storage:this.storagePolicy,saveWarning,links:this.links});
+    const value:MdbaseApplicationSnapshot=Object.freeze({...base,selection,phase,sync,writes,storage:this.storagePolicy,saveWarning,links:this.linksFor(id)});
     this.composed={base:raw,selection,revision:this.revision,hint,value};return value;
+  }
+  private linksFor(id:string|null):MdbaseLinks|null{
+    return this.links&&id?Object.freeze({...this.links,manageAccess:`${this.cpOrigin}/access?collection=${encodeURIComponent(id)}`}):this.links;
   }
   /** One grace window per continuously pending replica, not per edit or request. */
   private trackSaveWarning():"storage_may_be_evicted"|null{
