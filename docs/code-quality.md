@@ -284,8 +284,9 @@ no new production module, protocol, state, or permission bypass is introduced.
 The [operator usage report](usage-report.md) adds one server module,
 `usage-report.ts`, which owns both the aggregate `usage report` command and the
 retention of the rows it reads. It replaces the managed wrapper's paginated
-client-side aggregation (one Render job per 100 rows) and adds no telemetry
-table, protocol field, or connector report. Seven TypeScript exports cover the
+client-side aggregation (one Render job per 100 rows). It adds no protocol
+field or connector report; its one telemetry write, native device activity, sits
+on the log-token route because native sync reaches the control plane nowhere else. Seven TypeScript exports cover the
 command, the retention worker, its prune function and window, and three
 existing helpers (`reportWindowDays`, `isoTimestamp`, `invitationStatus`)
 shared instead of duplicated. Three relative imports connect it to the admin
