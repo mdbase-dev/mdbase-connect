@@ -673,6 +673,15 @@ fn responses(frames: &mut Frames, id: u64) -> Vec<mdbn_wire::client::ClientRespo
 /// or the next import is refused as "the live upload request changed".
 #[test]
 fn native_rpc_second_upload_after_committed_first_opens_fresh_slot() {
+    second_upload_after_commit(false);
+}
+
+#[test]
+fn native_rpc_abort_after_capture_releases_lane_without_deleting_pending_write() {
+    second_upload_after_commit(true);
+}
+
+fn second_upload_after_commit(abort: bool) {
     let svc = FakeLogService::new();
     let mut a = attach_node(&svc, 1);
     let mut frames = Frames::new();
@@ -703,17 +712,27 @@ fn native_rpc_second_upload_after_committed_first_opens_fresh_slot() {
     );
     let mut committed = false;
     for _ in 0..8 {
-        drive(&mut a, &Rc::default(), &mut |_, _| None);
+        drive(&mut a, &Rc::default(), &mut |request, _| {
+            (abort && matches!(request, LogRequest::Append(_))).then_some(Err(LogError::NoResponse))
+        });
         frames.pump(&mut a.r);
         committed |= responses(&mut frames, 3)
             .iter()
             .any(|r| r.problem.is_none());
     }
     assert!(committed, "first import committed");
-    // The finished create ages out of the native upload table (idle cleanup).
-    a.clock.set(a.clock.get() + 120_000);
-    a.r.tick();
-    drive(&mut a, &Rc::default(), &mut |_, _| None);
+    if abort {
+        let original = a.r.store().pending_get(&B16([0x78; 16])).unwrap().unwrap();
+        a.r.client_abort_upload(session, opened.transfer).unwrap();
+        assert_eq!(
+            a.r.store().pending_get(&B16([0x78; 16])).unwrap().unwrap(),
+            original
+        );
+    } else {
+        a.clock.set(a.clock.get() + 120_000);
+        a.r.tick();
+        drive(&mut a, &Rc::default(), &mut |_, _| None);
+    }
     let second = OpenUploadParams {
         transfer: B16([0x69; 16]),
         path: "files/native-rpc-2.bin".into(),
