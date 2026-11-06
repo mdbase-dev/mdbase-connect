@@ -1175,7 +1175,18 @@ export class HostedCollection extends DurableObject<Env> {
   /** Distinguishes sockets accepted in this wake from older ones (RAM state gone). */
   private readonly wakeId = crypto.randomUUID();
 
+  /** A Wasm trap has no panic text to report: one line, with no identifiers. */
+  private noteTrap(error: unknown): void {
+    if (!(error instanceof WebAssembly.RuntimeError)) return;
+    try { console.info(JSON.stringify({ event: "hosted_wasm_trap", role: this.escrow ? "escrow" : "hosted" })); } catch { /* Logging is not authority. */ }
+  }
+
   async alarm(): Promise<void> {
+    try { await this.runAlarm(); }
+    catch (error) { this.noteTrap(error); throw error; }
+  }
+
+  private async runAlarm(): Promise<void> {
     if (this.pitrClosed) {
       this.closePitrResources();
       await this.pitrWork!.trackClosed(() => this.ctx.storage.deleteAlarm());
@@ -1213,6 +1224,11 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    try { return await this.respond(request); }
+    catch (error) { this.noteTrap(error); throw error; }
+  }
+
+  private async respond(request: Request): Promise<Response> {
     if (this.pitrClosed) {
       this.closePitrResources();
       const url = new URL(request.url);

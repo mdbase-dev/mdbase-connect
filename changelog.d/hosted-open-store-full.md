@@ -4,3 +4,4 @@
 - A query index backfill refused for size no longer stops an object from opening. It reports an incident and keeps the index unready, so queries stay complete or decline visibly.
 - Hosted open failures name the step that failed, and a SQL budget refusal logs the operation and table, with no identifiers or content.
 - A cloud copy with too much note text to snapshot in memory no longer crashes on every wake. The Worker declines the build, keeps the previous snapshot, and tries again a snapshot period later.
+- A Wasm trap in a hosted or escrow object logs one line with no identifiers or content, so monitoring can see it.

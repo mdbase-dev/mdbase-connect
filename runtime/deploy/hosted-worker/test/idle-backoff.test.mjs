@@ -88,6 +88,19 @@ test("a declined snapshot build reports once, with no identifiers or counts", as
   mock.restoreAll();
 });
 
+test("a Wasm trap logs one line with no identifiers and still fails the alarm", async () => {
+  const lines = [];
+  mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
+  const t = object(true);
+  t.o.runAlarm = async () => { throw new WebAssembly.RuntimeError("unreachable"); };
+  await assert.rejects(t.o.alarm(), WebAssembly.RuntimeError);
+  assert.deepEqual(lines, [{ event: "hosted_wasm_trap", role: "escrow" }]);
+  t.o.runAlarm = async () => { throw new Error("other"); };
+  await assert.rejects(t.o.alarm(), /other/);
+  assert.equal(lines.length, 1, "only a trap");
+  mock.restoreAll();
+});
+
 test("a running snapshot install wakes at once, reports counts only, then falls back to the poll", async (ctx) => {
   const lines = [];
   mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
