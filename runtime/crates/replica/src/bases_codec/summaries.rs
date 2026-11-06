@@ -56,6 +56,7 @@ impl Bounds {
                 self.charge(value.display().len() + value.timezone_name().len())?
             }
             RuntimeValue::Duration(value) => self.charge(value.display().len())?,
+            RuntimeValue::Link(value) => self.charge(value.source().len())?,
             _ => {}
         }
         Ok(())

@@ -1,9 +1,10 @@
 //! Actor-held, all-or-nothing whole-view evaluation; no asynchronous side registry.
 use super::*;
 use mdbn_core::views::bases::{
-    AdmittedBasesView, BasesDisplayCell, BasesProjectedRow, BasesTimezone, CapturedClock,
-    CapturedFileBindings, DateGroupMode, FileTimeAvailability, OrderingCapture, PropertySelector,
-    RawFrontmatter, RuntimeValue, SourceTags, TypedSortRow, order_typed_rows, partition_typed,
+    AdmittedBasesView, BasesDisplayCell, BasesLinkMemo, BasesProjectedRow, BasesTimezone,
+    CapturedClock, CapturedFileBindings, DateGroupMode, FileTimeAvailability, OrderingCapture,
+    PropertySelector, RawFrontmatter, RuntimeValue, SourceTags, TypedSortRow, order_typed_rows,
+    partition_typed,
 };
 /// Explicit frozen ordering policies. No locale/null/day/tie defaults.
 #[derive(Clone, Copy)]
@@ -149,23 +150,28 @@ impl<S: Store> Replica<S> {
         ) {
             return Err(failure(work.failure().expect("projected rows")));
         }
+        let links = BasesLinkMemo::default();
         for (index, document) in input.documents.iter().enumerate() {
             if cancelled() {
                 return Err(failure(EvaluationFailure::Cancelled));
             }
-            let bindings = RawFrontmatter::capture(document, Some(types), work)
-                .map_err(failure)?
-                .bindings()
-                .with_clock(clock)
-                .with_file(
-                    CapturedFileBindings::capture(
-                        &input.files[index],
-                        input.tags[index].as_ref(),
-                        work,
+            let row = self.with_bases_links(&links, |links| {
+                let bindings = RawFrontmatter::capture(document, Some(types), work)
+                    .map_err(failure)?
+                    .bindings()
+                    .with_clock(clock)
+                    .with_file(
+                        CapturedFileBindings::capture(
+                            &input.files[index],
+                            input.tags[index].as_ref(),
+                            work,
+                        )
+                        .map_err(failure)?,
                     )
-                    .map_err(failure)?,
-                );
-            if let Some(row) = plan.project(bindings, work, cancelled).map_err(failure)? {
+                    .with_links(links);
+                plan.project(bindings, work, cancelled).map_err(failure)
+            })?;
+            if let Some(row) = row {
                 projected.push((index, row));
             }
         }

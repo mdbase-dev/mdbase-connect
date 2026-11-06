@@ -154,6 +154,9 @@ impl WorkBudget {
             RuntimeValue::Duration(value) => {
                 self.text(value.display().len(), if render { 6 } else { 1 })
             }
+            RuntimeValue::Link(value) => {
+                self.text(value.source().len(), if render { 6 } else { 1 })
+            }
             RuntimeValue::List(values) => values.iter().all(|v| self.value(v, depth + 1, render)),
             RuntimeValue::Object(values) => values
                 .iter()

@@ -263,6 +263,32 @@ fn list_group_keys_use_shared_cell_grammar_and_reject_opaque_members() {
     }
 }
 #[test]
+fn links_reach_hosts_as_their_written_text_on_every_wire_path() {
+    use mdbn_core::views::bases::{CapturedLink, LinkResolution, WorkBudget};
+    let written = "[[Projects/Work#Notes|Work]]";
+    let link = RuntimeValue::Link(
+        CapturedLink::parse(
+            written,
+            None,
+            LinkResolution::Resolved("Projects/Work.md"),
+            &mut WorkBudget::new(),
+        )
+        .unwrap(),
+    );
+    let text = RuntimeValue::String(written.into());
+    let output = |value: &RuntimeValue| {
+        let mut output = result();
+        output.groups[0].key = RuntimeValue::List(vec![value.clone()]);
+        output.rows[0].cells[0] = BasesDisplayCell::Value(RuntimeValue::List(vec![value.clone()]));
+        output.summaries = vec![("links".into(), value.clone())];
+        output
+    };
+    assert_eq!(
+        encode(&output(&link)).unwrap(),
+        encode(&output(&text)).unwrap()
+    );
+}
+#[test]
 fn optional_summary_field_uses_shared_tagged_value_bytes_and_legacy_results_stay_exact() {
     let addon = mdbn_core::yaml::parse_value(include_str!(
         "../../../../conformance/views/bases-summary-codec.json"

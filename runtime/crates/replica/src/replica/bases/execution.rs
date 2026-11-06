@@ -2,8 +2,8 @@
 //! On-device data-only seam: no facade, publication headers or caller sources.
 use super::*;
 use mdbn_core::views::bases::{
-    CapturedFile, CapturedPropertyTypes, MAX_PROPERTY_TYPE_HINT_BYTES, MAX_PROPERTY_TYPE_HINTS,
-    SourceTags,
+    BasesLinkMemo, BasesLinks, CapturedFile, CapturedPropertyTypes, MAX_PROPERTY_TYPE_HINT_BYTES,
+    MAX_PROPERTY_TYPE_HINTS, SourceTags,
 };
 use std::collections::BTreeMap;
 mod indexed;
@@ -80,6 +80,27 @@ impl CapturedBasesExecutionInputs {
     }
 }
 impl<S: Store> Replica<S> {
+    /// Run one read with link properties resolving against the effective state.
+    /// A store failure reads as "absent" inside core, so it suppresses the output.
+    pub(super) fn with_bases_links<T>(
+        &self,
+        memo: &BasesLinkMemo,
+        read: impl FnOnce(BasesLinks<'_>) -> ApiResult<T>,
+    ) -> ApiResult<T> {
+        let store = crate::plan::StoreView::new(&self.store, self.catalog.clone());
+        let state = crate::layer::LayerView {
+            base: &store,
+            layer: &self.layer,
+        };
+        let output = read(BasesLinks::new(&state, memo))?;
+        if store.error().is_some() {
+            return Err(failure(EvaluationFailure::MetadataUnavailable(
+                "link_resolution",
+            )));
+        }
+        Ok(output)
+    }
+
     /// Current authenticated READ and unrestricted collection scope for the
     /// app-runtime Bases producer. Unknown/revoked sessions fail before scope
     /// inspection. Call before capture, before encode and before publication;

@@ -204,6 +204,7 @@ fn value_bytes(
         }
         RuntimeValue::Date(value) => bytes = add(bytes, value.display().len() as u64)?,
         RuntimeValue::Duration(value) => bytes = add(bytes, value.display().len() as u64)?,
+        RuntimeValue::Link(value) => bytes = add(bytes, value.source().len() as u64)?,
         RuntimeValue::List(values) => {
             for value in values {
                 bytes = add(bytes, value_bytes(value, depth + 1, steps)?)?;

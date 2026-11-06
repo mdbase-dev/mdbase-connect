@@ -1,11 +1,11 @@
 //! Primitive RuntimeValue port from mdbase-rs expression.rs (MIT, LICENSE.port).
 //! Date intermediate values retain their typed payload and captured display.
-//! File/link admission is deferred. Display-unavailable cells are not
-//! expression values.
+//! File admission is deferred. Display-unavailable cells are not expression
+//! values.
 
 use std::collections::BTreeMap;
 
-use super::{EvaluatedDate, EvaluatedDuration};
+use super::{CapturedLink, EvaluatedDate, EvaluatedDuration};
 use crate::value::{Map, Value};
 
 /// Typed intermediate values in the first evaluator port profile.
@@ -26,6 +26,8 @@ pub enum RuntimeValue {
     Date(EvaluatedDate),
     /// Typed duration; qualified display is precomputed under the request meter.
     Duration(EvaluatedDuration),
+    /// A property wikilink, as written and with its captured resolution.
+    Link(CapturedLink),
     /// Ordered values.
     List(Vec<RuntimeValue>),
     /// Deterministically ordered properties.
@@ -67,6 +69,7 @@ impl RuntimeValue {
             Self::String(_) => "String",
             Self::Date(_) => "Date",
             Self::Duration(_) => "Duration",
+            Self::Link(_) => "Link",
             Self::List(_) => "List",
             Self::Object(_) => "Object",
             Self::Error(_) => "Error",
@@ -86,6 +89,7 @@ impl RuntimeValue {
             Self::String(value) => Value::string(value),
             Self::Date(value) => Value::string(value.display()),
             Self::Duration(value) => Value::string(value.display()),
+            Self::Link(value) => Value::string(value.source()),
             Self::List(values) => Value::List(values.iter().map(Self::to_plain).collect()),
             Self::Object(values) => Value::Map(
                 values
@@ -107,6 +111,7 @@ impl RuntimeValue {
             Self::String(value) | Self::Error(value) => value.clone(),
             Self::Date(value) => value.display().to_owned(),
             Self::Duration(value) => value.display().to_owned(),
+            Self::Link(value) => value.source(),
             Self::List(values) => values
                 .iter()
                 .map(Self::plain_string)
