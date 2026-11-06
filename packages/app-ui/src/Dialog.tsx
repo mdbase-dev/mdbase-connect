@@ -3,6 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, type JSX, type ReactNode, ty
 import { createPortal } from "react-dom";
 import { useLocaleRevision } from "./i18n.js";
 import { useOverlay } from "./overlay.js";
+import { Tooltip } from "./Tooltip.js";
 
 export function Dialog({ open, onClose, title, descriptionId, className, closeDisabled = false, returnFocusRef, initialFocusRef, role = "dialog", children }: {
   readonly open: boolean;
@@ -73,9 +74,9 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
     onClick={(event) => { if (!closeDisabled && event.target === event.currentTarget) onClose(); }}>
     <div className="mdbase-dialog-body">
       <header className="mdbase-dialog-header"><h2 id={titleId}>{title}</h2>
-        <button type="button" className="mdbase-icon-button" disabled={closeDisabled} onClick={onClose} aria-label={t({ message: "Close" })}>
+        <Tooltip label={t({ message: "Close" })} shortcut="Escape"><button type="button" className="mdbase-icon-button" disabled={closeDisabled} onClick={onClose}>
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg>
-        </button>
+        </button></Tooltip>
       </header>
       {children}
     </div>

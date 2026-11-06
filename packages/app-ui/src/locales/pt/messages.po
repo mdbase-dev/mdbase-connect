@@ -432,7 +432,7 @@ msgctxt "Collection storage mode"
 msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
 msgstr "O mdbase poderá ler a coleção, incluindo seu histórico existente, e disponibilizá-la enquanto seus dispositivos estiverem desligados."
 
-#: src/CommandPalette.tsx
+#: src/shortcuts.ts
 msgid "Menu"
 msgstr "Menu de contexto"
 

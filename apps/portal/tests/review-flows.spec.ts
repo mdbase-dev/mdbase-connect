@@ -495,7 +495,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
 }
 
 test("offline route changes have one inline recovery state", async ({ page }) => {
+  const sessions = page.waitForResponse("**/v1/account/sessions");
   await openScenario(page, "typical-account");
+  await sessions;
   await page.route("**/v1/**", route => route.abort("internetdisconnected"));
   await page.getByRole("button", { name: "Actions for Shared research library" }).click();
   await page.getByRole("menuitem", { name: "Rename", exact: true }).click();

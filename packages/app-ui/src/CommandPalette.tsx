@@ -1,6 +1,8 @@
 import { t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
 import { Dialog } from "./Dialog.js";
+import { shortcutLabel } from "./shortcuts.js";
+export { isApplePlatform, shortcutLabel } from "./shortcuts.js";
 import { Fragment, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject, type ReactNode } from "react";
 
 export interface Command {
@@ -18,33 +20,6 @@ export interface Command {
   readonly run: () => void;
   /** A variant run with Shift+Enter or Shift+click, such as opening beside the document. */
   readonly alternate?: { readonly label: string; readonly run: () => void } | undefined;
-}
-
-export function isApplePlatform(): boolean {
-  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/u.test(navigator.platform || navigator.userAgent);
-}
-
-/** "mod+shift+f" as the platform writes it: ⌘⇧F on Apple systems, Ctrl+Shift+F elsewhere. */
-export function shortcutLabel(shortcut: string): string {
-  if (/^[a-z] [a-z]$/iu.test(shortcut)) return shortcut.toUpperCase();
-  const apple = isApplePlatform();
-  return shortcut
-    .split("+")
-    .map((part) => {
-      switch (part.toLowerCase()) {
-        case "mod": return apple ? "⌘" : "Ctrl";
-        case "ctrl": return apple ? "⌃" : "Ctrl";
-        case "shift": return apple ? "⇧" : "Shift";
-        case "alt": return apple ? "⌥" : "Alt";
-        case "arrowdown": return "↓";
-        case "arrowup": return "↑";
-        case "arrowleft": return "←";
-        case "arrowright": return "→";
-        case "contextmenu": return t({ message: "Menu" });
-        default: return part.length === 1 ? part.toUpperCase() : part;
-      }
-    })
-    .join(apple ? "" : "+");
 }
 
 const browseLimit = 6;

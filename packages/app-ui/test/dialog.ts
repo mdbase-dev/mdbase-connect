@@ -5,3 +5,4 @@ Object.assign(HTMLDialogElement.prototype, {
   },
   close(this: HTMLDialogElement) { this.removeAttribute("open"); }
 });
+HTMLElement.prototype.showPopover = function () { this.dataset.popoverOpen = ""; };

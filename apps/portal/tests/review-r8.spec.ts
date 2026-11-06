@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, openScenario, test } from "./review/fixture";
-import { authentication, authorizationId } from "./review/scenarios.mjs";
+import { authentication, authorizationId, clock } from "./review/scenarios.mjs";
 
 async function keyTo(page: Page, target: Locator, key: string) {
   for (let attempt = 0; attempt < 80; attempt++) {
@@ -209,5 +209,179 @@ for (const colorScheme of ["light", "dark"] as const) test.describe(`short viewp
     await page.keyboard.type("coastal");
     expect((await geometry()).height).toBe(before.height);
     await testInfo.attach("short-palette-geometry", { body: JSON.stringify({ before, after }), contentType: "application/json" });
+  });
+});
+
+for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as const) test.describe(`shared tooltips ${width} ${colorScheme}`, () => {
+  test.use({ viewport: { width, height: width === 390 ? 844 : 900 }, colorScheme });
+
+  test("hover waits 400ms, hands off immediately and never changes button layout or captures clicks", async ({ page }, testInfo) => {
+    await openScenario(page, "typical-account");
+    await page.clock.install({ time: new Date(clock) });
+    await page.clock.pauseAt(new Date(new Date(clock).getTime() + 1000));
+    const actions = page.getByRole("button", { name: /^Actions for / });
+    const first = actions.nth(0), second = actions.nth(1);
+    const firstBounds = await first.boundingBox();
+    await first.hover();
+    await page.clock.runFor(399);
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await page.clock.runFor(1);
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toHaveText(await first.getAttribute("aria-label") as string);
+    expect(await first.boundingBox()).toEqual(firstBounds);
+    await expect(tooltip).toHaveCSS("pointer-events", "none");
+    await expect(first).not.toHaveAttribute("title");
+    const bounds = (await tooltip.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(8);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8);
+    expect(bounds.y).toBeGreaterThanOrEqual(8);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(width === 390 ? 836 : 892);
+    const image = testInfo.outputPath("tooltip.png");
+    await page.screenshot({ path: image });
+    await testInfo.attach("tooltip", { path: image, contentType: "image/png" });
+    await second.hover();
+    await expect(tooltip).toHaveText(await second.getAttribute("aria-label") as string);
+    await page.evaluate(() => document.addEventListener("keydown", event => {
+      if (event.key === "Escape") Object.assign(window, { tooltipEscape: { prevented: event.defaultPrevented, reached: true } });
+    }));
+    await page.keyboard.press("Escape");
+    await expect(tooltip).toHaveCount(0);
+    expect(await page.evaluate(() => Reflect.get(window, "tooltipEscape"))).toEqual({ prevented: false, reached: true });
+    await page.mouse.move(0, 0);
+    await page.clock.runFor(801);
+    await first.hover();
+    await page.clock.runFor(399);
+    await expect(tooltip).toHaveCount(0);
+    await page.clock.runFor(1);
+    await expect(tooltip).toBeVisible();
+    await first.click();
+    await expect(tooltip).toHaveCount(0);
+    await expect(page.getByRole("menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(first).toBeFocused();
+    await page.clock.runFor(120);
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await testInfo.attach("tooltip-layout", { body: JSON.stringify({ firstBounds, tooltip: bounds, delay: 400, warmDelay: 0 }), contentType: "application/json" });
+  });
+
+  test("keyboard focus is immediate, blur and press dismiss, and one Escape still closes the dialog", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openScenario(page, "typical-account");
+    const actions = page.getByRole("button", { name: /^Actions for / }).first();
+    await keyTo(page, actions, "Tab");
+    await expect(page.getByRole("tooltip")).toHaveText(await actions.getAttribute("aria-label") as string);
+    await page.keyboard.press("Shift+Tab");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await page.keyboard.press("Tab");
+    await expect(actions).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await expect(page.getByRole("menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(actions).toBeFocused();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await page.keyboard.press("c");
+    const dialog = page.getByRole("dialog", { name: "Add collection", exact: true });
+    const close = dialog.getByRole("button", { name: "Close", exact: true });
+    await keyTo(page, close, "Tab");
+    await expect(close).toBeFocused();
+    await expect(close).toHaveAttribute("aria-keyshortcuts", "Escape");
+    await expect(page.getByRole("tooltip").locator("kbd")).toHaveText("Escape");
+    await expect(page.getByRole("tooltip")).toHaveCSS("transition-property", "none");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+  });
+
+  test("a pending hover is cancelled on leave, Escape and outside press", async ({ page }) => {
+    await openScenario(page, "typical-account");
+    await page.clock.install({ time: new Date(clock) });
+    await page.clock.pauseAt(new Date(new Date(clock).getTime() + 1000));
+    const actions = page.getByRole("button", { name: /^Actions for / }).first();
+    for (const cancel of ["leave", "escape", "press"]) {
+      await actions.hover();
+      await page.clock.runFor(200);
+      if (cancel === "leave") await page.mouse.move(0, 0);
+      else if (cancel === "escape") await page.keyboard.press("Escape");
+      else await page.getByRole("heading", { level: 1 }).click();
+      await page.clock.runFor(401);
+      await expect(page.getByRole("tooltip")).toHaveCount(0);
+      await page.mouse.move(0, 0);
+    }
+  });
+});
+
+for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) test.describe(`long tooltip ${viewport.width}`, () => {
+  test.use({ viewport });
+  test("wraps a long collection label inside the viewport without moving its trigger", async ({ page }) => {
+    const name = "Collection with a long name ".repeat(7).trim();
+    await page.route("**/v1/me", async route => {
+      const response = await route.fetch();
+      const overview = await response.json();
+      overview.collections[0].display_name = name;
+      await route.fulfill({ response, json: overview });
+    });
+    await openScenario(page, "typical-account");
+    const trigger = page.getByRole("button", { name: `Actions for ${name}`, exact: true });
+    await trigger.hover();
+    const before = await trigger.boundingBox();
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toHaveText(`Actions for ${name}`);
+    const bounds = (await tooltip.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(8);
+    expect(bounds.y).toBeGreaterThanOrEqual(8);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width - 8);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height - 8);
+    expect(await trigger.boundingBox()).toEqual(before);
+    await page.keyboard.press("Escape");
+    await expect(tooltip).toHaveCount(0);
+  });
+});
+
+for (const colorScheme of ["light", "dark"] as const) test.describe(`touch has no tooltips ${colorScheme}`, () => {
+  test.use({ viewport: { width: 390, height: 844 }, colorScheme, hasTouch: true });
+  test("touch opens action menus and navigation without showing a tooltip", async ({ page }) => {
+    await openScenario(page, "typical-account");
+    await page.getByRole("button", { name: /^Actions for / }).first().tap();
+    await expect(page.getByRole("menu")).toBeVisible();
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await page.getByRole("heading", { level: 1 }).tap();
+    await page.getByRole("button", { name: "Open menu", exact: true }).tap();
+    const dialog = page.getByRole("dialog", { name: "Navigation", exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Close", exact: true }).tap();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+  });
+});
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) test.describe(`tooltip motion ${reducedMotion}`, () => {
+  test.use({ reducedMotion });
+  test("uses only the shared 120ms opacity fade, or no animation under reduced motion", async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion });
+    await openScenario(page, "typical-account");
+    await page.evaluate(() => {
+      const observer = new MutationObserver(() => {
+        const tooltip = document.querySelector('[role="tooltip"]');
+        if (!tooltip) return;
+        getComputedStyle(tooltip).opacity;
+        Object.assign(window, { tooltipMotion: tooltip.getAnimations().map(animation => ({
+          property: animation instanceof CSSTransition ? animation.transitionProperty : animation.id,
+          duration: animation.effect!.getTiming().duration
+        })) });
+        observer.disconnect();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    const actions = page.getByRole("button", { name: /^Actions for / }).first();
+    await keyTo(page, actions, "Tab");
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toBeVisible();
+    const animations = await page.evaluate(() => Reflect.get(window, "tooltipMotion"));
+    expect(animations).toEqual(reducedMotion === "reduce" ? [] : [{ property: "opacity", duration: 120 }]);
+    await expect(tooltip).toHaveCSS("opacity", "1");
+    await testInfo.attach("tooltip-motion", { body: JSON.stringify(animations), contentType: "application/json" });
   });
 });

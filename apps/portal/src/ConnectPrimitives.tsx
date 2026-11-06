@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { InfoIcon as Info } from "@phosphor-icons/react/Info";
 import { ManagementApiError } from "@mdbase/connect-management";
 import { collectionQuotaMessage } from "./collection-quota-copy.generated";
+import { Tooltip } from "@mdbase-dev/ui/tooltip";
 
 export function ConnectPreview({ title, rows, pending, error, retry }: {
   title: string;
@@ -105,7 +106,7 @@ export function ConnectEmpty({ title, body, action, icon = true }: {
 export function ListFilter({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {
   useLocaleRevision();
   const input = useRef<HTMLInputElement>(null);
-  return <div className="connect-list-filter"><label><span className="mdbase-visually-hidden">{label}</span><input ref={input} className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} /><kbd aria-hidden="true">/</kbd></label><button type="button" className="mdbase-icon-button" hidden={!value} aria-label={t(i18n)`Clear search`} onClick={() => { onChange(""); input.current!.focus(); }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>;
+  return <div className="connect-list-filter"><label><span className="mdbase-visually-hidden">{label}</span><input ref={input} className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} /><kbd aria-hidden="true">/</kbd></label><Tooltip label={t(i18n)`Clear search`}><button type="button" className="mdbase-icon-button" hidden={!value} onClick={() => { onChange(""); input.current!.focus(); }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m6 6 12 12M18 6 6 18" /></svg></button></Tooltip></div>;
 }
 
 export function DesktopLink({ href, role, children }: { href: string; role?: "menuitem"; children: ReactNode }) {

@@ -24,6 +24,7 @@ import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
 import { Menu } from "@mdbase-dev/ui/menu";
+import { Tooltip } from "@mdbase-dev/ui/tooltip";
 import { useNavPill } from "@mdbase/connect-ui/nav-pill";
 import { transitionState } from "@mdbase/connect-ui/state-transition";
 import { flushSync } from "react-dom";
@@ -374,7 +375,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const footer = <footer className="connect-nav-footer"><FeedbackButton /><div className="connect-account-slot">{data && <RouteLink view="account" navigate={navigate}><strong title={data.user.name}>{data.user.name}</strong><small title={data.user.email ?? undefined}>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink>}</div></footer>;
   return <div className="connect-shell">
     <aside className="connect-nav" aria-label={t(i18n)({ message: "mdbase Connect navigation" })}>
-      <header><Brand productLabel /><button className="connect-mobile-nav-toggle mdbase-icon-button" aria-label={t(i18n)({ message: "Open menu", context: "Connect interface" })} aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><List aria-hidden="true" /></button></header>
+      <header><Brand productLabel /><Tooltip label={t(i18n)({ message: "Open menu", context: "Connect interface" })}><button className="connect-mobile-nav-toggle mdbase-icon-button" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><List aria-hidden="true" /></button></Tooltip></header>
       <button className="sidebar-search" onClick={keyboard.show}><span><Trans>Search</Trans></span><kbd>{shortcutLabel("mod+k")}</kbd></button>
       {!navigationOpen && <>{navigation}{footer}</>}
     </aside>
@@ -727,7 +728,7 @@ function Computers({ error, data, busy, perform }: {
           <span className="connect-status"><StatusGlyph state={upgradeRequired ? "attention" : online ? "online" : connector.last_seen_at ? "offline" : "idle"} />{upgradeRequired ? t(i18n)({ message: "Update required", context: "Connect interface" }) : online ? t(i18n)({ message: "Connected", context: "Connect interface" }) : connector.last_seen_at ? t(i18n)({ message: "Offline", context: "Connect interface" }) : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</span>
           {upgradeRequired && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Install {connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })}</Trans></a>}
           {!upgradeRequired && updateRecommended && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Update recommended for current policy protection</Trans></a>}
-          <span className="connect-collection-menu"><button className="mdbase-icon-button" aria-label={t(i18n)`Actions for ${connector.name}`} aria-haspopup="menu" aria-expanded={selection?.id === connector.id && selection.kind === "menu"} disabled={working} onClick={event => { trigger.current = event.currentTarget; setSelection({ id: connector.id, kind: "menu" }); }}><DotsThree aria-hidden="true" /></button>
+          <span className="connect-collection-menu"><Tooltip label={t(i18n)`Actions for ${connector.name}`}><button className="mdbase-icon-button" aria-haspopup="menu" aria-expanded={selection?.id === connector.id && selection.kind === "menu"} disabled={working} onClick={event => { trigger.current = event.currentTarget; setSelection({ id: connector.id, kind: "menu" }); }}><DotsThree aria-hidden="true" /></button></Tooltip>
             <Menu open={selection?.id === connector.id && selection.kind === "menu"} triggerRef={trigger} id={`computer-menu-${connector.id}`} label={connector.name} onClose={refocus => { setSelection(null); if (refocus) trigger.current?.focus(); }}>
               <button role="menuitem" className="mdbase-menu-item" data-action="rename" onClick={() => { renameReturn.current = trigger.current!.closest<HTMLElement>("[data-list-item]"); setName(connector.name); setSelection({ id: connector.id, kind: "rename" }); }}><Trans>Rename</Trans></button>
               <button role="menuitem" className="mdbase-menu-item is-danger" data-action="revoke" onClick={() => setSelection({ id: connector.id, kind: "revoke" })}>{t(i18n)({ message: "Revoke", context: "Connect interface" })}</button>
@@ -838,7 +839,7 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
     <div className="connect-collection-name">{navigate ? <RouteLink className="connect-collection-link" view="overview" collectionId={collection.id} navigate={navigate}><strong>{collection.name}</strong></RouteLink> : <strong>{collection.name}</strong>}<small>{collection.detail}{folders > 0 && <> · {countLabel(folders, "folder")}</>}</small></div>
     <span className="connect-status">{collection.glyph !== "idle" && !hosted && <StatusGlyph state={collection.glyph} />}{hosted && active ? "" : collection.status}</span>
     <span className="connect-collection-open">{editorOrigin && editorId && (collection.kind !== "local" || collection.available) && <a className="mdbase-button is-tertiary" aria-label={t(i18n)`Open in editor: ${collection.name}`} href={editorCollectionUrl(editorId, editorOrigin)}><Trans>Open in editor</Trans></a>}</span>
-    <span className="connect-collection-menu"><button ref={trigger} className="mdbase-icon-button" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><DotsThree aria-hidden="true" /></button>
+    <span className="connect-collection-menu"><Tooltip label={t(i18n)`Actions for ${collection.name}`}><button ref={trigger} className="mdbase-icon-button" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><DotsThree aria-hidden="true" /></button></Tooltip>
       <Menu open={menuOpen} triggerRef={trigger} id={`collection-menu-${collection.id}`} label={collection.name} onClose={refocus => { setMenuOpen(false); if (refocus) trigger.current?.focus(); }}>
         {navigate && <button role="menuitem" className="mdbase-menu-item" onClick={() => { setMenuOpen(false); navigate("overview", collection.id); }}>{t(i18n)({ message: "Overview", context: "Connect interface" })}</button>}
         {!hosted && <DesktopLink role="menuitem" href="mdbase-connect://open"><Trans>Open desktop app</Trans></DesktopLink>}
