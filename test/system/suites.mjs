@@ -57,3 +57,11 @@ export const preparationSteps = Object.freeze({
   ],
   "cli-binary": ["cargo", "build", "-p", "mdbase-cli"]
 });
+
+// What the suites run from target/debug, which rcargo copies back.
+export const pulledBinaries = Object.freeze({
+  "rust-workspace": ["mdbase"],
+  "provider-binaries": ["mdbase-connect-hosted-provider", "mdbase"],
+  "provider-binary": ["mdbase-connect-hosted-provider"],
+  "cli-binary": ["mdbase"]
+});

@@ -4,7 +4,7 @@ import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { systemSuites, preparationSteps } from "../../test/system/suites.mjs";
+import { pulledBinaries, systemSuites, preparationSteps } from "../../test/system/suites.mjs";
 
 const execute = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "../..");
@@ -29,6 +29,13 @@ test("every system suite has an existing command and known preparation steps", a
       assert.ok(preparationSteps[preparation], `${name} has unknown preparation ${preparation}`);
     }
   }
+});
+
+test("every cargo preparation step names the binaries rcargo copies back", () => {
+  const cargoSteps = Object.entries(preparationSteps)
+    .filter(([, [command]]) => command === "cargo")
+    .map(([name]) => name);
+  assert.deepEqual(Object.keys(pulledBinaries).sort(), cargoSteps.sort());
 });
 
 test("full Server CI covers every registered system suite exactly once", async () => {
