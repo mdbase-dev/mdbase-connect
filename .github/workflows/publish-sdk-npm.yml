@@ -144,7 +144,6 @@ jobs:
           cargo test --locked -p mdbn-trust
           cargo build --locked --release -p mdbn-trust --bin mdbn-trust
           cargo xtask wasm-app
-          sha256sum target/wasm/app-runtime.wasm && wc -c target/wasm/app-runtime.wasm
       - name: Compile, cold-test and verify all three environment archives from the same WASM
         run: node scripts/sdk-publication.mjs pack-all "$RUNNER_TEMP/sdk-packages"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
