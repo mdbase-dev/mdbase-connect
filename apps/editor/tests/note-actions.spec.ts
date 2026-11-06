@@ -49,7 +49,7 @@ for (const width of [1440, 390]) {
     const groupStarts = await menu.getByRole("separator").evaluateAll((separators) => separators.map((separator) => separator.nextElementSibling?.textContent));
     expect(groupStarts).toEqual(["Document outline", "Attach file…", "Keyboard shortcuts"]);
     if (width === 390) {
-      await expect(menu.getByRole("menuitem", { name: "New note", exact: true })).toHaveCount(1);
+      await expect(menu.getByRole("menuitem", { name: "New note", exact: true })).toHaveCount(0);
       await expect(menu.getByRole("menuitem", { name: "Quick open", exact: true })).toHaveCount(1);
       await expect(menu.getByRole("menuitem", { name: "Rename path", exact: true })).toHaveCount(1);
     }

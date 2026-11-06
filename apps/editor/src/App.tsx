@@ -2013,7 +2013,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
-            {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => beginCreate()}><FilePlus2 aria-hidden="true" /></button>}
             {editorLeadingActions}
             <div className="note-history" role="group" aria-label={t`Note history`}>
               <button
@@ -2046,14 +2045,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               });
             }}><Info aria-hidden="true" /></button>}
             {focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
+            {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => beginCreate()}><FilePlus2 aria-hidden="true" /></button>}
             <div className="note-actions">
               <button {...noteMenu.triggerProps} className="icon-button" aria-label={t`More note actions`} aria-keyshortcuts="Enter Space ArrowDown ArrowUp"><MoreHorizontal aria-hidden="true" /></button>
               <Menu open={noteMenu.open} id={noteMenu.id} label={t`More note actions`} triggerRef={noteMenu.trigger} onClose={noteMenu.close}>
               {[
-              ...(mobileLayout ? [
-                ...(canCreateNotes ? [menuCommand("new-note", <FilePlus2 aria-hidden="true" />, beginCreate, mutationsFrozen)] : []),
-                menuCommand("quick-open", <Search aria-hidden="true" />, () => { setQuickOpenCommandMode(false); setQuickOpen(true); })
-              ] : []),
+              ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setQuickOpenCommandMode(false); setQuickOpen(true); })] : []),
               ...noteActions(document.path, mobileLayout ? t`Rename path` : undefined),
               { ...menuCommand("outline", <ListBullets aria-hidden="true" />, () => setOutlineOpen(true)), separatorBefore: true },
               menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); }),
