@@ -228,7 +228,9 @@ impl HostedProvider {
     /// so a client retrying against a full account would pay for both every
     /// time. This refuses, from one unlocked read, exactly when publication
     /// would refuse for quota as things stand. Any refusal publication would
-    /// give first is left to it; it repeats every check under locks.
+    /// give first is left to it; it repeats every check under locks. Refusals
+    /// found only by reading the object, such as a digest mismatch, come after
+    /// space is freed.
     pub(super) async fn refuse_commit_over_quota(
         &self,
         transfer: &HostedFileTransfer,

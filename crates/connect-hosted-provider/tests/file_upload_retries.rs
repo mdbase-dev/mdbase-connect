@@ -176,6 +176,9 @@ async fn aborted_multipart_upload_reports_abort() {
         status(&fixture, transfer_id).await,
         FileTransferState::Aborted
     );
+    let error = commit(&fixture, transfer_id).await.unwrap_err();
+    assert_eq!(error.status, StatusCode::CONFLICT);
+    assert_eq!(error.code, "file_transfer_not_open");
 }
 
 /// Retries against a full collection neither copy nor re-hash the file, and
@@ -222,6 +225,62 @@ async fn full_account_refuses_commit_before_copying() {
     let receipt = commit(&fixture, transfer_id).await.expect("upload commits");
     assert_eq!(receipt.file.size, 100);
     assert_eq!(copies_and_verifies(&fixture).await, (1, 1));
+}
+
+/// The retained-storage limit refuses even a shrinking replacement, which
+/// the live-storage limit lets through.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn retained_storage_refuses_commit_before_copying() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let original = commit(&fixture, fixture.stage_upload("a.bin", &[1; 1000]).await)
+        .await
+        .expect("original commits");
+    let shrink = fixture
+        .stage_replace("a.bin", &[2; 500], &original.file.revision)
+        .await;
+    sqlx::query(
+        r#"UPDATE hosted_provider_accounts
+           SET max_retained_file_bytes = retained_file_bytes + 499,
+               max_live_storage_bytes = least(max_live_storage_bytes, retained_file_bytes + 499)
+           WHERE id = (SELECT account_id FROM hosted_provider_collections WHERE id = $1)"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let before = copies_and_verifies(&fixture).await;
+
+    assert_quota(
+        commit(&fixture, shrink).await.unwrap_err(),
+        "account_retained_storage_quota_exceeded",
+    );
+    assert_eq!(copies_and_verifies(&fixture).await, before);
+}
+
+/// A collection at its file count refuses another file before copying.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn file_count_limit_refuses_commit_before_copying() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    commit(&fixture, fixture.stage_upload("a.bin", &[1; 10]).await)
+        .await
+        .expect("first file commits");
+    let transfer_id = fixture.stage_upload("b.bin", &[2; 10]).await;
+    sqlx::query("UPDATE hosted_provider_collections SET max_files = file_count WHERE id = $1")
+        .bind(fixture.collection_id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let before = copies_and_verifies(&fixture).await;
+
+    assert_quota(
+        commit(&fixture, transfer_id).await.unwrap_err(),
+        "file_storage_quota_exceeded",
+    );
+    assert_eq!(copies_and_verifies(&fixture).await, before);
 }
 
 /// Commits that fit, including a replacement that shrinks a file on a full

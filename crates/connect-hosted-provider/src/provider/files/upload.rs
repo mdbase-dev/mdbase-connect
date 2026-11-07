@@ -354,6 +354,14 @@ impl HostedProvider {
                 "This file upload has expired.",
             ));
         }
+        if transfer.state == "aborted" {
+            // Its multipart upload is gone from R2, so validating the parts
+            // would fail as though storage were down.
+            return Err(ApiError::conflict(
+                "file_transfer_not_open",
+                "This file upload was cancelled.",
+            ));
+        }
         let completion = self
             .validate_upload_completion(&transfer, &request.parts)
             .await?;
