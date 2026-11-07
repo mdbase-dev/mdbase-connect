@@ -7,19 +7,37 @@ mod support;
 #[path = "support/test_postgres.rs"]
 mod test_postgres;
 
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
 use mdbase_connect_hosted_provider::{
-    HostedMutationSweep, HostedProvider, RegisterReplica, ReplicaPurpose,
+    HostedMutationSweep, HostedNotificationConfig, HostedProvider, ProviderLimits, RegisterReplica,
+    ReplicaPurpose,
 };
-use mdbase_connect_protocol::SyncReplicaMode;
+use mdbase_connect_protocol::{
+    ApplicationAccess, ConnectContractRequirements, ContractRequirement, GrantScope, GrantSummary,
+    NotificationCriterion, NotificationPresentation, SyncReplicaMode,
+};
+use mdbase_connect_runtime::{TIMER_EVENT_DIGEST, TIMER_EVENT_ID};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use support::{wait_for_query_blocked, FileLifecycleFixture};
 use test_postgres::DisposablePostgres;
 use uuid::Uuid;
 
-const OPERATIONS: &[&str] = &["create", "put_timer", "cancel_timer", "reconcile_timers"];
+const OPERATIONS: &[&str] = &[
+    "create",
+    "list_timers",
+    "put_timer",
+    "cancel_timer",
+    "reconcile_timers",
+];
 
 async fn application(fixture: &FileLifecycleFixture) -> (Uuid, String) {
+    application_with_grant(fixture, Uuid::new_v4()).await
+}
+
+async fn application_with_grant(fixture: &FileLifecycleFixture, grant_id: Uuid) -> (Uuid, String) {
     let replica_id = Uuid::now_v7();
     let token = format!("abandon-{}-{}", Uuid::new_v4(), Uuid::new_v4());
     fixture
@@ -41,7 +59,7 @@ async fn application(fixture: &FileLifecycleFixture) -> (Uuid, String) {
                 file_capability: None,
                 allowed_origin: None,
                 proof_public_key: None,
-                grant_id: Some(Uuid::new_v4()),
+                grant_id: Some(grant_id),
                 application_declaration_id: None,
                 application_declaration_digest: None,
                 token: token.clone(),
@@ -344,7 +362,8 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         "23 hours",
     )
     .await;
-    // Not provable from the journal alone.
+    // Timer cancels more than a day old are swept by recorded decision,
+    // with or without a timer generation.
     let cancel = json!({ "namespace": "reminders", "id": "task-1" });
     let old_cancel = prepared(
         pool,
@@ -356,6 +375,19 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         "2 days",
     )
     .await;
+    let guarded_cancel = json!({ "namespace": "reminders", "id": "task-1", "generation": 3 });
+    let old_guarded_cancel = prepared(
+        pool,
+        collection,
+        replica_id,
+        "cancel_timer",
+        &guarded_cancel,
+        "-1 minute",
+        "2 days",
+    )
+    .await;
+    // Not provable from the journal alone: file control effects run outside
+    // the journal transaction.
     let delete_file = json!({ "type": "delete_file", "path": "files/a.bin" });
     let old_file = prepared(
         pool,
@@ -393,8 +425,8 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         counts(sweep(&fixture.provider).await),
         expected(&[
             ("abandoned_not_applied", 1),
-            ("abandoned_unverified", 1),
-            ("skipped_unprovable_kind", 3)
+            ("abandoned_unverified", 3),
+            ("skipped_unprovable_kind", 2)
         ])
     );
     for (request_id, state) in [
@@ -402,7 +434,8 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         (old_timer, "abandoned"),
         (live, "prepared"),
         (young, "prepared"),
-        (old_cancel, "prepared"),
+        (old_cancel, "abandoned"),
+        (old_guarded_cancel, "abandoned"),
         (old_file, "prepared"),
         (created, "prepared"),
     ] {
@@ -430,6 +463,26 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
     )
     .await;
     assert_abandoned(&error, old_timer, "unverified");
+    assert!(
+        error.message.contains("current desired timers"),
+        "{error:?}"
+    );
+    for (request_id, input) in [(old_cancel, &cancel), (old_guarded_cancel, &guarded_cancel)] {
+        let error = replay_error(
+            &fixture.provider,
+            collection,
+            &token,
+            "cancel_timer",
+            request_id,
+            input,
+        )
+        .await;
+        assert_abandoned(&error, request_id, "unverified");
+        assert!(
+            error.message.contains("current desired timers"),
+            "{error:?}"
+        );
+    }
     let record: Option<Uuid> = sqlx::query_scalar(
         "SELECT record_id FROM hosted_provider_records WHERE collection_id = $1 AND record_id = $2",
     )
@@ -443,7 +496,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
     // A second tick changes nothing.
     assert_eq!(
         counts(sweep(&fixture.provider).await),
-        expected(&[("skipped_unprovable_kind", 3)])
+        expected(&[("skipped_unprovable_kind", 2)])
     );
 }
 
@@ -629,4 +682,398 @@ async fn sweep_after_cutover_cannot_match_the_original_migrating_source() {
         rolled_back.retain_until.is_some(),
         "a rolled-back cutover keeps retain_until, so it never equals the original source"
     );
+}
+
+/// Lock order, the same as every write path: collection row first, then the
+/// journal row. A writer holding the collection (as a record write does
+/// before its journal UPDATE) makes the sweep wait at the collection lock,
+/// holding nothing; a journal row held by a live request is skipped, not
+/// waited on.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn sweep_locks_the_collection_first_and_skips_journal_rows_held_by_live_requests() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let (replica_id, _) = application(&fixture).await;
+    let pool = &fixture.pool;
+    let collection = fixture.collection_id;
+    let request_id = prepared(
+        pool,
+        collection,
+        replica_id,
+        "create",
+        &create_input("drafts/busy.md"),
+        "-1 minute",
+        "2 days",
+    )
+    .await;
+
+    // A request claim: replica, collection FOR SHARE, then the journal row.
+    let mut claim = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
+        .bind(replica_id)
+        .fetch_one(&mut *claim)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM hosted_provider_collections WHERE id = $1 FOR SHARE")
+        .bind(collection)
+        .fetch_one(&mut *claim)
+        .await
+        .unwrap();
+    sqlx::query(
+        "SELECT state FROM hosted_provider_mutation_journal \
+         WHERE replica_id = $1 AND request_id = $2 FOR UPDATE",
+    )
+    .bind(replica_id)
+    .bind(request_id)
+    .fetch_one(&mut *claim)
+    .await
+    .unwrap();
+    let skipped = tokio::time::timeout(Duration::from_secs(2), sweep(&fixture.provider))
+        .await
+        .expect("the sweep does not wait on a journal row held by a live request");
+    assert_eq!(counts(skipped), expected(&[]));
+    assert_eq!(
+        journal_state(pool, replica_id, request_id).await,
+        "prepared"
+    );
+    claim.rollback().await.unwrap();
+
+    // A record write: replica, collection FOR UPDATE, then its journal
+    // UPDATE (here a lease renewal). The sweep queues on the collection.
+    let mut write = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
+        .bind(replica_id)
+        .fetch_one(&mut *write)
+        .await
+        .unwrap();
+    sqlx::query("SELECT head FROM hosted_provider_collections WHERE id = $1 FOR UPDATE")
+        .bind(collection)
+        .fetch_one(&mut *write)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() + interval '1 minute' \
+         WHERE replica_id = $1 AND request_id = $2",
+    )
+    .bind(replica_id)
+    .bind(request_id)
+    .execute(&mut *write)
+    .await
+    .unwrap();
+    let provider = fixture.provider.clone();
+    let sweeping = tokio::spawn(async move { sweep(&provider).await });
+    wait_for_query_blocked(pool, "FOR SHARE").await;
+    assert!(!sweeping.is_finished());
+    write.commit().await.unwrap();
+    assert_eq!(
+        counts(sweeping.await.unwrap()),
+        expected(&[]),
+        "the renewed lease is live, so the sweep leaves it"
+    );
+    assert_eq!(
+        journal_state(pool, replica_id, request_id).await,
+        "prepared"
+    );
+
+    sqlx::query(
+        "UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() - interval '1 minute' \
+         WHERE replica_id = $1 AND request_id = $2",
+    )
+    .bind(replica_id)
+    .bind(request_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        counts(sweep(&fixture.provider).await),
+        expected(&[("abandoned_not_applied", 1)])
+    );
+}
+
+const CALLBACK_TOKEN: &str = "isolated-timer-fixture-callback-token-only";
+
+/// A stand-in control plane that records each notification signal.
+async fn control_plane() -> (String, Arc<Mutex<Vec<Value>>>) {
+    let signals = Arc::new(Mutex::new(Vec::new()));
+    let received = signals.clone();
+    let router = axum::Router::new().route(
+        "/internal/v1/hosted/notification-signals",
+        axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+            let received = received.clone();
+            async move {
+                received.lock().unwrap().push(body);
+                axum::http::StatusCode::OK
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    (endpoint, signals)
+}
+
+fn timer_grant(grant_id: Uuid, collection_id: Uuid) -> GrantSummary {
+    GrantSummary {
+        revocation_status: None,
+        application_declaration: None,
+        contracts: ConnectContractRequirements::current(true),
+        id: grant_id,
+        application_id: Uuid::new_v4(),
+        application_declaration_id: "dev.mdbase.tasks".to_string(),
+        application_manifest_digest: "00".repeat(32),
+        application_name: "Tasks".to_string(),
+        application_distribution: "web".to_string(),
+        application_homepage: "https://tasks.example".to_string(),
+        application_project_url: None,
+        application_origin: Some("https://tasks.example".to_string()),
+        application_icon: None,
+        collection_id,
+        collection_name: "Tasks".to_string(),
+        operations: OPERATIONS.iter().map(|op| op.to_string()).collect(),
+        scope: GrantScope {
+            contracts: Vec::new(),
+            access: ApplicationAccess::FullCollection,
+        },
+        notification_criteria: vec![NotificationCriterion {
+            id: "due".to_string(),
+            event: ContractRequirement {
+                id: TIMER_EVENT_ID.to_string(),
+                version: "1.0.0".to_string(),
+                digest: TIMER_EVENT_DIGEST.to_string(),
+            },
+            r#if: None,
+            debounce: None,
+            minimum_interval: None,
+            presentation: NotificationPresentation {
+                title: "Reminder".to_string(),
+                body: None,
+                tag: None,
+            },
+        }],
+        created_at: "2026-11-07T00:00:00Z".to_string(),
+        encryption: None,
+        file_capability: None,
+    }
+}
+
+fn desired_timers(timers: &[(&str, &str, i64)]) -> Value {
+    json!({
+        "namespace": "reminders",
+        "criterion_id": "due",
+        "timers": timers
+            .iter()
+            .map(|(id, fire_at, v)| json!({ "id": id, "fire_at": fire_at, "data": { "v": v } }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+async fn list_timers(provider: &HostedProvider, collection_id: Uuid, token: &str) -> Vec<Value> {
+    let listed = provider
+        .operation(
+            collection_id,
+            token,
+            "list_timers",
+            Uuid::now_v7(),
+            json!({ "namespace": "reminders" }),
+            None,
+        )
+        .await
+        .unwrap();
+    let mut timers = listed["timers"].as_array().unwrap().clone();
+    timers.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    timers
+}
+
+/// Every timer-store row of the collection, whole.
+async fn timer_store(pool: &PgPool, collection_id: Uuid) -> Vec<Value> {
+    sqlx::query_scalar(
+        "SELECT to_jsonb(timer) FROM mdbase_runtime_timers timer \
+         WHERE namespace = $1 ORDER BY id",
+    )
+    .bind(format!("connect-hosted:{collection_id}:notifications"))
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+fn fire_at(timer: &Value) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339(timer["fire_at"].as_str().unwrap())
+        .unwrap()
+        .with_timezone(&chrono::Utc)
+}
+
+/// The hazard this decision closes, end to end on the real timer runtime:
+/// stale timer requests left `prepared`, then a newer timer change. Neither
+/// the retried takeover nor the sweep writes the timer store, and the newer
+/// timers are exactly as set and still fire.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn stale_prepared_timer_requests_never_overwrite_a_newer_timer_set() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let (endpoint, signals) = control_plane().await;
+    let provider = HostedProvider::connect(
+        database.url(),
+        fixture.crypto.clone(),
+        ProviderLimits::default(),
+        Arc::new(fixture.blobs.clone()),
+        Some(HostedNotificationConfig {
+            control_plane_url: endpoint,
+            internal_token: CALLBACK_TOKEN.to_string(),
+        }),
+    )
+    .await
+    .unwrap();
+    let pool = &fixture.pool;
+    let collection = fixture.collection_id;
+    let grant_id = Uuid::new_v4();
+    let (replica_id, token) = application_with_grant(&fixture, grant_id).await;
+    provider
+        .upsert_notification_grant(collection, timer_grant(grant_id, collection))
+        .await
+        .unwrap();
+
+    // 1. A timer set.
+    let original = desired_timers(&[
+        ("task-1", "2030-01-01T00:00:00Z", 1),
+        ("task-2", "2030-01-02T00:00:00Z", 1),
+    ]);
+    provider
+        .operation(
+            collection,
+            &token,
+            "reconcile_timers",
+            Uuid::now_v7(),
+            original,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // 2. Stale requests left `prepared` before they reached the timer store.
+    // Re-run, the reconcile would cancel task-2 and task-3 and move task-1
+    // back; the put would move task-2 back. One pair is retried (takeover),
+    // the other is old enough for the sweep.
+    let stale_reconcile = desired_timers(&[("task-1", "2030-01-01T00:00:00Z", 1)]);
+    let stale_put = json!({
+        "namespace": "reminders",
+        "criterion_id": "due",
+        "timer": { "id": "task-2", "fire_at": "2030-01-02T00:00:00Z", "data": { "v": 1 } },
+    });
+    let mut retried = Vec::new();
+    let mut swept = Vec::new();
+    for (operation, input) in [
+        ("reconcile_timers", &stale_reconcile),
+        ("put_timer", &stale_put),
+    ] {
+        let request_id = prepared(
+            pool,
+            collection,
+            replica_id,
+            operation,
+            input,
+            "-1 minute",
+            "1 minute",
+        )
+        .await;
+        retried.push((operation, input, request_id));
+        let request_id = prepared(
+            pool,
+            collection,
+            replica_id,
+            operation,
+            input,
+            "-1 minute",
+            "2 days",
+        )
+        .await;
+        swept.push((operation, input, request_id));
+    }
+
+    // 3. A newer timer change with a fresh request id, due in a few seconds.
+    let due = chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() + 3, 0).unwrap();
+    let due_text = due.to_rfc3339();
+    let newer = provider
+        .operation(
+            collection,
+            &token,
+            "reconcile_timers",
+            Uuid::now_v7(),
+            desired_timers(&[
+                ("task-1", due_text.as_str(), 2),
+                ("task-2", due_text.as_str(), 2),
+                ("task-3", due_text.as_str(), 2),
+            ]),
+            None,
+        )
+        .await
+        .unwrap();
+    let set = list_timers(&provider, collection, &token).await;
+    let mut newer_timers = newer["timers"].as_array().unwrap().clone();
+    newer_timers.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    assert_eq!(set, newer_timers, "list_timers shows the newer change");
+    for (timer, (id, generation)) in set
+        .iter()
+        .zip([("task-1", 2), ("task-2", 2), ("task-3", 1)])
+    {
+        assert_eq!(timer["id"], id);
+        assert_eq!(fire_at(timer), due);
+        assert_eq!(timer["data"], json!({ "v": 2 }));
+        assert_eq!(timer["generation"], generation, "{timer}");
+        assert_eq!(timer["status"], "scheduled");
+    }
+    let store = timer_store(pool, collection).await;
+    assert_eq!(store.len(), 3);
+
+    // 4. Retry each old request id, then run the sweep.
+    for (operation, input, request_id) in &retried {
+        let error =
+            replay_error(&provider, collection, &token, operation, *request_id, input).await;
+        assert_abandoned(&error, *request_id, "unverified");
+        assert_eq!(
+            timer_store(pool, collection).await,
+            store,
+            "{operation} takeover"
+        );
+    }
+    assert_eq!(
+        counts(sweep(&provider).await),
+        expected(&[("abandoned_unverified", 2)])
+    );
+    assert_eq!(timer_store(pool, collection).await, store, "sweep");
+    for (operation, input, request_id) in &swept {
+        let error =
+            replay_error(&provider, collection, &token, operation, *request_id, input).await;
+        assert_abandoned(&error, *request_id, "unverified");
+    }
+
+    // 5. The newer timers are exactly as set, row for row, and still fire.
+    assert_eq!(list_timers(&provider, collection, &token).await, set);
+    assert_eq!(timer_store(pool, collection).await, store);
+    let wait = (due - chrono::Utc::now()).to_std().unwrap_or_default();
+    tokio::time::sleep(wait + Duration::from_millis(500)).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while signals.lock().unwrap().len() < 3 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timers did not fire"
+        );
+        provider.recover_notifications(100).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let fired = list_timers(&provider, collection, &token).await;
+    for (fired, set) in fired.iter().zip(&set) {
+        assert_eq!(fired["status"], "fired", "{fired}");
+        for field in ["id", "fire_at", "data", "generation"] {
+            assert_eq!(fired[field], set[field], "{field}");
+        }
+    }
+    let signals = signals.lock().unwrap().clone();
+    assert_eq!(signals.len(), 3);
+    for signal in &signals {
+        assert_eq!(signal["grant_id"], grant_id.to_string());
+        assert_eq!(signal["criterion_id"], "due");
+    }
 }

@@ -22,10 +22,17 @@ const NOT_APPLIED_WHEN_PREPARED: &[&str] = &[
     "delete_view_source",
 ];
 
-/// Timer kinds abandoned unproven. `cancel_timer` is not here: the journal keeps
-/// only the input digest, so the sweep cannot tell a generation-guarded cancel
-/// from an unguarded one, and it is left for request takeover.
-const UNVERIFIED_TIMER_KINDS: &[&str] = &["put_timer", "reconcile_timers"];
+/// Timer kinds, abandoned unproven: their timer-store effect runs outside the
+/// journal transaction. `cancel_timer` is swept by recorded decision even
+/// though the journal keeps no `generation` (only the input digest): a request
+/// untouched for a day is not a live retry, and the app recovers by sending its
+/// current desired timers.
+///
+/// `file_control:*` kinds are not swept. Their effect runs in the file
+/// lifecycle's own transactions (and object storage) between the claim, which
+/// writes `prepared`, and the journal's move to `completed`, so `prepared`
+/// proves nothing. Takeover resumes their keyed inner lifecycle instead.
+const UNVERIFIED_TIMER_KINDS: &[&str] = &["put_timer", "cancel_timer", "reconcile_timers"];
 
 /// Counts from one sweep tick (serialized for tests). Counts only: no
 /// identifiers.
@@ -52,7 +59,8 @@ enum SweepRow {
     SkippedOtherInactive,
     SkippedUnprovableKind,
     FailedKeyUnwrap,
-    /// Finished, retried or renewed since the candidate query: nothing to do.
+    /// Finished, retried, renewed or locked by a live request since the
+    /// candidate query: nothing to do this tick.
     Resolved,
 }
 
@@ -186,7 +194,13 @@ impl HostedProvider {
         sqlx::query("SET LOCAL lock_timeout = '5s'")
             .execute(&mut *transaction)
             .await?;
-        // Same lock order as a request claim: collection, then journal row.
+        // Lock order: collection row, then journal row. Every transaction
+        // that locks both takes the collection first (claim: FOR SHARE;
+        // record, sync, type and resource writes: FOR UPDATE or FOR NO KEY
+        // UPDATE, before their journal UPDATE); none locks a journal row and
+        // then the collection. The journal row is also taken SKIP LOCKED, so
+        // the sweep never waits on a live request: the only lock it can wait
+        // on is this first one, while it holds nothing.
         // FOR SHARE holds off a concurrent move to `migrating` until commit,
         // and a move that won the lock first is seen here and skipped.
         let Some(collection) = sqlx::query(
@@ -209,7 +223,7 @@ impl HostedProvider {
                FROM hosted_provider_mutation_journal journal
                WHERE journal.replica_id = $1 AND journal.request_id = $2
                  AND {SWEEP_AGE_PREDICATE}
-               FOR UPDATE"#
+               FOR UPDATE SKIP LOCKED"#
         )))
         .bind(replica_id)
         .bind(request_id)
@@ -398,13 +412,18 @@ mod abandon_sweep_tests {
             sweep_application("put_timer"),
             Some(AbandonedApplication::Unverified)
         );
-        assert_eq!(
-            sweep_application("reconcile_timers"),
-            Some(AbandonedApplication::Unverified)
-        );
+        for kind in ["reconcile_timers", "cancel_timer"] {
+            assert_eq!(
+                sweep_application(kind),
+                Some(AbandonedApplication::Unverified),
+                "{kind}"
+            );
+        }
         for kind in [
-            "cancel_timer",
             "file_control:delete_file",
+            "file_control:move_file",
+            "file_control:commit_file_upload",
+            "file_control:abort_file_transfer",
             "file_control:open_file_upload",
             "unknown",
         ] {

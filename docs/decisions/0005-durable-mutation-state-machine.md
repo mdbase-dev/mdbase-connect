@@ -181,9 +181,20 @@ only when its lease has expired, it was accepted more than one day ago, and its
 collection is `active` or `migrated`. The sweep takes the row over (incrementing
 the fence) and writes the encrypted receipt in one transaction that holds the
 collection row `FOR SHARE`, so it never changes the journal of a collection
-that is `migrating`. Kinds whose non-application the journal cannot prove (file
-control, and `cancel_timer`, whose `generation` the journal does not record)
-are not swept.
+that is `migrating`. It locks the collection row before the journal row, the
+order every write path uses, and takes the journal row `SKIP LOCKED`, so it
+skips a row a live request holds instead of waiting for it.
+
+Every timer kind is swept as `unverified`, `cancel_timer` included, with or
+without `generation`. The journal does not record `generation`, but a request
+whose lease expired more than a day ago is not a live retry, so it is abandoned
+by this decision like `put_timer` and `reconcile_timers`. The narrower takeover
+rule above still applies to live retries.
+
+File control kinds (`file_control:*`) are not swept. Their claim writes
+`prepared`, and their effect then runs in the file lifecycle's own transactions
+and in object storage before the row moves to `completed`, so a `prepared` row
+does not prove non-application. A takeover resumes their keyed inner lifecycle.
 
 ### The only valid unknown outcome
 
