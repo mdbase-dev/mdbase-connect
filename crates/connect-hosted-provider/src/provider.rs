@@ -83,6 +83,7 @@ mod collections;
 mod compaction;
 mod crypto_state;
 mod diagnostics;
+pub use diagnostics::{DiagnosticSection, UnfinishedMutationDiagnostic};
 mod file_policy;
 mod files;
 mod lifecycle;
@@ -277,17 +278,6 @@ pub struct HostedDiagnostics {
     pub unfinished_mutations: DiagnosticSection<Vec<UnfinishedMutationDiagnostic>>,
 }
 
-/// One group of unfinished journal entries. Every field but `count` is a closed
-/// value, and no row identifies a request, replica or collection.
-#[derive(Debug, Clone, Serialize)]
-pub struct UnfinishedMutationDiagnostic {
-    pub operation_kind: String,
-    pub state: String,
-    pub evidence_kind: String,
-    pub age_band: String,
-    pub count: u64,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum LifecycleDiagnosticSection {
@@ -322,29 +312,6 @@ pub struct MutationJournalLifecycleDiagnostic {
     pub outcome_unknown: u64,
     pub expired_leases: u64,
     pub oldest_unfinished_seconds: Option<i64>,
-}
-
-/// A section that resolved, or the reason it did not. Keeping the failure in
-/// the payload rather than in the status code is what lets one slow section
-/// coexist with six useful ones.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum DiagnosticSection<T> {
-    Ok { value: T },
-    Unavailable { reason: String },
-}
-
-impl<T> DiagnosticSection<T> {
-    pub fn from_result<E: std::fmt::Display>(result: Result<T, E>) -> Self {
-        match result {
-            Ok(value) => Self::Ok { value },
-            // The reason is a short classification, never a raw database error:
-            // those can echo query text and identifiers.
-            Err(error) => Self::Unavailable {
-                reason: error.to_string(),
-            },
-        }
-    }
 }
 
 /// Why active collections are unready, counted per cause. A collection can fail

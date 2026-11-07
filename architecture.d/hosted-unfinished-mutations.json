@@ -1,0 +1,6 @@
+{
+  "reason": "Hosted diagnostics reports unfinished mutation journal entries as counts by operation kind, state, evidence kind and age band, so operators can see what is stuck without reading rows; the section and its row type are part of the public diagnostics response.",
+  "growth": {
+    "rustPublicDeclarations": 8
+  }
+}
