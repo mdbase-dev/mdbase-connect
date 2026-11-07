@@ -260,7 +260,10 @@ it('accounts for ALL static bytes plus SOURCE-owned headers/redirects; refuses t
   };
   const staleAsset=staleEdge(path=>path==='/assets/a.js');
   assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:staleAsset})).ok,true,'unchanged asset may keep previous headers on the alias');
-  assert.equal((await verifyHosting({origin:deployment.url,inventory:f.inventory,deployment,fetchImpl:staleAsset})).ok,false,'the immutable URL proves the policy on every file');
+  const immutableStale=await verifyHosting({origin:deployment.url,inventory:f.inventory,deployment,fetchImpl:staleAsset});
+  assert.equal(immutableStale.ok,false,'the immutable URL proves the policy on every file');
+  assert.deepEqual(immutableStale.failures.find(x=>x.path==='/assets/a.js'),{path:'/assets/a.js',reason:'trusted-live-header-policy-failed',
+   detail:'Live source-owned header policy mismatch: Content-Security-Policy'},'the report names the rule, never the served value');
   const staleDocument=staleEdge((path,response)=>response.headers.get('content-type')==='text/html');
   assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:staleDocument})).ok,false,'documents prove the policy on the alias');
   await writeFile(join(f.root,'_headers'),headersPolicy+'# changed\n');
