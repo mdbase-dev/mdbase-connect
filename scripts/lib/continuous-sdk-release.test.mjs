@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { contentChanged, dependentPackages, failedPublisherRuns, packageInputs, publicationBaseline, publicationState, provenanceSource, qualifyWorkspace } from "../continuous-sdk-release.mjs";
+import { awaitMainCi, awaitPublicationCi, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, packageInputs, publicationBaseline, publicationCommit, publicationState, provenanceSource, qualifyWorkspace } from "../continuous-sdk-release.mjs";
 import { publicPackages } from "../public-packages.mjs";
 
 const name = "@mdbase-dev/sdk";
@@ -228,7 +228,8 @@ test("workspace packing preserves qualified files, changes only metadata, and pi
 
 test("all SDK consumers pin the selected source", () => {
   const source = readFileSync(new URL("../continuous-sdk-release.mjs", import.meta.url), "utf8");
-  assert.match(source, /const commit = await checkoutProductionCommit\(env\)/);
+  assert.match(source, /const production = await checkoutProductionCommit\(env, \{ qualify: commit => requireGreenMain\(commit, quiet\) \}\)/);
+  assert.match(source, /git\("checkout", "--detach", commit\);\n  if \(current\) requireGreenMain\(commit, env\);/);
   assert.match(source, /env = \{ \.\.\.env, GITHUB_SHA: commit \}/);
   assert.match(source, /commit=\$\{commit\}/);
   for (const [name, jobs] of [["publish-npm", ["pack", "publish"]], ["publish-sdk-npm", ["build", "publish", "publish-internal"]]]) {
@@ -247,10 +248,82 @@ test("all SDK consumers pin the selected source", () => {
   }
 });
 
-test("a run on a newer main publishes nothing, because npm provenance must name the run's own commit", () => {
-  const source = readFileSync("scripts/continuous-sdk-release.mjs", "utf8");
-  assert.match(source, /const current = commit === env\.GITHUB_SHA;\n[^\n]*\n  env = \{ \.\.\.env, GITHUB_SHA: commit \}/);
-  assert.match(source, /if \(current && paths\.some\(/);
+function fakeGit({ ancestor = true, paths = [], files = {} } = {}) {
+  return (...args) => {
+    if (args[0] === "merge-base") {
+      if (ancestor) return "";
+      throw Object.assign(new Error("not an ancestor"), { status: 1 });
+    }
+    if (args[0] === "diff") return paths.map(path => `${path}\0`).join("");
+    if (args[0] === "show") {
+      if (args[1] in files) return files[args[1]];
+      throw Object.assign(new Error("missing"), { status: 128 });
+    }
+    throw new Error(`unexpected git ${args.join(" ")}`);
+  };
+}
+
+test("a run on a newer main publishes as its own commit only when nothing published or server-facing changed", () => {
+  const production = "a".repeat(40);
+  const run = "b".repeat(40);
+  const sdkItem = { name, directory: "packages/sdk" };
+  const others = [sdkItem, { name: "@mdbase-dev/ui", directory: "packages/ui" }];
+  const publish = (git, packages = others) => publicationCommit(production, run, packages, "workspace", git);
+  assert.equal(publicationCommit(production, production, others, "workspace", () => { throw new Error("no git"); }), production);
+  assert.equal(publish(fakeGit({ ancestor: false })), null);
+  assert.equal(publish(fakeGit({ paths: [] })), run);
+  // Tests, docs and unpublished apps' styles leave the published bytes and contract alone.
+  assert.equal(publish(fakeGit({ paths: ["packages/sdk/test/a.test.mjs", "docs/x.md", "apps/editor/src/a.css"] })), run);
+  assert.equal(publish(fakeGit({ paths: ["packages/ui/src/index.ts"] })), null);
+  assert.equal(publish(fakeGit({ paths: ["packages/ui/src/index.ts"] }), [sdkItem]), null, "a server-facing source path still stops it");
+  assert.equal(publish(fakeGit({ paths: ["runtime/crates/server/src/lib.rs"] })), null);
+  // Packing names the qualified tarballs by the checked-out manifest version.
+  assert.equal(publish(fakeGit({ paths: ["packages/sdk/package.json"] })), null);
+  assert.throws(() => publish(() => { throw Object.assign(new Error("broken"), { status: 128 }); }), /broken/);
+});
+
+test("an equivalent newer commit publishes only once its own Server CI passes", async () => {
+  const sha = "c".repeat(40);
+  const run = (status, conclusion) => ({ head_sha: sha, head_branch: "main", event: "push", path: ".github/workflows/server-ci.yml", status, conclusion });
+  const sequence = responses => { let index = 0; return () => ({ workflow_runs: responses[Math.min(index++, responses.length - 1)] }); };
+  const options = { wait: async () => {}, attempts: 3 };
+  assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[], [run("in_progress", null)], [run("completed", "success")]]) }), true);
+  assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[run("completed", "cancelled")]]) }), false);
+  assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[run("queued", null)]]) }), false);
+  assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[{ ...run("completed", "success"), event: "pull_request" }]]) }), false);
+});
+
+test("the source SDK also waits for the publishing commit's own Runtime CI", async () => {
+  const sha = "c".repeat(40);
+  const read = (workflow, statuses) => {
+    let index = 0;
+    return path => {
+      const name = path.split("/")[2];
+      if (name !== workflow) return { workflow_runs: [{ head_sha: sha, head_branch: "main", event: "push",
+        path: `.github/workflows/${name}`, status: "completed", conclusion: "success" }] };
+      const [status, conclusion] = statuses[Math.min(index++, statuses.length - 1)];
+      return { workflow_runs: [{ head_sha: sha, head_branch: "main", event: "workflow_dispatch",
+        path: `.github/workflows/${name}`, status, conclusion }] };
+    };
+  };
+  const options = { wait: async () => {} };
+  assert.equal(await awaitPublicationCi(sha, "source", { ...options, readApi: read("runtime-ci.yml", [["in_progress", null], ["completed", "success"]]) }), true);
+  assert.equal(await awaitPublicationCi(sha, "source", { ...options, readApi: read("runtime-ci.yml", [["completed", "failure"]]) }), false);
+  assert.equal(await awaitPublicationCi(sha, "source", { ...options, readApi: read("runtime-ci.yml", [["in_progress", null]]) }), false);
+  let reads = 0;
+  assert.equal(await awaitPublicationCi(sha, "workspace", { ...options, readApi: path => { reads += 1; return read("runtime-ci.yml", [["in_progress", null]])(path); } }), true);
+  assert.equal(reads, 1, "workspace packages do not wait for Runtime CI");
+});
+
+test("version-only manifest edits are not input changes when deciding what to publish", () => {
+  const item = { name, directory: "packages/sdk" };
+  const path = "packages/sdk/package.json";
+  const files = { [`a:${path}`]: '{"name":"x","version":"1"}', [`b:${path}`]: '{"name":"x","version":"2"}' };
+  assert.equal(inputChanged(path, item, "workspace", "a", "b", fakeGit({ files })), false);
+  files[`b:${path}`] = '{"name":"x","version":"2","main":"y"}';
+  assert.equal(inputChanged(path, item, "workspace", "a", "b", fakeGit({ files })), true);
+  assert.equal(inputChanged("packages/sdk/new/package.json", item, "workspace", "a", "b", fakeGit({ files })), true);
+  assert.equal(inputChanged("apps/editor/src/a.ts", item, "workspace", "a", "b", fakeGit()), false);
 });
 
 test("npm provenance gets the selected source SHA, not Actions' newer workflow SHA", () => {

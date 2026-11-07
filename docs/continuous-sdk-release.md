@@ -75,9 +75,16 @@ would be ignored by Actions). The workflow and OIDC publisher identity remain
 on main.
 
 npm refuses provenance whose source commit differs from the commit the workflow
-ran on, so a run publishes only when the selected commit is the run's own commit.
-When main has moved past production, the plan reports no changed packages and the
-run ends successfully without publishing. A later run on a production-contained
+ran on, so a run publishes as its own commit. When main has moved past
+production, the run still publishes if the selected production commit is an
+ancestor of the run's commit and nothing between them changes a published
+package's inputs (any manifest change counts, even version-only) or a
+server-facing contract path. The production commit's qualified bytes are then
+the run commit's bytes. The plan waits up to ten minutes for the run commit's
+own Server CI to pass and, for the source-built SDK, up to twenty-five more for
+its Runtime CI, which the build job requires. It then qualifies that commit and
+packs its artifacts with provenance naming it. Otherwise the plan reports no changed packages and the
+run ends successfully without publishing; a later run on a production-contained
 main publishes the change.
 
 Runtime CI now qualifies every main push, including documentation-only

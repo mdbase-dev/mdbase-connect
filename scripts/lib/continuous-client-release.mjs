@@ -107,10 +107,10 @@ export async function checkoutProductionCommit(env = process.env, {
   throw new Error("No green main commit is contained by both production services.");
 }
 
-export function requireGreenMain(commit) {
+export function requireGreenMain(commit, env = process.env) {
   if (!/^[a-f0-9]{40}$/.test(commit ?? "")) throw new Error("Expected a full main commit.");
   // Windows cannot spawn an extensionless script directly.
-  execFileSync("bash", ["scripts/ci/verify-qualified-commit", commit], { stdio: "inherit" });
+  execFileSync("bash", ["scripts/ci/verify-qualified-commit", commit], { stdio: "inherit", env });
 }
 
 export function remoteTagCommit(tag) {
