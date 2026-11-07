@@ -87,9 +87,9 @@ The durable state machine is:
 | State | Meaning | May cause a new logical effect? |
 | --- | --- | --- |
 | `claimed` | Identity/fingerprint exist and a fenced owner holds a bounded lease. | No |
-| `prepared` | Deterministic execution plan and before-state evidence are durable. | Only the current fenced owner may apply it. |
+| `prepared` | Deterministic execution plan and before-state evidence are durable. | Only the current fenced owner may apply it. A hosted sync owner whose attempt fails releases its lease, and the next retry takes over. |
 | `applied` | The intended side effect is proved present and post-apply evidence is durable. | No; recovery only finalizes. |
-| `completed` | Final encrypted receipt is durable. | No; retries return the receipt. |
+| `completed` | Final encrypted receipt is durable. | No; retries return the receipt, except a hosted sync failure stored by an earlier release, which reopens (below). |
 | `acknowledged` | A client acknowledged receiving the completed receipt. | No |
 | `abandoned` | The authority proved the effect never began, or closed an unguarded timer request unproven (2026-11-07 amendment), and permanently closed the request. | No |
 | `outcome_unknown` | Recovery exhausted all supported evidence and cannot distinguish applied from not applied. | No automatic replay; human/domain reconciliation is required. |
@@ -107,12 +107,15 @@ absent -> claimed -> prepared -> applied -> completed -> acknowledged
                   \-> abandoned
           prepared -> abandoned
           prepared/applied -> outcome_unknown
+          completed (legacy stored sync failure) -> prepared/applied
 ```
 
 An implementation may atomically skip persisted intermediate states only when
 the side effect and completed receipt commit in the same database transaction.
 It must still expose equivalent fault-injection points in conformance tests.
-`completed`, `acknowledged`, `abandoned`, and `outcome_unknown` are terminal.
+`completed`, `acknowledged`, `abandoned`, and `outcome_unknown` are terminal,
+apart from the hosted sync reopen described under "The only valid unknown
+outcome" below.
 
 ### Lease ownership and fencing
 
@@ -234,7 +237,14 @@ releases stored such errors as `completed` failures. A retry that finds one
 with status 5xx, 401, 404 or 429 reopens the row, as `prepared` when it has no
 evidence (the effect and its evidence commit together, so nothing applied) or
 as `applied` when it has, and recovers it as a takeover. Legacy stored 400 and
-403 failures were deterministic for that mutation and stay final.
+403 failures were deterministic for that mutation and stay final. Besides
+`completed -> acknowledged` and compaction, this reopen is the only way a row
+leaves `completed`.
+
+A released sync row (`prepared`, no evidence, lease expired) that its client
+never retries is deleted by compaction once it is 30 days old. A later retry of
+that request ID claims a fresh row and runs once; this is safe because a row
+without evidence never applied.
 
 ### Replay after grant revocation
 
