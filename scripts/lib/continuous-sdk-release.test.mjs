@@ -226,12 +226,11 @@ test("workspace packing preserves qualified files, changes only metadata, and pi
   assert.equal(execFileSync("tar", ["-xOf", archive, "package/dist/index.js"], { encoding: "utf8" }), "export const qualified = true;\n");
 });
 
-test("all SDK consumers pin the selected source, including npm provenance, without a newest-main guard", () => {
+test("all SDK consumers pin the selected source", () => {
   const source = readFileSync(new URL("../continuous-sdk-release.mjs", import.meta.url), "utf8");
   assert.match(source, /const commit = await checkoutProductionCommit\(env\)/);
   assert.match(source, /env = \{ \.\.\.env, GITHUB_SHA: commit \}/);
   assert.match(source, /commit=\$\{commit\}/);
-  assert.doesNotMatch(source, /const current =|if \(current &&/);
   for (const [name, jobs] of [["publish-npm", ["pack", "publish"]], ["publish-sdk-npm", ["build", "publish", "publish-internal"]]]) {
     const workflow = readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8");
     assert.match(workflow, /commit: \$\{\{ steps.plan.outputs.commit \}\}/);
@@ -246,6 +245,12 @@ test("all SDK consumers pin the selected source, including npm provenance, witho
       }
     }
   }
+});
+
+test("a run on a newer main publishes nothing, because npm provenance must name the run's own commit", () => {
+  const source = readFileSync("scripts/continuous-sdk-release.mjs", "utf8");
+  assert.match(source, /const current = commit === env\.GITHUB_SHA;\n[^\n]*\n  env = \{ \.\.\.env, GITHUB_SHA: commit \}/);
+  assert.match(source, /if \(current && paths\.some\(/);
 });
 
 test("npm provenance gets the selected source SHA, not Actions' newer workflow SHA", () => {
