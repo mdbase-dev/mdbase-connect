@@ -99,10 +99,12 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
 }): JSX.Element {
   useLocaleRevision();
   const [query, setQuery] = useState(initialQuery);
-  const [active, setActive] = useState(0);
+  const [selected, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const matches = useMemo(() => getResults ? contextualCommands(getResults(query)) : matchingCommands(commands, query, showAll), [commands, query, showAll, getResults]);
+  // Live command updates can shrink the list under the selection.
+  const active = Math.min(selected, Math.max(0, matches.length - 1));
   useLayoutEffect(() => {
     resultsRef.current!.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [active, matches]);
