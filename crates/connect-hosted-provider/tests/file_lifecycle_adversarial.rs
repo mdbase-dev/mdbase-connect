@@ -338,7 +338,7 @@ async fn status_waits_for_a_publishing_commit(database_url: &str) {
         )
         .await;
     sqlx::query(
-        "UPDATE hosted_provider_file_transfers SET expires_at = now() + interval '750 milliseconds' WHERE id = $1",
+        "UPDATE hosted_provider_file_transfers SET expires_at = now() + interval '3 seconds' WHERE id = $1",
     )
     .bind(transfer_id)
     .execute(&fixture.pool)
