@@ -2,7 +2,7 @@ use std::panic::AssertUnwindSafe;
 
 use futures_util::FutureExt;
 use mdbase_connect_hosted_provider::{
-    LifecycleDiagnosticSection, HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
+    DiagnosticSection, LifecycleDiagnosticSection, HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
 };
 use serde_json::json;
 use sqlx::{postgres::PgPoolOptions, AssertSqlSafe};
@@ -87,6 +87,7 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
             ("claimed", 0_i64, false, false, false),
             ("prepared", 180, true, false, false),
             ("applied", 180, false, false, true),
+            ("prepared", 172_800, true, false, false),
             ("outcome_unknown", 180, false, true, false),
         ] {
             sqlx::query(
@@ -118,13 +119,33 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
             .await?;
         }
         sqlx::query(
+            "UPDATE hosted_provider_mutation_journal SET operation_kind='Unexpected Kind' WHERE state='claimed'",
+        )
+        .execute(&fixture.pool)
+        .await?;
+        sqlx::query(
             "UPDATE hosted_provider_collections SET state='deleting', updated_at=now()-interval '11 minutes' WHERE id=$1",
         )
         .bind(fixture.collection_id)
         .execute(&fixture.pool)
         .await?;
         let diagnostics = fixture.provider.hosted_diagnostics().await;
-        let serialized = serde_json::to_string(&diagnostics.lifecycle_work)?;
+        // The ops reducer anchors on this being the response's last section.
+        let last_section = serde_json::to_value(&diagnostics)?
+            .as_object()
+            .and_then(|sections| sections.keys().next_back().cloned());
+        assert_eq!(last_section.as_deref(), Some("unfinished_mutations"));
+        let serialized = serde_json::to_string(&diagnostics.lifecycle_work)?
+            + &serde_json::to_string(&diagnostics.unfinished_mutations)?;
+        let breakdown = match diagnostics.unfinished_mutations {
+            DiagnosticSection::Ok { value } => value
+                .iter()
+                .map(|row| serde_json::to_value(row).map(|json| json.to_string()))
+                .collect::<Result<Vec<_>, _>>()?,
+            DiagnosticSection::Unavailable { .. } => {
+                return Err("unfinished mutations section unavailable".into());
+            }
+        };
         let value = match diagnostics.lifecycle_work {
             LifecycleDiagnosticSection::Ok { value } => value,
             LifecycleDiagnosticSection::Unavailable => {
@@ -136,6 +157,7 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
         Ok::<_, Box<dyn std::error::Error>>((
             diagnostics.schema_version,
             value,
+            breakdown,
             serialized,
             private_ids,
         ))
@@ -155,7 +177,7 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
         Ok(result) => result,
         Err(panic) => std::panic::resume_unwind(panic),
     };
-    let (schema_version, value, serialized, private_ids) =
+    let (schema_version, value, breakdown, serialized, private_ids) =
         observed.expect("collect lifecycle diagnostics");
     assert_eq!(schema_version, HOSTED_DIAGNOSTICS_SCHEMA_VERSION);
     assert_eq!(value.runtime_outbox.open, 3);
@@ -164,15 +186,35 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
     assert_eq!(value.runtime_outbox.expired_leases, 1);
     assert_eq!(value.runtime_outbox.impossible, 2);
     assert!(value.runtime_outbox.oldest_open_seconds >= Some(1_859));
-    assert_eq!(value.mutation_journal.unfinished, 3);
-    assert_eq!(value.mutation_journal.stale, 2);
+    assert_eq!(value.mutation_journal.unfinished, 4);
+    assert_eq!(value.mutation_journal.stale, 3);
     assert_eq!(value.mutation_journal.outcome_unknown, 1);
-    assert_eq!(value.mutation_journal.expired_leases, 1);
+    assert_eq!(value.mutation_journal.expired_leases, 2);
     assert_eq!(value.stuck_deleting_collections, 1);
+    let row = |operation_kind: &str, state: &str, evidence_kind: &str, age_band: &str| {
+        json!({
+            "age_band": age_band,
+            "count": 1,
+            "evidence_kind": evidence_kind,
+            "operation_kind": operation_kind,
+            "state": state,
+        })
+        .to_string()
+    };
+    assert_eq!(
+        breakdown,
+        [
+            row("create", "applied", "public_result", "under_1h"),
+            row("create", "prepared", "none", "1d_to_7d"),
+            row("create", "prepared", "none", "under_1h"),
+            row("other", "claimed", "none", "under_1h"),
+        ]
+    );
     for private in private_ids.iter().map(String::as_str).chain([
         "fixture outbox error",
         "/private/path",
         "customer-id",
+        "Unexpected Kind",
     ]) {
         assert!(!serialized.contains(private));
     }
