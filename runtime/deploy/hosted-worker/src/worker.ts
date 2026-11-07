@@ -100,6 +100,18 @@ export const idlePollMs = (base: number, streak: number) =>
  * chunks, so a longer gap made any install too big for one wake rewrite the same
  * rows forever. Well under the time an idle object survives. */
 export const INSTALL_WAKE_MS = 1_000;
+/** An object that keeps failing must not be retried every second for good. Only a
+ * wake that failed waits longer: the first retry keeps INSTALL_WAKE_MS and each
+ * further failure doubles it. Wakes that fail nothing stay at INSTALL_WAKE_MS, so
+ * an install catching up after an eviction is not evicted again. Passing the
+ * furthest chunk count that failed clears it. Persisted, because a long wait
+ * evicts the object. */
+const INSTALL_RETRY_CAP_MS = 5 * 60_000;
+const INSTALL_RETRY_KEY = "service-install-retry";
+/** Doublings that reach the cap. */
+const INSTALL_RETRY_MAX_STEPS = 9;
+export const installRetryMs = (failures: number) =>
+  Math.min(INSTALL_RETRY_CAP_MS, INSTALL_WAKE_MS * 2 ** Math.min(Math.max(0, failures - 1), INSTALL_RETRY_MAX_STEPS));
 /** Largest client frame accepted. */
 const MAX_FRAME_BYTES = 1 << 20;
 
@@ -175,6 +187,8 @@ export class HostedCollection extends DurableObject<Env> {
   private lastRefresh = 0;
   /** Consecutive syncs that learned nothing new (persisted: survives eviction). */
   private idleStreak: number | null = null;
+  /** Set while this actor has seen a running install. */
+  private installRetry: { failures: number; done: number } | null = null;
   /** Activity since the last sync's back-off decision. */
   private activitySeen = false;
   /** When the last back-off decision was made (RAM). */
@@ -990,6 +1004,30 @@ export class HostedCollection extends DurableObject<Env> {
     return idlePollMs(base, next);
   }
 
+  /** Delay to the next wake of a running install; null when none is running. */
+  private async installWake(install: { done: number; total: number } | null, failed: boolean, current: () => boolean): Promise<number | null> {
+    let prior = this.installRetry;
+    if (!install) {
+      this.installRetry = null;
+      if (prior?.failures && current()) try { await this.ctx.storage.delete(INSTALL_RETRY_KEY); } catch { /* Clears at the next pass. */ }
+      return null;
+    }
+    if (!prior) {
+      let stored: { failures?: unknown; done?: unknown } | undefined;
+      try { stored = await this.ctx.storage.get<{ failures: number; done: number }>(INSTALL_RETRY_KEY); } catch { /* Start over. */ }
+      const { failures, done } = stored ?? {};
+      prior = Number.isSafeInteger(failures) && Number.isSafeInteger(done) ? { failures: failures as number, done: done as number } : { failures: 0, done: 0 };
+    }
+    const passed = install.done > prior.done;
+    const failures = failed ? Math.min((passed ? 0 : prior.failures) + 1, INSTALL_RETRY_MAX_STEPS + 1) : passed ? 0 : prior.failures;
+    const next = { failures, done: failures ? Math.max(prior.done, failed ? install.done : 0) : 0 };
+    this.installRetry = next;
+    if ((next.failures !== prior.failures || next.done !== prior.done) && current()) {
+      try { await (next.failures ? this.ctx.storage.put(INSTALL_RETRY_KEY, next) : this.ctx.storage.delete(INSTALL_RETRY_KEY)); } catch { /* RAM still backs off this wake. */ }
+    }
+    return failed ? installRetryMs(failures) : INSTALL_WAKE_MS;
+  }
+
   /** LAB diagnosis only: each transient custody refusal a fetch retried. */
   private custodyRetryOptions(fetch: "open_sealer" | "log_token") {
     return this.env.LAB === "1" ? { onRetry: (facts: { attempt: number; code: string; call: string | null; name: string | null; message: string | null }) =>
@@ -1054,7 +1092,9 @@ export class HostedCollection extends DurableObject<Env> {
     if (install) try { console.info(JSON.stringify({ event: "hosted_install_progress", role: this.escrow ? "escrow" : "hosted", ...install })); } catch { /* Logging is not authority. */ }
     // No count of the collection's text, and no identifiers.
     if (engine.snapshotDeclined()) try { console.info(JSON.stringify({ event: "hosted_snapshot_declined", role: this.escrow ? "escrow" : "hosted" })); } catch { /* Logging is not authority. */ }
-    const poll = Date.now() + (install ? INSTALL_WAKE_MS : pollMs);
+    const installMs = await this.installWake(install, report.failed > 0, current);
+    if (!current()) return;
+    const poll = Date.now() + (installMs ?? pollMs);
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.
     const at = Math.min(next ?? poll, poll);
