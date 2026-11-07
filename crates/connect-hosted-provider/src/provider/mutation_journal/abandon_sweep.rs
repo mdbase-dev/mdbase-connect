@@ -88,6 +88,13 @@ fn sweepable_kinds() -> Vec<String> {
         .collect()
 }
 
+/// Wall-clock budget of one maintenance tick; the cursor resumes the rest.
+const SWEEP_TICK_BUDGET: Duration = Duration::from_secs(2);
+
+/// Data keys unwrapped this tick, by collection, with the wrapped key they
+/// came from. `None` records a failed unwrap.
+type SweepKeys = HashMap<Uuid, (Vec<u8>, Option<zeroize::Zeroizing<[u8; 32]>>)>;
+
 /// Lease expired more than a day ago. A takeover sets a fresh lease, so a row
 /// a handler took over recently is never swept under it, however old the
 /// request. Shared by the candidate query and the locked re-check.
@@ -175,19 +182,26 @@ impl HostedProvider {
         .bind(cursor.map(|key| key.2))
         .fetch_all(&self.pool)
         .await?;
-        // A short page reached the end: the next tick starts over.
-        let mut next = None;
+        // A short page reached the end: the next tick starts over. A tick
+        // that runs out of time resumes after the last row it handled.
         let full_page = i64::try_from(candidates.len()).is_ok_and(|len| len >= batch);
+        let started = Instant::now();
+        let mut keys = SweepKeys::new();
+        let mut last = None;
+        let mut out_of_time = false;
         for candidate in &candidates {
-            if full_page {
-                next = Some((
-                    candidate.get("accepted_at"),
-                    candidate.get("replica_id"),
-                    candidate.get("request_id"),
-                ));
+            if started.elapsed() >= SWEEP_TICK_BUDGET {
+                out_of_time = true;
+                break;
             }
+            last = Some((
+                candidate.get("accepted_at"),
+                candidate.get("replica_id"),
+                candidate.get("request_id"),
+            ));
             match self
                 .sweep_abandoned_operation_mutation(
+                    &mut keys,
                     candidate.get("collection_id"),
                     candidate.get("replica_id"),
                     candidate.get("request_id"),
@@ -209,18 +223,40 @@ impl HostedProvider {
                 Err(_) => sweep.errors += 1,
             }
         }
-        *cursor_guard = next;
+        *cursor_guard = if out_of_time {
+            last.or(cursor)
+        } else if full_page {
+            last
+        } else {
+            None
+        };
         Ok(sweep)
     }
 
     async fn sweep_abandoned_operation_mutation(
         &self,
+        keys: &mut SweepKeys,
         collection_id: Uuid,
         replica_id: Uuid,
         request_id: Uuid,
     ) -> ApiResult<SweepRow> {
+        // The data key is unwrapped before the transaction, so the collection
+        // row is never held FOR SHARE across a key service call. The locked
+        // read below re-checks that the wrapped key is still the one unwrapped.
+        let Some(wrapped) = sqlx::query_scalar::<_, Vec<u8>>(
+            "SELECT wrapped_data_key FROM hosted_provider_collections WHERE id = $1",
+        )
+        .bind(collection_id)
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            return Ok(SweepRow::Resolved);
+        };
+        let Some(data_key) = self.sweep_data_key(keys, collection_id, &wrapped).await else {
+            return Ok(SweepRow::FailedKeyUnwrap);
+        };
         let mut transaction = self.pool.begin().await?;
-        sqlx::query("SET LOCAL lock_timeout = '5s'")
+        sqlx::query("SET LOCAL lock_timeout = '1s'")
             .execute(&mut *transaction)
             .await?;
         // Lock order: collection row, then journal row. Every transaction
@@ -245,6 +281,10 @@ impl HostedProvider {
             "active" | "migrated" => {}
             "migrating" => return Ok(SweepRow::SkippedMigrating),
             _ => return Ok(SweepRow::SkippedOtherInactive),
+        }
+        if collection.get::<Vec<u8>, _>("wrapped_data_key") != wrapped {
+            // Rewrapped since the unlocked read; the next tick retries.
+            return Ok(SweepRow::Resolved);
         }
         let Some(row) = sqlx::query(AssertSqlSafe(format!(
             r#"SELECT journal.operation_kind, journal.input_digest,
@@ -285,12 +325,6 @@ impl HostedProvider {
                 return Ok(SweepRow::SkippedRecordExists);
             }
         }
-        let Ok(data_key) = self
-            .collection_key(collection_id, collection.get("wrapped_data_key"))
-            .await
-        else {
-            return Ok(SweepRow::FailedKeyUnwrap);
-        };
         let lease = self
             .take_over_operation_mutation_in(
                 &mut transaction,
@@ -310,6 +344,23 @@ impl HostedProvider {
         .await?;
         transaction.commit().await?;
         Ok(SweepRow::Abandoned(application))
+    }
+
+    /// Unwraps each collection's data key at most once per tick.
+    async fn sweep_data_key(
+        &self,
+        keys: &mut SweepKeys,
+        collection_id: Uuid,
+        wrapped: &[u8],
+    ) -> Option<zeroize::Zeroizing<[u8; 32]>> {
+        if let Some((cached_wrapped, key)) = keys.get(&collection_id) {
+            if cached_wrapped.as_slice() == wrapped {
+                return key.clone();
+            }
+        }
+        let key = self.collection_key(collection_id, wrapped).await.ok();
+        keys.insert(collection_id, (wrapped.to_vec(), key.clone()));
+        key
     }
 
     /// One maintenance tick of the sweep, logged as counts only.
