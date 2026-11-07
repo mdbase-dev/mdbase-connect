@@ -278,6 +278,7 @@ pub struct HostedDiagnostics {
     pub storage: DiagnosticSection<StorageDiagnostic>,
     pub recent_resource_changes: DiagnosticSection<Vec<ResourceChangeDiagnostic>>,
     pub lifecycle_work: LifecycleDiagnosticSection,
+    pub released_file_control_mutations: DiagnosticSection<u64>,
     pub released_sync_mutations: DiagnosticSection<u64>,
     pub stored_sync_failures: DiagnosticSection<u64>,
     pub unfinished_mutations: DiagnosticSection<Vec<UnfinishedMutationDiagnostic>>,

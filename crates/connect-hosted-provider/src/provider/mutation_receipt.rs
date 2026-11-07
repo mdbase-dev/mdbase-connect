@@ -29,12 +29,14 @@ impl StoredMutationReceipt {
         }
     }
 
-    /// A sync failure stored by a release before transient errors stopped
-    /// being stored: server errors, the account quota trigger, a token
-    /// rotated mid-request, or a collection briefly not active. None is a
-    /// final answer. 400 and 403 failures were deterministic for that exact
-    /// mutation, so they stay final.
-    pub(super) fn is_retryable_stored_sync_failure(&self) -> bool {
+    /// A sync or file control failure stored by a release before transient
+    /// errors stopped being stored: server errors, a quota (the account
+    /// storage trigger or a file quota), a token rotated mid-request, or a
+    /// collection briefly not active. None is a final answer. Other 4xx
+    /// failures (400, 403, and the file refusals such as 409
+    /// `stale_file_revision`) were deterministic for that exact request, so
+    /// they stay final.
+    pub(super) fn is_retryable_stored_failure(&self) -> bool {
         matches!(self, Self::Failure { status, .. }
             if *status >= 500 || matches!(*status, 401 | 404 | 429))
     }

@@ -148,7 +148,7 @@ impl HostedProvider {
         .execute(&mut *transaction)
         .await?
         .rows_affected();
-        let released = compact_released_sync_mutations_in(&mut transaction).await?;
+        let released = compact_released_mutations_in(&mut transaction).await?;
         sqlx::query(
             "DELETE FROM hosted_provider_retired_replay_credentials WHERE expires_at <= now()",
         )
@@ -415,14 +415,13 @@ impl HostedProvider {
                     &hosted_mutation_receipt_aad(replica.id, request_id),
                 )?;
                 if !(state == "completed"
-                    && operation_kind == "sync:mutate"
-                    && receipt.is_retryable_stored_sync_failure())
+                    && releases_failed_attempts(&operation_kind)
+                    && receipt.is_retryable_stored_failure())
                 {
                     transaction.commit().await?;
                     return Ok(HostedMutationClaim::Terminal(receipt.into_result()));
                 }
-                state = reopen_stored_sync_failure_in(&mut transaction, replica.id, request_id)
-                    .await?;
+                state = reopen_stored_failure_in(&mut transaction, replica.id, request_id).await?;
             }
             let lease_expires_at: DateTime<Utc> = row.get("lease_expires_at");
             if lease_expires_at > Utc::now() {

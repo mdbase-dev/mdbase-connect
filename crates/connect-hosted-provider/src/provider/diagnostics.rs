@@ -40,7 +40,10 @@ impl HostedProvider {
             storage: section!(self.storage_diagnostic()),
             recent_resource_changes: section!(self.recent_resource_changes_diagnostic()),
             lifecycle_work,
-            released_sync_mutations: section!(self.released_sync_mutations_diagnostic()),
+            released_file_control_mutations: section!(
+                self.released_mutations_diagnostic("file_control")
+            ),
+            released_sync_mutations: section!(self.released_mutations_diagnostic("sync")),
             stored_sync_failures: section!(self.stored_sync_failures_diagnostic()),
             unfinished_mutations: section!(self.unfinished_mutations_diagnostic()),
         }
@@ -92,10 +95,12 @@ impl HostedProvider {
                      FILTER (WHERE state IN ('claimed', 'prepared', 'applied'))))::bigint
                      AS oldest_unfinished_seconds
                  FROM hosted_provider_mutation_journal
-                 -- Released sync mutations are not outstanding work: nothing
-                 -- applied and nothing will run them until the client retries.
-                 -- They are counted in `released_sync_mutations` instead.
-                 WHERE NOT (operation_kind = 'sync:mutate' AND state = 'prepared'
+                 -- Released sync mutations and file controls are not
+                 -- outstanding work: nothing runs them until the client
+                 -- retries. They are counted in `released_sync_mutations` and
+                 -- `released_file_control_mutations` instead.
+                 WHERE NOT (split_part(operation_kind, ':', 1) IN ('sync', 'file_control')
+                   AND state = 'prepared'
                    AND evidence_kind IS NULL AND lease_expires_at <= now())
                ), deleting AS (
                  SELECT count(*) AS stuck
@@ -350,7 +355,8 @@ impl HostedProvider {
                    END AS age_band
                  FROM hosted_provider_mutation_journal
                  WHERE state IN ('claimed', 'prepared', 'applied')
-                   AND NOT (operation_kind = 'sync:mutate' AND state = 'prepared'
+                   AND NOT (split_part(operation_kind, ':', 1) IN ('sync', 'file_control')
+                     AND state = 'prepared'
                      AND evidence_kind IS NULL AND lease_expires_at <= now())
                )
                SELECT operation_kind, state, evidence_kind, age_band, count(*) AS count
@@ -389,6 +395,11 @@ impl HostedProvider {
     /// hashes the whole plaintext). Those rows reopen on retry all the same.
     /// Version 0 rows are migrated legacy receipts, which also carry no
     /// evidence, so they are excluded.
+    ///
+    /// Stored file control failures have no such count: a file control never
+    /// writes journal evidence, so its stored failure and its stored success
+    /// are the same row shape, told apart only by the encrypted receipt. They
+    /// reopen on retry all the same.
     async fn stored_sync_failures_diagnostic(&self) -> ApiResult<u64> {
         let mut transaction = self.read_only_diagnostic_transaction().await?;
         let total: i64 = sqlx::query_scalar(
@@ -402,25 +413,29 @@ impl HostedProvider {
         number(total, "stored sync failure count")
     }
 
-    /// Sync mutations whose last attempt failed and released its lease:
-    /// `prepared`, no evidence, lease expired. Nothing applied (the effect and
-    /// its evidence commit together), and nothing runs them again until the
-    /// client retries the same mutation ID, which re-runs it. A client that
-    /// stays over quota, or abandons the ID, leaves them here; compaction
-    /// deletes them after 30 days. A process that died mid-transaction leaves
-    /// the same shape and is equally safe. Kept out of the unfinished counts
-    /// so that they do not hold the lifecycle monitor in warning.
-    async fn released_sync_mutations_diagnostic(&self) -> ApiResult<u64> {
+    /// Sync mutations (`family` "sync") or file controls (`family`
+    /// "file_control") whose last attempt failed and released its lease:
+    /// `prepared`, no evidence, lease expired. Nothing runs them again until
+    /// the client retries the same request ID, which re-runs it. A sync
+    /// mutation in this state never applied (the effect and its evidence
+    /// commit together); a file control re-run resumes or replays its own
+    /// transfer or file mutation. A client that stays over quota, or abandons
+    /// the ID, leaves them here; compaction deletes them after 30 days. A
+    /// process that died mid-request leaves the same shape and is equally
+    /// safe. Kept out of the unfinished counts so that they do not hold the
+    /// lifecycle monitor in warning.
+    async fn released_mutations_diagnostic(&self, family: &'static str) -> ApiResult<u64> {
         let mut transaction = self.read_only_diagnostic_transaction().await?;
         let total: i64 = sqlx::query_scalar(
             r#"SELECT count(*) FROM hosted_provider_mutation_journal
-               WHERE operation_kind = 'sync:mutate' AND state = 'prepared'
+               WHERE split_part(operation_kind, ':', 1) = $1 AND state = 'prepared'
                  AND evidence_kind IS NULL AND lease_expires_at <= now()"#,
         )
+        .bind(family)
         .fetch_one(&mut *transaction)
         .await?;
         transaction.commit().await?;
-        number(total, "released sync mutation count")
+        number(total, "released mutation count")
     }
 
     async fn recent_resource_changes_diagnostic(&self) -> ApiResult<Vec<ResourceChangeDiagnostic>> {

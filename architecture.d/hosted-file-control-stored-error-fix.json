@@ -1,0 +1,6 @@
+{
+  "reason": "A failed hosted file control (upload open or commit, move, delete, transfer abort) releases its journal lease instead of storing the error as its final receipt, using the sync path's release, reopen and compaction. Hosted diagnostics gains one public count, released file controls, kept out of the unfinished-work counts like released sync mutations.",
+  "growth": {
+    "rustPublicDeclarations": 1
+  }
+}

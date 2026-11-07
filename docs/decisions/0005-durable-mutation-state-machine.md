@@ -87,9 +87,9 @@ The durable state machine is:
 | State | Meaning | May cause a new logical effect? |
 | --- | --- | --- |
 | `claimed` | Identity/fingerprint exist and a fenced owner holds a bounded lease. | No |
-| `prepared` | Deterministic execution plan and before-state evidence are durable. | Only the current fenced owner may apply it. A hosted sync owner whose attempt fails releases its lease, and the next retry takes over. |
+| `prepared` | Deterministic execution plan and before-state evidence are durable. | Only the current fenced owner may apply it. A hosted sync or file control owner whose attempt fails releases its lease, and the next retry takes over. |
 | `applied` | The intended side effect is proved present and post-apply evidence is durable. | No; recovery only finalizes. |
-| `completed` | Final encrypted receipt is durable. | No; retries return the receipt, except a hosted sync failure stored by an earlier release, which reopens (below). |
+| `completed` | Final encrypted receipt is durable. | No; retries return the receipt, except a hosted sync or file control failure stored by an earlier release, which reopens (below). |
 | `acknowledged` | A client acknowledged receiving the completed receipt. | No |
 | `abandoned` | The authority proved the effect never began, or closed an unguarded timer request unproven (2026-11-07 amendment), and permanently closed the request. | No |
 | `outcome_unknown` | Recovery exhausted all supported evidence and cannot distinguish applied from not applied. | No automatic replay; human/domain reconciliation is required. |
@@ -107,15 +107,15 @@ absent -> claimed -> prepared -> applied -> completed -> acknowledged
                   \-> abandoned
           prepared -> abandoned
           prepared/applied -> outcome_unknown
-          completed (legacy stored sync failure) -> prepared/applied
+          completed (legacy stored sync or file control failure) -> prepared/applied
 ```
 
 An implementation may atomically skip persisted intermediate states only when
 the side effect and completed receipt commit in the same database transaction.
 It must still expose equivalent fault-injection points in conformance tests.
 `completed`, `acknowledged`, `abandoned`, and `outcome_unknown` are terminal,
-apart from the hosted sync reopen described under "The only valid unknown
-outcome" below.
+apart from the hosted sync and file control reopen described under "The only
+valid unknown outcome" below.
 
 ### Lease ownership and fencing
 
@@ -178,8 +178,8 @@ request is never retried. `prepared -> abandoned` is legal on these terms:
   `prepared`, and their effect then commits separately, in the file lifecycle's
   own transactions and in object storage, so a `prepared` row proves nothing; a
   retry with the same request id resumes or replays them. This decision covers
-  record and timer kinds only. If file control rows ever pile up, they need
-  their own decision.
+  record and timer kinds only. File control rows whose attempt failed are
+  released and compacted instead (below).
 
 The abandoned receipt is a final failure with code `mutation_abandoned` and
 details `request_id` and `application`. `application` is `not_applied` for the
@@ -241,15 +241,37 @@ as `applied` when it has, and recovers it as a takeover. Legacy stored 400 and
 `completed -> acknowledged` and compaction, this reopen is the only way a row
 leaves `completed`.
 
-A released sync row (`prepared`, no evidence, lease expired) that its client
-never retries is deleted by compaction once it is 30 days old. A later retry of
+Hosted file controls (`file_control:*`: upload open and commit, move, delete
+and transfer abort) follow the same rule. Only a success is stored as the final
+receipt. Every error from the control, including the refusals clients act on
+(`stale_file_revision`, `path_occupied`, `file_transfer_expired`,
+`file_too_large` and the storage quota codes), is returned unchanged and not
+stored: the owner releases its lease, fenced on its owner and generation. File
+controls have no refusal receipt, so these refusals were errors, stored only by
+the journal. A retry with the same ID runs the control again. It resumes the
+control's own record, keyed by the public transfer or mutation ID: the upload
+transfer with its finalization attempts, or the file mutation receipt. Or it
+re-checks the same durable condition (the file revision, the destination path,
+the transfer's expiry, the collection and account limits) and refuses again
+while that condition holds. A file control never writes journal evidence, so a
+stored file control failure reopens as `prepared` and re-runs; the same record
+replays a control whose effect had landed. The reopen covers the same statuses
+as sync: 5xx, 401, 404 and 429 reopen, and every other stored failure, 409
+refusals included, stays final.
+
+A released sync row or file control row (`prepared`, no evidence, lease
+expired) that its client never retries is deleted by compaction once it is 30
+days old. A later retry of
 that request ID claims a fresh row and runs once; this is safe because a row
 without evidence never applied. No tombstone is kept, so after deletion the
 request ID is no longer bound to its input: the same ID with different input
 runs instead of returning `mutation_request_conflict`. This is deliberate. A
 tombstone answer would wedge the client again, and sync clients use random or
 content-derived request IDs, so a reused ID with new input does not occur in
-practice.
+practice. For a file control the journal row was never the proof of
+application: a retry after deletion re-runs the control, which replays its own
+transfer or file mutation record if it landed, and its revision precondition
+refuses a stale request, so it still takes effect at most once.
 
 ### Replay after grant revocation
 
