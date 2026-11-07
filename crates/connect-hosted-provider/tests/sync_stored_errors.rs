@@ -738,3 +738,121 @@ async fn compaction_deletes_old_released_rows_and_a_later_retry_applies_once() {
     applied_revision(&mutate(&fixture, &committed).await.unwrap());
     assert_eq!(head(&fixture).await, before);
 }
+
+/// A failed attempt releases only its own lease. If another owner has taken
+/// the row over while the attempt was running, the stale owner's release
+/// matches nothing and the new owner keeps its lease.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn a_stale_owner_releases_nothing() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let mutation = create(&fixture, "fenced.md").await;
+    // Hold the attempt mid-transaction, then fail it.
+    sqlx::raw_sql(
+        r#"CREATE FUNCTION test_hold_then_fail() RETURNS trigger AS $$
+           BEGIN
+             PERFORM pg_advisory_xact_lock(4242);
+             RAISE EXCEPTION 'test failure after takeover';
+           END $$ LANGUAGE plpgsql;
+           CREATE TRIGGER test_hold_then_fail BEFORE INSERT ON hosted_provider_changes
+             FOR EACH ROW EXECUTE FUNCTION test_hold_then_fail();"#,
+    )
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let mut gate = fixture.pool.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(4242)")
+        .execute(&mut *gate)
+        .await
+        .unwrap();
+    let attempt = {
+        let provider = fixture.provider.clone();
+        let (collection_id, token) = (fixture.collection_id, fixture.token.clone());
+        let mutation = mutation.clone();
+        tokio::spawn(async move { provider.mutate(collection_id, &token, mutation, None).await })
+    };
+    support::wait_for_query_blocked(&fixture.pool, "INSERT INTO hosted_provider_changes").await;
+
+    // Another handler takes the row over.
+    let new_owner = Uuid::new_v4();
+    let generation: i64 = sqlx::query_scalar(
+        r#"UPDATE hosted_provider_mutation_journal
+           SET lease_owner = $3, fencing_generation = fencing_generation + 1,
+               lease_expires_at = now() + interval '1 hour', updated_at = now()
+           WHERE replica_id = $1 AND request_id = $2
+           RETURNING fencing_generation"#,
+    )
+    .bind(mutation.replica_id)
+    .bind(mutation.mutation_id)
+    .bind(new_owner)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query("SELECT pg_advisory_unlock(4242)")
+        .execute(&mut *gate)
+        .await
+        .unwrap();
+    attempt.await.unwrap().unwrap_err();
+
+    let row = sqlx::query(
+        r#"SELECT state, lease_owner, fencing_generation, lease_expires_at > now() AS held
+           FROM hosted_provider_mutation_journal WHERE replica_id = $1 AND request_id = $2"#,
+    )
+    .bind(mutation.replica_id)
+    .bind(mutation.mutation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("state"), "prepared");
+    assert_eq!(row.get::<Uuid, _>("lease_owner"), new_owner);
+    assert_eq!(row.get::<i64, _>("fencing_generation"), generation);
+    assert!(row.get::<bool, _>("held"));
+    let error = mutate(&fixture, &mutation).await.unwrap_err();
+    assert_eq!(error.code, "pending_mutation_unresolved");
+}
+
+/// The mutation commits but the client still gets an error. On a COMMIT that
+/// lands but reports failure, the attempt releases its lease; if the final
+/// receipt write fails instead, the lease lapses after 30 seconds (until
+/// then a retry gets `pending_mutation_unresolved`). Either way the row is
+/// `applied` with evidence and an expired lease, and the retry replays the
+/// applied receipt without applying the mutation again.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn a_landed_commit_reported_as_an_error_replays_on_retry() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let mutation = create(&fixture, "landed-new.md").await;
+    let before = head(&fixture).await;
+    fail_completion(&fixture, true).await;
+    mutate(&fixture, &mutation).await.unwrap_err();
+    fail_completion(&fixture, false).await;
+    assert_eq!(head(&fixture).await, before + 1);
+    let row = journal(&fixture.pool, &mutation).await;
+    assert_eq!(
+        (row.state.as_str(), row.evidence_kind.as_deref()),
+        ("applied", Some("public_result"))
+    );
+    assert!(!row.has_final_receipt);
+    assert!(!row.lease_expired);
+    let error = mutate(&fixture, &mutation).await.unwrap_err();
+    assert_eq!(error.code, "pending_mutation_unresolved");
+
+    sqlx::query(
+        "UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() WHERE request_id = $1",
+    )
+    .bind(mutation.mutation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let receipt = mutate(&fixture, &mutation).await.unwrap();
+    let revision = applied_revision(&receipt);
+    assert_eq!(head(&fixture).await, before + 1);
+    assert_eq!(journal(&fixture.pool, &mutation).await.state, "completed");
+    assert_eq!(
+        serde_json::to_value(mutate(&fixture, &mutation).await.unwrap()).unwrap(),
+        serde_json::to_value(&receipt).unwrap()
+    );
+    applied_revision(&mutate(&fixture, &edit(&mutation, &revision)).await.unwrap());
+}
