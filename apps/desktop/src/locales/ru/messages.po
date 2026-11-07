@@ -239,6 +239,10 @@ msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>Разрешить остановку размещённых зеркал, пока я не подключу их снова"
 
 #: src/renderer/collections-view.tsx
+msgid "<0/>Encrypt end to end so mdbase cannot read it"
+msgstr "<0/>Сквозное шифрование: mdbase не сможет её прочитать"
+
+#: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
 msgstr "<0/>Я проверил эти файлы"
 
@@ -300,6 +304,10 @@ msgstr "Добавить существующую папку"
 #: src/renderer/main.tsx
 msgid "Add your first collection"
 msgstr "Добавить первую коллекцию"
+
+#: src/renderer/collections-view.tsx
+msgid "Advanced"
+msgstr "Дополнительно"
 
 #: src/renderer/main.tsx
 msgid "All on this computer only"
@@ -564,10 +572,6 @@ msgctxt "Connect interface"
 msgid "Close navigation"
 msgstr "Закрыть навигацию"
 
-#: src/renderer/collections-view.tsx
-msgid "Cloud copy"
-msgstr "Облачная копия"
-
 #: src/renderer/daemon-view.mts
 msgid "Collection deleted"
 msgstr "Коллекция удалена"
@@ -773,10 +777,6 @@ msgstr "не удалось сохранить для переноса прав�
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 msgstr "Напишите на support@mdbase.dev и приложите отчёт о диагностике. Мы завершим обновление или вернём этот компьютер на mdbase connect."
 
-#: src/renderer/collections-view.tsx
-msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr "Сквозное шифрование: mdbase не может прочитать данные. Веб-приложения работают, только когда одно из ваших устройств в сети."
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
@@ -823,10 +823,6 @@ msgstr "в размещённых коллекциях остались прав
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
 msgstr "Как новые приложения получают доступ к вашим локальным коллекциям."
-
-#: src/renderer/collections-view.tsx
-msgid "How should it sync?"
-msgstr "Как синхронизировать?"
 
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
@@ -1042,8 +1038,8 @@ msgid "mdbase is not running on this computer. It restarts automatically; if thi
 msgstr "mdbase не работает на этом компьютере. Он перезапустится автоматически; если проблема останется, перезапустите mdbase connect."
 
 #: src/renderer/collections-view.tsx
-msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr "mdbase хранит копию, чтобы веб-приложения и агенты могли использовать её, даже когда ваши устройства выключены."
+msgid "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
+msgstr "mdbase хранит облачную копию, поэтому веб-приложения и агенты могут работать с этой коллекцией, пока ваши устройства выключены."
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
@@ -1086,6 +1082,10 @@ msgstr "При одобрении mdbase показывает ключ прил�
 msgctxt "Desktop application"
 msgid "mdbase starting"
 msgstr "Запуск mdbase"
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
+msgstr "mdbase хранит только зашифрованные изменения. Веб-приложения и агенты могут работать с этой коллекцией, только пока в сети одно из ваших устройств с настольным приложением."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1306,10 +1306,6 @@ msgstr "Подготовка кода для сравнения…"
 #: src/renderer/main.tsx
 msgid "Previous version restored"
 msgstr "Предыдущая версия восстановлена"
-
-#: src/renderer/collections-view.tsx
-msgid "Private"
-msgstr "Закрытая"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"

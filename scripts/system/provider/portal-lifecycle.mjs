@@ -24,7 +24,7 @@ export async function portalLifecycleE2E({
     await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
 
     await expect(page.getByRole("button", { name: "Add collection" })).toHaveCount(0);
-    await page.getByRole("button", { name: /^Hosted by mdbase/ }).click();
+    await page.getByRole("button", { name: /^New collection/ }).click();
     await page.getByLabel("Collection name").fill("Browser E2E collection");
     await page.getByRole("button", { name: "Create", exact: true }).click();
     await page.getByRole("link", { name: "Collections", exact: true }).click();
@@ -32,7 +32,7 @@ export async function portalLifecycleE2E({
       hasText: "Browser E2E collection"
     });
     await expect(row).toBeVisible();
-    await expect(row).toContainText("Hosted by mdbase");
+    await expect(row).toContainText("Cloud copy");
 
     const dashboard = await page.evaluate(async (server) => {
       const response = await fetch(`${server}/v1/me`, { credentials: "include" });
@@ -136,7 +136,7 @@ export async function portalLifecycleE2E({
     });
 
     await expect(page.getByRole("button", { name: "Add collection" })).toHaveCount(0);
-    await page.getByRole("button", { name: /^Hosted by mdbase/ }).click();
+    await page.getByRole("button", { name: /^New collection/ }).click();
     await page.getByLabel("Collection name").fill("Account deletion collection");
     await page.getByRole("button", { name: "Create", exact: true }).click();
     const deletionCollection = page.locator(".connect-collection-row").filter({

@@ -3,7 +3,8 @@ import { accessView, requireCollectionAction, resolveHostedCollectionAccess, res
 import {
   listHostedCollectionsVisibleToUser,
   listLocalCollectionsVisibleToUser,
-  listNativeCollectionsVisibleToUser
+  listNativeCollectionsVisibleToUser,
+  accountCollectionCreation
 } from "../../collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
 import { effectiveEntitlement } from "../../entitlements.js";
@@ -65,9 +66,7 @@ export function registerAccountOverviewRoute(
     );
     if (!authenticated) return;
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
-    const accountBackend = (await options.db.query<{account_backend:string; flipped:boolean}>(`SELECT u.account_backend,
-      f.account_id IS NOT NULL AS flipped FROM users u LEFT JOIN next_migration_account_flips f ON f.account_id=u.id
-      WHERE u.id=$1 AND u.suspended_at IS NULL`, [user.id])).rows[0];
+    const creation = await accountCollectionCreation(options.db, user.id, options);
     const nativeCollections = await listNativeCollectionsVisibleToUser(options.db, user.id);
     const nativeComputers = await nativeDevicesByCollection(options.db, nativeCollections.map(collection => collection.id), user.id);
     const nativeCreator = await options.db.query(
@@ -273,7 +272,7 @@ export function registerAccountOverviewRoute(
       }
     }
     let nativeStorageBytes = null;
-    if (options.nextLog && entitlement && accountBackend?.account_backend === "next") {
+    if (options.nextLog && entitlement && creation.backend === "next") {
       try {
         nativeStorageBytes = await nextFileBytes(options.db, options.nextLog, user.id);
       } catch (error) {
@@ -315,7 +314,7 @@ export function registerAccountOverviewRoute(
       } : null,
       hosted_collections_available: options.hostedCollections === true,
       native_collection_creation_available: nativeCreator.rows.length > 0,
-      collection_creation_available: accountBackend?.account_backend === "next" ? accountBackend.flipped && options.nativeCollectionCreation === true : accountBackend?.account_backend === "legacy" && options.hostedCollections === true,
+      collection_creation_available: creation.available,
       collection_sharing_available: options.hostedCollections === true && options.hostedSharing === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),

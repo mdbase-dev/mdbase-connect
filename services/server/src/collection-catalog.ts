@@ -308,3 +308,22 @@ function hostedEntry(row: {
     createdAt: row.created_at
   };
 }
+
+/** The account's sync backend and whether it can create a collection now: a
+ * native cloud copy once it has flipped to next, or the legacy hosted provider. */
+export async function accountCollectionCreation(
+  db: DatabaseQueryable,
+  userId: string,
+  options: { nativeCollectionCreation?: boolean; hostedCollections?: boolean }
+): Promise<{ backend: string | undefined; available: boolean }> {
+  const row = (await db.query<{ account_backend: string; flipped: boolean }>(
+    `SELECT u.account_backend, f.account_id IS NOT NULL AS flipped
+     FROM users u LEFT JOIN next_migration_account_flips f ON f.account_id = u.id
+     WHERE u.id = $1 AND u.suspended_at IS NULL`, [userId]
+  )).rows[0];
+  return {
+    backend: row?.account_backend,
+    available: row?.account_backend === "next" ? row.flipped && options.nativeCollectionCreation === true
+      : row?.account_backend === "legacy" && options.hostedCollections === true
+  };
+}

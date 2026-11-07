@@ -4407,10 +4407,10 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     if (await collection.isVisible()) {
       await page.getByText("Add or connect another collection", { exact: true }).click();
       await expect(collection).toHaveAttribute("data-value", collectionId);
-      await expect(collection).toHaveAccessibleDescription(/Hosted by mdbase/);
+      await expect(collection).toHaveAccessibleDescription(/Cloud copy/);
       await collection.click();
       await expect(collection).toHaveAttribute("aria-selected", "true");
-      await expect(page.getByRole("button", { name: "Create hosted collection" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "New collection" })).toBeVisible();
       await page.getByRole("button", { name: "Review access" }).click();
     }
     await expect(page.locator(".selected-collection-summary")).toContainText("Hosted writing");
@@ -4446,13 +4446,13 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, re
     await expect(page.getByRole("heading", { name: "Workout Inline E2E", level: 1, exact: true })).toBeVisible();
     await expect(page.getByText("No compatible collection is ready.")).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Choose a collection", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Create hosted collection" }).click();
+    await page.getByRole("button", { name: "New collection" }).click();
     await page.getByLabel("New collection name").fill("Workout records");
     await page.getByRole("button", { name: "Create collection" }).click();
     const collection = page.locator(".selected-collection-summary");
     await expect(page.getByRole("button", { name: "Review access", exact: true })).toHaveCount(0);
     await expect(collection).toContainText("Workout records");
-    await expect(collection).toContainText("Hosted by mdbase");
+    await expect(collection).toContainText("Cloud copy");
     await expect(collection.getByRole("button", { name: "Change" })).toBeVisible();
     await expect(page.getByText(
       "Workout Inline E2E needs a record type"

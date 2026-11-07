@@ -195,7 +195,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     assert.deepEqual(posts.map(post => post.body), [{fingerprint: base.fingerprint, collection_ids: [second], create_collections: true, selected_collection_id: second}], "changing the picker does not silently accumulate access");
     await load(); await choose("Personal notes");
     await page.getByText("Allow offline access to additional collections", {exact: true}).click();
-    await page.getByRole("checkbox", {name: "Work notes Hosted by mdbase", exact: true}).check();
+    await page.getByRole("checkbox", {name: "Work notes Cloud copy", exact: true}).check();
     await approve().click(); await done();
     assert.deepEqual([...posts[0].body.collection_ids].sort(), [first, second].sort());
     await load();

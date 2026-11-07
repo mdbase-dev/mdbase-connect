@@ -2784,25 +2784,13 @@ impl Daemon {
         }
         let adopting = journal.is_some() || !local_bootstrap_folder_is_empty(&entry.root)?;
         let migrated = entry.origin == crate::registry::Origin::MigratedLocal;
-        let e2e = match (&journal, p.mode) {
-            (Some(j), asked) => {
-                let started = j.mode == crate::adopt::Mode::Private;
-                if asked.is_some_and(|m| (m == SyncMode::SyncedE2e) != started) {
-                    return Err(ControlError::invalid(
-                        "adopt_in_progress",
-                        format!(
-                            "turning sync on was started as {}; run it again with that mode",
-                            if started { "private" } else { "cloud-copy" }
-                        ),
-                    ));
-                }
-                started
-            }
-            (None, Some(m)) => m == SyncMode::SyncedE2e,
-            // Migrated local-authority collections, and folders with files, become
-            // private unless the user asks for a cloud copy.
-            (None, None) => adopting || migrated,
-        };
+        let e2e = sync_e2e(
+            journal
+                .as_ref()
+                .map(|j| j.mode == crate::adopt::Mode::Private),
+            p.mode,
+            migrated,
+        )?;
         let mode = if e2e {
             SyncMode::SyncedE2e
         } else {
@@ -5007,6 +4995,34 @@ fn folder_is_empty(root: &std::path::Path) -> Result<bool, ControlError> {
         }
     }
     Ok(true)
+}
+
+/// Whether turning sync on makes the collection Private. `started` is the
+/// mode an interrupted adopt journal began with, which a retry must keep.
+fn sync_e2e(
+    started: Option<bool>,
+    asked: Option<SyncMode>,
+    migrated: bool,
+) -> Result<bool, ControlError> {
+    Ok(match (started, asked) {
+        (Some(started), asked) => {
+            if asked.is_some_and(|m| (m == SyncMode::SyncedE2e) != started) {
+                return Err(ControlError::invalid(
+                    "adopt_in_progress",
+                    format!(
+                        "turning sync on was started as {}; run it again with that mode",
+                        if started { "private" } else { "cloud-copy" }
+                    ),
+                ));
+            }
+            started
+        }
+        (None, Some(m)) => m == SyncMode::SyncedE2e,
+        // A cloud copy unless the user asks for private. Migrated
+        // local-authority collections never had a cloud copy, and the
+        // automatic takeover enables them without asking, so they stay private.
+        (None, None) => migrated,
+    })
 }
 
 /// Only for an authenticated owner's EXISTING local registration: FileStore

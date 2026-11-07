@@ -645,7 +645,7 @@ test("create needs a name and a location, and sends both", async () => {
   } finally { await page.close(); }
 });
 
-test("turning on sync defaults to private and removal is confirmed; long paths stay inside the minimum window", async () => {
+test("turning on sync offers private only as an advanced choice and removal is confirmed; long paths stay inside the minimum window", async () => {
   const { page, errors, calls } = await desktop({ collections: [collection()] });
   try {
     await page.setViewportSize({ width: 820, height: 580 });
@@ -657,7 +657,11 @@ test("turning on sync defaults to private and removal is confirmed; long paths s
     assert.equal(await page.locator(".content").evaluate((element) => element.scrollWidth > element.clientWidth), false);
     await collectionAction(page, "Turn on sync", card);
     const dialog = page.getByRole("dialog");
-    assert.equal(await dialog.getByRole("radio", { name: /Private/ }).isChecked(), true);
+    const encrypt = dialog.getByRole("checkbox", { name: "Encrypt end to end so mdbase cannot read it" });
+    assert.equal(await encrypt.isVisible(), false, "private sync is behind Advanced");
+    await dialog.getByText("Advanced", { exact: true }).click();
+    assert.equal(await encrypt.isChecked(), false, "a cloud copy is the default");
+    await encrypt.check();
     await dialog.getByRole("button", { name: "Turn on sync" }).click();
     await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
     assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
@@ -686,7 +690,7 @@ test("a failed turn-on of sync is explained inside the dialog, which stays open 
     assert.match(await alert.innerText(), /^This version of mdbase can't turn on sync\. Update mdbase, then try again\. The folder and its files are unchanged\.$/);
     assert.equal(await dialog.isVisible(), true);
     await dialog.getByRole("button", { name: "Turn on sync" }).click();
-    await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
+    await page.getByText("Notes now syncs.", { exact: true }).waitFor();
     await dialog.waitFor({ state: "detached" });
     assert.equal((await calls("enableSync")).length, 2);
     assert.deepEqual(errors, []);
@@ -711,8 +715,8 @@ test("turning on sync for a taken-over folder shows the files held at takeover a
     assert.equal(await confirm.isDisabled(), true, "held files must be checked first");
     await dialog.getByRole("checkbox", { name: "I have checked these files" }).check();
     await confirm.click();
-    await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
-    assert.deepEqual(await calls("enableSync"), [["c-notes", "private", true]]);
+    await page.getByText("Notes now syncs.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("enableSync"), [["c-notes", "cloud-copy", true]]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
@@ -734,14 +738,14 @@ test("files held at the takeover are resolved one by one before sync turns on", 
     await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor();
     const confirm = dialog.getByRole("button", { name: "Turn on sync" });
     assert.equal(await confirm.isDisabled(), true, "held files are resolved first");
-    assert.equal(await dialog.getByRole("checkbox").count(), 0, "no blanket acceptance when each file can be resolved");
+    assert.equal(await dialog.getByRole("checkbox", { name: "I have checked these files" }).count(), 0, "no blanket acceptance when each file can be resolved");
     await dialog.getByRole("button", { name: "Keep both" }).click();
     await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor({ state: "detached" });
     assert.equal(await confirm.isDisabled(), false);
     await confirm.click();
-    await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
+    await page.getByText("Notes now syncs.", { exact: true }).waitFor();
     assert.deepEqual(await calls("resolveHold"), [["c-notes", "takeover:1", "keep_both"]]);
-    assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
+    assert.deepEqual(await calls("enableSync"), [["c-notes", "cloud-copy", false]]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

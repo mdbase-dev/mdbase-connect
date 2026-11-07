@@ -696,13 +696,13 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
           }, {
             id: "55555555-5555-4555-8555-555555555555",
             kind: "hosted",
-            connector_name: "Hosted by mdbase",
+            connector_name: "Cloud copy",
             display_name: "Shared notes",
             spec_version: "0.3.0",
             contracts: [],
             types: []
           }],
-          hosted_collections_available: true,
+          collection_creation_available: true,
           unavailable_connectors: []
         }
       });
@@ -763,7 +763,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     false,
     "portal authorization: browser review remains available"
   );
-  const createHosted = page.getByRole("button", { name: "Create hosted collection" });
+  const createHosted = page.getByRole("button", { name: "New collection" });
   await createHosted.click();
   assert.equal(await page.getByLabel("New collection name").evaluate((element) => document.activeElement === element), true, "portal authorization: hosted collection form receives focus");
   await page.getByRole("button", { name: "Cancel" }).click();

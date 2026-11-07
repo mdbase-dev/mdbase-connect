@@ -239,6 +239,10 @@ msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>다시 연결할 때까지 호스팅 미러 중지 허용"
 
 #: src/renderer/collections-view.tsx
+msgid "<0/>Encrypt end to end so mdbase cannot read it"
+msgstr "<0/>mdbase가 읽을 수 없도록 종단 간 암호화"
+
+#: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
 msgstr "<0/>이 파일들을 확인했습니다"
 
@@ -300,6 +304,10 @@ msgstr "기존 폴더 추가"
 #: src/renderer/main.tsx
 msgid "Add your first collection"
 msgstr "첫 컬렉션 추가"
+
+#: src/renderer/collections-view.tsx
+msgid "Advanced"
+msgstr "고급"
 
 #: src/renderer/main.tsx
 msgid "All on this computer only"
@@ -564,10 +572,6 @@ msgctxt "Connect interface"
 msgid "Close navigation"
 msgstr "탐색 메뉴 닫기"
 
-#: src/renderer/collections-view.tsx
-msgid "Cloud copy"
-msgstr "클라우드 사본"
-
 #: src/renderer/daemon-view.mts
 msgid "Collection deleted"
 msgstr "컬렉션 삭제됨"
@@ -773,10 +777,6 @@ msgstr "호스팅 컬렉션에서 업로드 대기 중인 편집 내용을 이�
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 msgstr "진단 보고서를 첨부해 support@mdbase.dev로 이메일을 보내세요. 업그레이드를 마무리하거나 이 컴퓨터를 mdbase Connect로 되돌리겠습니다."
 
-#: src/renderer/collections-view.tsx
-msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr "종단 간 암호화: mdbase에서 읽을 수 없습니다. 웹 앱은 기기 중 하나가 온라인일 때만 작동합니다."
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
@@ -823,10 +823,6 @@ msgstr "호스팅 컬렉션에 업로드 대기 중인 편집 내용이 남아 �
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
 msgstr "새 앱의 로컬 컬렉션 액세스 방법"
-
-#: src/renderer/collections-view.tsx
-msgid "How should it sync?"
-msgstr "어떻게 동기화할까요?"
 
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
@@ -1042,8 +1038,8 @@ msgid "mdbase is not running on this computer. It restarts automatically; if thi
 msgstr "이 컴퓨터에서 mdbase가 실행 중이 아닙니다. 자동으로 다시 시작됩니다. 계속되면 mdbase connect를 재시작하세요."
 
 #: src/renderer/collections-view.tsx
-msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr "mdbase에서 사본을 보관하므로 기기가 꺼져 있어도 웹 앱과 에이전트가 사용할 수 있습니다."
+msgid "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
+msgstr "mdbase가 클라우드 사본을 보관하므로 기기가 꺼져 있어도 웹 앱과 에이전트가 이 컬렉션을 사용할 수 있습니다."
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
@@ -1086,6 +1082,10 @@ msgstr "승인할 때 mdbase에 앱 키가 표시됩니다. {0}에 같은 키가
 msgctxt "Desktop application"
 msgid "mdbase starting"
 msgstr "mdbase 시작하는 중"
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
+msgstr "mdbase는 암호화된 변경 내용만 저장합니다. 웹 앱과 에이전트는 데스크톱 앱이 있는 기기 중 하나가 온라인일 때만 이 컬렉션을 사용할 수 있습니다."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1306,10 +1306,6 @@ msgstr "비교 코드 준비 중…"
 #: src/renderer/main.tsx
 msgid "Previous version restored"
 msgstr "이전 버전 복원됨"
-
-#: src/renderer/collections-view.tsx
-msgid "Private"
-msgstr "비공개"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"

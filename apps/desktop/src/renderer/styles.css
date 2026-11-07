@@ -343,15 +343,6 @@ fieldset legend { margin-bottom: 6px; }
 .modal h2 { margin: 0; font-size: 20px; font-weight: var(--font-weight-semibold); letter-spacing: -0.025em; }
 .modal .mdbase-dialog-body > p:not(.eyebrow) { margin: 8px 0 20px; color: var(--muted); font-size: var(--font-size-ui); line-height: 1.5; }
 .modal label { display: grid; gap: 6px; margin-top: 14px; }
-.authority-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.authority-choice > legend { grid-column: 1 / -1; }
-.authority-choice > label { display: flex; align-items: flex-start; gap: 9px; min-height: 68px; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; }
-.authority-choice > label.selected { border-color: var(--line-strong); background: var(--hover); }
-.authority-choice > label.disabled { opacity: 0.55; cursor: not-allowed; }
-.authority-choice input { width: 14px; min-height: 14px; flex: 0 0 auto; margin: 2px 0 0; padding: 0; accent-color: var(--accent); }
-.authority-choice label > span { display: grid; gap: 3px; color: var(--ink); }
-.authority-choice label strong { font-size: var(--font-size-caption); }
-.authority-choice label small { color: var(--muted); font-size: var(--font-size-caption); font-weight: 400; line-height: 1.35; }
 .folder-picker { --control-font-size: var(--font-size-caption); overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; padding-top: 15px; border-top: 1px solid var(--line); }
 
