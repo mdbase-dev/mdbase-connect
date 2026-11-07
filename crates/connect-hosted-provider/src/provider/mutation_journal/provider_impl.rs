@@ -148,13 +148,29 @@ impl HostedProvider {
         .execute(&mut *transaction)
         .await?
         .rows_affected();
+        // A released sync mutation never applied: the effect and its evidence
+        // commit in one transaction, and this row has no evidence. Nothing
+        // needs it to exist. A causal successor already treats a `prepared`
+        // predecessor as missing, and a retry of the same mutation ID after
+        // deletion claims a fresh row and runs once. The lease condition keeps
+        // a live owner's row; a concurrent claim re-locks the row and moves
+        // `updated_at`, so the delete re-checks and skips it.
+        let released = sqlx::query(
+            r#"DELETE FROM hosted_provider_mutation_journal
+               WHERE operation_kind = 'sync:mutate' AND state = 'prepared'
+                 AND evidence_kind IS NULL AND lease_expires_at <= now()
+                 AND updated_at <= now() - interval '30 days'"#,
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
         sqlx::query(
             "DELETE FROM hosted_provider_retired_replay_credentials WHERE expires_at <= now()",
         )
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
-        Ok(tombstoned)
+        Ok(tombstoned + released)
     }
 
     pub async fn operation_mutation_diagnostics(

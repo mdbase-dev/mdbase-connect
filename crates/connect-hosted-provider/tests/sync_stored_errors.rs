@@ -602,3 +602,139 @@ async fn released_sync_mutations_are_counted_apart_from_unfinished_work() {
         .contains(r#""stored_sync_failures":{"state":"ok","value":0},"unfinished_mutations":"#));
     assert!(!serialized.contains(&released.mutation_id.to_string()));
 }
+
+/// Make the final receipt write fail after the mutation's own transaction
+/// has committed, or stop doing so.
+async fn fail_completion(fixture: &FileLifecycleFixture, fail: bool) {
+    let sql = if fail {
+        r#"CREATE FUNCTION test_fail_completion() RETURNS trigger AS $$
+           BEGIN RAISE EXCEPTION 'test completion failure'; END $$ LANGUAGE plpgsql;
+           CREATE TRIGGER test_fail_completion
+             BEFORE UPDATE ON hosted_provider_mutation_journal
+             FOR EACH ROW WHEN (OLD.state = 'applied' AND NEW.state = 'completed')
+             EXECUTE FUNCTION test_fail_completion();"#
+    } else {
+        "DROP TRIGGER test_fail_completion ON hosted_provider_mutation_journal;
+         DROP FUNCTION test_fail_completion();"
+    };
+    sqlx::raw_sql(sql).execute(&fixture.pool).await.unwrap();
+}
+
+/// Six weeks later: compaction deletes a released sync row once it is 30
+/// days old, and the same mutation ID resent afterwards claims a fresh row
+/// and applies exactly once. Rows the rule must keep survive it: one whose
+/// owner holds a live lease, and one whose transaction committed (it carries
+/// evidence, so it is never released).
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn compaction_deletes_old_released_rows_and_a_later_retry_applies_once() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let released = create(&fixture, "asleep.md").await;
+    account_storage_full(&fixture, true).await;
+    mutate(&fixture, &released).await.unwrap_err();
+    account_storage_full(&fixture, false).await;
+    let live = create(&fixture, "live.md").await;
+    claimed_row(&fixture, &live).await;
+    hold_lease(&fixture, &live).await;
+    // Committed, then the final receipt failed: `applied` with evidence.
+    let committed = create(&fixture, "committed.md").await;
+    fail_completion(&fixture, true).await;
+    mutate(&fixture, &committed).await.unwrap_err();
+    fail_completion(&fixture, false).await;
+    sqlx::query(
+        "UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() WHERE request_id = $1",
+    )
+    .bind(committed.mutation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let row = journal(&fixture.pool, &committed).await;
+    assert_eq!(
+        (row.state.as_str(), row.evidence_kind.as_deref()),
+        ("applied", Some("public_result"))
+    );
+    let exists = |mutation: SyncMutation| {
+        let pool = fixture.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (SELECT 1 FROM hosted_provider_mutation_journal WHERE request_id = $1)",
+            )
+            .bind(mutation.mutation_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    let age = |days: i32| {
+        let pool = fixture.pool.clone();
+        async move {
+            sqlx::query(
+                r#"UPDATE hosted_provider_mutation_journal
+                   SET accepted_at = now() - make_interval(days => $1),
+                       updated_at = now() - make_interval(days => $1)
+                   WHERE operation_kind = 'sync:mutate'"#,
+            )
+            .bind(days)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    };
+
+    age(29).await;
+    assert_eq!(
+        fixture
+            .provider
+            .compact_operation_mutations()
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(exists(released.clone()).await);
+
+    age(42).await;
+    assert_eq!(
+        fixture
+            .provider
+            .compact_operation_mutations()
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(!exists(released.clone()).await);
+    assert!(exists(live.clone()).await);
+    assert!(exists(committed.clone()).await);
+
+    // The laptop wakes and resends the same mutation with the same input.
+    let before = head(&fixture).await;
+    let receipt = mutate(&fixture, &released).await.unwrap();
+    let revision = applied_revision(&receipt);
+    assert_eq!(head(&fixture).await, before + 1);
+    let changes = || {
+        let pool = fixture.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM hosted_provider_changes WHERE collection_id = $1 AND record_id = $2",
+            )
+            .bind(fixture.collection_id)
+            .bind(released.record_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    assert_eq!(changes().await, 1);
+    assert_eq!(
+        serde_json::to_value(mutate(&fixture, &released).await.unwrap()).unwrap(),
+        serde_json::to_value(&receipt).unwrap()
+    );
+    assert_eq!(head(&fixture).await, before + 1);
+    assert_eq!(changes().await, 1);
+    applied_revision(&mutate(&fixture, &edit(&released, &revision)).await.unwrap());
+
+    // The committed one replays its effect rather than running again.
+    let before = head(&fixture).await;
+    applied_revision(&mutate(&fixture, &committed).await.unwrap());
+    assert_eq!(head(&fixture).await, before);
+}
