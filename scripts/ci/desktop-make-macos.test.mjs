@@ -31,6 +31,10 @@ test("a stapling failure packages again", () => {
   assert.deepEqual(make([staple, "ok"]), { status: 0, calls: 2 });
 });
 
+test("an unsigned app packages again", () => {
+  assert.deepEqual(make(["Error: Failed to codesign your application with code: 1", "ok"]), { status: 0, calls: 2 });
+});
+
 test("stapling stops failing the job after three attempts", () => {
   assert.deepEqual(make([staple, staple, staple, "ok"]), { status: 1, calls: 3 });
 });
