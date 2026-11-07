@@ -78,6 +78,34 @@ it("closes a palette before running its action and does not steal the action's f
   expect(document.activeElement).toBe(host.querySelector("[data-target]"));
 });
 
+it("returns focus and app shortcuts as soon as a palette command closes it", () => {
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+  vi.useFakeTimers();
+  const shortcut = vi.fn();
+  window.addEventListener("keydown", shortcut);
+  let openPalette: () => void;
+  function Host() {
+    const [open, setOpen] = useState(false);
+    openPalette = () => setOpen(true);
+    return <><button data-invoker>Search</button>
+      <CommandPalette open={open} onClose={() => setOpen(false)} commands={[{ id: "beside", label: "Open beside", group: "actions", run: () => {} }]} /></>;
+  }
+  act(() => root.render(<Host />));
+  const invoker = host.querySelector<HTMLButtonElement>("[data-invoker]")!;
+  invoker.focus();
+  act(() => openPalette!());
+  const input = document.querySelector("dialog input")!;
+  document.querySelector("dialog")!.style.setProperty("transition-duration", "0.12s");
+  act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true })));
+  expect(shortcut).not.toHaveBeenCalled();
+  act(() => document.querySelector<HTMLButtonElement>('[role="option"]')!.click());
+  expect(document.querySelector("dialog")).not.toBeNull();
+  expect(document.activeElement).toBe(invoker);
+  act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true })));
+  expect(shortcut).toHaveBeenCalledOnce();
+  window.removeEventListener("keydown", shortcut);
+});
+
 it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus", () => {
   vi.useFakeTimers();
   let changeOpen: (open: boolean) => void;
