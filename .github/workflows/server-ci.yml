@@ -562,6 +562,21 @@ jobs:
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Disposable database for the ignored PostgreSQL provider tests below.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: mdbase_provider_test
+          POSTGRES_USER: mdbase
+          POSTGRES_PASSWORD: hosted-provider-rust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mdbase -d mdbase_provider_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     defaults:
       run:
         working-directory: mdbase-connect
@@ -601,6 +616,18 @@ jobs:
         env:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
+      # The workspace run above skips ignored tests. These need PostgreSQL;
+      # --workspace reuses that run's build.
+      - name: Hosted provider PostgreSQL tests (ignored)
+        run: >-
+          cargo test --locked --workspace
+          --test mutation_abandon --test lifecycle_diagnostics
+          -- --ignored --test-threads=1
+        env:
+          MDBASE_APPROVE_DESTRUCTIVE_HOSTED_TESTS: operation_dispatch_uuid_schema_v1
+          MDBASE_PROJECTION_DATABASE_URL: postgres://mdbase:hosted-provider-rust@127.0.0.1:5432/mdbase_provider_test
+          MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL: I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS
+          MDBASE_CONNECT_PROVIDER_DIAGNOSTICS_TEST_DATABASE_URL: postgres://mdbase:hosted-provider-rust@127.0.0.1:5432/mdbase_provider_test
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
