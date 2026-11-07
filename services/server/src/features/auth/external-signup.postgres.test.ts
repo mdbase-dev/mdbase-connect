@@ -69,8 +69,9 @@ describePostgres("external signup PostgreSQL transactions", () => {
     const sessions = await Promise.all([complete(first), complete(second)]);
     expect(new Set(sessions.map((session) => session.userId)).size).toBe(1);
     expect(sessions.filter((session) => session.createdAccount)).toHaveLength(1);
-    for (const table of ["account_onboarding", "account_entitlement_grants", "email_identities", "email_jobs"]) {
-      expect((await db.query(`SELECT user_id FROM ${table} WHERE user_id = $1`, [sessions[0].userId])).rows).toHaveLength(1);
+    // One account: a free and a trial grant, and the welcome plus two trial notices.
+    for (const [table, rows] of [["account_onboarding", 1], ["account_entitlement_grants", 2], ["email_identities", 1], ["email_jobs", 3]] as const) {
+      expect((await db.query(`SELECT user_id FROM ${table} WHERE user_id = $1`, [sessions[0].userId])).rows).toHaveLength(rows);
     }
   });
 

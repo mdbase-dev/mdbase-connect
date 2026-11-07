@@ -7,9 +7,19 @@ import {
 
 export const BETA_WELCOME_MESSAGE_KIND = "beta_welcome";
 export const BETA_WELCOME_TEMPLATE_VERSION = 1;
+// Public signups scheduled this until the free plan replaced the open beta. Its
+// renderer stays for jobs still queued at that deploy; remove it once none remain
+// (they are sent a day after signup).
 export const OPEN_BETA_WELCOME_MESSAGE_KIND = "open_beta_welcome";
 export const OPEN_BETA_WELCOME_TEMPLATE_VERSION = 1;
-const BETA_WELCOME_DELAY_MS = 24 * 60 * 60 * 1_000;
+const SIGNUP_WELCOME_MESSAGE_KIND = "signup_welcome";
+const SIGNUP_WELCOME_TEMPLATE_VERSION = 1;
+const STORAGE_TRIAL_ENDING_MESSAGE_KIND = "storage_trial_ending";
+const STORAGE_TRIAL_ENDED_MESSAGE_KIND = "storage_trial_ended";
+const STORAGE_TRIAL_TEMPLATE_VERSION = 1;
+const DAY_MS = 24 * 60 * 60 * 1_000;
+const BETA_WELCOME_DELAY_MS = DAY_MS;
+const STORAGE_TRIAL_REMINDER_LEAD_MS = 7 * DAY_MS;
 
 const SUBJECT = "A note about mdbase Connect";
 
@@ -35,26 +45,44 @@ export async function scheduleBetaWelcomeEmail(
   });
 }
 
-export async function scheduleOpenBetaWelcomeEmail(
+/**
+ * Schedules a public signup's emails: the welcome a day after signup, and the
+ * storage-trial notices a week before the trial ends and when it ends. Each is
+ * deduplicated per account, so it is sent at most once.
+ */
+export async function scheduleSignupEmails(
   db: DatabaseQueryable,
   input: {
     userId: string;
     emailIdentityId: string;
-    signedUpAt?: Date;
+    trialEndsAt: Date;
   }
-): Promise<{ id: string; duplicate: boolean }> {
-  return scheduleEmail(db, {
+): Promise<void> {
+  await scheduleEmail(db, {
     userId: input.userId,
     emailIdentityId: input.emailIdentityId,
-    messageKind: OPEN_BETA_WELCOME_MESSAGE_KIND,
-    templateVersion: OPEN_BETA_WELCOME_TEMPLATE_VERSION,
+    messageKind: SIGNUP_WELCOME_MESSAGE_KIND,
+    templateVersion: SIGNUP_WELCOME_TEMPLATE_VERSION,
     category: "onboarding",
     deduplicationKey:
-      `${OPEN_BETA_WELCOME_MESSAGE_KIND}:${input.userId}:v${OPEN_BETA_WELCOME_TEMPLATE_VERSION}`,
-    scheduledFor: new Date(
-      (input.signedUpAt ?? new Date()).getTime() + BETA_WELCOME_DELAY_MS
-    )
+      `${SIGNUP_WELCOME_MESSAGE_KIND}:${input.userId}:v${SIGNUP_WELCOME_TEMPLATE_VERSION}`,
+    scheduledFor: new Date(Date.now() + BETA_WELCOME_DELAY_MS)
   });
+  const notices = [
+    [STORAGE_TRIAL_ENDING_MESSAGE_KIND, STORAGE_TRIAL_REMINDER_LEAD_MS],
+    [STORAGE_TRIAL_ENDED_MESSAGE_KIND, 0]
+  ] as const;
+  for (const [messageKind, leadMs] of notices) {
+    await scheduleEmail(db, {
+      userId: input.userId,
+      emailIdentityId: input.emailIdentityId,
+      messageKind,
+      templateVersion: STORAGE_TRIAL_TEMPLATE_VERSION,
+      category: "onboarding",
+      deduplicationKey: `${messageKind}:${input.userId}`,
+      scheduledFor: new Date(input.trialEndsAt.getTime() - leadMs)
+    });
+  }
 }
 
 export function renderScheduledEmail(
@@ -68,6 +96,18 @@ export function renderScheduledEmail(
     context.messageKind === OPEN_BETA_WELCOME_MESSAGE_KIND
     && context.templateVersion === OPEN_BETA_WELCOME_TEMPLATE_VERSION
   ) return renderOpenBetaWelcomeEmail(context);
+  if (
+    context.messageKind === SIGNUP_WELCOME_MESSAGE_KIND
+    && context.templateVersion === SIGNUP_WELCOME_TEMPLATE_VERSION
+  ) return renderSignupWelcomeEmail(context);
+  if (
+    context.messageKind === STORAGE_TRIAL_ENDING_MESSAGE_KIND
+    && context.templateVersion === STORAGE_TRIAL_TEMPLATE_VERSION
+  ) return renderStorageTrialEndingEmail(context);
+  if (
+    context.messageKind === STORAGE_TRIAL_ENDED_MESSAGE_KIND
+    && context.templateVersion === STORAGE_TRIAL_TEMPLATE_VERSION
+  ) return renderStorageTrialEndedEmail(context);
   throw new TypeError("Scheduled email template is unavailable.");
 }
 
@@ -87,11 +127,45 @@ export function renderOpenBetaWelcomeEmail(
   );
 }
 
+function renderSignupWelcomeEmail(
+  input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">
+): TransactionalEmail {
+  return renderWelcomeEmail(input,
+    "Your account is on the Free plan. It includes 1 synced collection, which is the starter collection created with your account, and you can share it with one other person. Storage counts the files you upload, and the Free plan has 250 MB. For your first month, your account has a 5 GB storage trial; I'll email you a week before it ends. Markdown documents can be up to 2 MB and individual files up to 100 MB. I hope to offer paid plans with more storage later."
+  );
+}
+
+const STORAGE_TRIAL_AFTER = [
+  "Your existing files are kept, and nothing is deleted. If your uploaded files add up to more than 250 MB, new uploads will pause until you're back under the limit.",
+  "If anything about this is unclear, you can email support@mdbase.dev.",
+  "Best,\nCallum."
+];
+
+function renderStorageTrialEndingEmail(
+  input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">
+): TransactionalEmail {
+  return renderAccountEmail(input, "Your mdbase Connect storage trial ends in 7 days", [
+    `Hi ${input.name},`,
+    "For its first month, your mdbase Connect account has 5 GB of storage for uploaded files. That trial ends in 7 days, and your storage then drops to the Free plan's 250 MB.",
+    ...STORAGE_TRIAL_AFTER
+  ]);
+}
+
+function renderStorageTrialEndedEmail(
+  input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">
+): TransactionalEmail {
+  return renderAccountEmail(input, "Your mdbase Connect storage trial has ended", [
+    `Hi ${input.name},`,
+    "Your mdbase Connect account's first-month storage trial ended today, so your storage has dropped from 5 GB to the Free plan's 250 MB.",
+    ...STORAGE_TRIAL_AFTER
+  ]);
+}
+
 function renderWelcomeEmail(
   input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">,
   entitlement: string
 ): TransactionalEmail {
-  const paragraphs = [
+  return renderAccountEmail(input, SUBJECT, [
     `Hi ${input.name},`,
     "Thanks for signing up for mdbase Connect.",
     "My name is Callum. I've been working on mdbase as a tool for doing more with markdown files, and as you are getting started with mdbase, I want to say a few words about its philosophy, how it works, and some precautions that you might need to take.",
@@ -102,19 +176,30 @@ function renderWelcomeEmail(
     entitlement,
     "There will probably be some rough edges, so please let me know when something breaks, behaves unexpectedly, or is confusing. You can send an email to support@mdbase.dev or open an issue on GitHub. mdbase is early in its development and so feedback is super-helpful!",
     "Best,\nCallum."
-  ];
+  ]);
+}
+
+function renderAccountEmail(
+  input: Pick<EmailRenderContext, "email" | "unsubscribeUrl">,
+  subject: string,
+  paragraphs: string[]
+): TransactionalEmail {
   const footer = input.unsubscribeUrl
     ? `You're receiving this because you created an mdbase Connect account. To stop announcements like this one, unsubscribe: ${input.unsubscribeUrl}`
     : null;
   return {
     to: input.email,
-    subject: SUBJECT,
+    subject,
     text: [...paragraphs, ...footer ? [footer] : []].join("\n\n"),
-    html: renderHtml(paragraphs, input.unsubscribeUrl)
+    html: renderHtml(subject, paragraphs, input.unsubscribeUrl)
   };
 }
 
-function renderHtml(paragraphs: string[], unsubscribeUrl: string | null): string {
+function renderHtml(
+  subject: string,
+  paragraphs: string[],
+  unsubscribeUrl: string | null
+): string {
   const body = paragraphs.map((paragraph) => {
     const lines = escapeHtml(paragraph).replaceAll("\n", "<br>");
     return `    <p style="margin:0 0 20px">${lines}</p>`;
@@ -127,7 +212,7 @@ function renderHtml(paragraphs: string[], unsubscribeUrl: string | null): string
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${SUBJECT}</title>
+  <title>${escapeHtml(subject)}</title>
 </head>
 <body style="margin:0;background:#ffffff;color:#222831;font-family:Arial,sans-serif">
   <div style="max-width:640px;margin:0 auto;padding:36px 24px;font-size:16px;line-height:1.6">

@@ -206,6 +206,12 @@ export interface ManagementOverview {
     };
     /** Uploaded file bytes across this account's native collections; notes and history don't count. Null when unknown; absent when the read omitted it. */
     native_storage_bytes?: number | null;
+    /** A storage trial raising hosted_storage_bytes until ends_at. Absent on older servers. */
+    trial?: null | {
+      ends_at: string;
+      /** hosted_storage_bytes once the trial ends; files already stored are kept. */
+      hosted_storage_bytes_after: number;
+    };
     reconciliation: null | {
       entitlement_revision: number;
       provider_revision: number;
