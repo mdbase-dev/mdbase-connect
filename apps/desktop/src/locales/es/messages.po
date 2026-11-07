@@ -239,6 +239,10 @@ msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>Permitir que las réplicas alojadas se detengan hasta que vuelva a incorporarlas"
 
 #: src/renderer/collections-view.tsx
+msgid "<0/>Encrypt end to end so mdbase cannot read it"
+msgstr "<0/>Cifrar de extremo a extremo para que mdbase no pueda leerla"
+
+#: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
 msgstr "<0/>He comprobado estos archivos"
 
@@ -300,6 +304,10 @@ msgstr "Añadir carpeta existente"
 #: src/renderer/main.tsx
 msgid "Add your first collection"
 msgstr "Añade tu primera colección"
+
+#: src/renderer/collections-view.tsx
+msgid "Advanced"
+msgstr "Avanzado"
 
 #: src/renderer/main.tsx
 msgid "All on this computer only"
@@ -564,10 +572,6 @@ msgctxt "Connect interface"
 msgid "Close navigation"
 msgstr "Cerrar navegación"
 
-#: src/renderer/collections-view.tsx
-msgid "Cloud copy"
-msgstr "Copia en la nube"
-
 #: src/renderer/daemon-view.mts
 msgid "Collection deleted"
 msgstr "Colección eliminada"
@@ -773,10 +777,6 @@ msgstr "los cambios pendientes de cargar de las colecciones alojadas no se pudie
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 msgstr "Escribe a support@mdbase.dev e incluye un informe de diagnóstico. Terminaremos la actualización o devolveremos este ordenador a mdbase Connect."
 
-#: src/renderer/collections-view.tsx
-msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr "Cifrado de extremo a extremo: mdbase no puede leerlo. Las aplicaciones web solo funcionan mientras alguno de tus dispositivos esté en línea."
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
@@ -823,10 +823,6 @@ msgstr "las colecciones alojadas aún tienen cambios pendientes de cargar"
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
 msgstr "Cómo obtienen acceso las aplicaciones nuevas a tus colecciones locales."
-
-#: src/renderer/collections-view.tsx
-msgid "How should it sync?"
-msgstr "¿Cómo debería sincronizarse?"
 
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
@@ -1042,8 +1038,8 @@ msgid "mdbase is not running on this computer. It restarts automatically; if thi
 msgstr "mdbase no se está ejecutando en este ordenador. Se reinicia automáticamente; si esto persiste, reinicia mdbase connect."
 
 #: src/renderer/collections-view.tsx
-msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr "mdbase conserva una copia para que las aplicaciones web y los agentes puedan usarla mientras tus dispositivos estén apagados."
+msgid "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
+msgstr "mdbase guarda una copia en la nube para que las aplicaciones web y los agentes puedan usar esta colección mientras tus dispositivos están apagados."
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
@@ -1086,6 +1082,10 @@ msgstr "mdbase muestra la clave de la aplicación al aprobarla. Comprueba que {0
 msgctxt "Desktop application"
 msgid "mdbase starting"
 msgstr "Iniciando mdbase"
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
+msgstr "mdbase solo guarda cambios cifrados. Las aplicaciones web y los agentes solo pueden usar esta colección mientras uno de tus dispositivos con la aplicación de escritorio esté conectado."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1306,10 +1306,6 @@ msgstr "Preparando el código de comparación…"
 #: src/renderer/main.tsx
 msgid "Previous version restored"
 msgstr "Versión anterior restaurada"
-
-#: src/renderer/collections-view.tsx
-msgid "Private"
-msgstr "Privada"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"

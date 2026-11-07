@@ -9,6 +9,8 @@ export interface AuthorizationRouteOptions {
   publicUrl: string;
   tailscaleAuth?: boolean;
   hostedCollections?: boolean;
+  /** next: native cloud-copy creation is wired (`collection_creation_available`). */
+  nativeCollectionCreation?: boolean;
   hostedProvider?: HostedProviderClient;
   drainProviderRevocations(): Promise<void>;
   /** mdbase-next: verify and store an app's attested Noise key (`client_noise_key`). */

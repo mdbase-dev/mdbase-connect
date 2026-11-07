@@ -227,7 +227,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) test(`new rows
   const washes = [];
   for (const name of ["First motion collection", "Second motion collection"]) {
     await page.getByRole("button", { name: "Add collection", exact: true }).click();
-    await page.getByRole("button", { name: /^Hosted by mdbase/ }).click();
+    await page.getByRole("button", { name: /^New collection/ }).click();
     const dialog = page.getByRole("dialog", { name: "Add collection", exact: true });
     await dialog.getByRole("textbox", { name: "Collection name" }).fill(name);
     await dialog.getByRole("button", { name: "Create", exact: true }).click();

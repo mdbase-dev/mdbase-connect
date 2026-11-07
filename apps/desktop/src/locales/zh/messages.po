@@ -239,6 +239,10 @@ msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>允许托管镜像暂停，直到我重新加入"
 
 #: src/renderer/collections-view.tsx
+msgid "<0/>Encrypt end to end so mdbase cannot read it"
+msgstr "<0/>端到端加密，mdbase 无法读取"
+
+#: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
 msgstr "<0/>我已检查这些文件"
 
@@ -300,6 +304,10 @@ msgstr "添加现有文件夹"
 #: src/renderer/main.tsx
 msgid "Add your first collection"
 msgstr "添加你的第一个集合"
+
+#: src/renderer/collections-view.tsx
+msgid "Advanced"
+msgstr "高级"
 
 #: src/renderer/main.tsx
 msgid "All on this computer only"
@@ -564,10 +572,6 @@ msgctxt "Connect interface"
 msgid "Close navigation"
 msgstr "关闭导航"
 
-#: src/renderer/collections-view.tsx
-msgid "Cloud copy"
-msgstr "云端副本"
-
 #: src/renderer/daemon-view.mts
 msgid "Collection deleted"
 msgstr "集合已删除"
@@ -773,10 +777,6 @@ msgstr "托管集合中待上传的编辑无法为迁移保存"
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 msgstr "请发送邮件至 support@mdbase.dev 并附上诊断报告。我们将完成升级，或让此电脑退回 mdbase Connect。"
 
-#: src/renderer/collections-view.tsx
-msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr "端到端加密：mdbase 无法读取。只有你的某台设备在线时，网页应用才能使用。"
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
@@ -823,10 +823,6 @@ msgstr "托管集合仍有编辑等待上传"
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
 msgstr "新应用如何取得本地集合的访问权限。"
-
-#: src/renderer/collections-view.tsx
-msgid "How should it sync?"
-msgstr "如何同步？"
 
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
@@ -1042,8 +1038,8 @@ msgid "mdbase is not running on this computer. It restarts automatically; if thi
 msgstr "mdbase 未在此电脑上运行。它会自动重启；如果问题持续，请重启 mdbase connect。"
 
 #: src/renderer/collections-view.tsx
-msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr "mdbase 会保留一个副本，因此设备关闭时，网页应用和代理仍能使用它。"
+msgid "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
+msgstr "mdbase 会保留一份云端副本，即使你的设备关机，网页应用和智能体也能使用此集合。"
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
@@ -1086,6 +1082,10 @@ msgstr "你批准时，mdbase 会显示应用密钥。请核对 {0} 显示的密
 msgctxt "Desktop application"
 msgid "mdbase starting"
 msgstr "mdbase 正在启动"
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
+msgstr "mdbase 只存储加密后的更改。只有当你某台装有桌面应用的设备在线时，网页应用和智能体才能使用此集合。"
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1306,10 +1306,6 @@ msgstr "正在准备比对代码…"
 #: src/renderer/main.tsx
 msgid "Previous version restored"
 msgstr "已恢复旧版本"
-
-#: src/renderer/collections-view.tsx
-msgid "Private"
-msgstr "私有"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"

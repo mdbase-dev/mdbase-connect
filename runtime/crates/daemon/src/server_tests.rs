@@ -1883,3 +1883,18 @@ fn doctor_does_not_fail_a_taken_over_folder_registered_again_as_another_collecti
         check.detail
     );
 }
+
+/// Turning sync on makes a cloud copy by default, a folder with files included.
+/// Only a collection taken over from today's connector stays Private, and an
+/// interrupted adopt keeps the mode it started with.
+#[test]
+fn sync_defaults_to_a_cloud_copy() {
+    assert!(!sync_e2e(None, None, false).unwrap());
+    assert!(sync_e2e(None, None, true).unwrap());
+    assert!(sync_e2e(None, Some(SyncMode::SyncedE2e), false).unwrap());
+    assert!(!sync_e2e(None, Some(SyncMode::Synced), true).unwrap());
+    assert!(sync_e2e(Some(true), None, false).unwrap());
+    assert!(!sync_e2e(Some(false), None, true).unwrap());
+    let changed = sync_e2e(Some(true), Some(SyncMode::Synced), false).unwrap_err();
+    assert_eq!(changed.reason.as_deref(), Some("adopt_in_progress"));
+}

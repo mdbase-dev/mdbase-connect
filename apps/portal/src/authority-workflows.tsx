@@ -380,7 +380,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     <CollectionPicker
                       label={t(i18n)`Open in ${pairing.connector_name}`}
                       collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind ?? "cloud_copy",
-                        location: collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`,
+                        location: collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" }),
                         hint:collection.role&&collection.role!=="owner"?t(i18n)`Shared with you`:undefined}))}
                       value={selectedCollectionId} onChoose={setSelectedCollectionId} disabled={busy}
                       onCreate={pairing.can_create_collection && !pairing.creation?.completed ? ()=>setSelectedCollectionId(NEW_COLLECTION) : undefined}
@@ -400,7 +400,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                         {(pairing.collections??[]).filter(c=>c.kind!=="private").map(collection=>(
                           <div className="collection-picker-option installation-additional-collection" key={collection.collection_id}>
                             <Checkbox checked={collection.collection_id===selectedCollectionId || collectionIds.includes(collection.collection_id)} disabled={collection.collection_id===selectedCollectionId || pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...new Set([...ids,collection.collection_id])]:ids.filter(id=>id!==collection.collection_id))}>
-                              <CollectionIdentity name={collection.display_name} location={collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`} kind={collection.kind ?? "cloud_copy"} />{pairing.retained_collection_ids?.includes(collection.collection_id) ? t(i18n)` (already allowed)` : ""}
+                              <CollectionIdentity name={collection.display_name} location={collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" })} kind={collection.kind ?? "cloud_copy"} />{pairing.retained_collection_ids?.includes(collection.collection_id) ? t(i18n)` (already allowed)` : ""}
                             </Checkbox>
                             {pairing.scope_only && pairing.retained_collection_ids?.includes(collection.collection_id) && <button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(collection.collection_id)}><Trans>Revoke access</Trans></button>}
                           </div>
@@ -425,7 +425,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     {details}
                     <footer className="approval-footer">
                       <div className="approval-receipt approval-target" id={`pairing-target-${pairingId}`} ref={approvalTarget} tabIndex={-1}>
-                        {selectedName && <div className="collection-identity-copy"><strong className="collection-name">{selectedName}</strong><small>{privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`}</small></div>}
+                        {selectedName && <div className="collection-identity-copy"><strong className="collection-name">{selectedName}</strong><small>{privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" })}</small></div>}
                         <p><Trans>This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased.</Trans></p>
                         {createCollections && !privateChoice && <p><Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans></p>}
                         {pairing.scope_only && <p><Trans>Already-allowed access stays in place. Revoke access separately if you no longer want it.</Trans></p>}

@@ -239,6 +239,10 @@ msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>Consenti l'arresto delle copie speculari ospitate finché non le ricollego"
 
 #: src/renderer/collections-view.tsx
+msgid "<0/>Encrypt end to end so mdbase cannot read it"
+msgstr "<0/>Crittografa end-to-end così mdbase non può leggerla"
+
+#: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
 msgstr "<0/>Ho controllato questi file"
 
@@ -300,6 +304,10 @@ msgstr "Aggiungi cartella esistente"
 #: src/renderer/main.tsx
 msgid "Add your first collection"
 msgstr "Aggiungi la prima raccolta"
+
+#: src/renderer/collections-view.tsx
+msgid "Advanced"
+msgstr "Avanzate"
 
 #: src/renderer/main.tsx
 msgid "All on this computer only"
@@ -564,10 +572,6 @@ msgctxt "Connect interface"
 msgid "Close navigation"
 msgstr "Chiudi navigazione"
 
-#: src/renderer/collections-view.tsx
-msgid "Cloud copy"
-msgstr "Copia nel cloud"
-
 #: src/renderer/daemon-view.mts
 msgid "Collection deleted"
 msgstr "Raccolta eliminata"
@@ -773,10 +777,6 @@ msgstr "non è stato possibile conservare per lo spostamento le modifiche in att
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 msgstr "Scrivi a support@mdbase.dev e allega un rapporto diagnostico. Completeremo l'aggiornamento o riporteremo questo computer a mdbase Connect."
 
-#: src/renderer/collections-view.tsx
-msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr "Crittografia end-to-end: mdbase non può leggere il contenuto. Le app web funzionano solo mentre uno dei dispositivi è in linea."
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
@@ -823,10 +823,6 @@ msgstr "le raccolte ospitate hanno ancora modifiche in attesa di caricamento"
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
 msgstr "Come le nuove app ottengono accesso alle raccolte locali."
-
-#: src/renderer/collections-view.tsx
-msgid "How should it sync?"
-msgstr "Come deve sincronizzarsi?"
 
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
@@ -1042,8 +1038,8 @@ msgid "mdbase is not running on this computer. It restarts automatically; if thi
 msgstr "mdbase non è in esecuzione su questo computer. Si riavvia automaticamente; se il problema persiste, riavvia mdbase connect."
 
 #: src/renderer/collections-view.tsx
-msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr "mdbase conserva una copia, così le app web e gli agenti possono usarla mentre i dispositivi sono spenti."
+msgid "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
+msgstr "mdbase conserva una copia nel cloud, così le app web e gli agenti possono usare questa raccolta mentre i tuoi dispositivi sono spenti."
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
@@ -1086,6 +1082,10 @@ msgstr "mdbase mostra la chiave dell'app durante l'approvazione. Controlla che {
 msgctxt "Desktop application"
 msgid "mdbase starting"
 msgstr "Avvio di mdbase"
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
+msgstr "mdbase conserva solo modifiche crittografate. Le app web e gli agenti possono usare questa raccolta solo mentre uno dei tuoi dispositivi con l’app desktop è online."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1306,10 +1306,6 @@ msgstr "Preparazione del codice di confronto…"
 #: src/renderer/main.tsx
 msgid "Previous version restored"
 msgstr "Versione precedente ripristinata"
-
-#: src/renderer/collections-view.tsx
-msgid "Private"
-msgstr "Privata"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"

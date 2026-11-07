@@ -250,7 +250,7 @@ describe("ConnectApp", () => {
     expect(change).not.toHaveBeenCalled();
   });
 
-  it("opens Hosted first-collection setup for a newly flipped next account without a computer", async () => {
+  it("opens first-collection setup for a newly flipped next account without a computer", async () => {
     history.replaceState(null, "", "/");
     overview.collections = [];
     overview.hosted_collections = [];
@@ -264,14 +264,14 @@ describe("ConnectApp", () => {
 
     expect(await screen.findByText("No collections")).toBeInTheDocument();
     expect(screen.getByText("Choose where your first collection lives.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Hosted by mdbase/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /New collection/ })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() => expect(location.pathname).toBe("/collections"));
 
-    await user.click(screen.getByRole("button", { name: /Hosted by mdbase/ }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
     expect(screen.getByRole("textbox", { name: "Collection name" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
-    expect(screen.queryByText("Hosted creation is unavailable on this server.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Creating collections is unavailable on this server.")).not.toBeInTheDocument();
   });
 
   it.each([false, true])("offers one Add collection flow with a Native handoff when Hosted enabled=%s", async hosted => {
@@ -292,11 +292,12 @@ describe("ConnectApp", () => {
   it("keeps Add collection visible without inventing a Native device or Hosted authority", async () => {
     history.replaceState(null, "", "/collections");
     overview.hosted_collections_available = false;
+    overview.collection_creation_available = false;
     Object.assign(overview, { native_collection_creation_available: false });
     const user = userEvent.setup();
     render(<ConnectApp />);
     await user.click(await screen.findByRole("button", { name: "Add collection" }));
-    expect(screen.getByRole("button", { name: /Hosted by mdbase/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /New collection/ })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /A folder on this computer/ }));
     expect(screen.getByRole("link", { name: "Open desktop app" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
@@ -770,7 +771,7 @@ describe("ConnectApp", () => {
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "Collections" }));
     await user.click(screen.getByRole("button", { name: "Add collection" }));
-    await user.click(screen.getByRole("button", { name: /Hosted by mdbase/ }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
     await user.type(screen.getByRole("textbox", {name: "Collection name"}), "Created while loading");
     fireEvent(document, new Event("visibilitychange"));
     expect(read).toHaveBeenCalledTimes(2);
@@ -849,7 +850,7 @@ describe("ConnectApp", () => {
     const view = render(<ConnectApp />);
     try {
       await user.click(await screen.findByRole("button", { name: "Aggiungi raccolta" }));
-      await user.click(screen.getByRole("button", { name: /Ospitata da mdbase/ }));
+      await user.click(screen.getByRole("button", { name: /Nuova raccolta/ }));
       expect(screen.getByLabelText("Nome della raccolta")).toHaveValue("");
       await user.type(screen.getByLabelText("Nome della raccolta"), "La prima raccolta");
       await user.click(screen.getByRole("button", { name: "Crea" }));
@@ -858,7 +859,7 @@ describe("ConnectApp", () => {
         new URL(String(url)).pathname === "/v1/account/collections" && init?.method === "POST")!;
       expect(JSON.parse(String(request[1]!.body)).display_name).toBe("La prima raccolta");
       await user.click(screen.getByRole("button", { name: "Aggiungi raccolta" }));
-      await user.click(screen.getByRole("button", { name: /Ospitata da mdbase/ }));
+      await user.click(screen.getByRole("button", { name: /Nuova raccolta/ }));
       const name = screen.getByLabelText("Nome della raccolta");
       expect(name).toHaveValue("");
       await user.clear(name);
@@ -880,7 +881,7 @@ describe("ConnectApp", () => {
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "Collections" }));
     await user.click(await screen.findByRole("button", { name: "Add collection" }));
-    await user.click(screen.getByRole("button", { name: /Hosted by mdbase/ }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
 
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
@@ -909,8 +910,9 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("link", { name: "Open desktop app" })).not.toBeInTheDocument();
   });
 
-  it("restores an uncertain original creation after reload and has one Add action even without hosted availability",async()=>{
+  it("restores an uncertain original creation after reload and has one Add action even without creation availability",async()=>{
     overview.hosted_collections_available=false;
+    overview.collection_creation_available=false;
     const account=overview.user.id;
     localStorage.setItem(`mdbase.connect.collection-creation:${account}`,JSON.stringify({accountId:account,requestId:"11111111-1111-4111-a111-111111111111",displayName:"Uncertain name",timezone:"UTC"}));
     const user=userEvent.setup();render(<ConnectApp/>);
@@ -1510,6 +1512,7 @@ function overviewFixture(): ManagementOverview {
       reconciliation: { entitlement_revision: 1, provider_revision: 1 }
     },
     hosted_collections_available: true,
+    collection_creation_available: true,
     collection_sharing_available: true,
     authentication: { provider: "github", registration: "closed" },
     connectors: [{ id: "computer", name: "Home computer", last_seen_at: now, created_at: now }],

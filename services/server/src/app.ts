@@ -705,6 +705,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
     hostedCollections: options.hostedCollections,
+    nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap),
     hostedProvider: options.hostedProvider,
     drainProviderRevocations: async () => {
       await providerRevocations?.drain();

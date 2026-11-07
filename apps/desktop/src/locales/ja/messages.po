@@ -239,6 +239,10 @@ msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>再度参加するまでホスト型ミラーを停止することを許可"
 
 #: src/renderer/collections-view.tsx
+msgid "<0/>Encrypt end to end so mdbase cannot read it"
+msgstr "<0/>エンドツーエンドで暗号化し、mdbase が読めないようにする"
+
+#: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
 msgstr "<0/>これらのファイルを確認しました"
 
@@ -300,6 +304,10 @@ msgstr "既存のフォルダーを追加"
 #: src/renderer/main.tsx
 msgid "Add your first collection"
 msgstr "最初のコレクションを追加"
+
+#: src/renderer/collections-view.tsx
+msgid "Advanced"
+msgstr "詳細設定"
 
 #: src/renderer/main.tsx
 msgid "All on this computer only"
@@ -564,10 +572,6 @@ msgctxt "Connect interface"
 msgid "Close navigation"
 msgstr "ナビゲーションを閉じる"
 
-#: src/renderer/collections-view.tsx
-msgid "Cloud copy"
-msgstr "クラウド上のコピー"
-
 #: src/renderer/daemon-view.mts
 msgid "Collection deleted"
 msgstr "コレクションは削除されました"
@@ -773,10 +777,6 @@ msgstr "ホスト型コレクションのアップロード待ちの編集を移
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 msgstr "support@mdbase.dev に診断レポートを添えてメールしてください。アップグレードを完了するか、このコンピューターを mdbase Connect に戻します。"
 
-#: src/renderer/collections-view.tsx
-msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr "エンドツーエンドで暗号化され、mdbase は内容を読めません。Web アプリはデバイスのいずれかがオンラインの間だけ動作します。"
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
@@ -823,10 +823,6 @@ msgstr "ホスト型コレクションにアップロード待ちの編集が残
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
 msgstr "新しいアプリにローカルコレクションへのアクセスを許可する方法です。"
-
-#: src/renderer/collections-view.tsx
-msgid "How should it sync?"
-msgstr "どのように同期しますか？"
 
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
@@ -1042,8 +1038,8 @@ msgid "mdbase is not running on this computer. It restarts automatically; if thi
 msgstr "このコンピューターでは mdbase が動作していません。自動的に再起動します。状態が続く場合は mdbase connect を再起動してください。"
 
 #: src/renderer/collections-view.tsx
-msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr "mdbase がコピーを保持するため、デバイスの電源が切れていても Web アプリやエージェントが利用できます。"
+msgid "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
+msgstr "mdbase がクラウド上にコピーを保持するため、デバイスの電源が切れていても Web アプリやエージェントがこのコレクションを使えます。"
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
@@ -1086,6 +1082,10 @@ msgstr "承認時に mdbase がアプリのキーを表示します。{0} にも
 msgctxt "Desktop application"
 msgid "mdbase starting"
 msgstr "mdbase を起動中"
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
+msgstr "mdbase は暗号化された変更だけを保存します。Web アプリやエージェントがこのコレクションを使えるのは、デスクトップアプリのあるデバイスのいずれかがオンラインのときだけです。"
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1306,10 +1306,6 @@ msgstr "比較用コードを準備しています…"
 #: src/renderer/main.tsx
 msgid "Previous version restored"
 msgstr "以前のバージョンを復元しました"
-
-#: src/renderer/collections-view.tsx
-msgid "Private"
-msgstr "プライベート"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"

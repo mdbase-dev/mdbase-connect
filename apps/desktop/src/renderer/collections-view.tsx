@@ -240,12 +240,12 @@ function TurnOnSyncDialog({ open, collection, busy, error, onAct, onClose, onCon
   onConfirm(mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<void>;
 }) {
   useLocaleRevision();
-  const [mode, setMode] = useState<"private" | "cloud-copy">("private");
+  const [encrypted, setEncrypted] = useState(false);
   const [takeover, setTakeover] = useState<{ takenOver: boolean; held: TakeoverHold[] } | null>(null);
   const [holds, setHolds] = useState<HoldSummary[] | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  useEffect(() => { if (open) { setMode("private"); setTakeover(null); setHolds(null); setReviewed(false); setFailure(null); } }, [open]);
+  useEffect(() => { if (open) { setEncrypted(false); setTakeover(null); setHolds(null); setReviewed(false); setFailure(null); } }, [open]);
   // Read with each hold list, so a file resolved through the hold path drops out of both.
   const holdsLoaded = (list: HoldSummary[]) => {
     window.mdbaseConnect.migrationStatus()
@@ -280,20 +280,19 @@ function TurnOnSyncDialog({ open, collection, busy, error, onAct, onClose, onCon
           </Trans></label>
         </div>
       )}
-      <fieldset className="authority-choice">
-        <legend><Trans>How should it sync?</Trans></legend>
-        <label className={mode === "private" ? "selected" : ""}>
-          <input type="radio" name="sync-mode" checked={mode === "private"} disabled={busy} onChange={() => setMode("private")} />
-          <span><strong><Trans>Private</Trans></strong><small><Trans>End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online.</Trans></small></span>
-        </label>
-        <label className={mode === "cloud-copy" ? "selected" : ""}>
-          <input type="radio" name="sync-mode" checked={mode === "cloud-copy"} disabled={busy} onChange={() => setMode("cloud-copy")} />
-          <span><strong><Trans>Cloud copy</Trans></strong><small><Trans>mdbase keeps a copy, so web apps and agents can use it while your devices are off.</Trans></small></span>
-        </label>
-      </fieldset>
+      <p>{encrypted
+        ? <Trans>mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online.</Trans>
+        : <Trans>mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off.</Trans>}</p>
+      <details className="mdbase-disclosure">
+        <summary><Trans>Advanced</Trans></summary>
+        <label className="takeover-option"><Trans>
+          <input className="mdbase-checkbox" type="checkbox" checked={encrypted} disabled={busy} onChange={(event) => setEncrypted(event.target.checked)} />
+          Encrypt end to end so mdbase cannot read it
+        </Trans></label>
+      </details>
       <div className="modal-actions">
         <button className="mdbase-button" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
-        <button className="mdbase-button is-primary" disabled={busy || !ready} onClick={() => void onConfirm(mode, unlisted.length > 0 && reviewed)}>{busy ? t(i18n)({ message: "Turning on…", context: "Local collection management" }) : t(i18n)({ message: "Turn on sync", context: "Local collection management" })}</button>
+        <button className="mdbase-button is-primary" disabled={busy || !ready} onClick={() => void onConfirm(encrypted ? "private" : "cloud-copy", unlisted.length > 0 && reviewed)}>{busy ? t(i18n)({ message: "Turning on…", context: "Local collection management" }) : t(i18n)({ message: "Turn on sync", context: "Local collection management" })}</button>
       </div>
     </Dialog>
   );

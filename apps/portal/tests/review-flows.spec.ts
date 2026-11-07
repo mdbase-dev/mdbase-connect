@@ -675,7 +675,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(page.locator('[data-command="computer:computer-0"]').getByRole("button", { name: "Actions for Studio MacBook", exact: true })).toBeFocused();
     await page.keyboard.press("c");
     await expect(page.getByRole("dialog", { name: "Add collection", exact: true })).toBeVisible();
-    await expect(page.getByRole("dialog").getByRole("button", { name: /^Hosted by mdbase/ })).toBeFocused();
+    await expect(page.getByRole("dialog").getByRole("button", { name: /^New collection/ })).toBeFocused();
     await page.keyboard.press("Escape");
   });
 
@@ -765,13 +765,13 @@ test("palette actions reuse row dialogs, including non-optimistic revoke and ses
     await palette.getByRole("combobox").fill(term);
     await palette.getByRole("option", { name, exact: true }).click();
   };
-  await run("rename shared", "Rename Shared research library Hosted by mdbase");
+  await run("rename shared", "Rename Shared research library Cloud copy");
   await expect(page.getByRole("dialog", { name: "Rename Shared research library", exact: true })).toBeVisible();
   const rename = page.getByRole("dialog").getByRole("textbox");
   await expect(rename).toBeFocused();
   expect(await rename.evaluate(element => (element as HTMLInputElement).selectionEnd! - (element as HTMLInputElement).selectionStart!)).toBe("Shared research library".length);
   await page.keyboard.press("Escape");
-  await run("delete shared", "Delete Shared research library Hosted by mdbase");
+  await run("delete shared", "Delete Shared research library Cloud copy");
   await expect(page.getByRole("dialog").getByRole("button", { name: "Delete permanently" })).toBeDisabled();
   await page.keyboard.press("Escape");
   let acknowledge!: () => void;
@@ -976,7 +976,7 @@ test("collection filters appear at ten rows and explain no matches", async ({ pa
 
 test("hosted creation validates on blur without moving its action", async ({ page }, testInfo) => {
   await openScenario(page, "empty-account");
-  await page.getByRole("button", { name: /^Hosted by mdbase/ }).click();
+  await page.getByRole("button", { name: /^New collection/ }).click();
   const dialog = page.getByRole("dialog", { name: "Add collection" });
   const name = dialog.getByRole("textbox");
   const create = dialog.getByRole("button", { name: "Create", exact: true });

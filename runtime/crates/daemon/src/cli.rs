@@ -249,8 +249,8 @@ enum SyncCmd {
     Enable {
         /// Collection ID, ID prefix or name.
         collection: String,
-        /// `private` or `cloud-copy`. Default: `private` for a folder with files
-        /// or a taken-over collection, `cloud-copy` for an empty folder.
+        /// `private` or `cloud-copy`. Default: `cloud-copy`, or `private` for a
+        /// collection taken over from today's connector.
         #[arg(long, value_enum)]
         mode: Option<SyncKind>,
         /// Turn sync on although files are still held from the takeover, keeping

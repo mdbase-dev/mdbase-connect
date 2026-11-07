@@ -24,6 +24,7 @@ import {
   resolveLocalCollectionAccess
 } from "../../collection-access.js";
 import {
+  accountCollectionCreation,
   listHostedCollectionsVisibleToUser,
   listNativeCollectionsVisibleToUser,
   resolveHostedCollection
@@ -744,7 +745,7 @@ export function registerAuthorizationRoutes(
         display_name: collection.locator.displayName,
         template: collection.template,
         kind: "hosted" as const,
-        connector_name: "Hosted by mdbase",
+        connector_name: "Cloud copy",
         spec_version: "0.3.0",
         contracts: contractRequirements(contracts),
         types,
@@ -800,7 +801,7 @@ export function registerAuthorizationRoutes(
         platform: pending.platform === "native" && isNativeLoopbackOrigin(applicationOrigin) ? "native" : undefined,
         existing_access: existingAccess
       },
-      hosted_collections_available: options.hostedCollections === true,
+      collection_creation_available: (await accountCollectionCreation(options.db, user.id, options)).available,
       unavailable_connectors: local.unavailable_connectors,
       collections: hostedRequired
         ? availableCollections.filter((collection) => collection.kind === "hosted" || collection.kind === "cloud_copy")

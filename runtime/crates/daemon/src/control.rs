@@ -739,8 +739,8 @@ pub struct EnableSync {
     /// Collection ID.
     pub collection: String,
     /// `synced` (with the hosted replica) or `synced_e2e` (end-to-end encrypted,
-    /// no hosted replica). Absent: `synced_e2e` for a folder with files or a
-    /// taken-over collection (adopt), `synced` for an empty folder.
+    /// no hosted replica). Absent: `synced`, or `synced_e2e` for a collection
+    /// taken over from today's connector.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<SyncMode>,
     /// Adopt even though files were held when the collection was taken over
