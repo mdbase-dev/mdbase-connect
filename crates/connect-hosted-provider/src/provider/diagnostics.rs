@@ -376,11 +376,17 @@ impl HostedProvider {
             .collect()
     }
 
-    /// Sync mutations whose final receipt is a stored error rather than a
-    /// result: completed with no evidence, so their transaction never
-    /// committed. Current code no longer stores these; older rows reopen on
-    /// their next retry. A count only. The receipt's status is encrypted, so
-    /// this cannot split by status class without decrypting each row.
+    /// Current-format sync mutations closed by an error that an earlier
+    /// release stored as the final receipt: `completed` with no evidence, so
+    /// their transaction never committed. Current code stores none. A count
+    /// only: the receipt's status is encrypted, so it cannot split by status.
+    ///
+    /// It includes stored 400 and 403 failures, which stay final, so it need
+    /// not reach zero; the 5xx, 401, 404 and 429 ones reopen when their client
+    /// retries, so it falls as stuck clients come back. It misses an error
+    /// stored over an `applied` row: that row keeps its evidence and cannot be
+    /// told from a success without decrypting the receipt (the receipt digest
+    /// hashes the whole plaintext). Those rows reopen on retry all the same.
     /// Version 0 rows are migrated legacy receipts, which also carry no
     /// evidence, so they are excluded.
     async fn stored_sync_failures_diagnostic(&self) -> ApiResult<u64> {
