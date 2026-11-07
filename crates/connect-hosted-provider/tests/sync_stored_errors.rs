@@ -505,3 +505,100 @@ async fn stored_sync_failure_diagnostic_counts_only_stored_errors() {
     assert!(!serialized.contains(&stored.mutation_id.to_string()));
     assert!(!serialized.contains(&replica_id.to_string()));
 }
+
+/// Keep an owner's lease live for the rest of the test.
+async fn hold_lease(fixture: &FileLifecycleFixture, mutation: &SyncMutation) {
+    sqlx::query(
+        "UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() + interval '1 hour' WHERE request_id = $1",
+    )
+    .bind(mutation.mutation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+}
+
+fn diagnostics_section(diagnostics: &Value, section: &str) -> Value {
+    assert_eq!(diagnostics[section]["state"], "ok", "{section}");
+    diagnostics[section]["value"].clone()
+}
+
+/// Released sync mutations leave the unfinished, stale and expired-lease
+/// counts and the unfinished breakdown, and are reported as their own count.
+/// A sync mutation whose owner still holds its lease is still unfinished.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn released_sync_mutations_are_counted_apart_from_unfinished_work() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let released = create(&fixture, "released.md").await;
+    account_storage_full(&fixture, true).await;
+    mutate(&fixture, &released).await.unwrap_err();
+    account_storage_full(&fixture, false).await;
+    let live = create(&fixture, "live.md").await;
+    claimed_row(&fixture, &live).await;
+    hold_lease(&fixture, &live).await;
+    // Both are days old, well past the 120-second stale threshold.
+    sqlx::query(
+        r#"UPDATE hosted_provider_mutation_journal
+           SET accepted_at = now() - interval '3 days',
+               updated_at = now() - interval '3 days'
+           WHERE operation_kind = 'sync:mutate'"#,
+    )
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let diagnostics = serde_json::to_value(fixture.provider.hosted_diagnostics().await).unwrap();
+    assert_eq!(
+        diagnostics_section(&diagnostics, "released_sync_mutations"),
+        1
+    );
+    let journal = &diagnostics_section(&diagnostics, "lifecycle_work")["mutation_journal"];
+    assert_eq!(journal["unfinished"], 1, "{journal}");
+    assert_eq!(journal["stale"], 1, "{journal}");
+    assert_eq!(journal["expired_leases"], 0, "{journal}");
+    let breakdown = diagnostics_section(&diagnostics, "unfinished_mutations");
+    assert_eq!(
+        breakdown,
+        json!([{ "age_band": "1d_to_7d", "count": 1, "evidence_kind": "none",
+                 "operation_kind": "sync:mutate", "state": "prepared" }])
+    );
+
+    // Once the live owner's lease lapses without a receipt, that row is
+    // released too.
+    sqlx::query(
+        "UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() WHERE request_id = $1",
+    )
+    .bind(live.mutation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let diagnostics = json!({ "diagnostics": fixture.provider.hosted_diagnostics().await });
+    let sections = &diagnostics["diagnostics"];
+    assert_eq!(diagnostics_section(sections, "released_sync_mutations"), 2);
+    let journal = &diagnostics_section(sections, "lifecycle_work")["mutation_journal"];
+    assert_eq!(
+        (
+            &journal["unfinished"],
+            &journal["stale"],
+            &journal["expired_leases"]
+        ),
+        (&json!(0), &json!(0), &json!(0))
+    );
+    assert_eq!(
+        diagnostics_section(sections, "unfinished_mutations"),
+        json!([])
+    );
+
+    // A single count that sorts between `recent_resource_changes` and
+    // `schema_version`, leaving the sections the operator tooling matches on
+    // where they were. `json!` sorts keys, as the HTTP handler does.
+    let serialized = diagnostics.to_string();
+    let section = r#""released_sync_mutations":{"state":"ok","value":2}"#;
+    let at = serialized.find(section).expect("section present");
+    assert!(serialized.find(r#""recent_resource_changes":"#).unwrap() < at);
+    assert!(at < serialized.find(r#""schema_version":"#).unwrap());
+    assert!(serialized
+        .contains(r#""stored_sync_failures":{"state":"ok","value":0},"unfinished_mutations":"#));
+    assert!(!serialized.contains(&released.mutation_id.to_string()));
+}
