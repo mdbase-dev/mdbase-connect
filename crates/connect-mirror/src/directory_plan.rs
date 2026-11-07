@@ -171,9 +171,11 @@ impl DirectoryMirror {
                 // and rebuild from an exact snapshot on the next inspection.
                 state.last_completed_plan = None;
                 // A file just set aside is frozen until the user resolves it.
-                if state.stuck.as_ref().is_some_and(|stuck| {
-                    state.planned_conflicts.contains_key(&stuck.identity)
-                }) {
+                if state
+                    .stuck
+                    .as_ref()
+                    .is_some_and(|stuck| state.planned_conflicts.contains_key(&stuck.identity))
+                {
                     state.stuck = None;
                 }
                 self.write_state(state)?;

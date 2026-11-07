@@ -648,7 +648,10 @@ async fn upload_failures_at_every_stage_keep_the_transfer_for_a_same_id_resume()
         assert_eq!(receipt.transfer_id, RESUMABLE_TRANSFER);
         assert_eq!(state.received.lock().unwrap().len(), 3, "{stage}");
         assert_eq!(state.aborts.load(Ordering::SeqCst), 0, "{stage}");
-        assert_eq!(state.commits.load(Ordering::SeqCst), 1 + usize::from(stage == "commit"));
+        assert_eq!(
+            state.commits.load(Ordering::SeqCst),
+            1 + usize::from(stage == "commit")
+        );
         if stage == "commit" {
             // Every part is already in: the retry re-runs only the commit.
             assert_eq!(
