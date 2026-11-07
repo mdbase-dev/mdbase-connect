@@ -48,7 +48,9 @@ export async function scheduleBetaWelcomeEmail(
 /**
  * Schedules a public signup's emails: the welcome a day after signup, and the
  * storage-trial notices a week before the trial ends and when it ends. Each is
- * deduplicated per account, so it is sent at most once.
+ * deduplicated per account, so it is sent at most once. The notices are not
+ * re-checked at send time; that must change before a paid plan can be bought
+ * during a trial.
  */
 export async function scheduleSignupEmails(
   db: DatabaseQueryable,
@@ -78,7 +80,8 @@ export async function scheduleSignupEmails(
       emailIdentityId: input.emailIdentityId,
       messageKind,
       templateVersion: STORAGE_TRIAL_TEMPLATE_VERSION,
-      category: "onboarding",
+      // Essential: they warn of a storage drop that can pause uploads.
+      category: "essential",
       deduplicationKey: `${messageKind}:${input.userId}`,
       scheduledFor: new Date(input.trialEndsAt.getTime() - leadMs)
     });
@@ -131,7 +134,7 @@ function renderSignupWelcomeEmail(
   input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">
 ): TransactionalEmail {
   return renderWelcomeEmail(input,
-    "Your account is on the Free plan. It includes 1 synced collection, which is the starter collection created with your account, and you can share it with one other person. Storage counts the files you upload, and the Free plan has 250 MB. For your first month, your account has a 5 GB storage trial; I'll email you a week before it ends. Markdown documents can be up to 2 MB and individual files up to 100 MB. I hope to offer paid plans with more storage later."
+    "Your account is on the Free plan. It includes 1 synced collection, which you can share with one other person. Storage counts the files you upload, and the Free plan has 250 MB. For your first month, your account has a 5 GB storage trial; I'll email you a week before it ends. Markdown documents can be up to 2 MB and individual files up to 100 MB. I hope to offer paid plans with more storage later."
   );
 }
 

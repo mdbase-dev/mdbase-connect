@@ -398,6 +398,9 @@ export function registerPasswordAuthRoutes(
       password: z.string().min(1).max(PASSWORD_MAX_UTF8_BYTES),
       terms_version: z.string().min(1).max(100),
       privacy_version: z.string().min(1).max(100),
+      // Ignored: public signups no longer get a starter collection. Accepted
+      // because portal pages loaded before that release send it; remove after
+      // the following release.
       timezone: ianaTimezoneSchema.optional(),
       // Optional so a portal page loaded before this release can still
       // finish signup; absence means no consent.
@@ -431,17 +434,12 @@ export function registerPasswordAuthRoutes(
       password: input.password,
       termsVersion: input.terms_version,
       privacyVersion: input.privacy_version,
-      timezone: input.timezone,
       clientName: sessionClientName(request.headers["user-agent"]),
       productUpdates: input.product_updates
     });
     setSessionCookie(reply, session.token, options.publicUrl);
-    return reply.code(201).send({
-      user: session.user,
-      onboarding: session.starterCollectionPending
-        ? { starter_collection: "pending" }
-        : null
-    });
+    // Public signups get no starter collection.
+    return reply.code(201).send({ user: session.user, onboarding: null });
   });
 
   app.post("/v1/auth/password/signup", async (request, reply) => {

@@ -37,7 +37,6 @@ export interface CompletePublicSignupInput {
   password: string;
   termsVersion: string;
   privacyVersion: string;
-  timezone?: string;
   clientName?: string;
   productUpdates: boolean;
 }
@@ -235,7 +234,6 @@ export class PublicSignupService {
         termsVersion: input.termsVersion,
         privacyVersion: input.privacyVersion,
         acceptanceMethod: "email_verification",
-        timezone: input.timezone ?? "UTC",
         productUpdates: input.productUpdates
       });
       await connection.query(
@@ -257,7 +255,6 @@ export class PublicSignupService {
       await connection.query("COMMIT");
       return {
         token: sessionToken,
-        starterCollectionPending: true,
         user: { id: userId, email: challenge.normalized_email, name }
       };
     } catch (error) {

@@ -592,8 +592,10 @@ export function Signup({
           name,
           terms_version: config.agreements.terms.version,
           privacy_version: config.agreements.privacy.version,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          ...(externalSignup || publicSignup ? { product_updates: productUpdates } : {})
+          ...(externalSignup || publicSignup
+            ? { product_updates: productUpdates }
+            // Only invited beta accounts get a starter collection, dated in this zone.
+            : { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })
         })
       });
       location.href = result.redirect_to ?? (result.onboarding?.starter_collection === "pending"

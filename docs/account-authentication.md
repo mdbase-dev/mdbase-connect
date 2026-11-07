@@ -63,8 +63,10 @@ form when another tab replaces the cookie with a different provider proof.
 Confirmation locks and rereads the current registration/legal policy and
 atomically consumes the proof, claims the email, creates the account, verified
 primary email identity and session, records legal acceptance, grants
-`free_v1` and a 30-day `trial_v1`, schedules the welcome email and the two
-storage-trial notices, and schedules the starter collection. Password and provider signup share the onboarding implementation.
+`free_v1` and a 30-day `trial_v1`, and schedules the welcome email and the
+two storage-trial notices. It schedules no starter collection, which would
+take the Free plan's only synced collection; new accounts land in the portal.
+Password and provider signup share the onboarding implementation.
 The provider subject is transaction-locked, so independent concurrent proofs
 cannot duplicate onboarding; verified-email claims prevent cross-provider or
 password/provider races from creating duplicate accounts. Any failure rolls
@@ -164,15 +166,18 @@ paths perform the same challenge write, but only available addresses receive
 the link. Challenges are one-hour and single-use;
 requesting another invalidates the previous challenge. Account creation,
 verified email ownership, password credential, agreement acceptance, session,
-entitlement, and starter-collection scheduling commit in one transaction.
+entitlement, and email scheduling commit in one transaction.
 Public signup assigns the permanent `free_v1` profile (250 MiB hosted
-storage, one synced collection including the starter collection, one member
+storage, one synced collection, one member
 seat, 2 MiB per Markdown document, 100 MiB per file, 10,000 files per
 collection) and a `trial_v1` grant ending 30 days after signup. The trial
 raises hosted storage to 5 GiB and nothing else, so when it ends the
 effective limits fall back to `free_v1`; stored files are kept. The notices
 (`storage_trial_ending` seven days before the end and `storage_trial_ended` at
-the end) are scheduled once per account under the announcements preference.
+the end) are scheduled once per account as essential account email, which
+cannot be turned off, because they warn that uploads may pause. They are not
+re-checked when sent, so an operator who changes a trial should expect them
+anyway.
 Accounts that signed up earlier keep their permanent `open_beta_v1` grant (1
 GiB live hosted storage, three hosted collections), and invitation-based
 `beta_v1` grants retain their existing ten-collection allowance.

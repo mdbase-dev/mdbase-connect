@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe("public password signup", () => {
-  it("creates a verified account, session, entitlement, and starter collection atomically", async () => {
+  it("creates a verified account, session, entitlement, and emails atomically, without a starter collection", async () => {
     const { db, service } = await fixture();
     const verification = await service.create(" Person@Example.com ");
     expect(verification).toMatchObject({ email: "person@example.com" });
@@ -42,8 +42,7 @@ describe("public password signup", () => {
       name: "Person Example",
       password: "a durable public account password",
       termsVersion: "terms-2026-08",
-      privacyVersion: "privacy-2026-08",
-      timezone: "Australia/Melbourne"
+      privacyVersion: "privacy-2026-08"
     });
     expect(account.user).toMatchObject({
       email: "person@example.com",
@@ -54,19 +53,18 @@ describe("public password signup", () => {
     const materialized = await db.query<{
       verified_at: Date;
       provider: string;
-      timezone: string;
     }>(
-      `SELECT identity.verified_at, session.provider, onboarding.timezone
+      `SELECT identity.verified_at, session.provider
        FROM email_identities identity
        JOIN sessions session ON session.user_id = identity.user_id
-       JOIN account_onboarding onboarding ON onboarding.user_id = identity.user_id
        WHERE identity.user_id = $1`,
       [account.user.id]
     );
-    expect(materialized.rows[0]).toMatchObject({
-      provider: "password",
-      timezone: "Australia/Melbourne"
-    });
+    expect(materialized.rows[0]).toMatchObject({ provider: "password" });
+    expect((await db.query(
+      "SELECT user_id FROM account_onboarding WHERE user_id = $1",
+      [account.user.id]
+    )).rows).toHaveLength(0);
     const grants = await db.query<{
       profile_code: string;
       source_reference: string;
@@ -102,14 +100,14 @@ describe("public password signup", () => {
       {
         message_kind: "storage_trial_ending",
         template_version: 1,
-        category: "onboarding",
+        category: "essential",
         deduplication_key: `storage_trial_ending:${account.user.id}`,
         scheduled_for: new Date(trialEndsAt.getTime() - 7 * 86_400_000)
       },
       {
         message_kind: "storage_trial_ended",
         template_version: 1,
-        category: "onboarding",
+        category: "essential",
         deduplication_key: `storage_trial_ended:${account.user.id}`,
         scheduled_for: trialEndsAt
       }
