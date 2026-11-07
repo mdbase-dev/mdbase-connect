@@ -17,7 +17,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
     b.onLoad({ filter: /hosted\.wasm$/ }, () => ({ contents: "export default new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));" }));
   },
 }] });
-const { HostedCollection, INSTALL_WAKE_MS } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=idle-backoff-worker.mjs").toString("base64")}`);
+const { HostedCollection, INSTALL_WAKE_MS, installRetryMs } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=idle-backoff-worker.mjs").toString("base64")}`);
 
 
 function object(escrow = false, data = new Map()) {
@@ -115,6 +115,77 @@ test("a running snapshot install wakes at once, reports counts only, then falls 
   e.arm(["get_object"]);
   assert.equal(await syncAt(t, at + 40 * S, e) / S, 30, "installed: back to the base poll");
   assert.equal(lines.length, 1);
+  mock.restoreAll();
+});
+
+test("an install whose object keeps failing backs off to 5 min and survives an eviction", async (ctx) => {
+  mock.method(console, "info", () => {});
+  const t = object(); t.o.log = logReplying(503);
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  e.installStatus = () => ({ done: 64, total: 600 });
+  const delays = [];
+  for (let i = 0; i < 12; i++) {
+    e.arm(["get_object"]);
+    delays.push(await syncAt(t, at + i * 1_000 * S, e) / S);
+  }
+  assert.deepEqual(delays, [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 300, 300]);
+  assert.equal(installRetryMs(1000), 300 * S);
+
+  const evicted = object(false, t.data); evicted.o.log = logReplying(503);
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 2_000 * S, e) / S, 300, "the delay survives an eviction");
+  mock.restoreAll();
+});
+
+test("an install only clears its back-off past the point that failed", async (ctx) => {
+  mock.method(console, "info", () => {});
+  const t = object(); t.o.log = logReplying(503);
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  let status = { done: 64, total: 600 };
+  e.installStatus = () => status;
+  for (let i = 0; i < 4; i++) { e.arm(["get_object"]); await syncAt(t, at + i * 100 * S, e); }
+  assert.deepEqual(t.data.get("service-install-retry"), { failures: 4, done: 64 });
+
+  // Evicted: the install starts over, and catching up must not wait.
+  const evicted = object(false, t.data); evicted.o.log = logReplying();
+  status = { done: 10, total: 600 };
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 1_000 * S, e), INSTALL_WAKE_MS);
+  assert.deepEqual(t.data.get("service-install-retry"), { failures: 4, done: 64 }, "catching up is not progress");
+  evicted.o.log = logReplying(503);
+  status = { done: 64, total: 600 };
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 1_100 * S, e) / S, 16, "the same object failing keeps the count");
+
+  evicted.o.log = logReplying();
+  status = { done: 128, total: 600 };
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 1_200 * S, e), INSTALL_WAKE_MS);
+  assert.equal(t.data.has("service-install-retry"), false, "past the failure: cleared and persisted");
+
+  evicted.o.log = logReplying(503);
+  status = { done: 192, total: 600 };
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 1_300 * S, e), INSTALL_WAKE_MS, "a new failure starts from the first retry");
+  status = null;
+  evicted.o.log = logReplying();
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 1_400 * S, e) / S, 30, "finished: back to the poll");
+  assert.equal(t.data.has("service-install-retry"), false, "finished: cleared");
+  mock.restoreAll();
+});
+
+test("a healthy install never touches back-off storage", async (ctx) => {
+  mock.method(console, "info", () => {});
+  const t = object(); t.o.log = logReplying();
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  let done = 0;
+  e.installStatus = () => done < 300 ? { done, total: 300 } : null;
+  for (let i = 0; i < 6; i++) { done += 64; e.arm(["get_object"]); await syncAt(t, at + i * 100 * S, e); }
+  assert.equal(t.data.has("service-install-retry"), false);
   mock.restoreAll();
 });
 
